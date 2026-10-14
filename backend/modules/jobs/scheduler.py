@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from core.base import JobStatus
+from core.base import JobStatus, AlertType, AlertSeverity
 from core.registry import registry
 from core.order_production import prepare_job_write, reconcile_job_write
 from modules.printers.models import Printer
@@ -85,11 +85,28 @@ class SchedulerResult:
         return self.total_duration / self.scheduled_count
 
 
+def _printer_authority(org_id, shared, active):
+    """Decode database permission flags without permissive ORM coercion."""
+    def flag(value, nullable=False):
+        if value is None and nullable: return False
+        if type(value) is bool: return value
+        if type(value) is int and value in (0, 1): return bool(value)
+        return None
+    enabled = flag(active)
+    sharing = flag(shared, True)
+    if enabled is not True or sharing is None:
+        return None
+    if org_id is not None and (type(org_id) is not int or org_id <= 0):
+        return None
+    return {'org_id': org_id, 'shared': sharing, 'stored_shared': shared}
+
+
 class PrinterState:
     """Tracks the current state of a printer during scheduling."""
     
-    def __init__(self, printer: Printer):
+    def __init__(self, printer: Printer, authority=None):
         self.printer = printer
+        self.authority = authority or _printer_authority(printer.org_id, printer.shared, printer.is_active)
         self.id = printer.id
         self.name = printer.name
         self.colors = [c.lower() for c in printer.loaded_colors] if printer.loaded_colors else []
@@ -317,6 +334,44 @@ class Scheduler:
         reconcile_job_write(db, parents)
         return reset_count
 
+    @staticmethod
+    def _finish_run(db: Session, result: SchedulerResult, total_jobs: int, skipped):
+        from modules.notifications.alert_dispatcher import lock_queue_alert, stage_alert, deliver_staged_alert
+        plans = []
+        messages = {
+            "unknown_quantity": "Set the job quantity before scheduling. The job remains queued.",
+            "no_fit": "No compatible printer has capacity within the scheduling horizon. Check job requirements and printer availability.",
+            "no_active_printers": "No active printers are available. Check which printers are enabled; the job remains queued.",
+            "policy_unavailable": "The Education scheduling policy is unavailable. Check server diagnostics before scheduling.",
+            "policy_context_unavailable": "The Education approval context could not be validated. Review the submission before scheduling.",
+            "policy_denied": "The current Education policy does not authorize scheduling. Review the submission approval.",
+            "compatibility_denied": "The approved printer no longer meets the submission requirements. Review compatibility and approval.",
+            "revision_changed": "The approval changed during scheduling. Review its current state before scheduling again.",
+            "current_state_changed": "The job changed during scheduling. Review its current state before scheduling again.",
+        }
+        for job_id, reason in sorted(skipped, key=lambda item: item[0]):
+            if not lock_queue_alert(db, job_id, AlertType.QUEUE_SKIPPED):
+                continue
+            row = db.execute(text("SELECT item_name,charged_to_user_id,submitted_by FROM jobs "
+                "WHERE id=:id AND status='pending' AND hold IS FALSE"), {"id": job_id}).mappings().first()
+            if not row:
+                continue
+            creator = row["charged_to_user_id"] or row["submitted_by"]
+            if creator is None:
+                continue
+            plans.append(stage_alert(db, AlertType.QUEUE_SKIPPED, AlertSeverity.WARNING,
+                f"Job could not be scheduled: {row['item_name'] or 'Untitled'}",
+                messages[reason],
+                job_id=job_id, metadata={"reason": reason}, target_user_ids=[creator]))
+        db.add(SchedulerRun(total_jobs=total_jobs, scheduled_count=result.scheduled_count,
+            skipped_count=result.skipped_count, setup_blocks=result.setup_blocks,
+            avg_match_score=result.avg_match_score, avg_job_duration=result.avg_duration,
+            notes="; ".join(result.errors[:5]) if result.errors else None))
+        db.commit()
+        for plan in plans:
+            deliver_staged_alert(db, plan)
+        return result
+
     def run(self, db: Session, start_date: Optional[datetime] = None) -> SchedulerResult:
         """
         Run the scheduler on all pending jobs.
@@ -349,18 +404,27 @@ class Scheduler:
         total_slots = self.config.horizon_days * 24 * (60 // self.slot_minutes)
 
         # Load printers
-        printers = db.query(Printer).filter(Printer.is_active.is_(True)).all()
+        raw_authorities = {
+            row.id: _printer_authority(row.org_id, row.shared, row.is_active)
+            for row in db.execute(text('SELECT id,org_id,shared,is_active FROM printers'))
+        }
+        claimed_printers = set(db.execute(text('SELECT printer_id FROM printer_dispatch_claims')).scalars())
+        printers = [p for p in db.query(Printer).filter(Printer.is_active.is_(True)).all()
+                    if raw_authorities.get(p.id) is not None and p.id not in claimed_printers]
         if not printers:
             # Stale cleanup may have made an atomic Education lifecycle
             # correction even when there is no printer available for new work.
-            db.commit()
             result.success = False
             result.errors.append("No active printers found")
-            return result
+            eligible = list(db.execute(text("SELECT id FROM jobs WHERE status='pending' AND hold IS FALSE "
+                "AND (charged_to_user_id IS NOT NULL OR submitted_by IS NOT NULL) "
+                "AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id)")).scalars())
+            result.skipped_count = len(eligible)
+            return self._finish_run(db, result, len(eligible), [(jid, "no_active_printers") for jid in eligible])
         
         # Initialize printer states
         printer_states: Dict[int, PrinterState] = {
-            p.id: PrinterState(p) for p in printers
+            p.id: PrinterState(p, raw_authorities[p.id]) for p in printers
         }
         
         # Track slot usage: {(printer_id, slot_index): job_id or "SETUP"}
@@ -434,11 +498,14 @@ class Scheduler:
                     job_model_requirements[row[0]] = row[1]
                     seen.add(row[0])
 
+        # Record outcomes only for jobs ultimately left pending and not held.
+        skipped = []
         # Schedule each job
         education_policy = registry.get_provider("EducationPolicyProvider")
         for job in pending_jobs:
             if job.effective_duration is None:
                 result.skipped_count += 1
+                skipped.append((job.id, "unknown_quantity"))
                 result.errors.append(f'Could not schedule job {job.id}: quantity is unknown')
                 continue
             education_context = None
@@ -446,6 +513,7 @@ class Scheduler:
             if self._is_education_job(db, job.id):
                 if education_policy is None:
                     result.skipped_count += 1
+                    skipped.append((job.id, "policy_unavailable"))
                     result.errors.append(
                         f"Could not schedule Education job {job.id}: policy unavailable"
                     )
@@ -453,6 +521,7 @@ class Scheduler:
                 education_context = education_policy.scheduler_context(db, job_id=job.id)
                 if not education_context:
                     result.skipped_count += 1
+                    skipped.append((job.id, "policy_context_unavailable"))
                     result.errors.append(
                         f"Could not schedule Education job {job.id}: policy context unavailable"
                     )
@@ -468,6 +537,7 @@ class Scheduler:
                     if changed:
                         self._mark_reconciled_job(job)
                     result.skipped_count += 1
+                    skipped.append((job.id, "policy_denied"))
                     result.errors.append(
                         f"Could not schedule Education job {job.id}: policy denied"
                     )
@@ -491,9 +561,20 @@ class Scheduler:
                     if changed:
                         self._mark_reconciled_job(job)
                     result.skipped_count += 1
+                    skipped.append((job.id, "compatibility_denied"))
                     result.errors.append(
                         f"Could not schedule Education job {job.id}: {reason}"
                     )
+                    continue
+
+            payload_snapshot = None
+            if education_context is None:
+                from core.scheduler_payload_authority import capture, assignment_guard
+                payload_snapshot = capture(db, job.id)
+                if payload_snapshot is None:
+                    result.skipped_count += 1
+                    skipped.append((job.id, "current_state_changed"))
+                    result.errors.append(f'Could not schedule job {job.id}: payload authority could not be verified')
                     continue
 
             best_fit = self._find_best_fit(
@@ -523,24 +604,38 @@ class Scheduler:
                     )
                     if not advanced:
                         result.skipped_count += 1
+                        skipped.append((job.id, "revision_changed"))
                         result.errors.append(
                             f"Could not schedule Education job {job.id}: revision changed"
                         )
                         continue
                 else:
-                    changed = db.execute(text("""
+                    payload_guard, payload_parameters = assignment_guard(payload_snapshot)
+                    changed = db.execute(text(f"""
                         UPDATE jobs SET status='scheduled',printer_id=:printer,
                             scheduled_start=:start,scheduled_end=:end,match_score=:score
                         WHERE id=:id AND status='pending' AND hold IS FALSE
                           AND quantity=:quantity
+                          AND {payload_guard}
+                          AND NOT EXISTS (SELECT 1 FROM printer_dispatch_claims dc WHERE dc.printer_id=:printer)
+                          AND (charged_to_org_id=:tenant OR (charged_to_org_id IS NULL AND CAST(:tenant AS INTEGER) IS NULL))
+                          AND EXISTS (SELECT 1 FROM printers p WHERE p.id=:printer
+                            AND p.is_active=:enabled
+                            AND (p.org_id=:owner OR (p.org_id IS NULL AND CAST(:owner AS INTEGER) IS NULL))
+                            AND (p.shared=:sharing OR (p.shared IS NULL AND CAST(:sharing AS BOOLEAN) IS NULL))
+                            AND (p.org_id IS NULL OR p.org_id=jobs.charged_to_org_id OR p.shared=:enabled))
                           AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id)
                         RETURNING id
                     """), {'printer':best_fit['printer_id'],'start':best_fit['start_time'],
                             'end':best_fit['end_time'],'score':best_fit['match_score'],
-                            'id':job.id,'quantity':job.quantity}).first()
+                            **payload_parameters, 'id':job.id,'quantity':job.quantity,
+                            'tenant':job.charged_to_org_id, 'enabled':True,
+                            'owner':printer_states[best_fit['printer_id']].authority['org_id'],
+                            'sharing':printer_states[best_fit['printer_id']].authority['stored_shared']}).first()
                     if changed is None:
                         db.expire(job)
                         result.skipped_count += 1
+                        skipped.append((job.id, "current_state_changed"))
                         result.errors.append(f'Could not schedule job {job.id}: current state changed')
                         continue
                     db.expire(job)
@@ -574,6 +669,7 @@ class Scheduler:
                 ))
             else:
                 result.skipped_count += 1
+                skipped.append((job.id, "no_fit"))
                 req = job_model_requirements.get(job.model_id)
                 if req:
                     result.errors.append(f"Could not schedule job {job.id} ({job.item_name}): requires {req} printer, none available")
@@ -582,23 +678,8 @@ class Scheduler:
         
         # Reconcile in the same transaction as all generic state writes.
         reconcile_job_write(db, production_orders)
-        db.commit()
-        
-        # Log the run
-        run_log = SchedulerRun(
-            total_jobs=len(pending_jobs),
-            scheduled_count=result.scheduled_count,
-            skipped_count=result.skipped_count,
-            setup_blocks=result.setup_blocks,
-            avg_match_score=result.avg_match_score,
-            avg_job_duration=result.avg_duration,
-            notes="; ".join(result.errors[:5]) if result.errors else None
-        )
-        db.add(run_log)
-        db.commit()
-        
-        return result
-    
+        return self._finish_run(db, result, len(pending_jobs), skipped)
+
     def _find_best_fit(
         self,
         job: Job,
@@ -627,7 +708,11 @@ class Scheduler:
         required_tags = job.required_tags or []
         duration_slots = max(1, int(job.effective_duration * (60 / self.slot_minutes)))
 
+        from core.dispatch_identity import ownership_refusal
         for printer_id, state in printer_states.items():
+            if state.authority is None or ownership_refusal(
+                    {'charged_to_org_id': job.charged_to_org_id}, state.authority):
+                continue
             if required_printer_id is not None and printer_id != required_printer_id:
                 continue
 

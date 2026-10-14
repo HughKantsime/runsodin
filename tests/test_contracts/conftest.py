@@ -19,3 +19,15 @@ if str(_BACKEND) not in sys.path:
 # real tokens with this — it's only consumed at import time. Using the
 # same value across tests keeps cached module state consistent.
 os.environ.setdefault("JWT_SECRET_KEY", "test-key-for-contract-tests-only")
+
+
+import pytest
+
+@pytest.fixture(scope="session", autouse=True)
+def _clear_rate_limits():
+    """Contract tests own their state and must never discover/restart a live server.
+
+    Override the live integration suite's fixture only within this subtree.
+    Individual owned HTTP fixtures reset their own limiter when necessary.
+    """
+    yield

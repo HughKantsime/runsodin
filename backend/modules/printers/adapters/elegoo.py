@@ -158,6 +158,8 @@ class ElegooPrinter:
         self._connected = False
         self._latest_status = ElegooStatus()
         self._status_lock = threading.Lock()
+        self._transport_lock = threading.RLock()
+        self._connection_ready = threading.Event()
         self._on_status_callback: Optional[Callable] = None
 
     @staticmethod
@@ -220,70 +222,118 @@ class ElegooPrinter:
             log.error("websocket-client not installed. Run: pip install websocket-client")
             return False
 
+        ws = None
         try:
-            self._ws = websocket.WebSocketApp(
+            ws = websocket.WebSocketApp(
                 self.ws_url,
                 on_message=self._on_message,
                 on_error=self._on_error,
                 on_close=self._on_close,
                 on_open=self._on_open,
             )
-            # Run in background thread
-            self._ws_thread = threading.Thread(
-                target=self._ws.run_forever,
-                kwargs={"ping_interval": 30, "ping_timeout": 10},
-                daemon=True,
-            )
-            self._ws_thread.start()
-
-            # Wait for connection (up to 5 seconds)
-            for _ in range(50):
-                if self._connected:
-                    return True
-                time.sleep(0.1)
-
-            log.warning(f"SDCP connection timeout to {self.host}")
+            ready = threading.Event()
+            with self._transport_lock:
+                old_ws = self._ws
+                self._connection_ready.set()
+                self._ws = ws
+                self._connected = False
+                self._connection_ready = ready
+            if old_ws is not None:
+                try:
+                    old_ws.close()
+                except Exception:
+                    log.warning("Retired SDCP socket close failed")
+            thread = threading.Thread(target=self._run_socket, args=(ws,), daemon=True)
+            with self._transport_lock:
+                if self._ws is not ws:
+                    return False
+                self._ws_thread = thread
+                thread.start()
+            ready.wait(5)
+            with self._transport_lock:
+                connected = self._ws is ws and self._connected
+            if connected:
+                return True
+            self._retire_socket(ws)
+            log.warning("SDCP connection did not become ready")
+            return False
+        except Exception:
+            if ws is not None:
+                self._retire_socket(ws)
+            log.warning("SDCP connection failed")
             return False
 
-        except Exception as e:
-            log.warning(f"SDCP connect failed to {self.host}: {e}")
-            return False
+    def _run_socket(self, ws):
+        try:
+            with self._transport_lock:
+                if self._ws is not ws:
+                    return
+            ws.run_forever(ping_interval=30, ping_timeout=10)
+        finally:
+            try:
+                ws.close()
+            except Exception:
+                log.warning("SDCP runner socket close failed")
+
+    def _retire_socket(self, expected=None):
+        with self._transport_lock:
+            if expected is not None and self._ws is not expected:
+                return
+            ws = self._ws
+            self._ws = None
+            self._connected = False
+            self._connection_ready.set()
+        if ws is not None:
+            try:
+                ws.close()
+            except Exception:
+                log.warning("SDCP socket close failed")
 
     def disconnect(self):
-        """Close WebSocket connection."""
-        self._connected = False
-        if self._ws:
-            try:
-                self._ws.close()
-            except Exception as e:
-                log.debug(f"Error closing SDCP websocket: {e}")
+        """Retire before closing; late callbacks cannot affect a replacement."""
+        self._retire_socket()
 
     def _on_open(self, ws):
-        log.info(f"SDCP connected to {self.host}")
-        self._connected = True
+        with self._transport_lock:
+            current = ws is not None and ws is self._ws
+            if current:
+                self._connected = True
+                self._connection_ready.set()
+        if not current and ws is not None:
+            try:
+                ws.close()
+            except Exception:
+                log.warning("Retired SDCP socket close failed")
 
     def _on_close(self, ws, close_status_code, close_msg):
-        log.info(f"SDCP disconnected from {self.host}")
-        self._connected = False
+        with self._transport_lock:
+            if ws is None or ws is not self._ws:
+                return
+            self._connected = False
+            self._connection_ready.set()
 
     def _on_error(self, ws, error):
-        log.warning(f"SDCP error from {self.host}: {error}")
+        with self._transport_lock:
+            if ws is None or ws is not self._ws:
+                return
+            self._connected = False
+            self._connection_ready.set()
+        log.warning("SDCP transport error")
 
     def _on_message(self, ws, message):
-        """Parse incoming SDCP status messages."""
-        try:
-            data = json.loads(message)
-        except json.JSONDecodeError:
-            return
-
-        topic = data.get("Topic", "")
-
-        # Status update
-        if "sdcp/status/" in topic:
-            self._parse_status(data)
-        elif "sdcp/notice/" in topic:
-            # Notification (error, completion, etc.)
-            log.debug(f"SDCP notice from {self.host}: {data}")
+        """Only the current socket may parse or deliver a status observation."""
+        with self._transport_lock:
+            if ws is None or ws is not self._ws:
+                return
+            try:
+                data = json.loads(message)
+            except json.JSONDecodeError:
+                return
+            topic = data.get("Topic", "")
+            if "sdcp/status/" in topic:
+                self._parse_status(data)
+            elif "sdcp/notice/" in topic:
+                log.debug("SDCP notice received")
 
     def _parse_status(self, data: Dict):
         """Parse sdcp/status message into ElegooStatus."""
@@ -354,7 +404,7 @@ class ElegooPrinter:
                 if resp.status_code == 200:
                     return url
             except Exception as e:
-                log.debug(f"Camera probe failed for {url}: {e}")
+                log.debug("Camera probe failed")
                 continue
         return None
 

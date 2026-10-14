@@ -27,10 +27,10 @@ export interface AdminLogEntry {
 }
 
 export interface RetentionConfig {
-  telemetry_days: number;
-  alert_days: number;
-  audit_log_days: number;
-  archive_days: number;
+  completed_jobs_days: number;
+  audit_logs_days: number;
+  timelapses_days: number;
+  alert_history_days: number;
   [key: string]: unknown;
 }
 
@@ -92,8 +92,9 @@ export const adminBundle = {
 };
 
 export const adminLogs = {
-  get: (source = 'backend', lines = 200, level: string | null = null, search: string | null = null): Promise<AdminLogEntry[]> => {
+  get: (source = 'backend', lines = 200, level: string | null = null, search: string | null = null, cursor: string | null = null): Promise<{ lines: string[]; source: string; next_cursor?: string | null; page_cursor?: string | null }> => {
     const params = new URLSearchParams({ source, lines: String(lines) })
+    if (cursor) params.set('cursor', cursor)
     if (level) params.set('level', level)
     if (search) params.set('search', search)
     return fetchAPI(`/admin/logs?${params}`)

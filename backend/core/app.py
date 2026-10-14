@@ -628,6 +628,16 @@ def _register_http_middleware(app: FastAPI) -> None:
 # App factory
 # ---------------------------------------------------------------------------
 
+def _mount_static_assets(app,static_dir):
+    from pathlib import Path
+    from core.branding_storage import branding_directory,BrandingAssets
+    directory=branding_directory(Path(static_dir).resolve()/'branding')
+    assets=BrandingAssets(directory)
+    app.state.branding_assets=assets
+    app.mount('/static/branding',assets,name='branding-assets')
+    app.mount('/static',StaticFiles(directory=static_dir),name='static')
+
+
 def create_app() -> FastAPI:
     """Create and fully configure the ODIN FastAPI application.
 
@@ -763,6 +773,7 @@ def create_app() -> FastAPI:
         yield
         broadcast_task.cancel()
         cleanup_task.cancel()
+        app.state.branding_assets.close()
 
     # -----------------------------------------------------------------------
     # FastAPI instance
@@ -778,6 +789,17 @@ def create_app() -> FastAPI:
         docs_url="/api/v1/docs",
         redoc_url="/api/v1/redoc",
     )
+
+    # Keep the advertised documentation entry points alongside versioned URLs.
+    from starlette.responses import RedirectResponse
+
+    @app.get("/api/docs", include_in_schema=False)
+    async def swagger_docs_alias(request: Request):
+        return RedirectResponse(request.scope.get("root_path", "") + "/api/v1/docs")
+
+    @app.get("/api/redoc", include_in_schema=False)
+    async def redoc_docs_alias(request: Request):
+        return RedirectResponse(request.scope.get("root_path", "") + "/api/v1/redoc")
 
     # v1.8.9: structured error envelope for agent-surface endpoints.
     # OdinError gets the machine-readable `{error: {code, detail, retriable}}`
@@ -893,11 +915,13 @@ def create_app() -> FastAPI:
     # Middleware (order matters: added in reverse call order for ASGI stack)
     _setup_middleware(app)
     _register_http_middleware(app)
+    from core.middleware.audit_actor import AuditActorMiddleware
+    app.add_middleware(AuditActorMiddleware)
 
     # Static files for branding assets
     static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
     os.makedirs(static_dir, exist_ok=True)
-    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+    _mount_static_assets(app,static_dir)
 
     # -----------------------------------------------------------------------
     # Health endpoint (registered before module routes to ensure priority)

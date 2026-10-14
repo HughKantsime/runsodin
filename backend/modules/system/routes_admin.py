@@ -39,35 +39,79 @@ _LOG_FILES = {
     "go2rtc": "/data/go2rtc.log",
     "timelapse": "/data/timelapse_capture.log",
     "reports": "/data/report_runner.log",
+    "supervisord": "/data/supervisord.log",
 }
+
+
+# Bound each returned line even when a process writes without newlines.
+_MAX_LOG_LINE_BYTES = 16384
 
 
 @router.get("/admin/logs", tags=["Admin"])
 def get_logs(
-    source: str = Query("backend", description="Log source: backend, mqtt, moonraker, prusalink, elegoo, vision, go2rtc, timelapse, reports"),
+    source: str = Query("backend", description="Configured application log source"),
     lines: int = Query(200, ge=1, le=5000),
     level: Optional[str] = Query(None, description="Filter by log level: DEBUG, INFO, WARNING, ERROR"),
     search: Optional[str] = Query(None, description="Text filter"),
+    cursor: Optional[str] = Query(None, max_length=128, description="Opaque older-page cursor returned by this endpoint"),
     user=Depends(require_superadmin()),
 ):
-    """Return the last N lines from a log file. Superadmin only — exposes server internals."""
+    """Return a bounded newest-first page selection, with lines in file order.
+
+    Default calls retain tail-N behavior. A cursor pins the snapshot and oldest
+    shown byte boundary so appends do not move subsequent older pages.
+    """
     log_path = _LOG_FILES.get(source)
     if not log_path or not os.path.isfile(log_path):
-        return {"lines": [], "source": source}
+        return {"lines": [], "source": source, "next_cursor": None, "page_cursor": None}
 
-    result = collections.deque(maxlen=lines)
     level_upper = level.upper() if level else None
+    result = collections.deque(maxlen=lines + 1)
+    with open(log_path, "rb") as log_file:
+        stat = os.fstat(log_file.fileno())
+        snapshot = boundary = stat.st_size
+        if cursor:
+            try:
+                parts = cursor.split(":")
+                if len(parts) != 4 or not all(part.isascii() and part.isdigit() for part in parts):
+                    raise ValueError()
+                device, inode, snapshot, boundary = map(int, parts)
+                if not 0 <= boundary <= snapshot:
+                    raise ValueError()
+            except (ValueError, OverflowError):
+                raise HTTPException(400, "Invalid log pagination cursor")
+            if (device, inode) != (stat.st_dev, stat.st_ino) or snapshot > stat.st_size:
+                raise HTTPException(409, "Log file changed. Refresh to load the latest logs.")
 
-    with open(log_path, "r", errors="replace") as f:
-        for line in f:
-            stripped = line.rstrip("\n")
+        while log_file.tell() < boundary:
+            line_start = log_file.tell()
+            chunk = log_file.readline(min(_MAX_LOG_LINE_BYTES, boundary - line_start))
+            if not chunk:
+                break
+            truncated = not chunk.endswith(b"\n") and log_file.tell() < boundary
+            # Discard the remainder in bounded chunks while preserving one entry
+            # and its byte boundary per physical line.
+            last = chunk
+            while not last.endswith(b"\n") and log_file.tell() < boundary:
+                last = log_file.readline(min(_MAX_LOG_LINE_BYTES, boundary - log_file.tell()))
+                if not last:
+                    break
+            stripped = chunk.rstrip(b"\r\n").decode("utf-8", errors="replace")
+            if truncated:
+                stripped += " [line truncated]"
             if level_upper and level_upper not in stripped.upper():
                 continue
             if search and search.lower() not in stripped.lower():
                 continue
-            result.append(stripped)
+            result.append((line_start, stripped))
 
-    return {"lines": sanitize_log_lines(list(result)), "source": source}
+        page = list(result)
+        has_older = len(page) > lines
+        if has_older:
+            page = page[-lines:]
+        next_cursor = f"{stat.st_dev}:{stat.st_ino}:{snapshot}:{page[0][0]}" if has_older else None
+    return {"lines": sanitize_log_lines([line for _, line in page]), "source": source, "next_cursor": next_cursor,
+            "page_cursor": f"{stat.st_dev}:{stat.st_ino}:{snapshot}:{boundary}"}
 
 
 @router.get("/admin/logs/stream", tags=["Admin"])
@@ -219,11 +263,20 @@ def download_support_bundle(user=Depends(require_superadmin()), db: Session = De
 
 @router.get("/search", tags=["Search"])
 def global_search(q: str = "", db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
-    """Search across models, jobs, spools, and printers."""
+    """Search tenant-visible resources within each category's read grants."""
+    from core.api_token_policy import token_scope_granted
+    from modules.orders.models import Order, Product
+    from sqlalchemy import false
+
+    scopes = current_user.get("_token_scopes", [])
+    scoped = current_user.get("_auth_kind") == "user_api_token" or bool(scopes)
+    def allowed(*grants):
+        return not scoped or any(token_scope_granted(scopes, grant) for grant in grants)
+    empty = {key: [] for key in ("models", "jobs", "spools", "printers", "orders", "products")}
     if not q or len(q) < 2:
-        return {"models": [], "jobs": [], "spools": [], "printers": []}
+        return empty
     if len(q) > 200:
-        return {"models": [], "jobs": [], "spools": [], "printers": []}
+        return empty
 
     org = get_org_scope(current_user)
     query = f"%{q.lower()}%"
@@ -231,11 +284,12 @@ def global_search(q: str = "", db: Session = Depends(get_db), current_user: dict
     mq = db.query(Model).filter((Model.name.ilike(query)) | (Model.notes.ilike(query)))
     if should_filter_org(current_user, org):
         mq = mq.filter((Model.org_id == org) | (Model.org_id == None))
-    models = mq.limit(5).all()
+    models = mq.filter(false() if not allowed("read:models") else True).limit(5).all()
 
     jq = db.query(Job).filter((Job.item_name.ilike(query)) | (Job.notes.ilike(query)))
     if should_filter_org(current_user, org):
         jq = jq.filter((Job.charged_to_org_id == org) | (Job.charged_to_org_id == None))
+    jq = jq.filter(false() if not allowed("agent:read", "agent:write", "read:jobs") else True)
     jobs = jq.order_by(Job.created_at.desc()).limit(5).all()
 
     sq = db.query(Spool).outerjoin(FilamentLibrary, Spool.filament_id == FilamentLibrary.id).filter(
@@ -248,14 +302,24 @@ def global_search(q: str = "", db: Session = Depends(get_db), current_user: dict
     )
     if should_filter_org(current_user, org):
         sq = sq.filter((Spool.org_id == org) | (Spool.org_id == None))
-    spools = sq.limit(5).all()
+    spools = sq.filter(false() if not allowed("agent:read", "agent:write", "read:spools") else True).limit(5).all()
 
     pq = db.query(Printer).filter(Printer.name.ilike(query))
     if should_filter_org(current_user, org):
         pq = pq.filter((Printer.org_id == org) | (Printer.org_id == None) | (Printer.shared == True))
-    printers = pq.limit(5).all()
+    printers = pq.filter(false() if not allowed("agent:read", "agent:write", "read:printers") else True).limit(5).all()
+
+    oq = db.query(Order).filter((Order.order_number.ilike(query)) | (Order.customer_name.ilike(query)))
+    cq = db.query(Product).filter((Product.name.ilike(query)) | (Product.sku.ilike(query)))
+    if should_filter_org(current_user, org):
+        oq = oq.filter((Order.org_id == org) | (Order.org_id == None))
+        cq = cq.filter((Product.org_id == org) | (Product.org_id == None))
+    orders = oq.filter(false() if not allowed("agent:read", "agent:write") else True).order_by(Order.created_at.desc()).limit(5).all()
+    products = cq.filter(false() if not allowed("read") else True).order_by(Product.name).limit(5).all()
 
     return {
+        "orders": [{"id": o.id, "name": o.order_number or f"Order #{o.id}", "type": "order", "status": o.status.value if o.status else None} for o in orders],
+        "products": [{"id": p.id, "name": p.name, "type": "product"} for p in products],
         "models": [{"id": m.id, "name": m.name, "type": "model"} for m in models],
         "jobs": [{"id": j.id, "name": j.item_name, "status": j.status.value if j.status else None, "type": "job"} for j in jobs],
         "spools": [{"id": s.id, "name": f"{s.filament.brand} {s.filament.name}" if s.filament else (s.vendor or f"Spool #{s.id}"), "qr_code": s.qr_code, "type": "spool"} for s in spools],

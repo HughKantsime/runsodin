@@ -80,7 +80,7 @@ class AMSSlot:
     filament_type: str = ""
     color: str = ""
     color_hex: str = ""
-    remaining_percent: int = 0
+    remaining_percent: Optional[int] = None
     rfid_tag: str = ""  # Bambu RFID tag_uid
     sub_brand: str = ""  # e.g., "PLA Galaxy", "PETG HF"
     empty: bool = True
@@ -103,6 +103,7 @@ class PrinterStatus:
     ams_slots: list = field(default_factory=list)
     error_message: str = ""
     raw_data: Dict = field(default_factory=dict)
+    mqtt_retained: Optional[bool] = None
     printer_type: str = ""  # e.g. "X1C", "BL-P001" — raw value from MQTT printer_type field
 
 
@@ -191,16 +192,20 @@ class BambuPrinter:
             return self._connected
             
         except Exception as e:
-            print(f"Connection error: {e}")
+            print("Printer connection could not be established")
             self._status.state = PrinterState.OFFLINE
             return False
     
     def disconnect(self):
         """Disconnect from printer."""
         if self._client:
-            self._client.loop_stop()
-            self._client.disconnect()
-            self._connected = False
+            try:
+                self._client.disconnect()
+            finally:
+                # Always stop/join the owned network loop, even if disconnect fails.
+                # Propagate cleanup uncertainty rather than report a clean sender.
+                self._client.loop_stop()
+                self._connected = False
     
     def get_status(self) -> PrinterStatus:
         """Get current printer status."""
@@ -488,16 +493,18 @@ class BambuPrinter:
         """MQTT message callback - parse printer status updates."""
         try:
             payload = json.loads(msg.payload.decode())
-            self._parse_status(payload)
+            retained = getattr(msg, "retain", None)
+            self._parse_status(payload, mqtt_retained=retained if type(retained) is bool else None)
         except json.JSONDecodeError:
             pass
         except Exception as e:
             print(f"Error parsing message: {e}")
     
-    def _parse_status(self, payload: Dict):
+    def _parse_status(self, payload: Dict, *, mqtt_retained=None):
         """Parse printer status from MQTT payload."""
         with self._lock:
             self._status.raw_data = payload
+            self._status.mqtt_retained = mqtt_retained if type(mqtt_retained) is bool else None
             
             # Get the print section if present
             print_data = payload.get("print", {})
@@ -558,24 +565,30 @@ class BambuPrinter:
         self._status.ams_slots = []
         
         ams_units = ams_data.get("ams", [])
-        slot_num = 1
+        from modules.printers.telemetry.bambu.ams_identity import ams_trays_by_slot
         
-        for unit in ams_units:
-            trays = unit.get("tray", [])
-            for tray in trays:
-                slot = AMSSlot(
-                    slot_number=slot_num,
-                    filament_type=tray.get("tray_type", ""),
-                    color=tray.get("tray_color", ""),
-                    color_hex=tray.get("tray_color", "")[:6] if tray.get("tray_color") else "",
-                    remaining_percent=int(tray.get("remain", 0)),
-                    empty=tray.get("tray_type", "") == "",
-                    rfid_tag=tray.get("tag_uid", ""),
-                    sub_brand=tray.get("tray_sub_brands", "")
-                )
-                self._status.ams_slots.append(slot)
-                slot_num += 1
-    
+        from modules.printers.telemetry.validators import coerce_int_or_raise
+
+        for slot_num, tray in ams_trays_by_slot(ams_units):
+            remaining = None
+            if tray.get("remain") is not None:
+                try:
+                    remaining = coerce_int_or_raise(tray["remain"])
+                except ValueError:
+                    # Unknown telemetry is not a measured empty spool.
+                    remaining = None
+            slot = AMSSlot(
+                slot_number=slot_num,
+                filament_type=tray.get("tray_type", ""),
+                color=tray.get("tray_color", ""),
+                color_hex=tray.get("tray_color", "")[:6] if tray.get("tray_color") else "",
+                remaining_percent=remaining,
+                empty=tray.get("tray_type", "") == "",
+                rfid_tag=tray.get("tag_uid", ""),
+                sub_brand=tray.get("tray_sub_brands", "")
+            )
+            self._status.ams_slots.append(slot)
+
     def _send_gcode(self, gcode: str) -> bool:
         """Send G-code command to printer."""
         if not self._connected:

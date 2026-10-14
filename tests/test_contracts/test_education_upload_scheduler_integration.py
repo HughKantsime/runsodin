@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import text
 
 from tests.test_contracts.test_education_review_workflow import review_db, _principal
-from tests.test_contracts.test_education_submission_upload import _sliced_3mf
+from tests.test_contracts.test_education_submission_upload import _sliced_3mf, _ample_disk
 
 
 def _upload_and_approve(db, tmp_path, machine):
@@ -26,11 +26,14 @@ def _upload_and_approve(db, tmp_path, machine):
                 settings['printer_model'] = machine
                 data = json.dumps(settings).encode()
             target.writestr(name, data)
-    result = process_sliced_3mf_submission(
-        db, source=io.BytesIO(output.getvalue()), original_filename='pilot.3mf',
-        operation_id=str(uuid.uuid4()), principal=_principal(1), cost_center_id=7,
-        storage_root=tmp_path / 'uploads',
-    )
+    # Functional upload/dispatch tests own their capacity facts; separate storage tests cover real guard boundaries.
+    with pytest.MonkeyPatch.context() as capacity:
+        _ample_disk(capacity)
+        result = process_sliced_3mf_submission(
+            db, source=io.BytesIO(output.getvalue()), original_filename='pilot.3mf',
+            operation_id=str(uuid.uuid4()), principal=_principal(1), cost_center_id=7,
+            storage_root=tmp_path / 'uploads',
+        )
     flags = db.execute(text('SELECT hold,is_locked FROM jobs WHERE id=:id'), {'id': result['job_id']}).one()
     assert tuple(flags) == (False, False)
     approved = approve_submission(db, submission_id=result['id'],

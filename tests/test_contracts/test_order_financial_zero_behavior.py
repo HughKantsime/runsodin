@@ -1,13 +1,13 @@
-"""Explicit zero completed estimates must not erase recorded fees or revenue."""
+"""Explicit zero estimates, fees and revenue remain known without inventing measured costs."""
 import pytest
 from sqlalchemy.orm import Session
 from tests.test_contracts.test_education_review_workflow import review_db
 from tests.test_contracts.test_product_bom_integrity import bom_client
 
-@pytest.mark.parametrize('revenue,job_cost,expected_cost,expected_profit',[
-    (30.0,0.0,7.0,23.0),(0.0,5.0,12.0,-12.0),(0.0,0.0,7.0,-7.0),
+@pytest.mark.parametrize('revenue,job_cost,expected_cost',[
+    (30.0,0.0,7.0),(0.0,5.0,12.0),(0.0,0.0,7.0),
 ])
-def test_explicit_zero_financial_values_preserve_known_fees_and_profit(bom_client,review_db,revenue,job_cost,expected_cost,expected_profit):
+def test_explicit_zero_financial_values_preserve_known_estimates_and_fees(bom_client,review_db,revenue,job_cost,expected_cost):
     from core.base import JobStatus
     from modules.jobs.models import Job
     response=bom_client.post('/orders',json={'order_number':'Synthetic zero-value finances','revenue':revenue,'platform_fees':2,'payment_fees':1,'shipping_cost':4,'items':[{'product_id':101,'quantity':1,'unit_price':revenue}]})
@@ -18,9 +18,10 @@ def test_explicit_zero_financial_values_preserve_known_fees_and_profit(bom_clien
     response=bom_client.get(f'/orders/{identifier}')
     assert response.status_code==200
     data=response.json()
-    # This exercises the existing completed-job-estimate formula, not actual-usage COGS.
-    assert data['actual_cost']==expected_cost
-    assert data['profit']==expected_profit
+    assert data['estimated_cost']==expected_cost
+    assert data['actual_cost'] is None
+    assert data['profit'] is None
+    assert data['margin_percent'] is None
     assert data['revenue']==revenue
     if revenue==0:assert data['margin_percent'] is None
 
@@ -34,5 +35,5 @@ def test_fee_only_zero_is_distinct_from_missing_cost_data(bom_client, recorded):
     assert response.status_code == 200, response.text
     result = bom_client.get(f"/orders/{response.json()['id']}").json()
     assert result['estimated_cost'] == (0 if recorded else None)
-    assert result['actual_cost'] == (0 if recorded else None)
-    assert result['profit'] == (10 if recorded else None)
+    assert result['actual_cost'] is None
+    assert result['profit'] is None

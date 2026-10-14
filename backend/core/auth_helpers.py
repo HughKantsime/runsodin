@@ -74,63 +74,47 @@ def _check_rate_limit(db: Session, ip: str) -> bool:
         return True  # fail closed: block login if we can't verify rate limit
 
 
-def _record_login_attempt(db: Session, ip: str, username: str, success: bool) -> None:
-    """Record attempt for rate limiting and audit.
-
-    The audit log entry (separate from login_attempts) is staged on the
-    same session so it commits atomically with the attempt row.
-    """
-    # Persist to login_attempts table
-    try:
-        db.execute(
-            text(
-                "INSERT INTO login_attempts (ip, username, attempted_at, success) "
-                "VALUES (:ip, :username, :attempted_at, :success)"
-            ),
-            {
-                "ip": ip,
-                "username": username,
-                "attempted_at": _time.time(),
-                "success": 1 if success else 0,
-            },
-        )
-        db.commit()
-    except Exception:
-        log.warning("Failed to persist login attempt", exc_info=True)
-        db.rollback()
-
-    # Lazy cleanup every hour — keep table bounded so rate-limit queries
-    # stay fast. Runs in a separate transaction so a cleanup failure
-    # doesn't mask the attempt record.
-    global _last_login_cleanup
-    now = _time.time()
-    if now - _last_login_cleanup > 3600:
-        _last_login_cleanup = now
-        try:
-            db.execute(
-                text("DELETE FROM login_attempts WHERE attempted_at < :cutoff"),
-                {"cutoff": now - _LOCKOUT_DURATION * 2},
-            )
-            db.commit()
-        except Exception:
-            log.debug("Login attempt cleanup failed (non-fatal)", exc_info=True)
-            db.rollback()
-
-    # Log to audit trail (staged on db — commits with the next db.commit()
-    # call from the route handler, or immediately if the caller is done).
+def _record_login_attempt(db: Session, ip: str, username: str, success: bool) -> bool:
+    """Confirm atomic attempt/audit persistence before login can continue."""
     try:
         from core.models import AuditLog
-        entry = AuditLog(
+        db.execute(
+            text("INSERT INTO login_attempts (ip, username, attempted_at, success) "
+                 "VALUES (:ip, :username, :attempted_at, :success)"),
+            {"ip": ip, "username": username, "attempted_at": _time.time(),
+             "success": 1 if success else 0},
+        )
+        db.add(AuditLog(
             action="login_success" if success else "login_failed",
             entity_type="user",
             details=f"{'Login' if success else 'Failed login'}: {username} from {ip}",
             ip_address=ip,
-        )
-        db.add(entry)
+        ))
         db.commit()
     except Exception:
-        log.warning("Failed to record login audit entry", exc_info=True)
-        db.rollback()
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        log.warning("Login accounting could not be confirmed")
+        return False
+
+    # Cleanup cannot invalidate an already confirmed security record.
+    global _last_login_cleanup
+    now = _time.time()
+    if now - _last_login_cleanup > 3600:
+        try:
+            db.execute(text("DELETE FROM login_attempts WHERE attempted_at < :cutoff"),
+                       {"cutoff": now - _LOCKOUT_DURATION * 2})
+            db.commit()
+            _last_login_cleanup = now
+        except Exception:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            log.debug("Login attempt cleanup failed")
+    return True
 
 
 def _is_locked_out(db: Session, username: str) -> bool:

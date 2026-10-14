@@ -2,6 +2,14 @@
   "entries": [
     {
       "classification": "dialect-neutral",
+      "line": 70,
+      "path": "backend/core/ams_source_inspection.py",
+      "pattern": "qmark-parameter",
+      "reason": "G-code header regular expression contains a qmark-like fragment; this bounded archive parser has no database operations or SQL.",
+      "source": "header = re.fullmatch(r'\\s*;\\s*filament_type\\s*=\\s*(.*?)\\s*', line)"
+    },
+    {
+      "classification": "dialect-neutral",
       "line": 623,
       "path": "backend/core/app.py",
       "pattern": "PRAGMA",
@@ -10,7 +18,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 115,
+      "line": 116,
       "path": "backend/core/database_config.py",
       "pattern": "check_same_thread",
       "reason": "SQLite engine branch; PostgreSQL engine creation does not receive SQLite connect args",
@@ -18,7 +26,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 42,
+      "line": 44,
       "path": "backend/core/db.py",
       "pattern": "PRAGMA",
       "reason": "SQLite connection event hooks guarded by the configured provider",
@@ -26,7 +34,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 43,
+      "line": 45,
       "path": "backend/core/db.py",
       "pattern": "PRAGMA",
       "reason": "SQLite connection event hooks guarded by the configured provider",
@@ -34,7 +42,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 44,
+      "line": 46,
       "path": "backend/core/db.py",
       "pattern": "PRAGMA",
       "reason": "SQLite connection event hooks guarded by the configured provider",
@@ -42,7 +50,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 50,
+      "line": 52,
       "path": "backend/core/db.py",
       "pattern": "PRAGMA",
       "reason": "SQLite connection event hooks guarded by the configured provider",
@@ -97,8 +105,144 @@
       "source": "connection.execute(\"PRAGMA busy_timeout=10000\")"
     },
     {
+      "classification": "sqlite-provider-only",
+      "line": 36,
+      "path": "backend/core/economic_source_creation.py",
+      "pattern": "PRAGMA",
+      "reason": "SQLite foreign-key checks and BEGIN IMMEDIATE are provider guarded; PostgreSQL fixed internal qmark templates translate through the caller-owned executor. Classification does not certify financial valuation.",
+      "source": "if driver.execute('PRAGMA foreign_keys').fetchone()[0]!=1:"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 46,
+      "path": "backend/core/economic_source_creation.py",
+      "pattern": "PRAGMA",
+      "reason": "SQLite foreign-key checks and BEGIN IMMEDIATE are provider guarded; PostgreSQL fixed internal qmark templates translate through the caller-owned executor. Classification does not certify financial valuation.",
+      "source": "if active and driver.execute('PRAGMA foreign_keys').fetchone()[0]!=1:"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 64,
+      "path": "backend/core/economic_source_creation.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite foreign-key checks and BEGIN IMMEDIATE are provider guarded; PostgreSQL fixed internal qmark templates translate through the caller-owned executor. Classification does not certify financial valuation.",
+      "source": "if _execute(executor,f'UPDATE {table} SET id=id WHERE id=?',(identifier,)).rowcount!=1:"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 71,
+      "path": "backend/core/economic_source_creation.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite foreign-key checks and BEGIN IMMEDIATE are provider guarded; PostgreSQL fixed internal qmark templates translate through the caller-owned executor. Classification does not certify financial valuation.",
+      "source": "initial=_one(executor,'SELECT order_item_id FROM jobs WHERE id=?',(job_id,))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 74,
+      "path": "backend/core/economic_source_creation.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite foreign-key checks and BEGIN IMMEDIATE are provider guarded; PostgreSQL fixed internal qmark templates translate through the caller-owned executor. Classification does not certify financial valuation.",
+      "source": "parent=_one(executor,'SELECT order_id FROM order_items WHERE id=?',(item_id,))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 78,
+      "path": "backend/core/economic_source_creation.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite foreign-key checks and BEGIN IMMEDIATE are provider guarded; PostgreSQL fixed internal qmark templates translate through the caller-owned executor. Classification does not certify financial valuation.",
+      "source": "row=_one(executor,'SELECT j.economic_uid,j.charged_to_org_id,j.order_item_id,i.economic_uid,i.order_id,o.economic_uid,o.org_id FROM jobs j JOIN order_items i ON i.id=j.order_item_id JOIN orders o ON o.id=i.order_id WHERE j.id=?',(job_id,))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 86,
+      "path": "backend/core/economic_source_creation.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite foreign-key checks and BEGIN IMMEDIATE are provider guarded; PostgreSQL fixed internal qmark templates translate through the caller-owned executor. Classification does not certify financial valuation.",
+      "source": "registry=_one(executor,'SELECT resource_kind,resource_id,owner_scope,owner_key FROM cost_identities WHERE identity_uid=?',(uid,))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 88,
+      "path": "backend/core/economic_source_creation.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite foreign-key checks and BEGIN IMMEDIATE are provider guarded; PostgreSQL fixed internal qmark templates translate through the caller-owned executor. Classification does not certify financial valuation.",
+      "source": "binding=_one(executor,'SELECT order_uid,item_uid,owner_scope,owner_key FROM cost_job_bindings WHERE job_uid=?',(job_uid,))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 107,
+      "path": "backend/core/economic_source_creation.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite foreign-key checks and BEGIN IMMEDIATE are provider guarded; PostgreSQL fixed internal qmark templates translate through the caller-owned executor. Classification does not certify financial valuation.",
+      "source": "_execute(executor,'INSERT INTO cost_identities(identity_uid,resource_kind,resource_id,owner_scope,owner_key) VALUES(?,?,?,?,?)',(uid,kind,identifier,scope,key))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 111,
+      "path": "backend/core/economic_source_creation.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite foreign-key checks and BEGIN IMMEDIATE are provider guarded; PostgreSQL fixed internal qmark templates translate through the caller-owned executor. Classification does not certify financial valuation.",
+      "source": "_execute(executor,'INSERT INTO cost_attempt_bindings(attempt_uid,job_uid,order_uid,item_uid,owner_scope,owner_key) VALUES(?,?,?,?,?,?)',(uid,job_uid,order_uid,item_uid,scope,key))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 113,
+      "path": "backend/core/economic_source_creation.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite foreign-key checks and BEGIN IMMEDIATE are provider guarded; PostgreSQL fixed internal qmark templates translate through the caller-owned executor. Classification does not certify financial valuation.",
+      "source": "_execute(executor,'INSERT INTO cost_source_lifetimes(birth_nonce,resource_kind,resource_id,state,identity_uid,owner_scope,owner_key,job_uid,order_uid,item_uid,attempt_uid) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(nonce,kind,identifier,state,uid,scop"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 115,
+      "path": "backend/core/economic_source_creation.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite foreign-key checks and BEGIN IMMEDIATE are provider guarded; PostgreSQL fixed internal qmark templates translate through the caller-owned executor. Classification does not certify financial valuation.",
+      "source": "if _execute(executor,f'UPDATE {table} SET economic_uid=? WHERE id=? AND economic_uid IS NULL',(uid,identifier)).rowcount!=1:"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 158,
+      "path": "backend/core/economic_source_creation.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite foreign-key checks and BEGIN IMMEDIATE are provider guarded; PostgreSQL fixed internal qmark templates translate through the caller-owned executor. Classification does not certify financial valuation.",
+      "source": "row=_one(executor,f'SELECT economic_birth_nonce,economic_uid FROM {table} WHERE id=?',(identifier,))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 160,
+      "path": "backend/core/economic_source_creation.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite foreign-key checks and BEGIN IMMEDIATE are provider guarded; PostgreSQL fixed internal qmark templates translate through the caller-owned executor. Classification does not certify financial valuation.",
+      "source": "lifetime=_one(executor,'SELECT resource_kind,resource_id,state,identity_uid FROM cost_source_lifetimes WHERE birth_nonce=?',(row[0],))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 83,
+      "path": "backend/core/global_order_origin_schema.py",
+      "pattern": "PRAGMA",
+      "reason": "SQLite catalog, enforcement PRAGMAs and writer promotion are dialect guarded; PostgreSQL uses explicit native catalog and relation-lock validation.",
+      "source": "if driver.execute('PRAGMA ignore_check_constraints').fetchone()[0] != 0: raise MigrationError('Global provenance CHECK enforcement required')"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 84,
+      "path": "backend/core/global_order_origin_schema.py",
+      "pattern": "PRAGMA",
+      "reason": "SQLite catalog, enforcement PRAGMAs and writer promotion are dialect guarded; PostgreSQL uses explicit native catalog and relation-lock validation.",
+      "source": "if driver.execute('PRAGMA foreign_keys').fetchone()[0] != 1: raise MigrationError('Global provenance foreign keys required')"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 156,
+      "path": "backend/core/global_order_origin_schema.py",
+      "pattern": "PRAGMA",
+      "reason": "SQLite catalog, enforcement PRAGMAs and writer promotion are dialect guarded; PostgreSQL uses explicit native catalog and relation-lock validation.",
+      "source": "if c.exec_driver_sql('PRAGMA foreign_key_check('+table+')').first(): raise MigrationError('Global provenance foreign data differs')"
+    },
+    {
       "classification": "dialect-neutral",
-      "line": 19,
+      "line": 74,
       "path": "backend/core/order_production.py",
       "pattern": "qmark-parameter",
       "reason": "ORM named parameters and raw qmark operations use the shared DBAPI adapter; owned PostgreSQL production tests cover both boundaries",
@@ -106,11 +250,267 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 68,
+      "line": 123,
       "path": "backend/core/order_production.py",
       "pattern": "qmark-parameter",
       "reason": "ORM named parameters and raw qmark operations use the shared DBAPI adapter; owned PostgreSQL production tests cover both boundaries",
       "source": "return executor.cursor().execute(statement.replace(':id', '?'),"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 4,
+      "path": "backend/core/power_target_operation_schema.py",
+      "pattern": "sqlite3",
+      "reason": "SQLite driver transaction and enforcement/catalog checks are dialect guarded; PostgreSQL uses separately typed catalog, finite-time and bounded lock checks.",
+      "source": "import sqlite3"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 169,
+      "path": "backend/core/power_target_operation_schema.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite driver transaction and enforcement/catalog checks are dialect guarded; PostgreSQL uses separately typed catalog, finite-time and bounded lock checks.",
+      "source": "objects = rows(c,\"SELECT n.nspname,p.relkind,p.relpersistence FROM pg_class p JOIN pg_namespace n ON n.oid=p.relnamespace WHERE p.relname=?\",(TABLE,))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 176,
+      "path": "backend/core/power_target_operation_schema.py",
+      "pattern": "PRAGMA",
+      "reason": "SQLite driver transaction and enforcement/catalog checks are dialect guarded; PostgreSQL uses separately typed catalog, finite-time and bounded lock checks.",
+      "source": "if one(c,'PRAGMA ignore_check_constraints')[0]!=0 or one(c,'PRAGMA foreign_keys')[0]!=1: raise MigrationError('Power enforcement required')"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 178,
+      "path": "backend/core/power_target_operation_schema.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite driver transaction and enforcement/catalog checks are dialect guarded; PostgreSQL uses separately typed catalog, finite-time and bounded lock checks.",
+      "source": "if one(c,\"SELECT 1 FROM sqlite_temp_master WHERE name=? OR name LIKE 'ptop_%'\",(TABLE,)): raise MigrationError('Power relation shadowed')"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 179,
+      "path": "backend/core/power_target_operation_schema.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite driver transaction and enforcement/catalog checks are dialect guarded; PostgreSQL uses separately typed catalog, finite-time and bounded lock checks.",
+      "source": "if one(c,\"SELECT 1 FROM sqlite_master WHERE type='table' AND name=?\",(TABLE,)): execute(c,'UPDATE '+TABLE+' SET revision=revision WHERE 0')"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 184,
+      "path": "backend/core/power_target_operation_schema.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite driver transaction and enforcement/catalog checks are dialect guarded; PostgreSQL uses separately typed catalog, finite-time and bounded lock checks.",
+      "source": "return bool(one(c,\"SELECT 1 FROM pg_class WHERE relname=? OR relname LIKE 'ptop_%' UNION ALL SELECT 1 FROM pg_proc WHERE proname=? UNION ALL SELECT 1 FROM pg_trigger WHERE tgname IN ('power_target_operations_row_guard','power_target_operati"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 185,
+      "path": "backend/core/power_target_operation_schema.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite driver transaction and enforcement/catalog checks are dialect guarded; PostgreSQL uses separately typed catalog, finite-time and bounded lock checks.",
+      "source": "return bool(one(c,\"SELECT 1 FROM sqlite_master WHERE name=? OR name LIKE 'ptop_%'\",(TABLE,)))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 190,
+      "path": "backend/core/power_target_operation_schema.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite driver transaction and enforcement/catalog checks are dialect guarded; PostgreSQL uses separately typed catalog, finite-time and bounded lock checks.",
+      "source": "'columns':rows(c,\"SELECT a.attname,a.atttypid,a.atttypmod,a.attnotnull,pg_get_expr(d.adbin,d.adrelid),a.attidentity,a.attgenerated,a.attcollation FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum WHERE "
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 191,
+      "path": "backend/core/power_target_operation_schema.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite driver transaction and enforcement/catalog checks are dialect guarded; PostgreSQL uses separately typed catalog, finite-time and bounded lock checks.",
+      "source": "'dropped':rows(c,'SELECT attnum FROM pg_attribute WHERE attrelid=to_regclass(?) AND attnum>0 AND attisdropped',(table,)),"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 192,
+      "path": "backend/core/power_target_operation_schema.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite driver transaction and enforcement/catalog checks are dialect guarded; PostgreSQL uses separately typed catalog, finite-time and bounded lock checks.",
+      "source": "'constraints':rows(c,\"SELECT conname,contype,pg_get_constraintdef(oid),convalidated,condeferrable,condeferred FROM pg_constraint WHERE conrelid=to_regclass(?) ORDER BY conname\",(table,)),"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 193,
+      "path": "backend/core/power_target_operation_schema.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite driver transaction and enforcement/catalog checks are dialect guarded; PostgreSQL uses separately typed catalog, finite-time and bounded lock checks.",
+      "source": "'indexes':sorted(rows(c,\"SELECT ARRAY(SELECT a.attname::text FROM unnest(i.indkey) WITH ORDINALITY x(num,pos) JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=x.num ORDER BY pos), i.indisunique,i.indisprimary,i.indisvalid,i.indisre"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 194,
+      "path": "backend/core/power_target_operation_schema.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite driver transaction and enforcement/catalog checks are dialect guarded; PostgreSQL uses separately typed catalog, finite-time and bounded lock checks.",
+      "source": "'relation':rows(c,'SELECT relrowsecurity,relforcerowsecurity,relreplident,reloptions,relispartition FROM pg_class WHERE oid=to_regclass(?)',(table,)),"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 195,
+      "path": "backend/core/power_target_operation_schema.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite driver transaction and enforcement/catalog checks are dialect guarded; PostgreSQL uses separately typed catalog, finite-time and bounded lock checks.",
+      "source": "'inherits':rows(c,'SELECT inhparent FROM pg_inherits WHERE inhrelid=to_regclass(?)',(table,)),"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 196,
+      "path": "backend/core/power_target_operation_schema.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite driver transaction and enforcement/catalog checks are dialect guarded; PostgreSQL uses separately typed catalog, finite-time and bounded lock checks.",
+      "source": "'policies':rows(c,'SELECT polname FROM pg_policy WHERE polrelid=to_regclass(?)',(table,)),"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 202,
+      "path": "backend/core/power_target_operation_schema.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite driver transaction and enforcement/catalog checks are dialect guarded; PostgreSQL uses separately typed catalog, finite-time and bounded lock checks.",
+      "source": "stored=one(c,\"SELECT sql FROM sqlite_master WHERE type='table' AND name=?\",(TABLE,))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 204,
+      "path": "backend/core/power_target_operation_schema.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite driver transaction and enforcement/catalog checks are dialect guarded; PostgreSQL uses separately typed catalog, finite-time and bounded lock checks.",
+      "source": "extra = rows(c,\"SELECT name FROM sqlite_master WHERE name LIKE 'ptop_%' AND tbl_name<>?\",(TABLE,))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 207,
+      "path": "backend/core/power_target_operation_schema.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite driver transaction and enforcement/catalog checks are dialect guarded; PostgreSQL uses separately typed catalog, finite-time and bounded lock checks.",
+      "source": "actual={n:sql for n,sql in rows(c,\"SELECT name,sql FROM sqlite_master WHERE type='index' AND tbl_name=? AND sql IS NOT NULL\",(TABLE,))}"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 211,
+      "path": "backend/core/power_target_operation_schema.py",
+      "pattern": "PRAGMA",
+      "reason": "SQLite driver transaction and enforcement/catalog checks are dialect guarded; PostgreSQL uses separately typed catalog, finite-time and bounded lock checks.",
+      "source": "for row in rows(c,'PRAGMA index_list('+TABLE+')'):"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 213,
+      "path": "backend/core/power_target_operation_schema.py",
+      "pattern": "PRAGMA",
+      "reason": "SQLite driver transaction and enforcement/catalog checks are dialect guarded; PostgreSQL uses separately typed catalog, finite-time and bounded lock checks.",
+      "source": "auto.append((row[2],row[3],tuple(x[2] for x in rows(c,'PRAGMA index_info('+row[1]+')'))))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 215,
+      "path": "backend/core/power_target_operation_schema.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite driver transaction and enforcement/catalog checks are dialect guarded; PostgreSQL uses separately typed catalog, finite-time and bounded lock checks.",
+      "source": "expected=sqlite_triggers(); actual=dict(rows(c,\"SELECT name,sql FROM sqlite_master WHERE type='trigger' AND (tbl_name=? OR name LIKE 'ptop_%')\",(TABLE,)))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 224,
+      "path": "backend/core/power_target_operation_schema.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite driver transaction and enforcement/catalog checks are dialect guarded; PostgreSQL uses separately typed catalog, finite-time and bounded lock checks.",
+      "source": "index_names={r[0] for r in rows(c,'SELECT k.relname FROM pg_index i JOIN pg_class k ON k.oid=i.indexrelid WHERE i.indrelid=to_regclass(?)',('public.'+TABLE,))}"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 226,
+      "path": "backend/core/power_target_operation_schema.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite driver transaction and enforcement/catalog checks are dialect guarded; PostgreSQL uses separately typed catalog, finite-time and bounded lock checks.",
+      "source": "functions=rows(c,\"SELECT p.oid,n.nspname,p.prosrc,p.prosecdef,l.lanname,p.pronargs,p.prorettype::regtype::text,p.proconfig,p.provolatile,p.proisstrict,p.proleakproof,p.proparallel,p.prokind,p.proargdefaults,p.proacl,p.pronargdefaults,p.prov"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 231,
+      "path": "backend/core/power_target_operation_schema.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite driver transaction and enforcement/catalog checks are dialect guarded; PostgreSQL uses separately typed catalog, finite-time and bounded lock checks.",
+      "source": "triggers=rows(c,\"SELECT t.tgname,n.nspname,k.relname,t.tgfoid,t.tgtype,t.tgenabled,t.tgisinternal,t.tgconstraint,t.tgdeferrable,t.tginitdeferred,t.tgnargs,t.tgargs,t.tgqual::text,t.tgoldtable,t.tgnewtable FROM pg_trigger t JOIN pg_class k O"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 53,
+      "path": "backend/core/power_target_operations.py",
+      "pattern": "qmark-parameter",
+      "reason": "Closed operation templates use the shared power schema executor for provider-specific qmark binding and timestamps; this storage helper does not authorize device commands.",
+      "source": "row = schema.one(executor,'SELECT checksum,dialect FROM odin_schema_migrations WHERE migration_id=?',(schema.MIGRATION_ID,))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 79,
+      "path": "backend/core/power_target_operations.py",
+      "pattern": "qmark-parameter",
+      "reason": "Closed operation templates use the shared power schema executor for provider-specific qmark binding and timestamps; this storage helper does not authorize device commands.",
+      "source": "row = schema.one(executor,'SELECT '+','.join(names)+',state,outcome FROM '+schema.TABLE+' WHERE request_nonce=?',(facts.request_nonce,))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 88,
+      "path": "backend/core/power_target_operations.py",
+      "pattern": "qmark-parameter",
+      "reason": "Closed operation templates use the shared power schema executor for provider-specific qmark binding and timestamps; this storage helper does not authorize device commands.",
+      "source": "if facts.request_nonce is not None and schema.one(executor,'SELECT 1 FROM '+schema.TABLE+' WHERE request_nonce=?',(facts.request_nonce,)):"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 109,
+      "path": "backend/core/power_target_operations.py",
+      "pattern": "qmark-parameter",
+      "reason": "Closed operation templates use the shared power schema executor for provider-specific qmark binding and timestamps; this storage helper does not authorize device commands.",
+      "source": "assignments = ['state=?','revision=revision+1','changed_at=?']; values=[state,timestamp]"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 111,
+      "path": "backend/core/power_target_operations.py",
+      "pattern": "qmark-parameter",
+      "reason": "Closed operation templates use the shared power schema executor for provider-specific qmark binding and timestamps; this storage helper does not authorize device commands.",
+      "source": "if phase: assignments.append(phase+'=?'); values.append(timestamp)"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 112,
+      "path": "backend/core/power_target_operations.py",
+      "pattern": "qmark-parameter",
+      "reason": "Closed operation templates use the shared power schema executor for provider-specific qmark binding and timestamps; this storage helper does not authorize device commands.",
+      "source": "if state=='release_pending': assignments.append('outcome=?'); values.append(outcome)"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 113,
+      "path": "backend/core/power_target_operations.py",
+      "pattern": "qmark-parameter",
+      "reason": "Closed operation templates use the shared power schema executor for provider-specific qmark binding and timestamps; this storage helper does not authorize device commands.",
+      "source": "if state=='cleanup_uncertain': assignments.append('cleanup_reason=?'); values.append(reason)"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 114,
+      "path": "backend/core/power_target_operations.py",
+      "pattern": "qmark-parameter",
+      "reason": "Closed operation templates use the shared power schema executor for provider-specific qmark binding and timestamps; this storage helper does not authorize device commands.",
+      "source": "result = schema.execute(executor,'UPDATE '+schema.TABLE+' SET '+','.join(assignments)+' WHERE operation_nonce=? AND owner_nonce=? AND revision=? AND state=?',(*values,owner.operation_nonce,owner.owner_nonce,expected_revision,expected_state)"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 37,
+      "path": "backend/core/schema/mfa_enrollments.py",
+      "pattern": "PRAGMA",
+      "reason": "SQLite PRAGMA foreign-key inspection is dialect guarded; PostgreSQL validates the canonical users relation and validated constraints through native metadata, with strict adoption tests on both providers",
+      "source": "foreign_rows=connection.exec_driver_sql('PRAGMA foreign_key_list(mfa_enrollments)').fetchall()"
     },
     {
       "classification": "sqlite-provider-only",
@@ -122,7 +522,127 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 209,
+      "line": 2,
+      "path": "backend/core/schema/migrations/009_cost_foundation.py",
+      "pattern": "sqlite3",
+      "reason": "SQLite schema signature and statement-completeness checks are dialect guarded; PostgreSQL uses its own frozen schema contract and advisory transaction lock",
+      "source": "import hashlib,json,sqlite3"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 82,
+      "path": "backend/core/schema/migrations/011_dispatch_claims.py",
+      "pattern": "PRAGMA",
+      "reason": "Dialect-guarded table-scoped integrity validation rejects incompatible retained SQLite claim rows; PostgreSQL separately requires canonical checks validated in its catalog",
+      "source": "if connection.exec_driver_sql(\"PRAGMA integrity_check('printer_dispatch_claims')\").scalars().all()!=['ok']:"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 82,
+      "path": "backend/core/schema/migrations/012_dispatch_receipts.py",
+      "pattern": "PRAGMA",
+      "reason": "Dialect-guarded SQLite receipt integrity checks; PostgreSQL requires canonical validated constraints and timezone-aware contract",
+      "source": "if connection.exec_driver_sql(\"PRAGMA integrity_check('dispatch_attempt_receipts')\").scalars().all()!=['ok']:"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 86,
+      "path": "backend/core/schema/migrations/014_dispatch_senders.py",
+      "pattern": "PRAGMA",
+      "reason": "Explicit SQLite DDL transaction and retained-row integrity validation; PostgreSQL separately validates canonical constraints and timezone-aware storage",
+      "source": "if connection.exec_driver_sql(\"PRAGMA integrity_check('dispatch_sender_registrations')\").scalars().all()!=['ok']:"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 86,
+      "path": "backend/core/schema/migrations/015_timelapse_retirements.py",
+      "pattern": "PRAGMA",
+      "reason": "SQLite caller-owned BEGIN IMMEDIATE and PRAGMA retained-evidence checks are dialect guarded; PostgreSQL uses native validated constraint and parent-OID inspection with strict additive adoption",
+      "source": "if connection.exec_driver_sql(\"PRAGMA integrity_check('\"+table.name+\"')\").scalars().all() != ['ok']:"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 88,
+      "path": "backend/core/schema/migrations/015_timelapse_retirements.py",
+      "pattern": "PRAGMA",
+      "reason": "SQLite caller-owned BEGIN IMMEDIATE and PRAGMA retained-evidence checks are dialect guarded; PostgreSQL uses native validated constraint and parent-OID inspection with strict additive adoption",
+      "source": "if table is objects and connection.exec_driver_sql(\"PRAGMA foreign_key_check('timelapse_retirement_objects')\").fetchall():"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 69,
+      "path": "backend/core/schema/migrations/016_timelapse_ownership.py",
+      "pattern": "PRAGMA",
+      "reason": "SQLite additive DDL ownership and integrity PRAGMAs are dialect guarded; PostgreSQL uses strict native column and validated constraint inspection",
+      "source": "if connection.exec_driver_sql('PRAGMA integrity_check').scalars().all()!=['ok'] or connection.exec_driver_sql('PRAGMA foreign_key_check').first() is not None:"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 51,
+      "path": "backend/core/schema/migrations/017_timelapse_recovery.py",
+      "pattern": "PRAGMA",
+      "reason": "SQLite-only BEGIN IMMEDIATE and table integrity/foreign-key checks; PostgreSQL separately validates exact checked same-schema nondeferrable foreign authorities and update actions",
+      "source": "if connection.exec_driver_sql(\"PRAGMA integrity_check('\"+table.name+\"')\").scalars().all()!=['ok'] or connection.exec_driver_sql(\"PRAGMA foreign_key_check('\"+table.name+\"')\").first() is not None:"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 67,
+      "path": "backend/core/schema/migrations/019_timelapse_publications.py",
+      "pattern": "PRAGMA",
+      "reason": "Unregistered publication prototype: SQLite BEGIN IMMEDIATE, no-row writer promotion and retained-integrity PRAGMAs are guarded; PostgreSQL uses separate qualified native relation locks and metadata checks. Classification does not register the migration or certify restore/parity.",
+      "source": "elif connection.exec_driver_sql(\"PRAGMA integrity_check('\"+table.name+\"')\").scalars().all()!=['ok'] or connection.exec_driver_sql(\"PRAGMA foreign_key_check('\"+table.name+\"')\").first() is not None:raise MigrationError('Publication retained i"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 105,
+      "path": "backend/core/schema/migrations/020_ams_evidence.py",
+      "pattern": "PRAGMA",
+      "reason": "Explicit SQLite branch uses canonical DDL, integrity/FK PRAGMAs and writer promotion; PostgreSQL uses native catalog reflection and locked authority",
+      "source": "if (connection.exec_driver_sql(\"PRAGMA integrity_check('%s')\" % table.name).scalars().all()!=['ok']"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 106,
+      "path": "backend/core/schema/migrations/020_ams_evidence.py",
+      "pattern": "PRAGMA",
+      "reason": "Explicit SQLite branch uses canonical DDL, integrity/FK PRAGMAs and writer promotion; PostgreSQL uses native catalog reflection and locked authority",
+      "source": "or connection.exec_driver_sql(\"PRAGMA foreign_key_check('%s')\" % table.name).first() is not None):"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 92,
+      "path": "backend/core/schema/migrations/021_economic_identity.py",
+      "pattern": "PRAGMA",
+      "reason": "SQLite declarations, trigger catalog and foreign-key PRAGMAs are guarded by dialect; PostgreSQL validates native constraints and exact guard definitions.",
+      "source": "physical = [r for r in connection.exec_driver_sql(f'PRAGMA foreign_key_list({table})').all() if r[3]=='economic_uid']"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 109,
+      "path": "backend/core/schema/migrations/021_economic_identity.py",
+      "pattern": "PRAGMA",
+      "reason": "SQLite declarations, trigger catalog and foreign-key PRAGMAs are guarded by dialect; PostgreSQL validates native constraints and exact guard definitions.",
+      "source": "if connection.exec_driver_sql(f\"PRAGMA foreign_key_check('{table}')\").first():"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 141,
+      "path": "backend/core/schema/migrations/022_economic_source_lifetimes.py",
+      "pattern": "PRAGMA",
+      "reason": "SQLite lifetime DDL and retained enforcement checks are dialect guarded; PostgreSQL has its own source-owned constraints and guard validation.",
+      "source": "physical=[r for r in connection.exec_driver_sql(f'PRAGMA foreign_key_list({table})').all() if r[3]==name]"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 177,
+      "path": "backend/core/schema/migrations/022_economic_source_lifetimes.py",
+      "pattern": "PRAGMA",
+      "reason": "SQLite lifetime DDL and retained enforcement checks are dialect guarded; PostgreSQL has its own source-owned constraints and guard validation.",
+      "source": "if connection.exec_driver_sql('PRAGMA foreign_key_check').first():raise MigrationError('Economic birth foreign data differs')"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 241,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -130,7 +650,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 432,
+      "line": 464,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -138,7 +658,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 460,
+      "line": 490,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -146,7 +666,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 462,
+      "line": 492,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -154,7 +674,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 472,
+      "line": 502,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -162,7 +682,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 487,
+      "line": 517,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -170,11 +690,27 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 489,
+      "line": 519,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
       "source": "connection.exec_driver_sql(\"PRAGMA foreign_keys\").scalar_one()"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 23,
+      "path": "backend/core/spool_purchase_evidence.py",
+      "pattern": "PRAGMA",
+      "reason": "SQLite foreign-key enforcement and writer transaction checks are dialect guarded; PostgreSQL uses finite native locks in the caller transaction.",
+      "source": "if connection.connection.driver_connection.execute('PRAGMA foreign_keys').fetchone()[0]!=1:raise RuntimeError('Purchase foreign-key enforcement required')"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 91,
+      "path": "backend/core/spool_purchase_schema.py",
+      "pattern": "PRAGMA",
+      "reason": "SQLite catalog, shadowing and foreign-key checks are dialect guarded; PostgreSQL uses native schema and exact canonical guard validation.",
+      "source": "if driver.execute('PRAGMA foreign_keys').fetchone()[0]!=1:raise MigrationError('Purchase foreign keys required')"
     },
     {
       "classification": "dialect-neutral",
@@ -266,7 +802,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 38,
+      "line": 74,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -274,7 +810,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 43,
+      "line": 81,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -282,7 +818,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 47,
+      "line": 87,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -290,15 +826,15 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 51,
+      "line": 91,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
-      "source": "\"SELECT id,org_id FROM spools WHERE location_printer_id=? AND status='active' ORDER BY id\","
+      "source": "\"SELECT id,org_id FROM spools WHERE location_printer_id=? AND status='active' ORDER BY id\" + (' LIMIT 17' if prospective else ''),"
     },
     {
       "classification": "dialect-neutral",
-      "line": 54,
+      "line": 94,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -306,7 +842,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 65,
+      "line": 108,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -314,7 +850,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 79,
+      "line": 129,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -322,7 +858,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 87,
+      "line": 137,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -330,23 +866,23 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 103,
+      "line": 153,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
-      "source": "'SELECT id,org_id,filament_weight_grams,filaments_json FROM print_files WHERE job_id=? ORDER BY id',"
+      "source": "'SELECT id,org_id,filament_weight_grams,filaments_json FROM print_files WHERE job_id=? ORDER BY id' + (' LIMIT 2' if bounded else ''),"
     },
     {
       "classification": "dialect-neutral",
-      "line": 151,
+      "line": 201,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
-      "source": "current = execute(connection, 'SELECT id,org_id FROM spools WHERE id=?', (row[1],)).fetchone()"
+      "source": "current = execute(connection, 'SELECT id,org_id,price,initial_weight_g FROM spools WHERE id=?', (row[1],)).fetchone()"
     },
     {
       "classification": "dialect-neutral",
-      "line": 249,
+      "line": 300,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -354,7 +890,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 252,
+      "line": 303,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -362,7 +898,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 259,
+      "line": 310,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -370,7 +906,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 263,
+      "line": 314,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -378,7 +914,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 278,
+      "line": 329,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -386,7 +922,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 281,
+      "line": 332,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -394,7 +930,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 285,
+      "line": 336,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -402,7 +938,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 292,
+      "line": 343,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -466,7 +1002,23 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 33,
+      "line": 43,
+      "path": "backend/modules/archives/project_zip_manifest.py",
+      "pattern": "qmark-parameter",
+      "reason": "The bounded UTC timestamp regular expression contains a qmark-like fragment; this closed ZIP metadata parser performs no database operations or SQL.",
+      "source": "if not re.fullmatch(r'\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{3}(?:\\d{3})?)?Z',value):"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 120,
+      "path": "backend/modules/archives/timelapse_action_authority.py",
+      "pattern": "PRAGMA",
+      "reason": "SQLite foreign-key enforcement and BEGIN IMMEDIATE are dialect guarded; PostgreSQL action authority uses its own caller transaction and source locks.",
+      "source": "if c.exec_driver_sql('PRAGMA foreign_keys').scalar_one()!=1:_refuse('unknown_authority')"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 34,
       "path": "backend/modules/notifications/channels.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -474,7 +1026,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 103,
+      "line": 104,
       "path": "backend/modules/notifications/channels.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -482,7 +1034,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 282,
+      "line": 277,
       "path": "backend/modules/notifications/channels.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -514,7 +1066,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 175,
+      "line": 176,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -522,7 +1074,23 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 236,
+      "line": 179,
+      "path": "backend/modules/notifications/error_handling.py",
+      "pattern": "qmark-parameter",
+      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
+      "source": "statement = \"SELECT id,scheduled_job_id,job_name,started_at,filename FROM print_jobs WHERE printer_id=? AND id=? AND status='running'\""
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 214,
+      "path": "backend/modules/notifications/error_handling.py",
+      "pattern": "qmark-parameter",
+      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
+      "source": "saved = cur.execute(\"SELECT status FROM print_jobs WHERE id=?\", (print_job_id,)).fetchone()"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 246,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -530,7 +1098,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 248,
+      "line": 258,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -538,7 +1106,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 300,
+      "line": 316,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -546,7 +1114,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 317,
+      "line": 334,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -554,23 +1122,23 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 54,
+      "line": 340,
+      "path": "backend/modules/notifications/error_handling.py",
+      "pattern": "qmark-parameter",
+      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
+      "source": "\"SELECT id,filename,job_name FROM print_jobs WHERE printer_id=? AND id=? AND status='running'\","
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 143,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
-      "source": "f\"\"\"INSERT INTO print_jobs"
+      "source": "'SELECT printer_id,status FROM print_jobs WHERE id=?', (print_job_id,)"
     },
     {
       "classification": "dialect-neutral",
-      "line": 62,
-      "path": "backend/modules/notifications/job_events.py",
-      "pattern": "lastrowid",
-      "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
-      "source": "job_id = cur.lastrowid"
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 139,
+      "line": 149,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -578,7 +1146,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 148,
+      "line": 158,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -586,7 +1154,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 156,
+      "line": 166,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -594,7 +1162,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 163,
+      "line": 173,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -602,7 +1170,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 262,
+      "line": 286,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -610,7 +1178,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 270,
+      "line": 294,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -618,7 +1186,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 277,
+      "line": 301,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -626,7 +1194,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 283,
+      "line": 307,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -634,7 +1202,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 332,
+      "line": 360,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -642,7 +1210,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 335,
+      "line": 363,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -650,7 +1218,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 338,
+      "line": 366,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -658,7 +1226,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 350,
+      "line": 378,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -698,7 +1266,23 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 136,
+      "line": 125,
+      "path": "backend/modules/notifications/printer_health.py",
+      "pattern": "qmark-parameter",
+      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
+      "source": "\"SELECT api_type, api_host, camera_url FROM printers \""
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 155,
+      "path": "backend/modules/notifications/printer_health.py",
+      "pattern": "qmark-parameter",
+      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
+      "source": "\"UPDATE printers SET camera_url = ? WHERE id = ? \""
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 180,
       "path": "backend/modules/notifications/printer_health.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -706,7 +1290,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 158,
+      "line": 202,
       "path": "backend/modules/notifications/printer_health.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -714,7 +1298,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 178,
+      "line": 222,
       "path": "backend/modules/notifications/printer_health.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -730,7 +1314,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 128,
+      "line": 140,
       "path": "backend/modules/organizations/education_policy_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Static source-discovery regex contains SQL vocabulary and regex question marks; it executes no database statement",
@@ -738,31 +1322,151 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 92,
-      "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
+      "line": 26,
+      "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
-      "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
-      "source": "cur.execute(f\"\"\""
+      "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
+      "source": "slots = conn.execute('SELECT id,assigned_spool_id,printer_id,slot_number FROM filament_slots WHERE printer_id=? ORDER BY id', (printer_id,)).fetchall()"
     },
     {
       "classification": "dialect-neutral",
-      "line": 104,
-      "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
-      "pattern": "lastrowid",
-      "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
-      "source": "new_job_id = cur.lastrowid"
+      "line": 39,
+      "path": "backend/modules/printers/monitors/ams_inventory.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
+      "source": "located = conn.execute('SELECT id,assigned_spool_id,printer_id,slot_number FROM filament_slots WHERE printer_id=? AND slot_number=?', (spool[2], spool[5])).fetchone()"
     },
     {
       "classification": "dialect-neutral",
-      "line": 120,
-      "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
+      "line": 65,
+      "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
-      "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
-      "source": "cur.execute(\"\"\""
+      "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
+      "source": "conn.execute('UPDATE printers SET name=name WHERE id=?', (printer_id,))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 95,
+      "path": "backend/modules/printers/monitors/ams_inventory.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
+      "source": "conn.execute('UPDATE filament_slots SET assigned_spool_id=NULL,spool_confirmed=? WHERE id=?', (False, old_id))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 99,
+      "path": "backend/modules/printers/monitors/ams_inventory.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
+      "source": "conn.execute('UPDATE spools SET location_printer_id=NULL,location_slot=NULL WHERE id=?', (association[0],))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 105,
+      "path": "backend/modules/printers/monitors/ams_inventory.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
+      "source": "existing = conn.execute('SELECT id,assigned_spool_id FROM filament_slots WHERE printer_id=? AND slot_number=?', (printer_id, number)).fetchone()"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 108,
+      "path": "backend/modules/printers/monitors/ams_inventory.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
+      "source": "conn.execute('UPDATE filament_slots SET filament_type=?,color_hex=?,loaded_at=CURRENT_TIMESTAMP WHERE id=?', (filament_type, color, identifier))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 110,
+      "path": "backend/modules/printers/monitors/ams_inventory.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
+      "source": "conn.execute('UPDATE filament_slots SET color=NULL WHERE id=?', (identifier,))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 112,
+      "path": "backend/modules/printers/monitors/ams_inventory.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
+      "source": "conn.execute('INSERT INTO filament_slots(printer_id,slot_number,filament_type,color_hex,loaded_at) VALUES(?,?,?,?,CURRENT_TIMESTAMP)', (printer_id, number, filament_type, color))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 113,
+      "path": "backend/modules/printers/monitors/ams_inventory.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
+      "source": "identifier = conn.execute('SELECT id FROM filament_slots WHERE printer_id=? AND slot_number=?', (printer_id, number)).fetchone()[0]"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 117,
+      "path": "backend/modules/printers/monitors/ams_inventory.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
+      "source": "conn.execute('UPDATE filament_slots SET assigned_spool_id=?,spool_confirmed=? WHERE id=?', (spool_id, True, identifier))"
     },
     {
       "classification": "dialect-neutral",
       "line": 131,
+      "path": "backend/modules/printers/monitors/ams_inventory.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
+      "source": "conn.execute('UPDATE spools SET location_printer_id=?,location_slot=? WHERE id=?', (printer_id, number, spool_id))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 133,
+      "path": "backend/modules/printers/monitors/ams_inventory.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
+      "source": "conn.execute('UPDATE spools SET location_printer_id=?,location_slot=?,remaining_weight_g=? WHERE id=?', (printer_id, number, weight, spool_id))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 14,
+      "path": "backend/modules/printers/monitors/light_state.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned shared DBAPI qmark bindings; PostgreSQL timestamp cast and SQLite exact snapshot comparison protect concurrent light commands",
+      "source": "f'UPDATE printers SET lights_on=? WHERE id=? AND '"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 35,
+      "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
+      "pattern": "qmark-parameter",
+      "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
+      "source": "row=conn.execute('SELECT spool_snapshot FROM print_jobs WHERE id=?',(print_job_id,)).fetchone()"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 45,
+      "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
+      "pattern": "qmark-parameter",
+      "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
+      "source": "row=conn.execute('SELECT spool_snapshot FROM print_jobs WHERE id=? AND printer_id=?',(print_job_id,printer_id)).fetchone()"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 56,
+      "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
+      "pattern": "qmark-parameter",
+      "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
+      "source": "current=conn.execute('SELECT s.initial_weight_g,s.org_id FROM filament_slots fs JOIN spools s ON s.id=fs.assigned_spool_id WHERE fs.printer_id=? AND fs.slot_number=? AND s.id=?',(printer_id,slot,identifier)).fetchall()"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 64,
+      "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
+      "pattern": "qmark-parameter",
+      "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
+      "source": "changed=conn.execute(\"UPDATE print_jobs SET spool_snapshot=? WHERE id=? AND printer_id=? AND status='running' AND spool_snapshot=?\",(json.dumps(snapshot,sort_keys=True,separators=(',',':')),print_job_id,printer_id,row[0]))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 138,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -770,7 +1474,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 145,
+      "line": 152,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -778,7 +1482,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 147,
+      "line": 154,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -786,7 +1490,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 163,
+      "line": 170,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -794,7 +1498,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 236,
+      "line": 243,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -802,7 +1506,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 249,
+      "line": 256,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -810,7 +1514,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 262,
+      "line": 269,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -818,7 +1522,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 264,
+      "line": 271,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -826,31 +1530,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 283,
-      "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
-      "source": "cur.execute(f\"\"\""
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 296,
-      "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
-      "pattern": "lastrowid",
-      "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
-      "source": "new_job_id = cur.lastrowid"
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 302,
-      "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
-      "source": "spool_rows = cur.execute(\"\"\""
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 383,
+      "line": 360,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -858,7 +1538,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 393,
+      "line": 370,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -866,7 +1546,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 431,
+      "line": 412,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -874,7 +1554,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 454,
+      "line": 435,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -882,7 +1562,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 467,
+      "line": 448,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -890,7 +1570,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 474,
+      "line": 455,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -898,7 +1578,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 483,
+      "line": 464,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "lastrowid",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -906,7 +1586,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 484,
+      "line": 465,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -914,7 +1594,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 512,
+      "line": 495,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -922,7 +1602,15 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 159,
+      "line": 145,
+      "path": "backend/modules/printers/monitors/mqtt_printer.py",
+      "pattern": "qmark-parameter",
+      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
+      "source": "conn.execute(\"UPDATE printers SET gcode_state='OFFLINE',print_stage='Offline' WHERE id=?\", (self.printer_id,))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 179,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -930,7 +1618,15 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 230,
+      "line": 199,
+      "path": "backend/modules/printers/monitors/mqtt_printer.py",
+      "pattern": "qmark-parameter",
+      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
+      "source": "self._linked_job_id=conn.execute('SELECT scheduled_job_id FROM print_jobs WHERE id=?',(identifier,)).fetchone()[0]"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 266,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -938,7 +1634,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 276,
+      "line": 312,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -946,7 +1642,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 327,
+      "line": 372,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -954,7 +1650,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 348,
+      "line": 393,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -962,7 +1658,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 355,
+      "line": 400,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -970,7 +1666,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 366,
+      "line": 411,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -978,7 +1674,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 376,
+      "line": 421,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -986,7 +1682,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 474,
+      "line": 592,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -994,7 +1690,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 492,
+      "line": 625,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1002,7 +1698,23 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 507,
+      "line": 632,
+      "path": "backend/modules/printers/monitors/mqtt_printer.py",
+      "pattern": "qmark-parameter",
+      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
+      "source": "conn.execute(\"UPDATE printers SET nozzle_diameter=? WHERE id=?\","
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 638,
+      "path": "backend/modules/printers/monitors/mqtt_printer.py",
+      "pattern": "qmark-parameter",
+      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
+      "source": "conn.execute(f'UPDATE printers SET {column}=?,{stamp}=? WHERE id=?',"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 650,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1010,7 +1722,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 520,
+      "line": 663,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1018,7 +1730,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 548,
+      "line": 692,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1026,7 +1738,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 565,
+      "line": 709,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1034,71 +1746,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 597,
-      "path": "backend/modules/printers/monitors/mqtt_printer.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
-      "source": "\"SELECT id, filament_type, color_hex, assigned_spool_id FROM filament_slots WHERE printer_id=? AND slot_number=?\","
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 605,
-      "path": "backend/modules/printers/monitors/mqtt_printer.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
-      "source": "f\"UPDATE filament_slots SET filament_type=?, color=NULL, color_hex=NULL, loaded_at={sql.now()} WHERE id=?\","
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 610,
-      "path": "backend/modules/printers/monitors/mqtt_printer.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
-      "source": "f\"UPDATE filament_slots SET filament_type=?, color_hex=?, loaded_at={sql.now()} WHERE id=?\","
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 615,
-      "path": "backend/modules/printers/monitors/mqtt_printer.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
-      "source": "\"SELECT id FROM spools WHERE rfid_tag=?\", (rfid_tag,)"
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 619,
-      "path": "backend/modules/printers/monitors/mqtt_printer.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
-      "source": "\"UPDATE filament_slots SET assigned_spool_id=?, spool_confirmed=1 WHERE id=?\","
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 623,
-      "path": "backend/modules/printers/monitors/mqtt_printer.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
-      "source": "\"UPDATE spools SET location_printer_id=?, location_slot=?, remaining_weight_g=initial_weight_g*?/100.0 WHERE id=?\","
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 627,
-      "path": "backend/modules/printers/monitors/mqtt_printer.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
-      "source": "\"UPDATE spools SET location_printer_id=?, location_slot=? WHERE id=?\","
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 631,
-      "path": "backend/modules/printers/monitors/mqtt_printer.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
-      "source": "f\"INSERT INTO filament_slots (printer_id, slot_number, filament_type, color_hex, loaded_at) VALUES (?, ?, ?, ?, {sql.now()})\","
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 644,
+      "line": 743,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1106,7 +1754,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 684,
+      "line": 784,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1114,7 +1762,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 754,
+      "line": 853,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1122,7 +1770,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 813,
+      "line": 912,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1130,7 +1778,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 857,
+      "line": 961,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1138,7 +1786,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 901,
+      "line": 1005,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1146,7 +1794,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 16,
+      "line": 18,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "sqlite3",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -1154,7 +1802,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 171,
+      "line": 190,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -1162,7 +1810,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 174,
+      "line": 193,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -1170,7 +1818,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 191,
+      "line": 210,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -1178,7 +1826,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 191,
+      "line": 210,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "qmark-parameter",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -1186,7 +1834,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 328,
+      "line": 347,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "qmark-parameter",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -1194,7 +1842,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 466,
+      "line": 485,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -1202,7 +1850,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 117,
+      "line": 161,
       "path": "backend/modules/system/routes_admin.py",
       "pattern": "sqlite3",
       "reason": "SQLite integrity-check branch; PostgreSQL uses provider-specific health checks",
@@ -1210,7 +1858,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 182,
+      "line": 226,
       "path": "backend/modules/system/routes_admin.py",
       "pattern": "PRAGMA",
       "reason": "SQLite integrity-check branch; PostgreSQL uses provider-specific health checks",

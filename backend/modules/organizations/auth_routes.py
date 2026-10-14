@@ -17,6 +17,7 @@ router = APIRouter()
 
 from modules.organizations import (  # noqa: E402
     routes_auth,
+    routes_mfa_enrollment,
     routes_oidc,
     routes_sessions,
     routes_users,
@@ -24,6 +25,7 @@ from modules.organizations import (  # noqa: E402
 )
 
 router.include_router(routes_auth.router)
+router.include_router(routes_mfa_enrollment.router)
 router.include_router(routes_oidc.router)
 router.include_router(routes_sessions.router)
 router.include_router(routes_users.router)

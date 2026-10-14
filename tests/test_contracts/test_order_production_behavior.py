@@ -146,7 +146,12 @@ def test_no_work_order_remains_pending_and_does_not_consume_stock(production_ord
 
 def test_shared_order_keeps_shared_job_ownership(production_order,review_db):
     client,identity,order_id=production_order
-    review_db.execute(text('UPDATE orders SET org_id=NULL WHERE id=:id'),{'id':order_id});review_db.commit()
+    actor=dict(identity)
+    identity.update(role='admin',group_id=None)
+    created=client.post('/orders',json={'order_number':'Synthetic fresh shared','items':[{'product_id':101,'quantity':3,'unit_price':20}]})
+    assert created.status_code==200,created.text
+    order_id=created.json()['id']
+    identity.clear();identity.update(actor)
     response=client.post(f'/orders/{order_id}/schedule');assert response.status_code==200,response.text
     state=snapshot(review_db,order_id)
     assert {j['charged_to_org_id'] for j in state['jobs']}=={None}

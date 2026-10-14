@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Annotated, Optional
 
-from pydantic import BeforeValidator, Field
+from pydantic import BeforeValidator, Field, StrictInt
 
 from modules.printers.telemetry.base import _StrictBase
 from modules.printers.telemetry.bambu.enums import BambuGcodeState
@@ -65,7 +65,7 @@ class BambuAMSTray(_StrictBase):
     tray_weight: Optional[str] = None               # "1000" grams
     tray_diameter: Optional[str] = None             # "1.75" mm
     total_len: Optional[int] = None                 # e.g. 330000 (mm × 100? needs verification)
-    remain: Optional[int] = None                    # -1 = unknown, 0..100 = percent remaining
+    remain: IntLoose = None                    # -1 = unknown, 0..100 = percent remaining
 
     # slicing profile targets — stringified numbers
     nozzle_temp_min: Optional[str] = None
@@ -253,11 +253,11 @@ class BambuPrintSection(_StrictBase):
     design_id: Optional[str] = None
 
     # ---- speed preset ----
-    spd_lvl: Optional[int] = None                   # 1=silent, 2=standard, 3=sport, 4=ludicrous
-    spd_mag: Optional[int] = None                   # speed magnitude percent
+    spd_lvl: IntLoose = None                   # 1=silent, 2=standard, 3=sport, 4=ludicrous
+    spd_mag: IntLoose = None                   # speed magnitude percent
 
     # ---- error channel ----
-    print_error: Optional[int] = None               # 0 = no error; non-zero surfaces as ERROR
+    print_error: Optional[StrictInt] = None         # Preserve wire type; false/string must not become no-error zero.
     mc_print_error_code: Optional[str] = None
     hms: list[BambuHMSEvent] = Field(default_factory=list)
 
@@ -356,4 +356,3 @@ class BambuReport(_StrictBase):
                 "Bambu report has no recognized section (print|info|system). "
                 f"Keys present: {list(self.model_extra or {})}"
             )
-

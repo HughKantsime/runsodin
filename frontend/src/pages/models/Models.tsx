@@ -61,6 +61,13 @@ function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onV
 
           <div className="flex items-center gap-0.5 shrink-0">
             <button
+              onClick={() => onView3D(model)}
+              className="p-1.5 md:p-2 text-[var(--brand-muted)] hover:bg-[var(--brand-input-bg)] rounded-md transition-colors"
+              aria-label="View 3D preview"
+            >
+              <Package size={14} />
+            </button>
+            <button
               onClick={() => onToggleFavorite(model)}
               className={clsx("p-1.5 md:p-2 rounded-md transition-colors", model.is_favorite ? "text-yellow-400" : "text-[var(--brand-muted)] hover:text-yellow-400")}
               aria-label={model.is_favorite ? "Remove from favorites" : "Add to favorites"}
@@ -390,15 +397,21 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
     queryFn: () => models.getVariants(model.id),
     enabled: isOpen && !!model?.id
   })
+  const { data: payloadOptions, isLoading: loadingPayload, error: payloadError } = useQuery({
+    queryKey: ['model-schedule-options', model?.id],
+    queryFn: () => models.scheduleOptions(model.id),
+    enabled: isOpen && !!model?.id,
+    staleTime: 0,
+  })
   const [selectedPrinter, setSelectedPrinter] = useState(null)
-  const [scheduleOpts, setScheduleOpts] = useState({ priority: 3, quantity: 1, due_date: '', notes: '', plate_index: 0 })
+  const [scheduleOpts, setScheduleOpts] = useState({ priority: 3, quantity: 1, due_date: '', notes: '', plate_index: null })
 
   useEffect(() => {
     if (isOpen) {
       setSelectedPrinter(null)
-      setScheduleOpts({ priority: 3, quantity: 1, due_date: '', notes: '', plate_index: 0 })
+      setScheduleOpts({ priority: 3, quantity: 1, due_date: '', notes: '', plate_index: null })
     }
-  }, [isOpen])
+  }, [isOpen, model?.id])
 
   const activePrinters = printersData?.filter(p => p.is_active) || []
   const variants = variantsData?.variants || []
@@ -496,13 +509,13 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
 
         {/* Plate selector for multi-plate files */}
         {(() => {
-          const maxPlates = Math.max(...(variants.map(v => v.plate_count || 1)), 1)
-          if (maxPlates <= 1) return null
+          const plateIndices = payloadOptions?.plate_indices || []
+          if (plateIndices.length <= 1) return null
           return (
             <div className="mb-4">
               <label className="block text-xs text-[var(--brand-muted)] mb-1">Plate</label>
               <div className="flex flex-wrap gap-2">
-                {Array.from({ length: maxPlates }, (_, i) => (
+                {plateIndices.map(i => (
                   <button
                     key={i}
                     type="button"
@@ -552,9 +565,10 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
           )}
         </div>
 
+      {payloadError && <p role="alert" className="text-red-400 text-sm mb-3">Scheduling options could not be loaded: {payloadError.message}</p>}
       <div className="flex justify-end gap-3">
         <button onClick={onClose} disabled={isScheduling} className="px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md text-sm transition-colors">Cancel</button>
-        <button onClick={() => onConfirm(selectedPrinter, scheduleOpts)} disabled={isScheduling} className="px-4 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary-hover)] rounded-md text-sm transition-colors">
+        <button onClick={() => onConfirm(selectedPrinter, { ...scheduleOpts, quantity: Number(scheduleOpts.quantity), due_date: scheduleOpts.due_date ? scheduleOpts.due_date + 'T00:00:00Z' : null, notes: scheduleOpts.notes || null, print_file_id: payloadOptions?.print_file_id, payload_sha256: payloadOptions?.payload_sha256 })} disabled={isScheduling || loadingPayload || !!payloadError || !Number.isInteger(Number(scheduleOpts.quantity)) || Number(scheduleOpts.quantity) < 1} className="px-4 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary-hover)] rounded-md text-sm transition-colors">
           {isScheduling ? 'Scheduling...' : 'Create Job'}
         </button>
       </div>
@@ -639,7 +653,7 @@ export default function Models() {
     onError: (err) => toast.error('Delete model failed: ' + err.message),
   })
   const scheduleMutation = useMutation({
-    mutationFn: ({ modelId, printerId }) => models.schedule(modelId, printerId),
+    mutationFn: ({ modelId, printerId, options }) => models.schedule(modelId, printerId, options),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['jobs'] })
       setScheduleModel(null)
@@ -657,9 +671,9 @@ export default function Models() {
   const handleToggleFavorite = async (model) => {
     await updateModel.mutateAsync({ id: model.id, data: { is_favorite: !model.is_favorite } })
   }
-  const handleScheduleConfirm = (printerId) => {
+  const handleScheduleConfirm = (printerId, options) => {
     if (scheduleModel) {
-      scheduleMutation.mutate({ modelId: scheduleModel.id, printerId })
+      scheduleMutation.mutate({ modelId: scheduleModel.id, printerId, options })
     }
   }
 
@@ -669,6 +683,11 @@ export default function Models() {
   const categoryCounts = {}
   modelsData?.forEach(m => { if (m.category) categoryCounts[m.category] = (categoryCounts[m.category] || 0) + 1 })
   const favCount = modelsData?.filter(m => m.is_favorite).length || 0
+  const libraryStatsAvailable = !!modelsData?.length && modelsData.every(m => m.job_statistics != null)
+  const libraryHours = modelsData?.reduce((sum, m) => sum + (m.job_statistics?.actual_print_hours ?? 0), 0) ?? 0
+  const libraryUnknown = modelsData?.reduce((sum, m) => sum + (m.job_statistics?.unknown_timing_job_count ?? 0), 0) ?? 0
+  const mostPrinted = libraryStatsAvailable ? [...modelsData].filter(m => m.job_statistics.completed_job_count > 0)
+    .sort((a, b) => b.job_statistics.completed_job_count - a.job_statistics.completed_job_count || a.id - b.id)[0] : null
 
   // Filter by search query
   const filteredModels = modelsData?.filter(m => {
@@ -677,6 +696,13 @@ export default function Models() {
       value?.toLowerCase().includes(searchQuery.toLowerCase()))) return false
     return true
   })
+
+  const statisticsAvailable = filteredModels?.every(m => m.job_statistics != null) ?? false
+  const selectedStats = filteredModels?.reduce((sum, m) => ({
+    jobs: sum.jobs + (m.job_statistics?.completed_job_count ?? 0),
+    hours: sum.hours + (m.job_statistics?.actual_print_hours ?? 0),
+    unknown: sum.unknown + (m.job_statistics?.unknown_timing_job_count ?? 0),
+  }), { jobs: 0, hours: 0, unknown: 0 }) ?? { jobs: 0, hours: 0, unknown: 0 }
 
   return (
     <div className="p-4 md:p-6">
@@ -728,6 +754,22 @@ export default function Models() {
           <StatCard label="Favorites" value={modelsData.filter(m => m.is_favorite).length} icon={Star} color="amber" />
           <StatCard label="Categories" value={categories.length} color="green" />
           <StatCard label="Costed" value={modelsData.filter(m => m.estimated_cost).length} color="purple" />
+          <StatCard label="Total Print Hours" value={!libraryStatsAvailable ? 'Unavailable' : libraryUnknown && libraryHours === 0 ? 'Unknown' : `${libraryHours.toFixed(1)}h`} icon={Clock} color="blue" />
+          <StatCard label="Most Printed" value={!libraryStatsAvailable ? 'Unavailable' : mostPrinted ? <span className="block break-words text-sm" title={mostPrinted.name}>{mostPrinted.name}</span> : 'None'} subtitle={mostPrinted ? `${mostPrinted.job_statistics.completed_job_count} completed jobs` : undefined} icon={PrinterIcon} color="green" />
+        </div>
+      )}
+      {modelsData?.length > 0 && <p className="text-xs text-[var(--brand-muted)] mb-4">Totals for the current library view use measured time and completed generic jobs visible to you. Education jobs are excluded; most printed is ranked by completed job count.{libraryStatsAvailable && libraryUnknown > 0 ? ` Timing is unknown for ${libraryUnknown} completed jobs.` : ''}</p>}
+
+      {modelsData?.length > 0 && (
+        <div className="mb-6" aria-label="Selected model job statistics">
+          <p className="text-xs text-[var(--brand-muted)] mb-2">Generic visible jobs for selected models; Education jobs excluded.</p>
+          <div className="grid grid-cols-2 gap-2 md:gap-3">
+            <StatCard label="Completed jobs" value={statisticsAvailable ? selectedStats.jobs : 'Unavailable'} icon={PrinterIcon} color="green" />
+            <StatCard label="Actual print hours" value={!statisticsAvailable ? 'Unavailable' : selectedStats.unknown > 0 && selectedStats.hours === 0 ? 'Unknown' : `${selectedStats.hours.toFixed(1)}h`} icon={Clock} color="blue" />
+          </div>
+          {statisticsAvailable && selectedStats.unknown > 0 && (
+            <p className="text-xs text-[var(--brand-muted)] mt-2">Timing unknown for {selectedStats.unknown} completed {selectedStats.unknown === 1 ? 'job' : 'jobs'}; hours include measured time only.</p>
+          )}
         </div>
       )}
 

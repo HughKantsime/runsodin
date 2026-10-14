@@ -219,17 +219,16 @@ class BambuTelemetryAdapter:
         ts = _now_ts()
         try:
             report = BambuReport.model_validate_json(payload_bytes)
-        except Exception as exc:
-            excerpt = payload_bytes[:200].decode("utf-8", errors="replace")
+        except Exception:
             logger.warning(
-                "bambu adapter model validation failed: printer=%s err=%s excerpt=%r",
-                self._config.printer_id, exc, excerpt,
+                "bambu adapter model validation failed: printer=%s",
+                self._config.printer_id,
             )
             self._process_event(DegradedEvent(
                 printer_id=self._config.printer_id,
                 ts=ts,
-                reason=str(exc)[:200],
-                raw_excerpt=excerpt,
+                reason="Invalid Bambu telemetry payload",
+                raw_excerpt=None,
             ))
             return
 
@@ -245,6 +244,7 @@ class BambuTelemetryAdapter:
                 printer_id=self._config.printer_id,
                 ts=ts,
                 section=report.print,
+                mqtt_retained=(msg.retain if type(getattr(msg, "retain", None)) is bool else None),
             ))
         elif report.info is not None:
             self._process_event(BambuInfoEvent(

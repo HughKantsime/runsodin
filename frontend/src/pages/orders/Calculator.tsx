@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { models, pricingConfig } from '../../api'
 import {
+  type LucideIcon,
   Calculator,
   Package,
   Clock,
@@ -17,7 +18,7 @@ import {
   RefreshCw
 } from 'lucide-react'
 
-function InputField({ label, value, onChange, suffix, icon: Icon, step = "any", min = 0 }) {
+function InputField({ label, value, onChange, suffix, icon: Icon, step = "any", min = 0 }: { label: string; value: number; onChange: (value: number) => void; suffix?: string; icon?: LucideIcon; step?: string | number; min?: number }) {
   return (
     <div>
       <label className="block text-xs md:text-sm text-[var(--brand-muted)] mb-1">{label}</label>
@@ -37,7 +38,7 @@ function InputField({ label, value, onChange, suffix, icon: Icon, step = "any", 
   )
 }
 
-function CostSection({ title, icon: Icon, cost, children }) {
+function CostSection({ title, icon: Icon, cost, children }: { title: string; icon?: LucideIcon; cost: number; children: ReactNode }) {
   return (
     <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-3 md:p-4">
       <div className="flex items-center justify-between mb-3 md:mb-4">
@@ -52,8 +53,10 @@ function CostSection({ title, icon: Icon, cost, children }) {
   )
 }
 
-function PricingBreakdown({ costs, margin, quantity }) {
-  const subtotal = Object.values(costs).reduce((sum, c) => sum + c, 0)
+function PricingBreakdown({ costs, margin, quantity }: { costs: Record<'material' | 'labor' | 'electricity' | 'depreciation' | 'packaging' | 'failure' | 'overhead' | 'other' | 'failureRate', number>; margin: number; quantity: number }) {
+  const subtotal = costs.material + costs.labor + costs.electricity
+    + costs.depreciation + costs.packaging + costs.failure
+    + costs.overhead + costs.other
   const withMargin = subtotal * (1 + margin / 100)
   const perUnit = withMargin
   const total = perUnit * quantity
@@ -106,7 +109,7 @@ export default function CalculatorPage() {
   const queryClient = useQueryClient()
   
   // Fetch models for dropdown
-  const { data: modelsData } = useQuery({ queryKey: ['models'], queryFn: models.list })
+  const { data: modelsData } = useQuery({ queryKey: ['models'], queryFn: () => models.list() })
   
   // Fetch pricing config from backend
   const { data: savedConfig, isLoading: configLoading } = useQuery({

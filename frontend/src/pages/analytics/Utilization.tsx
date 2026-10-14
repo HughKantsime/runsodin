@@ -12,12 +12,12 @@ export default function Utilization() {
 
   const { data: statsData, isLoading } = useQuery({
     queryKey: ['stats', timeRange],
-    queryFn: () => stats.get(timeRange),
+    queryFn: () => stats.get(Number(timeRange)),
   })
 
   const { data: jobsData } = useQuery({
     queryKey: ['print-jobs-util', timeRange],
-    queryFn: () => printJobs.list({ limit: 500, days: timeRange }),
+    queryFn: () => printJobs.list({ limit: 500, days: Number(timeRange) }),
   })
 
   const printerStats = statsData?.printer_stats || []
@@ -33,16 +33,31 @@ export default function Utilization() {
   const fleetSuccessRate = (fleetJobs + fleetFailed) > 0
     ? ((fleetJobs / (fleetJobs + fleetFailed)) * 100).toFixed(1)
     : 100
+  const busiestPrinter = printerStats
+    .filter(p => typeof p.utilization_pct === 'number' && Number.isFinite(p.utilization_pct))
+    .reduce((best, p) => !best || p.utilization_pct > best.utilization_pct
+      || (p.utilization_pct === best.utilization_pct && p.id < best.id) ? p : best, null)
 
-  // Jobs per day for chart
-  const jobsByDay = {}
-  allJobs.filter(j => j.status === 'complete' || j.status === 'failed').forEach(j => {
-    const d = (j.completed_at || j.created_at || '').split('T')[0]
-    if (d) jobsByDay[d] = (jobsByDay[d] || 0) + 1
+  // Jobs per day use the retained terminal timestamp, normalized to UTC.
+  const completionStamp = (value: unknown): number | null => {
+    if (typeof value !== 'string' || !value) return null
+    const ending = /(?:Z|[+-]\d{2}:?\d{2})$/.test(value) ? value : value + 'Z'
+    const stamp = Date.parse(ending)
+    return Number.isFinite(stamp) ? stamp : null
+  }
+  const asOf = Date.now()
+  const cutoff = asOf - Number(timeRange) * 24 * 60 * 60 * 1000
+  const finishedJobs = allJobs.filter(j => j.status === 'completed' || j.status === 'failed')
+  const undatedFinished = finishedJobs.filter(j => completionStamp(j.ended_at) === null).length
+  const jobsByDay: Record<string, number> = {}
+  finishedJobs.forEach(j => {
+    const stamp = completionStamp(j.ended_at)
+    if (stamp === null || stamp < cutoff || stamp >= asOf) return
+    const d = new Date(stamp).toISOString().slice(0, 10)
+    jobsByDay[d] = (jobsByDay[d] || 0) + 1
   })
   const dailyData = Object.entries(jobsByDay)
     .sort(([a], [b]) => a.localeCompare(b))
-    .slice(-parseInt(timeRange))
     .map(([date, count]) => ({ date: date.slice(5), jobs: count }))
 
   // Utilization bar chart data
@@ -59,11 +74,15 @@ export default function Utilization() {
   ].filter(d => d.value > 0)
 
   const exportCSV = () => {
-    const rows = [['Printer', 'Jobs', 'Hours', 'Utilization %', 'Success Rate %', 'Failed', 'Avg Job (hrs)']]
+    const rows: (string | number)[][] = [['Printer', 'Jobs', 'Hours', 'Utilization %', 'Success Rate %', 'Failed', 'Avg Job (hrs)']]
     printerStats.forEach(p => {
       rows.push([p.name, p.completed_jobs, p.total_hours, p.utilization_pct, p.success_rate, p.failed_jobs, p.avg_job_hours])
     })
-    const csv = rows.map(r => r.join(',')).join('\n')
+    const csvCell = (value) => {
+      const text = String(value ?? '')
+      return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+    }
+    const csv = rows.map(r => r.map(csvCell).join(',')).join('\n')
     const blob = new Blob([csv], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -126,6 +145,12 @@ export default function Utilization() {
         </div>
       </div>
 
+      <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
+        <div className="text-xs text-[var(--brand-text-muted)] uppercase tracking-wide">Busiest Printer</div>
+        <div className="font-medium">{busiestPrinter?.name || 'No utilization data'}</div>
+        {busiestPrinter && <div className="text-sm text-[var(--brand-text-secondary)]">{busiestPrinter.utilization_pct}% utilization in the selected window</div>}
+      </div>
+
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Utilization by Printer */}
@@ -147,7 +172,8 @@ export default function Utilization() {
 
         {/* Jobs per Day */}
         <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
-          <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)] mb-4">Jobs Completed per Day</h3>
+          <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)] mb-4">Completed and Failed Prints per Day</h3>
+          {undatedFinished > 0 && <p>{undatedFinished} finished {undatedFinished === 1 ? 'print has' : 'prints have'} no valid completion date.</p>}
           {dailyData.length > 0 ? (
             <ResponsiveContainer width="100%" height={250}>
               <BarChart data={dailyData}>
@@ -158,7 +184,7 @@ export default function Utilization() {
                 <Bar dataKey="jobs" fill="#34d399" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
-          ) : <div className="text-[var(--brand-text-muted)] text-sm text-center py-12">No job data available</div>}
+          ) : <div className="text-[var(--brand-text-muted)] text-sm text-center py-12">No dated print data available</div>}
         </div>
       </div>
 

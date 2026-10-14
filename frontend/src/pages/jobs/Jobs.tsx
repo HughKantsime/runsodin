@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Filter, ShoppingCart, Layers, Zap, RefreshCw, Clock, Briefcase } from 'lucide-react'
@@ -15,6 +15,7 @@ import { CreateJobModal, EditJobModal, RejectModal } from '../../components/jobs
 import { statusOptions, statusOrder } from '../../components/jobs/jobUtils'
 import { useJobMutations } from '../../hooks/useJobMutations'
 import JobTableHeader from '../../components/jobs/JobTableHeader'
+import JobCorrectionModal from '../../components/jobs/JobCorrectionModal'
 import { PageHeader, Button, SearchInput, TabBar } from '../../components/ui'
 
 
@@ -80,6 +81,8 @@ export default function Jobs() {
   const [rejectingJobId, setRejectingJobId] = useState(null)
   const [failureModal, setFailureModal] = useState(null)
   const [editingJob, setEditingJob] = useState(null)
+  const [correctingJob, setCorrectingJob] = useState(null)
+  const closeCorrection = useCallback(() => setCorrectingJob(null), [])
   const [selectedJobs, setSelectedJobs] = useState(new Set())
   const [confirmAction, setConfirmAction] = useState(null)
   const [draggedId, setDraggedId] = useState(null)
@@ -90,7 +93,14 @@ export default function Jobs() {
 
   const bulkAction = useMutation({
     mutationFn: ({ action, extra }) => bulkOps.jobs([...selectedJobs], action, extra),
-    onSuccess: (_, vars) => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); setSelectedJobs(new Set()); toast.success(`Bulk ${vars.action} completed`) },
+    onSuccess: (result, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['jobs'] }); setSelectedJobs(new Set())
+      if (vars.action === 'reschedule') {
+        const counts = (result ?? {}) as { affected?: number; skipped?: number }
+        if (Number.isInteger(counts.affected) && (counts.affected ?? -1) >= 0 && Number.isInteger(counts.skipped) && (counts.skipped ?? -1) >= 0) toast.success(`${counts.affected} job(s) returned to queue; ${counts.skipped} unchanged`)
+        else toast.error('Reschedule result unavailable. Refresh the queue.')
+      } else toast.success(`Bulk ${vars.action} completed`)
+    },
     onError: (err, vars) => toast.error(`Bulk ${vars.action} failed: ${err.message}`),
   })
 
@@ -111,17 +121,25 @@ export default function Jobs() {
   })
 
   const { data: approvalSetting } = useQuery({ queryKey: ['approval-setting'], queryFn: getApprovalSetting })
+  const { data: recentPrincipal } = useQuery<{ id: number; group_id: number | null; role: string }>({ queryKey: ['auth', 'me'], enabled: false })
+  const recentReady = Number.isInteger(recentPrincipal?.id) && (recentPrincipal?.id ?? 0) > 0
+  const { data: recentJobs, isLoading: recentLoading, isError: recentError, refetch: retryRecent } = useQuery({ queryKey: ['jobs', 'recent-terminal', recentPrincipal?.id ?? null, recentPrincipal?.group_id ?? null, recentPrincipal?.role ?? null, org.orgId], enabled: recentReady, queryFn: () => jobs.recentTerminal(org.orgId) })
   const { data: jobsData, isLoading } = useQuery({ queryKey: ['jobs', statusFilter, org.orgId], queryFn: () => jobs.list(statusFilter || null, org.orgId) })
+  useEffect(() => {
+    if (!correctingJob) return
+    const current = jobsData?.find(job => job.id === correctingJob.job.id)
+    if (org.orgId !== correctingJob.orgId || jobsData && (!current || current.status !== 'rejected' || current.submitted_by !== correctingJob.actor.id)) closeCorrection()
+  }, [jobsData, org.orgId, correctingJob, closeCorrection])
   const { data: modelsData } = useQuery({ queryKey: ['models', org.orgId], queryFn: () => models.list(org.orgId) })
   const { data: printersData } = useQuery({ queryKey: ['printers'], queryFn: () => printersApi.list() })
   const { data: presetsData } = useQuery({ queryKey: ['presets'], queryFn: () => presets.list() })
 
-  const handleDragStart = (e, jobId) => { setDraggedId(jobId); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', jobId); e.currentTarget.style.opacity = '0.4' }
+  const handleDragStart = (e, jobId) => { if (!canDo('jobs.edit')) { e.preventDefault(); return }; setDraggedId(jobId); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', jobId); e.currentTarget.style.opacity = '0.4' }
   const handleDragEnd = (e) => { e.currentTarget.style.opacity = '1'; setDraggedId(null); setDragOverId(null) }
-  const handleDragOver = (e, jobId) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (jobId !== draggedId) setDragOverId(jobId) }
+  const handleDragOver = (e, jobId) => { if (!canDo('jobs.edit')) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (jobId !== draggedId) setDragOverId(jobId) }
   const handleDrop = async (e, targetId) => {
     e.preventDefault(); setDragOverId(null); setDraggedId(null)
-    if (!draggedId || draggedId === targetId) return
+    if (!canDo('jobs.edit') || !draggedId || draggedId === targetId) return
     const currentJobs = (jobsData || []).filter(j => j.status === 'pending' || j.status === 'scheduled')
     const fromIdx = currentJobs.findIndex(j => j.id === draggedId)
     const toIdx = currentJobs.findIndex(j => j.id === targetId)
@@ -148,7 +166,11 @@ export default function Jobs() {
         break
       case 'edit': {
         const job = (jobsData || []).find(j => j.id === jobId)
-        if (job) setEditingJob(job)
+        if (job) {
+          const actor = recentPrincipal
+          if (actor?.role === 'viewer' && Number.isInteger(actor.id) && actor.id > 0 && Number.isInteger(actor.group_id) && actor.group_id > 0 && actor.group_id === job.charged_to_org_id && actor.id === job.submitted_by && job.status === 'rejected') setCorrectingJob({ job, actor, orgId: org.orgId })
+          else if (['operator','admin'].includes(actor?.role) && canDo('jobs.edit')) setEditingJob(job)
+        }
         break
       }
       case 'dispatch': {
@@ -316,7 +338,7 @@ export default function Jobs() {
         <div className="flex items-center gap-3 mb-3 p-3 bg-[var(--brand-primary)]/10 border border-[var(--brand-primary)]/30 rounded-md">
           <span className="text-sm text-[var(--brand-text-secondary)]">{selectedJobs.size} selected</span>
           <Button variant="tertiary" size="sm" onClick={() => bulkAction.mutate({ action: 'cancel' })} disabled={bulkAction.isPending}>Cancel</Button>
-          <Button variant="tertiary" size="sm" onClick={() => bulkAction.mutate({ action: 'reprioritize', extra: { priority: 1 } })} disabled={bulkAction.isPending}>Priority 1</Button>
+          <Button variant="tertiary" size="sm" onClick={() => bulkAction.mutate({ action: 'set_priority', extra: { priority: 1 } })} disabled={bulkAction.isPending}>Priority 1</Button>
           <Button variant="tertiary" size="sm" onClick={() => bulkAction.mutate({ action: 'reschedule' })} disabled={bulkAction.isPending}>Reschedule</Button>
           <Button
             variant="danger"
@@ -350,8 +372,8 @@ export default function Jobs() {
                 </td></tr>
               ) : (
                 filteredJobs.map(job => (
-                  <JobRow key={job.id} job={job} onAction={handleAction} isSelected={selectedJobs.has(job.id)} onToggleSelect={toggleJobSelect} isDispatching={dispatchJob.isPending && dispatchJob.variables === job.id}
-                    dragProps={(job.status === 'pending' || job.status === 'scheduled') ? {
+                  <JobRow key={job.id} job={job} correctionPrincipal={recentPrincipal} onAction={handleAction} isSelected={selectedJobs.has(job.id)} onToggleSelect={toggleJobSelect} isDispatching={dispatchJob.isPending && dispatchJob.variables === job.id}
+                    dragProps={canDo('jobs.edit') && (job.status === 'pending' || job.status === 'scheduled') ? {
                       draggable: true,
                       onDragStart: (e) => handleDragStart(e, job.id),
                       onDragEnd: handleDragEnd,
@@ -366,7 +388,7 @@ export default function Jobs() {
         </div>
       </div>
 
-      <RecentlyCompleted jobs={jobsData} />
+      <RecentlyCompleted jobs={recentJobs} loading={recentLoading} error={recentError} onRetry={() => { void retryRecent() }} />
 
       {failureModal && (
         <FailureReasonModal
@@ -386,6 +408,7 @@ export default function Jobs() {
         modelsData={modelsData}
         printersData={printersData}
       />
+      {correctingJob && <JobCorrectionModal key={correctingJob.job.id} job={correctingJob.job} actor={correctingJob.actor} onClose={closeCorrection} onSubmit={(id, data) => jobs.update(id, data)} />}
       <EditJobModal
         isOpen={!!editingJob}
         onClose={() => setEditingJob(null)}

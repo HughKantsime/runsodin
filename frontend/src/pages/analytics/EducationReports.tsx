@@ -12,6 +12,10 @@ import {
 } from 'recharts'
 import clsx from 'clsx'
 
+const metric = (value, suffix = '') => typeof value === 'number' && Number.isFinite(value) ? `${value}${suffix}` : 'Unknown'
+
+const knownMetric = (value, unknown, suffix) => typeof value !== 'number' || !Number.isFinite(value) ? 'Unknown' : unknown > 0 ? (value === 0 ? 'Unknown' : `${metric(value, suffix)} known (${unknown} unknown)`) : metric(value, suffix)
+
 const CHART_TOOLTIP = { backgroundColor: 'var(--chart-tooltip-bg)', border: 'none', borderRadius: '6px', boxShadow: 'var(--chart-tooltip-shadow)', color: 'var(--brand-text-primary)' }
 
 export default function EducationReports() {
@@ -19,7 +23,7 @@ export default function EducationReports() {
   const [sortField, setSortField] = useState('total_jobs_submitted')
   const [sortDir, setSortDir] = useState('desc')
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['education-usage-report', days],
     queryFn: () => educationReports.getUsageReport(days),
   })
@@ -73,11 +77,16 @@ export default function EducationReports() {
 
   const exportCSV = () => {
     if (!users.length) return
-    const rows = [['Username', 'Email', 'Role', 'Jobs Submitted', 'Approved', 'Rejected', 'Completed', 'Failed', 'Print Hours', 'Filament (g)', 'Approval Rate %', 'Success Rate %', 'Last Activity']]
+    const rows = [['Username', 'Email', 'Role', 'Jobs Submitted', 'Approved', 'Rejected', 'Completed', 'Failed', 'Actual Print Hours', 'Estimated Filament (g)', 'Time Accuracy %', 'Cost', 'Approval Rate %', 'Success Rate %', 'Last Activity', 'Unknown Actual Hours Jobs', 'Unknown Filament Estimate Jobs', 'Accuracy Samples', 'Unknown Accuracy Jobs', 'Hours Unavailable Reason', 'Filament Unavailable Reason']]
     users.forEach(u => {
-      rows.push([u.username, u.email, u.role, u.total_jobs_submitted, u.total_jobs_approved, u.total_jobs_rejected, u.total_jobs_completed, u.total_jobs_failed, u.total_print_hours, u.total_filament_grams, u.approval_rate, u.success_rate, u.last_activity || ''])
+      rows.push([u.username, u.email, u.role, u.total_jobs_submitted, u.total_jobs_approved, u.total_jobs_rejected, u.total_jobs_completed, u.total_jobs_failed, u.total_print_hours ?? '', u.estimated_filament_grams ?? '', u.accuracy ?? '', 'Unavailable: currency not retained', u.approval_rate, u.success_rate, u.last_activity || '', u.unknown_actual_hours_jobs ?? '', u.unknown_filament_estimate_jobs ?? '', u.accuracy_samples ?? '', u.unknown_accuracy_jobs ?? '', u.total_print_hours_unavailable_reason || '', u.estimated_filament_grams_unavailable_reason || ''])
     })
-    const csv = rows.map(r => r.join(',')).join('\n')
+    const cell = value => {
+      let text = String(value ?? '')
+      if (/^[\s]*[=+\-@]/.test(text) || /^[\t\r\n]/.test(text)) text = "'" + text
+      return '"' + text.replace(/"/g, '""') + '"'
+    }
+    const csv = rows.map(r => r.map(cell).join(',')).join('\r\n')
     const blob = new Blob([csv], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -86,6 +95,8 @@ export default function EducationReports() {
     a.click()
     URL.revokeObjectURL(url)
   }
+
+  if (isError) return <div role="alert" className="p-6">Usage report could not be loaded. Try a shorter time window.<button onClick={() => refetch()} className="ml-3 underline">Retry</button></div>
 
   if (isLoading) return <div className="text-center py-12 text-[var(--brand-text-muted)]">Loading usage report...</div>
 
@@ -104,7 +115,7 @@ export default function EducationReports() {
           {[7, 14, 30, 90].map(d => (
             <button key={d} onClick={() => setDays(d)}
               className={clsx('px-3 py-1.5 rounded-md text-sm transition-colors',
-                days === d ? 'bg-amber-500 text-[var(--brand-content-bg)] font-medium' : 'bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)] hover:bg-[var(--brand-card-border)]'
+                days === d ? 'bg-[var(--brand-text-primary)] text-[var(--brand-content-bg)] font-medium' : 'bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)] hover:bg-[var(--brand-card-border)]'
               )}>
               {d}d
             </button>
@@ -115,31 +126,33 @@ export default function EducationReports() {
         </div>
       </div>
 
+      <p className="text-sm text-[var(--brand-text-muted)]">Hours show completed print time. Filament is estimated from model data. Time accuracy compares retained schedules with completed print time. Costs are unavailable because currency was not saved with older estimates.</p>
+      {summary.unproven_history_jobs > 0 && <p className="text-sm text-[var(--brand-text-muted)]">Older records without proven ownership contribute activity counts only.</p>}
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-3">
-        <div className="bg-blue-400/10 rounded-md p-4 text-center border border-[var(--brand-card-border)]">
-          <Users size={18} className="mx-auto mb-1 text-blue-400" />
-          <div className="text-2xl font-bold tabular-nums text-blue-400">{summary.total_users_active || 0}</div>
+        <div className="bg-[var(--brand-card-bg)] rounded-md p-4 text-center border border-[var(--brand-card-border)]">
+          <Users size={18} className="mx-auto mb-1 text-[var(--brand-text-primary)]" />
+          <div className="text-2xl font-bold tabular-nums text-[var(--brand-text-primary)]">{summary.total_users_active || 0}</div>
           <div className="text-xs text-[var(--brand-text-muted)] uppercase tracking-wide">Active Users</div>
         </div>
-        <div className="bg-emerald-400/10 rounded-md p-4 text-center border border-[var(--brand-card-border)]">
-          <Clock size={18} className="mx-auto mb-1 text-emerald-400" />
-          <div className="text-2xl font-bold tabular-nums text-emerald-400">{summary.total_print_hours || 0}h</div>
-          <div className="text-xs text-[var(--brand-text-muted)] uppercase tracking-wide">Print Hours</div>
+        <div className="bg-[var(--brand-card-bg)] rounded-md p-4 text-center border border-[var(--brand-card-border)]">
+          <Clock size={18} className="mx-auto mb-1 text-[var(--brand-text-primary)]" />
+          <div className="text-2xl font-bold tabular-nums text-[var(--brand-text-primary)]">{knownMetric(summary.total_print_hours, summary.unknown_actual_hours_jobs, 'h')}</div>
+          <div className="text-xs text-[var(--brand-text-muted)] uppercase tracking-wide">Actual Print Hours</div>
         </div>
-        <div className="bg-purple-400/10 rounded-md p-4 text-center border border-[var(--brand-card-border)]">
-          <FileText size={18} className="mx-auto mb-1 text-purple-400" />
-          <div className="text-2xl font-bold tabular-nums text-purple-400">{summary.total_jobs || 0}</div>
+        <div className="bg-[var(--brand-card-bg)] rounded-md p-4 text-center border border-[var(--brand-card-border)]">
+          <FileText size={18} className="mx-auto mb-1 text-[var(--brand-text-primary)]" />
+          <div className="text-2xl font-bold tabular-nums text-[var(--brand-text-primary)]">{summary.total_jobs || 0}</div>
           <div className="text-xs text-[var(--brand-text-muted)] uppercase tracking-wide">Total Jobs</div>
         </div>
-        <div className="bg-green-400/10 rounded-md p-4 text-center border border-[var(--brand-card-border)]">
-          <CheckCircle size={18} className="mx-auto mb-1 text-green-400" />
-          <div className="text-2xl font-bold tabular-nums text-green-400">{summary.approval_rate || 0}%</div>
+        <div className="bg-[var(--brand-card-bg)] rounded-md p-4 text-center border border-[var(--brand-card-border)]">
+          <CheckCircle size={18} className="mx-auto mb-1 text-[var(--brand-text-primary)]" />
+          <div className="text-2xl font-bold tabular-nums text-[var(--brand-text-primary)]">{summary.approval_rate || 0}%</div>
           <div className="text-xs text-[var(--brand-text-muted)] uppercase tracking-wide">Approval Rate</div>
         </div>
-        <div className="bg-red-400/10 rounded-md p-4 text-center border border-[var(--brand-card-border)]">
-          <XCircle size={18} className="mx-auto mb-1 text-red-400" />
-          <div className="text-2xl font-bold tabular-nums text-red-400">{summary.rejection_rate || 0}%</div>
+        <div className="bg-[var(--brand-card-bg)] rounded-md p-4 text-center border border-[var(--brand-card-border)]">
+          <XCircle size={18} className="mx-auto mb-1 text-[var(--brand-text-primary)]" />
+          <div className="text-2xl font-bold tabular-nums text-[var(--brand-text-primary)]">{summary.rejection_rate || 0}%</div>
           <div className="text-xs text-[var(--brand-text-muted)] uppercase tracking-wide">Rejection Rate</div>
         </div>
       </div>
@@ -195,21 +208,33 @@ export default function EducationReports() {
         </div>
       </div>
 
+      {(['printer', 'model'] as const).map(kind => (
+        <div key={kind} role="region" aria-label={`Usage by ${kind} table`} tabIndex={0} className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 overflow-x-auto">
+          <h3 className="text-sm font-semibold mb-3">Usage by {kind === 'printer' ? 'Printer' : 'Model'}</h3>
+          <table className="w-full text-sm"><thead><tr><th className="text-left">{kind === 'printer' ? 'Printer' : 'Model'}</th><th>Jobs</th><th>Actual Hours</th><th>Time Accuracy</th></tr></thead>
+            <tbody>{(data?.[`by_${kind}`] || []).map((group, index) => <tr key={group.id ?? `unavailable-${index}`}>
+              <td>{group.available && group.name ? group.name : 'Unavailable resource'}</td><td className="text-center">{group.total_jobs_submitted}</td>
+              <td className="text-center">{knownMetric(group.total_print_hours, group.unknown_actual_hours_jobs, 'h')}</td><td className="text-center">{metric(group.accuracy, '%')}</td>
+            </tr>)}</tbody></table>
+        </div>
+      ))}
       {/* User Table */}
-      <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 overflow-x-auto">
+      <div role="region" aria-label="Usage by user table" tabIndex={0} className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 overflow-x-auto">
         <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)] mb-4">Usage by User</h3>
         <table className="w-full text-sm">
           <thead>
             <tr className="text-[var(--brand-text-muted)] text-xs uppercase tracking-wide border-b border-[var(--brand-card-border)]">
-              <th className="text-left py-2 px-2 cursor-pointer" onClick={() => handleSort('username')}>User <SortIcon field="username" /></th>
-              <th className="text-right py-2 px-2 cursor-pointer" onClick={() => handleSort('total_jobs_submitted')}>Submitted <SortIcon field="total_jobs_submitted" /></th>
-              <th className="text-right py-2 px-2 cursor-pointer hidden md:table-cell" onClick={() => handleSort('total_jobs_approved')}>Approved <SortIcon field="total_jobs_approved" /></th>
-              <th className="text-right py-2 px-2 cursor-pointer hidden md:table-cell" onClick={() => handleSort('total_jobs_rejected')}>Rejected <SortIcon field="total_jobs_rejected" /></th>
-              <th className="text-right py-2 px-2 cursor-pointer" onClick={() => handleSort('total_jobs_completed')}>Completed <SortIcon field="total_jobs_completed" /></th>
-              <th className="text-right py-2 px-2 cursor-pointer hidden md:table-cell" onClick={() => handleSort('total_print_hours')}>Hours <SortIcon field="total_print_hours" /></th>
-              <th className="text-right py-2 px-2 cursor-pointer hidden lg:table-cell" onClick={() => handleSort('total_filament_grams')}>Filament <SortIcon field="total_filament_grams" /></th>
-              <th className="text-right py-2 px-2 cursor-pointer" onClick={() => handleSort('approval_rate')}>Approval % <SortIcon field="approval_rate" /></th>
-              <th className="text-right py-2 px-2 cursor-pointer hidden md:table-cell" onClick={() => handleSort('success_rate')}>Success % <SortIcon field="success_rate" /></th>
+              <th className="text-left py-2 px-2" aria-sort={sortField === 'username' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" onClick={() => handleSort('username')} className="min-h-[44px] px-1 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-primary)]">User <SortIcon field="username" /></button></th>
+              <th className="text-right py-2 px-2" aria-sort={sortField === 'total_jobs_submitted' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" onClick={() => handleSort('total_jobs_submitted')} className="min-h-[44px] px-1 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-primary)]">Submitted <SortIcon field="total_jobs_submitted" /></button></th>
+              <th className="text-right py-2 px-2 hidden md:table-cell" aria-sort={sortField === 'total_jobs_approved' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" onClick={() => handleSort('total_jobs_approved')} className="min-h-[44px] px-1 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-primary)]">Approved <SortIcon field="total_jobs_approved" /></button></th>
+              <th className="text-right py-2 px-2 hidden md:table-cell" aria-sort={sortField === 'total_jobs_rejected' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" onClick={() => handleSort('total_jobs_rejected')} className="min-h-[44px] px-1 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-primary)]">Rejected <SortIcon field="total_jobs_rejected" /></button></th>
+              <th className="text-right py-2 px-2" aria-sort={sortField === 'total_jobs_completed' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" onClick={() => handleSort('total_jobs_completed')} className="min-h-[44px] px-1 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-primary)]">Completed <SortIcon field="total_jobs_completed" /></button></th>
+              <th className="text-right py-2 px-2 hidden md:table-cell" aria-sort={sortField === 'total_print_hours' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" onClick={() => handleSort('total_print_hours')} className="min-h-[44px] px-1 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-primary)]">Hours <SortIcon field="total_print_hours" /></button></th>
+              <th className="text-right py-2 px-2 hidden lg:table-cell" aria-sort={sortField === 'estimated_filament_grams' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" onClick={() => handleSort('estimated_filament_grams')} className="min-h-[44px] px-1 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-primary)]">Estimated Filament <SortIcon field="estimated_filament_grams" /></button></th>
+              <th className="text-right py-2 px-2" aria-sort={sortField === 'approval_rate' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" onClick={() => handleSort('approval_rate')} className="min-h-[44px] px-1 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-primary)]">Approval % <SortIcon field="approval_rate" /></button></th>
+              <th className="text-right py-2 px-2 hidden md:table-cell" aria-sort={sortField === 'success_rate' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" onClick={() => handleSort('success_rate')} className="min-h-[44px] px-1 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-primary)]">Success % <SortIcon field="success_rate" /></button></th>
+              <th className="text-right py-2 px-2">Time Accuracy</th>
+              <th className="text-right py-2 px-2">Cost</th>
               <th className="text-right py-2 px-2 hidden lg:table-cell">Last Active</th>
             </tr>
           </thead>
@@ -221,28 +246,30 @@ export default function EducationReports() {
                   <div className="text-xs text-[var(--brand-text-muted)]">{u.email}</div>
                 </td>
                 <td className="py-2 px-2 text-right tabular-nums text-[var(--brand-text-secondary)]">{u.total_jobs_submitted}</td>
-                <td className="py-2 px-2 text-right tabular-nums text-emerald-400 hidden md:table-cell">{u.total_jobs_approved}</td>
-                <td className="py-2 px-2 text-right tabular-nums text-red-400 hidden md:table-cell">{u.total_jobs_rejected}</td>
+                <td className="py-2 px-2 text-right tabular-nums text-[var(--brand-text-primary)] hidden md:table-cell">{u.total_jobs_approved}</td>
+                <td className="py-2 px-2 text-right tabular-nums text-[var(--brand-text-primary)] hidden md:table-cell">{u.total_jobs_rejected}</td>
                 <td className="py-2 px-2 text-right tabular-nums text-[var(--brand-text-secondary)]">{u.total_jobs_completed}</td>
-                <td className="py-2 px-2 text-right tabular-nums text-[var(--brand-text-secondary)] hidden md:table-cell">{u.total_print_hours}h</td>
-                <td className="py-2 px-2 text-right tabular-nums text-[var(--brand-text-secondary)] hidden lg:table-cell">{u.total_filament_grams}g</td>
+                <td className="py-2 px-2 text-right tabular-nums text-[var(--brand-text-secondary)] hidden md:table-cell">{knownMetric(u.total_print_hours, u.unknown_actual_hours_jobs, 'h')}</td>
+                <td className="py-2 px-2 text-right tabular-nums text-[var(--brand-text-secondary)] hidden lg:table-cell">{knownMetric(u.estimated_filament_grams, u.unknown_filament_estimate_jobs, 'g')}</td>
                 <td className="py-2 px-2 text-right tabular-nums">
-                  <span className={clsx('font-medium', u.approval_rate >= 80 ? 'text-emerald-400' : u.approval_rate >= 50 ? 'text-yellow-400' : 'text-red-400')}>
+                  <span className={clsx('font-medium', u.approval_rate >= 80 ? 'text-[var(--brand-text-primary)]' : u.approval_rate >= 50 ? 'text-[var(--brand-text-primary)]' : 'text-[var(--brand-text-primary)]')}>
                     {u.approval_rate}%
                   </span>
                 </td>
                 <td className="py-2 px-2 text-right tabular-nums hidden md:table-cell">
-                  <span className={clsx('font-medium', u.success_rate >= 90 ? 'text-emerald-400' : u.success_rate >= 70 ? 'text-yellow-400' : 'text-red-400')}>
+                  <span className={clsx('font-medium', u.success_rate >= 90 ? 'text-[var(--brand-text-primary)]' : u.success_rate >= 70 ? 'text-[var(--brand-text-primary)]' : 'text-[var(--brand-text-primary)]')}>
                     {u.success_rate}%
                   </span>
                 </td>
+                <td className="py-2 px-2 text-right">{metric(u.accuracy, '%')}</td>
+                <td className="py-2 px-2 text-right">Unavailable</td>
                 <td className="py-2 px-2 text-right text-[var(--brand-text-muted)] text-xs hidden lg:table-cell">
-                  {u.last_activity ? new Date(u.last_activity).toLocaleDateString() : '—'}
+                  {u.last_activity ? new Date(u.last_activity).toLocaleDateString() : 'Unknown'}
                 </td>
               </tr>
             ))}
             {sortedUsers.length === 0 && (
-              <tr><td colSpan={10} className="text-center py-8 text-[var(--brand-text-muted)]">No user activity in the last {days} days</td></tr>
+              <tr><td colSpan={12} className="text-center py-8 text-[var(--brand-text-muted)]">No user activity in the last {days} days</td></tr>
             )}
           </tbody>
         </table>

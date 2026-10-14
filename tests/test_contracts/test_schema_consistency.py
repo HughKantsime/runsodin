@@ -224,6 +224,7 @@ class TestORMTablesRegistered:
     EXPECTED_ORM_TABLES = {
         # core
         "system_config", "audit_logs", "branding",
+        "printer_dispatch_claims", "dispatch_attempt_receipts", "dispatch_sender_registrations",
         # printers
         "printers", "filament_slots", "nozzle_lifecycle",
         # jobs

@@ -67,9 +67,13 @@ class PrusaLinkMonitorThread(threading.Thread):
         self._last_progress = 0.0
         self._last_telemetry_insert = 0
         self._marked_offline = False
+        self._status_lock = threading.RLock()
+        self._retired = False
 
     def stop(self):
-        self._running = False
+        with self._status_lock:
+            self._retired = True
+            self._running = False
 
     def run(self):
         log.info(f"[{self.name}] PrusaLink monitor started for {self.host}")
@@ -83,21 +87,19 @@ class PrusaLinkMonitorThread(threading.Thread):
                     log.info(f"[{self.name}] Connection recovered, re-discovering camera...")
                     self._discover_and_save_camera()
                 self._consecutive_failures = 0
-                self._marked_offline = False
                 self._process_status(status)
-            except Exception as e:
+            except Exception:
                 self._consecutive_failures += 1
-                if self._consecutive_failures == MAX_CONSECUTIVE_FAILURES:
-                    log.warning(f"[{self.name}] {MAX_CONSECUTIVE_FAILURES} consecutive failures, treating as disconnect")
-                    # Mark printer offline in DB (same as Bambu/Moonraker pattern)
-                    if not self._marked_offline:
-                        self._marked_offline = True
-                        try:
-                            with engine.begin() as conn:
-                                conn.execute(text("UPDATE printers SET gcode_state='OFFLINE' WHERE id=:pid"), {"pid": self.printer_id})
-                        except Exception as e:
-                            log.debug(f"Failed to mark printer offline: {e}")
-                log.warning(f"[{self.name}] Poll error ({self._consecutive_failures}): {e}")
+                with self._status_lock:
+                    if not self._retired:
+                        if self._consecutive_failures >= MAX_CONSECUTIVE_FAILURES and not self._marked_offline:
+                            try:
+                                with engine.begin() as conn:
+                                    conn.execute(text("UPDATE printers SET gcode_state='OFFLINE',print_stage='Offline' WHERE id=:pid"), {"pid": self.printer_id})
+                                self._marked_offline = True
+                            except Exception:
+                                log.warning("Offline state persistence failed; retry on next observation")
+                log.warning("Printer poll failed (%s consecutive failures)", self._consecutive_failures)
             time.sleep(POLL_INTERVAL)
         log.info(f"[{self.name}] PrusaLink monitor stopped")
 
@@ -117,11 +119,17 @@ class PrusaLinkMonitorThread(threading.Thread):
             cam_url = self.client.get_webcam_url()
             if cam_url:
                 printer_events.discover_camera(self.printer_id, cam_url)
-                log.info(f"[{self.name}] Camera discovered: {cam_url}")
+                log.info("Camera discovery completed for printer %s", self.printer_id)
         except Exception as e:
-            log.warning(f"[{self.name}] Camera discovery failed: {e}")
+            log.warning("Camera discovery failed for printer %s", self.printer_id)
 
     def _process_status(self, status):
+        with self._status_lock:
+            if self._retired:
+                return
+            self._process_status_locked(status)
+
+    def _process_status_locked(self, status):
         """Process polled status — update DB, detect transitions, push events."""
         import modules.notifications.event_dispatcher as printer_events
 
@@ -226,7 +234,7 @@ class PrusaLinkMonitorThread(threading.Thread):
         # ----------------------------------------------------------
         # 3. Telemetry + heartbeat (throttled to every 10 seconds)
         # ----------------------------------------------------------
-        if time.time() - self._last_heartbeat >= 10:
+        if self._marked_offline or time.time() - self._last_heartbeat >= 10:
             try:
                 with engine.begin() as conn:
                     bed_t = status.bed_temp
@@ -265,37 +273,6 @@ class PrusaLinkMonitorThread(threading.Thread):
                          "gstate": gstate, "stage": stage, "fan_speed": fan_speed_val, "pid": self.printer_id}
                     )
 
-                    # WebSocket push to frontend
-                    ws_push('printer_telemetry', {
-                        'printer_id': self.printer_id,
-                        'bed_temp': bed_t,
-                        'bed_target': bed_tt,
-                        'nozzle_temp': noz_t,
-                        'nozzle_target': noz_tt,
-                        'state': gstate,
-                        'progress': progress,
-                        'remaining_min': remaining_min,
-                        'current_layer': current_layer,
-                        'total_layers': total_layers,
-                        'fan_speed': fan_speed_val,
-                    })
-
-                    # MQTT republish to external broker
-                    if _mqtt_republish:
-                        try:
-                            _mqtt_republish.republish_telemetry(self.printer_id, self.name, {
-                                "bed_temp": bed_t, "bed_target": bed_tt,
-                                "nozzle_temp": noz_t, "nozzle_target": noz_tt,
-                                "state": gstate,
-                                "progress": progress,
-                                "remaining_min": remaining_min,
-                                "current_layer": current_layer,
-                                "total_layers": total_layers,
-                                "fan_speed": fan_speed_val,
-                            })
-                        except Exception as e:
-                            log.debug(f"Failed to push printer state event: {e}")
-
                     # ---- Timeseries Telemetry Capture ----
                     # Record temps + fan speed every 60s during active prints
                     if gstate in ('PRINTING', 'PAUSED', 'ATTENTION') and time.time() - self._last_telemetry_insert >= 60:
@@ -310,9 +287,28 @@ class PrusaLinkMonitorThread(threading.Thread):
                             log.debug(f"[{self.name}] Telemetry insert: {e}")
 
                 self._last_heartbeat = time.time()
+                self._marked_offline = False
 
-            except Exception as e:
-                log.warning(f"[{self.name}] Telemetry update failed: {e}")
+                payload = {
+                    'printer_id': self.printer_id, 'bed_temp': bed_t, 'bed_target': bed_tt,
+                    'nozzle_temp': noz_t, 'nozzle_target': noz_tt, 'state': gstate,
+                    'progress': progress, 'remaining_min': remaining_min,
+                    'current_layer': current_layer, 'total_layers': total_layers,
+                    'fan_speed': fan_speed_val,
+                }
+                try:
+                    ws_push('printer_telemetry', payload)
+                except Exception:
+                    log.warning("Committed telemetry WebSocket delivery failed")
+                if _mqtt_republish:
+                    try:
+                        _mqtt_republish.republish_telemetry(self.printer_id, self.name,
+                            {key: value for key, value in payload.items() if key != 'printer_id'})
+                    except Exception:
+                        log.warning("Committed telemetry MQTT delivery failed")
+
+            except Exception:
+                log.warning("Telemetry persistence failed; retry on next observation")
 
 
 # ------------------------------------------------------------------
@@ -323,6 +319,8 @@ def start_prusalink_monitors():
     Load PrusaLink printers from DB and start monitor threads.
     Called from main.py on startup, same as start_moonraker_monitors().
     """
+    from core.monitor_bootstrap import bootstrap_monitor_authority
+    bootstrap_monitor_authority()
     threads = []
     try:
         with engine.connect() as conn:

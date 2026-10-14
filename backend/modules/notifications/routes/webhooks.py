@@ -7,6 +7,8 @@ import json
 import logging
 import threading
 
+from modules.notifications.event_selection import selects_event, serialize_event_selection
+
 import core.crypto as crypto
 from core.db import get_db
 from core.db_compat import execute_insert_returning_id, sql
@@ -70,17 +72,16 @@ async def create_webhook(
     name = data.get("name", "Webhook")
     url = data.get("url")
     webhook_type = data.get("webhook_type", "discord")
-    alert_types = data.get("alert_types")  # JSON array or comma-separated
+    try:
+        alert_types = serialize_event_selection(data.get("alert_types"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     if not url:
         raise HTTPException(status_code=400, detail="URL is required")
 
     _validate_webhook_url(url)
     url = _encrypt_webhook_url(url)
-
-    # Store alert_types as JSON
-    if isinstance(alert_types, list):
-        alert_types = json.dumps(alert_types)
 
     insert_sql = """
         INSERT INTO webhooks (name, url, webhook_type, alert_types)
@@ -106,6 +107,12 @@ async def update_webhook(
     require_feature("webhooks")
     data = await request.json()
 
+    if "alert_types" in data:
+        try:
+            data["alert_types"] = serialize_event_selection(data["alert_types"])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     updates = []
     params = {"id": webhook_id}
 
@@ -115,8 +122,6 @@ async def update_webhook(
     for field in ["name", "url", "webhook_type", "is_enabled", "alert_types"]:
         if field in data:
             value = data[field]
-            if field == "alert_types" and isinstance(value, list):
-                value = json.dumps(value)
             if field == "url" and value:
                 value = _encrypt_webhook_url(value)
             updates.append(f"{field} = :{field}")
@@ -304,15 +309,8 @@ def _dispatch_to_webhooks(db, alert_type_value: str, title: str, message: str, s
     for row in rows:
         wh = dict(row._mapping)
 
-        # Check if this webhook subscribes to this alert type
-        alert_types = wh.get("alert_types")
-        if alert_types:
-            try:
-                types_list = json.loads(alert_types) if isinstance(alert_types, str) else alert_types
-                if alert_type_value not in types_list and "all" not in types_list:
-                    continue
-            except (json.JSONDecodeError, TypeError):
-                pass
+        if not selects_event(wh.get("alert_types"), alert_type_value):
+            continue
 
         wtype = wh["webhook_type"]
         url = _decrypt_webhook_url(wh.get("url", ""))

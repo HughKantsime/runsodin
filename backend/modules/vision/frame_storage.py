@@ -8,6 +8,9 @@ all filesystem operations for vision frame management.
 import json
 import logging
 import os
+import re
+import uuid
+from contextlib import ExitStack
 import time
 from datetime import datetime, timezone
 from typing import Optional
@@ -23,41 +26,122 @@ log = logging.getLogger('vision_monitor')
 VISION_FRAMES_DIR = '/data/vision_frames'
 
 
+# The root's ancestors and directory owners are trusted. Each namespace component
+# below the root is opened without following symlinks and pinned for this call.
+_DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+_MAX_JPEG_BYTES = 32 * 1024 * 1024
+_DETECTION_NAME = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
+
+
+def _identity(stat):
+    return stat.st_dev, stat.st_ino
+
+
+def _open_child_directory(parent_fd, name):
+    try:
+        os.mkdir(name, mode=0o750, dir_fd=parent_fd)
+    except FileExistsError:
+        pass
+    return os.open(name, _DIRECTORY_FLAGS, dir_fd=parent_fd)
+
+
+def _verify_namespace(root_path, directories):
+    """Verify the path still names the pinned directories, without following links."""
+    with ExitStack() as stack:
+        fd = os.open(root_path, _DIRECTORY_FLAGS)
+        stack.callback(os.close, fd)
+        if _identity(os.fstat(fd)) != _identity(os.fstat(directories[0][1])):
+            raise OSError("Vision frame root changed during save")
+        for name, pinned_fd in directories[1:]:
+            fd = os.open(name, _DIRECTORY_FLAGS, dir_fd=fd)
+            stack.callback(os.close, fd)
+            if _identity(os.fstat(fd)) != _identity(os.fstat(pinned_fd)):
+                raise OSError("Vision frame directory changed during save")
+
+
+def _save_frame(printer_id, frame, detection_type=None):
+    if type(printer_id) is not int or printer_id <= 0:
+        raise ValueError("printer_id must be a positive integer")
+    if detection_type is not None and (
+        not isinstance(detection_type, str) or not _DETECTION_NAME.fullmatch(detection_type)
+    ):
+        raise ValueError("Invalid detection type")
+    quality = 85 if detection_type is not None else 80
+    ok, encoded = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
+    if not ok or encoded is None:
+        raise ValueError("JPEG encoding failed")
+    if encoded.nbytes > _MAX_JPEG_BYTES:
+        raise ValueError("JPEG encoding produced an oversized frame")
+    payload = encoded.tobytes()
+    if not payload or len(payload) > _MAX_JPEG_BYTES:
+        raise ValueError("JPEG encoding produced an empty or oversized frame")
+
+    root_path = os.path.abspath(VISION_FRAMES_DIR)
+    # Only the configured root may need recursive creation; its ancestors are trusted.
+    os.makedirs(root_path, mode=0o750, exist_ok=True)
+    with ExitStack() as stack:
+        root_fd = os.open(root_path, _DIRECTORY_FLAGS)
+        stack.callback(os.close, root_fd)
+        directories = [(None, root_fd)]
+        printer_name = str(printer_id)
+        target_fd = _open_child_directory(root_fd, printer_name)
+        stack.callback(os.close, target_fd)
+        directories.append((printer_name, target_fd))
+        if detection_type is None:
+            target_fd = _open_child_directory(target_fd, 'training')
+            stack.callback(os.close, target_fd)
+            directories.append(('training', target_fd))
+        timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')
+        suffix = f"_{detection_type}" if detection_type is not None else ''
+        token = uuid.uuid4().hex
+        filename = f"{timestamp}{suffix}_{token}.jpg"
+        temporary = f".frame-{token}.tmp"
+        temp_owned = False
+        published = False
+        try:
+            fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                         0o600, dir_fd=target_fd)
+            temp_owned = True
+            try:
+                remaining = memoryview(payload)
+                while remaining:
+                    written = os.write(fd, remaining[:1024 * 1024])
+                    if written <= 0:
+                        raise OSError("JPEG write made no progress")
+                    remaining = remaining[written:]
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            _verify_namespace(root_path, directories)
+            os.link(temporary, filename, src_dir_fd=target_fd, dst_dir_fd=target_fd,
+                    follow_symlinks=False)
+            published = True
+            os.unlink(temporary, dir_fd=target_fd)
+            temp_owned = False
+            os.fsync(target_fd)
+            _verify_namespace(root_path, directories)
+            return f"{printer_name}/{filename}" if detection_type is not None else None
+        except BaseException:
+            # Remove only names created by this call, through its pinned directory.
+            for name, owned in ((temporary, temp_owned), (filename, published)):
+                if owned:
+                    try:
+                        os.unlink(name, dir_fd=target_fd)
+                    except OSError:
+                        log.exception("Could not remove failed vision frame publication")
+            raise
+
+
 def save_detection_frame(printer_id: int, frame, detection_type: str) -> str:
-    """
-    Save a detection frame JPEG to disk and return the relative path.
-
-    Args:
-        printer_id: DB printer ID (used as subdirectory name).
-        frame: OpenCV numpy frame.
-        detection_type: e.g. 'spaghetti', 'first_layer'.
-
-    Returns:
-        Relative path string suitable for storing in vision_detections.frame_path.
-    """
-    ts = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
-    rel_dir = f"{printer_id}"
-    abs_dir = os.path.join(VISION_FRAMES_DIR, rel_dir)
-    os.makedirs(abs_dir, exist_ok=True)
-    filename = f"{ts}_{detection_type}.jpg"
-    filepath = os.path.join(abs_dir, filename)
-    cv2.imwrite(filepath, frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-    return f"{rel_dir}/{filename}"
+    """Publish a unique JPEG and return its relative path only after success."""
+    if not isinstance(detection_type, str):
+        raise ValueError("Invalid detection type")
+    return _save_frame(printer_id, frame, detection_type)
 
 
 def save_training_frame(printer_id: int, frame) -> None:
-    """
-    Save a frame for training data collection.
-
-    Args:
-        printer_id: DB printer ID.
-        frame: OpenCV numpy frame.
-    """
-    ts = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')
-    abs_dir = os.path.join(VISION_FRAMES_DIR, str(printer_id), 'training')
-    os.makedirs(abs_dir, exist_ok=True)
-    filepath = os.path.join(abs_dir, f"{ts}.jpg")
-    cv2.imwrite(filepath, frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+    """Publish a unique training JPEG; raise on failure and retain the None contract."""
+    _save_frame(printer_id, frame)
 
 
 def cleanup_old_frames(frames_dir: str = VISION_FRAMES_DIR) -> None:

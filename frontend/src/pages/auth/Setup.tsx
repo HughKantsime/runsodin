@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { User, Lock, Mail, Server, Wifi, CheckCircle2, ChevronRight, ChevronLeft, Loader2, AlertCircle, Printer, Tag, Hash, KeyRound, MonitorSmartphone, ArrowRight, Sparkles, Gift, FileKey, UploadCloud } from 'lucide-react'
 import { refreshPermissions } from '../../permissions'
@@ -52,6 +52,8 @@ export default function Setup() {
   const [step, setStep] = useState(0)
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const finishInFlight = useRef(false)
+  const completionConfirmed = useRef(false)
   const [token, setToken] = useState(null)
 
   // Admin form
@@ -244,16 +246,40 @@ export default function Setup() {
   }
 
   const handleFinish = async () => {
+    if (finishInFlight.current) return
+    finishInFlight.current = true
+    setIsLoading(true)
+    setError('')
     try {
-      await fetch('/api/setup/complete', {
-        method: 'POST',
-        ...apiOptions(token),
-      })
+      if (!completionConfirmed.current) {
+        try {
+          const response = await fetch('/api/setup/complete', {
+            method: 'POST',
+            ...apiOptions(token),
+          })
+          if (!response.ok) throw new Error('Completion not confirmed')
+          completionConfirmed.current = true
+        } catch {
+          // A response may be lost after the server commits. Confirm the
+          // persisted state explicitly; an arbitrary 403 is not success.
+          const statusResponse = await fetch('/api/setup/status', { ...apiOptions(token) })
+          const status = statusResponse.ok ? await statusResponse.json() : null
+          if (status?.is_complete !== true) throw new Error('Completion not confirmed')
+          completionConfirmed.current = true
+        }
+      }
+      const permissions = await refreshPermissions()
+      if (!permissions) {
+        setError('Setup is saved, but permissions could not be loaded. Please try again.')
+        return
+      }
+      navigate('/')
     } catch {
-      // Non-critical
+      setError('Could not confirm setup completion. Please try again.')
+    } finally {
+      finishInFlight.current = false
+      setIsLoading(false)
     }
-    await refreshPermissions()
-    navigate('/')
   }
 
   // === Render helpers ===
@@ -818,8 +844,9 @@ export default function Setup() {
         </div>
       )}
 
-      <button onClick={handleFinish} className={btnPrimary + " mx-auto text-lg px-8 py-3"}>
-        Open Dashboard <ArrowRight size={18} />
+      {errorBar()}
+      <button onClick={handleFinish} disabled={isLoading} className={btnPrimary + " mx-auto text-lg px-8 py-3"}>
+        {isLoading ? 'Opening Dashboard...' : 'Open Dashboard'} <ArrowRight size={18} />
       </button>
     </div>
   )

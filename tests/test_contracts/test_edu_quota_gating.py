@@ -105,12 +105,10 @@ def test_quota_routes_are_registered_under_both_api_prefixes():
     from fastapi import FastAPI
     from modules.organizations import register
 
-    class _Registry:
-        def register_provider(self, *_args, **_kwargs):
-            return None
+    from core.registry import ModuleRegistry
 
     app = FastAPI()
-    register(app, _Registry())
+    register(app, ModuleRegistry())
     paths = {route.path for route in app.routes}
     for suffix in ("/quotas", "/admin/quotas", "/admin/quotas/{user_id}"):
         assert f"/api{suffix}" in paths

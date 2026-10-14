@@ -12,13 +12,15 @@ import json
 import logging
 import threading
 import time
-from datetime import datetime
-from typing import Optional, Dict, Any, Tuple
+from datetime import datetime, timezone
+from typing import Optional, Dict, Any, Tuple, Union
+from dataclasses import dataclass, field
 
 from sqlalchemy import text
 
 from core.db import engine
 import core.crypto as crypto
+from modules.printers import plug_http_protocol
 
 log = logging.getLogger("smart_plug")
 
@@ -27,63 +29,11 @@ log = logging.getLogger("smart_plug")
 
 def _http_request(url: str, method: str = "GET", headers: dict = None,
                   data: str = None, timeout: int = 5) -> Tuple[int, str]:
-    """Simple HTTP request using urllib (no external deps).
+    return plug_http_protocol.http_request(url, method, headers, data, timeout)
 
-    v1.8.9 (codex pass 19): ITAR guard. Smart-plug URLs are usually
-    LAN-local (TP-Link Kasa, Tasmota, Shelly) but nothing stops an
-    admin from pasting a public URL. Under ITAR mode, any non-private
-    destination fails closed. urllib.request also honors HTTP(S)_PROXY
-    env vars — we reject public destinations before the call so DNS
-    drift / proxy bypass can't leak printer control data.
-    """
-    # ITAR check at request time — DNS drift between config and send
-    # is caught here rather than only at config time.
-    try:
-        from core.itar import enforce_request_destination, ItarOutboundBlocked
-        enforce_request_destination(url)
-    except ItarOutboundBlocked as exc:
-        log.warning("smart_plug: ITAR blocked outbound to %s: %s", url, exc)
-        return 0, f"Blocked by ITAR: {exc}"
-
-    import urllib.request
-    import urllib.error
-
-    req = urllib.request.Request(url, method=method)
-    if headers:
-        for k, v in headers.items():
-            req.add_header(k, v)
-    if data:
-        req.data = data.encode("utf-8")
-
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- verified safe — connects to admin-configured printer URLs, SSRF-checked at config time
-            body = resp.read().decode("utf-8")
-            return resp.status, body
-    except urllib.error.HTTPError as e:
-        return e.code, e.read().decode("utf-8", errors="replace")
-    except Exception as e:
-        log.error(f"HTTP request failed: {e}")
-        return 0, str(e)
-
-
-# ---- Tasmota ----
 
 def tasmota_power(host: str, action: str = "TOGGLE") -> Optional[bool]:
-    """
-    Control Tasmota smart plug via HTTP.
-    action: "ON", "OFF", "TOGGLE", or "" (status query)
-    Returns True=on, False=off, None=error
-    """
-    url = f"http://{host}/cm?cmnd=Power%20{action}"
-    status, body = _http_request(url)
-    if status == 200:
-        try:
-            data = json.loads(body)
-            power = data.get("POWER", data.get("Power", ""))
-            return power == "ON"
-        except Exception as e:
-            log.debug(f"Failed to parse Tasmota power response: {e}")
-    return None
+    return plug_http_protocol.tasmota_power(host, action, request=_http_request)
 
 
 def tasmota_energy(host: str) -> Optional[Dict]:
@@ -104,69 +54,38 @@ def tasmota_energy(host: str) -> Optional[Dict]:
                 "current": energy.get("Current", 0),
             }
         except Exception as e:
-            log.debug(f"Failed to parse Tasmota energy response: {e}")
+            log.debug("Failed to parse Tasmota energy response")
     return None
 
 
 # ---- Home Assistant ----
 
 def ha_switch(ha_url: str, entity_id: str, token: str, action: str = "toggle") -> Optional[bool]:
-    """
-    Control a Home Assistant switch/plug entity.
-    action: "turn_on", "turn_off", "toggle"
-    Returns True=on, False=off, None=error
-    """
-    service = f"switch/{action}"
-    url = f"{ha_url.rstrip('/')}/api/services/{service}"
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
-    payload = json.dumps({"entity_id": entity_id})
-    status, body = _http_request(url, method="POST", headers=headers, data=payload)
-    
-    if status == 200:
-        # Query state after action
-        return ha_get_state(ha_url, entity_id, token)
-    return None
+    return plug_http_protocol.ha_switch(ha_url, entity_id, token, action,
+                                       request=_http_request, readback=ha_get_state)
 
 
 def ha_get_state(ha_url: str, entity_id: str, token: str) -> Optional[bool]:
-    """Get current state of a Home Assistant entity."""
-    url = f"{ha_url.rstrip('/')}/api/states/{entity_id}"
-    headers = {"Authorization": f"Bearer {token}"}
-    status, body = _http_request(url, headers=headers)
-    if status == 200:
-        try:
-            data = json.loads(body)
-            return data.get("state") == "on"
-        except Exception as e:
-            log.debug(f"Failed to parse HA state response: {e}")
-    return None
+    return plug_http_protocol.ha_get_state(ha_url, entity_id, token, request=_http_request)
 
 
 # ---- Generic MQTT (via O.D.I.N.'s MQTT republish connection) ----
 
-def mqtt_power(topic: str, action: str = "TOGGLE") -> Optional[bool]:
-    """
-    Publish power command to an MQTT topic.
-    Requires mqtt_republish to be configured.
-    """
-    try:
-        import mqtt_republish
-        if mqtt_republish and hasattr(mqtt_republish, 'publish'):
-            payload = action.upper()
-            mqtt_republish.publish(topic, payload)
-            log.info(f"MQTT power command: {topic} = {payload}")
-            return action.upper() == "ON"  # Assume success
-    except Exception as e:
-        log.error(f"MQTT power command failed: {e}")
-    return None
+@dataclass(frozen=True)
+class MqttPowerReceipt:
+    status: str
+    power_state: None = None
+
+
+def mqtt_power(topic: str, action: str = "TOGGLE") -> MqttPowerReceipt:
+    """Broker command receipt without inventing a physical power observation."""
+    from modules.notifications.mqtt_republish import publish_power_command
+    return MqttPowerReceipt(publish_power_command(topic, action))
 
 
 # ---- Unified Interface ----
 
-def get_plug_config(printer_id: int) -> Optional[Dict]:
+def get_plug_config(printer_id: int, *, include_storage_identity=False) -> Optional[Dict]:
     """Get smart plug config for a printer."""
     with engine.connect() as conn:
         row = conn.execute(
@@ -186,22 +105,27 @@ def get_plug_config(printer_id: int) -> Optional[Dict]:
         except Exception:
             pass  # Fall back to raw value if decryption fails (pre-encryption data)
 
-    return {
+    config = {
         "type": row[0],
         "host": row[1],
         "entity_id": row[2],
         "auth_token": auth_token,
         "auto_on": bool(row[4]),
         "auto_off": bool(row[5]),
-        "cooldown_minutes": row[6] or 5,
+        "cooldown_minutes": row[6] if row[6] is not None else 5,
         "power_state": row[7],
     }
+    if include_storage_identity:
+        config['_stored_auth_token'] = row[3]
+    return config
 
 
-def power_on(printer_id: int) -> Optional[bool]:
+def power_on(printer_id: int, expected_config=None) -> Optional[Union[bool, MqttPowerReceipt]]:
     """Turn on a printer's smart plug."""
     config = get_plug_config(printer_id)
     if not config:
+        return None
+    if expected_config is not None and (_plug_identity(config) != expected_config or not config["auto_on"]):
         return None
     
     result = None
@@ -212,18 +136,21 @@ def power_on(printer_id: int) -> Optional[bool]:
     elif config["type"] == "mqtt":
         result = mqtt_power(config["entity_id"], "ON")
     
-    if result is not None:
+    if type(result) is bool:
         _update_power_state(printer_id, result)
     
     return result
 
 
-def power_off(printer_id: int) -> Optional[bool]:
+def power_off(printer_id: int, expected_config=None) -> Optional[Union[bool, MqttPowerReceipt]]:
     """Turn off a printer's smart plug."""
     config = get_plug_config(printer_id)
     if not config:
         return None
     
+    if expected_config is not None and (_plug_identity(config) != expected_config or not config["auto_off"]):
+        return None
+
     result = None
     if config["type"] == "tasmota":
         result = tasmota_power(config["host"], "OFF")
@@ -232,13 +159,13 @@ def power_off(printer_id: int) -> Optional[bool]:
     elif config["type"] == "mqtt":
         result = mqtt_power(config["entity_id"], "OFF")
     
-    if result is not None:
+    if type(result) is bool:
         _update_power_state(printer_id, result)
     
     return result
 
 
-def power_toggle(printer_id: int) -> Optional[bool]:
+def power_toggle(printer_id: int) -> Optional[Union[bool, MqttPowerReceipt]]:
     """Toggle a printer's smart plug."""
     config = get_plug_config(printer_id)
     if not config:
@@ -252,7 +179,7 @@ def power_toggle(printer_id: int) -> Optional[bool]:
     elif config["type"] == "mqtt":
         result = mqtt_power(config["entity_id"], "TOGGLE")
     
-    if result is not None:
+    if type(result) is bool:
         _update_power_state(printer_id, result)
     
     return result
@@ -298,7 +225,7 @@ def get_power_state(printer_id: int) -> Optional[bool]:
     elif config["type"] == "homeassistant":
         result = ha_get_state(config["host"], config["entity_id"], config["auth_token"])
     
-    if result is not None:
+    if type(result) is bool:
         _update_power_state(printer_id, result)
     
     return result
@@ -311,53 +238,230 @@ def _update_power_state(printer_id: int, state: bool):
             conn.execute(text("UPDATE printers SET plug_power_state = :state WHERE id = :pid"),
                          {"state": state, "pid": printer_id})
     except Exception as e:
-        log.error(f"Failed to update power state: {e}")
+        log.error("Failed to update plug power state")
 
 
 # ---- Lifecycle Hooks ----
 
-_cooldown_timers = {}  # printer_id -> threading.Timer
+_cooldown_timers = {}  # Process-local; not a durable or cross-worker scheduler.
+_power_locks = {}
+_power_locks_guard = threading.Lock()
 
-def on_print_start(printer_id: int):
-    """Called when a print starts — auto power-on if configured."""
-    config = get_plug_config(printer_id)
-    if not config or not config["auto_on"]:
-        return
-    
-    # Cancel any pending power-off timer
-    if printer_id in _cooldown_timers:
-        _cooldown_timers[printer_id].cancel()
-        del _cooldown_timers[printer_id]
-        log.info(f"Cancelled power-off timer for printer {printer_id}")
-    
-    result = power_on(printer_id)
-    if result:
-        log.info(f"Auto power-on: printer {printer_id}")
+
+def _printer_power_lock(printer_id):
+    with _power_locks_guard:
+        return _power_locks.setdefault(printer_id, threading.RLock())
+
+
+def _plug_identity(config):
+    return tuple(config.get(key) for key in ("type", "host", "entity_id", "auth_token"))
+
+
+@dataclass(frozen=True)
+class PowerPreparation:
+    accepted: bool
+    required: bool
+    identity: Optional[tuple] = field(default=None, repr=False)
+    error: Optional[str] = None
+    connection: object = field(default=None, repr=False)
+
+
+def prepare_dispatch_power(printer_id: int) -> PowerPreparation:
+    """Cancel pending shutdown and request guarded ON, not printer readiness.
+
+    Caller must already authorize the job and must independently verify fresh
+    printer readiness and revalidate authority/configuration before uploading.
+    """
+    with _printer_power_lock(printer_id):
+        timer = _cooldown_timers.pop(printer_id, None)
+        if timer is not None:
+            timer.cancel()
+        try:
+            config = get_plug_config(printer_id)
+            if not config or not config["auto_on"]:
+                return PowerPreparation(accepted=True, required=False)
+            identity = _plug_identity(config)
+            result = power_on(printer_id, expected_config=identity)
+            current = get_plug_config(printer_id)
+            if not current or not current["auto_on"] or _plug_identity(current) != identity:
+                return PowerPreparation(False, True, error="Plug configuration changed; check before retrying")
+            if result is True or isinstance(result, MqttPowerReceipt) and result.status == "accepted":
+                return PowerPreparation(True, True, identity=identity)
+            return PowerPreparation(False, True, error="Power-on was not confirmed; check plug state before retrying")
+        except Exception:
+            log.warning("Dispatch power preparation could not be confirmed")
+            return PowerPreparation(False, True, error="Power-on was not confirmed; check plug state before retrying")
+
+
+def _conditional_power_observation(printer_id, state, config):
+    """Persist a measured boolean only against the exact stored plug identity."""
+    if type(state) is not bool or '_stored_auth_token' not in config:
+        return False
+    try:
+        with engine.begin() as conn:
+            result = conn.execute(text("""
+                UPDATE printers SET plug_power_state=:state
+                WHERE id=:pid AND plug_auto_on=:enabled
+                AND (plug_type=CAST(:kind AS VARCHAR) OR (plug_type IS NULL AND CAST(:kind AS VARCHAR) IS NULL))
+                AND (plug_host=CAST(:host AS VARCHAR) OR (plug_host IS NULL AND CAST(:host AS VARCHAR) IS NULL))
+                AND (plug_entity_id=CAST(:entity AS VARCHAR) OR (plug_entity_id IS NULL AND CAST(:entity AS VARCHAR) IS NULL))
+                AND (plug_auth_token=CAST(:token AS VARCHAR) OR (plug_auth_token IS NULL AND CAST(:token AS VARCHAR) IS NULL))
+            """), {'pid': printer_id, 'state': state, 'enabled': True,
+                   'kind': config['type'], 'host': config['host'],
+                   'entity': config['entity_id'], 'token': config['_stored_auth_token']})
+            return result.rowcount == 1
+    except Exception:
+        log.warning('Power observation could not be stored')
+        return False
+
+
+def prepare_bounded_dispatch_power(printer_id, deadline):
+    """Own the pending-off lock through one bounded command and cleanup.
+
+    Database reads/writes have their engine's timeout, not a hard process
+    bound. Caller must perform final authority/configuration/readiness checks.
+    """
+    import math
+    from modules.printers.plug_power_acquisition import bounded_power_on
+    failure = PowerPreparation(False, True, error='Power-on was not confirmed; check plug state before retrying')
+    lock = None
+    acquired = False
+    try:
+        if isinstance(deadline, bool) or not isinstance(deadline, (int, float)):
+            return failure
+        deadline = float(deadline)
+        remaining = deadline - time.monotonic()
+        if not math.isfinite(deadline) or not 0 < remaining <= threading.TIMEOUT_MAX:
+            return failure
+        lock = _printer_power_lock(printer_id)
+        acquired = lock.acquire(timeout=remaining)
+        if not acquired:
+            return failure
+        timer = _cooldown_timers.pop(printer_id, None)
+        if timer is not None:
+            timer.cancel()
+        config = get_plug_config(printer_id, include_storage_identity=True)
+        if time.monotonic() >= deadline:
+            return failure
+        if not config or not config['auto_on']:
+            return PowerPreparation(True, False)
+        identity = _plug_identity(config)
+        connection = None
+        if config['type'] == 'mqtt':
+            from modules.notifications.mqtt_republish import get_power_connection_snapshot
+            connection = get_power_connection_snapshot()
+            if connection is None:
+                return failure
+        attempt = bounded_power_on(config, deadline, connection)
+        current = get_plug_config(printer_id, include_storage_identity=True)
+        if (not current or not current['auto_on'] or _plug_identity(current) != identity
+                or current['_stored_auth_token'] != config['_stored_auth_token']):
+            return PowerPreparation(False, True, error='Plug configuration changed; check before retrying')
+        if config['type'] == 'mqtt' and get_power_connection_snapshot() != connection:
+            return PowerPreparation(False, True, error='Broker configuration changed; check before retrying')
+        if time.monotonic() >= deadline or attempt.status != 'accepted':
+            return failure
+        if type(attempt.power_state) is bool:
+            if attempt.power_state is not True or not _conditional_power_observation(printer_id, attempt.power_state, config):
+                return failure
+        elif attempt.power_state is not None or config['type'] != 'mqtt':
+            return failure
+        if time.monotonic() >= deadline:
+            return failure
+        return PowerPreparation(True, True, identity=identity, connection=connection)
+    except Exception:
+        log.warning('Bounded dispatch power preparation could not be confirmed')
+        return failure
+    finally:
+        if acquired:
+            lock.release()
+
+
+def _auto_off_safe(printer_id):
+    """Refuse unknown/stale telemetry or an active persisted print."""
+    with engine.connect() as conn:
+        row = conn.execute(text("SELECT gcode_state,last_seen FROM printers WHERE id=:pid"), {"pid": printer_id}).fetchone()
+        if not row or row[0] not in ("IDLE", "FINISH") or not row[1]:
+            return False
+        stamp = row[1] if isinstance(row[1], datetime) else datetime.fromisoformat(row[1].replace("Z", "+00:00"))
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=timezone.utc)
+        age = (datetime.now(timezone.utc) - stamp).total_seconds()
+        if not 0 <= age <= 90:
+            return False
+        active = conn.execute(text("SELECT 1 FROM print_jobs WHERE printer_id=:pid AND status='running' LIMIT 1"), {"pid": printer_id}).first()
+        queued = conn.execute(text("SELECT 1 FROM jobs WHERE printer_id=:pid AND status IN ('printing','paused') LIMIT 1"), {"pid": printer_id}).first()
+        claimed = conn.execute(text("SELECT 1 FROM printer_dispatch_claims WHERE printer_id=:pid LIMIT 1"), {"pid": printer_id}).first()
+        return active is None and queued is None and claimed is None
+
+
+def on_print_start(printer_id: int, *, print_job_id=None):
+    """Cancel pending off for every start; auto-on remains an observed-start hook."""
+    with _printer_power_lock(printer_id):
+        timer = _cooldown_timers.pop(printer_id, None)
+        if timer is not None:
+            timer.cancel()
+        if print_job_id is not None:
+            from core.auth import SECRET_KEY
+            from core.dispatch_observations import bind_generic_observation
+            key=SECRET_KEY.encode() if isinstance(SECRET_KEY,str) else None
+            outcome=bind_generic_observation(engine,printer_id=printer_id,print_job_id=print_job_id,key=key)
+            if outcome!='no_claim':
+                return
+        config = get_plug_config(printer_id)
+        if config and config["auto_on"]:
+            # A retained dispatch attempt already owns power preparation. Never
+            # replay ON from telemetry, including uncertain/crashed attempts.
+            # Exact observation binding is a separate durable receipt contract.
+            with engine.connect() as conn:
+                claimed = conn.execute(text(
+                    "SELECT 1 FROM printer_dispatch_claims WHERE printer_id=:pid LIMIT 1"
+                ), {"pid": printer_id}).first()
+            if claimed is not None:
+                return
+            power_on(printer_id)
 
 
 def on_print_complete(printer_id: int):
-    """Called when a print completes — schedule auto power-off with cooldown."""
-    config = get_plug_config(printer_id)
-    if not config or not config["auto_off"]:
-        return
-    
-    cooldown = config["cooldown_minutes"] * 60  # seconds
-    
-    # Cancel existing timer if any
-    if printer_id in _cooldown_timers:
-        _cooldown_timers[printer_id].cancel()
-    
-    def delayed_off():
-        log.info(f"Auto power-off: printer {printer_id} (after {config['cooldown_minutes']}m cooldown)")
-        power_off(printer_id)
-        if printer_id in _cooldown_timers:
-            del _cooldown_timers[printer_id]
-    
-    timer = threading.Timer(cooldown, delayed_off)
-    timer.daemon = True
-    timer.start()
-    _cooldown_timers[printer_id] = timer
-    log.info(f"Scheduled power-off for printer {printer_id} in {config['cooldown_minutes']}m")
+    """Schedule an identity-guarded off; cancellation cannot undo sent commands."""
+    with _printer_power_lock(printer_id):
+        previous = _cooldown_timers.pop(printer_id, None)
+        if previous is not None:
+            previous.cancel()
+        config = get_plug_config(printer_id)
+        if not config or not config["auto_off"]:
+            return
+        minutes = config["cooldown_minutes"]
+        if type(minutes) is not int or not 0 <= minutes <= 1440:
+            log.warning("Automatic power-off skipped: invalid cooldown")
+            return
+        identity = _plug_identity(config)
+
+        def delayed_off():
+            with _printer_power_lock(printer_id):
+                if _cooldown_timers.get(printer_id) is not timer:
+                    return
+                try:
+                    current = get_plug_config(printer_id)
+                    if (current and current["auto_off"] and _plug_identity(current) == identity
+                            and _auto_off_safe(printer_id)):
+                        power_off(printer_id, expected_config=identity)
+                except Exception:
+                    log.warning("Automatic power-off could not be completed")
+                finally:
+                    if _cooldown_timers.get(printer_id) is timer:
+                        del _cooldown_timers[printer_id]
+
+        timer = threading.Timer(minutes * 60, delayed_off)
+        timer.daemon = True
+        _cooldown_timers[printer_id] = timer
+        try:
+            timer.start()
+        except Exception:
+            if _cooldown_timers.get(printer_id) is timer:
+                del _cooldown_timers[printer_id]
+            timer.cancel()
+            log.warning("Automatic power-off timer could not start")
 
 
 def record_energy_for_job(printer_id: int, job_id: int, start_kwh: float):
@@ -396,7 +500,7 @@ def record_energy_for_job(printer_id: int, job_id: int, start_kwh: float):
 
             log.info(f"Energy recorded for job {job_id}: {consumed:.4f} kWh (${cost:.4f})")
     except Exception as e:
-        log.error(f"Failed to record energy: {e}")
+        log.error("Failed to record plug energy")
 
 
 # ---------------------------------------------------------------------------
@@ -408,9 +512,9 @@ def _on_job_started_event(event) -> None:
     printer_id = event.data.get("printer_id")
     if printer_id is not None:
         try:
-            on_print_start(printer_id)
+            on_print_start(printer_id, print_job_id=event.data.get("print_job_id"))
         except Exception as e:
-            log.warning(f"Smart plug on_print_start failed for printer {printer_id}: {e}")
+            log.warning("Smart plug start hook failed")
 
 
 def _on_job_completed_event(event) -> None:
@@ -421,7 +525,7 @@ def _on_job_completed_event(event) -> None:
         try:
             on_print_complete(printer_id)
         except Exception as e:
-            log.warning(f"Smart plug on_print_complete failed for printer {printer_id}: {e}")
+            log.warning("Smart plug completion hook failed")
 
 
 def register_subscribers(bus) -> None:

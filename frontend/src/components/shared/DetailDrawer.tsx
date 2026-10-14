@@ -35,6 +35,7 @@ export default function DetailDrawer({ open, onClose, title, children }: DetailD
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--brand-card-border)]">
           <h2 className="text-lg font-semibold text-[var(--brand-text-primary)] truncate">{title}</h2>
           <button
+            aria-label="Close"
             onClick={onClose}
             className="p-1.5 hover:bg-[var(--brand-card-border)] rounded-md text-[var(--brand-text-secondary)] hover:text-[var(--brand-text-primary)]"
           >

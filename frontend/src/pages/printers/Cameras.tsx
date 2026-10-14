@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Video, VideoOff, Maximize2, Minimize2, Monitor, Clock, Settings, Power, PictureInPicture2, X, GripVertical, Eye, Tv, RefreshCw } from 'lucide-react'
+import { Video, VideoOff, Maximize2, Minimize2, Monitor, Clock, Settings, Power, PictureInPicture2, X, GripVertical, Eye, Tv, RefreshCw, Film } from 'lucide-react'
 import clsx from 'clsx'
 import CameraModal from '../../components/printers/CameraModal'
 import { PageHeader, Button, Card, EmptyState } from '../../components/ui'
@@ -193,6 +193,7 @@ export default function Cameras() {
         title="Cameras"
         subtitle={`${filteredCameras.length} camera${filteredCameras.length !== 1 ? 's' : ''} available`}
       >
+        <Link to="/timelapses" className="flex items-center gap-2 text-sm"><Film size={16} />Timelapses</Link>
         <input
           type="text"
           placeholder="Filter cameras..."

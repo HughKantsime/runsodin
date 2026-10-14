@@ -125,3 +125,17 @@ def test_daemon_same_title_different_tenants_not_deduplicated(review_db,monkeypa
         assert conn.execute(text('SELECT count(*) FROM alerts')).scalar_one()==3
     assert len(events)==2
     assert [set(e['_ws_user_ids']) for e in events]==[{1,3},{5}]
+
+@pytest.mark.parametrize('event',[
+    'print_complete','print_failed','printer_error','spool_low','maintenance_overdue',
+    'job_submitted','job_approved','job_rejected','bed_cooled','queue_added','queue_skipped','queue_failed_start',
+])
+def test_each_advertised_alert_type_is_persisted_by_production_dispatcher(quiet_dispatch,review_db,event):
+    from core.base import AlertType,AlertSeverity
+    from modules.notifications.models import AlertPreference
+    kind=AlertType(event)
+    review_db.add(AlertPreference(user_id=3,alert_type=kind,in_app=True,email=True,browser_push=True));review_db.commit()
+    assert quiet_dispatch.dispatch_alert(review_db,kind,AlertSeverity.INFO,'Synthetic type acceptance',target_user_ids=[3])==1
+    row=review_db.execute(text('SELECT user_id,alert_type,title,is_read FROM alerts')).one()
+    assert tuple(row)==(3,event,'Synthetic type acceptance',0)
+    assert quiet_dispatch.test_external_calls==[]

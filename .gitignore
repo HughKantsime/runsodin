@@ -168,3 +168,6 @@ artifacts/practical-evidence-tests/
 artifacts/ctec-poc-preflight/
 artifacts/ctec-poc-readiness/
 artifacts/ctec-poc-ui/
+
+# Local certification/audit evidence (large, may contain environment detail)
+/artifacts/

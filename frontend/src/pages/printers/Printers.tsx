@@ -1,6 +1,6 @@
 import useCameraList from '../../hooks/useCameraList'
 import QRScannerModal from '../../components/inventory/QRScannerModal';
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Filter, Printer as PrinterIcon } from 'lucide-react'
 import clsx from 'clsx'
@@ -8,7 +8,8 @@ import toast from 'react-hot-toast'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import { getPlugState, plugPowerOn, plugPowerOff } from '../../api'
 import { printers, filaments, bulkOps, spools as spoolsApi } from '../../api'
-import { canDo } from '../../permissions'
+import { canDo, getCurrentUser } from '../../permissions'
+import { canControlPlug } from '../../utils/plugControl'
 import { useLicense } from '../../LicenseContext'
 import UpgradeModal from '../../components/shared/UpgradeModal'
 import { useOrg } from '../../contexts/OrgContext'
@@ -26,19 +27,51 @@ export default function Printers() {
   const queryClient = useQueryClient()
   const [showModal, setShowModal] = useState(false)
   const [showUpgradeModal, setShowUpgradeModal] = useState(false)
-  const [plugStates, setPlugStates] = useState({})
-
+  const [plugStates, setPlugStates] = useState<Record<number, { context: string; value: boolean | undefined }>>({})
+  const [plugPending, setPlugPending] = useState<Record<number, string>>({})
+  const [plugOutcomes, setPlugOutcomes] = useState<Record<number, { context: string; text: string }>>({})
+  const plugBusy = useRef(new Set<string>())
+  const plugVersions = useRef<Record<number, number>>({})
+  const mounted = useRef(false)
+  const contextRef = useRef('')
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   const handlePlugToggle = async (printerId) => {
-    const isOn = plugStates[printerId]
+    const context = JSON.stringify([getCurrentUser(), org.orgId])
+    const target = (queryClient.getQueryData(['printers', org.orgId]) as any[])?.find(p => p.id === printerId)
+    const key = `${context}:${printerId}`
+    if (!target || !canControlPlug(target) || plugBusy.current.has(key)) return
+    plugBusy.current.add(key)
+    plugVersions.current[printerId] = (plugVersions.current[printerId] || 0) + 1
+    setPlugPending(prev => ({ ...prev, [printerId]: context }))
+    setPlugOutcomes(prev => ({ ...prev, [printerId]: { context, text: '' } }))
+    const stillCurrent = () => mounted.current && contextRef.current === context
+      && JSON.stringify([getCurrentUser(), org.orgId]) === context
+      && ((queryClient.getQueryData(['printers', org.orgId]) as any[]) || []).some(p => p.id === printerId)
     try {
-      if (isOn) {
-        await plugPowerOff(printerId)
+      const current = plugStates[printerId]
+      const isOn = current?.context === context && current.value === true
+      const result = isOn ? await plugPowerOff(printerId) : await plugPowerOn(printerId)
+      if (!stillCurrent()) return
+      if (typeof result?.power_state === 'boolean' && result.accepted !== false) {
+        setPlugStates(prev => ({ ...prev, [printerId]: { context, value: result.power_state as boolean } }))
+        setPlugOutcomes(prev => ({ ...prev, [printerId]: { context, text: 'Power state confirmed' } }))
+      } else if (result?.accepted === true && result.power_state === null) {
+        setPlugStates(prev => ({ ...prev, [printerId]: { context, value: undefined } }))
+        setPlugOutcomes(prev => ({ ...prev, [printerId]: { context, text: 'Command accepted; physical confirmation pending' } }))
       } else {
-        await plugPowerOn(printerId)
+        setPlugOutcomes(prev => ({ ...prev, [printerId]: { context, text: 'Power command not confirmed. Check plug state before retrying.' } }))
       }
-      setPlugStates(prev => ({ ...prev, [printerId]: !isOn }))
-    } catch (e) {
-      console.error('Plug toggle failed:', e)
+    } catch {
+      if (stillCurrent()) setPlugOutcomes(prev => ({ ...prev, [printerId]: { context, text: 'Power command not confirmed. Check plug state before retrying.' } }))
+    } finally {
+      plugBusy.current.delete(key)
+      plugVersions.current[printerId] = (plugVersions.current[printerId] || 0) + 1
+      if (mounted.current) setPlugPending(prev => {
+        if (prev[printerId] !== context) return prev
+        const next = { ...prev }
+        delete next[printerId]
+        return next
+      })
     }
   }
   const [editingPrinter, setEditingPrinter] = useState(null)
@@ -54,9 +87,11 @@ export default function Printers() {
   const [tagFilter, setTagFilter] = useState('')
 
   const org = useOrg()
+  const plugContext = JSON.stringify([getCurrentUser(), org.orgId])
+  contextRef.current = plugContext
   const { data: printersData, isLoading } = useQuery({ queryKey: ['printers', org.orgId], queryFn: () => printers.list(false, '', org.orgId) })
   const lic = useLicense()
-  const atLimit = !lic.isPro && (printersData?.length || 0) >= 5
+  const atLimit = lic.atPrinterLimit(printersData?.length || 0)
   const { data: filamentsData } = useQuery({ queryKey: ['filaments-combined'], queryFn: () => filaments.combined() })
   const { data: spoolsData } = useQuery({ queryKey: ['spools'], queryFn: () => spoolsApi.list({ status: 'active' }) })
 
@@ -87,15 +122,21 @@ export default function Printers() {
     if (printersData) setOrderedPrinters(printersData)
   }, [printersData])
   useEffect(() => {
-    if (printersData) {
-      printersData.filter(p => p.plug_type).forEach(async (p) => {
-        try {
-          const state = await getPlugState(p.id)
-          setPlugStates(prev => ({ ...prev, [p.id]: state?.is_on || false }))
-        } catch (e) {}
-      })
-    }
-  }, [printersData])
+    let retired = false
+    if (printersData) printersData.filter(p => p.plug_type).forEach(async p => {
+      const version = plugVersions.current[p.id] || 0
+      try {
+        const result = await getPlugState(p.id)
+        if (!retired && mounted.current && contextRef.current === plugContext
+            && JSON.stringify([getCurrentUser(), org.orgId]) === plugContext
+            && !plugBusy.current.has(`${plugContext}:${p.id}`)
+            && (plugVersions.current[p.id] || 0) === version) {
+          setPlugStates(prev => ({ ...prev, [p.id]: { context: plugContext, value: typeof result?.power_state === 'boolean' ? result.power_state : undefined } }))
+        }
+      } catch { /* An unavailable observation remains unknown. */ }
+    })
+    return () => { retired = true }
+  }, [printersData, plugContext])
 
   // Persist filter state to sessionStorage
   useEffect(() => { sessionStorage.setItem('printers_search', searchTerm) }, [searchTerm])
@@ -126,7 +167,7 @@ export default function Printers() {
         switch (statusFilter) {
           case 'online': return online
           case 'offline': return !online
-          case 'printing': return stage === 'Running' || stage === 'Printing'
+          case 'printing': return online && ['RUNNING', 'PAUSE'].includes(p.gcode_state?.toUpperCase() || '')
           case 'idle': return online && (!stage || stage === 'Idle')
           default: return true
         }
@@ -209,8 +250,8 @@ export default function Printers() {
     <div className="p-4 md:p-6">
       <PageHeader icon={PrinterIcon} title="Printers" subtitle="Manage your print farm">
         {canDo('printers.add') && (atLimit
-          ? <Button variant="secondary" icon={Plus} onClick={() => setShowUpgradeModal(true)} title={`Printer limit reached (${lic.max_printers || 5}). Upgrade to Pro for unlimited.`}>
-              Add Printer (limit: {lic.max_printers || 5})
+          ? <Button variant="secondary" icon={Plus} onClick={() => setShowUpgradeModal(true)} title={`Printer limit reached (${lic.max_printers ?? 5}). Upgrade to Pro for unlimited.`}>
+              Add Printer (limit: {lic.max_printers ?? 5})
             </Button>
           : <Button variant="primary" icon={Plus} onClick={() => setShowModal(true)}>
               Add Printer
@@ -336,7 +377,9 @@ export default function Printers() {
                 onDragEnd={isFiltered ? undefined : handleDragEnd}
                 onScanSpool={() => { setScannerPrinterId(printer.id); setShowScanner(true); }}
                 onPlugToggle={handlePlugToggle}
-                plugStates={plugStates}
+                plugStates={Object.fromEntries(Object.entries(plugStates).filter(([, entry]) => entry.context === plugContext).map(([id, entry]) => [id, entry.value]))}
+                plugPending={plugPending[printer.id] === plugContext}
+                plugOutcome={plugOutcomes[printer.id]?.context === plugContext ? plugOutcomes[printer.id].text : ''}
               />
             </div>
           ))}

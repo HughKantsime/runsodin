@@ -3,11 +3,18 @@ import { useQuery } from '@tanstack/react-query'
 import { DollarSign } from 'lucide-react'
 import { chargebacks } from '../../api'
 
+const currencies = new Set(['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY', 'CHF', 'NZD'])
+const known = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0
+function cost(amount: unknown, currency: unknown) {
+  return known(amount) && typeof currency === 'string' && currencies.has(currency)
+    ? `${currency} ${amount.toFixed(currency === 'JPY' ? 0 : 2)}` : 'Unknown'
+}
+
 export default function ChargebackReport() {
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['chargebacks', startDate, endDate],
     queryFn: () => chargebacks.report(startDate || undefined, endDate || undefined),
   })
@@ -32,13 +39,22 @@ export default function ChargebackReport() {
         </div>
       </div>
 
+      <p className="text-xs text-[var(--brand-text-secondary)] mb-3">Dates include both selected days, using UTC.</p>
+
       {isLoading && <p className="text-sm text-[var(--brand-text-muted)] py-4">Loading...</p>}
 
-      {data && data.length === 0 && (
+      {isError && (
+        <div role="alert" className="py-3 text-[var(--brand-text-primary)]">
+          <p>Unable to load chargeback data.</p>
+          <button type="button" onClick={() => void refetch()} className="mt-2 rounded-md border px-3 py-2">Retry</button>
+        </div>
+      )}
+
+      {!isError && data && data.length === 0 && (
         <p className="text-sm text-[var(--brand-text-muted)] py-4">No chargeback data for this period.</p>
       )}
 
-      {data && data.length > 0 && (
+      {!isError && data && data.length > 0 && (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="border-b border-[var(--brand-card-border)]">
@@ -54,10 +70,10 @@ export default function ChargebackReport() {
               {data.map(row => (
                 <tr key={row.user_id} className="border-b border-[var(--brand-card-border)]">
                   <td className="py-2 px-3 text-[var(--brand-text-primary)]">{row.username || `User #${row.user_id}`}</td>
-                  <td className="py-2 px-3 text-right text-[var(--brand-text-secondary)]">{row.total_jobs}</td>
-                  <td className="py-2 px-3 text-right text-[var(--brand-text-secondary)]">{row.total_hours?.toFixed(1) || '—'}</td>
-                  <td className="py-2 px-3 text-right text-[var(--brand-text-secondary)]">{row.total_grams?.toFixed(0) || '—'}g</td>
-                  <td className="py-2 px-3 text-right text-[var(--brand-text-primary)] font-medium">${row.total_cost?.toFixed(2) || '0.00'}</td>
+                  <td className="py-2 px-3 text-right text-[var(--brand-text-secondary)]">{known(row.job_count) && Number.isInteger(row.job_count) ? row.job_count : 'Unknown'}</td>
+                  <td className="py-2 px-3 text-right text-[var(--brand-text-secondary)]">{known(row.total_hours) ? row.total_hours.toFixed(1) : 'Unknown'}</td>
+                  <td className="py-2 px-3 text-right text-[var(--brand-text-secondary)]">{known(row.total_grams) ? `${row.total_grams.toFixed(0)}g` : 'Unknown'}</td>
+                  <td className="py-2 px-3 text-right text-[var(--brand-text-primary)] font-medium">{cost(row.total_cost, row.currency)}</td>
                 </tr>
               ))}
             </tbody>

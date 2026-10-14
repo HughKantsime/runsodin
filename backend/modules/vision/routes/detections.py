@@ -80,10 +80,12 @@ async def list_vision_detections(
     status_filter: Optional[str] = Query(None, alias="status"),
     limit: int = Query(50, le=200),
     offset: int = 0,
-    current_user: dict = Depends(require_role("viewer")),
+    current_user: dict = Depends(require_role("viewer",scope="read")),
     db: Session = Depends(get_db),
 ):
-    """List vision detections with optional filters."""
+    """Legacy detection ownership is unknown, not today's printer audience."""
+    from modules.vision.training_service import maintenance
+    if not maintenance(current_user):return {"items":[],"total":0}
     org = get_org_scope(current_user)
     query = (
         db.query(VisionDetection, Printer.name, Printer.nickname)
@@ -124,10 +126,11 @@ async def list_vision_detections(
 @router.get("/vision/detections/{detection_id}", tags=["Vigil AI"])
 async def get_vision_detection(
     detection_id: int,
-    current_user: dict = Depends(require_role("viewer")),
+    current_user: dict = Depends(require_role("viewer",scope="read")),
     db: Session = Depends(get_db),
 ):
-    """Get a single detection detail."""
+    from modules.vision.training_service import maintenance
+    if not maintenance(current_user):raise HTTPException(404,"Detection not found")
     row = (
         db.query(VisionDetection, Printer.name, Printer.nickname, Printer.org_id)
         .outerjoin(Printer, Printer.id == VisionDetection.printer_id)
@@ -146,107 +149,49 @@ async def get_vision_detection(
 async def review_vision_detection(
     detection_id: int,
     request: Request,
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_role("operator",scope="write")),
     db: Session = Depends(get_db),
 ):
-    """Review a detection: set status to confirmed or dismissed."""
-    body = await request.json()
-    new_status = body.get("status")
-    if new_status not in ("confirmed", "dismissed"):
-        raise HTTPException(status_code=400, detail="Status must be 'confirmed' or 'dismissed'")
-
-    det = db.query(VisionDetection).filter(VisionDetection.id == detection_id).first()
-    if not det:
-        raise HTTPException(status_code=404, detail="Detection not found")
-
-    # Check org access via the detection's printer
-    if det.printer_id:
-        printer = db.query(Printer).filter(Printer.id == det.printer_id).first()
-        if printer and not check_org_access(current_user, printer.org_id):
-            raise HTTPException(status_code=404, detail="Detection not found")
-
-    det.status = new_status
-    det.reviewed_by = current_user["id"]
-    det.reviewed_at = sa_func.now()
-    db.commit()
-    return {"id": detection_id, "status": new_status}
+    from modules.vision.training_service import maintenance
+    from sqlalchemy import update
+    if not maintenance(current_user):raise HTTPException(404,"Detection not found")
+    body=await request.json()
+    if not isinstance(body,dict) or body.get("status") not in ("confirmed","dismissed"):
+        raise HTTPException(400,"Status must be confirmed or dismissed")
+    det=db.query(VisionDetection).filter(VisionDetection.id==detection_id).first()
+    if det is None:raise HTTPException(404,"Detection not found")
+    statement=update(VisionDetection).where(VisionDetection.id==detection_id,
+        VisionDetection.printer_id==det.printer_id,VisionDetection.print_job_id==det.print_job_id,
+        VisionDetection.frame_path==det.frame_path,VisionDetection.status==det.status,
+        VisionDetection.reviewed_by==det.reviewed_by,VisionDetection.reviewed_at==det.reviewed_at
+    ).values(status=body["status"],reviewed_by=current_user["id"],reviewed_at=sa_func.now())
+    try:
+        changed=db.execute(statement.execution_options(synchronize_session=False)).rowcount
+        if changed!=1:
+            db.rollback();raise HTTPException(409,"Detection changed; refresh before reviewing")
+        db.commit()
+    except HTTPException:raise
+    except Exception:
+        try:db.rollback()
+        except Exception:pass
+        raise HTTPException(503,"Review persistence unconfirmed; refresh before retrying") from None
+    return {"id":detection_id,"status":body["status"]}
 
 
 @router.post("/vision/detections/{detection_id}/dismiss-and-resume", tags=["Vigil AI"])
 async def dismiss_and_resume(
     detection_id: int,
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_role("operator",scope="write")),
     db: Session = Depends(get_db),
 ):
-    """v1.8.8: one-click "false alarm, resume print" from a vision alert.
-
-    Previously an operator had to click into the detection, mark it
-    dismissed, then navigate to the printer detail page and click
-    Resume. Two screens for a thing that's actually one decision
-    ("this detection was wrong, get back to printing"). This endpoint
-    does both in one call.
-
-    Idempotent both ways:
-      - If the detection is already dismissed, treat that as "fine,
-        just resume the printer".
-      - If the printer is already running (not paused), treat that as
-        "fine, detection dismissed, no resume needed".
-    """
-    det = db.query(VisionDetection).filter(VisionDetection.id == detection_id).first()
-    if not det:
-        raise HTTPException(status_code=404, detail="Detection not found")
-
-    printer = None
-    if det.printer_id:
-        printer = db.query(Printer).filter(Printer.id == det.printer_id).first()
-        if printer and not check_org_access(current_user, printer.org_id):
-            raise HTTPException(status_code=404, detail="Detection not found")
-
-    actions: list[str] = []
-
-    # 1. Dismiss the detection (idempotent).
-    if det.status != "dismissed":
-        det.status = "dismissed"
-        det.reviewed_by = current_user["id"]
-        det.reviewed_at = sa_func.now()
-        db.commit()
-        actions.append("dismissed")
-    else:
-        actions.append("already_dismissed")
-
-    # 2. Resume the printer if one is linked and it looks paused.
-    resume_outcome = "no_printer"
-    if printer is not None:
-        from modules.printers.route_utils import _send_printer_command
-        current_state = (printer.gcode_state or "").upper()
-        if current_state == "RUNNING":
-            resume_outcome = "already_running"
-        else:
-            try:
-                ok = _send_printer_command(printer, "resume_print")
-            except Exception as e:
-                log.error(f"Resume from dismiss-and-resume failed for printer {printer.id}: {e}")
-                ok = False
-            if ok:
-                db.execute(
-                    text("UPDATE printers SET gcode_state = 'RUNNING' WHERE id = :id"),
-                    {"id": printer.id},
-                )
-                db.commit()
-                resume_outcome = "resumed"
-            else:
-                resume_outcome = "resume_failed"
-    actions.append(f"printer:{resume_outcome}")
-
-    return {
-        "detection_id": detection_id,
-        "status": "dismissed",
-        "actions": actions,
-        # Return a 200 even on resume_failed — the dismiss DID happen,
-        # and the operator's next action would be to retry manually.
-        # Surfacing the resume_outcome lets the frontend toast
-        # accordingly.
-    }
+    from modules.vision.training_service import maintenance
+    if not maintenance(current_user):raise HTTPException(404,"Detection not found")
+    det=db.query(VisionDetection).filter(VisionDetection.id==detection_id).first()
+    if det is None:raise HTTPException(404,"Detection not found")
+    # The legacy transport accepts no task identity and cannot fence a hardware
+    # handoff. Do not dismiss first, send an unfenced resume, or fabricate RUNNING.
+    # Verified task-bound command admission is required to restore this workflow.
+    raise HTTPException(409,"This alert cannot verify the printer's current task. Dismiss it separately; resume requires fresh task verification.")
 
 
 # ============== Vigil AI: Per-Printer Vision Settings ==============
@@ -365,41 +310,17 @@ async def update_global_vision_settings(
 async def serve_vision_frame(
     printer_id: int,
     filename: str,
-    current_user: dict = Depends(require_role("viewer")),
+    current_user: dict = Depends(require_role("viewer",scope="read")),
     db: Session = Depends(get_db),
 ):
-    """Serve a captured vision frame (path-traversal + tenancy safe).
-
-    R10 from 2026-04-12 adversarial review: the prior version checked path
-    traversal but not tenancy. Any authenticated viewer who could guess a
-    frame filename could fetch another org's defect images. Now the printer
-    must belong to an org the caller can access, or we return 404 (matches
-    the "resource not found" convention used by CRUD routes to avoid
-    disclosing existence across org boundaries).
-    """
-    import re as _re
-
-    # Tenancy gate: load the printer and confirm the caller can access it.
-    # 404 (not 403) so we don't leak that the printer exists in another org.
-    printer = db.query(Printer).filter(Printer.id == printer_id).first()
-    if not printer:
-        raise HTTPException(status_code=404, detail="Frame not found")
-    if not check_org_access(current_user, printer.org_id):
-        raise HTTPException(status_code=404, detail="Frame not found")
-
-    # Sanitize filename to prevent path traversal
-    if not _re.match(r'^[\w\-\.]+$', filename):
-        raise HTTPException(status_code=400, detail="Invalid filename")
-
-    frame_path = os.path.join('/data/vision_frames', str(printer_id), filename)
-    real_path = os.path.realpath(frame_path)
-    if not real_path.startswith('/data/vision_frames/'):
-        raise HTTPException(status_code=404, detail="Not found")
-
-    if not os.path.isfile(real_path):
-        raise HTTPException(status_code=404, detail="Frame not found")
-
-    return FileResponse(real_path, media_type="image/jpeg")
+    from fastapi.responses import Response
+    from modules.vision.training_service import maintenance,snapshot
+    # Current printer membership cannot establish historical image ownership.
+    if not maintenance(current_user):raise HTTPException(404,"Frame not found")
+    try:
+        data,_,_,_=snapshot(printer_id,f"{printer_id}/{filename}")
+    except (ValueError,OSError):raise HTTPException(404,"Frame not found") from None
+    return Response(data,media_type="image/jpeg")
 
 
 # ============== Vigil AI: Stats ==============
@@ -407,10 +328,13 @@ async def serve_vision_frame(
 @router.get("/vision/stats", tags=["Vigil AI"])
 async def get_vision_stats(
     days: int = Query(7, le=90),
-    current_user: dict = Depends(require_role("viewer")),
+    current_user: dict = Depends(require_role("viewer",scope="read")),
     db: Session = Depends(get_db),
 ):
-    """Detection statistics: counts by type, status, and printer."""
+    """Legacy records have unknown historical ownership."""
+    from modules.vision.training_service import maintenance
+    if not maintenance(current_user):
+        return {"days":days,"by_type":{},"by_status":{},"by_printer":[],"accuracy_pct":None,"total_reviewed":0}
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
     # By type
@@ -485,149 +409,40 @@ async def list_training_data(
     labeled: Optional[bool] = None,
     limit: int = Query(50, le=200),
     offset: int = 0,
-    current_user: dict = Depends(require_role("admin")),
+    current_user: dict = Depends(require_role("admin",scope="read")),
     db: Session = Depends(get_db),
 ):
-    """List captured training frames with labels."""
-    query = db.query(
-        VisionDetection.id,
-        VisionDetection.printer_id,
-        VisionDetection.detection_type,
-        VisionDetection.confidence,
-        VisionDetection.status,
-        VisionDetection.frame_path,
-        VisionDetection.bbox_json,
-        VisionDetection.created_at,
-    ).filter(VisionDetection.frame_path.isnot(None))
-
-    if printer_id is not None:
-        query = query.filter(VisionDetection.printer_id == printer_id)
-    if labeled is True:
-        query = query.filter(VisionDetection.status.in_(["confirmed", "dismissed"]))
-    elif labeled is False:
-        query = query.filter(VisionDetection.status == "pending")
-
-    rows = (
-        query.order_by(VisionDetection.created_at.desc())
-        .limit(limit)
-        .offset(offset)
-        .all()
-    )
-    return [
-        {
-            "id": r.id,
-            "printer_id": r.printer_id,
-            "detection_type": r.detection_type,
-            "confidence": r.confidence,
-            "status": r.status,
-            "frame_path": r.frame_path,
-            "bbox_json": r.bbox_json,
-            "created_at": r.created_at.isoformat() if r.created_at else None,
-        }
-        for r in rows
-    ]
+    from modules.vision.training_service import list_frames
+    return list_frames(db,current_user,printer_id,labeled,limit,offset)
 
 
 @router.post("/vision/training-data/{detection_id}/label", tags=["Vigil AI"])
 async def label_training_data(
     detection_id: int,
     request: Request,
-    current_user: dict = Depends(require_role("admin")),
+    current_user: dict = Depends(require_role("admin",scope="write")),
     db: Session = Depends(get_db),
 ):
-    """Save a label (class + bbox) for a training frame."""
-    body = await request.json()
-    label_class = body.get("class")  # detection_type
-    bbox = body.get("bbox")  # [x1, y1, x2, y2]
+    from modules.vision.training_service import label_frame
+    return label_frame(db,detection_id,await request.json(),current_user)
 
-    if not label_class or bbox is None:
-        raise HTTPException(status_code=400, detail="class and bbox are required")
 
-    VALID_DETECTION_TYPES = {"spaghetti", "first_layer_failure", "detachment", "false_positive"}
-    if label_class not in VALID_DETECTION_TYPES:
-        raise HTTPException(status_code=400, detail=f"Invalid detection type. Must be one of: {', '.join(sorted(VALID_DETECTION_TYPES))}")
-
-    det = db.query(VisionDetection).filter(VisionDetection.id == detection_id).first()
-    if not det:
-        raise HTTPException(status_code=404, detail="Detection not found")
-
-    metadata = json.dumps({"label_class": label_class, "label_bbox": bbox})
-    det.metadata_json = metadata
-    det.detection_type = label_class
-    db.commit()
-    return {"id": detection_id, "labeled": True}
+@router.post("/vision/training-data/{detection_id}/annotation-v2", tags=["Vigil AI"])
+async def annotate_training_frame_v2(detection_id: int,request: Request,
+    current_user: dict = Depends(require_role("admin",scope="write")),db: Session = Depends(get_db)):
+    from modules.vision.training_service import read_annotation_body,versioned_annotation,label_frame
+    if type(current_user.get('id')) is not int or current_user['id']<=0 or current_user.get('role')!='admin' or current_user.get('group_id') is not None:
+        raise HTTPException(404,'Detection not found')
+    body=versioned_annotation(await read_annotation_body(request))
+    return label_frame(db,detection_id,body,current_user,expected_digest=body['expected_image_sha256'])
 
 
 @router.get("/vision/training-data/export", tags=["Vigil AI"])
 async def export_training_data(
-    current_user: dict = Depends(require_role("admin")),
+    current_user: dict = Depends(require_role("admin",scope="read")),
     db: Session = Depends(get_db),
 ):
-    """Download labeled dataset as ZIP in YOLO format."""
-    import zipfile
-    import io
     from fastapi.responses import StreamingResponse
-
-    rows = (
-        db.query(
-            VisionDetection.id,
-            VisionDetection.detection_type,
-            VisionDetection.frame_path,
-            VisionDetection.bbox_json,
-            VisionDetection.metadata_json,
-        )
-        .filter(VisionDetection.status.in_(["confirmed", "dismissed"]))
-        .filter(VisionDetection.frame_path.isnot(None))
-        .all()
-    )
-
-    # Class mapping
-    class_map = {'spaghetti': 0, 'first_layer': 1, 'detachment': 2}
-
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
-        # Write class names
-        zf.writestr('data.yaml', (
-            "names:\n"
-            "  0: spaghetti\n"
-            "  1: first_layer\n"
-            "  2: detachment\n"
-            f"nc: 3\n"
-            "train: images/\n"
-            "val: images/\n"
-        ))
-
-        for row in rows:
-            frame_abs = os.path.realpath(os.path.join('/data/vision_frames', row.frame_path))
-            if not frame_abs.startswith('/data/vision_frames/'):
-                continue  # skip corrupted or injected entries
-            if not os.path.isfile(frame_abs):
-                continue
-
-            base = os.path.splitext(os.path.basename(row.frame_path))[0]
-            zf.write(frame_abs, f"images/{os.path.basename(row.frame_path)}")
-
-            # YOLO label format: class_id cx cy w h (normalized)
-            bbox = json.loads(row.bbox_json) if row.bbox_json else None
-            dt = row.detection_type
-            class_id = class_map.get(dt, 0)
-
-            if bbox and len(bbox) == 4:
-                # Read image dims for normalization
-                import cv2
-                img = cv2.imread(frame_abs)
-                if img is not None:
-                    ih, iw = img.shape[:2]
-                    x1, y1, x2, y2 = bbox
-                    cx = ((x1 + x2) / 2) / iw
-                    cy = ((y1 + y2) / 2) / ih
-                    w = (x2 - x1) / iw
-                    h = (y2 - y1) / ih
-                    zf.writestr(f"labels/{base}.txt", f"{class_id} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}\n")
-
-    buf.seek(0)
-    return StreamingResponse(
-        buf,
-        media_type="application/zip",
-        headers={"Content-Disposition": "attachment; filename=odin_training_data.zip"}
-    )
+    from modules.vision.training_service import export_frames
+    return StreamingResponse(export_frames(db,current_user),media_type="application/zip",
+        headers={"Content-Disposition":"attachment; filename=odin_training_data.zip"})

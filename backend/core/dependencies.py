@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 import core.auth as auth_module
 from core.auth import decode_token, verify_password
 from core.api_token_policy import parse_token_scopes
-from core.models import AuditLog
+from core.audit import log_audit
 from core.db import get_db
 
 log = logging.getLogger("odin.api")
@@ -167,6 +167,8 @@ async def get_current_user(
       1. Authorization: Bearer <JWT> header (API clients, fallback)
       2. X-API-Key header — global key (perimeter auth) or per-user scoped token
     """
+    from core.audit_actor import clear_actor, bind_verified_actor
+    clear_actor(db)
     # Try 0: httpOnly session cookie (browser-based auth)
     session_token = request.cookies.get("session")
     if session_token:
@@ -206,6 +208,7 @@ async def get_current_user(
                             ).fetchone()
                             principal = _principal(user, "session_jwt")
                             if principal:
+                                bind_verified_actor(db, principal)
                                 return principal
             except Exception:
                 log.debug("Cookie auth failed", exc_info=True)
@@ -246,6 +249,7 @@ async def get_current_user(
             ).fetchone()
             principal = _principal(user, "bearer_jwt")
             if principal:
+                bind_verified_actor(db, principal)
                 return principal
 
     # Try 2: X-API-Key header — check global key first, then scoped user tokens
@@ -259,6 +263,7 @@ async def get_current_user(
             ).fetchone()
             principal = _principal(admin, "legacy_global_api_key")
             if principal:
+                bind_verified_actor(db, principal)
                 return principal
 
         # 2b: Per-user scoped tokens (odin_xxx format)
@@ -342,38 +347,7 @@ async def get_current_user(
                 )
                 if principal:
                     principal["_token_expires_at"] = candidate.expires_at
+                    bind_verified_actor(db, principal)
                     return principal
 
     return None
-
-
-def log_audit(
-    db: Session,
-    action: str,
-    entity_type: str = None,
-    entity_id: int = None,
-    details: dict = None,
-    ip: str = None,
-):
-    """Stage an audit log entry on the session. Caller MUST commit.
-
-    The entry is attached to ``db`` but not committed here. This is
-    intentional: the audit row must be committed in the SAME transaction
-    as the business mutation it describes. If callers were to commit the
-    business change first and then call this, an audit insert failure
-    would leave an un-audited business mutation behind — wrong error
-    model, produces duplicate operations on client retry.
-
-    Required call pattern:
-        # stage business changes on db
-        log_audit(db, "action", ...)
-        db.commit()
-    """
-    entry = AuditLog(
-        action=action,
-        entity_type=entity_type,
-        entity_id=entity_id,
-        details=details,
-        ip_address=ip,
-    )
-    db.add(entry)

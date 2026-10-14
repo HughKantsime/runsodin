@@ -121,14 +121,24 @@ async def remove_plug_config(printer_id: int, current_user: dict = Depends(requi
     return {"status": "ok"}
 
 
+def _power_receipt(result):
+    if isinstance(result, smart_plug.MqttPowerReceipt):
+        if result.status == "accepted":
+            return {"accepted": True, "power_state": None}
+        if result.status == "unconfirmed":
+            raise HTTPException(409, "Power command may have been sent; confirmation unavailable. Check before retrying.")
+        raise HTTPException(400, "Power command was not accepted")
+    if type(result) is not bool:
+        raise HTTPException(400, "No smart plug configured or plug unreachable")
+    return {"power_state": result}
+
+
 @router.post("/printers/{printer_id}/plug/on", tags=["Smart Plug"])
 async def plug_power_on(printer_id: int, current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)):
     """Turn on a printer's smart plug."""
     _require_printer_org_access(printer_id, current_user, db)
     result = smart_plug.power_on(printer_id)
-    if result is None:
-        raise HTTPException(400, "No smart plug configured or plug unreachable")
-    return {"power_state": result}
+    return _power_receipt(result)
 
 
 @router.post("/printers/{printer_id}/plug/off", tags=["Smart Plug"])
@@ -136,9 +146,7 @@ async def plug_power_off(printer_id: int, current_user: dict = Depends(require_r
     """Turn off a printer's smart plug."""
     _require_printer_org_access(printer_id, current_user, db)
     result = smart_plug.power_off(printer_id)
-    if result is None:
-        raise HTTPException(400, "No smart plug configured or plug unreachable")
-    return {"power_state": result}
+    return _power_receipt(result)
 
 
 @router.post("/printers/{printer_id}/plug/toggle", tags=["Smart Plug"])
@@ -146,9 +154,7 @@ async def plug_power_toggle(printer_id: int, current_user: dict = Depends(requir
     """Toggle a printer's smart plug."""
     _require_printer_org_access(printer_id, current_user, db)
     result = smart_plug.power_toggle(printer_id)
-    if result is None:
-        raise HTTPException(400, "No smart plug configured or plug unreachable")
-    return {"power_state": result}
+    return _power_receipt(result)
 
 
 @router.get("/printers/{printer_id}/plug/energy", tags=["Smart Plug"])

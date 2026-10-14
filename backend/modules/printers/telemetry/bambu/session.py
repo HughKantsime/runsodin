@@ -20,6 +20,7 @@ semantics); callers treat that as "printer unreachable".
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 from dataclasses import dataclass
@@ -60,6 +61,15 @@ def read_status_once(
     If CONNACK arrives but no status pushes in, returns partial
     (success=True, section=None).
     """
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
+        return StatusReadResult(success=False, error="Invalid status timeout")
+    try:
+        timeout = float(timeout)
+    except (ValueError, OverflowError):
+        return StatusReadResult(success=False, error="Invalid status timeout")
+    if not math.isfinite(timeout) or timeout <= 0 or timeout > threading.TIMEOUT_MAX:
+        return StatusReadResult(success=False, error="Invalid status timeout")
+    deadline = time.monotonic() + timeout
     first_section: dict[str, Optional[BambuPrintSection]] = {"value": None}
     connected = threading.Event()
     had_report = threading.Event()
@@ -73,15 +83,14 @@ def read_status_once(
 
     adapter = BambuTelemetryAdapter(config, emitter=emitter)
     try:
-        adapter.start()
-    except Exception as exc:
-        return StatusReadResult(success=False, error=str(exc))
-
-    try:
-        if not connected.wait(timeout=timeout):
+        try:
+            adapter.start()
+        except Exception:
+            return StatusReadResult(success=False, error="Unable to start printer status session")
+        if not connected.wait(timeout=max(0.0, deadline - time.monotonic())):
             return StatusReadResult(success=False, error="timeout waiting for CONNACK")
-        # Give some slack for first report; partial success if none arrives.
-        remaining = max(0.1, timeout - 1.0)
+        # Both waits consume the same monotonic budget, including startup.
+        remaining = max(0.0, deadline - time.monotonic())
         had_report.wait(timeout=remaining)
         status = adapter.status()
         return StatusReadResult(
@@ -107,12 +116,11 @@ def run_command(
     """
     adapter = BambuCommandAdapter(config)
     try:
-        adapter.start()
-    except Exception:
-        logger.exception("command adapter start failed: printer=%s", config.printer_id)
-        return False
-
-    try:
+        try:
+            adapter.start()
+        except Exception:
+            logger.warning("Command adapter could not start")
+            return False
         # Wait briefly for CONNACK
         deadline = time.time() + connect_timeout
         while time.time() < deadline:
@@ -130,7 +138,7 @@ def run_command(
         try:
             return bool(method(*args, **kwargs))
         except Exception:
-            logger.exception("command %s raised", method_name)
+            logger.warning("Printer command outcome could not be confirmed")
             return False
     finally:
         adapter.stop()

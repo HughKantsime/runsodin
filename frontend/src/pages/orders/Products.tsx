@@ -20,6 +20,12 @@ export default function Products() {
   const [newConsumable, setNewConsumable] = useState({ consumable_id: '', quantity_per_product: 1 })
   const [confirmAction, setConfirmAction] = useState(null)
 
+  const knownPrices = productList.length > 0 && productList.every(product =>
+    typeof product.price === 'number' && Number.isFinite(product.price) && product.price >= 0)
+  const priceTotal = knownPrices ? productList.reduce((sum, product) => sum + product.price, 0) : null
+  const averagePrice = priceTotal != null && Number.isFinite(priceTotal)
+    ? `$${(priceTotal / productList.length).toFixed(2)}` : 'Unknown'
+
   const editRequest = useRef(0)
   const closeModal = () => {
     editRequest.current += 1
@@ -221,7 +227,7 @@ export default function Products() {
             <div className="text-xs text-[var(--brand-muted)] uppercase tracking-wide">Components</div>
           </div>
           <div className="bg-emerald-400/10 rounded-md p-3 text-center border border-[var(--brand-card-border)]">
-            <div className="text-lg md:text-xl font-bold tabular-nums text-emerald-400">{'$' + (productList.reduce((s, p) => s + (p.price || 0), 0) / productList.length).toFixed(0)}</div>
+            <div className="text-lg md:text-xl font-bold tabular-nums text-emerald-400">{averagePrice}</div>
             <div className="text-xs text-[var(--brand-muted)] uppercase tracking-wide">Avg Price</div>
           </div>
           <div className="bg-yellow-400/10 rounded-md p-3 text-center border border-[var(--brand-card-border)]">
@@ -276,7 +282,7 @@ export default function Products() {
                   <div>SKU: {product.sku || '-'}</div>
                   <div>Price: {product.price != null ? `$${product.price.toFixed(2)}` : '-'}</div>
                   <div>Components: {product.component_count || 0} parts</div>
-                  {product.estimated_cogs && <div>Est. COGS: ${product.estimated_cogs.toFixed(2)}</div>}
+                  <div>Est. COGS: {product.estimated_cogs != null ? `$${product.estimated_cogs.toFixed(2)}` : 'Unknown'}</div>
                 </div>
                 {expandedProduct?.id === product.id && (
                   <div className="mt-3 pt-3 border-t border-[var(--brand-card-border)]">
@@ -355,7 +361,7 @@ export default function Products() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-[var(--brand-text)]">
-                      {product.estimated_cogs ? `$${product.estimated_cogs.toFixed(2)}` : '-'}
+                      {product.estimated_cogs != null ? `$${product.estimated_cogs.toFixed(2)}` : 'Unknown'}
                     </td>
                     <td className="px-4 py-3 text-right">
                       {canDo('products.edit') && (

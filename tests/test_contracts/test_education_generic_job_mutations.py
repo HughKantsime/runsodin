@@ -33,7 +33,7 @@ CASES += [('POST','/jobs/13/link-print?print_job_id=1',{}), ('PATCH','/jobs/13',
     ('PATCH','/jobs/13/move',{'printer_id':9,'scheduled_start':'2026-10-12T10:00:00Z'}),
     ('PATCH','/jobs/13/failure',{'failure_reason':'other'}), ('DELETE','/jobs/13',None),
     ('PATCH','/jobs/reorder',{'job_ids':[13]})]
-CASES += [('POST','/jobs/bulk-update',{'job_ids':[13],'action':action}) for action in ('cancel','delete','hold','unhold','set_priority')]
+CASES += [('POST','/jobs/bulk-update',{'job_ids':[13],'action':action}) for action in ('cancel','delete','hold','unhold','set_priority','reschedule')]
 
 
 @pytest.mark.parametrize('method,path,body', CASES)

@@ -87,6 +87,78 @@ def _get_config() -> Optional[Dict[str, Any]]:
         return None
 
 
+def get_power_connection_snapshot(*, connection=None):
+    """Read current broker inputs once, without the telemetry cache or client.
+
+    The snapshot stays in memory. Changed credentials, TLS or destination must
+    be compared again by the parent before dispatch.
+    """
+    from contextlib import nullcontext
+    from core.mqtt_connection_snapshot import MqttConnectionSnapshot
+    import ipaddress
+    import re
+    try:
+        with (nullcontext(connection) if connection is not None else engine.connect()) as conn:
+            rows = {row[0]: row[1] for row in conn.execute(text(
+                "SELECT key,value FROM system_config WHERE key LIKE 'mqtt_republish_%'"))}
+        def boolean(value):
+            if not isinstance(value, str):
+                raise ValueError('Invalid boolean')
+            normalized = value.strip().lower()
+            if normalized in ('true', '1', 'yes', 'on'):
+                return True
+            if normalized in ('false', '0', 'no', 'off', ''):
+                return False
+            raise ValueError('Invalid boolean')
+        if not boolean(rows.get('mqtt_republish_enabled', '')):
+            return None
+        host = rows.get('mqtt_republish_host', '')
+        if not isinstance(host, str) or not host or host != host.strip() or len(host) > 253:
+            return None
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            labels = host.rstrip('.').split('.')
+            if any(not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?', label) for label in labels):
+                return None
+        raw_port = rows.get('mqtt_republish_port', '1883')
+        if type(raw_port) is int:
+            port = raw_port  # SQLite JSON affinity and native JSON scalar ports.
+        elif type(raw_port) is str and re.fullmatch(r'[0-9]{1,5}', raw_port):
+            port = int(raw_port)
+        else:
+            return None
+        if not 1 <= port <= 65535:
+            return None
+        username = rows.get('mqtt_republish_username', '')
+        password = rows.get('mqtt_republish_password', '')
+        if not isinstance(username, str) or not isinstance(password, str) or '\x00' in username or '\x00' in password:
+            return None
+        if password:
+            import core.crypto as crypto
+            decoded = crypto.decrypt(password)
+            # Preserve legacy plaintext, but never send an undecoded Fernet token.
+            if not isinstance(decoded, str) or crypto.is_encrypted(password) and decoded == password:
+                return None
+            password = decoded
+        return MqttConnectionSnapshot(host, port, username, password,
+                                      boolean(rows.get('mqtt_republish_use_tls', '')))
+    except Exception:
+        log.warning('MQTT power connection settings could not be verified')
+        return None
+
+
+def _stop_client(client):
+    """Retire a client even if either cleanup operation fails."""
+    if client is None:
+        return
+    for operation in ("loop_stop", "disconnect"):
+        try:
+            getattr(client, operation)()
+        except Exception:
+            log.debug("MQTT client cleanup failed")
+
+
 def _get_client():
     """Get or create MQTT client for external broker."""
     global _client
@@ -101,14 +173,13 @@ def _get_client():
                 if _client.is_connected():
                     return _client
             except Exception as e:
-                log.debug(f"MQTT client connection check failed: {e}")
-            # Stale client — disconnect and recreate
-            try:
-                _client.disconnect()
-            except Exception as e:
-                log.debug(f"Failed to disconnect stale MQTT client: {e}")
+                log.debug("MQTT client connection check failed")
+            # Retire under the publisher lock before selecting a replacement.
+            previous = _client
             _client = None
+            _stop_client(previous)
 
+        client = None
         try:
             import paho.mqtt.client as mqtt
 
@@ -129,15 +200,18 @@ def _get_client():
             from core.itar import enforce_host_destination
             enforce_host_destination(config["host"], scheme="mqtt")
 
-            client.connect(config["host"], config["port"], keepalive=60)
-            client.loop_start()
+            if client.connect(config["host"], config["port"], keepalive=60) != mqtt.MQTT_ERR_SUCCESS:
+                raise RuntimeError("MQTT connection refused")
+            if client.loop_start() != mqtt.MQTT_ERR_SUCCESS:
+                raise RuntimeError("MQTT network loop failed to start")
 
             _client = client
             log.info(f"Connected to external MQTT broker: {config['host']}:{config['port']}")
             return _client
 
         except Exception as e:
-            log.warning(f"Failed to connect to external MQTT broker: {e}")
+            _stop_client(client)
+            log.warning("Failed to connect to external MQTT broker")
             return None
 
 
@@ -160,6 +234,32 @@ def _publish(topic_suffix: str, payload: dict):
     except Exception as e:
         log.debug(f"Failed to publish to {topic}: {e}")
 
+
+
+def publish_power_command(topic: str, action: str) -> str:
+    """Publish exact plug command; ACK confirms broker receipt, not device state."""
+    if (not isinstance(topic, str) or not topic or len(topic) > 512
+            or topic != topic.strip() or any(ord(char) < 32 or ord(char) == 127 or char in "+#" for char in topic)
+            or action not in ("ON", "OFF", "TOGGLE")):
+        return "rejected"
+    attempted = False
+    try:
+        client = _get_client()
+        if client is None:
+            return "rejected"
+        # Retirement uses this same lock; bounded ACK wait cannot change clients.
+        with _client_lock:
+            if _client is not client:
+                return "rejected"
+            attempted = True
+            receipt = client.publish(topic, action, qos=1, retain=False)
+            if not isinstance(receipt.rc, int) or isinstance(receipt.rc, bool) or receipt.rc != 0:
+                return "unconfirmed"
+            receipt.wait_for_publish(timeout=5)
+            return "accepted" if receipt.is_published() is True else "unconfirmed"
+    except Exception:
+        log.warning("MQTT plug command could not be confirmed")
+        return "unconfirmed" if attempted else "rejected"
 
 def _sanitize_name(name: str) -> str:
     """Make a printer name safe for MQTT topics."""
@@ -220,18 +320,15 @@ def disconnect():
     """Clean shutdown."""
     global _client
     with _client_lock:
-        if _client:
-            try:
-                _client.loop_stop()
-                _client.disconnect()
-            except Exception as e:
-                log.debug(f"Error during MQTT shutdown: {e}")
-            _client = None
+        previous = _client
+        _client = None
+        _stop_client(previous)
 
 
 def test_connection(host: str, port: int, username: str = "", password: str = "",
                      use_tls: bool = False, topic_prefix: str = "odin") -> dict:
     """Test connection to an external broker. Returns {success, message}."""
+    client = None
     try:
         import paho.mqtt.client as mqtt
 
@@ -250,7 +347,8 @@ def test_connection(host: str, port: int, username: str = "", password: str = ""
         from core.itar import enforce_host_destination
         enforce_host_destination(host, scheme="mqtt")
 
-        client.connect(host, port, keepalive=10)
+        if client.connect(host, port, keepalive=10) != mqtt.MQTT_ERR_SUCCESS:
+            return {"success": False, "message": "MQTT connection could not be established"}
         client.loop_start()
 
         # Publish a test message
@@ -261,16 +359,18 @@ def test_connection(host: str, port: int, username: str = "", password: str = ""
             "timestamp": time.time(),
         }), qos=0)
 
-        # Wait for publish to complete
+        if result.rc != mqtt.MQTT_ERR_SUCCESS:
+            return {"success": False, "message": "MQTT test publication failed"}
         result.wait_for_publish(timeout=5)
-
-        client.loop_stop()
-        client.disconnect()
+        if not result.is_published():
+            return {"success": False, "message": "MQTT test publication timed out"}
 
         return {"success": True, "message": f"Connected and published test to {topic}"}
 
-    except Exception as e:
-        return {"success": False, "message": str(e)}
+    except Exception:
+        return {"success": False, "message": "MQTT connection test failed. Check broker settings and connectivity."}
+    finally:
+        _stop_client(client)
 
 
 def invalidate_cache():
@@ -280,13 +380,9 @@ def invalidate_cache():
     _config_ts = 0
     # Also disconnect so next publish reconnects with new settings
     with _client_lock:
-        if _client:
-            try:
-                _client.loop_stop()
-                _client.disconnect()
-            except Exception as e:
-                log.debug(f"Error during MQTT cache invalidation disconnect: {e}")
-            _client = None
+        previous = _client
+        _client = None
+        _stop_client(previous)
 
 
 # ---------------------------------------------------------------------------
@@ -315,6 +411,19 @@ def _on_job_event(event) -> None:
 def _on_alert_dispatched(event) -> None:
     """Republish alert notifications."""
     data = event.data
+    # Alert MQTT is external delivery; in-app events remain live during quiet hours.
+    try:
+        from sqlalchemy.orm import Session
+        from modules.notifications.recipient_policy import resolve_alert_scope
+        from modules.notifications.quiet_hours import should_suppress_notification
+        with Session(engine) as db:
+            _, org_id = resolve_alert_scope(db, printer_id=data.get("printer_id"),
+                                           job_id=data.get("job_id"), spool_id=data.get("spool_id"))
+        if should_suppress_notification(org_id=org_id):
+            return
+    except Exception:
+        log.warning("MQTT alert scope or suppression check failed; delivery refused")
+        return
     republish_alert(
         alert_type=data.get("alert_type", ""),
         severity=data.get("severity", "info"),

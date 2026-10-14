@@ -17,6 +17,7 @@ from modules.organizations.education_policy import (
     authorize_dispatch,
     cancel_dispatch_reservation,
     claim_monitor_observation,
+    discover_start_authority, lock_start_authority, recheck_start_authority, finalize_start_authority, start_identity_matches,
     classify_monitor_observation,
     confirm_dispatch_started,
     assert_org_hard_delete_allowed,
@@ -137,11 +138,30 @@ class EducationPolicyService(EducationPolicyProvider):
             extension=extension,
         )
 
+    def lock_dispatch_reservation(self, db, *, reservation: dict) -> bool:
+        from modules.organizations.education_policy import lock_dispatch_reservation
+        return lock_dispatch_reservation(db, reservation=reservation)
+
     def cancel_dispatch_reservation(self, db, **kwargs) -> bool:
         return cancel_dispatch_reservation(db, **kwargs)
 
     def confirm_dispatch_started(self, db, **kwargs) -> dict:
         return confirm_dispatch_started(db, **kwargs)
+
+    def start_identity_matches(self, context, *identities):
+        return start_identity_matches(context, *identities)
+
+    def discover_start_authority(self, db, **kwargs):
+        return discover_start_authority(db, **kwargs)
+
+    def lock_start_authority(self, db, context):
+        return lock_start_authority(db, context)
+
+    def recheck_start_authority(self, db, context):
+        return recheck_start_authority(db, context)
+
+    def finalize_start_authority(self, db, **kwargs):
+        return finalize_start_authority(db, **kwargs)
 
     def claim_monitor_observation(self, db, **kwargs) -> dict:
         return claim_monitor_observation(db, **kwargs)

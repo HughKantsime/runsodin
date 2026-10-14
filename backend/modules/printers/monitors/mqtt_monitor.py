@@ -42,6 +42,8 @@ class MQTTMonitorDaemon:
     """Main daemon that monitors all printers."""
 
     def __init__(self):
+        from core.monitor_bootstrap import bootstrap_monitor_authority
+        bootstrap_monitor_authority()
         self.monitors: Dict[int, PrinterMonitor] = {}
         self._running = False
 
@@ -248,6 +250,13 @@ class MQTTMonitorDaemon:
         except Exception as e:
             log.warning(f"Error checking for new printers: {e}")
 
+    def _persist_offline(self, printer_id):
+        try:
+            with engine.begin() as conn:
+                conn.execute(text("UPDATE printers SET gcode_state='OFFLINE',print_stage='Offline' WHERE id=:pid"), {"pid": printer_id})
+        except Exception:
+            log.warning("Offline state persistence failed; retry on next connection check")
+
     def _check_reconnect(self):
         """Check for dead connections and attempt reconnection."""
         # Check Bambu printers
@@ -258,6 +267,7 @@ class MQTTMonitorDaemon:
             if monitor is None:
                 # Never connected - try again
                 log.info(f"[{p['name']}] Attempting initial connection...")
+                self._persist_offline(pid)
                 new_mon = PrinterMonitor(
                     printer_id=p['id'],
                     name=p['name'],
@@ -271,7 +281,7 @@ class MQTTMonitorDaemon:
                 continue
 
             # Check if connection is dead
-            is_dead = False
+            is_dead = getattr(monitor, "_transport_offline", False)
             if hasattr(monitor, '_bambu') and monitor._bambu:
                 if not monitor._bambu._connected:
                     is_dead = True
@@ -287,6 +297,7 @@ class MQTTMonitorDaemon:
                     monitor.disconnect()
                 except Exception as e:
                     log.debug(f"Error disconnecting stale monitor: {e}")
+                self._persist_offline(pid)
                 time.sleep(1)  # let old TLS socket fully tear down
 
                 new_mon = PrinterMonitor(

@@ -1,10 +1,12 @@
 """AMS environment routes — AMS telemetry, current readings, RFID refresh, slot configuration."""
 
 import logging
+import math
+import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel as PydanticBaseModel
+from pydantic import BaseModel as PydanticBaseModel, Field, field_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -118,10 +120,39 @@ async def refresh_ams_rfid(
 
 
 class AMSSlotConfigRequest(PydanticBaseModel):
-    material: str = "PLA"
+    material: str = Field(default="PLA", min_length=1, max_length=64)
     color: str = "#FFFFFF"
-    k_factor: float = 0.0
+    k_factor: float = Field(default=0.0, ge=0, allow_inf_nan=False)
     spool_id: Optional[int] = None
+
+    @field_validator("material", mode="before")
+    @classmethod
+    def validate_material(cls, value):
+        if not isinstance(value, str):
+            raise ValueError("Material must be a nonempty string")
+        return value.strip()
+
+    @field_validator("color")
+    @classmethod
+    def validate_color(cls, value):
+        if not re.fullmatch(r"#?(?:[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})", value):
+            raise ValueError("Color must contain six or eight hexadecimal digits with an optional #")
+        return value
+
+    @field_validator("k_factor", mode="before")
+    @classmethod
+    def validate_k_factor_type(cls, value):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("K-factor must be a finite nonnegative number")
+        try:
+            finite = math.isfinite(value)
+        except OverflowError:
+            finite = False
+        if not finite:
+            # Default validation responses echo the input; JSON cannot encode
+            # nonfinite numbers. Return a constant safe error before that path.
+            raise HTTPException(status_code=422, detail="K-factor must be finite")
+        return value
 
 
 @router.put("/printers/{printer_id}/ams/{ams_id}/slots/{slot_id}", tags=["AMS"])

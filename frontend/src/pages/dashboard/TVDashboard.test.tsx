@@ -1,16 +1,16 @@
 import { act, render, screen, fireEvent, cleanup } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import TVDashboard from './TVDashboard'
-const state=vi.hoisted(()=>({printers:[] as any[],alerts:{unread_count:0},navigate:vi.fn(),printerError:false,alertError:false,loading:false,alertLoading:false,retry:vi.fn()}))
+const state=vi.hoisted(()=>({printers:[] as any[],alerts:{print_failed:0,spool_low:0,maintenance_overdue:0,total:0},navigate:vi.fn(),printerError:false,alertError:false,loading:false,alertLoading:false,retry:vi.fn()}))
 vi.mock('react-router-dom',()=>({useNavigate:()=>state.navigate}))
 vi.mock('@tanstack/react-query',()=>({useQuery:({queryKey}:any)=>({data:queryKey[0]==='printers'?state.printers:state.alerts,isLoading:queryKey[0]==='printers'?state.loading:state.alertLoading,isError:queryKey[0]==='printers'?state.printerError:state.alertError,refetch:state.retry})}))
 vi.mock('../../BrandingContext',()=>({useBranding:()=>({app_name:'Test farm'})}))
 vi.mock('../../hooks/useWebRTC',()=>({default:()=>({videoRef:{current:null},status:'connecting'})}))
 const printer=(id:number,extra={})=>({id,name:`Printer ${id}`,online:true,gcode_state:'IDLE',...extra})
-beforeEach(()=>{vi.useFakeTimers();vi.setSystemTime(new Date('2026-10-11T12:00:00Z'));state.printers=[];state.alerts={unread_count:0};state.navigate.mockReset();state.retry.mockReset();state.printerError=false;state.alertError=false;state.loading=false;state.alertLoading=false})
+beforeEach(()=>{vi.useFakeTimers();vi.setSystemTime(new Date('2026-10-11T12:00:00Z'));state.printers=[];state.alerts={print_failed:0,spool_low:0,maintenance_overdue:0,total:0};state.navigate.mockReset();state.retry.mockReset();state.printerError=false;state.alertError=false;state.loading=false;state.alertLoading=false})
 afterEach(()=>{cleanup();vi.useRealTimers()})
 test('fleet totals include paused jobs and errors outside the visible page',()=>{
- state.printers=Array.from({length:13},(_,i)=>printer(i+1));state.printers[0].gcode_state='RUNNING';state.printers[12]={...state.printers[12],gcode_state:'PAUSE',hms_errors:[{code:'Synthetic HMS'}]};state.alerts={unread_count:2};render(<TVDashboard/>);
+ state.printers=Array.from({length:13},(_,i)=>printer(i+1));state.printers[0].gcode_state='RUNNING';state.printers[12]={...state.printers[12],gcode_state:'PAUSE',hms_errors:[{code:'Synthetic HMS'}]};state.alerts={print_failed:1,spool_low:1,maintenance_overdue:0,total:2};render(<TVDashboard/>);
  expect(screen.getByText('2/13 Printing')).toBeInTheDocument();expect(screen.getByText('1 Error')).toBeInTheDocument();expect(screen.getByText('2 Active Alerts')).toBeInTheDocument();expect(screen.getAllByTestId('tv-printer-card')).toHaveLength(12)
 })
 test('rotates twelve-card pages every thirty seconds, wraps and clears timers on exit',()=>{

@@ -2,6 +2,8 @@ import { fetchAPI } from './client'
 import type {
   CursorPage,
   EducationCapabilities,
+  EducationAMSReport,
+  EducationApprovalRequest,
   EducationCompatibility,
   EducationCostCenter,
   EducationDecisionResult,
@@ -119,9 +121,15 @@ export const education = {
     data.append('file', file)
     return fetchAPI('/education/submissions', { method: 'POST', body: data })
   },
+  readAMS: (
+    id: number,
+    data: { revision: number; printer_id: number; selected_slots: number[] },
+  ): Promise<EducationAMSReport> => fetchAPI(`/education/submissions/${id}/ams-read`, {
+    method: 'POST', body: JSON.stringify(data),
+  }),
   approveSubmission: (
     id: number,
-    data: { revision: number; printer_id: number; command_id: string },
+    data: EducationApprovalRequest,
   ): Promise<EducationDecisionResult> => fetchAPI(`/education/submissions/${id}/approve`, {
     method: 'POST', body: JSON.stringify(data),
   }),

@@ -145,9 +145,8 @@ def setup_status(db: Session = Depends(get_db)):
 
 @router.post("/setup/admin", tags=["Setup"])
 def setup_create_admin(request: SetupAdminRequest, db: Session = Depends(get_db)):
-    """Create the first admin user during setup. Refuses if any user exists."""
-    if _setup_users_exist(db):
-        raise HTTPException(status_code=403, detail="Setup already completed — users exist")
+    """Create the first admin only while setup is incomplete and has no users."""
+    _validate_setup_phase(db)
 
     pw_valid, pw_msg = _validate_password(request.password)
     if not pw_valid:

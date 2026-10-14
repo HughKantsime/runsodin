@@ -44,3 +44,8 @@ test('shortcut ignores keys from children of editable content',async()=>{
  const child=document.createElement('span');screen.getByTestId('editor').appendChild(child);fireEvent.keyDown(child,{key:'f'})
  expect(screen.queryByRole('button',{name:'Exit (Esc)'})).not.toBeInTheDocument()
 })
+
+test('Film navigation points to the real Timelapses route from Cameras', async()=>{
+ render(<Harness/>);await screen.findByRole('link',{name:'Synthetic camera'})
+ expect(screen.getByRole('link',{name:'Timelapses'})).toHaveAttribute('href','/timelapses')
+})

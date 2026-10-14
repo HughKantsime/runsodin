@@ -1,5 +1,6 @@
 """Spool CRUD and action endpoints (load/unload/use/weigh/drying)."""
 
+from core.spool_purchase_evidence import read_purchase, write_purchase, require_financial_owner
 from core.rbac import should_filter_org
 
 from typing import Optional
@@ -51,7 +52,7 @@ def low_stock_spools(
     spools = query.all()
     result = []
     for s in spools:
-        threshold = s.low_stock_threshold_g or 50
+        threshold = s.low_stock_threshold_g if s.low_stock_threshold_g is not None else 50
         remaining = s.remaining_weight_g or 0
         if remaining < threshold:
             result.append({
@@ -121,7 +122,7 @@ def list_spools(
             "filament_color_hex": s.color_hex or (s.filament.color_hex if s.filament else None),
             "pa_profile": s.pa_profile,
             "low_stock_threshold_g": s.low_stock_threshold_g,
-            "is_low_stock": (s.remaining_weight_g or 0) < (s.low_stock_threshold_g or 50),
+            "is_low_stock": (s.remaining_weight_g or 0) < (s.low_stock_threshold_g if s.low_stock_threshold_g is not None else 50),
         }
         result.append(spool_dict)
 
@@ -141,7 +142,7 @@ def create_spool(spool: SpoolCreate, current_user: dict = Depends(require_role("
     import uuid
     qr_code = f"SPL-{uuid.uuid4().hex[:8].upper()}"
 
-    db_spool = Spool(
+    values = dict(
         filament_id=spool.filament_id,
         qr_code=qr_code,
         initial_weight_g=spool.initial_weight_g,
@@ -153,12 +154,35 @@ def create_spool(spool: SpoolCreate, current_user: dict = Depends(require_role("
         lot_number=spool.lot_number,
         storage_location=spool.storage_location,
         notes=spool.notes,
+        pa_profile=spool.pa_profile,
+        low_stock_threshold_g=spool.low_stock_threshold_g,
         status=SpoolStatus.ACTIVE,
         org_id=current_user.get("group_id") if current_user else None,
     )
-    db.add(db_spool)
-    db.flush()
-    db.refresh(db_spool)
+    # Preserve mapped bind semantics (notably SQLite datetime formatting) while
+    # the reviewed factory owns the fresh INSERT and immutable birth evidence.
+    dialect = db.get_bind().dialect
+    for name, value in list(values.items()):
+        processor = Spool.__table__.c[name].type.dialect_impl(dialect).bind_processor(dialect)
+        if processor is not None:
+            values[name] = processor(value)
+    from core.economic_source_creation import _create_spool
+    owner = values["org_id"]
+    actor_org = current_user.get("group_id")
+    global_authority = current_user.get("role") == "admin" and actor_org is None
+    attestation = {}
+    if type(owner) is int and owner > 0 and (
+        (type(actor_org) is int and actor_org == owner) or global_authority
+    ):
+        attestation = {"owner_org_id": owner}
+    elif owner is None and global_authority:
+        attestation = {"owner_org_id": None, "global_authority": True}
+    created = _create_spool(db, values, **attestation)
+    if spool.purchase_evidence is not None:
+        write_purchase(db, created.id, current_user, spool.purchase_evidence, 0)
+    db_spool = db.get(Spool, created.id)
+    if db_spool is None:
+        raise RuntimeError("Fresh spool could not be loaded")
 
     log_audit(db, "create", "spool", db_spool.id, {"filament_id": spool.filament_id, "qr_code": db_spool.qr_code})
     db.commit()
@@ -167,6 +191,14 @@ def create_spool(spool: SpoolCreate, current_user: dict = Depends(require_role("
         "qr_code": db_spool.qr_code,
         "message": "Spool created",
     }
+
+
+@router.get("/{spool_id}/purchase-evidence", tags=["Spools"])
+def get_spool_purchase_evidence(spool_id: int, current_user: dict = Depends(require_role("viewer", scope="read:spools")), db: Session = Depends(get_db)):
+    spool = db.query(Spool).filter(Spool.id == spool_id).first()
+    if not spool or not check_org_access(current_user, spool.org_id):
+        raise HTTPException(status_code=404, detail="Spool not found")
+    return read_purchase(db, spool_id, current_user)
 
 
 @router.get("/{spool_id}", tags=["Spools"])
@@ -195,6 +227,9 @@ def get_spool(spool_id: int, current_user: dict = Depends(require_role("viewer",
         "location_slot": spool.location_slot,
         "storage_location": spool.storage_location,
         "notes": spool.notes,
+        "pa_profile": spool.pa_profile,
+        "low_stock_threshold_g": spool.low_stock_threshold_g,
+        "is_low_stock": (spool.remaining_weight_g or 0) < (spool.low_stock_threshold_g if spool.low_stock_threshold_g is not None else 50),
         "created_at": spool.created_at,
         "updated_at": spool.updated_at,
         "filament_brand": spool.filament.brand if spool.filament else None,
@@ -224,6 +259,17 @@ def update_spool(spool_id: int, updates: SpoolUpdate, current_user: dict = Depen
         raise HTTPException(status_code=404, detail="Spool not found")
 
     update_data = updates.model_dump(exclude_unset=True)
+    purchase_operation = "purchase_evidence" in update_data
+    purchase = update_data.pop("purchase_evidence", None)
+    expected = update_data.pop("expected_purchase_revision", None)
+    if "price" in update_data and update_data["price"] != spool.price:
+        require_financial_owner(db, spool_id, current_user, legacy_allowed=True)
+    if purchase_operation:
+        legacy_fields = {"price": update_data.pop("price")} if "price" in update_data else None
+        write_purchase(db, spool_id, current_user, purchase, expected, legacy_fields=legacy_fields)
+        log_audit(db, "spool.purchase_evidence_updated", "spool", spool_id,
+                  {"state": "cleared" if purchase is None else "recorded"})
+
 
     if "status" in update_data:
         update_data["status"] = SpoolStatus(update_data["status"])

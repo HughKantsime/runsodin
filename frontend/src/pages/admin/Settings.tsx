@@ -9,6 +9,7 @@ import OIDCSettings from '../../components/admin/OIDCSettings'
 import WebhookSettings from '../../components/admin/WebhookSettings'
 import GroupManager from '../../components/admin/GroupManager'
 import MFASetup from '../../components/auth/MFASetup'
+import { getCurrentUser } from '../../permissions'
 import APITokenManager from '../../components/auth/APITokenManager'
 import SessionManager from '../../components/auth/SessionManager'
 import QuotaManager from '../../components/admin/QuotaManager'
@@ -105,7 +106,7 @@ export default function Settings() {
         <AccessAccordion title="Authentication (OIDC & MFA)" icon={Key}>
           <OIDCSettings />
           <div className="border-t border-[var(--brand-card-border)] pt-6 mt-6">
-            <MFASetup />
+            <MFASetup key={getCurrentUser()?.id} principalKey={getCurrentUser()?.id} />
           </div>
         </AccessAccordion>
         <AccessAccordion title="Tokens & Sessions" icon={Key}>

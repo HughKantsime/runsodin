@@ -78,14 +78,31 @@ def tls_mqtt(tmp_path):
 
 def setup_workflow(db, tmp_path, monkeypatch, path, mqtt_port):
     from core import crypto, db as core_db, ws_hub
+    from core import auth
+    from modules.printers import smart_plug, dispatch_acquisition
     from modules.printers.adapters.bambu import BambuPrinter
     from modules.printers.telemetry import feature_flag
     from modules.printers.telemetry.bambu import broker_policy
 
     monkeypatch.setenv("ENCRYPTION_KEY", Fernet.generate_key().decode())
+    monkeypatch.setattr(auth, "SECRET_KEY", secrets.token_hex(32))
+    monkeypatch.setattr(smart_plug, "engine", db.get_bind())
+    from core import event_bus
+    from core.event_bus import InMemoryEventBus
+    from core.registry import registry
+    from core.monitor_bootstrap import bootstrap_monitor_authority
+    # Model independently supervised startup with genuine process-local services.
+    monkeypatch.setattr(registry, "_providers", {})
+    monkeypatch.setattr(event_bus, "_bus", InMemoryEventBus())
+    monkeypatch.setattr(core_db, "engine", db.get_bind())
+    bootstrap_monitor_authority()
+    # Owned firmware peers below exercise actual FTPS and TLS MQTT transport.
+    # Fresh-idle acquisition has separate protocol-peer acceptance tests.
+    monkeypatch.setattr(dispatch_acquisition, "bounded_status_is_idle", lambda *args: True)
     db.execute(text("UPDATE printers SET api_host='127.0.0.1',api_key=:key WHERE id=9"),
                {"key": crypto.encrypt("synthetic-printer|" + SYNTHETIC_ACCESS_CODE)})
     db.commit()
+    monkeypatch.setenv("EDUCATION_MIN_FREE_GIB", "1")
     uploaded = _upload_and_approve(db, tmp_path, "P1S")
     assert _schedule(db, monkeypatch).scheduled_count == 1
     monkeypatch.setattr(core_db, "engine", db.get_bind())
@@ -133,12 +150,18 @@ def test_classroom_connected_transport_and_lifecycle(path, failure, review_db, t
                                  {"id": uploaded["job_id"]}).scalar_one() == 0
         assert not commands
         assert peer.received == (payload if failure == "final_reply_reset" else b"")
-        peer = ProtectedFTPServer(resumption_context, require_session_reuse=True, expected_credentials=("bblp", SYNTHETIC_ACCESS_CODE))
-        monkeypatch.setattr(ftp_upload, "FTPS_PORT", peer.port)
-        try:
-            ok, reason = dispatch.dispatch_job(9, uploaded["job_id"])
-        finally:
-            peer.finish()
+        # Adapter entry is durable even when this peer proves no start command.
+        # A generic retry cannot assume that evidence exists on a real printer.
+        assert review_db.execute(text("SELECT state FROM printer_dispatch_claims WHERE job_id=:id"),
+                                 {"id": uploaded["job_id"]}).scalar_one() == "uncertain"
+        review_db.rollback()
+        def forbidden(*args, **kwargs):
+            pytest.fail("Unreconciled retry must not enter any transport")
+        monkeypatch.setattr(dispatch, "_dispatch_bambu", forbidden)
+        retry_ok, retry_reason = dispatch.dispatch_job(9, uploaded["job_id"])
+        assert not retry_ok and "unresolved dispatch claim" in retry_reason and "reconcile before retrying" in retry_reason
+        assert not commands
+        return
     assert ok, reason
     assert peer.received == payload and peer.data_tls and peer.session_reused
     assert states(review_db, uploaded) == ("printing", "printing")
@@ -214,8 +237,9 @@ def test_connected_authority_and_integrity_denials_before_transport(path, obstac
             target.write(b"changed-after-approval")
     ok, reason = dispatch.dispatch_job(printer_id, uploaded["job_id"])
     assert not ok
-    expected_reason = {"wrong_printer": "assigned", "revoked": "entitlement changed", "material_drift": "material_mismatch", "tampered": "contents changed"}[obstacle]
-    assert expected_reason in reason
+    expected_reason = {"wrong_printer": "assigned", "revoked": "entitlement changed", "material_drift": "material_mismatch", "tampered": ("contents changed", "payload changed")}[obstacle]
+    fragments=(expected_reason,) if isinstance(expected_reason,str) else expected_reason
+    assert any(fragment in reason for fragment in fragments)
     assert review_db.execute(text("SELECT count(*) FROM education_monitor_claims WHERE job_id=:id"),
                              {"id": uploaded["job_id"]}).scalar_one() == 0
     expected = "submitted" if obstacle in {"revoked", "material_drift"} else "scheduled"
@@ -414,7 +438,15 @@ def test_retained_start_transaction_failure_retries_without_losing_terminal(path
             report('FINISH')
         deadline=time.monotonic()+5
         while states(review_db,uploaded)!=('completed','completed'):
-            assert time.monotonic()<deadline
+            assert time.monotonic()<deadline, {
+                'submission_job':states(review_db,uploaded),
+                'attempts':review_db.execute(text('SELECT id,status,scheduled_job_id FROM print_jobs WHERE printer_id=9')).all(),
+                'receipt_bound':review_db.execute(text('SELECT observed_print_job_id FROM dispatch_attempt_receipts WHERE job_id=:id'),{'id':uploaded['job_id']}).all(),
+                'monitor_current':monitor._current_job_id,
+                'monitor_linked':monitor._linked_job_id,
+                'monitor_last_state':monitor._last_gcode_state,
+                'pending_start':monitor._pending_running_state is not None,
+            }
             time.sleep(.02)
         assert review_db.execute(text('SELECT count(*) FROM print_jobs WHERE printer_id=9')).scalar_one()==1
         assert len([c for c in commands if c.get('print',{}).get('command')=='project_file'])==1

@@ -41,7 +41,8 @@ export default function ModelViewer({ modelId, fileId, modelName, onClose }: { m
     let isRightDown = false
     let prevX = 0, prevY = 0
     let theta = Math.PI / 4, phi = Math.PI / 3
-    let radius = camera.position.length()
+    const initialRadius = camera.position.length()
+    let radius = initialRadius
     const target = new THREE.Vector3(0, 0, 0)
     
     const updateCamera = () => {
@@ -157,7 +158,7 @@ export default function ModelViewer({ modelId, fileId, modelName, onClose }: { m
       reset: () => {
         theta = Math.PI / 4
         phi = Math.PI / 3
-        radius = camera.position.length()
+        radius = initialRadius
         target.set(0, 0, 0)
         updateCamera()
       },

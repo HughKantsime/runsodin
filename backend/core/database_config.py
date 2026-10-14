@@ -9,6 +9,7 @@ from pathlib import Path
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine, URL, make_url
 from sqlalchemy.pool import NullPool, QueuePool
+from core.postgres_restore_gate import assert_postgres_restore_ready
 
 
 class DatabaseConfigurationError(ValueError):
@@ -114,6 +115,9 @@ def create_database_engine(
             poolclass=NullPool,
             connect_args={"check_same_thread": False},
         )
+    restore_data_directory = os.getenv('ODIN_DATA_DIR', '/data')
+    if role not in _RESTORE_LOCK_EXEMPT_ROLES:
+        assert_postgres_restore_ready(restore_data_directory)
     engine = create_engine(
         url,
         echo=echo,
@@ -124,19 +128,43 @@ def create_database_engine(
         pool_recycle=1800,
         connect_args={"application_name": application_name(role)},
     )
+    engine._odin_restore_barrier_required = role not in _RESTORE_LOCK_EXEMPT_ROLES
     if role not in _RESTORE_LOCK_EXEMPT_ROLES:
         @event.listens_for(engine, "connect")
         def _hold_restore_barrier(dbapi_connection, _connection_record) -> None:
-            cursor = dbapi_connection.cursor()
+            cursor = None
+            refused = None
             try:
+                cursor = dbapi_connection.cursor()
                 cursor.execute("SET lock_timeout = '5s'")
-                cursor.execute(
-                    "SELECT pg_advisory_lock_shared(%s)",
-                    (RESTORE_ADVISORY_LOCK,),
-                )
+                cursor.execute("SELECT pg_advisory_lock_shared(%s)", (RESTORE_ADVISORY_LOCK,))
                 cursor.execute("SET lock_timeout = 0")
+                dbapi_connection.commit()
+                assert_postgres_restore_ready(restore_data_directory)
+            except BaseException as error:
+                refused = error
             finally:
-                cursor.close()
+                if cursor is not None:
+                    try:
+                        cursor.close()
+                    except BaseException as error:
+                        if refused is None:
+                            refused = error
+                        refused.cleanup_uncertain = True
+            if refused is not None:
+                # During connect dispatch the SQLAlchemy record is not fully
+                # initialized. Close only this exact received DBAPI owner once;
+                # record.invalidate would access uninitialized private state.
+                try:
+                    dbapi_connection.close()
+                except BaseException:
+                    refused.cleanup_uncertain = True
+                raise refused
+        @event.listens_for(engine, "checkout")
+        def _recheck_durable_restore(_dbapi_connection, _connection_record, _connection_proxy) -> None:
+            # Plain RuntimeError refusal triggers SQLAlchemy single-connection
+            # invalidation, unlike DisconnectionError's reconnect retry loop.
+            assert_postgres_restore_ready(restore_data_directory)
     return engine
 
 

@@ -1,5 +1,6 @@
 """Exercise both Bambu upload paths against a real local TLS FTP peer."""
 import socket
+import os
 import secrets
 import ssl
 import struct
@@ -41,7 +42,8 @@ def resumption_context(tmp_path_factory):
 
 
 class ProtectedFTPServer:
-    def __init__(self, context, reject_protection=False, failure=None, expected_credentials=None, require_session_reuse=False):
+    def __init__(self, context, reject_protection=False, failure=None, expected_credentials=None, require_session_reuse=False, withheld_shutdown=False):
+        self.withheld_shutdown = withheld_shutdown
         self.context = context
         self.require_session_reuse = require_session_reuse
         self.session_reused = False
@@ -49,6 +51,7 @@ class ProtectedFTPServer:
         self.failure = failure
         self.expected_credentials = expected_credentials
         self.reject_protection = reject_protection
+        self.passive_port = None
         self.commands = []
         self.received = b""
         self.remote_filename = None
@@ -106,6 +109,7 @@ class ProtectedFTPServer:
                         passive.listen()
                         passive.settimeout(5)
                         port = passive.getsockname()[1]
+                        self.passive_port = port
                         response = f"227 Entering Passive Mode (127,0,0,1,{port // 256},{port % 256})"
                     elif verb == "STOR":
                         self.remote_filename = argument
@@ -133,13 +137,22 @@ class ProtectedFTPServer:
                                 while chunk := encrypted.recv(8192):
                                     chunks.append(chunk)
                                 self.received = b"".join(chunks)
-                                encrypted.unwrap().close()
+                                if self.withheld_shutdown:
+                                    # Actual A1 pattern: receives TLS close_notify,
+                                    # waits for data TCP EOF before FTP completion.
+                                    with socket.socket(fileno=os.dup(encrypted.fileno())) as raw_data:
+                                        raw_data.settimeout(5)
+                                        assert raw_data.recv(1)==b""
+                                else:
+                                    encrypted.unwrap().close()
                             if self.failure == "final_reply_reset":
                                 control.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
                                 stream.close()
                                 control.close()
                                 return
-                            response = "226 Transfer complete"
+                            if self.failure == "missing_completion":
+                                stream.close();return
+                            response = "200 Not a transfer completion" if self.failure == "completion_code" else "226 Transfer complete"
                     elif verb == "QUIT":
                         control.sendall(b"221 Goodbye\r\n")
                         break
@@ -271,7 +284,61 @@ def test_strict_tls12_peer_requires_production_session_reuse(path, reuse_control
     if not reuse_control_session:
         # Abortive peer close can surface on write (EPIPE) or read (ECONNRESET).
         assert any(any(message in record.getMessage() for message in
-                       ("Connection reset by peer", "Broken pipe")) for record in caplog.records)
+                       ("ConnectionResetError", "BrokenPipeError", "SSLError", "SSLEOFError")) for record in caplog.records)
     assert peer.session_reused is reuse_control_session
     assert peer.session_rejected is not reuse_control_session
     assert peer.received == (payload if reuse_control_session else b"")
+
+
+@pytest.mark.parametrize("path", ["legacy", "v2"])
+def test_bambu_peer_withheld_shutdown_still_requires_real_completion(path, resumption_context, tmp_path, monkeypatch):
+    source=tmp_path/"test.3mf";expected=b"PK\x03\x04owned-A1-pattern"*2048;source.write_bytes(expected)
+    peer=ProtectedFTPServer(resumption_context,require_session_reuse=True,withheld_shutdown=True)
+    try:assert upload(path,peer,source,monkeypatch)
+    finally:peer.finish()
+    assert not peer.errors and peer.data_tls and peer.session_reused
+    assert peer.received==expected
+    assert "PROT P" in peer.commands and "PROT C" not in peer.commands
+
+
+@pytest.mark.parametrize("path", ["legacy", "v2"])
+def test_generic_200_reply_is_not_upload_completion(path,server_context,tmp_path,monkeypatch):
+    source=tmp_path/"test.3mf";source.write_bytes(b"owned completion test")
+    peer=ProtectedFTPServer(server_context,failure="completion_code")
+    try:assert not upload(path,peer,source,monkeypatch)
+    finally:peer.finish()
+
+
+@pytest.mark.parametrize("path", ["legacy", "v2"])
+@pytest.mark.parametrize("failure", ["final_reply_reset","missing_completion","completion_code"])
+def test_unconfirmed_completion_never_starts_print(path,failure,server_context,tmp_path,monkeypatch):
+    from modules.printers import dispatch
+    from modules.printers.telemetry.bambu import session
+    def forbidden(*args,**kwargs):pytest.fail("Unconfirmed transfer reached MQTT")
+    monkeypatch.setattr(dispatch,"_ws",lambda *args:None)
+    monkeypatch.setattr(bambu.BambuPrinter,"connect",forbidden)
+    monkeypatch.setattr(bambu.BambuPrinter,"start_print",forbidden)
+    monkeypatch.setattr(session,"run_command",forbidden)
+    source=tmp_path/"owned.3mf";source.write_bytes(b"owned final reply payload")
+    peer=ProtectedFTPServer(server_context,failure=failure)
+    monkeypatch.setattr(ftp_upload,"FTPS_PORT",peer.port)
+    function=dispatch._dispatch_bambu_legacy if path=="legacy" else dispatch._dispatch_bambu_v2
+    try:
+        ok,reason=function(1,str(source),"test.3mf",{"ip":"127.0.0.1","access_code":SYNTHETIC_FTPS_ACCESS_CODE,"serial":"synthetic-test-printer"})
+        assert not ok and "FTPS upload failed" in reason
+    finally:peer.finish()
+    assert peer.data_tls and peer.received==source.read_bytes()
+
+
+@pytest.mark.parametrize("path", ["legacy", "v2"])
+def test_data_send_failure_cannot_become_upload_success(path,server_context,tmp_path,monkeypatch):
+    source=tmp_path/"owned.3mf";source.write_bytes(b"owned send failure payload")
+    peer=ProtectedFTPServer(server_context);original=ssl.SSLSocket.sendall;failed=[]
+    def send(socket,data,*args,**kwargs):
+        if peer.passive_port and socket.getpeername()[1]==peer.passive_port:
+            failed.append(True);raise BrokenPipeError("Owned injected data send failure")
+        return original(socket,data,*args,**kwargs)
+    monkeypatch.setattr(ssl.SSLSocket,"sendall",send)
+    try:assert not upload(path,peer,source,monkeypatch)
+    finally:peer.finish()
+    assert failed and peer.data_tls and not peer.received

@@ -124,9 +124,10 @@ def test_valid_timestamp_formats_are_accepted(reset_client,review_db,expiry_kind
     assert response.status_code==200
 
 
-def test_weak_password_does_not_consume_link(reset_client,review_db):
+@pytest.mark.parametrize("weak",["short","lowercase1","UPPERCASE1","NoDigitsHere"])
+def test_weak_password_does_not_consume_link(reset_client,review_db,weak):
     client,_,_=reset_client;token=seed_link(review_db);before=state(review_db)
-    response=client.post('/auth/reset-password',json={'token':token,'new_password':'short'})
+    response=client.post('/auth/reset-password',json={'token':token,'new_password':weak})
     assert response.status_code==400
     unchanged=state(review_db)==before
     assert unchanged

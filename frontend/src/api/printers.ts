@@ -23,7 +23,19 @@ import type {
   Camera,
 } from '../types'
 
+export interface DispatchRecoveryInspection {
+  state: string
+  release_available: false
+  job_id?: number | null
+  job?: { status: string; held: boolean } | null
+  receipt_present?: boolean
+  observed_print?: { id: number; status: string } | null
+  education?: { submission_id: number; status: string; reservation_state: string | null } | null
+  guidance?: string
+}
+
 export const printers = {
+  dispatchRecovery: (id: number): Promise<DispatchRecoveryInspection> => fetchAPI(`/printers/${id}/dispatch-recovery`),
   list: (activeOnly = false, tag = '', orgId: number | null = null): Promise<Printer[]> => fetchAPI('/printers?active_only=' + activeOnly + (tag ? '&tag=' + encodeURIComponent(tag) : '') + (orgId != null ? '&org_id=' + orgId : '')),
   allTags: (): Promise<string[]> => fetchAPI('/printers/tags'),
   get: (id: number): Promise<Printer> => fetchAPI('/printers/' + id),
@@ -31,14 +43,14 @@ export const printers = {
   update: (id: number, data: PrinterUpdate): Promise<Printer> => fetchAPI('/printers/' + id, { method: 'PATCH', body: JSON.stringify(data) }),
   delete: (id: number): Promise<void> => fetchAPI('/printers/' + id, { method: 'DELETE' }),
   reorder: (ids: number[]): Promise<void> => fetchAPI('/printers/reorder', { method: 'POST', body: JSON.stringify({ printer_ids: ids }) }),
-  toggleLights: (id: number): Promise<void> => fetchAPI(`/printers/${id}/lights`, { method: 'POST' }),
+  toggleLights: (id: number): Promise<{ lights_on?: boolean; success?: boolean }> => fetchAPI(`/printers/${id}/lights`, { method: 'POST' }),
   updateSlot: (printerId: number, slotNumber: number, data: FilamentSlotUpdate): Promise<void> =>
     fetchAPI('/printers/' + printerId + '/slots/' + slotNumber, { method: 'PATCH', body: JSON.stringify(data) }),
   testConnection: (data: ConnectionTestRequest): Promise<ConnectionTestResult> => fetchAPI('/printers/test-connection', { method: 'POST', body: JSON.stringify(data) }),
   syncAms: (printerId: number): Promise<unknown> => fetchAPI(`/printers/${printerId}/sync-ams`, { method: 'POST' }),
   clearErrors: (printerId: number): Promise<void> => fetchAPI(`/printers/${printerId}/clear-errors`, { method: 'POST' }),
   skipObjects: (printerId: number, objectIds: number[]): Promise<void> => fetchAPI(`/printers/${printerId}/skip-objects`, { method: 'POST', body: JSON.stringify({ object_ids: objectIds }) }),
-  setSpeed: (printerId: number, speed: number): Promise<void> => fetchAPI(`/printers/${printerId}/speed`, { method: 'POST', body: JSON.stringify({ speed }) }),
+  setSpeed: (printerId: number, speed: number): Promise<{ lights_on?: boolean; success?: boolean }> => fetchAPI(`/printers/${printerId}/speed`, { method: 'POST', body: JSON.stringify({ speed }) }),
   assignSlotSpool: (printerId: number, slotNumber: number, spoolId: number): Promise<void> => fetchAPI(`/printers/${printerId}/slots/${slotNumber}/assign?spool_id=${spoolId}`, { method: 'POST' }),
   getCameras: (): Promise<Camera[]> => fetchAPI('/cameras'),
 }
@@ -82,9 +94,10 @@ export const bulkOps = {
 export const getPlugConfig = (printerId: number): Promise<PlugConfig> => fetchAPI(`/printers/${printerId}/plug`)
 export const updatePlugConfig = (printerId: number, config: PlugConfig): Promise<PlugConfig> => fetchAPI(`/printers/${printerId}/plug`, { method: 'PUT', body: JSON.stringify(config) })
 export const removePlugConfig = (printerId: number): Promise<void> => fetchAPI(`/printers/${printerId}/plug`, { method: 'DELETE' })
-export const plugPowerOn = (printerId: number): Promise<void> => fetchAPI(`/printers/${printerId}/plug/on`, { method: 'POST' })
-export const plugPowerOff = (printerId: number): Promise<void> => fetchAPI(`/printers/${printerId}/plug/off`, { method: 'POST' })
-export const plugPowerToggle = (printerId: number): Promise<void> => fetchAPI(`/printers/${printerId}/plug/toggle`, { method: 'POST' })
+export interface PlugPowerReceipt { accepted?: boolean; power_state: boolean | null }
+export const plugPowerOn = (printerId: number): Promise<PlugPowerReceipt> => fetchAPI(`/printers/${printerId}/plug/on`, { method: 'POST' })
+export const plugPowerOff = (printerId: number): Promise<PlugPowerReceipt> => fetchAPI(`/printers/${printerId}/plug/off`, { method: 'POST' })
+export const plugPowerToggle = (printerId: number): Promise<PlugPowerReceipt> => fetchAPI(`/printers/${printerId}/plug/toggle`, { method: 'POST' })
 export const getPlugEnergy = (printerId: number): Promise<PlugEnergyData> => fetchAPI(`/printers/${printerId}/plug/energy`)
 export const getPlugState = (printerId: number): Promise<PlugState> => fetchAPI(`/printers/${printerId}/plug/state`)
 

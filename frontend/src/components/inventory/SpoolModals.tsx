@@ -1,13 +1,23 @@
 import { useState, useEffect } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { spools as spoolsApi } from '../../api'
 import { Modal } from '../ui'
+import { PurchaseFields, PURCHASE_CURRENCIES, validPurchaseDecimal, purchaseAudience, type PurchasePrincipal } from './PurchaseEvidenceModal'
+import type { PurchaseInput } from '../../types/inventory'
 
 const HYGROSCOPIC_TYPES = new Set([
   'PA', 'NYLON_CF', 'NYLON_GF', 'PPS', 'PPS_CF',
   'PETG', 'PETG_CF', 'PC', 'PC_ABS', 'PC_CF', 'TPU', 'PVA',
 ])
 
-export function CreateSpoolModal({ filaments, onClose, onCreate }: { filaments: any[]; onClose: () => void; onCreate: (data: any) => void }) {
+type CreateSpoolProps = { filaments: any[]; onClose: () => void; onCreate: (data: any, audience: string) => void; pending?: boolean }
+export function CreateSpoolModal(props: CreateSpoolProps) {
+  const { data: principal } = useQuery<PurchasePrincipal | null>({ queryKey: ['auth', 'me'], enabled: false })
+  const owner = purchaseAudience(principal)
+  return owner ? <CreateSpoolForm key={owner} {...props} owner={owner} /> : null
+}
+function CreateSpoolForm({ filaments, onClose, onCreate, pending = false, owner }: CreateSpoolProps & { owner: string }) {
+  const queryClient = useQueryClient()
   const [form, setForm] = useState({
     filament_id: '',
     initial_weight_g: 1000,
@@ -17,13 +27,22 @@ export function CreateSpoolModal({ filaments, onClose, onCreate }: { filaments: 
     storage_location: ''
   })
 
+  const [purchaseEnabled, setPurchaseEnabled] = useState(false)
+  const [purchase, setPurchase] = useState({ currency: '', price: '', weight: '' })
+  const [purchaseError, setPurchaseError] = useState('')
+
   const handleSubmit = (e) => {
     e.preventDefault()
+    if (pending || purchaseAudience(queryClient.getQueryData<PurchasePrincipal | null>(['auth', 'me'])) !== owner) return
+    if (purchaseEnabled && (!PURCHASE_CURRENCIES.includes(purchase.currency as PurchaseInput['currency']) || !validPurchaseDecimal(purchase.price, false) || !validPurchaseDecimal(purchase.weight, true))) {
+      setPurchaseError('Enter a supported currency, plain nonnegative purchase price and positive purchased net weight.'); return
+    }
     onCreate({
       ...form,
       filament_id: parseInt(form.filament_id),
-      price: form.price ? parseFloat(form.price) : null
-    })
+      price: form.price ? parseFloat(form.price) : null,
+      ...(purchaseEnabled ? { purchase_evidence: { currency: purchase.currency, price: purchase.price, net_weight_g: purchase.weight } } : {})
+    }, owner)
   }
 
   return (
@@ -102,6 +121,9 @@ export function CreateSpoolModal({ filaments, onClose, onCreate }: { filaments: 
           />
         </div>
 
+        <label className="block"><input type="checkbox" checked={purchaseEnabled} onChange={e => setPurchaseEnabled(e.target.checked)} /> Record explicit purchase evidence</label>
+        {purchaseEnabled && <PurchaseFields {...purchase} onChange={(field, value) => setPurchase({ ...purchase, [field]: value })} />}
+        {purchaseError && <p role="alert">{purchaseError}</p>}
         <div className="flex gap-3 pt-2">
           <button
             type="button"
@@ -112,6 +134,7 @@ export function CreateSpoolModal({ filaments, onClose, onCreate }: { filaments: 
           </button>
           <button
             type="submit"
+            disabled={pending}
             className="flex-1 px-4 py-2 bg-[var(--brand-primary)] hover:opacity-90 rounded-md text-white"
           >
             Add Spool

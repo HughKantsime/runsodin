@@ -1,19 +1,22 @@
 import { useMemo, useState } from 'react'
-import { useInfiniteQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ClipboardCheck, Clock3, RefreshCw } from 'lucide-react'
-import { education } from '../../api'
+import { auth, education } from '../../api'
 import type {
+  User,
   EducationCostCenter,
   EducationSubmission,
   EducationSubmissionStatus,
 } from '../../types'
 import { Button, Card, EmptyState, Select, StatusBadge } from '../ui'
+import { educationAudience } from './SubmissionUploadModal'
 import ReviewDecisionModal from './ReviewDecisionModal'
 
 interface SubmissionQueueProps {
   centers: EducationCostCenter[]
   reviewable: boolean
   mineOnly?: boolean
+  onRevise?: (submission: EducationSubmission) => void
 }
 
 const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
@@ -34,23 +37,29 @@ const formatDate = (value: string | null) => {
   return Number.isNaN(parsed.valueOf()) ? value : parsed.toLocaleString()
 }
 
-export default function SubmissionQueue({ centers, reviewable, mineOnly = false }: SubmissionQueueProps) {
+export default function SubmissionQueue({ centers, reviewable, mineOnly = false, onRevise }: SubmissionQueueProps) {
+  const queryClient = useQueryClient()
+  const { data: principal } = useQuery<User | null>({ queryKey: ['auth', 'me'], queryFn: auth.me, enabled: false })
+  const audience = educationAudience(principal)
+  const ownerId = principal?.id
+  const currentPrincipal = () => queryClient.getQueryData<User | null>(['auth', 'me'])
   const [status, setStatus] = useState('')
   const [centerId, setCenterId] = useState('')
-  const [reviewTarget, setReviewTarget] = useState<EducationSubmission | null>(null)
+  const [reviewTarget, setReviewTarget] = useState<{ submission: EducationSubmission; audience: string } | null>(null)
   const centerNames = useMemo(
     () => Object.fromEntries(centers.map((center) => [center.id, center.name])),
     [centers],
   )
 
   const query = useInfiniteQuery({
-    queryKey: ['education-submissions', status, centerId, mineOnly],
+    queryKey: ['education-submissions', audience, status, centerId, mineOnly],
     queryFn: ({ pageParam }) => education.listSubmissions({
       status: (status || undefined) as EducationSubmissionStatus | undefined,
       costCenterId: centerId ? Number(centerId) : undefined,
       cursor: pageParam,
       limit: 25,
     }),
+    enabled: !!audience,
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => page.next_cursor || undefined,
   })
@@ -110,7 +119,9 @@ export default function SubmissionQueue({ centers, reviewable, mineOnly = false 
       ) : (
         <div className="grid gap-3">
           {submissions.map((submission) => {
-            const canReview = reviewable && submission.status === 'submitted'
+            const canRevise = mineOnly && submission.status === 'rejected' && submission.submitted_by === ownerId
+              && !!audience && centers.some(center => center.active && center.id === submission.cost_center_id)
+            const canReview = !!audience && reviewable && submission.status === 'submitted'
             return (
               <Card key={submission.id} padding="sm" className="border border-[var(--brand-card-border)]">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -132,13 +143,16 @@ export default function SubmissionQueue({ centers, reviewable, mineOnly = false 
                       </p>
                     )}
                   </div>
+                  {canRevise && onRevise && <Button variant="secondary" size="sm" onClick={() => {
+                    if (educationAudience(currentPrincipal()) === audience && currentPrincipal()?.id === submission.submitted_by) onRevise(submission)
+                  }}>Revise and resubmit</Button>}
                   {canReview && (
                     <Button
                       variant="secondary"
                       size="sm"
                       icon={ClipboardCheck}
                       className="w-full shrink-0 sm:w-auto"
-                      onClick={() => setReviewTarget(submission)}
+                      onClick={() => { if (educationAudience(currentPrincipal()) === audience) setReviewTarget({ submission, audience }) }}
                     >
                       Review
                     </Button>
@@ -162,7 +176,7 @@ export default function SubmissionQueue({ centers, reviewable, mineOnly = false 
         </div>
       )}
 
-      <ReviewDecisionModal submission={reviewTarget} onClose={() => setReviewTarget(null)} />
+      <ReviewDecisionModal key={audience} submission={reviewTarget?.audience === audience ? reviewTarget.submission : null} onClose={() => setReviewTarget(null)} />
     </div>
   )
 }

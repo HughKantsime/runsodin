@@ -1,3 +1,5 @@
+import { getCurrentUser } from '../../permissions'
+import { useTranslation } from '../../contexts/I18nContext'
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Save, RefreshCw, Database, Clock, Plug, CheckCircle, XCircle, Settings as SettingsIcon, Zap, Wifi, ExternalLink } from 'lucide-react'
@@ -85,6 +87,7 @@ function EducationModeToggle() {
 }
 
 function NetworkSection() {
+  const { t } = useTranslation()
   const [hostIp, setHostIp] = useState('')
   const [detectedIp, setDetectedIp] = useState('')
   const [saving, setSaving] = useState(false)
@@ -145,7 +148,7 @@ function NetworkSection() {
               disabled={!hostIp}
               onClick={handleSave}
             >
-              {saved ? 'Saved!' : 'Save'}
+              {saved ? 'Saved!' : t('common.save')}
             </Button>
           </div>
           {detectedIp && <p className="text-xs text-[var(--brand-text-muted)] mt-1">Auto-detected: {detectedIp} {detectedIp.startsWith('172.') && '(Docker internal — use your host LAN IP instead)'}</p>}
@@ -164,6 +167,11 @@ function NetworkSection() {
 }
 
 export default function GeneralTab() {
+  const { locale, setLocale, t, LANGUAGES } = useTranslation()
+  const [languageSaving, setLanguageSaving] = useState(false)
+  const [languageError, setLanguageError] = useState('')
+  const principal = getCurrentUser()
+  const canSaveLanguage = principal?.role === 'admin' && principal?.group_id == null
   const queryClient = useQueryClient()
   const lic = useLicense()
   const [settings, setSettings] = useState({
@@ -226,6 +234,24 @@ export default function GeneralTab() {
   return (
     <div className="max-w-4xl">
 
+      <section className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 md:p-6 mb-4 md:mb-6">
+        <label htmlFor="interface-language" className="block font-semibold mb-2">{t('settings.language')}</label>
+        <p className="text-sm text-[var(--brand-text-muted)] mb-3">{t('settings.language_desc')}</p>
+        <p className="text-xs text-[var(--brand-text-muted)] mb-3">Shared interface language for this O.D.I.N. instance. Only a platform administrator can change it.</p>
+        <select id="interface-language" value={locale} disabled={!canSaveLanguage || languageSaving}
+          className="bg-[var(--brand-input-bg)] text-[var(--brand-text-primary)] border border-[var(--brand-card-border)] rounded-md p-2"
+          onChange={async event => {
+            setLanguageSaving(true)
+            setLanguageError('')
+            try { await setLocale(event.target.value) }
+            catch { setLanguageError('Unable to save language preference. Please try again.') }
+            finally { setLanguageSaving(false) }
+          }}>
+          {LANGUAGES.map(language => <option key={language.code} value={language.code}>{language.name}</option>)}
+        </select>
+        {languageSaving && <p role="status">{t('common.loading')}</p>}
+        {languageError && <p role="alert">{languageError}</p>}
+      </section>
       {/* Upgrade Card (Community only) */}
       {!lic.isPro && (
         <div className="bg-amber-900/20 rounded-md border border-amber-700/30 p-4 md:p-6 mb-4 md:mb-6">
@@ -239,12 +265,12 @@ export default function GeneralTab() {
               <span className="ml-2 font-medium text-[var(--brand-primary)] capitalize">{lic.tier}</span>
             </div>
             <div>
-              <span className="text-[var(--brand-text-muted)]">Printers:</span>
-              <span className="ml-2 text-[var(--brand-text-primary)]">{statsData?.printers?.total || 0} / {lic.max_printers === -1 ? '\u221E' : (lic.max_printers || 5)}</span>
+              <span className="text-[var(--brand-text-muted)]">{t('printers.title')}:</span>
+              <span className="ml-2 text-[var(--brand-text-primary)]">{statsData?.printers?.total || 0} / {lic.max_printers === null ? 'Unlimited' : (lic.max_printers ?? 5)}</span>
             </div>
             <div>
               <span className="text-[var(--brand-text-muted)]">Users:</span>
-              <span className="ml-2 text-[var(--brand-text-primary)]">{usersData?.length || 0} / {lic.max_users === -1 ? '\u221E' : (lic.max_users || 1)}</span>
+              <span className="ml-2 text-[var(--brand-text-primary)]">{usersData?.length || 0} / {lic.max_users === null ? 'Unlimited' : (lic.max_users ?? 1)}</span>
             </div>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -254,7 +280,7 @@ export default function GeneralTab() {
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-[var(--brand-content-bg)] font-semibold rounded-md text-sm transition-colors"
             >
-              Upgrade to Pro <ExternalLink size={14} />
+              {t('license.upgrade')} <ExternalLink size={14} />
             </a>
             <a
               href="https://docs.runsodin.com"

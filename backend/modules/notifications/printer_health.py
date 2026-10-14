@@ -105,23 +105,67 @@ def mark_offline(printer_id: int):
 
 
 def discover_camera(printer_id: int, rtsp_url: str):
-    """
-    Trigger go2rtc config sync when a Bambu camera is discovered via MQTT.
+    """Register an approved local discovery source, then use existing config sync.
 
-    We do NOT persist the RTSP URL to camera_url — the URL contains plaintext
-    credentials (bblp access_code) that are already stored encrypted in api_key.
-    get_camera_url() regenerates the URL on-demand from the encrypted credentials.
+    Bambu reports are presence signals only. Other protocols may discover HTTP
+    camera endpoints on their configured printer host; cross-host cameras need
+    explicit configuration. Sources are encrypted before storage.
     """
     try:
-        # Regenerate go2rtc config so the camera stream is available
-        try:
-            from modules.printers.route_utils import sync_go2rtc_config_raw
-            sync_go2rtc_config_raw()
-            log.info(f"go2rtc config synced after camera discovery for printer {printer_id}")
-        except Exception as e2:
-            log.warning(f"Could not sync go2rtc config: {e2}")
-    except Exception as e:
-        log.error(f"Failed to sync go2rtc for printer {printer_id}: {e}")
+        from core import crypto
+        from modules.printers.route_utils import (
+            _check_ssrf_blocklist, _CAMERA_SHELL_METACHAR_RE,
+            sync_go2rtc_config_raw,
+        )
+        from urllib.parse import urlsplit
+
+        with get_db() as conn:
+            cur = conn.cursor()
+            row = cur.execute(
+                "SELECT api_type, api_host, camera_url FROM printers "
+                "WHERE id = ? AND is_active IS TRUE AND camera_enabled IS TRUE",
+                (printer_id,),
+            ).fetchone()
+            if not row:
+                return
+            protocol, configured_host, existing_source = row
+            if protocol != "bambu":
+                if existing_source:
+                    return
+                if protocol not in {"moonraker", "prusalink", "elegoo"}:
+                    return
+                if not isinstance(rtsp_url, str) or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in rtsp_url):
+                    return
+                if _CAMERA_SHELL_METACHAR_RE.search(rtsp_url):
+                    return
+                source = urlsplit(rtsp_url)
+                host = source.hostname
+                # Accessing port validates malformed/out-of-range authorities.
+                port = source.port
+                configured = urlsplit("//" + (configured_host or ""))
+                configured_port = configured.port
+                if (source.scheme not in {"http", "https"} or not host
+                        or source.username is not None or source.password is not None
+                        or source.fragment or "#" in rtsp_url
+                        or host.lower().rstrip(".") != (configured.hostname or "").lower().rstrip(".")):
+                    return
+                _check_ssrf_blocklist(host)
+                encrypted = crypto.encrypt(rtsp_url)
+                cur.execute(
+                    "UPDATE printers SET camera_url = ? WHERE id = ? "
+                    "AND api_type = ? AND api_host = ? "
+                    "AND is_active IS TRUE AND camera_enabled IS TRUE "
+                    "AND (camera_url IS NULL OR camera_url = '')",
+                    (encrypted, printer_id, protocol, configured_host),
+                )
+                if cur.rowcount != 1:
+                    return
+                conn.commit()
+        sync_go2rtc_config_raw()
+        log.info("go2rtc config synced after camera discovery for printer %s", printer_id)
+    except Exception:
+        # Transport/config exceptions can contain credential-bearing URLs.
+        log.warning("Camera discovery registration failed for printer %s", printer_id)
 
 
 def increment_care_counters(printer_id: int, print_hours: float, print_count: int = 1):

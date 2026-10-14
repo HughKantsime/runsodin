@@ -285,7 +285,7 @@ export default function QRScannerModal({ isOpen, onClose, onAssigned, preselecte
                 <div>
                   <div className="font-medium">{spoolData.filament_name}{spoolData.filament_color_hex && <span className="text-[var(--brand-text-muted)] ml-2">({getColorName(spoolData.filament_color_hex)})</span>}</div>
                   <div className="text-sm text-[var(--brand-text-muted)]">
-                    {spoolData.filament_brand} {spoolData.filament_material} • {spoolData.remaining_weight_g || spoolData.initial_weight_g}g
+                    {spoolData.filament_brand} {spoolData.filament_material} • {spoolData.remaining_weight_g ?? spoolData.initial_weight_g}g
                   </div>
                 </div>
               </div>

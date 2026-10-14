@@ -2,6 +2,7 @@
 
 import csv
 import io
+from html import escape
 import logging
 import re
 from datetime import datetime, timedelta, timezone
@@ -10,6 +11,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from core.db import get_db
@@ -67,7 +69,7 @@ def _send_odin_email(db, to_email: str, subject: str, html_body: str):
             import core.crypto as crypto
             password = crypto.decrypt(password)
         except Exception as e:
-            log.debug(f"Failed to decrypt SMTP password (using raw): {e}")
+            log.debug("SMTP credential decryption unavailable; using existing compatibility value")
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
@@ -75,24 +77,30 @@ def _send_odin_email(db, to_email: str, subject: str, html_body: str):
     msg["To"] = to_email
     msg.attach(MIMEText(html_body, "html"))
 
+    server = None
+    accepted = False
     try:
-        # v1.8.9 (codex pass 7): runtime ITAR guard.
         from core.itar import enforce_host_destination
         enforce_host_destination(smtp["host"], scheme="smtp")
-
+        server = smtplib.SMTP(smtp["host"], smtp.get("port", 587 if smtp.get("use_tls", True) else 25), timeout=10)
         if smtp.get("use_tls", True):
-            server = smtplib.SMTP(smtp["host"], smtp.get("port", 587), timeout=10)
             server.starttls()
-        else:
-            server = smtplib.SMTP(smtp["host"], smtp.get("port", 25), timeout=10)
         if smtp.get("username") and password:
             server.login(smtp["username"], password)
-        server.send_message(msg)
+        refused = server.send_message(msg)
+        accepted = type(refused) is dict and not refused
         server.quit()
-        return True
-    except Exception as e:
-        log.error(f"SMTP send failed: {e}")
-        return False
+    except Exception:
+        accepted = False
+        log.warning("SMTP delivery could not be confirmed")
+    finally:
+        if server is not None:
+            try:
+                server.close()
+            except Exception:
+                accepted = False
+                log.warning("SMTP cleanup could not be confirmed")
+    return accepted
 
 
 # ============== Users CRUD ==============
@@ -100,14 +108,14 @@ def _send_odin_email(db, to_email: str, subject: str, html_body: str):
 @router.get("/users", tags=["Users"])
 async def list_users(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     if _is_superadmin(current_user):
-        users = db.execute(text("SELECT id, username, email, role, is_active, last_login, created_at, group_id FROM users")).fetchall()
+        users = db.execute(text("SELECT id, username, email, role, is_active, last_login, created_at, group_id, mfa_enabled FROM users")).fetchall()
     else:
         # Org-scoped admin: only users in their group (plus unassigned users)
         users = db.execute(text(
-            "SELECT id, username, email, role, is_active, last_login, created_at, group_id FROM users "
+            "SELECT id, username, email, role, is_active, last_login, created_at, group_id, mfa_enabled FROM users "
             "WHERE group_id = :gid OR group_id IS NULL"),
             {"gid": current_user["group_id"]}).fetchall()
-    return [dict(u._mapping) for u in users]
+    return [{**dict(u._mapping), "mfa_enabled": bool(u.mfa_enabled)} for u in users]
 
 
 @router.post("/users", tags=["Users"], dependencies=[Depends(require_scope("admin"))])
@@ -125,12 +133,19 @@ async def create_user(user: UserCreate, current_user: dict = Depends(require_rol
     import secrets as _secrets
     password = user.password
     if user.send_welcome_email and user.email:
-        password = _secrets.token_urlsafe(16)
+        # Keep 192 random bits while guaranteeing the existing password policy.
+        password = _secrets.token_urlsafe(24) + "aA1"
 
     if not password:
         raise HTTPException(status_code=400, detail="Password is required")
+    pw_valid, pw_msg = _validate_password(password)
+    if not pw_valid:
+        raise HTTPException(status_code=400, detail=pw_msg)
 
     password_hash = hash_password(password)
+    def rollback():
+        try:db.rollback()
+        except Exception:pass
     try:
         db.execute(text("""
             INSERT INTO users (username, email, password_hash, role, group_id)
@@ -138,8 +153,24 @@ async def create_user(user: UserCreate, current_user: dict = Depends(require_rol
         """), {"username": user.username, "email": user.email, "password_hash": password_hash,
                "role": user.role, "group_id": user.group_id})
         db.flush()
-    except Exception as e:
-        raise HTTPException(status_code=400, detail="Username or email already exists")
+    except IntegrityError:
+        rollback()
+        raise HTTPException(status_code=400, detail="Username or email already exists") from None
+    except Exception:
+        rollback()
+        raise HTTPException(status_code=503, detail="Account creation could not be confirmed. Check the user list before retrying.") from None
+
+    try:
+        new_user = db.execute(text("SELECT id FROM users WHERE username = :u"), {"u": user.username}).fetchone()
+        if new_user is None:
+            raise RuntimeError('Created account identity unavailable')
+        log_audit(db, "user.created", "user", new_user.id, {"username": user.username, "role": user.role})
+        db.commit()
+    except Exception:
+        # A commit exception may occur after persistence. Never send or retry
+        # from an unconfirmed account transaction, and preserve visible truth.
+        rollback()
+        raise HTTPException(status_code=503, detail="Account creation could not be confirmed. Check the user list before retrying.") from None
 
     if user.send_welcome_email and user.email:
         html = f"""
@@ -147,19 +178,21 @@ async def create_user(user: UserCreate, current_user: dict = Depends(require_rol
         <div style="max-width: 500px; margin: 0 auto; background: #2a2a2a; padding: 20px; border-radius: 8px;">
             <h2 style="color: #3b82f6; margin-top: 0;">Welcome to O.D.I.N.</h2>
             <p>Your account has been created. Here are your login details:</p>
-            <p><strong>Username:</strong> {user.username}<br>
-               <strong>Temporary Password:</strong> {password}</p>
+            <p><strong>Username:</strong> {escape(user.username)}<br>
+               <strong>Temporary Password:</strong> {escape(password)}</p>
             <p>Please change your password after your first login.</p>
             <hr style="border: none; border-top: 1px solid #444; margin: 20px 0;">
             <p style="color: #888; font-size: 12px;">O.D.I.N. — Orchestrated Dispatch &amp; Inventory Network</p>
         </div></body></html>
         """
-        _send_odin_email(db, user.email, "Your O.D.I.N. Account", html)
-
-    new_user = db.execute(text("SELECT id FROM users WHERE username = :u"), {"u": user.username}).fetchone()
-    if new_user:
-        log_audit(db, "user.created", "user", new_user.id, {"username": user.username, "role": user.role})
-    db.commit()
+        try:
+            sent = _send_odin_email(db, user.email, "Your O.D.I.N. Account", html) is True
+        except Exception:
+            sent = False
+        if not sent:
+            return {"status": "created", "welcome_email": "unconfirmed",
+                    "message": "Account created, but welcome email delivery was not confirmed. Check email settings, then use Send password reset link for this user."}
+        return {"status": "created", "welcome_email": "sent"}
     return {"status": "created"}
 
 
@@ -235,6 +268,8 @@ async def update_user(user_id: int, body: UserUpdateRequest, current_user: dict 
         log_audit(db, "user.role_changed", "user", user_id,
                   {"new_role": updates.get("role"), "actor_user_id": current_user["id"]})
     if password_changed:
+        from core.mfa_login import cancel_pending_enrollments
+        cancel_pending_enrollments(db, user_id)
         log_audit(db, "user.password_changed", "user", user_id,
                   {"actor_user_id": current_user["id"], "target_user_id": user_id})
         sessions = db.execute(text("SELECT token_jti FROM active_sessions WHERE user_id = :uid"), {"uid": user_id}).fetchall()

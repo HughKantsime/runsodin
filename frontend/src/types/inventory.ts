@@ -4,6 +4,18 @@ import type { FilamentType } from './printer';
 
 export type SpoolStatus = 'active' | 'empty' | 'archived';
 
+export interface PurchaseInput {
+  currency: 'USD' | 'EUR' | 'GBP' | 'CAD' | 'AUD' | 'JPY' | 'CHF' | 'NZD';
+  price: string;
+  net_weight_g: string;
+}
+export type PurchaseEvidence =
+  | { state: 'unavailable'; can_write: false }
+  | { state: 'unknown'; can_write: boolean; revision: number }
+  | { state: 'recorded'; can_write: boolean; revision: number; evidence_nonce: string;
+      currency: PurchaseInput['currency']; price_decimal: string; net_weight_g_decimal: string;
+      weight_basis: string; provenance: string; recorded_at: string };
+
 // ---- Spool ----
 
 export interface Spool {
@@ -37,6 +49,7 @@ export interface Spool {
 }
 
 export interface SpoolCreate {
+  purchase_evidence?: PurchaseInput;
   filament_id: number;
   qr_code?: string;
   rfid_tag?: string;

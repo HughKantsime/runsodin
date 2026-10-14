@@ -22,7 +22,7 @@ from core.rbac import require_role, require_superadmin
 from modules.system.schemas import HealthCheck
 from core.config import settings
 from license_manager import (
-    get_license, save_license_file, get_installation_id,
+    get_license, save_license_file, verify_license_text, normalize_license_upload, get_installation_id,
     get_device_keypair, sign_license_challenge, require_license_mutation_enabled,
 )
 
@@ -210,35 +210,32 @@ def get_license_info():
 @router.post("/license/upload", tags=["License"])
 async def upload_license(
     file: UploadFile = File(...),
-    current_user: dict = Depends(require_superadmin()),
+    current_user: dict = Depends(require_superadmin(scope="write")),
     db: Session = Depends(get_db),
     license_mutation_allowed: None = Depends(require_license_mutation_enabled),
 ):
     """Upload a license file. Admin only."""
-    content = await file.read()
-    license_text = content.decode("utf-8").strip()
+    content = await file.read(1024 * 1024 + 1)
+    license_text = normalize_license_upload(content)
 
-    import json as _json
+    license_info = verify_license_text(license_text)
+    if not license_info.valid or license_info.error:
+        raise HTTPException(status_code=400, detail="Invalid or expired license file")
     try:
-        license_json = _json.loads(license_text)
-        if "payload" in license_json and "signature" in license_json:
-            license_text = license_json["payload"] + "." + license_json["signature"]
-    except (ValueError, KeyError):
-        pass
+        save_license_file(license_text)
+    except OSError:
+        # Replacement may already be visible. Never overwrite a concurrent update.
+        raise HTTPException(status_code=503, detail="License installation could not be confirmed; check current license status")
 
-    parts = license_text.split(".")
-    if len(parts) != 2:
-        raise HTTPException(status_code=400, detail="Invalid license file format")
-
-    path = save_license_file(license_text)
-    license_info = get_license()
-    if license_info.error:
-        import os as _os
-        _os.remove(path)
-        raise HTTPException(status_code=400, detail=license_info.error)
-
-    log_audit(db, "license.uploaded", "system", details={"tier": license_info.tier, "licensee": license_info.licensee})
-    db.commit()
+    try:
+        log_audit(db, "license.uploaded", "system", details={"tier": license_info.tier, "licensee": license_info.licensee})
+        db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        raise HTTPException(status_code=503, detail="License installation could not be confirmed; check current license status")
     return {
         "status": "activated", "tier": license_info.tier,
         "licensee": license_info.licensee, "expires_at": license_info.expires_at,
@@ -247,7 +244,7 @@ async def upload_license(
 
 @router.delete("/license", tags=["License"])
 def remove_license(
-    current_user: dict = Depends(require_superadmin()),
+    current_user: dict = Depends(require_superadmin(scope="write")),
     db: Session = Depends(get_db),
     license_mutation_allowed: None = Depends(require_license_mutation_enabled),
 ):
@@ -316,7 +313,7 @@ async def _fetch_license_challenge(license_server_url: str, installation_id: str
 @router.post("/license/activate", tags=["License"])
 async def activate_license(
     request: LicenseActivateRequest,
-    current_user: dict = Depends(require_superadmin()),
+    current_user: dict = Depends(require_superadmin(scope="write")),
     license_mutation_allowed: None = Depends(require_license_mutation_enabled),
 ):
     """Activate a license by key via the license server. Admin only."""
@@ -385,7 +382,7 @@ class OfflineActivationRequestBody(PydanticBaseModel):
 @router.post("/license/activation-request", tags=["License"])
 def build_activation_request(
     body: OfflineActivationRequestBody,
-    current_user: dict = Depends(require_superadmin()),
+    current_user: dict = Depends(require_superadmin(scope="write")),
 ):
     """Generate a downloadable activation request for offline binding. Admin only.
 
@@ -437,7 +434,7 @@ class LicenseUnactivateRequest(PydanticBaseModel):
 @router.post("/license/unactivate", tags=["License"])
 async def unactivate_license(
     request: LicenseUnactivateRequest = None,
-    current_user: dict = Depends(require_superadmin()),
+    current_user: dict = Depends(require_superadmin(scope="write")),
     db: Session = Depends(get_db),
     license_mutation_allowed: None = Depends(require_license_mutation_enabled),
 ):
@@ -497,7 +494,7 @@ async def unactivate_license(
 
 @router.post("/license/reactivate", tags=["License"])
 async def reactivate_license(
-    current_user: dict = Depends(require_superadmin()),
+    current_user: dict = Depends(require_superadmin(scope="write")),
     db: Session = Depends(get_db),
     license_mutation_allowed: None = Depends(require_license_mutation_enabled),
 ):

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
+from tests.test_contracts.test_education_review_workflow import review_db
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -128,167 +129,74 @@ def test_stale_dispatch_reconciliation_uses_revision_loaded_by_worker(monkeypatc
     assert calls == [(4, 3)]
 
 
-def test_dispatch_denial_occurs_before_any_hardware_adapter(monkeypatch, tmp_path):
+def test_dispatch_denial_occurs_before_any_hardware_adapter(actual_education_dispatch, monkeypatch):
+    from modules.printers import dispatch, dispatch_acquisition, smart_plug
+    db, uploaded = actual_education_dispatch
+    db.execute(text("UPDATE education_cost_center_printers SET state='revoked' WHERE printer_id=9"))
+    db.commit()
+    def forbidden(*args, **kwargs):
+        pytest.fail("Denied Education authority must not perform device operations")
+    monkeypatch.setattr(dispatch, "_dispatch_bambu", forbidden)
+    monkeypatch.setattr(smart_plug, "prepare_bounded_dispatch_power", forbidden)
+    monkeypatch.setattr(dispatch_acquisition, "bounded_status_is_idle", forbidden)
+    ok, reason = dispatch.dispatch_job(9, uploaded["job_id"])
+    assert not ok and "entitlement changed" in reason
+    assert db.execute(text("SELECT count(*) FROM printer_dispatch_claims")).scalar_one() == 0
+
+
+@pytest.fixture
+def actual_education_dispatch(review_db, tmp_path, monkeypatch):
+    from tests.test_contracts.test_education_connected_print_workflow import setup_workflow
     from modules.printers import dispatch
-
-    print_file = tmp_path / "project.3mf"
-    print_file.write_bytes(b"fixture")
-    job = _job(_facts()) | {
-        "stored_path": str(print_file),
-        "original_filename": "project.3mf",
-        "bed_x_mm": 256,
-        "bed_y_mm": 256,
-        "compatible_api_types": "bambu",
-    }
-    monkeypatch.setattr(dispatch, "_load_job", lambda job_id: job)
-    monkeypatch.setattr(dispatch, "_get_printer_info", lambda printer_id: _printer(ip="test"))
-    monkeypatch.setattr(
-        dispatch,
-        "_authorize_education_hardware_action",
-        lambda loaded_job, printer: (False, "policy denied before hardware"),
-    )
-    hardware_calls = []
-    monkeypatch.setattr(
-        dispatch,
-        "_dispatch_bambu",
-        lambda *args, **kwargs: hardware_calls.append(args) or (True, "unexpected"),
-    )
-
-    assert dispatch.dispatch_job(9, 72) == (False, "policy denied before hardware")
-    assert hardware_calls == []
+    uploaded = setup_workflow(review_db, tmp_path, monkeypatch, "legacy", 1)
+    monkeypatch.setattr(dispatch, "_ws", lambda *args: None)
+    monkeypatch.setattr(dispatch, "_notify_start_outcome", lambda *args: None)
+    return review_db, uploaded
 
 
-def test_education_dispatch_uses_reserved_filename_and_requires_confirmation(
-    monkeypatch, tmp_path
-):
+def test_education_dispatch_uses_reserved_filename_and_requires_confirmation(actual_education_dispatch, monkeypatch):
     from modules.printers import dispatch
-
-    print_file = tmp_path / "project.3mf"
-    print_file.write_bytes(b"fixture")
-    job = _job(_facts()) | {
-        "stored_path": str(print_file),
-        "original_filename": "student-secret-name.3mf",
-        "bed_x_mm": 256,
-        "bed_y_mm": 256,
-        "compatible_api_types": "bambu",
-    }
-    reservation = {
-        "claim_id": "claim-1",
-        "submission_id": 4,
-        "job_id": 72,
-        "printer_id": 9,
-        "authority_revision": 3,
-        "remote_filename": "odin-0123456789abcdef0123456789abcdef.3mf",
-    }
-    provider = object()
-    hardware_calls = []
-    confirmations = []
-    monkeypatch.setattr(dispatch, "_load_job", lambda job_id: job)
-    monkeypatch.setattr(dispatch, "_get_printer_info", lambda printer_id: _printer(ip="test"))
-    monkeypatch.setattr(
-        dispatch, "_authorize_education_hardware_action", lambda loaded, printer: (True, "v1")
-    )
-    monkeypatch.setattr(
-        dispatch,
-        "_reserve_education_hardware_action",
-        lambda loaded, extension: ((provider, reservation), None),
-    )
-    monkeypatch.setattr(
-        dispatch,
-        "_dispatch_bambu",
-        lambda *args: hardware_calls.append(args) or (True, "Print started"),
-    )
-    monkeypatch.setattr(
-        dispatch,
-        "_confirm_education_dispatch",
-        lambda selected, reserved: confirmations.append((selected, reserved))
-        or {"transitioned": True},
-    )
-
-    assert dispatch.dispatch_job(9, 72) == (True, "Print started")
-    assert hardware_calls[0][2] == reservation["remote_filename"]
-    assert "student-secret-name" not in hardware_calls[0][2]
-    assert confirmations == [(provider, reservation)]
+    db, uploaded = actual_education_dispatch
+    calls = []
+    def adapter(job_id, path, filename, creds, **options):
+        assert Path(path).is_file()
+        assert db.execute(text("SELECT state FROM printer_dispatch_claims WHERE job_id=:id"), {"id": job_id}).scalar_one() == "adapter_entered"
+        db.rollback()
+        calls.append(filename)
+        return True, "Print started"
+    monkeypatch.setattr(dispatch, "_dispatch_bambu", adapter)
+    assert dispatch.dispatch_job(9, uploaded["job_id"]) == (True, "Print started")
+    assert len(calls) == 1 and calls[0].startswith("odin-") and calls[0].endswith(".3mf")
+    assert db.execute(text("SELECT s.status,j.status FROM education_submissions s JOIN jobs j ON j.id=s.job_id WHERE s.id=:id"), {"id": uploaded["id"]}).one() == ("printing", "printing")
+    assert db.execute(text("SELECT state FROM printer_dispatch_claims")).scalar_one() == "accepted"
 
 
-def test_education_adapter_failure_cancels_only_its_reservation(monkeypatch, tmp_path):
+def test_education_adapter_failure_cancels_only_its_reservation(actual_education_dispatch, monkeypatch):
     from modules.printers import dispatch
-
-    print_file = tmp_path / "project.3mf"
-    print_file.write_bytes(b"fixture")
-    job = _job(_facts()) | {
-        "stored_path": str(print_file),
-        "original_filename": "project.3mf",
-        "bed_x_mm": 256,
-        "bed_y_mm": 256,
-        "compatible_api_types": "bambu",
-    }
-    reservation = {
-        "claim_id": "claim-1",
-        "submission_id": 4,
-        "job_id": 72,
-        "printer_id": 9,
-        "authority_revision": 3,
-        "remote_filename": "odin-0123456789abcdef0123456789abcdef.3mf",
-    }
-    provider = object()
-    cancellations = []
-    monkeypatch.setattr(dispatch, "_load_job", lambda job_id: job)
-    monkeypatch.setattr(dispatch, "_get_printer_info", lambda printer_id: _printer(ip="test"))
-    monkeypatch.setattr(
-        dispatch, "_authorize_education_hardware_action", lambda loaded, printer: (True, "v1")
-    )
-    monkeypatch.setattr(
-        dispatch,
-        "_reserve_education_hardware_action",
-        lambda loaded, extension: ((provider, reservation), None),
-    )
-    monkeypatch.setattr(dispatch, "_dispatch_bambu", lambda *args: (False, "upload failed"))
-    monkeypatch.setattr(
-        dispatch,
-        "_cancel_education_reservation",
-        lambda selected, reserved: cancellations.append((selected, reserved)) or True,
-    )
-
-    assert dispatch.dispatch_job(9, 72) == (False, "upload failed")
-    assert cancellations == [(provider, reservation)]
+    db, uploaded = actual_education_dispatch
+    from modules.organizations.services import EducationPolicyService
+    db.execute(text("UPDATE jobs SET status='scheduled',printer_id=10 WHERE id=13"))
+    db.execute(text("UPDATE education_submissions SET status='scheduled',approved_printer_id=10 WHERE id=14"))
+    unrelated = EducationPolicyService().reserve_dispatch(db, job_id=13, printer_id=10, expected_revision=1, extension=".3mf")
+    assert unrelated
+    db.commit()
+    monkeypatch.setattr(dispatch, "_dispatch_bambu", lambda *args, **kwargs: (False, "upload failed"))
+    ok, reason = dispatch.dispatch_job(9, uploaded["job_id"])
+    assert not ok and "upload failed" in reason and "reconciliation" in reason
+    retained = db.execute(text("SELECT claim_id,job_id,printer_id,state FROM education_monitor_claims")).all()
+    assert retained == [(unrelated["claim_id"], 13, 10, "reserved")]
+    assert db.execute(text("SELECT state FROM printer_dispatch_claims")).scalar_one() == "uncertain"
 
 
-def test_physical_success_with_lost_education_cas_is_not_clean_success(
-    monkeypatch, tmp_path
-):
+def test_physical_success_with_lost_education_cas_is_not_clean_success(actual_education_dispatch, monkeypatch):
     from modules.printers import dispatch
-
-    print_file = tmp_path / "project.3mf"
-    print_file.write_bytes(b"fixture")
-    job = _job(_facts()) | {
-        "stored_path": str(print_file),
-        "original_filename": "project.3mf",
-        "bed_x_mm": 256,
-        "bed_y_mm": 256,
-        "compatible_api_types": "bambu",
-    }
-    reservation = {
-        "remote_filename": "odin-0123456789abcdef0123456789abcdef.3mf",
-    }
-    monkeypatch.setattr(dispatch, "_load_job", lambda job_id: job)
-    monkeypatch.setattr(dispatch, "_get_printer_info", lambda printer_id: _printer(ip="test"))
-    monkeypatch.setattr(
-        dispatch, "_authorize_education_hardware_action", lambda loaded, printer: (True, "v1")
-    )
-    monkeypatch.setattr(
-        dispatch,
-        "_reserve_education_hardware_action",
-        lambda loaded, extension: ((object(), reservation), None),
-    )
-    monkeypatch.setattr(dispatch, "_dispatch_bambu", lambda *args: (True, "Print started"))
-    monkeypatch.setattr(
-        dispatch, "_confirm_education_dispatch", lambda provider, reserved: {"transitioned": False}
-    )
-
-    success, message = dispatch.dispatch_job(9, 72)
-    assert success is False
-    assert "physical action requires reconciliation" in message
+    db, uploaded = actual_education_dispatch
+    monkeypatch.setattr(dispatch, "_dispatch_bambu", lambda *args, **kwargs: (True, "Print started"))
+    monkeypatch.setattr(dispatch, "_confirm_education_dispatch", lambda *args: {"transitioned": False})
+    ok, reason = dispatch.dispatch_job(9, uploaded["job_id"])
+    assert not ok and "physical action requires reconciliation" in reason
+    assert db.execute(text("SELECT state FROM education_monitor_claims")).scalar_one() == "reserved"
+    assert db.execute(text("SELECT state FROM printer_dispatch_claims")).scalar_one() == "uncertain"
 
 
 def test_central_policy_authorizes_current_pin_and_atomically_reconciles():
@@ -353,57 +261,46 @@ def test_central_policy_authorizes_current_pin_and_atomically_reconciles():
     assert "slot changed" in job.notes
 
 
-@pytest.mark.parametrize("payload, expected_hash", [
-    (b"changed", hashlib.sha256(b"fixture").hexdigest()),
-    (b"fixture", None),
-    (b"fixture", "not-a-sha256"),
-    (None, hashlib.sha256(b"fixture").hexdigest()),
-])
-def test_education_dispatch_rejects_unverified_contents_before_reservation(monkeypatch, tmp_path, payload, expected_hash):
-    from modules.printers import dispatch
-    print_file = tmp_path / "project.3mf"
-    if payload is None:
-        print_file.mkdir()
+@pytest.mark.parametrize("obstacle", ["changed", "missing_hash", "invalid_hash", "directory"])
+def test_education_dispatch_rejects_unverified_contents_before_reservation(actual_education_dispatch, monkeypatch, obstacle):
+    from modules.printers import dispatch, dispatch_acquisition, smart_plug
+    db, uploaded = actual_education_dispatch
+    job = dispatch._load_job(uploaded["job_id"])
+    path = Path(job["stored_path"])
+    if obstacle == "changed":
+        with path.open("ab") as target: target.write(b"changed-after-approval")
+    elif obstacle == "directory":
+        path.unlink()
+        path.mkdir()
     else:
-        print_file.write_bytes(payload)
-    job = _job(_facts()) | {"stored_path": str(print_file), "file_hash": expected_hash,
-        "original_filename": "project.3mf", "compatible_api_types": "bambu"}
-    monkeypatch.setattr(dispatch, "_load_job", lambda job_id: job)
-    monkeypatch.setattr(dispatch, "_get_printer_info", lambda printer_id: _printer(ip="test"))
-    monkeypatch.setattr(dispatch, "_authorize_education_hardware_action", lambda *args: (True, "v1"))
-    calls = []
-    monkeypatch.setattr(dispatch, "_cancel_education_reservation", lambda *args: True)
-    monkeypatch.setattr(dispatch, "_reserve_education_hardware_action", lambda *args: calls.append("reserve") or ((object(), {"remote_filename": "odin-test.3mf"}), None))
-    monkeypatch.setattr(dispatch, "_dispatch_bambu", lambda *args: calls.append("hardware") or (False, "unexpected hardware"))
-    ok, message = dispatch.dispatch_job(9, 72)
-    assert not ok and "integrity" in message.lower()
-    assert calls == []
-    assert job["status"] == "scheduled"
+        db.execute(text("UPDATE print_files SET file_hash=:hash WHERE id=:id"),
+                   {"hash": None if obstacle == "missing_hash" else "invalid", "id": job["resolved_print_file_id"]})
+        db.commit()
+    def forbidden(*args, **kwargs):
+        pytest.fail("Invalid payload must not perform device operations")
+    monkeypatch.setattr(dispatch, "_dispatch_bambu", forbidden)
+    monkeypatch.setattr(smart_plug, "prepare_bounded_dispatch_power", forbidden)
+    monkeypatch.setattr(dispatch_acquisition, "bounded_status_is_idle", forbidden)
+    ok, reason = dispatch.dispatch_job(9, uploaded["job_id"])
+    assert not ok
+    assert ("integrity" in reason or (obstacle == "directory" and "regular" in reason)
+            or (obstacle == "changed" and "payload changed" in reason))
+    assert db.execute(text("SELECT count(*) FROM printer_dispatch_claims")).scalar_one() == 0
+    assert db.execute(text("SELECT count(*) FROM education_monitor_claims")).scalar_one() == 0
 
 
 @pytest.mark.parametrize('mode', ['lost_ack', 'exception'])
-def test_uncertain_print_command_preserves_education_reservation(monkeypatch, tmp_path, mode):
+def test_uncertain_print_command_preserves_education_reservation(actual_education_dispatch, monkeypatch, mode):
     from modules.printers import dispatch
-    print_file = tmp_path / 'project.3mf'
-    print_file.write_bytes(b'fixture')
-    job = _job(_facts()) | {'stored_path': str(print_file), 'original_filename': 'project.3mf',
-        'bed_x_mm': 256, 'bed_y_mm': 256, 'compatible_api_types': 'bambu'}
-    reservation = {'remote_filename': 'odin-test.3mf'}
-    cancelled = []
+    db, uploaded = actual_education_dispatch
     commands = []
-    monkeypatch.setattr(dispatch, '_load_job', lambda _: job)
-    monkeypatch.setattr(dispatch, '_get_printer_info', lambda _: _printer(ip='test'))
-    monkeypatch.setattr(dispatch, '_authorize_education_hardware_action', lambda *args: (True, 'v1'))
-    monkeypatch.setattr(dispatch, '_reserve_education_hardware_action', lambda *args: ((object(), reservation), None))
-    monkeypatch.setattr(dispatch, '_cancel_education_reservation', lambda *args: cancelled.append(args) or True)
     def accepted_without_ack(*args):
-        commands.append('accepted')
-        if mode == 'exception':
-            raise TimeoutError('acknowledgment lost')
+        commands.append("accepted")
+        if mode == "exception":
+            raise TimeoutError("synthetic acknowledgment lost")
         return False
-    monkeypatch.setattr(dispatch, '_dispatch_bambu', lambda *args: (dispatch._submit_print_command(accepted_without_ack), 'Print started'))
-    success, message = dispatch.dispatch_job(9, 72)
-    assert not success
-    assert 'reconciliation' in message
-    assert commands == ['accepted']
-    assert cancelled == []
+    monkeypatch.setattr(dispatch, "_dispatch_bambu", lambda *args, **kwargs: (dispatch._submit_print_command(accepted_without_ack), "Print started"))
+    ok, reason = dispatch.dispatch_job(9, uploaded["job_id"])
+    assert not ok and "reconciliation" in reason and commands == ["accepted"]
+    assert db.execute(text("SELECT state FROM education_monitor_claims")).scalar_one() == "reserved"
+    assert db.execute(text("SELECT state FROM printer_dispatch_claims")).scalar_one() == "uncertain"

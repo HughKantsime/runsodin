@@ -4,6 +4,7 @@ Central profile library for Klipper, OrcaSlicer, Bambu Studio, and PrusaSlicer.
 Klipper profiles can be applied live; slicer profiles are stored and exported.
 """
 
+from modules.system import profile_history
 from core.rbac import should_filter_org
 
 # Domain: system
@@ -131,6 +132,7 @@ def list_profiles(
     category: Optional[str] = None,
     printer_id: Optional[int] = None,
     filament_type: Optional[str] = None,
+    printer_model: Optional[str] = None,
     search: Optional[str] = None,
     page: int = Query(1, ge=1),
     per_page: int = Query(50, le=200),
@@ -155,6 +157,10 @@ def list_profiles(
     if printer_id:
         clauses.append("printer_id = :printer_id")
         params["printer_id"] = printer_id
+    if printer_model:
+        printer_scope = " AND (org_id = :org OR org_id IS NULL)" if should_filter_org(current_user, org) else ""
+        clauses.append("printer_id IN (SELECT id FROM printers WHERE model = :printer_model" + printer_scope + ")")
+        params["printer_model"] = printer_model
     if filament_type:
         clauses.append("filament_type = :filament_type")
         params["filament_type"] = filament_type
@@ -282,7 +288,7 @@ async def import_profile(
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_role("operator", scope="write:models")),
 ):
-    """Import profile from file upload (.json, .ini, .3mf)."""
+    """Import profile from file upload (.json, .ini, .cfg, .3mf)."""
     MAX_SIZE = 50 * 1024 * 1024  # 50 MB
     content_bytes = await file.read(MAX_SIZE + 1)
     if len(content_bytes) > MAX_SIZE:
@@ -307,13 +313,24 @@ async def import_profile(
                     profiles_created.append(meta)
             if not profiles_created:
                 raise HTTPException(status_code=400, detail="No profiles found in .3mf archive")
+        elif filename.lower().endswith(".cfg"):
+            content = content_bytes.decode("utf-8")
+            if "\x00" in content:
+                raise ValueError("Invalid configuration text")
+            parser = configparser.RawConfigParser(interpolation=None)
+            parser.read_string(content)
+            if not parser.sections():
+                raise ValueError("Configuration requires a section")
+            profiles_created.append({"name": os.path.splitext(os.path.basename(filename))[0],
+                                     "slicer": "klipper", "category": "printer",
+                                     "file_format": "cfg", "raw_content": content})
         elif filename.lower().endswith((".json", ".ini")):
             content = content_bytes.decode("utf-8")
             meta = _parse_orca_json(content) if filename.lower().endswith(".json") else _parse_prusa_ini(content)
             meta["raw_content"] = content
             profiles_created.append(meta)
         else:
-            raise HTTPException(status_code=400, detail="Unsupported file format. Use .json, .ini, or .3mf")
+            raise HTTPException(status_code=400, detail="Unsupported file format. Use .json, .ini, .cfg, or .3mf")
     except (ValueError, TypeError, IndexError, AttributeError, UnicodeError, configparser.Error, zipfile.BadZipFile, RuntimeError):
         raise HTTPException(status_code=400, detail="Invalid profile file content")
     for profile in profiles_created:
@@ -390,6 +407,12 @@ async def update_profile(
     body = await _profile_request_body(request)
     allowed = {"name", "description", "tags", "is_shared", "printer_id", "filament_type"}
     updates = {k: v for k, v in body.items() if k in allowed}
+    if "raw_content" in body:
+        if updates.get("printer_id") is not None:
+            _accessible_profile_printer(db, updates["printer_id"], current_user)
+        result = profile_history.write_revision(db, profile_id, current_user,
+            content=body["raw_content"], changelog=body.get("changelog"), updates=updates)
+        return {"updated": True, **result}
     if not updates:
         raise HTTPException(status_code=400, detail="No valid fields")
     sets = ", ".join(f"{k} = :{k}" for k in updates)
@@ -435,9 +458,9 @@ def export_profile(
         raise HTTPException(status_code=404, detail="Profile not found")
     if not check_org_access(current_user, row.org_id):
         raise HTTPException(status_code=404, detail="Profile not found")
-    ext = ".ini" if row.file_format == "ini" else ".json"
+    ext = "." + row.file_format if row.file_format in {"ini", "cfg"} else ".json"
     safe_name = re.sub(r'[^\w\-]', '_', row.name)[:80] + ext
-    media = "text/plain" if row.file_format == "ini" else "application/json"
+    media = "text/plain" if row.file_format in {"ini", "cfg"} else "application/json"
     return Response(
         content=row.raw_content,
         media_type=media,
@@ -459,6 +482,8 @@ async def apply_profile(
         raise HTTPException(status_code=404, detail="Profile not found")
     if not check_org_access(current_user, row.org_id):
         raise HTTPException(status_code=404, detail="Profile not found")
+    if row.file_format == "cfg":
+        raise HTTPException(400, "Configuration profiles support import and export only")
     if row.slicer != "klipper":
         raise HTTPException(
             status_code=400,
@@ -481,12 +506,87 @@ async def apply_profile(
         raise HTTPException(status_code=400, detail="Invalid profile JSON content")
 
     gcodes = _profile_commands(row.category, profile_data)
+    from core.auth import SECRET_KEY
+    from core.dispatch_identity import build_identity
+    from core.dispatch_target_lock import acquire_target_lock
+    from core.dispatch_target_guard import unresolved_target
+    from modules.printers.dispatch import _get_printer_info
+    key=SECRET_KEY.encode() if isinstance(SECRET_KEY,str) else None
+    initial=build_identity(_get_printer_info(target_printer_id,connection=db),key)
+    if initial is None:
+        raise HTTPException(409,'Profile target configuration could not be verified')
+    # Release read-only request transaction before holding a target over I/O.
+    engine=db.get_bind();db.rollback()
+    acquired=acquire_target_lock(engine,initial.target_key)
+    if acquired.status!='acquired':
+        raise HTTPException(409,'Profile target is busy or uncertain; reconcile before retrying')
+    target_handle=acquired.handle
+    try:
+        current_row=db.execute(text('SELECT * FROM printer_profiles WHERE id=:id'),{'id':profile_id}).fetchone()
+        current_printer=_accessible_profile_printer(db,target_printer_id,current_user)
+        current_identity=build_identity(_get_printer_info(target_printer_id,connection=db),key)
+        if not current_row or not check_org_access(current_user,current_row.org_id):
+            raise HTTPException(404,'Profile not found')
+        if (current_identity!=initial or current_printer.api_type!='moonraker'
+                or current_row.slicer!=row.slicer or current_row.file_format!=row.file_format
+                or current_row.category!=row.category or current_row.raw_content!=row.raw_content):
+            raise HTTPException(409,'Profile authority or configuration changed; no command was sent')
+        db.rollback()
+        if not target_handle.held() or unresolved_target(engine,target_printer_id,initial.target_key,include_claims=True):
+            raise HTTPException(409,'Unresolved dispatch or sender blocks profile commands; reconcile before retrying')
+        return _apply_profile_commands(db,profile_id,target_printer_id,current_row,current_printer,gcodes,target_handle,current_user,key,initial)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise HTTPException(409,'Profile outcome requires reconciliation before retrying') from None
+    finally:
+        if not target_handle.close().released:
+            db.rollback()
+            raise HTTPException(409,'Profile target cleanup requires reconciliation before retrying')
+
+
+def _profile_snapshot_current(db,profile_id,printer_id,row,current_user,key,expected_identity,*,recording=False):
+    from core.dispatch_identity import build_identity
+    from modules.printers.dispatch import _get_printer_info
+    try:
+        dialect=db.get_bind().dialect.name
+        # Only the final recording phase takes short authority locks, after
+        # every command has returned. Never hold these over device I/O.
+        if recording and dialect=='sqlite':
+            db.execute(text('BEGIN IMMEDIATE'))
+        suffix=' FOR UPDATE NOWAIT' if recording and dialect=='postgresql' else ''
+        fresh=db.execute(text('SELECT * FROM printer_profiles WHERE id=:id'+suffix),{'id':profile_id}).fetchone()
+        if recording:
+            db.execute(text('SELECT id FROM printers WHERE id=:id'+suffix),{'id':printer_id}).first()
+        printer=_accessible_profile_printer(db,printer_id,current_user)
+        identity=build_identity(_get_printer_info(printer_id,connection=db),key)
+        if (not fresh or not check_org_access(current_user,fresh.org_id)
+                or identity!=expected_identity
+                or any(fresh._mapping[name]!=row._mapping[name] for name in ('org_id','raw_content','category','file_format','slicer','created_by','created_at','updated_at'))):
+            raise HTTPException(409,'Profile authority or configuration changed; command outcome requires reconciliation')
+    except HTTPException:
+        db.rollback()
+        raise HTTPException(409,'Profile authority or configuration changed; command outcome requires reconciliation') from None
+    except Exception:
+        db.rollback()
+        raise HTTPException(409,'Profile authority could not be verified; command outcome requires reconciliation') from None
+    if not recording:db.rollback()
+
+
+def _apply_profile_commands(db,profile_id,target_printer_id,row,printer,gcodes,target_handle,current_user,key,expected_identity):
     from modules.printers.adapters.moonraker import MoonrakerPrinter
+    if not target_handle.held():
+        raise HTTPException(409,'Profile target ownership requires reconciliation before retrying')
     adapter = MoonrakerPrinter(printer.api_host)
 
     # Send each GCode
     failures = []
     for gcode in gcodes:
+        _profile_snapshot_current(db,profile_id,target_printer_id,row,current_user,key,expected_identity)
+        if not target_handle.held():
+            raise HTTPException(409,'Profile target ownership changed; reconcile before retrying')
         try:
             success = adapter.send_gcode(gcode)
         except Exception as exc:
@@ -497,18 +597,59 @@ async def apply_profile(
 
     # Only a fully successful application advances the success anchor.
     # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
+    if not target_handle.held():
+        raise HTTPException(409,'Profile target ownership changed; reconcile before retrying')
+    _profile_snapshot_current(db,profile_id,target_printer_id,row,current_user,key,expected_identity,recording=True)
     if not failures:
-        db.execute(text(f"""
+        changed=db.execute(text(f"""
             UPDATE printer_profiles
             SET last_applied_at = {sql.now()}, last_applied_printer_id = :pid
             WHERE id = :id
-        """), {"pid": target_printer_id, "id": profile_id})
+              AND (org_id=:org OR (org_id IS NULL AND :org IS NULL))
+              AND raw_content=:content AND category=:category
+              AND file_format=:format AND slicer=:slicer
+        """), {"pid": target_printer_id, "id": profile_id,"org":row.org_id,
+                 "content":row.raw_content,"category":row.category,"format":row.file_format,"slicer":row.slicer})
+        if changed.rowcount!=1:
+            db.rollback()
+            raise HTTPException(409,'Profile success recording changed; command outcome requires reconciliation')
     log_audit(db, "apply", "profile", profile_id, {
         "printer_id": target_printer_id, "printer_name": printer.name,
         "commands_sent": len(gcodes) - len(failures), "failures": len(failures),
     })
+    # Keep writes pending until lock retirement is confirmed; a lost close
+    # must not advance the prior fully successful application anchor.
+    if not target_handle.held() or not target_handle.close().released:
+        db.rollback()
+        raise HTTPException(409,'Profile target cleanup requires reconciliation before retrying')
     db.commit()
 
     if failures:
         return {"applied": False, "outcome": "failed" if len(failures) == len(gcodes) else "partial", "commands_sent": len(gcodes) - len(failures), "commands_failed": len(failures), "warnings": f"{len(failures)} command(s) failed", "failed_commands": failures}
     return {"applied": True, "outcome": "applied", "commands_sent": len(gcodes), "commands_failed": 0}
+
+
+@router.get("/profiles/{profile_id}/revisions", tags=["Profiles"])
+def list_profile_revisions(profile_id: int, db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer", scope="read:models"))):
+    return profile_history.revisions(db, profile_id, current_user)
+
+
+@router.get("/profiles/{profile_id}/revisions/{revision_number}", tags=["Profiles"])
+def get_profile_revision(profile_id: int, revision_number: int, db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer", scope="read:models"))):
+    return profile_history.revision(db, profile_id, revision_number, current_user)
+
+
+@router.get("/profiles/{profile_id}/diff", tags=["Profiles"])
+def diff_profile_revisions(profile_id: int, from_revision: int, to_revision: int, db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer", scope="read:models"))):
+    return profile_history.content_diff(db, profile_id, from_revision, to_revision, current_user)
+
+
+@router.post("/profiles/{profile_id}/revisions", tags=["Profiles"])
+async def create_profile_revision(profile_id: int, request: Request, db: Session = Depends(get_db), current_user: dict = Depends(require_role("operator", scope="write:models"))):
+    body = await _profile_request_body(request)
+    return profile_history.write_revision(db, profile_id, current_user, content=body.get("raw_content"), changelog=body.get("changelog"))
+
+
+@router.post("/profiles/{profile_id}/revert/{revision_number}", tags=["Profiles"])
+def revert_profile_revision(profile_id: int, revision_number: int, db: Session = Depends(get_db), current_user: dict = Depends(require_role("operator", scope="write:models"))):
+    return profile_history.write_revision(db, profile_id, current_user, revert_to=revision_number)

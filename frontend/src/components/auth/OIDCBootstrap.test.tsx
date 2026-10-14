@@ -6,7 +6,7 @@ import OIDCBootstrap, { oidcNavigation } from './OIDCBootstrap'
 const request = vi.fn()
 const mounted = vi.fn()
 function Providers() { useEffect(mounted, []); return <div>Application</div> }
-const response = (body: unknown = { username: 'teacher', role: 'operator' }, ok = true) =>
+const response = (body: unknown = { username: 'teacher', role: 'operator', token_type: 'bearer', access_token: 'synthetic.'+btoa(JSON.stringify({sub:'teacher',role:'operator',exp:Date.now()/1000+60}))+'.signature' }, ok = true) =>
   ({ ok, redirected: false, json: async () => body })
 beforeEach(() => {
   vi.stubGlobal('fetch', request)
@@ -80,4 +80,18 @@ it.each(['/', '/login', '/printers', '/printers?error=filter'])('leaves normal r
   expect(screen.getByText('Application')).toBeInTheDocument()
   expect(request).not.toHaveBeenCalled()
   expect(location.pathname + location.search).toBe(path)
+})
+
+it.each(['mfa_required', 'mfa_setup_required'])('keeps providers and session checks blocked for %s', async flag => {
+  request.mockResolvedValueOnce(response({ [flag]: true, access_token: 'synthetic-authority' }))
+  if (flag === 'mfa_setup_required') request.mockResolvedValueOnce(response({
+    secret: 'A'.repeat(32), qr_code: 'data:image/png;base64,synthetic', expires_at: Date.now()/1000+60,
+  }))
+  start('/?oidc_code=synthetic-code')
+  await screen.findByRole('region', { name: 'Complete sign-in' })
+  if (flag === 'mfa_setup_required') await screen.findByRole('img')
+  expect(mounted).not.toHaveBeenCalled()
+  expect(oidcNavigation.finish).not.toHaveBeenCalled()
+  expect(request.mock.calls.some(([url]) => url === '/api/auth/me')).toBe(false)
+  expect(location.search).toBe('')
 })

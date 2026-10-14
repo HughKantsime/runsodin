@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { ShieldCheck, ShieldOff, Loader2, Copy, CheckCircle, AlertTriangle } from 'lucide-react'
 import { auth } from '../../api'
 
-export default function MFASetup() {
-  const [mfaEnabled, setMfaEnabled] = useState(false)
+export default function MFASetup({ principalKey }: { principalKey?: string | number } = {}) {
+  const [mfaEnabled, setMfaEnabled] = useState<boolean | null>(null)
   const [loading, setLoading] = useState(true)
   const [setupData, setSetupData] = useState(null)
   const [confirmCode, setConfirmCode] = useState('')
@@ -13,12 +13,45 @@ export default function MFASetup() {
   const [secretCopied, setSecretCopied] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
 
-  useEffect(() => {
-    auth.mfaStatus().then(data => {
-      setMfaEnabled(data.mfa_enabled)
-      setLoading(false)
-    }).catch(() => setLoading(false))
+  const mounted = useRef(false)
+  const statusGeneration = useRef(0)
+  const statusInFlight = useRef(false)
+  const loadStatus = useCallback(async () => {
+    if (!mounted.current || statusInFlight.current) return
+    statusInFlight.current = true
+    const generation = ++statusGeneration.current
+    setLoading(true)
+    setMfaEnabled(null)
+    setError('')
+    try {
+      const data = await auth.mfaStatus()
+      if (typeof data?.mfa_enabled !== 'boolean') throw new Error('Invalid MFA status')
+      if (mounted.current && generation === statusGeneration.current) setMfaEnabled(data.mfa_enabled)
+    } catch {
+      if (mounted.current && generation === statusGeneration.current) {
+        setError('Unable to load MFA status. Retry before making changes.')
+      }
+    } finally {
+      if (generation === statusGeneration.current) {
+        statusInFlight.current = false
+        if (mounted.current) setLoading(false)
+      }
+    }
   }, [])
+
+  useEffect(() => {
+    mounted.current = true
+    setSetupData(null)
+    setConfirmCode('')
+    setDisableCode('')
+    setSuccess('')
+    loadStatus()
+    return () => {
+      mounted.current = false
+      ++statusGeneration.current
+      statusInFlight.current = false
+    }
+  }, [principalKey, loadStatus])
 
   const handleSetup = async () => {
     setError('')
@@ -75,7 +108,16 @@ export default function MFASetup() {
     }
   }
 
-  if (loading) return null
+  if (loading) return <p role="status">Loading MFA status...</p>
+  if (mfaEnabled === null) return (
+    <div>
+      <h3 className="text-lg font-semibold mb-4">Two-Factor Authentication</h3>
+      <p role="alert" className="text-sm text-red-400 mb-4">{error}</p>
+      <button onClick={loadStatus} className="px-4 py-2 rounded bg-[var(--brand-input-bg)]">
+        Retry MFA status
+      </button>
+    </div>
+  )
 
   return (
     <div>

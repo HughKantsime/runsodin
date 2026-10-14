@@ -165,3 +165,72 @@ def test_ams_humidity_units_are_explicit_not_guessed_from_numbers(ams_client, re
     assert response.status_code == 200
     assert response.json()['humidity_unit'] == expected
     assert response.json()['units']['0'][0]['humidity'] == 3
+
+
+def test_owned_rfid_refresh_reports_only_confirmed_command_result(own_ams_operator):
+    client, headers, calls = own_ams_operator
+    response = client.post('/printers/199/ams/refresh', headers=headers)
+    assert response.status_code == 200 and response.json()['success'] is True
+    assert calls == [('refresh_ams_rfid',)]
+
+
+def test_failed_rfid_refresh_is_service_unavailable(own_ams_operator, monkeypatch):
+    from modules.printers import route_utils
+    client, headers, calls = own_ams_operator
+    monkeypatch.setattr(route_utils, '_bambu_command_direct', lambda *args: False)
+    response = client.post('/printers/199/ams/refresh', headers=headers)
+    assert response.status_code == 503 and calls == []
+
+
+@pytest.mark.parametrize('ams_id,slot_id', [(-1,0),(4,0),(0,-1),(0,4)])
+def test_invalid_ams_indices_never_send_a_command(own_ams_operator, review_db, ams_id, slot_id):
+    client, headers, calls = own_ams_operator
+    response = client.put(f'/printers/199/ams/{ams_id}/slots/{slot_id}', headers=headers, json={})
+    assert response.status_code == 422 and calls == []
+    assert tuple(review_db.execute(text('SELECT filament_type,color,assigned_spool_id FROM filament_slots WHERE id=199')).one()) == ('PLA','#000000',None)
+
+
+@pytest.mark.parametrize('action', ['refresh','configure'])
+def test_non_bambu_ams_commands_rejected_before_transport(own_ams_operator, review_db, action):
+    client, headers, calls = own_ams_operator
+    review_db.execute(text("UPDATE printers SET api_type='moonraker' WHERE id=199")); review_db.commit()
+    response = client.post('/printers/199/ams/refresh', headers=headers) if action == 'refresh' else client.put('/printers/199/ams/0/slots/0', headers=headers, json={})
+    assert response.status_code == 400 and calls == []
+
+
+@pytest.mark.parametrize('invalid', [
+    {'color':'not-a-color'}, {'color':'#12345'}, {'color':'#GG1122'},
+    {'k_factor':-0.01}, {'material':''}, {'material':'   '},
+    {'k_factor':True}, {'k_factor':'0.028'}, {'material':123}, {'material':'P' * 65},
+    {'color':'#123ABC\n'},
+])
+def test_malformed_ams_settings_rejected_before_command_or_slot_mutation(own_ams_operator, review_db, invalid):
+    client, headers, calls = own_ams_operator
+    body = {'material':'PLA','color':'#123ABC','k_factor':0.028,'spool_id':199, **invalid}
+    response = client.put('/printers/199/ams/0/slots/0', headers=headers, json=body)
+    assert response.status_code == 422
+    assert calls == []
+    assert tuple(review_db.execute(text('SELECT filament_type,color,assigned_spool_id FROM filament_slots WHERE id=199')).one()) == ('PLA','#000000',None)
+
+
+@pytest.mark.parametrize('color', ['#12ab34','12ab34','12ab3480','#12ab3480'])
+def test_valid_ams_settings_preserve_color_and_zero_k_and_trim_material(own_ams_operator, color):
+    client, headers, calls = own_ams_operator
+    response = client.put('/printers/199/ams/0/slots/0', headers=headers, json={'material':' PETG ','color':color,'k_factor':0})
+    assert response.status_code == 200
+    assert calls == [('set_ams_filament',0,0,'PETG',color,0.0)]
+
+
+def test_default_ams_settings_remain_valid(own_ams_operator):
+    client, headers, calls = own_ams_operator
+    response = client.put('/printers/199/ams/0/slots/0', headers=headers, json={})
+    assert response.status_code == 200
+    assert calls == [('set_ams_filament',0,0,'PLA','#FFFFFF',0.0)]
+
+
+@pytest.mark.parametrize('literal', ['1e999','-1e999','NaN','1' + '0' * 400])
+def test_nonfinite_ams_k_is_rejected_before_transport(own_ams_operator, review_db, literal):
+    client, headers, calls = own_ams_operator
+    response = client.put('/printers/199/ams/0/slots/0', headers={**headers,'Content-Type':'application/json'}, content='{"k_factor":' + literal + '}')
+    assert response.status_code == 422 and calls == []
+    assert tuple(review_db.execute(text('SELECT filament_type,color,assigned_spool_id FROM filament_slots WHERE id=199')).one()) == ('PLA','#000000',None)

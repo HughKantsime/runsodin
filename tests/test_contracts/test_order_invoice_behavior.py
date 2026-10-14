@@ -41,8 +41,12 @@ def test_invoice_download_filename_is_ascii_and_cannot_inject_headers(bom_client
 
 def test_invoice_foreign_tenant_denied_before_generation(bom_client, review_db, monkeypatch):
     identifier=create_invoice_order(bom_client)
-    review_db.execute(text('UPDATE orders SET org_id=2 WHERE id=:id'), {'id':identifier})
-    review_db.commit()
+    from core.dependencies import get_current_user
+    # Keep the immutable billed owner; exercise a foreign request principal.
+    original = bom_client.app.dependency_overrides[get_current_user]
+    principal = {**original(), 'group_id': 2}
+    monkeypatch.setitem(bom_client.app.dependency_overrides,get_current_user,lambda:principal)
+    assert review_db.execute(text('SELECT org_id FROM orders WHERE id=:id'),{'id':identifier}).scalar()==1
     from modules.orders.invoice_generator import InvoiceGenerator
     def forbidden(*args, **kwargs):
         raise AssertionError('Foreign invoice generation must never run')
@@ -172,13 +176,13 @@ def test_real_branding_upload_reaches_customer_invoice(bom_client,tmp_path,monke
     from modules.orders import invoice_generator
     root=tmp_path/'modules'
     monkeypatch.setattr(routes_settings,'__file__',str(root/'system'/'routes_settings.py'))
-    monkeypatch.setattr(invoice_generator,'_BRANDING_DIR',root/'static'/'branding')
+    monkeypatch.setattr(invoice_generator,'_BRANDING_DIR',root.parent/'static'/'branding')
     bom_client.app.include_router(routes_settings.router)
     bom_client.app.dependency_overrides[get_current_user]=lambda:{'id':3,'role':'admin','group_id':None,'is_active':True}
     image=BytesIO();Image.new('RGB',(32,16),color=(22,180,90)).save(image,format='PNG')
     uploaded=bom_client.post('/branding/logo',files={'file':('synthetic-logo.png',image.getvalue(),'image/png')})
     assert uploaded.status_code==200
-    assert uploaded.json()['logo_url']=='/static/branding/logo.png'
+    assert uploaded.json()['logo_url'].startswith('/static/branding/logo-') and uploaded.json()['logo_url'].endswith('.png')
     identifier=create_invoice_order(bom_client)
     response=bom_client.get(f'/orders/{identifier}/invoice.pdf')
     assert response.status_code==200

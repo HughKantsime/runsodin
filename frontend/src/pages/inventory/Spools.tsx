@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Package, Beaker, AlertTriangle } from 'lucide-react'
@@ -6,11 +6,12 @@ import toast from 'react-hot-toast'
 import { canDo } from '../../permissions'
 import { useOrg } from '../../contexts/OrgContext'
 import { bulkOps, spools as spoolsApi, filaments as filamentApi, printers as printersApi } from '../../api'
-import { PageHeader, StatCard, SearchInput, TabBar, Button, EmptyState } from '../../components/ui'
+import { PageHeader, StatCard, SearchInput, TabBar, Button, EmptyState, Modal } from '../../components/ui'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import FilamentLibraryView from '../../components/inventory/FilamentLibraryView'
 import SpoolGrid from '../../components/inventory/SpoolGrid'
 import { CreateSpoolModal, LoadSpoolModal, UseSpoolModal, DryingModal } from '../../components/inventory/SpoolModals'
+import { purchaseAudience, type PurchasePrincipal } from '../../components/inventory/PurchaseEvidenceModal'
 import { EditSpoolModal } from '../../components/inventory/SpoolEditModals'
 
 export default function Spools() {
@@ -19,6 +20,16 @@ export default function Spools() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [view, setView] = useState('spools') // 'spools' | 'library'
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const { data: createPrincipal } = useQuery<PurchasePrincipal | null>({ queryKey: ['auth', 'me'], enabled: false })
+  const createOwner = purchaseAudience(createPrincipal)
+  const createInstance = useRef(0)
+  const createOpen = useRef(false)
+  useEffect(() => { createInstance.current += 1 }, [createOwner])
+  const openCreate = () => { createInstance.current += 1; createOpen.current = true; setShowCreateModal(true) }
+  const closeCreate = () => { createInstance.current += 1; createOpen.current = false; setShowCreateModal(false) }
+  const currentCreate = (variables: { audience: string; instance: number }) =>
+    createOpen.current && variables.instance === createInstance.current &&
+    variables.audience === purchaseAudience(queryClient.getQueryData<PurchasePrincipal | null>(['auth', 'me']))
   const [loadingSpool, setLoadingSpool] = useState(null)
   const [usingSpool, setUsingSpool] = useState(null)
   const [editingSpool, setEditingSpool] = useState(null)
@@ -62,6 +73,11 @@ export default function Spools() {
     queryFn: () => spoolsApi.list({ status: filter === 'all' ? undefined : filter, org_id: org.orgId })
   })
 
+  const { data: allSpools } = useQuery({
+    queryKey: ['spools', 'all', org.orgId],
+    queryFn: () => spoolsApi.list({ status: undefined, org_id: org.orgId })
+  })
+
   const { data: filaments } = useQuery({
     queryKey: ['filaments'],
     queryFn: filamentApi.list
@@ -73,13 +89,15 @@ export default function Spools() {
   })
 
   const createMutation = useMutation({
-    mutationFn: spoolsApi.create,
-    onSuccess: () => {
+    mutationFn: ({ data }: { data: any; audience: string; instance: number }) => spoolsApi.create(data),
+    retry: false,
+    onSuccess: (_data, variables) => {
+      if (!currentCreate(variables)) return
       queryClient.invalidateQueries({ queryKey: ['spools'] })
-      setShowCreateModal(false)
+      closeCreate()
       toast.success('Spool created')
     },
-    onError: (err) => toast.error(err.message || 'Failed to create spool')
+    onError: (err, variables) => { if (currentCreate(variables)) toast.error(err.message || 'Failed to create spool') }
   })
 
   const loadMutation = useMutation({
@@ -123,7 +141,9 @@ export default function Spools() {
   })
 
   // Bulk selection
-  const [selectedSpools, setSelectedSpools] = useState(new Set())
+  const [selectedSpools, setSelectedSpools] = useState(new Set<number>())
+  const [labelSpools, setLabelSpools] = useState<number[]>([])
+  useEffect(() => { setSelectedSpools(new Set()); setLabelSpools([]) }, [filter, org.orgId])
   const toggleSpoolSelect = (id) => setSelectedSpools(prev => {
     const next = new Set(prev)
     next.has(id) ? next.delete(id) : next.add(id)
@@ -168,12 +188,25 @@ export default function Spools() {
   }
 
   // Summary stats
-  const activeSpools = spools?.filter(s => s.status === 'active') || []
+  const activeSpools = allSpools?.filter(s => s.status === 'active') || []
   const lowSpools = activeSpools.filter(s => s.percent_remaining < 20)
   const loadedSpools = activeSpools.filter(s => s.location_printer_id)
 
   return (
     <div className="p-4 md:p-6">
+      {labelSpools.length > 0 && (
+        <Modal isOpen onClose={() => setLabelSpools([])} title="Print Spool Labels" size="md">
+          <p className="text-sm mb-4">Open each label sheet, then use your browser’s Print command. All {labelSpools.length} selected spools are included.</p>
+          <div className="flex flex-col gap-3">
+            {Array.from({ length: Math.ceil(labelSpools.length / 40) }, (_, index) => (
+              <a key={index} href={`/api/spools/labels/batch?spool_ids=${labelSpools.slice(index * 40, (index + 1) * 40).join(',')}&size=small`}
+                target="_blank" rel="noopener noreferrer" className="text-[var(--brand-primary)] underline">
+                Open label sheet {index + 1} ({Math.min(40, labelSpools.length - index * 40)} labels)
+              </a>
+            ))}
+          </div>
+        </Modal>
+      )}
       {/* Header */}
       <PageHeader icon={Package} title="Spools" subtitle="Track your filament inventory">
         <TabBar
@@ -186,7 +219,7 @@ export default function Spools() {
           onChange={setView}
         />
         {view === 'spools' && canDo('spools.edit') && (
-          <Button icon={Plus} onClick={() => setShowCreateModal(true)}>
+          <Button icon={Plus} onClick={openCreate}>
             Add Spool
           </Button>
         )}
@@ -199,7 +232,8 @@ export default function Spools() {
       {view === 'spools' && (
         <>
           {/* Stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 md:mb-6">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4 md:mb-6">
+            <StatCard label="Total Spools" value={allSpools?.length ?? '…'} icon={Package} />
             <StatCard label="Active Spools" value={activeSpools.length} icon={Package} />
             <StatCard label="Loaded" value={loadedSpools.length} color="blue" />
             <StatCard label="Low (<20%)" value={lowSpools.length} color="amber" />
@@ -272,6 +306,7 @@ export default function Spools() {
           {selectedSpools.size > 0 && canDo('spools.edit') && (
             <div className="flex items-center gap-3 mb-4 p-3 bg-[var(--brand-primary)]/10 border border-[var(--brand-primary)]/30 rounded-md">
               <span className="text-sm text-[var(--brand-text-secondary)]">{selectedSpools.size} selected</span>
+              <Button variant="secondary" size="sm" onClick={() => setLabelSpools([...selectedSpools].sort((a, b) => a - b))}>Print labels</Button>
               <Button variant="warning" size="sm" onClick={() => bulkSpoolAction.mutate({ action: 'archive' })}>Archive</Button>
               <Button variant="success" size="sm" onClick={() => bulkSpoolAction.mutate({ action: 'activate' })}>Activate</Button>
               <Button variant="danger" size="sm" onClick={() => setConfirmAction({ title: 'Delete Spools', message: `Delete ${selectedSpools.size} selected spool(s)? This cannot be undone.`, onConfirm: () => { bulkSpoolAction.mutate({ action: 'delete' }); setConfirmAction(null) } })}>Delete</Button>
@@ -323,8 +358,12 @@ export default function Spools() {
       {showCreateModal && (
         <CreateSpoolModal
           filaments={filaments}
-          onClose={() => setShowCreateModal(false)}
-          onCreate={createMutation.mutate}
+          onClose={closeCreate}
+          pending={createMutation.isPending && createMutation.variables?.audience === createOwner && createMutation.variables?.instance === createInstance.current}
+          onCreate={(data, audience) => {
+            if (audience !== purchaseAudience(queryClient.getQueryData<PurchasePrincipal | null>(['auth', 'me'])) || !createOpen.current) return
+            createMutation.mutate({ data, audience, instance: createInstance.current })
+          }}
         />
       )}
 

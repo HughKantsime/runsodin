@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel as PydanticBaseModel
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 from starlette.responses import Response
 
@@ -51,13 +51,23 @@ async def set_ip_allowlist(request: Request, body: IPAllowlistRequest, current_u
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Invalid CIDR: {cidr}")
 
-    client_ip = request.client.host if request.client else "127.0.0.1"
     if enabled and cidrs:
-        client_in_list = any(
-            ipaddress.ip_address(client_ip) in ipaddress.ip_network(c, strict=False) for c in cidrs
-        )
+        try:
+            if request.client is None:
+                raise ValueError("Missing client identity")
+            client_address = ipaddress.ip_address(request.client.host)
+            networks = [ipaddress.ip_network(c, strict=False) for c in cidrs]
+            # CIDR membership ignores IPv6 interface zones, so a scoped identity
+            # cannot safely grant the current administrator a host exception.
+            if getattr(client_address, "scope_id", None) is not None or any(
+                "%" in cidr for cidr in cidrs
+            ):
+                raise ValueError("Unsupported scoped identity")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Cannot enforce allowlist for this client identity")
+        client_in_list = any(client_address in network for network in networks)
         if not client_in_list:
-            cidrs.append(client_ip + "/32")
+            cidrs.append(f"{client_address}/{client_address.max_prefixlen}")
 
     config = {"enabled": enabled, "cidrs": cidrs, "mode": mode}
     db.execute(text("""INSERT INTO system_config (key, value) VALUES ('ip_allowlist', :val)
@@ -103,6 +113,8 @@ async def set_retention_config(body: RetentionConfigRequest, current_user: dict 
     config = {}
     for key in RETENTION_DEFAULTS:
         if key in body_data:
+            if body_data[key] is None:
+                raise HTTPException(status_code=400, detail=f"{key} must be a nonnegative integer")
             val = int(body_data[key])
             if val < 0:
                 raise HTTPException(status_code=400, detail=f"{key} must be >= 0")
@@ -120,46 +132,93 @@ async def set_retention_config(body: RetentionConfigRequest, current_user: dict 
 @router.post("/admin/retention/cleanup", tags=["Config"])
 async def run_retention_cleanup(current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Manually trigger data retention cleanup."""
-    row = db.execute(text("SELECT value FROM system_config WHERE key = 'data_retention'")).fetchone()
-    config = {**RETENTION_DEFAULTS}
-    if row:
-        val = row[0] if isinstance(row[0], dict) else json.loads(row[0]) if row[0] else {}
-        config.update(val)
+    try:
+        row = db.execute(text("SELECT value FROM system_config WHERE key = 'data_retention'")).fetchone()
+        config = {**RETENTION_DEFAULTS}
+        if row:
+            val = row[0] if isinstance(row[0], dict) else json.loads(row[0]) if row[0] else {}
+            config.update(val)
 
-    deleted = {}
-    now = datetime.now(timezone.utc)
+        deleted = {}
+        now = datetime.now(timezone.utc)
+        sqlite = db.get_bind().dialect.name == "sqlite"
 
-    if config["completed_jobs_days"] > 0:
-        cutoff = now - timedelta(days=config["completed_jobs_days"])
-        r = db.execute(text("DELETE FROM jobs WHERE status IN ('completed','failed','cancelled') AND updated_at < :cutoff"), {"cutoff": cutoff})
-        deleted["completed_jobs"] = r.rowcount
+        def expired(column):
+            # SQLite stores timestamps as text with multiple valid UTC/offset
+            # representations. Compare instants, not their lexical spelling.
+            return f"julianday({column}) < julianday(:cutoff)" if sqlite else f"{column} < :cutoff"
 
-    if config["audit_logs_days"] > 0:
-        cutoff = now - timedelta(days=config["audit_logs_days"])
-        r = db.execute(text("DELETE FROM audit_logs WHERE timestamp < :cutoff"), {"cutoff": cutoff})
-        deleted["audit_logs"] = r.rowcount
+        if config["completed_jobs_days"] > 0:
+            cutoff = now - timedelta(days=config["completed_jobs_days"])
+            if sqlite:
+                # Own SQLite's writer transaction before enumerating candidates.
+                if db.execute(text("UPDATE system_config SET value=value WHERE key='data_retention'")).rowcount != 1:
+                    raise RuntimeError("Retention configuration unavailable")
+            else:
+                if db.connection().get_isolation_level() != "READ COMMITTED":
+                    raise RuntimeError("Unsupported cleanup isolation")
+                db.execute(text("SET LOCAL lock_timeout = '5s'"))
+            upper = db.execute(text("SELECT MAX(id) FROM jobs")).scalar_one()
+            last = 0
+            count = 0
+            while upper is not None and last < upper:
+                candidates = list(db.execute(text(
+                    "SELECT id FROM jobs WHERE id>:last AND id<=:upper "
+                    "AND status IN ('completed','failed','cancelled') AND " + expired("updated_at") +
+                    " ORDER BY id LIMIT 256" + ("" if sqlite else " FOR UPDATE")
+                ), {"last": last, "upper": upper, "cutoff": cutoff}).scalars())
+                if not candidates:
+                    break
+                last = candidates[-1]
+                # A separate statement observes authority committed while the
+                # candidate lock waited. Never add unlocked/new candidates.
+                statement = text("""DELETE FROM jobs WHERE id IN :candidate_ids
+                    AND status IN ('completed','failed','cancelled')
+                    AND order_item_id IS NULL
+                    AND NOT EXISTS (SELECT 1 FROM order_production_jobs p WHERE p.job_id=jobs.id)
+                    AND NOT EXISTS (SELECT 1 FROM education_submissions e WHERE e.job_id=jobs.id)
+                    AND """ + expired("updated_at")).bindparams(bindparam("candidate_ids", expanding=True))
+                removed = db.execute(statement, {"candidate_ids": candidates, "cutoff": cutoff}).rowcount
+                if removed < 0:
+                    raise RuntimeError("Unconfirmed cleanup count")
+                count += removed
+            deleted["completed_jobs"] = count
 
-    if config["alert_history_days"] > 0:
-        cutoff = now - timedelta(days=config["alert_history_days"])
-        r = db.execute(text("DELETE FROM alerts WHERE created_at < :cutoff"), {"cutoff": cutoff})
-        deleted["alerts"] = r.rowcount
+        if config["audit_logs_days"] > 0:
+            cutoff = now - timedelta(days=config["audit_logs_days"])
+            r = db.execute(text("DELETE FROM audit_logs WHERE " + expired("timestamp")), {"cutoff": cutoff})
+            deleted["audit_logs"] = r.rowcount
 
-    if config["timelapses_days"] > 0:
-        cutoff = now - timedelta(days=config["timelapses_days"])
-        r = db.execute(text("DELETE FROM timelapses WHERE created_at < :cutoff"), {"cutoff": cutoff})
-        deleted["timelapses"] = r.rowcount
+        if config["alert_history_days"] > 0:
+            cutoff = now - timedelta(days=config["alert_history_days"])
+            r = db.execute(text("DELETE FROM alerts WHERE " + expired("created_at")), {"cutoff": cutoff})
+            deleted["alerts"] = r.rowcount
 
-    db.execute(text("DELETE FROM token_blacklist WHERE expires_at < :now"), {"now": now})
-    stale = now - timedelta(hours=48)
-    db.execute(text("DELETE FROM active_sessions WHERE last_seen_at < :cutoff"), {"cutoff": stale})
-    expired_oauth = db.execute(
-        text("DELETE FROM classroom_oauth_states WHERE expires_at < :now"),
-        {"now": now.isoformat()},
-    )
-    deleted["classroom_oauth_states"] = expired_oauth.rowcount
+        refused = {}
+        if config["timelapses_days"] > 0:
+            refused["timelapses"] = {
+                "status": "refused",
+                "reason": "lifetime_retirement_pending",
+            }
 
-    db.commit()
-    return {"status": "ok", "deleted": deleted}
+        db.execute(text("DELETE FROM token_blacklist WHERE expires_at < :now"), {"now": now})
+        stale = now - timedelta(hours=48)
+        db.execute(text("DELETE FROM active_sessions WHERE last_seen_at < :cutoff"), {"cutoff": stale})
+        expired_oauth = db.execute(
+            text("DELETE FROM classroom_oauth_states WHERE expires_at < :now"),
+            {"now": now.isoformat()},
+        )
+        deleted["classroom_oauth_states"] = expired_oauth.rowcount
+
+        db.commit()
+        return {"status": "partial" if refused else "ok", "deleted": deleted, "refused": refused}
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        raise HTTPException(status_code=503, detail="Retention cleanup could not be confirmed") from None
+
 
 
 # ============== Quiet Hours Config ==============

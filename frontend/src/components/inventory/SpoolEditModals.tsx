@@ -3,15 +3,26 @@ import { Modal } from '../ui'
 
 export function EditSpoolModal({ spool, onClose, onSave }: { spool: any; onClose: () => void; onSave: (data: any) => void }) {
   const [form, setForm] = useState({
-    remaining_weight_g: spool?.remaining_weight_g || 0,
+    remaining_weight_g: spool?.remaining_weight_g ?? 0,
+    pa_profile: spool?.pa_profile ?? '',
+    low_stock_threshold_g: spool?.low_stock_threshold_g ?? 50,
     notes: spool?.notes || '',
     storage_location: spool?.storage_location || '',
   });
 
+  const [error, setError] = useState('');
+
   const handleSubmit = (e) => {
     e.preventDefault();
+    const threshold = Number(form.low_stock_threshold_g);
+    if (String(form.low_stock_threshold_g).trim() === '' || !Number.isSafeInteger(threshold) || threshold < 0 || threshold > 2_147_483_647) {
+      setError('Low-stock threshold must be a whole number from 0 to 2147483647.');
+      return;
+    }
     onSave({
       id: spool.id,
+      pa_profile: form.pa_profile || null,
+      low_stock_threshold_g: threshold,
       remaining_weight_g: parseFloat(form.remaining_weight_g),
       notes: form.notes || null,
       storage_location: form.storage_location || null,
@@ -35,11 +46,25 @@ export function EditSpoolModal({ spool, onClose, onSave }: { spool: any; onClose
               {spool.filament_brand} {spool.filament_name}
             </div>
             <div className="text-xs text-[var(--brand-text-muted)] font-mono">{spool.qr_code}</div>
+            {spool.pa_profile && <div className="text-xs text-[var(--brand-text-muted)]">Stored PA profile: <span>{spool.pa_profile}</span></div>}
           </div>
         </div>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
+        {error && <p role="alert" className="text-red-400 text-sm">{error}</p>}
+        <div>
+          <label htmlFor="spool-pa-profile" className="block text-sm text-[var(--brand-text-muted)] mb-1">PA Profile</label>
+          <input id="spool-pa-profile" type="text" maxLength={50} value={form.pa_profile}
+            onChange={e => setForm({ ...form, pa_profile: e.target.value })}
+            className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]" />
+        </div>
+        <div>
+          <label htmlFor="spool-low-stock" className="block text-sm text-[var(--brand-text-muted)] mb-1">Low-stock threshold (g)</label>
+          <input id="spool-low-stock" type="number" min="0" max="2147483647" step="1" required value={form.low_stock_threshold_g}
+            onChange={e => setForm({ ...form, low_stock_threshold_g: e.target.value })}
+            className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]" />
+        </div>
         <div>
           <label className="block text-sm text-[var(--brand-text-muted)] mb-1">Remaining Weight (g)</label>
           <input

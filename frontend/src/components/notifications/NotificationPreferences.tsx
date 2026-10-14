@@ -12,7 +12,6 @@ import {
   AlertTriangle, CheckCircle, XCircle, Printer, Eye,
 } from 'lucide-react'
 import { Button } from '../ui'
-import { system } from '../../api'
 import toast from 'react-hot-toast'
 
 interface NotificationPref {

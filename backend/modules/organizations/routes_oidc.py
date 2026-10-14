@@ -250,20 +250,7 @@ def _resolve_oidc_user(
     }
 
 
-def _record_session(db, user_id, access_token, ip, user_agent):
-    """Record an active session from a JWT token."""
-    import jwt as _jwt
-    try:
-        payload = _jwt.decode(access_token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
-        jti = payload.get("jti")
-        if jti:
-            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-            db.execute(text(f"""{sql.insert_or_ignore_prefix()} active_sessions (user_id, token_jti, ip_address, user_agent)
-                               VALUES (:uid, :jti, :ip, :ua){sql.on_conflict_ignore('token_jti')}"""),
-                       {"uid": user_id, "jti": jti, "ip": ip, "ua": (user_agent or "")[:500]})
-            db.commit()
-    except Exception:
-        log.warning("Failed to record session", exc_info=True)
+from core.session_tracking import record_session as _record_session
 
 
 # ============== OIDC public config ==============
@@ -378,14 +365,28 @@ async def oidc_exchange_code(body: dict, request: Request, db: Session = Depends
     if not code:
         raise HTTPException(status_code=400, detail="code is required")
 
-    row = db.execute(text("SELECT access_token, expires_at FROM oidc_auth_codes WHERE code = :code"),
-                     {"code": code}).fetchone()
-    db.execute(text("DELETE FROM oidc_auth_codes WHERE code = :code"), {"code": code})
-    db.execute(text("DELETE FROM oidc_auth_codes WHERE expires_at < :now"),
-               {"now": datetime.now(timezone.utc).isoformat()})
-    db.commit()
+    try:
+        row = db.execute(text("SELECT access_token, expires_at FROM oidc_auth_codes WHERE code = :code"),
+                         {"code": code}).fetchone()
+        consumed = 0
+        if row:
+            # Only the exact payload observed by this request can be consumed.
+            deletion = db.execute(text(
+                "DELETE FROM oidc_auth_codes WHERE code=:code "
+                "AND access_token=:token AND expires_at=:expiry"),
+                {"code": code, "token": row.access_token, "expiry": row.expires_at})
+            consumed = deletion.rowcount
+        db.execute(text("DELETE FROM oidc_auth_codes WHERE expires_at < :now"),
+                   {"now": datetime.now(timezone.utc).isoformat()})
+        db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        raise HTTPException(status_code=503, detail="Login temporarily unavailable. Try again later.") from None
 
-    if not row:
+    if not row or consumed != 1:
         raise HTTPException(status_code=400, detail="Invalid or expired code")
 
     expires_at = row.expires_at
@@ -402,15 +403,39 @@ async def oidc_exchange_code(body: dict, request: Request, db: Session = Depends
 
     import jwt as _jwt
     try:
-        payload = _jwt.decode(access_token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
-        username = payload.get("sub")
-        if username:
-            user = db.execute(text("SELECT id FROM users WHERE username = :u"), {"u": username}).fetchone()
-            if user:
-                client_ip = request.client.host if request.client else "unknown"
-                _record_session(db, user.id, access_token, client_ip, request.headers.get("user-agent", ""))
+        payload = _jwt.decode(access_token, auth_module.SECRET_KEY,
+                              algorithms=[auth_module.ALGORITHM],
+                              options={"require": ["exp", "sub", "jti"]})
+        username = payload["sub"]
+        if (not isinstance(username, str) or not username
+                or not isinstance(payload["jti"], str) or not payload["jti"]
+                or "mfa_pending" in payload or "mfa_setup_required" in payload):
+            raise ValueError("Invalid interactive identity")
     except Exception:
-        log.debug("Could not record OIDC session", exc_info=True)
+        raise HTTPException(status_code=401, detail="Invalid authentication session") from None
+    try:
+        revoked = db.execute(
+            text("SELECT 1 FROM token_blacklist WHERE jti = :jti"),
+            {"jti": payload["jti"]},
+        ).fetchone()
+    except Exception:
+        raise HTTPException(status_code=503, detail="Login temporarily unavailable. Try again later.") from None
+    if revoked:
+        raise HTTPException(status_code=401, detail="Invalid authentication session")
+    try:
+        user = db.execute(text("SELECT id,is_active FROM users WHERE username=:u"),
+                          {"u": username}).fetchone()
+    except Exception:
+        raise HTTPException(status_code=503, detail="Login temporarily unavailable. Try again later.") from None
+    if not user or not user.is_active:
+        raise HTTPException(status_code=401, detail="Invalid authentication session")
+    from core.mfa_login import login_mfa_response
+    continuation = login_mfa_response(db, user.id)
+    if continuation is not None:
+        return continuation
+    client_ip = request.client.host if request.client else "unknown"
+    if _record_session(db, user.id, access_token, client_ip, request.headers.get("user-agent", "")) is not True:
+        raise HTTPException(status_code=503, detail="Login temporarily unavailable. Try again later.")
 
     from fastapi.responses import JSONResponse
     resp = JSONResponse({"access_token": access_token, "token_type": "bearer"})

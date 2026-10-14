@@ -353,7 +353,7 @@
 - `spoolman_spool_id` field for linking O.D.I.N. spools to external Spoolman instance
 - Bidirectional sync: pull spool inventory from an external Spoolman instance; push consumption back on job completion via `POST /api/v1/spool/{id}/use`
 - **Auto-deduction** — filament consumption auto-deducted from the assigned spool on print completion; consumption_json stored in the archive; pushed back to Spoolman when the spool is linked (fails loud via job.notes if Spoolman is unreachable, no silent drops)
-- **Filament usage tracking** — Bambu: AMS remain percentage delta × initial_weight_g; Moonraker: Klipper `print_stats.filament_used` (mm→grams conversion); multi-filament prints distribute weight across all assigned spools (v1.5.10)
+- **Filament usage tracking** — Bambu: AMS remain percentage delta × initial_weight_g; Moonraker: Klipper `print_stats.filament_used` (mm→grams conversion); multi-filament deductions use per-material evidence; ambiguous total-only measurements remain unresolved
 
 ### 6.7 Filament Drying Log (v1.2.0)
 - Log drying sessions per spool: start time, duration, temperature
@@ -670,11 +670,11 @@
 - Multi-language: EN, DE, JA, ES, IT (181 keys)
 
 ### 16.6 Dashboard Layout
-- Full-width stacked printer card layout (v1.1.0)
+- Responsive printer card grid that adapts to the screen width
 - Maintenance alerts widget with progress bars and overdue badges
 
 ### 16.7 Settings Consolidation
-- 7 tabs (consolidated from 12 in v1.1.0)
+- 9 tabs in Advanced view; 8 in Simple view (Vigil AI is hidden)
 - Simple/Advanced view toggle
 - Sub-sections: General, Access, Notifications, Integrations, Branding, Vigil, System
 
@@ -795,13 +795,13 @@
 - `docker compose up` deployment
 - Volume mount for persistent data (database, backups, uploads, logs, secrets, timelapses)
 - Auto-generated secrets on first run
-- Onboarding wizard on first launch (5 steps: Welcome → Admin → Name → Network → Printer)
+- Onboarding wizard on first launch (6 steps: Welcome → Create Admin and farm name → Pick a Tier → Add Printer → Network → Ready)
 - Setup endpoints permanently locked after completion
 
 ### 22.2 GHCR Distribution
 - Images published to `ghcr.io/hughkantsime/odin`
 - Version-tagged (e.g., `v1.3.0`)
-- CI/CD via GitHub Actions — triggered on git tags only
+- CI/CD via GitHub Actions: manually dispatched trusted validation, image publication and promotion workflows
 
 ### 22.4 Installer & Updater (v1.3.16)
 - `install.sh` — curl-pipe-bash first-time installer with preflight checks (Docker, compose, ports), interactive config, image pull, health wait
@@ -819,7 +819,7 @@
 
 ### 22.6 Documentation Wiki
 - Docusaurus 3 site at `docs.runsodin.com`
-- 19 pages: introduction, getting started (4), configuration (5), features (4), API reference (2), troubleshooting (3)
+- Documentation pages covering introduction, getting started, configuration, security, features, companion apps, integrations, API reference and troubleshooting
 - Dark mode default with ODIN brand colors
 - Documentation link in Settings page
 

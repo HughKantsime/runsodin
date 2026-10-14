@@ -11,6 +11,16 @@ from core.base import FilamentType
 
 # ============== Model Schemas ==============
 
+class ModelScheduleOptions(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    quantity: int = Field(default=1, ge=1, strict=True)
+    priority: int = Field(default=5, ge=1, le=5, strict=True)
+    due_date: Optional[datetime] = None
+    notes: Optional[str] = None
+    plate_index: Optional[int] = Field(default=None, ge=0, strict=True)
+    print_file_id: Optional[int] = Field(default=None, ge=1, strict=True)
+    payload_sha256: Optional[str] = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
 class ColorRequirement(BaseModel):
     color: str
     grams: float = 0
@@ -55,6 +65,7 @@ class ModelUpdate(BaseModel):
 class ModelResponse(ModelBase):
     model_config = ConfigDict(from_attributes=True)
 
+    default_filament_type: Optional[FilamentType] = None
     id: int
     created_at: datetime
     updated_at: datetime
@@ -77,14 +88,14 @@ class ModelResponse(ModelBase):
     @computed_field
     @property
     def value_per_bed(self) -> Optional[float]:
-        if not self.cost_per_item or not self.markup_percent:
+        if self.cost_per_item is None or self.markup_percent is None:
             return None
         return round(self.cost_per_item * (self.markup_percent / 100) * (self.units_per_bed or 1), 2)
 
     @computed_field
     @property
     def value_per_hour(self) -> Optional[float]:
-        if not self.value_per_bed or not self.build_time_hours:
+        if self.value_per_bed is None or not self.build_time_hours:
             return None
         return round(self.value_per_bed / self.build_time_hours, 2)
 

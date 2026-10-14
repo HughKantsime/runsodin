@@ -58,6 +58,10 @@ class PostgreSQLTOCInventory:
     entries: int
 
 
+# Strong ownership only for a failed recovery in this process. This does not
+# survive process death; the durable unfinished manifest must gate startup.
+_FAILED_RESTORE_BARRIERS: dict[str, tuple[object, object]] = {}
+
 _SAFE_DATABASE_NAME = re.compile(r"^odin_validate_[0-9a-f]{20}$")
 _SAFE_ROLLBACK_NAME = re.compile(
     r"^rollback_[0-9]{8}_[0-9]{6}_[0-9]{6}\.dump$"
@@ -72,11 +76,11 @@ _ALLOWED_TOC_KINDS = (
     "DEFAULT",
     "INDEX",
     "TRIGGER",
+    "FUNCTION",
     "TABLE",
     "TYPE",
 )
 _FORBIDDEN_TOC_KINDS = (
-    "FUNCTION",
     "PROCEDURE",
     "VIEW",
     "MATERIALIZED VIEW",
@@ -127,7 +131,10 @@ def postgres_paths(base_dir: Path | None = None) -> PostgreSQLBackupPaths:
     )
 
 
-def canonical_tables() -> frozenset[str]:
+def canonical_tables(*, _contract=None) -> frozenset[str]:
+    from core.schema.pre026_restore_contract import check_contract,inventory_for
+    check_contract(_contract)
+    if _contract is not None:return frozenset(inventory_for(_contract)["tables"])
     import_all_models()
     return frozenset(
         set(Base.metadata.tables)
@@ -152,55 +159,8 @@ def _normalize_postgres_definition(value: str) -> str:
 
 
 def _validate_canonical_public_executables(connection) -> None:
-    functions = connection.execute(
-        text(
-            "SELECT p.proname, pg_get_function_result(p.oid), l.lanname, p.prosrc "
-            "FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace "
-            "JOIN pg_language l ON l.oid=p.prolang WHERE n.nspname='public'"
-        )
-    ).all()
-    if len(functions) != 1:
-        raise BackupValidationError(
-            "PostgreSQL schema contains noncanonical executable objects"
-        )
-    function_name, result_type, language, source = functions[0]
-    normalized_source = _normalize_postgres_definition(str(source))
-    if (
-        str(function_name) != _CANONICAL_TRIGGER_FUNCTION
-        or str(result_type).lower() != "trigger"
-        or str(language).lower() != "plpgsql"
-        or normalized_source
-        != "begin raise exception 'education audit events are immutable'; end;"
-    ):
-        raise BackupValidationError(
-            "PostgreSQL schema contains noncanonical executable objects"
-        )
-
-    triggers = connection.execute(
-        text(
-            "SELECT c.relname, t.tgname, pg_get_triggerdef(t.oid) "
-            "FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid "
-            "JOIN pg_namespace n ON n.oid=c.relnamespace "
-            "WHERE n.nspname='public' AND NOT t.tgisinternal"
-        )
-    ).all()
-    actual: set[tuple[str, str, str]] = set()
-    for table_name, trigger_name, definition in triggers:
-        normalized = _normalize_postgres_definition(str(definition))
-        action = "DELETE" if " before delete " in f" {normalized} " else "UPDATE"
-        if (
-            f" before {action.lower()} " not in f" {normalized} "
-            or " for each row execute function " not in f" {normalized} "
-            or f" {_CANONICAL_TRIGGER_FUNCTION}()" not in f" {normalized} "
-        ):
-            raise BackupValidationError(
-                "PostgreSQL schema contains noncanonical executable objects"
-            )
-        actual.add((str(table_name), str(trigger_name), action))
-    if actual != set(_CANONICAL_AUDIT_TRIGGERS):
-        raise BackupValidationError(
-            "PostgreSQL schema contains noncanonical executable objects"
-        )
+    from modules.system.postgres_canonical_executables import validate_executables
+    validate_executables(connection)
 
 
 def validate_live_postgres_objects(
@@ -213,6 +173,9 @@ def validate_live_postgres_objects(
     try:
         with engine.connect() as connection:
             validate_schema(connection)
+            import importlib
+            importlib.import_module("core.schema.migrations.026_global_order_origins").validate(connection)
+            importlib.import_module("core.schema.migrations.027_power_target_operations").validate(connection)
             inspector = inspect(connection)
             if set(inspector.get_table_names(schema="public")) != set(canonical_tables()):
                 raise BackupValidationError("Live public schema contains noncanonical tables")
@@ -303,6 +266,7 @@ def _toc_inventory(toc: str) -> PostgreSQLTOCInventory:
     table_data: set[str] = set()
     sequence_sets: set[str] = set()
     entries = 0
+    descriptors: set[str] = set()
     for raw_line in toc.splitlines():
         line = raw_line.strip()
         if not line or line.startswith(";"):
@@ -317,6 +281,9 @@ def _toc_inventory(toc: str) -> PostgreSQLTOCInventory:
         descriptor, separator, _owner = body.rpartition(" ")
         if not separator or not descriptor:
             raise BackupValidationError("PostgreSQL archive TOC entry is malformed")
+        if descriptor in descriptors:
+            raise BackupValidationError('PostgreSQL archive contains duplicate object entries')
+        descriptors.add(descriptor)
         kind = _toc_kind(descriptor)
         if kind == "TABLE DATA":
             table_data.add(descriptor)
@@ -337,9 +304,10 @@ def validate_archive_toc(
     *,
     allowed_structure: frozenset[str] | None = None,
     allow_unresolved_structure: bool = False,
+    _contract=None,
 ) -> dict[str, object]:
     """Reject archive objects outside the canonical ODIN public-schema set."""
-    tables = canonical_tables()
+    tables = (canonical_tables() if _contract is None else canonical_tables(_contract=_contract))
     archive_tables: set[str] = set()
     for raw_line in toc.splitlines():
         line = raw_line.strip()
@@ -365,6 +333,16 @@ def validate_archive_toc(
             match = re.search(r" TYPE public ([^ ]+) ", f" {line} ")
             if not match or match.group(1) not in canonical_enum_types():
                 raise BackupValidationError("PostgreSQL archive contains a non-ODIN type")
+        elif kind == "FUNCTION":
+            from modules.system.postgres_canonical_executables import canonical_functions
+            match = re.search(r" FUNCTION public ([^ ]+) ", f" {line} ")
+            if not match or match.group(1) not in {name+'()' for name in (canonical_functions() if _contract is None else canonical_functions(_contract=_contract))}:
+                raise BackupValidationError("PostgreSQL archive contains a forbidden object type")
+        elif kind == "TRIGGER":
+            from modules.system.postgres_canonical_executables import canonical_triggers
+            match = re.search(r" TRIGGER public ([^ ]+) ([^ ]+) ", f" {line} ")
+            if not match or tuple(match.groups()) not in (canonical_triggers() if _contract is None else canonical_triggers(_contract=_contract)):
+                raise BackupValidationError("PostgreSQL archive contains a forbidden object type")
         elif kind in {"DEFAULT", "CONSTRAINT", "FK CONSTRAINT"}:
             match = re.search(rf" {re.escape(kind)} public ([^ ]+) ", f" {line} ")
             if not match or match.group(1) not in tables:
@@ -388,7 +366,7 @@ def validate_archive_toc(
             raise BackupValidationError(
                 "PostgreSQL archive contains a non-ODIN structural object"
             )
-    elif inventory.structure != allowed_structure:
+    elif {entry for entry in inventory.structure if not entry.startswith(('FUNCTION public ', 'TYPE public '))} != {entry for entry in allowed_structure if not entry.startswith(('FUNCTION public ', 'TYPE public '))}:
         missing_structure = sorted(allowed_structure - inventory.structure)[:12]
         extra_structure = sorted(inventory.structure - allowed_structure)[:12]
         raise BackupValidationError(
@@ -428,6 +406,44 @@ def validate_archive_toc(
     }
 
 
+def _ordered_restore_data(lines, expected_tables, foreign_keys):
+    """Retain verified TOC records; order COPY by trusted target constraints."""
+    tables={};sequences=[]
+    for line in lines:
+        match=re.fullmatch(r'\d+;\s+\d+\s+\d+\s+(TABLE DATA|SEQUENCE SET) public ([^ ]+) [^ ]+',line.strip())
+        if not match:raise BackupValidationError('Restore data TOC entry is invalid')
+        kind,name=match.groups()
+        if kind=='SEQUENCE SET':sequences.append(line);continue
+        if name not in expected_tables or name in tables:
+            raise BackupValidationError('Restore table data is foreign or duplicated')
+        tables[name]=line
+    if set(tables)!=set(expected_tables):raise BackupValidationError('Restore table data is missing')
+    parents={name:set() for name in tables}
+    for child,parent,deferrable,deferred in foreign_keys:
+        if child not in tables or parent not in tables:
+            raise BackupValidationError('Restore foreign key parent is missing or foreign')
+        if child==parent or (deferrable and deferred):continue
+        parents[child].add(parent)
+    ordered=[]
+    while parents:
+        ready=sorted(name for name,dependencies in parents.items() if not dependencies)
+        if not ready:raise BackupValidationError('Restore immediate foreign key cycle is unsupported')
+        # One lexical choice per iteration gives deterministic table-name ties.
+        name=ready[0];ordered.append(tables[name]);del parents[name]
+        for dependencies in parents.values():dependencies.discard(name)
+    return ordered+sequences
+
+
+def _trusted_restore_foreign_keys(connection):
+    return connection.execute(text("""SELECT child.relname,CASE WHEN pn.nspname='public' THEN parent.relname ELSE pn.nspname||'.'||parent.relname END,k.condeferrable,k.condeferred
+        FROM pg_constraint k JOIN pg_class child ON child.oid=k.conrelid
+        JOIN pg_namespace cn ON cn.oid=child.relnamespace
+        JOIN pg_class parent ON parent.oid=k.confrelid
+        JOIN pg_namespace pn ON pn.oid=parent.relnamespace
+        WHERE k.contype='f' AND cn.nspname='public'
+        ORDER BY child.relname,parent.relname,k.conname""")).all()
+
+
 def _validated_restore_list(
     archive: Path,
     database_url: str,
@@ -436,6 +452,10 @@ def _validated_restore_list(
     *,
     allowed_structure: frozenset[str] | None = None,
     trusted_prevalidated: bool = False,
+    phase: str = 'data',
+    schema_descriptors: frozenset[str] | None = None,
+    data_connection=None,
+    _contract=None,
 ) -> Path:
     toc = _run_pg_tool(
         ["pg_restore", "--list", str(archive)], database_url, password_file, directory
@@ -444,16 +464,43 @@ def _validated_restore_list(
         toc,
         allowed_structure=allowed_structure,
         allow_unresolved_structure=trusted_prevalidated,
+        _contract=_contract,
     )
+    if phase=='data' and data_connection is None:
+        raise BackupValidationError('Restore data requires validated canonical target metadata')
+    selected=[]
     descriptor, filename = tempfile.mkstemp(prefix=".odin-restore-list-", dir=directory)
     path = Path(filename)
-    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-        for line in toc.splitlines():
-            if " SCHEMA - public " not in f" {line} ":
-                handle.write(line + "\n")
-        handle.flush()
-        os.fsync(handle.fileno())
-    path.chmod(0o600)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            if phase not in ('data', 'schema-evidence'):
+                raise BackupValidationError('Unsupported restore phase')
+            for line in toc.splitlines():
+                stripped = line.strip()
+                if not stripped or stripped.startswith(';'):
+                    continue
+                if " SCHEMA - public " in f" {line} ":
+                    continue
+                match = re.match(r'^\d+;\s+\d+\s+\d+\s+(.+)$', stripped)
+                if not match:
+                    raise BackupValidationError('PostgreSQL archive TOC entry is malformed')
+                descriptor = match.group(1).rpartition(' ')[0]
+                kind = _toc_kind(descriptor)
+                if phase == 'data':
+                    if kind not in ('TABLE DATA', 'SEQUENCE SET'):
+                        continue
+                elif kind in ('TABLE DATA', 'SEQUENCE SET') or (schema_descriptors is not None and descriptor not in schema_descriptors):
+                    continue
+                selected.append(line)
+            if phase=='data':
+                selected=_ordered_restore_data(selected,(canonical_tables() if _contract is None else canonical_tables(_contract=_contract)),_trusted_restore_foreign_keys(data_connection))
+            handle.write(''.join(line+'\n' for line in selected))
+            handle.flush()
+            os.fsync(handle.fileno())
+        path.chmod(0o600)
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
     return path
 
 
@@ -465,6 +512,7 @@ def inspect_postgres_archive(
     work_dir: Path | None = None,
     allowed_structure: frozenset[str] | None = None,
     trusted_prevalidated: bool = False,
+    _contract=None,
 ) -> dict[str, object]:
     if not archive.is_file():
         raise BackupValidationError("PostgreSQL backup file does not exist")
@@ -479,6 +527,7 @@ def inspect_postgres_archive(
         toc,
         allowed_structure=allowed_structure,
         allow_unresolved_structure=trusted_prevalidated,
+        _contract=_contract,
     )
     return {"size_bytes": size, "sha256": _sha256(archive), **metadata}
 
@@ -560,7 +609,7 @@ def _maintenance_urls(
     )
 
 
-def validate_postgres_restore(
+def _validate_current_postgres_restore(
     archive: Path,
     target_url: str,
     maintenance_url: str,
@@ -633,8 +682,7 @@ def validate_postgres_restore(
             "--dbname",
             validation_cli,
         ]
-        for table_name in sorted(canonical_tables()):
-            canonical_command.extend(["--table", f"public.{table_name}"])
+        canonical_command.extend(['--schema', 'public'])
         _run_pg_tool(
             canonical_command,
             maintenance_url,
@@ -656,35 +704,16 @@ def validate_postgres_restore(
             work_dir=paths.backups,
             allowed_structure=allowed_structure,
         )
-        restore_list = _validated_restore_list(
-            archive,
-            target_url,
-            password_file,
-            paths.backups,
-            allowed_structure=allowed_structure,
-        )
-        try:
-            _run_pg_tool(
-                [
-                    "pg_restore",
-                    "--exit-on-error",
-                    "--single-transaction",
-                    "--clean",
-                    "--if-exists",
-                    "--no-owner",
-                    "--no-privileges",
-                    "--use-list",
-                    str(restore_list),
-                    "--dbname",
-                    validation_cli,
-                    str(archive),
-                ],
-                maintenance_url,
-                maintenance_password_file,
-                paths.backups,
-            )
-        finally:
-            restore_list.unlink(missing_ok=True)
+        from modules.system.postgres_canonical_executables import validate_schema_sql
+        original_toc = _run_pg_tool(['pg_restore', '--list', str(archive)], target_url, password_file, paths.backups)
+        original_structure = _toc_inventory(original_toc).structure
+        original_schema = _schema_sql_evidence(archive, target_url, password_file, paths.backups,
+            allowed_structure=allowed_structure)
+        canonical_schema = _schema_sql_evidence(canonical_archive, maintenance_url, maintenance_password_file,
+            paths.backups, schema_descriptors=original_structure)
+        validate_schema_sql(original_schema, canonical_schema)
+        # Only data enters a canonical source-created schema. Archive DDL is never executed.
+        _restore_postgres_archive(archive, validation_url, maintenance_password_file, paths.backups)
         validation_engine = create_database_engine(
             validation_url,
             role="restore",
@@ -743,6 +772,25 @@ def validate_postgres_restore(
         "schema_fingerprint": canonical_fingerprint,
         "restore_validated": True,
     }
+
+
+def _inspect_compatible_archive(archive,target_url,password_file,directory):
+    from modules.system.pre026_restore_stage import identify_contract
+    contract=identify_contract(archive,target_url,password_file,directory)
+    return inspect_postgres_archive(archive,target_url,password_file=password_file,work_dir=directory,trusted_prevalidated=True,_contract=contract)
+
+
+def validate_postgres_restore(archive,target_url,maintenance_url,*,password_file=None,maintenance_password_file=None,base_dir=None):
+    from modules.system.pre026_restore_stage import identify_contract,prepared_archive
+    directory=postgres_paths(base_dir).backups
+    contract=identify_contract(archive,target_url,password_file,directory)
+    if contract is None:
+        return _validate_current_postgres_restore(archive,target_url,maintenance_url,password_file=password_file,maintenance_password_file=maintenance_password_file,base_dir=base_dir)
+    from core.schema.pre026_restore_contract import schema_version
+    original=inspect_postgres_archive(archive,target_url,password_file=password_file,work_dir=directory,trusted_prevalidated=True,_contract=contract)
+    with prepared_archive(archive,target_url,maintenance_url,password_file,maintenance_password_file,directory) as prepared:
+        current=_validate_current_postgres_restore(prepared,target_url,maintenance_url,password_file=password_file,maintenance_password_file=maintenance_password_file,base_dir=base_dir)
+        return {**original,'restore_validated':True,'schema_fingerprint':current['schema_fingerprint'],'source_schema_version':schema_version(contract),'prepared_schema_version':27,'upgrade_required':True,'prepared_sha256':_sha256(prepared)}
 
 
 def stage_postgres_restore(
@@ -993,41 +1041,50 @@ def _assert_no_external_dependencies(connection) -> None:
         )
 
 
-def _restore_postgres_archive(
-    archive: Path,
-    target_url: str,
-    password_file: str | None,
-    directory: Path,
-) -> None:
-    restore_list = _validated_restore_list(
-        archive,
-        target_url,
-        password_file,
-        directory,
-        trusted_prevalidated=True,
-    )
+def _schema_sql_evidence(archive, database_url, password_file, directory, *, allowed_structure=None, schema_descriptors=None, _contract=None):
+    listing = _validated_restore_list(archive, database_url, password_file, directory,
+        allowed_structure=allowed_structure, trusted_prevalidated=True, phase='schema-evidence',
+        schema_descriptors=schema_descriptors,_contract=_contract)
     try:
-        _run_pg_tool(
-            [
-                "pg_restore",
-                "--exit-on-error",
-                "--single-transaction",
-                "--clean",
-                "--if-exists",
-                "--no-owner",
-                "--no-privileges",
-                "--use-list",
-                str(restore_list),
-                "--dbname",
-                _credentialless_cli_url(target_url, "odin-restore"),
-                str(archive),
-            ],
-            target_url,
-            password_file,
-            directory,
-        )
+        # No --dbname: emitted SQL is evidence only, including untrusted executable definitions.
+        return _run_pg_tool(['pg_restore', '--schema-only', '--no-owner', '--no-privileges',
+            '--use-list', str(listing), '--file', '-', str(archive)], database_url, password_file, directory)
     finally:
-        restore_list.unlink(missing_ok=True)
+        listing.unlink(missing_ok=True)
+
+
+def _restore_postgres_archive(archive: Path, target_url: str, password_file: str | None, directory: Path, *, _contract=None, _stage=None) -> None:
+    from core.schema.pre026_restore_contract import check_contract
+    check_contract(_contract)
+    if _contract is not None:
+        if _stage is None or _stage.contract is not _contract:raise BackupValidationError("Owned historical stage profile differs")
+        bound=_stage.verify().url;requested=make_url(target_url)
+        if (bound.host,bound.port or 5432,bound.username,bound.database)!=(requested.host,requested.port or 5432,requested.username,requested.database):raise BackupValidationError("Owned025 stage target differs")
+    from modules.system.postgres_canonical_executables import remove_trusted_guards, install_trusted_guards
+    restore_list = None
+    engine = create_database_engine(target_url, role='restore', password_file=password_file)
+    try:
+        # Existing offline barrier spans these phases. This is not one transaction.
+        with engine.begin() as connection:
+            if _contract is not None:_stage.verify_connection(connection)
+            validate_schema(connection,_contract=_contract)
+            if set(inspect(connection).get_table_names(schema='public')) != set((canonical_tables() if _contract is None else canonical_tables(_contract=_contract))):
+                raise BackupValidationError('Restore target schema has unsupported historical compatibility')
+            restore_list = _validated_restore_list(archive, target_url, password_file, directory,
+                trusted_prevalidated=True, data_connection=connection,_contract=_contract)
+            remove_trusted_guards(connection,_contract=_contract)
+            names = ','.join('public."'+name+'"' for name in sorted((canonical_tables() if _contract is None else canonical_tables(_contract=_contract))))
+            connection.exec_driver_sql('TRUNCATE '+names+' RESTART IDENTITY')
+        _run_pg_tool(['pg_restore', '--exit-on-error', '--single-transaction', '--data-only',
+            '--no-owner', '--no-privileges', '--use-list', str(restore_list), '--dbname',
+            _credentialless_cli_url(target_url, 'odin-restore'), str(archive)], target_url, password_file, directory)
+        with engine.begin() as connection:
+            install_trusted_guards(connection,_contract=_contract)
+        # Migration adoption/data associations are verified after guard installation.
+        if _contract is None:bootstrap_database(engine)
+    finally:
+        engine.dispose()
+        if restore_list is not None:restore_list.unlink(missing_ok=True)
 
 
 def _insert_postgres_restore_audit(
@@ -1066,6 +1123,8 @@ def apply_pending_postgres_restore(
     maintenance_password_file = _require_distinct_maintenance_secret(
         password_file, maintenance_password_file
     )
+    if target_url in _FAILED_RESTORE_BARRIERS:
+        raise BackupValidationError('PostgreSQL recovery incomplete; this process retains the offline barrier')
     paths = postgres_paths(base_dir)
     if not paths.pending.exists() and not paths.manifest.exists():
         return None
@@ -1081,13 +1140,7 @@ def apply_pending_postgres_restore(
             raise BackupValidationError(
                 "PostgreSQL restore acknowledgement must exactly match the staged SHA-256"
             )
-        candidate = inspect_postgres_archive(
-            paths.pending,
-            target_url,
-            password_file=password_file,
-            work_dir=paths.backups,
-            trusted_prevalidated=True,
-        )
+        candidate = _inspect_compatible_archive(paths.pending,target_url,password_file,paths.backups)
         if (
             candidate["sha256"] != manifest.get("sha256")
             or candidate["size_bytes"] != manifest.get("size_bytes")
@@ -1111,6 +1164,7 @@ def apply_pending_postgres_restore(
         password_file=password_file,
     )
     barrier_connection = None
+    recovery_incomplete = False
     barrier_pid: int | None = None
     rollback: Path | None = None
     try:
@@ -1213,85 +1267,97 @@ def apply_pending_postgres_restore(
                     base_dir=base_dir,
                     prefix="rollback_",
                 )
-                with restore_lock(paths.lock):
-                    _assert_no_target_sessions(
-                        maintenance_connection,
-                        target.database,
-                        excluded_pids=excluded_pids,
-                    )
-                    manifest.update(
-                        {
-                            "state": "restore_in_progress",
-                            "rollback_backup": rollback.name,
-                            "rollback_sha256": rollback_metadata["sha256"],
-                            "rollback_size_bytes": rollback_metadata["size_bytes"],
-                            "apply_started_at": datetime.now(timezone.utc).isoformat(),
-                        }
-                    )
-                    _write_pending_manifest(paths, manifest)
-                    try:
-                        _restore_postgres_archive(
-                            paths.pending, target_url, password_file, paths.backups
+                from modules.system.pre026_restore_stage import prepared_archive
+                with prepared_archive(paths.pending,target_url,maintenance_url,password_file,maintenance_password_file,paths.backups) as prepared:
+                    with restore_lock(paths.lock):
+                        _assert_no_target_sessions(
+                            maintenance_connection,
+                            target.database,
+                            excluded_pids=excluded_pids,
                         )
-                        if fail_after_restore:
-                            raise RuntimeError("Injected post-restore failure")
-                        bootstrap_engine = create_database_engine(
-                            target_url, role="restore", password_file=password_file
-                        )
-                        try:
-                            bootstrap_database(bootstrap_engine)
-                        finally:
-                            bootstrap_engine.dispose()
-                        validate_live_postgres_objects(
-                            target_url, password_file=password_file
-                        )
-                        _insert_postgres_restore_audit(
-                            target_url,
-                            password_file,
-                            "restore_completed",
+                        if _sha256(paths.pending)!=manifest['sha256'] or paths.pending.stat().st_size!=manifest['size_bytes']:raise BackupValidationError('Staged original archive changed')
+                        manifest.update(
                             {
-                                "candidate_sha256": candidate["sha256"],
-                                "restored_at": datetime.now(timezone.utc).isoformat(),
-                            },
+                                "state": "restore_in_progress",
+                                "rollback_backup": rollback.name,
+                                "rollback_sha256": rollback_metadata["sha256"],
+                                "rollback_size_bytes": rollback_metadata["size_bytes"],
+                                "apply_started_at": datetime.now(timezone.utc).isoformat(),
+                            }
                         )
-                    except Exception as exc:
-                        if rollback is not None:
+                        _write_pending_manifest(paths, manifest)
+                        try:
                             _restore_postgres_archive(
-                                rollback, target_url, password_file, paths.backups
+                                prepared, target_url, password_file, paths.backups
                             )
+                            if fail_after_restore:
+                                raise RuntimeError("Injected post-restore failure")
+                            bootstrap_engine = create_database_engine(
+                                target_url, role="restore", password_file=password_file
+                            )
+                            try:
+                                bootstrap_database(bootstrap_engine)
+                            finally:
+                                bootstrap_engine.dispose()
                             validate_live_postgres_objects(
                                 target_url, password_file=password_file
                             )
                             _insert_postgres_restore_audit(
                                 target_url,
                                 password_file,
-                                "restore_failed",
+                                "restore_completed",
                                 {
-                                    "reason": type(exc).__name__,
-                                    "failed_at": datetime.now(timezone.utc).isoformat(),
+                                    "candidate_sha256": candidate["sha256"],
+                                    "restored_at": datetime.now(timezone.utc).isoformat(),
                                 },
                             )
+                        except Exception as exc:
+                            if rollback is not None:
+                                _restore_postgres_archive(
+                                    rollback, target_url, password_file, paths.backups
+                                )
+                                validate_live_postgres_objects(
+                                    target_url, password_file=password_file
+                                )
+                                _insert_postgres_restore_audit(
+                                    target_url,
+                                    password_file,
+                                    "restore_failed",
+                                    {
+                                        "reason": type(exc).__name__,
+                                        "failed_at": datetime.now(timezone.utc).isoformat(),
+                                    },
+                                )
+                            paths.pending.unlink(missing_ok=True)
+                            paths.manifest.unlink(missing_ok=True)
+                            _fsync_directory(paths.manifest.parent)
+                            raise
                         paths.pending.unlink(missing_ok=True)
                         paths.manifest.unlink(missing_ok=True)
                         _fsync_directory(paths.manifest.parent)
-                        raise
-                    paths.pending.unlink(missing_ok=True)
-                    paths.manifest.unlink(missing_ok=True)
-                    _fsync_directory(paths.manifest.parent)
-                    return {
-                        "status": "restored",
-                        "rollback_backup": rollback.name,
-                        "candidate_sha256": candidate["sha256"],
-                    }
+                        return {
+                            "status": "restored",
+                            "rollback_backup": rollback.name,
+                            "candidate_sha256": candidate["sha256"],
+                        }
+            except BaseException as exc:
+                if lock_held and paths.manifest.exists() and manifest.get('state') == 'restore_in_progress':
+                    recovery_incomplete = True
+                    _FAILED_RESTORE_BARRIERS[target_url] = (barrier_connection, barrier_engine)
+                    manifest.update({'recovery_incomplete': True, 'recovery_error': type(exc).__name__})
+                    _write_pending_manifest(paths, manifest)
+                    raise BackupValidationError('PostgreSQL recovery incomplete; offline barrier retained in this process') from exc
+                raise
             finally:
-                if lock_held:
+                if lock_held and not recovery_incomplete:
                     barrier_connection.execute(
                         text("SELECT pg_advisory_unlock(:key)"),
                         {"key": RESTORE_ADVISORY_LOCK},
                     )
                     barrier_connection.commit()
     finally:
-        if barrier_connection is not None:
-            barrier_connection.close()
-        barrier_engine.dispose()
+        if not recovery_incomplete:
+            if barrier_connection is not None:
+                barrier_connection.close()
+            barrier_engine.dispose()
         maintenance_engine.dispose()

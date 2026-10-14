@@ -102,7 +102,33 @@ export interface EducationSubmissionCreateResult {
   lifecycle_revision: number
 }
 
+export interface EducationAMSReport {
+  generation_id: string
+  packet_sequence: number
+  received_at: string
+  trays: Array<{
+    slot_number: number
+    material: string | null
+    material_state: string
+    mechanically_ready: null
+  }>
+}
+
+export interface EducationApprovalRequest {
+  revision: number
+  printer_id: number
+  command_id: string
+  ams_mapping?: Array<{ source_slot: number; target_slot: number }>
+  ams_generation_id?: string
+  plate_index?: number
+}
+
 export interface EducationDecisionResult {
+  ams_mapping?: number[]
+  ams_generation_id?: string
+  print_file_id?: number
+  payload_sha256?: string
+  plate_index?: number
   id: number
   job_id: number
   cost_center_id: number

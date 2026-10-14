@@ -1,6 +1,14 @@
 #!/bin/bash
 set -Eeuo pipefail
 
+# This availability flag is overwritten by trusted startup, never accepted as
+# an identity. The reader must still validate the root-owned runtime record.
+export ODIN_AMS_RUNTIME_READY=0
+export ODIN_BRANDING_DIRECTORY=/data/static/branding
+if /usr/local/bin/python3 -I -S /usr/local/libexec/odin-runtime-identity.py; then
+    export ODIN_AMS_RUNTIME_READY=1
+fi
+
 echo "========================================="
 
 load_secret_file() {
@@ -85,7 +93,10 @@ if [ -d /app/backend/vision_models_default ]; then
     done
 fi
 
-ln -sfn /data/static/branding /app/backend/static/branding 2>/dev/null || true
+if [ ! -L /app/backend/static/branding ] || [ "$(readlink /app/backend/static/branding)" != /data/static/branding ]; then
+    echo "Branding storage layout unavailable" >&2
+    exit 1
+fi
 
 export DATABASE_URL="${DATABASE_URL:-sqlite:////data/odin.db}"
 case "${DATABASE_URL}" in
@@ -150,6 +161,7 @@ trap - ERR
 chown -R odin:odin /data 2>/dev/null || true
 mkdir -p /var/run
 chown odin:odin /var/run 2>/dev/null || true
+/usr/sbin/runuser -u odin -- /usr/local/bin/python3 -I -S /usr/local/libexec/odin-branding-defaults.py
 
 echo "========================================="
 echo "  O.D.I.N. is ready!"

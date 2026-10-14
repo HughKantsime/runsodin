@@ -33,6 +33,19 @@ def generic_archive_audience_sql() -> str:
     )
 
 
+def assert_generic_model_reference_allowed(db, model_id: int | None) -> None:
+    """Delegate source admission only; caller owns audience and transaction."""
+    if model_id is None:
+        return
+    from fastapi import HTTPException
+    from core.registry import registry
+    policy = registry.get_provider("EducationPolicyProvider")
+    guard = getattr(policy, "assert_generic_model_reference_allowed", None)
+    if not callable(guard):
+        raise HTTPException(status_code=503, detail="Education policy unavailable")
+    guard(db, model_id)
+
+
 class EducationPolicyProvider(ABC):
     def archive_audience_sql(self) -> str:
         """Older authorities fail closed for Education-marked archive history.
@@ -100,6 +113,14 @@ class EducationPolicyProvider(ABC):
     ) -> dict | None:
         """Reserve an opaque correlation token before touching hardware."""
 
+    def lock_dispatch_reservation(self, db, *, reservation: dict) -> bool:
+        """Lock and validate the exact existing pre-command authority in caller TX.
+
+        Older providers refuse admission rather than accepting stale authority.
+        This method never commits or starts device I/O.
+        """
+        return False
+
     @abstractmethod
     def cancel_dispatch_reservation(self, db, **kwargs) -> bool:
         """Cancel only the caller's still-current reserved claim."""
@@ -107,6 +128,22 @@ class EducationPolicyProvider(ABC):
     @abstractmethod
     def confirm_dispatch_started(self, db, **kwargs) -> dict:
         """Advance Education authority after hardware accepts a print."""
+
+    def start_identity_matches(self, context, *identities):
+        return False
+
+    def discover_start_authority(self, db, **kwargs):
+        """Optional preinsert candidate discovery; absence grants no authority."""
+        return None
+
+    def lock_start_authority(self, db, context):
+        return False
+
+    def recheck_start_authority(self, db, context):
+        return False
+
+    def finalize_start_authority(self, db, **kwargs):
+        raise RuntimeError('Education prepared start unavailable')
 
     @abstractmethod
     def claim_monitor_observation(self, db, **kwargs) -> dict:

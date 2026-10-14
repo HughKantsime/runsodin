@@ -613,3 +613,17 @@ def test_school_sized_disk_can_upload_with_explicit_override(submission_db, tmp_
     assert submit()['status']=='submitted'
     assert db.execute(text('SELECT COUNT(*) FROM jobs')).scalar_one()==1
     assert list(root.rglob('*.3mf'))[0].read_bytes()==payload
+
+
+def test_uploaded_job_pins_exact_file_and_hash(submission_db,monkeypatch):
+    import hashlib
+    from modules.organizations.education_submission_service import process_sliced_3mf_submission
+    db,upload_root=submission_db
+    _ample_disk(monkeypatch)
+    payload=_sliced_3mf()
+    result=process_sliced_3mf_submission(db,source=io.BytesIO(payload),original_filename='pilot.3mf',
+        operation_id=str(uuid.uuid4()),principal=_principal(),cost_center_id=7,storage_root=upload_root)
+    row=db.execute(text('SELECT j.print_file_id,j.payload_sha256,pf.id AS actual_file_id FROM jobs j JOIN education_submissions s ON s.job_id=j.id '
+        'JOIN print_files pf ON pf.id=s.print_file_id WHERE j.id=:job'),{'job':result['job_id']}).mappings().one()
+    assert row['print_file_id']==row['actual_file_id']
+    assert row['payload_sha256']==hashlib.sha256(payload).hexdigest()

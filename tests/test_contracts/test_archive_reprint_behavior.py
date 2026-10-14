@@ -12,6 +12,17 @@ def reprint_client(review_db,tmp_path,monkeypatch):
     from modules.organizations.services import EducationPolicyService
     original_provider = registry.get_provider
     monkeypatch.setattr(registry,"get_provider",lambda name: EducationPolicyService() if name=="EducationPolicyProvider" else original_provider(name))
+    from core import auth, crypto, db as core_db
+    from cryptography.fernet import Fernet
+    from modules.printers import smart_plug, dispatch_acquisition
+    import secrets
+    monkeypatch.setattr(auth, "SECRET_KEY", secrets.token_hex(32))
+    monkeypatch.setenv("ENCRYPTION_KEY", Fernet.generate_key().decode())
+    monkeypatch.setattr(core_db, "engine", review_db.get_bind())
+    monkeypatch.setattr(smart_plug, "engine", review_db.get_bind())
+    monkeypatch.setattr(dispatch_acquisition, "bounded_status_is_idle", lambda *args: True)
+    review_db.execute(text("UPDATE printers SET api_host='127.0.0.1',api_key=:key WHERE id=9"),
+                      {"key": crypto.encrypt("synthetic-printer|" + secrets.token_urlsafe(24))})
     from core.db import get_db
     from core.dependencies import get_current_user
     from modules.archives.routes import archives_crud
@@ -102,7 +113,7 @@ def test_reprint_shared_target_and_mapping(reprint_client,review_db):
     client,_,_=reprint_client
     review_db.execute(text("UPDATE printers SET shared=1 WHERE id=11"))
     review_db.execute(text("UPDATE print_files SET filaments_json='[{\"type\":\"PLA\"}]' WHERE id=101"))
-    review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number) VALUES(11,4)"));review_db.commit()
+    review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(11,4,'PLA')"));review_db.commit()
     body={'printer_id':11,'ams_mapping':[{'source_slot':0,'target_slot':4}]}
     response=client.post('/archives/101/reprint',json=body)
     assert response.status_code==200,response.text
@@ -142,7 +153,8 @@ from tests.test_contracts.test_bambu_ftps_transfer import ProtectedFTPServer, re
 
 
 @pytest.mark.parametrize('path',['legacy','v2'])
-def test_reprint_real_transport_selected_plate_mapping(path,reprint_client,review_db,
+@pytest.mark.parametrize('explicit_ams',[False,True])
+def test_reprint_real_transport_selected_plate_and_ams_boundary(path,explicit_ams,reprint_client,review_db,
         monkeypatch,tls_mqtt,resumption_context):
     import time
     import zipfile
@@ -159,12 +171,13 @@ def test_reprint_real_transport_selected_plate_mapping(path,reprint_client,revie
     review_db.execute(text("UPDATE printers SET api_host='127.0.0.1',api_key=:key WHERE id=9"),
         {'key':crypto.encrypt('synthetic-printer|'+SYNTHETIC_ACCESS_CODE)})
     review_db.execute(text("UPDATE print_files SET filaments_json='[{\"type\":\"PLA\"}]' WHERE id=101"))
-    review_db.execute(text('INSERT INTO filament_slots(printer_id,slot_number) VALUES(9,4)'))
+    review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(9,4,'PLA')"))
     review_db.commit()
     with zipfile.ZipFile(source,'a') as package:
         package.writestr('Metadata/plate_2.gcode','; Second synthetic plate, no hardware')
-    response=client.post('/archives/101/reprint',json={'printer_id':9,'plate_index':1,
-        'ams_mapping':[{'source_slot':0,'target_slot':4}]})
+    request={'printer_id':9,'plate_index':1}
+    if explicit_ams:request['ams_mapping']=[{'source_slot':0,'target_slot':4}]
+    response=client.post('/archives/101/reprint',json=request)
     assert response.status_code==200,response.text
     job_id=response.json()['job_id']
     monkeypatch.setattr(core_db,'engine',review_db.get_bind())
@@ -177,6 +190,14 @@ def test_reprint_real_transport_selected_plate_mapping(path,reprint_client,revie
     from modules.organizations.services import EducationPolicyService
     original_provider=registry.get_provider
     monkeypatch.setattr(registry,'get_provider',lambda name: EducationPolicyService() if name=='EducationPolicyProvider' else original_provider(name))
+    if explicit_ams:
+        monkeypatch.setattr(dispatch,'_dispatch_bambu',lambda *a,**k:pytest.fail('Unsupported AMS touched transport'))
+        ok,reason=dispatch.dispatch_job(9,job_id)
+        assert not ok and 'AMS source or plate is unsupported' in reason
+        assert review_db.execute(text('SELECT count(*) FROM printer_dispatch_claims')).scalar_one()==0
+        assert review_db.execute(text('SELECT status FROM jobs WHERE id=:id'),{'id':job_id}).scalar_one()=='pending'
+        assert commands==[]
+        return
     peer=ProtectedFTPServer(resumption_context,require_session_reuse=True,
         expected_credentials=('bblp',SYNTHETIC_ACCESS_CODE))
     monkeypatch.setattr(ftp_upload,'FTPS_PORT',peer.port)
@@ -192,18 +213,20 @@ def test_reprint_real_transport_selected_plate_mapping(path,reprint_client,revie
     starts=[c['print'] for c in commands if c.get('print',{}).get('command')=='project_file']
     assert len(starts)==1
     assert starts[0]['param']=='Metadata/plate_2.gcode'
-    assert starts[0]['ams_mapping']==[3]
+    # This positive proves second-plate transport without an explicit mapping.
+    # Preserve Bambu's existing automatic AMS default; it is not an AMS-off proof.
+    assert 'ams_mapping' not in starts[0]
     assert review_db.execute(text('SELECT status FROM jobs WHERE id=:id'),{'id':job_id}).scalar_one()=='printing'
 
 
-@pytest.mark.parametrize('failure',['tamper','missing_hash','invalid_hash','missing_slot','wrong_count'])
+@pytest.mark.parametrize('failure',['tamper','missing_hash','invalid_hash','missing_slot','wrong_count','wrong_material'])
 def test_reprint_dispatch_revalidates_before_transport(failure,reprint_client,review_db,monkeypatch):
     import zipfile
     from core import db as core_db
     from modules.printers import dispatch
     client,_,source=reprint_client
     review_db.execute(text("UPDATE print_files SET filaments_json='[{\"type\":\"PLA\"}]' WHERE id=101"))
-    review_db.execute(text('INSERT INTO filament_slots(printer_id,slot_number) VALUES(9,4)'));review_db.commit()
+    review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(9,4,'PLA')"));review_db.commit()
     response=client.post('/archives/101/reprint',json={'printer_id':9,
         'ams_mapping':[{'source_slot':0,'target_slot':4}]})
     assert response.status_code==200,response.text
@@ -215,14 +238,18 @@ def test_reprint_dispatch_revalidates_before_transport(failure,reprint_client,re
         review_db.execute(text('UPDATE jobs SET payload_sha256=:hash WHERE id=:id'),
             {'id':job_id,'hash':None if failure=='missing_hash' else 'invalid'})
     elif failure=='missing_slot': review_db.execute(text('DELETE FROM filament_slots WHERE printer_id=9'))
+    elif failure=='wrong_material': review_db.execute(text("UPDATE filament_slots SET filament_type='PETG' WHERE printer_id=9 AND slot_number=4"))
     else: review_db.execute(text("UPDATE print_files SET filaments_json='[{},{}]' WHERE id=101"))
     review_db.commit()
     monkeypatch.setattr(core_db,'engine',review_db.get_bind())
-    monkeypatch.setattr(dispatch,'_get_printer_info',lambda _: {'api_type':'bambu','ip':'127.0.0.1'})
     monkeypatch.setattr(dispatch,'_dispatch_bambu',lambda *a,**k:pytest.fail('Denied payload touched transport'))
     ok,reason=dispatch.dispatch_job(9,job_id)
     assert not ok and reason
-    assert review_db.execute(text('SELECT status FROM jobs WHERE id=:id'),{'id':job_id}).scalar_one()=='pending'
+    expected = {'tamper': 'payload changed', 'missing_hash': 'hash is missing',
+                'invalid_hash': 'hash is missing', 'missing_slot': 'slot', 'wrong_count': 'mapping', 'wrong_material': 'material'}
+    assert expected[failure].lower() in reason.lower()
+    assert review_db.execute(text('SELECT count(*) FROM printer_dispatch_claims')).scalar_one() == 0
+    assert review_db.execute(text('SELECT status FROM jobs WHERE id=:id'),{'id':job_id}).scalar_one()=='pending' 
 
 
 def test_ams_preview_foreign_target_denied(reprint_client):
@@ -275,7 +302,6 @@ def test_staged_file_becomes_education_owned(reprint_client,review_db,monkeypatc
     review_db.execute(text('UPDATE education_submissions SET print_file_id=101 WHERE id=14'));review_db.commit()
     monkeypatch.setattr(registry,'get_provider',lambda name:EducationPolicyService() if name=='EducationPolicyProvider' else None)
     monkeypatch.setattr(core_db,'engine',review_db.get_bind())
-    monkeypatch.setattr(dispatch,'_get_printer_info',lambda _: {'api_type':'bambu','ip':'127.0.0.1'})
     monkeypatch.setattr(dispatch,'_dispatch_bambu',lambda *a,**k:pytest.fail('Education alias reached transport'))
     before=review_db.execute(text('SELECT count(*) FROM jobs')).scalar_one()
     assert client.post(f'/jobs/{identifier}/repeat').status_code==409

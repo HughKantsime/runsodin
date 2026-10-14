@@ -1,3 +1,4 @@
+import { useTranslation } from '../../contexts/I18nContext'
 import useCameraList from '../../hooks/useCameraList'
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -21,6 +22,7 @@ import clsx from 'clsx'
 import toast from 'react-hot-toast'
 import CameraModal from '../../components/printers/CameraModal'
 import SpoolRing from '../../components/ui/SpoolRing'
+import PrintProgress from '../../components/printers/PrintProgress'
 import { StatCard, Button, PageHeader, EmptyState, ProgressBar } from '../../components/ui'
 import SectionErrorBoundary from './SectionErrorBoundary'
 
@@ -28,7 +30,7 @@ import { stats, jobs, printers, printJobs, alerts as alertsApi, maintenance } fr
 import { canDo } from '../../permissions'
 import { getShortName, formatHours, formatTime, formatDuration, isOnline } from '../../utils/shared'
 
-function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onClick }: { printer: any; hasCamera: boolean; onCameraClick: (id: number) => void; activeJob?: any; onClick: () => void }) {
+export function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onClick }: { printer: any; hasCamera: boolean; onCameraClick: (id: number) => void; activeJob?: any; onClick: () => void }) {
   const slots = printer.filament_slots || []
   const LOW_SPOOL_THRESHOLD = 100
   const lowSpools = slots.filter(s => s.remaining_weight && s.remaining_weight < LOW_SPOOL_THRESHOLD)
@@ -43,7 +45,7 @@ function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onClick }: 
   const isHeating = (bedTarget && bedTarget > 0) || (nozTarget && nozTarget > 0)
   const stage = printer.print_stage && printer.print_stage !== 'Idle' ? printer.print_stage : null
   
-  const isPrinting = printer.gcode_state === 'RUNNING' || printer.gcode_state === 'PAUSE'
+  const isPrinting = online && ['RUNNING', 'PAUSE'].includes(printer.gcode_state?.toUpperCase() || '')
   const hasError = printer.hms_errors && printer.hms_errors.length > 0
   const statusColor = hasError ? 'bg-red-500' : isPrinting ? 'bg-[var(--status-completed)]' : online ? 'bg-yellow-500' : 'bg-[var(--brand-text-muted)]'
   const statusLabel = hasError ? 'Error' : isPrinting ? 'Printing' : online ? 'Idle' : 'Offline'
@@ -68,18 +70,15 @@ function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onClick }: 
             )}
           </div>
         </div>
-        {activeJob && (
+        {activeJob && isPrinting && (
           <div className="mb-3 bg-[var(--brand-input-bg)] rounded-md p-3">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2 min-w-0">
                 <Activity size={14} className="text-[var(--brand-primary)] animate-pulse shrink-0" />
                 <span className="text-sm font-medium truncate">{activeJob.job_name || 'Printing'}</span>
               </div>
-              <div className="text-right shrink-0">
-                <span className="text-lg font-bold font-mono text-[var(--status-completed)]">{activeJob.progress_percent || 0}%</span>
-              </div>
             </div>
-            <ProgressBar value={activeJob.progress_percent || 0} color="green" size="md" className="mb-1.5" />
+            <PrintProgress percent={activeJob.progress_percent} remainingMinutes={activeJob.remaining_minutes} />
             <div className="flex justify-between text-xs text-[var(--brand-text-muted)]">
               <span>
                 {activeJob.current_layer && activeJob.total_layers 
@@ -88,13 +87,7 @@ function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onClick }: 
                     ? `${activeJob.total_layers} layers`
                     : ''}
               </span>
-              <span>
-                {activeJob.remaining_minutes 
-                  ? activeJob.remaining_minutes < 60 
-                    ? `${Math.round(activeJob.remaining_minutes)}m left`
-                    : `${Math.floor(activeJob.remaining_minutes / 60)}h ${Math.round(activeJob.remaining_minutes % 60)}m left`
-                  : ''}
-              </span>
+
             </div>
           </div>
         )}
@@ -299,6 +292,7 @@ function AlertsWidget() {
 
 
 function MaintenanceWidget() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const { data: maintData } = useQuery({
     queryKey: ['maintenance-status'],
@@ -332,7 +326,7 @@ function MaintenanceWidget() {
     <div>
       <h2 className="font-semibold text-sm text-[var(--brand-text-primary)] mb-4 flex items-center gap-2">
         <Wrench size={18} className="text-purple-400" />
-        Maintenance Due
+        {t('alerts.maintenance_due')}
       </h2>
       <div className="space-y-2">
         {needsAttention.slice(0, 6).map((item, i) => {
@@ -360,6 +354,7 @@ function MaintenanceWidget() {
 }
 
 export default function Dashboard() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
@@ -470,7 +465,7 @@ export default function Dashboard() {
 
   return (
     <div className="p-4 md:p-6">
-      <PageHeader icon={LayoutDashboard} title="Dashboard" subtitle="Print farm overview">
+      <PageHeader icon={LayoutDashboard} title={t('dashboard.title')} subtitle="Print farm overview">
         <Button variant="secondary" size="md" icon={Monitor} onClick={() => navigate('/tv')}>
           TV Mode
         </Button>
@@ -482,12 +477,12 @@ export default function Dashboard() {
 
       <SectionErrorBoundary>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 md:gap-3 mb-6 md:mb-8">
-          <StatCard label="Currently Printing" value={currentlyPrinting} icon={Play} color="green" onClick={() => navigate('/jobs?status=printing')} className={highlightClass('printing')} />
-          <StatCard label="Scheduled" value={statValues.scheduled} icon={Clock} color="blue" onClick={() => navigate('/timeline')} className={highlightClass('scheduled')} />
-          <StatCard label="Pending" value={statValues.pending} icon={AlertCircle} color="amber" onClick={() => navigate('/jobs?status=pending')} className={highlightClass('pending')} />
-          <StatCard label="Completed Today" value={statValues.completed_today} icon={CheckCircle} color="default" className={highlightClass('completed_today')} />
+          <StatCard label={t('dashboard.active_prints')} value={currentlyPrinting} icon={Play} color="green" onClick={() => navigate('/jobs?status=printing')} className={highlightClass('printing')} />
+          <StatCard label={t('jobs.scheduled')} value={statValues.scheduled} icon={Clock} color="blue" onClick={() => navigate('/timeline')} className={highlightClass('scheduled')} />
+          <StatCard label={t('jobs.pending')} value={statValues.pending} icon={AlertCircle} color="amber" onClick={() => navigate('/jobs?status=pending')} className={highlightClass('pending')} />
+          <StatCard label={t('dashboard.completed_today')} value={statValues.completed_today} icon={CheckCircle} color="default" className={highlightClass('completed_today')} />
           <StatCard label="Active Alerts" value={statValues.active_alerts} icon={AlertTriangle} color="red" onClick={() => navigate('/alerts')} className={highlightClass('active_alerts')} />
-          <StatCard label="Maintenance Due" value={statValues.maintenance_due} icon={Activity} color="purple" onClick={() => navigate('/maintenance')} className={highlightClass('maintenance_due')} />
+          <StatCard label={t('alerts.maintenance_due')} value={statValues.maintenance_due} icon={Activity} color="purple" onClick={() => navigate('/maintenance')} className={highlightClass('maintenance_due')} />
         </div>
       </SectionErrorBoundary>
 
@@ -495,7 +490,7 @@ export default function Dashboard() {
         {/* Printers — full width */}
         <SectionErrorBoundary>
           <div>
-            <h2 className="font-semibold text-sm text-[var(--brand-text-primary)] mb-4">Printers</h2>
+            <h2 className="font-semibold text-sm text-[var(--brand-text-primary)] mb-4">{t('printers.title')}</h2>
             <div data-capture="fleet-grid" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {printersData?.map((printer) => (
                 <PrinterCard

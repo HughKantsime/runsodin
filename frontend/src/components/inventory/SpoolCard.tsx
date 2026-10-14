@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import PurchaseEvidenceAction from './PurchaseEvidenceModal'
 import { Printer as PrinterIcon, Package, QrCode, Scale, Archive, Pencil, Droplets } from 'lucide-react'
 import { canDo } from '../../permissions'
 import { ProgressBar, Button, SpoolRing } from '../ui'
@@ -94,6 +95,12 @@ export default function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, o
         {spool.qr_code}
       </div>
 
+      {spool.pa_profile && (
+        <div className="text-xs text-[var(--brand-text-muted)] mb-3">
+          PA profile: <span className="font-mono">{spool.pa_profile}</span>
+        </div>
+      )}
+
       {/* Hygroscopic indicator */}
       {HYGROSCOPIC_TYPES.has(spool.filament_material) && (
         <div className="flex items-center gap-1.5 mb-3 text-xs text-amber-400">
@@ -101,6 +108,8 @@ export default function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, o
           <span>Hygroscopic — dry before use</span>
         </div>
       )}
+
+      <PurchaseEvidenceAction spool={spool} />
 
       {/* Actions */}
       <div className="flex gap-1.5 md:gap-2 flex-wrap">

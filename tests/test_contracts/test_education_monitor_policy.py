@@ -9,6 +9,9 @@ from pathlib import Path
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
+from tests.test_contracts.test_education_dispatch_receipt_binding import admitted_education
+from tests.test_contracts.test_education_dispatch_policy import actual_education_dispatch
+from tests.test_contracts.test_education_review_workflow import review_db
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -18,11 +21,19 @@ if str(BACKEND) not in sys.path:
 
 
 @pytest.fixture()
-def monitor_db(tmp_path: Path):
+def monitor_db(tmp_path: Path, monkeypatch):
     from core.schema import bootstrap_database
 
     engine = create_engine(f"sqlite:///{tmp_path / 'monitor.db'}")
     bootstrap_database(engine, BACKEND)
+    # Real monitor bootstrap now reaches power hooks. Their DB reads must stay
+    # in this owned fixture, never the configured application database.
+    from core import db as core_db, event_bus
+    from core.event_bus import InMemoryEventBus
+    from modules.printers import smart_plug
+    monkeypatch.setattr(core_db, 'engine', engine)
+    monkeypatch.setattr(smart_plug, 'engine', engine)
+    monkeypatch.setattr(event_bus, '_bus', InMemoryEventBus())
     with engine.begin() as connection:
         for statement in (
             "INSERT INTO groups (id,name,is_org) VALUES (1,'school',1)",
@@ -77,6 +88,13 @@ def monitor_db(tmp_path: Path):
     finally:
         db.close()
         engine.dispose()
+
+
+@pytest.fixture
+def admitted_monitor(admitted_education):
+    engine, uploaded, name, _ = admitted_education
+    with Session(engine) as db:
+        yield db, uploaded, {"remote_filename": name}
 
 
 def _reserve(db: Session):
@@ -357,7 +375,7 @@ def test_prusalink_stopped_maps_to_cancelled_not_completed(monkeypatch) -> None:
 
 
 def test_shared_monitor_wrapper_suppresses_generic_fanout_and_recovers_after_restart(
-    monitor_db: Session, monkeypatch
+    admitted_monitor, monkeypatch
 ) -> None:
     from core.db_utils import _ConnectionAdapter
     from modules.notifications import job_events
@@ -367,22 +385,7 @@ def test_shared_monitor_wrapper_suppresses_generic_fanout_and_recovers_after_res
     )
     from modules.organizations.services import EducationPolicyService
 
-    reservation = reserve_dispatch(
-        monitor_db, job_id=13, printer_id=9, expected_revision=3, extension=".gcode"
-    )
-    assert reservation is not None
-    monitor_db.commit()
-    confirmed = confirm_dispatch_started(
-        monitor_db,
-        claim_id=reservation["claim_id"],
-        submission_id=14,
-        job_id=13,
-        printer_id=9,
-        expected_revision=3,
-    )
-    assert confirmed["transitioned"] is True
-    monitor_db.commit()
-
+    monitor_db, uploaded, reservation = admitted_monitor
     engine = monitor_db.get_bind()
 
     @contextmanager
@@ -394,6 +397,9 @@ def test_shared_monitor_wrapper_suppresses_generic_fanout_and_recovers_after_res
             raw.close()
 
     policy = EducationPolicyService()
+    from core import dispatch_observations
+    def no_generic(*args,**kwargs):raise AssertionError('Education must not acquire generic preparation locks')
+    monkeypatch.setattr(dispatch_observations,'prepare_generic_observation',no_generic)
     monkeypatch.setattr(job_events, "get_db", test_db)
     monkeypatch.setattr(job_events, "_education_policy", lambda: policy)
 
@@ -432,14 +438,14 @@ def test_shared_monitor_wrapper_suppresses_generic_fanout_and_recovers_after_res
     monitor_db.expire_all()
     assert tuple(
         monitor_db.execute(
-            text("SELECT status,lifecycle_revision FROM education_submissions WHERE id=14")
+            text("SELECT status,lifecycle_revision FROM education_submissions WHERE id=:submission"), {"submission": uploaded["id"]}
         ).one()
     ) == ("completed", 5)
-    assert monitor_db.execute(text("SELECT status FROM jobs WHERE id=13")).scalar_one() == "completed"
+    assert monitor_db.execute(text("SELECT status FROM jobs WHERE id=:job"), {"job": uploaded["job_id"]}).scalar_one() == "completed"
 
 
 def test_bambu_token_start_and_print_stopping_hms_use_only_education_policy(
-    monitor_db: Session, monkeypatch
+    admitted_monitor, monkeypatch
 ) -> None:
     from core import registry as registry_module
     from core.db_utils import _ConnectionAdapter
@@ -448,11 +454,7 @@ def test_bambu_token_start_and_print_stopping_hms_use_only_education_policy(
     from modules.organizations.services import EducationPolicyService
     from modules.printers.monitors import mqtt_job_lifecycle
 
-    reservation = reserve_dispatch(
-        monitor_db, job_id=13, printer_id=9, expected_revision=3, extension=".3mf"
-    )
-    assert reservation is not None
-    monitor_db.commit()
+    monitor_db, uploaded, reservation = admitted_monitor
     engine = monitor_db.get_bind()
 
     @contextmanager
@@ -480,7 +482,7 @@ def test_bambu_token_start_and_print_stopping_hms_use_only_education_policy(
         trigger_reschedule_fn=lambda: forbidden.append("reschedule"),
     )
     assert print_job_id is not None
-    assert linked_job_id == 13
+    assert linked_job_id == uploaded["job_id"]
     assert forbidden == []
 
     monkeypatch.setattr(error_handling, "get_db", test_db)
@@ -513,10 +515,10 @@ def test_bambu_token_start_and_print_stopping_hms_use_only_education_policy(
     monitor_db.expire_all()
     assert tuple(
         monitor_db.execute(
-            text("SELECT status,lifecycle_revision FROM education_submissions WHERE id=14")
+            text("SELECT status,lifecycle_revision FROM education_submissions WHERE id=:submission"), {"submission": uploaded["id"]}
         ).one()
     ) == ("failed", 5)
-    assert monitor_db.execute(text("SELECT status FROM jobs WHERE id=13")).scalar_one() == "failed"
+    assert monitor_db.execute(text("SELECT status FROM jobs WHERE id=:job"), {"job": uploaded["job_id"]}).scalar_one() == "failed"
     assert monitor_db.execute(
         text("SELECT status FROM print_jobs WHERE id=:id"), {"id": print_job_id}
     ).scalar_one() == "failed"
@@ -617,3 +619,142 @@ def test_hms_reserved_token_stays_suppressed_when_policy_classification_fails(
     assert recorded == []
     assert result["classification_state"] == "unresolved"
     assert result["retryable"] is True
+
+
+@pytest.mark.parametrize("terminal_status", ["completed", "failed", "cancelled"])
+def test_bootstrapped_mqtt_handlers_link_exact_token_and_finish_once(
+    admitted_monitor, monkeypatch, terminal_status
+):
+    """Exercise actual lifecycle handlers with the daemon's registered authority."""
+    from core.registry import registry
+    from core.monitor_bootstrap import bootstrap_monitor_authority
+    from core.db_utils import _ConnectionAdapter
+    from modules.printers.monitors import mqtt_job_lifecycle
+
+    bootstrap_monitor_authority()
+    monitor_db, uploaded, reservation = admitted_monitor
+    engine = monitor_db.get_bind()
+
+    @contextmanager
+    def owned_db():
+        raw = engine.raw_connection()
+        try:
+            yield _ConnectionAdapter(raw, False)
+        finally:
+            raw.close()
+
+    monkeypatch.setattr(mqtt_job_lifecycle, "get_db", owned_db)
+    forbidden = []
+    raw_name = reservation["remote_filename"].removesuffix(".3mf")
+    state = {"subtask_name": raw_name, "gcode_file": "Metadata/plate_1.gcode",
+             "job_id": "owned-hardware-observation", "total_layer_num": 10}
+    print_job_id, linked_job_id, weights = mqtt_job_lifecycle.record_job_started(
+        printer_id=9, printer_name="Owned A1", state=state,
+        dispatch_alert_fn=lambda **kw: forbidden.append("alert"),
+        trigger_reschedule_fn=lambda: forbidden.append("reschedule"),
+    )
+    assert print_job_id is not None
+    assert linked_job_id == uploaded["job_id"]
+    monitor_db.expire_all()
+    assert monitor_db.execute(text("SELECT scheduled_job_id FROM print_jobs WHERE id=:id"),
+                              {"id": print_job_id}).scalar_one() == uploaded["job_id"]
+    assert monitor_db.execute(text("SELECT status FROM education_submissions WHERE id=:submission"), {"submission": uploaded["id"]}).scalar_one() == "printing"
+    for _ in range(2):
+        assert mqtt_job_lifecycle.record_job_ended(
+            printer_id=9, printer_name="Owned A1", current_job_id=print_job_id,
+            linked_job_id=linked_job_id, status=terminal_status, state=state,
+            start_spool_weights=weights,
+            dispatch_alert_fn=lambda **kw: forbidden.append("terminal-alert"),
+        ) == uploaded["job_id"]
+    monitor_db.expire_all()
+    assert tuple(monitor_db.execute(text("SELECT status,lifecycle_revision FROM education_submissions WHERE id=:submission"), {"submission": uploaded["id"]}).one()) == (terminal_status, 5)
+    assert monitor_db.execute(text("SELECT status FROM jobs WHERE id=:job"), {"job": uploaded["job_id"]}).scalar_one() == terminal_status
+    assert monitor_db.execute(text("SELECT status FROM print_jobs WHERE id=:id"), {"id":print_job_id}).scalar_one() == terminal_status
+    assert monitor_db.execute(text("SELECT COUNT(*) FROM education_monitor_claims")).scalar_one() == 0
+    assert forbidden == []
+
+
+@pytest.mark.parametrize("printer_id,unknown_token", [(10, False), (9, True)])
+def test_bootstrapped_mqtt_mismatched_observation_cannot_finish_school_job(
+    monitor_db: Session, monkeypatch, printer_id, unknown_token
+):
+    from core.registry import registry
+    from core.monitor_bootstrap import bootstrap_monitor_authority
+    from core.db_utils import _ConnectionAdapter
+    from modules.printers.monitors import mqtt_job_lifecycle
+
+    monkeypatch.setattr(registry, "_providers", {})
+    bootstrap_monitor_authority()
+    reservation = _reserve(monitor_db)
+    monitor_db.commit()
+    engine = monitor_db.get_bind()
+
+    @contextmanager
+    def owned_db():
+        raw = engine.raw_connection()
+        try:
+            yield _ConnectionAdapter(raw, False)
+        finally:
+            raw.close()
+
+    monkeypatch.setattr(mqtt_job_lifecycle, "get_db", owned_db)
+    filename = "odin-" + "f" * 32 if unknown_token else reservation["remote_filename"]
+    forbidden = []
+    state = {"subtask_name": filename, "gcode_file": "Metadata/plate_1.gcode",
+             "job_id": "owned-untrusted-observation", "total_layer_num": 10}
+    print_job_id, linked_job_id, weights = mqtt_job_lifecycle.record_job_started(
+        printer_id=printer_id, printer_name="Owned mismatch", state=state,
+        dispatch_alert_fn=lambda **kw: forbidden.append("alert"),
+        trigger_reschedule_fn=lambda: forbidden.append("reschedule"),
+    )
+    assert print_job_id is not None
+    assert linked_job_id is None
+    from modules.organizations.education_policy import classify_monitor_observation
+    classification = classify_monitor_observation(
+        monitor_db, printer_id=printer_id, print_job_id=print_job_id)
+    assert classification["education_reserved"] is True
+    assert classification["authorized"] is False
+    monitor_db.rollback()
+    mqtt_job_lifecycle.record_job_ended(
+        printer_id=printer_id, printer_name="Owned mismatch", current_job_id=print_job_id,
+        linked_job_id=None, status="completed", state=state,
+        start_spool_weights=weights,
+        dispatch_alert_fn=lambda **kw: forbidden.append("terminal-alert"),
+    )
+    monitor_db.expire_all()
+    assert tuple(monitor_db.execute(text("SELECT status,lifecycle_revision FROM education_submissions WHERE id=14")).one()) == ("scheduled", 3)
+    assert monitor_db.execute(text("SELECT status FROM jobs WHERE id=13")).scalar_one() == "scheduled"
+    assert monitor_db.execute(text("SELECT scheduled_job_id FROM print_jobs WHERE id=:id"), {"id": print_job_id}).scalar_one() is None
+    assert forbidden == []
+
+
+@pytest.mark.parametrize("filename,job_name,observed,reserved,authorized", [
+    ("Metadata/plate_1.gcode", "odin-"+"a"*32, None, True, False),
+    ("odin-"+"a"*32, "odin-"+"a"*32, None, True, False),
+    ("odin-"+"a"*32, "odin-"+"b"*32, None, True, False),
+    ("odin-"+"a"*32, "owned", "odin-"+"b"*32, True, False),
+    ("ordinary.gcode", "ordinary", None, False, False),
+    ("Metadata/plate_1.gcode", "odin-malformed", None, False, False),
+    ("odin-dispatch-"+"a"*32+".3mf", "generic", None, False, False),
+])
+def test_persisted_monitor_identity_conflicts_remain_reserved(
+    monitor_db, filename, job_name, observed, reserved, authorized
+):
+    from modules.organizations.education_policy import (
+        classify_monitor_observation, terminal_monitor_observation)
+    pid = monitor_db.execute(text(
+        "INSERT INTO print_jobs(printer_id,filename,job_name,started_at,status) VALUES(9,:filename,:name,CURRENT_TIMESTAMP,'running') RETURNING id"),
+        {"filename": filename, "name":job_name}).scalar_one()
+    classification = classify_monitor_observation(
+        monitor_db, printer_id=9, print_job_id=pid, observed_filename=observed)
+    assert classification["education_reserved"] == reserved
+    assert classification["authorized"] == authorized
+    result = terminal_monitor_observation(
+        monitor_db, print_job_id=pid, printer_id=9, terminal_status="completed",
+        observed_filename=observed)
+    assert result["education_reserved"] == reserved
+    assert monitor_db.execute(text("SELECT scheduled_job_id FROM print_jobs WHERE id=:id"), {"id":pid}).scalar_one() is None
+    assert monitor_db.execute(text("SELECT COUNT(*) FROM jobs")).scalar_one() == 1
+    if filename != job_name and filename.startswith("odin-"):
+        assert result["transitioned"] is False
+        assert monitor_db.execute(text("SELECT status FROM print_jobs WHERE id=:id"), {"id":pid}).scalar_one() == "running"

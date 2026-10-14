@@ -10,10 +10,11 @@ from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from core.audit_actor import bind_verified_actor
 from core.db import get_db
 from core.db_compat import sql
 from core.dependencies import get_current_user, log_audit
-from core.rbac import require_role
+from core.rbac import require_role, require_scope
 from core.auth_helpers import (
     _validate_password, _check_rate_limit, _record_login_attempt, _is_locked_out
 )
@@ -30,20 +31,7 @@ router = APIRouter()
 
 # ============== Session helpers ==============
 
-def _record_session(db, user_id, access_token, ip, user_agent):
-    """Record an active session from a JWT token."""
-    import jwt as _jwt
-    try:
-        payload = _jwt.decode(access_token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
-        jti = payload.get("jti")
-        if jti:
-            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-            db.execute(text(f"""{sql.insert_or_ignore_prefix()} active_sessions (user_id, token_jti, ip_address, user_agent)
-                               VALUES (:uid, :jti, :ip, :ua){sql.on_conflict_ignore('token_jti')}"""),
-                       {"uid": user_id, "jti": jti, "ip": ip, "ua": (user_agent or "")[:500]})
-            db.commit()
-    except Exception:
-        log.warning("Failed to record session", exc_info=True)
+from core.session_tracking import record_session as _record_session
 
 
 # ============== Login ==============
@@ -60,38 +48,29 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
     user = db.execute(text("SELECT * FROM users WHERE username = :username"),
                       {"username": form_data.username}).fetchone()
     if not user or not verify_password(form_data.password, user.password_hash):
-        _record_login_attempt(db, client_ip, form_data.username, False)
+        if _record_login_attempt(db, client_ip, form_data.username, False) is not True:
+            raise HTTPException(status_code=503, detail="Login temporarily unavailable. Try again later.")
         log_audit(db, "auth.login_failed", "user", details={"username": form_data.username}, ip=client_ip)
         db.commit()
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not user.is_active:
         raise HTTPException(status_code=401, detail="Account disabled")
 
-    _record_login_attempt(db, client_ip, form_data.username, True)
+    if _record_login_attempt(db, client_ip, form_data.username, True) is not True:
+        raise HTTPException(status_code=503, detail="Login temporarily unavailable. Try again later.")
     db.execute(text("UPDATE users SET last_login = :now WHERE id = :id"),
                {"now": datetime.now(timezone.utc), "id": user.id})
     db.commit()
 
-    if user.mfa_enabled:
-        mfa_token = create_access_token(
-            data={"sub": user.username, "role": user.role, "mfa_pending": True},
-            expires_delta=timedelta(minutes=5)
-        )
-        return {"access_token": mfa_token, "token_type": "bearer", "mfa_required": True}
-
-    # Enforce system-wide require_mfa: if enabled and user hasn't enrolled, block login
-    if not user.mfa_enabled:
-        row = db.execute(text("SELECT value FROM system_config WHERE key = 'require_mfa'")).fetchone()
-        if row and row[0] == "true":
-            # Issue a short-lived token so user can enroll MFA via /auth/mfa/setup
-            setup_token = create_access_token(
-                data={"sub": user.username, "role": user.role, "mfa_setup_required": True},
-                expires_delta=timedelta(minutes=10)
-            )
-            return {"access_token": setup_token, "token_type": "bearer", "mfa_setup_required": True}
+    from core.mfa_login import login_mfa_response
+    continuation = login_mfa_response(db, user.id, expected_password_hash=user.password_hash)
+    if continuation is not None:
+        return continuation
 
     access_token = create_access_token(data={"sub": user.username, "role": user.role})
-    _record_session(db, user.id, access_token, client_ip, request.headers.get("user-agent", ""))
+    if _record_session(db, user.id, access_token, client_ip, request.headers.get("user-agent", "")) is not True:
+        raise HTTPException(status_code=503, detail="Login temporarily unavailable. Try again later.")
+    bind_verified_actor(db, dict(user._mapping), "password_login")
     log_audit(db, "auth.login", "user", user.id, details={"username": user.username}, ip=client_ip)
     db.commit()
 
@@ -159,13 +138,22 @@ async def mfa_verify(request: Request, body: dict, db: Session = Depends(get_db)
     if not mfa_token or not code:
         raise HTTPException(status_code=400, detail="mfa_token and code are required")
 
-    token_data = decode_token(mfa_token)
-    if not token_data:
-        raise HTTPException(status_code=401, detail="Invalid or expired MFA token")
-
-    payload = _jwt.decode(mfa_token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
-    if not payload.get("mfa_pending"):
-        raise HTTPException(status_code=400, detail="Token is not an MFA challenge token")
+    import math
+    try:
+        payload = _jwt.decode(mfa_token, auth_module.SECRET_KEY,
+                              algorithms=[auth_module.ALGORITHM],
+                              options={"require": ["exp", "sub", "jti"]})
+        expiry = payload["exp"]
+        if (not isinstance(payload["sub"], str) or not payload["sub"]
+                or not isinstance(payload["jti"], str) or not payload["jti"]
+                or payload.get("mfa_pending") is not True
+                or ("role" in payload and not isinstance(payload["role"], str))
+                or "mfa_setup_required" in payload
+                or type(expiry) not in (int, float) or not math.isfinite(expiry)):
+            raise ValueError("Invalid challenge")
+        expiry_datetime = datetime.fromtimestamp(expiry, tz=timezone.utc)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired MFA token") from None
 
     mfa_pending_jti = payload.get("jti")
     if mfa_pending_jti:
@@ -176,7 +164,7 @@ async def mfa_verify(request: Request, body: dict, db: Session = Depends(get_db)
             raise HTTPException(status_code=401, detail="MFA token has already been used")
 
     user = db.execute(text("SELECT * FROM users WHERE username = :username"),
-                      {"username": token_data.username}).fetchone()
+                      {"username": payload["sub"]}).fetchone()
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="Invalid MFA challenge")
     if not user.mfa_enabled or not user.mfa_secret:
@@ -188,16 +176,32 @@ async def mfa_verify(request: Request, body: dict, db: Session = Depends(get_db)
     if not totp.verify(code, valid_window=1):
         raise HTTPException(status_code=401, detail="Invalid MFA code")
 
-    mfa_jti = payload.get("jti")
-    if mfa_jti:
-        mfa_exp = payload.get("exp", 0)
-        db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-                   {"jti": mfa_jti, "exp": datetime.fromtimestamp(mfa_exp, tz=timezone.utc).isoformat()})
+    if datetime.now(timezone.utc) >= expiry_datetime:
+        raise HTTPException(status_code=401, detail="Invalid or expired MFA token")
+    try:
+        consumption = db.execute(text(
+            f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) "
+            f"VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),
+            {"jti": payload["jti"], "exp": expiry_datetime.isoformat()})
+        claimed = consumption.rowcount == 1
         db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        raise HTTPException(status_code=503, detail="Login temporarily unavailable. Try again later.") from None
+    if not claimed:
+        raise HTTPException(status_code=401, detail="MFA token has already been used")
 
     access_token = create_access_token(data={"sub": user.username, "role": user.role})
     client_ip = request.client.host if hasattr(request, 'client') and request.client else "unknown"
-    _record_session(db, user.id, access_token, client_ip, request.headers.get("user-agent", ""))
+    if _record_session(db, user.id, access_token, client_ip, request.headers.get("user-agent", "")) is not True:
+        raise HTTPException(status_code=503, detail="Login temporarily unavailable. Try again later.")
+
+    bind_verified_actor(db, dict(user._mapping), "mfa_login")
+    log_audit(db, "auth.login", "user", user.id, ip=client_ip)
+    db.commit()
 
     from fastapi.responses import JSONResponse
     resp = JSONResponse({"access_token": access_token, "token_type": "bearer"})
@@ -287,18 +291,39 @@ async def mfa_disable(body: dict = None, current_user: dict = Depends(require_ro
     return {"status": "ok", "message": "MFA disabled"}
 
 
-@router.delete("/admin/users/{user_id}/mfa", tags=["Auth"])
+@router.delete("/admin/users/{user_id}/mfa", tags=["Auth"], dependencies=[Depends(require_scope("admin"))])
 async def admin_mfa_disable(user_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Admin: force-disable MFA for a user (no TOTP required)."""
     user = db.execute(text("SELECT * FROM users WHERE id = :id"), {"id": user_id}).fetchone()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    global_admin = current_user.get("role") == "admin" and not current_user.get("group_id")
+    if not global_admin and user.group_id != current_user.get("group_id"):
+        raise HTTPException(status_code=403, detail="Cannot modify users outside your group")
     if not user.mfa_enabled:
         raise HTTPException(status_code=400, detail="MFA is not enabled for this user")
-
-    db.execute(text("UPDATE users SET mfa_enabled = FALSE, mfa_secret = NULL WHERE id = :id"), {"id": user_id})
-    log_audit(db, "mfa_disabled_admin", "user", user_id, f"Admin force-disabled MFA for user {user.username}")
-    db.commit()
+    try:
+        params = {"id": user_id}
+        statement = "UPDATE users SET mfa_enabled = FALSE, mfa_secret = NULL WHERE id = :id AND mfa_enabled = TRUE"
+        if not global_admin:
+            statement += " AND group_id = :group_id"
+            params["group_id"] = current_user["group_id"]
+        changed = db.execute(text(statement), params)
+        if changed.rowcount != 1:
+            db.rollback()
+            raise HTTPException(status_code=409, detail="User changed. Reload before retrying.")
+        from core.mfa_login import cancel_pending_enrollments
+        cancel_pending_enrollments(db, user_id)
+        log_audit(db, "mfa_disabled_admin", "user", user_id, f"Admin force-disabled MFA for user {user.username}")
+        db.commit()
+    except HTTPException:
+        raise
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        raise HTTPException(status_code=503, detail="MFA change could not be confirmed. Check the user before retrying.") from None
     return {"status": "ok", "message": f"MFA disabled for {user.username}"}
 
 
@@ -311,8 +336,8 @@ async def mfa_status(current_user: dict = Depends(require_role("viewer")), db: S
 @router.get("/config/require-mfa", tags=["Config"])
 async def get_require_mfa(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Get whether MFA is required for all users."""
-    row = db.execute(text("SELECT value FROM system_config WHERE key = 'require_mfa'")).fetchone()
-    return {"require_mfa": row[0] == "true" if row else False}
+    from core.mfa_login import read_required_mfa
+    return {"require_mfa": read_required_mfa(db)}
 
 
 class RequireMFARequest(PydanticBaseModel):
@@ -528,6 +553,8 @@ async def reset_password(request: Request, body: ResetPasswordRequest, db: Sessi
             raise invalid()
         db.execute(text("UPDATE password_reset_tokens SET used = 1 WHERE user_id = :uid AND used = 0"),
                    {"uid": row.user_id})
+        from core.mfa_login import cancel_pending_enrollments
+        cancel_pending_enrollments(db, row.user_id)
         sessions = db.execute(text("SELECT token_jti FROM active_sessions WHERE user_id = :uid"),
                               {"uid": row.user_id}).fetchall()
         expiry = (now + timedelta(hours=auth_module.ACCESS_TOKEN_EXPIRE_HOURS)).isoformat()

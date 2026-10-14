@@ -29,7 +29,7 @@ router = APIRouter(tags=["Analytics"])
 # ============== Stats ==============
 
 @router.get("/stats")
-async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer", scope="read:analytics"))):
+async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer", scope="read:analytics")), days: int = Query(default=30, ge=1, le=365)):
     """Get dashboard statistics."""
     org = get_org_scope(current_user)
 
@@ -102,7 +102,7 @@ async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(
     all_printers = all_printers_q.all()
     for p in all_printers:
         # Count completed and failed jobs for this printer
-        completed_jobs = db.query(Job).filter(
+        completed_jobs = job_query.filter(
             Job.printer_id == p.id,
             Job.status == JobStatus.COMPLETED
         ).count()
@@ -113,7 +113,7 @@ async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(
         ).scalar() or 0
         completed_jobs += mqtt_completed
 
-        failed_jobs = db.query(Job).filter(
+        failed_jobs = job_query.filter(
             Job.printer_id == p.id,
             Job.status == JobStatus.FAILED
         ).count()
@@ -177,15 +177,15 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
     # Top models by value per hour
     models_by_value = sorted(
         [m for m in models if m.cost_per_item and m.build_time_hours],
-        key=lambda m: (m.cost_per_item * (m.markup_percent or 300) / 100 * (m.units_per_bed or 1)) / m.build_time_hours,
+        key=lambda m: (m.cost_per_item * (m.markup_percent if m.markup_percent is not None else 300) / 100 * (m.units_per_bed or 1)) / m.build_time_hours,
         reverse=True
     )[:10]
 
     top_by_hour = [{
         "id": m.id,
         "name": m.name,
-        "value_per_hour": round((m.cost_per_item * (m.markup_percent or 300) / 100 * (m.units_per_bed or 1)) / m.build_time_hours, 2),
-        "value_per_bed": round(m.cost_per_item * (m.markup_percent or 300) / 100 * (m.units_per_bed or 1), 2),
+        "value_per_hour": round((m.cost_per_item * (m.markup_percent if m.markup_percent is not None else 300) / 100 * (m.units_per_bed or 1)) / m.build_time_hours, 2),
+        "value_per_bed": round(m.cost_per_item * (m.markup_percent if m.markup_percent is not None else 300) / 100 * (m.units_per_bed or 1), 2),
         "build_time_hours": m.build_time_hours,
         "units_per_bed": m.units_per_bed or 1,
     } for m in models_by_value]
@@ -193,14 +193,14 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
     # Worst performers
     models_by_value_asc = sorted(
         [m for m in models if m.cost_per_item and m.build_time_hours],
-        key=lambda m: (m.cost_per_item * (m.markup_percent or 300) / 100 * (m.units_per_bed or 1)) / m.build_time_hours,
+        key=lambda m: (m.cost_per_item * (m.markup_percent if m.markup_percent is not None else 300) / 100 * (m.units_per_bed or 1)) / m.build_time_hours,
     )[:10]
 
     worst_performers = [{
         "id": m.id,
         "name": m.name,
-        "value_per_hour": round((m.cost_per_item * (m.markup_percent or 300) / 100 * (m.units_per_bed or 1)) / m.build_time_hours, 2),
-        "value_per_bed": round(m.cost_per_item * (m.markup_percent or 300) / 100 * (m.units_per_bed or 1), 2),
+        "value_per_hour": round((m.cost_per_item * (m.markup_percent if m.markup_percent is not None else 300) / 100 * (m.units_per_bed or 1)) / m.build_time_hours, 2),
+        "value_per_bed": round(m.cost_per_item * (m.markup_percent if m.markup_percent is not None else 300) / 100 * (m.units_per_bed or 1), 2),
         "build_time_hours": m.build_time_hours,
     } for m in models_by_value_asc]
 
@@ -211,6 +211,17 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
     all_jobs = job_query.all()
     completed_jobs = [j for j in all_jobs if j.status == JobStatus.COMPLETED]
     pending_jobs = [j for j in all_jobs if j.status in (JobStatus.PENDING, JobStatus.SCHEDULED)]
+    # Count completed job rows, independently of price/hour rankings. Both
+    # the jobs and model names have already passed their tenant predicates.
+    completed_counts = {}
+    for job in completed_jobs:
+        if job.model_id is not None:
+            completed_counts[job.model_id] = completed_counts.get(job.model_id, 0) + 1
+    top_by_jobs = sorted(
+        [{"id": model.id, "name": model.name, "job_count": completed_counts[model.id]}
+         for model in models if completed_counts.get(model.id, 0) > 0],
+        key=lambda item: (-item["job_count"], item["id"]),
+    )[:10]
 
     # Revenue and costs from completed jobs (use job.suggested_price/estimated_cost when available)
     total_revenue = 0
@@ -236,7 +247,7 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
             # Fallback to model data for older jobs
             model = db.query(Model).filter(Model.id == job.model_id).first()
             if model and model.cost_per_item:
-                total_revenue += model.cost_per_item * (model.markup_percent or 300) / 100 * job.quantity
+                total_revenue += model.cost_per_item * (model.markup_percent if model.markup_percent is not None else 300) / 100 * job.quantity
 
         if job.estimated_cost is not None:
             total_cost += job.estimated_cost * job.quantity
@@ -259,7 +270,7 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
         elif job.model_id:
             model = db.query(Model).filter(Model.id == job.model_id).first()
             if model and model.cost_per_item:
-                projected_revenue += model.cost_per_item * (model.markup_percent or 300) / 100 * job.quantity
+                projected_revenue += model.cost_per_item * (model.markup_percent if model.markup_percent is not None else 300) / 100 * job.quantity
 
         if job.estimated_cost is not None:
             projected_cost += job.estimated_cost * job.quantity
@@ -288,7 +299,7 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
         # Average job duration
         avg_hours = round(hours / len(printer_jobs), 1) if printer_jobs else 0
         # Success rate
-        total_printer_jobs = [j for j in db.query(Job).filter(Job.printer_id == printer.id).all()]
+        total_printer_jobs = [j for j in all_jobs if j.printer_id == printer.id]
         failed = len([j for j in total_printer_jobs if j.status == JobStatus.FAILED])
         total_attempted = len([j for j in total_printer_jobs if j.status in (JobStatus.COMPLETED, JobStatus.FAILED)])
         success_rate = round(((total_attempted - failed) / total_attempted * 100), 1) if total_attempted > 0 else 100
@@ -327,7 +338,7 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
     valid_models = [m for m in models if m.cost_per_item and m.build_time_hours]
     if valid_models:
         avg_value_per_hour = sum(
-            (m.cost_per_item * (m.markup_percent or 300) / 100 * (m.units_per_bed or 1)) / m.build_time_hours
+            (m.cost_per_item * (m.markup_percent if m.markup_percent is not None else 300) / 100 * (m.units_per_bed or 1)) / m.build_time_hours
             for m in valid_models
         ) / len(valid_models)
     else:
@@ -335,6 +346,7 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
 
     return {
         "top_by_hour": top_by_hour,
+        "top_by_jobs": top_by_jobs,
         "worst_performers": worst_performers,
         "summary": {
             "total_models": len(models),

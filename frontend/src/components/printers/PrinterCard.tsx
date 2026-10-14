@@ -1,5 +1,5 @@
-import { useState, type DragEvent } from 'react'
-import { Trash2, Power, PowerOff, Palette, Settings, GripVertical, AlertTriangle, Lightbulb, Activity, CircleDot, Video, QrCode, Thermometer, Plug, ExternalLink, Turtle, Zap, Rocket } from 'lucide-react'
+import { useState, useEffect, useRef, type DragEvent } from 'react'
+import { Trash2, Power, PowerOff, Palette, Settings, GripVertical, AlertTriangle, Lightbulb, Activity, CircleDot, Video, QrCode, Thermometer, Plug, ExternalLink } from 'lucide-react'
 import clsx from 'clsx'
 import toast from 'react-hot-toast'
 import AmsEnvironmentChart from './AmsEnvironmentChart'
@@ -7,8 +7,10 @@ import PrinterTelemetryChart from './PrinterTelemetryChart'
 import NozzleStatusCard from './NozzleStatusCard'
 import HmsHistoryPanel from './HmsHistoryPanel'
 import FilamentSlotEditor from './FilamentSlotEditor'
+import PrintProgress from './PrintProgress'
 import { printers } from '../../api'
-import { canDo } from '../../permissions'
+import { canDo, getCurrentUser } from '../../permissions'
+import { canControlPlug } from '../../utils/plugControl'
 import { isOnline } from '../../utils/shared'
 import { Button, SpoolRing } from '../ui'
 
@@ -58,12 +60,55 @@ interface PrinterCardProps {
   onCameraClick?: (printer: PrinterLike) => void
   onScanSpool?: () => void
   onPlugToggle?: (printerId: number) => void
-  plugStates?: Record<number, boolean>
+  plugStates?: Record<number, boolean | undefined>
+  plugPending?: boolean
+  plugOutcome?: string
 }
 
-export default function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, onUpdateSlot, onEdit, onSyncAms, isDragging, onDragStart, onDragOver, onDragEnd, hasCamera, onCameraClick, onScanSpool, onPlugToggle, plugStates }: PrinterCardProps) {
+export default function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, onUpdateSlot, onEdit, onSyncAms, isDragging, onDragStart, onDragOver, onDragEnd, hasCamera, onCameraClick, onScanSpool, onPlugToggle, plugStates, plugPending, plugOutcome }: PrinterCardProps) {
   const [syncing, setSyncing] = useState(false)
   const [activePanel, setActivePanel] = useState<PanelType>(null)
+  const [commandPending, setCommandPending] = useState(false)
+  const [commandOutcome, setCommandOutcome] = useState<{ identity: string; printerId: number; text: string } | null>(null)
+  const [speedDraft, setSpeedDraft] = useState<{ identity: string; printerId: number; level: number } | null>(null)
+  const commandBusy = useRef(false)
+  const mounted = useRef(false)
+  const currentPrinter = useRef(printer)
+  currentPrinter.current = printer
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false }
+  }, [])
+
+  const mayControl = (target: PrinterLike, speed = false) => {
+    const principal = getCurrentUser()
+    if (!principal || !['operator', 'admin'].includes(principal.role) || !canDo('printers.edit')) return false
+    if (target.org_id === undefined) return false
+    const tenantAccess = (principal.role === 'admin' && !principal.group_id) || target.org_id === null || target.org_id === principal.group_id
+    return tenantAccess && target.api_type === 'bambu' && !!target.api_host && target.has_api_key && isOnline(target)
+      && (!speed || ['RUNNING', 'PAUSE'].includes(target.gcode_state?.toUpperCase() || ''))
+  }
+
+  const sendCardCommand = async (action: 'lights' | 'speed', level?: number) => {
+    const target = currentPrinter.current
+    if (commandBusy.current || !mayControl(target, action === 'speed') || (action === 'lights' && target.lights_on == null)) return
+    const identity = JSON.stringify(getCurrentUser())
+    const printerId = target.id
+    const stillCurrent = () => mounted.current && currentPrinter.current.id === printerId && JSON.stringify(getCurrentUser()) === identity
+    commandBusy.current = true
+    setCommandPending(true)
+    setCommandOutcome(null)
+    try {
+      const receipt = action === 'lights' ? await printers.toggleLights(printerId) : await printers.setSpeed(printerId, level!)
+      const accepted = action === 'lights' ? receipt?.lights_on === !target.lights_on : receipt?.success === true
+      if (stillCurrent()) setCommandOutcome({ identity, printerId, text: accepted ? 'Command accepted; printer confirmation pending' : 'Command not confirmed' })
+    } catch {
+      if (stillCurrent()) setCommandOutcome({ identity, printerId, text: 'Command not confirmed' })
+    } finally {
+      commandBusy.current = false
+      if (mounted.current) setCommandPending(false)
+    }
+  }
 
   const handleSyncAms = async () => {
     setSyncing(true)
@@ -75,6 +120,11 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
   }
 
   const hasBambuConnection = printer.api_type === 'bambu' && printer.api_host && printer.has_api_key
+  const speedModes = ['Silent', 'Standard', 'Sport', 'Ludicrous']
+  const reportedLevel = Number.isInteger(printer.speed_level) && printer.speed_level >= 1 && printer.speed_level <= 4 ? printer.speed_level : null
+  const reportedPercent = Number.isSafeInteger(printer.speed_percent) && printer.speed_percent >= 0 ? printer.speed_percent : null
+  const currentDraft = speedDraft?.identity === JSON.stringify(getCurrentUser()) && speedDraft.printerId === printer.id ? speedDraft : null
+  const selectedSpeed = currentDraft?.level ?? reportedLevel ?? 2
 
   const slotsNeedingAttention = printer.filament_slots?.filter((s: any) =>
     (s.assigned_spool_id && !s.spool_confirmed) || (!s.assigned_spool_id && s.color_hex)
@@ -118,12 +168,13 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
           {canDo('printers.edit') && <Button variant="ghost" size="icon" icon={printer.is_active ? Power : PowerOff} onClick={() => onToggleActive(printer.id, !printer.is_active)} className={clsx(printer.is_active ? 'text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10' : 'text-[var(--brand-text-muted)] hover:bg-[var(--brand-input-bg)]')} aria-label={printer.is_active ? 'Deactivate printer' : 'Activate printer'} />}
           {hasCamera && <Button variant="ghost" size="icon" icon={Video} onClick={() => onCameraClick?.(printer)} aria-label="View camera" />}
           <Button variant="ghost" size="icon" icon={ExternalLink} onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/overlay/${printer.id}`); toast.success('Overlay URL copied') }} aria-label="Copy OBS overlay URL" title="Copy OBS overlay URL" />
-          {printer.plug_type && onPlugToggle && (
+          {printer.plug_type && onPlugToggle && canControlPlug(printer) && (
             <Button
               variant="ghost"
               size="icon"
               icon={Plug}
-              onClick={() => onPlugToggle(printer.id)}
+              onClick={() => { if (canControlPlug(currentPrinter.current) && !plugPending) onPlugToggle(currentPrinter.current.id) }}
+              disabled={plugPending}
               className={plugStates?.[printer.id] ? 'text-green-400 hover:bg-green-900/30' : 'text-[var(--brand-text-muted)] hover:bg-[var(--brand-input-bg)]'}
               aria-label={plugStates?.[printer.id] ? 'Power off plug' : 'Power on plug'}
             />
@@ -132,6 +183,8 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
           {canDo('printers.delete') && <Button variant="ghost" size="icon" icon={Trash2} onClick={() => onDelete(printer.id)} className="text-[var(--brand-text-muted)] hover:text-red-400 hover:bg-red-900/50" aria-label="Delete printer" />}
         </div>
       </div>
+      {printer.plug_type && plugStates?.[printer.id] === undefined && <p className="px-3 text-xs text-[var(--brand-text-muted)]">State unknown</p>}
+      {plugOutcome && <p role="status" className="px-3 py-1 text-xs text-[var(--brand-text-secondary)]">{plugOutcome}</p>}
       <div className="p-3 md:p-4">
         <div className="flex items-center gap-2 mb-3 flex-wrap">
           <Palette size={14} className="text-[var(--brand-text-muted)]" />
@@ -232,9 +285,10 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
                     {online ? "Online" : "Offline"}
                   </span>
                 </div>
-                {printer.lights_on != null && (
+                {printer.lights_on != null && mayControl(printer) && (
                   <button
-                    onClick={(e) => { e.stopPropagation(); printers.toggleLights(printer.id) }}
+                    onClick={(e) => { e.stopPropagation(); void sendCardCommand('lights') }}
+                    disabled={commandPending}
                     className={`p-0.5 rounded-md transition-colors ${printer.lights_on ? 'text-yellow-400 hover:text-yellow-300' : 'text-[var(--brand-text-muted)] hover:text-[var(--brand-text-secondary)]'}`}
                     aria-label={printer.lights_on ? 'Turn lights off' : 'Turn lights on'}
                   >
@@ -286,31 +340,44 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
           )
         })()}
       </div>
-      {/* Bambu speed control — active prints only */}
-      {printer.api_type === 'bambu' && printer.gcode_state && ['RUNNING', 'PAUSE'].includes(printer.gcode_state.toUpperCase()) && (
+      {isOnline(printer) && ['RUNNING', 'PAUSE'].includes(printer.gcode_state?.toUpperCase() || '') && (
         <div className="px-3 md:px-4 py-2 border-t border-[var(--brand-border)]">
-          <div className="flex items-center gap-1">
-            <span className="text-xs text-[var(--brand-text-muted)] mr-1">Speed</span>
-            {[
-              { level: 1, label: 'Silent', Icon: Turtle },
-              { level: 2, label: 'Standard', Icon: null },
-              { level: 3, label: 'Sport', Icon: Zap },
-              { level: 4, label: 'Ludicrous', Icon: Rocket },
-            ].map(s => (
-              <button
-                key={s.level}
-                onClick={(e) => { e.stopPropagation(); printers.setSpeed(printer.id, s.level) }}
-                className="px-2 py-1 rounded-md text-xs transition-colors bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)] hover:brightness-110"
-                title={s.label}
-              >
-                {s.Icon ? <s.Icon size={12} /> : '\u25B6'}
-              </button>
-            ))}
-          </div>
+          <PrintProgress percent={printer.mc_percent} remainingMinutes={printer.mc_remaining_time} />
         </div>
       )}
+      {/* Bambu speed control — active prints only */}
+      {printer.api_type === 'bambu' && isOnline(printer) && ['RUNNING', 'PAUSE'].includes(printer.gcode_state?.toUpperCase() || '') && (
+        <div className="px-3 md:px-4 py-2 border-t border-[var(--brand-border)]">
+          <p className="text-xs text-[var(--brand-text-muted)]">
+            {reportedPercent == null ? 'Reported speed unknown' : `Last reported speed: ${reportedPercent}%`}
+          </p>
+          <p className="text-xs text-[var(--brand-text-muted)]">
+            {reportedLevel == null ? 'Printer speed mode unknown' : `Last reported mode: ${speedModes[reportedLevel - 1]}`}
+          </p>
+          {mayControl(printer, true) && <div className="mt-2 space-y-2">
+            <p className="text-xs">Selected mode: {speedModes[selectedSpeed - 1]}</p>
+            <input type="range" min="1" max="4" step="1" value={selectedSpeed}
+              aria-label="Print speed mode" aria-valuetext={speedModes[selectedSpeed - 1]}
+              disabled={commandPending} className="w-full min-h-8"
+              onChange={event => {
+                const level = Number(event.target.value)
+                if (!commandBusy.current && mayControl(currentPrinter.current, true) && Number.isInteger(level) && level >= 1 && level <= 4) {
+                  setSpeedDraft({ identity: JSON.stringify(getCurrentUser()), printerId: printer.id, level })
+                }
+              }} />
+            <div className="flex justify-between text-xs text-[var(--brand-text-muted)]">
+              {speedModes.map(mode => <span key={mode}>{mode}</span>)}
+            </div>
+            <button disabled={commandPending} className="min-h-11 px-3 py-2 rounded-md text-xs bg-[var(--brand-input-bg)] disabled:opacity-50"
+              onClick={event => { event.stopPropagation(); void sendCardCommand('speed', selectedSpeed) }}>Apply speed</button>
+          </div>}
+        </div>
+      )}
+      {commandOutcome?.identity === JSON.stringify(getCurrentUser()) && commandOutcome.printerId === printer.id && (
+        <div role="status" className="px-3 md:px-4 py-2 text-xs">{commandOutcome.text}</div>
+      )}
       {/* Data & Diagnostics toolbar */}
-      <div className="px-3 md:px-4 py-2 border-t border-[var(--brand-border)] flex items-center gap-1">
+      <div className="px-3 md:px-4 py-2 border-t border-[var(--brand-border)] flex flex-wrap items-center gap-1">
         <span className="text-xs text-[var(--brand-text-muted)] mr-1">Data</span>
         <button onClick={() => setActivePanel(activePanel === 'ams' ? null : 'ams')}
           className={clsx('p-1.5 text-xs flex items-center gap-1 transition-colors',

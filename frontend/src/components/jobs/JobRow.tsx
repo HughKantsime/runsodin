@@ -2,7 +2,7 @@ import { Play, CheckCircle, XCircle, RotateCcw, Trash2, AlertTriangle, Calendar,
 import { format } from 'date-fns'
 import clsx from 'clsx'
 import { resolveColor } from '../../utils/colorMap'
-import { canDo } from '../../permissions'
+import { canDo, getCurrentUser } from '../../permissions'
 import { formatHours } from '../../utils/shared'
 import { Button, StatusBadge } from '../ui'
 
@@ -31,7 +31,7 @@ function DueDateBadge({ dueDate }: { dueDate: string | null }) {
   )
 }
 
-export default function JobRow({ job, onAction, dragProps, isSelected, onToggleSelect, isDispatching }: { job: any; onAction: (...args: any[]) => void; dragProps?: any; isSelected: boolean; onToggleSelect: (id: number) => void; isDispatching?: boolean }) {
+export default function JobRow({ job, onAction, dragProps, isSelected, onToggleSelect, isDispatching, correctionPrincipal }: { job: any; onAction: (...args: any[]) => void; dragProps?: any; isSelected: boolean; onToggleSelect: (id: number) => void; isDispatching?: boolean; correctionPrincipal?: any }) {
   return (
     <tr className={clsx(
           'border-b border-[var(--brand-card-border)] hover:bg-[var(--brand-input-bg)]/50 even:bg-[var(--brand-content-bg)]/40',
@@ -118,7 +118,7 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
               <Button variant="ghost" size="icon" icon={XCircle} onClick={() => onAction('reject', job.id)} className="text-red-400 hover:bg-red-900/50" aria-label="Reject job" />
             </>
           )}
-          {job.status === 'rejected' && job.submitted_by && canDo('jobs.resubmit') && (
+          {job.status === 'rejected' && job.submitted_by != null && getCurrentUser()?.id === job.submitted_by && canDo('jobs.resubmit') && (
             <Button variant="ghost" size="icon" icon={RefreshCw} onClick={() => onAction('resubmit', job.id)} className="text-amber-400 hover:bg-amber-900/50" aria-label="Resubmit job" />
           )}
           {job.status === 'scheduled' && canDo('jobs.start') && (
@@ -143,7 +143,8 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
               <Button variant="ghost" size="icon" icon={AlertTriangle} onClick={() => onAction('markFailed', job.id, job.item_name)} className="text-red-400 hover:bg-red-900/50" aria-label="Mark job failed" />
             </>
           )}
-          {canDo('jobs.edit') && ['pending', 'scheduled', 'submitted'].includes(job.status) && (
+          {(canDo('jobs.edit') && ['pending', 'scheduled', 'submitted'].includes(job.status) ||
+            job.status === 'rejected' && correctionPrincipal?.role === 'viewer' && Number.isInteger(correctionPrincipal.id) && correctionPrincipal.id > 0 && correctionPrincipal.id === job.submitted_by && Number.isInteger(correctionPrincipal.group_id) && correctionPrincipal.group_id > 0 && correctionPrincipal.group_id === job.charged_to_org_id) && (
             <Button variant="ghost" size="icon" icon={Pencil} onClick={() => onAction('edit', job.id)} className="text-[var(--brand-text-secondary)] hover:text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10" aria-label="Edit job" />
           )}
           {canDo('jobs.cancel') && (job.status === 'scheduled' || job.status === 'printing') && (

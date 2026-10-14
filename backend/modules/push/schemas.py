@@ -61,4 +61,6 @@ class BiometricRefreshRequest(BaseModel):
 class BiometricRefreshResponse(BaseModel):
     """New JWT issued from a biometric refresh token"""
     access_token: str
+    refresh_token: str
+    expires_at: datetime
     token_type: str = "bearer"

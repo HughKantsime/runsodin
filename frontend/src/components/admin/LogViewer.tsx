@@ -11,6 +11,7 @@ const LOG_SOURCES = [
   { id: 'go2rtc', label: 'go2rtc' },
   { id: 'timelapse', label: 'Timelapse' },
   { id: 'reports', label: 'Reports' },
+  { id: 'supervisord', label: 'Supervisord' },
 ]
 
 const LEVELS = ['ALL', 'DEBUG', 'INFO', 'WARNING', 'ERROR']
@@ -30,11 +31,33 @@ function detectLevel(line) {
   return null
 }
 
+function highlight(line: string, keyword: string) {
+  if (!keyword) return line
+  const parts = []
+  const folded = line.toLowerCase(), term = keyword.toLowerCase()
+  let from = 0, match = folded.indexOf(term)
+  while (match !== -1) {
+    parts.push(line.slice(from, match))
+    parts.push(<mark key={match} className="bg-yellow-300 text-black">{line.slice(match, match + keyword.length)}</mark>)
+    from = match + keyword.length
+    match = folded.indexOf(term, from)
+  }
+  parts.push(line.slice(from))
+  return parts
+}
+
 export default function LogViewer() {
   const [source, setSource] = useState('backend')
   const [level, setLevel] = useState('ALL')
   const [search, setSearch] = useState('')
-  const [lines, setLines] = useState([])
+  const [lines, setLines] = useState<string[]>([])
+  const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [pageCursor, setPageCursor] = useState<string | null>(null)
+  const [history, setHistory] = useState<(string | null)[]>([])
+  const [appliedSearch, setAppliedSearch] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const requestRef = useRef(0)
   const [streaming, setStreaming] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
   const containerRef = useRef(null)
@@ -43,30 +66,50 @@ export default function LogViewer() {
   // Initial load
   useEffect(() => {
     loadLogs()
-    return () => stopStream()
-  }, [source])
+    return () => { requestRef.current++; stopStream() }
+  }, [source, level])
 
-  const loadLogs = async () => {
+  const loadLogs = async (cursor: string | null = null, previous: (string | null)[] = []) => {
+    const request = ++requestRef.current
     stopStream()
+    setLoading(true)
+    setError('')
     try {
-      const data = await adminLogs.get(source, 500, level === 'ALL' ? null : level, search || null)
+      const args = [source, 500, level === 'ALL' ? null : level, search || null] as const
+      const data = cursor ? await adminLogs.get(...args, cursor) : await adminLogs.get(...args)
+      if (request !== requestRef.current) return
       setLines(data?.lines || [])
-    } catch {
-      setLines(['Failed to load logs'])
+      setNextCursor(data?.next_cursor || null)
+      setPageCursor(data?.page_cursor || cursor)
+      setHistory(previous)
+      setAppliedSearch(search)
+    } catch (failure) {
+      if (request === requestRef.current) setError(`Failed to load logs${failure instanceof Error ? ': ' + failure.message : ''}`)
+    } finally {
+      if (request === requestRef.current) setLoading(false)
     }
   }
 
   const startStream = () => {
+    requestRef.current++
+    setLoading(false)
+    setError('')
+    setNextCursor(null)
+    setHistory([])
+    setPageCursor(null)
+    setAppliedSearch(search)
     stopStream()
     const url = adminLogs.streamUrl(source, level === 'ALL' ? null : level, search || null)
     const es = new EventSource(url, { withCredentials: true })
     es.onmessage = (e) => {
+      if (esRef.current !== es) return
       try {
         const line = JSON.parse(e.data)
+        if (typeof line !== 'string') return
         setLines(prev => [...prev.slice(-4999), line])
       } catch {}
     }
-    es.onerror = () => { es.close(); setStreaming(false) }
+    es.onerror = () => { if (esRef.current !== es) return; es.close(); esRef.current = null; setStreaming(false) }
     esRef.current = es
     setStreaming(true)
   }
@@ -89,6 +132,7 @@ export default function LogViewer() {
       <div className="flex flex-wrap items-center gap-2">
         {/* Source selector */}
         <select
+          aria-label="Log source"
           value={source}
           onChange={(e) => setSource(e.target.value)}
           className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1.5 text-sm"
@@ -124,7 +168,7 @@ export default function LogViewer() {
         />
 
         {/* Actions */}
-        <button onClick={loadLogs} className="px-2 py-1.5 rounded-md text-xs bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)] hover:bg-[var(--brand-input-bg)]">
+        <button onClick={() => loadLogs()} className="px-2 py-1.5 rounded-md text-xs bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)] hover:bg-[var(--brand-input-bg)]">
           Refresh
         </button>
         <button
@@ -142,6 +186,15 @@ export default function LogViewer() {
         </button>
       </div>
 
+      {error && <p role="alert">{error}</p>}
+      <div className="flex items-center gap-2 text-sm">
+        <button disabled={loading || streaming || search !== appliedSearch || history.length === 0}
+          onClick={() => loadLogs(history[history.length - 1], history.slice(0, -1))}>Newer logs</button>
+        <span>Page {history.length + 1}</span>
+        <button disabled={loading || streaming || search !== appliedSearch || !nextCursor}
+          onClick={() => nextCursor && loadLogs(nextCursor, [...history, pageCursor])}>Older logs</button>
+        {loading && <span role="status">Loading logs…</span>}
+      </div>
       {/* Log output */}
       <div
         ref={containerRef}
@@ -155,7 +208,7 @@ export default function LogViewer() {
             const lvl = detectLevel(line)
             return (
               <div key={i} className={`whitespace-pre-wrap break-all ${lvl ? LEVEL_COLORS[lvl] : 'text-[var(--brand-text-secondary)]'}`}>
-                {line}
+                {highlight(line, appliedSearch)}
               </div>
             )
           })

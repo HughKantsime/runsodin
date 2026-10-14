@@ -93,8 +93,11 @@ def test_media_and_telemetry_lists_are_scoped(scope_client,path,role,org,expecte
     assert response.status_code==200,response.text
     body=response.json()
     rows=body.get('items',body.get('detections',body.get('jobs',[]))) if isinstance(body,dict) else body
-    assert {r['id'] for r in rows if r['id'] in {101,102,103}}==expected
-    if path=='/vision/detections':assert body['total']==len(expected)
+    # These legacy vision rows have no immutable capture ownership. The
+    # reviewed maintenance policy cannot infer it from today's printer tenant.
+    visible_expected = set() if path=='/vision/detections' and role!='admin' else expected
+    assert {r['id'] for r in rows if r['id'] in {101,102,103}}==visible_expected
+    if path=='/vision/detections':assert body['total']==len(visible_expected)
 
 
 def test_unassigned_dashboard_and_search_hide_private_resources(scope_client):

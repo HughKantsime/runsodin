@@ -117,7 +117,9 @@ def test_erasure_revokes_access_and_removes_canary_from_database(stack):
     assert client.get("/api/users/1/export", headers=headers(tokens["viewer"][0])).status_code == 200
     erased = client.delete("/api/users/1/erase", headers=headers(tokens["admin"][0]))
     assert erased.status_code == 200, erased.text
-    assert canary not in "\n".join(sqlite3.connect(database).iterdump())
+    with sqlite3.connect(database) as connection:
+        no_canary = all(canary not in line for line in connection.iterdump())
+    assert no_canary
     client.cookies.set("session", tokens["viewer"][0])
     try:
         assert client.get("/api/auth/me").status_code == 401

@@ -20,6 +20,26 @@ STAGE_MAP = {
 ACTIVE_STATES = ('RUNNING', 'PREPARE', 'PAUSE')
 
 
+def parse_bambu_speed(state: dict) -> dict:
+    """Report protocol mode and measured percentage without guessing either."""
+    from modules.printers.telemetry.validators import coerce_int_or_raise
+    result = {'speed_level': None, 'speed_percent': None}
+    for raw_key, output_key in (('spd_lvl', 'speed_level'), ('spd_mag', 'speed_percent')):
+        value = state.get(raw_key)
+        if value is None:
+            continue
+        try:
+            value = coerce_int_or_raise(value)
+        except ValueError:
+            continue
+        if output_key == 'speed_level' and value in (1, 2, 3, 4):
+            result[output_key] = value
+        elif output_key == 'speed_percent' and 0 <= value <= 9007199254740991:
+            # JSON consumers must be able to represent the integer exactly.
+            result[output_key] = value
+    return result
+
+
 def resolve_stage_label(stg_cur: int, gcode_state: Optional[str]) -> str:
     """Convert numeric stage code to human-readable label.
 
@@ -81,15 +101,26 @@ def parse_ams_env(ams_raw: dict) -> list:
     return results
 
 
+def finite_nozzle_measurement(value) -> Optional[float]:
+    """Keep unknown or malformed sensor values distinct from measured zero."""
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    try:
+        measured = float(value)
+    except (ValueError, OverflowError):
+        return None
+    return measured if math.isfinite(measured) else None
+
+
 def parse_h2d_nozzles(state: dict) -> Optional[dict]:
     """
     Extract dual-nozzle temperature data for H2D printers.
     Returns dict with nozzle_0 and nozzle_1 data, or None if no second nozzle data present.
     """
-    noz_t = state.get('nozzle_temper')
-    noz_tt = state.get('nozzle_target_temper')
-    noz1_t = state.get('nozzle_temper_1')
-    noz1_tt = state.get('nozzle_target_temper_1')
+    noz_t = finite_nozzle_measurement(state.get('nozzle_temper'))
+    noz_tt = finite_nozzle_measurement(state.get('nozzle_target_temper'))
+    noz1_t = finite_nozzle_measurement(state.get('nozzle_temper_1'))
+    noz1_tt = finite_nozzle_measurement(state.get('nozzle_target_temper_1'))
     if noz1_t is None and noz1_tt is None:
         return None
     return {
@@ -114,9 +145,18 @@ def parse_h2d_external_spools(ams_raw: dict) -> Optional[dict]:
         if isinstance(ext, dict) and ext.get('tray_type'):
             side = 'left' if idx == 0 else 'right'
             color_raw = ext.get('tray_color', '')
+            if not isinstance(color_raw, str):
+                color_raw = ''
+            remaining = None
+            if ext.get('remain') is not None:
+                from modules.printers.telemetry.validators import coerce_int_or_raise
+                try:
+                    remaining = coerce_int_or_raise(ext['remain'])
+                except ValueError:
+                    pass
             external_spools[side] = {
                 'material': ext.get('tray_type', ''),
                 'color': f"#{color_raw}" if color_raw and not color_raw.startswith('#') else color_raw,
-                'remain_percent': int(ext.get('remain', 0)) if ext.get('remain') is not None else None,
+                'remain_percent': remaining,
             }
     return external_spools if external_spools else None

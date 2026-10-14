@@ -25,6 +25,13 @@ _ALLOWED_REMOTE_EXTENSIONS = frozenset({".3mf", ".gcode", ".bgcode"})
 _NAMED_PARAMETER_RE = re.compile(r"(?<!:):([A-Za-z_][A-Za-z0-9_]*)")
 
 
+def _resolve_monitor_tokens(*values):
+    """Resolve all task identities without letting an internal path mask a token."""
+    tokens = {token for value in values if (token := parse_education_token(value))}
+    reserved = bool(tokens)
+    return (next(iter(tokens)) if len(tokens) == 1 else None, reserved, len(tokens) > 1)
+
+
 def education_token_digest(token: str) -> str:
     return hashlib.sha256(str(token).lower().encode("ascii")).hexdigest()
 
@@ -410,7 +417,8 @@ def advance_schedule(
                 text(
                     "UPDATE jobs SET status='scheduled' WHERE id=:job_id "
                     "AND charged_to_org_id=:org_id AND status='pending' "
-                    "AND printer_id=:printer_id"
+                    "AND printer_id=:printer_id "
+                    "AND NOT EXISTS (SELECT 1 FROM printer_dispatch_claims dc WHERE dc.printer_id=:printer_id)"
                 ),
                 {
                     "job_id": job_id,
@@ -790,6 +798,43 @@ def reserve_dispatch(
     }
 
 
+def lock_dispatch_reservation(executor, *, reservation: dict) -> bool:
+    """Lock center then submission/job/claim and validate the exact reservation.
+
+    Caller owns commit/rollback. NOWAIT avoids waiting across a conflicting
+    resource order on PostgreSQL; SQLite takes its bounded engine write lock.
+    """
+    if not isinstance(executor, (Session, Connection)) or not isinstance(reservation, dict):
+        return False
+    fields=('submission_id','job_id','printer_id','authority_revision','cost_center_id','org_id')
+    if any(type(reservation.get(name)) is not int or reservation[name]<=0 for name in fields):
+        return False
+    token=reservation.get('token')
+    claim_id=reservation.get('claim_id')
+    if not isinstance(token,str) or not re.fullmatch('[0-9a-f]{32}',token) or not isinstance(claim_id,str):
+        return False
+    postgres=executor.get_bind().dialect.name=='postgresql' if isinstance(executor,Session) else executor.dialect.name=='postgresql'
+    locks=(
+        ('education_cost_centers','id=:cost_center_id AND org_id=:org_id','revision'),
+        ('education_cost_center_printers','cost_center_id=:cost_center_id AND printer_id=:printer_id AND org_id=:org_id','state'),
+        ('education_submissions','id=:submission_id AND job_id=:job_id AND org_id=:org_id','updated_at'),
+        ('jobs','id=:job_id','status'),
+        ('education_monitor_claims','claim_id=:claim_id','updated_at'),
+    )
+    # Identifiers below are internal constants, never request text.
+    for table,where,column in locks:
+        sql=f'SELECT 1 FROM {table} WHERE {where} FOR UPDATE NOWAIT' if postgres else f'UPDATE {table} SET {column}={column} WHERE {where} RETURNING 1'
+        if executor.execute(text(sql),reservation).first() is None:return False
+    context=authorize_dispatch(executor,job_id=reservation['job_id'],printer_id=reservation['printer_id'],expected_revision=reservation['authority_revision'])
+    if not context or not context.get('authorized') or context['id']!=reservation['submission_id'] or context['org_id']!=reservation['org_id'] or context['cost_center_id']!=reservation['cost_center_id']:
+        return False
+    matching=executor.execute(text('SELECT 1 FROM education_monitor_claims WHERE claim_id=:claim_id '
+        "AND state='reserved' AND submission_id=:submission_id AND job_id=:job_id AND printer_id=:printer_id "
+        'AND org_id=:org_id AND authority_revision=:authority_revision AND token_digest=:digest'),
+        {**reservation,'digest':education_token_digest(token)}).first()
+    return matching is not None
+
+
 def cancel_dispatch_reservation(
     executor,
     *,
@@ -936,12 +981,98 @@ def confirm_dispatch_started(
     return result
 
 
+def start_identity_matches(context, *identities):
+    """Use the existing canonical multi-identity conflict resolver."""
+    token, _, conflict = _resolve_monitor_tokens(*identities)
+    return (not conflict and token is not None and isinstance(context, dict)
+            and education_token_digest(token) == context.get('token_digest'))
+
+
+def discover_start_authority(executor, *, printer_id, observed_filename):
+    """Read canonical token candidate only; not authority without later locks."""
+    token = parse_education_token(observed_filename)
+    if token is None:
+        return None
+    return _ExecutionAdapter(executor).fetchone(
+        "SELECT mc.claim_id,mc.org_id,mc.submission_id,mc.job_id,mc.printer_id,"
+        "mc.authority_revision,mc.state,mc.token_digest,s.cost_center_id,s.submitted_by "
+        "FROM education_monitor_claims mc JOIN education_submissions s "
+        "ON s.id=mc.submission_id AND s.org_id=mc.org_id "
+        "WHERE mc.token_digest=:digest AND mc.printer_id=:printer_id",
+        {'digest': education_token_digest(token), 'printer_id': printer_id})
+
+
+def recheck_start_authority(executor, context):
+    """Exact reserved/awaiting/running predicates; no observation row required."""
+    if not isinstance(context, dict):
+        return False
+    fields = ('org_id','submission_id','job_id','printer_id','authority_revision','cost_center_id')
+    if any(type(context.get(name)) is not int or context[name] <= 0 for name in fields):
+        return False
+    state = context.get('state')
+    if state not in ('reserved','awaiting','running'):
+        return False
+    expected = 'scheduled' if state == 'reserved' else 'printing'
+    return _ExecutionAdapter(executor).fetchone(
+        "SELECT 1 FROM education_monitor_claims mc JOIN education_submissions s "
+        "ON s.id=mc.submission_id AND s.org_id=mc.org_id JOIN jobs j ON j.id=mc.job_id "
+        "AND j.charged_to_org_id=mc.org_id JOIN education_cost_centers c "
+        "ON c.id=s.cost_center_id AND c.org_id=s.org_id "
+        "JOIN education_cost_center_printers g ON g.org_id=c.org_id AND g.cost_center_id=c.id "
+        "AND g.printer_id=mc.printer_id JOIN printers p ON p.id=mc.printer_id AND p.org_id=mc.org_id "
+        "WHERE mc.claim_id=:claim_id AND mc.org_id=:org_id AND mc.submission_id=:submission_id "
+        "AND mc.job_id=:job_id AND mc.printer_id=:printer_id AND mc.authority_revision=:authority_revision "
+        "AND mc.token_digest=:token_digest AND mc.state=:state AND s.job_id=mc.job_id "
+        "AND s.lifecycle_revision=mc.authority_revision AND s.status=:expected "
+        "AND s.cost_center_id=:cost_center_id AND s.submitted_by=:submitted_by "
+        "AND s.approved_printer_id=mc.printer_id AND j.printer_id=mc.printer_id "
+        "AND CAST(j.status AS TEXT)=:expected AND c.state='active' AND g.state='active' "
+        "AND p.is_active IS TRUE AND p.shared IS NOT TRUE", {**context,'expected':expected}) is not None
+
+
+def lock_start_authority(executor, context):
+    """Parent-first caller then center/grant/submission/job/claim acquisition."""
+    if not isinstance(context,dict):
+        return False
+    fields = ('org_id','submission_id','job_id','printer_id','authority_revision','cost_center_id')
+    if any(type(context.get(name)) is not int or context[name]<=0 for name in fields):
+        return False
+    from core.dispatch_observation_executor import TransactionView
+    view=TransactionView(executor)
+    for table,where,column in (
+        ('education_cost_centers','id=:cost_center_id AND org_id=:org_id','revision'),
+        ('education_cost_center_printers','cost_center_id=:cost_center_id AND printer_id=:printer_id AND org_id=:org_id','state'),
+        ('education_submissions','id=:submission_id AND job_id=:job_id AND org_id=:org_id','updated_at'),
+        ('jobs','id=:job_id','status'),
+        ('education_monitor_claims','claim_id=:claim_id','updated_at'),
+    ):
+        statement=(f'SELECT 1 FROM {table} WHERE {where} FOR UPDATE NOWAIT' if view.dialect.name=='postgresql' else f'UPDATE {table} SET {column}={column} WHERE {where} RETURNING 1')
+        if view.execute(text(statement),context).first() is None:
+            return False
+    return recheck_start_authority(executor,context)
+
+
+def finalize_start_authority(executor, *, scope, plan, print_job_id, context):
+    """Only plan-owned fresh row or exact retained resume may widen link CAS."""
+    from core.attempt_start_plan import _record
+    from core.economic_source_creation import SourceCreationError
+    record=_record(executor,scope,plan)
+    created=record['created']
+    expected_id=plan.resume_id if plan.branch in ('resume','legacy_resume') else (created.id if created else None)
+    if expected_id!=print_job_id or record.get('education')!=context or plan.job_id!=context.get('job_id'):
+        raise SourceCreationError('Education prepared capability differs')
+    return claim_monitor_observation(executor,print_job_id=print_job_id,
+        printer_id=context['printer_id'],observed_filename=(record['observed']['job_name'] if record['protocol']=='bambu' else record['observed']['filename']),
+        _prepared_start=(scope,plan))
+
+
 def claim_monitor_observation(
     executor,
     *,
     print_job_id: int,
     printer_id: int,
     observed_filename: str | None,
+    _prepared_start=None,
 ) -> dict:
     """Claim an exact-token observation or quarantine the reserved namespace."""
     token = parse_education_token(observed_filename)
@@ -985,7 +1116,7 @@ def claim_monitor_observation(
     digest = education_token_digest(token)
     context = adapter.fetchone(
         "SELECT mc.claim_id,mc.org_id,mc.submission_id,mc.job_id,mc.printer_id,"
-        "mc.authority_revision,mc.state,s.cost_center_id,s.submitted_by "
+        "mc.authority_revision,mc.state,mc.token_digest,s.cost_center_id,s.submitted_by "
         "FROM education_monitor_claims mc JOIN education_submissions s "
         "ON s.id=mc.submission_id AND s.org_id=mc.org_id "
         "WHERE mc.token_digest=:digest AND mc.printer_id=:printer_id",
@@ -1002,6 +1133,18 @@ def claim_monitor_observation(
     revision = int(context["authority_revision"])
     claim_state = context["state"]
     if claim_state == "running":
+        from core.dispatch_observation_executor import TransactionView
+        view=TransactionView(executor)
+        # Resume revalidates the same authority order as the transition path.
+        for table,where,column in (
+            ('education_submissions','id=:submission_id AND org_id=:org_id','updated_at'),
+            ('jobs','id=:job_id','status'),
+            ('education_monitor_claims','claim_id=:claim_id','updated_at'),
+            ('print_jobs','id=:print_job_id AND printer_id=:printer_id','status'),
+        ):
+            statement=(f'SELECT 1 FROM {table} WHERE {where} FOR UPDATE NOWAIT' if view.dialect.name=='postgresql' else f'UPDATE {table} SET {column}={column} WHERE {where} RETURNING 1')
+            if view.execute(text(statement),{**context,'print_job_id':print_job_id}).first() is None:
+                return {'education_owned':True,'education_reserved':True,'authorized':False,'transitioned':False}
         linked = adapter.fetchone(
             "SELECT id FROM print_jobs WHERE id=:print_job_id AND printer_id=:printer_id "
             "AND scheduled_job_id=:job_id AND status='running'",
@@ -1011,9 +1154,12 @@ def claim_monitor_observation(
                 "job_id": context["job_id"],
             },
         )
-        return {
+        from core.dispatch_observations import education_observation_authority
+        linked=bool(linked) and education_observation_authority(view,{**context,'authority_revision':revision},print_job_id)
+        result = {
             "education_owned": True,
             "education_reserved": True,
+            "dispatch_receipt_binding": 'refused',
             "authorized": bool(linked),
             "transitioned": False,
             "idempotent": bool(linked),
@@ -1021,6 +1167,22 @@ def claim_monitor_observation(
             "job_id": context["job_id"],
             "lifecycle_revision": revision,
         }
+        if linked:
+            from core.dispatch_observations import bind_education_observation
+            from core import auth
+            result['dispatch_receipt_binding']=bind_education_observation(executor,print_job_id=print_job_id,context={**context,'authority_revision':revision},key=auth.SECRET_KEY.encode())
+        return result
+
+    link_guard = 'scheduled_job_id IS NULL'
+    if _prepared_start is not None:
+        from core.attempt_start_plan import _record
+        from core.economic_source_creation import SourceCreationError
+        scope, plan = _prepared_start
+        record = _record(executor, scope, plan)
+        created = record['created']
+        if created is None or created.id != print_job_id or record.get('education') != context or plan.job_id != context['job_id']:
+            raise SourceCreationError('Education prepared link differs')
+        link_guard = '(scheduled_job_id IS NULL OR scheduled_job_id=:job_id)'
 
     recovered = claim_state == "reserved"
     expected_submission_status = "scheduled" if recovered else "printing"
@@ -1079,7 +1241,7 @@ def claim_monitor_observation(
             observation_changed = adapter.execute(
                 "UPDATE print_jobs SET scheduled_job_id=:job_id "
                 "WHERE id=:print_job_id AND printer_id=:printer_id "
-                "AND scheduled_job_id IS NULL AND status='running'",
+                f"AND {link_guard} AND status='running'",
                 {
                     "job_id": context["job_id"],
                     "print_job_id": print_job_id,
@@ -1098,6 +1260,9 @@ def claim_monitor_observation(
                 "job_id": context["job_id"],
                 "lifecycle_revision": next_revision,
             }
+            from core.dispatch_observations import bind_education_observation
+            from core import auth
+            result['dispatch_receipt_binding']=bind_education_observation(executor,print_job_id=print_job_id,context={**context,'authority_revision':next_revision},key=auth.SECRET_KEY.encode())
             _record_monitor_transition(
                 adapter,
                 context=context,
@@ -1130,7 +1295,7 @@ def classify_monitor_observation(
 ) -> dict:
     """Classify a monitor packet before any generic external side effects."""
     adapter = _ExecutionAdapter(executor)
-    filename = observed_filename
+    identities = [observed_filename]
     if print_job_id is not None:
         linked = adapter.fetchone(
             "SELECT s.id AS submission_id,s.job_id,s.lifecycle_revision,p.filename,p.job_name "
@@ -1139,7 +1304,10 @@ def classify_monitor_observation(
             {"print_job_id": print_job_id, "printer_id": printer_id},
         )
         if linked:
-            filename = filename or linked.get("filename") or linked.get("job_name")
+            identities.extend((linked.get("filename"), linked.get("job_name")))
+            _, reserved, conflict = _resolve_monitor_tokens(*identities)
+            if conflict:
+                return {"education_owned": False, "education_reserved": reserved, "authorized": False}
             if linked.get("submission_id") is not None:
                 return {
                     "education_owned": True,
@@ -1149,9 +1317,9 @@ def classify_monitor_observation(
                     "job_id": linked["job_id"],
                     "lifecycle_revision": linked["lifecycle_revision"],
                 }
-    token = parse_education_token(filename)
-    if token is None:
-        return {"education_owned": False, "education_reserved": False, "authorized": False}
+    token, reserved, conflict = _resolve_monitor_tokens(*identities)
+    if token is None or conflict:
+        return {"education_owned": False, "education_reserved": reserved, "authorized": False}
     claim = adapter.fetchone(
         "SELECT submission_id,job_id,authority_revision FROM education_monitor_claims "
         "WHERE token_digest=:digest AND printer_id=:printer_id",
@@ -1204,10 +1372,20 @@ def terminal_monitor_observation(
     )
     if not context:
         return {"education_owned": False, "education_reserved": False, "transitioned": False}
+    _, reserved_identity, conflicting_identity = _resolve_monitor_tokens(
+        context.get("filename"), context.get("job_name"), observed_filename)
+    if conflicting_identity:
+        return {"education_owned": context.get("submission_id") is not None,
+                "education_reserved": reserved_identity, "authorized": False,
+                "transitioned": False}
     if context.get("submission_id") is None:
-        token = parse_education_token(context.get("filename") or context.get("job_name"))
-        if token is None:
+        token, reserved, conflict = _resolve_monitor_tokens(
+            context.get("filename"), context.get("job_name"), observed_filename)
+        if not reserved:
             return {"education_owned": False, "education_reserved": False, "transitioned": False}
+        if conflict or token is None:
+            return {"education_owned": False, "education_reserved": True,
+                    "authorized": False, "transitioned": False}
         if observed_filename is not None and parse_education_token(observed_filename) != token:
             return {"education_owned": False, "education_reserved": True,
                     "authorized": False, "transitioned": False}
@@ -1413,13 +1591,14 @@ def resolve_active_monitor_observation(executor, *, printer_id: int) -> dict:
     quarantined = [
         row
         for row in quarantine_rows
-        if parse_education_token(row.get("filename") or row.get("job_name")) is not None
+        if _resolve_monitor_tokens(row.get("filename"), row.get("job_name"))[1]
     ]
     if len(quarantined) == 1:
         return {
             "education_owned": False,
             "education_reserved": True,
-            "authorized": True,
+            "authorized": not _resolve_monitor_tokens(
+                quarantined[0].get("filename"), quarantined[0].get("job_name"))[2],
             "print_job_id": quarantined[0]["print_job_id"],
         }
     return {

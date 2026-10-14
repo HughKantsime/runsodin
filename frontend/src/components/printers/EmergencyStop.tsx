@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { StopCircle, Pause, Play, X, AlertTriangle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { fetchAPI } from '../../api'
+import { canDo, getCurrentUser } from '../../permissions'
+import { isOnline } from '../../utils/shared'
 
 interface ActivePrinter {
   id: number
@@ -20,43 +22,70 @@ export default function EmergencyStop() {
   const [showPanel, setShowPanel] = useState(false)
   const [loading, setLoading] = useState<Record<number, string | null>>({})
   const [confirmStop, setConfirmStop] = useState<number | null>(null)
+  const [listError, setListError] = useState(false)
+  const [outcome, setOutcome] = useState('')
+  const busy = useRef(new Set<number>())
+  const mounted = useRef(false)
 
   // Fetch printer status
   useEffect(() => {
+    mounted.current = true
+    let active = true
+    let sequence = 0
     const fetchPrinters = async () => {
+      const request = ++sequence
       try {
         const data = await fetchAPI('/printers')
-        setPrinters(data.filter((p: ActivePrinter) =>
+        if (!Array.isArray(data)) throw new Error('Invalid printer list')
+        if (!active || request !== sequence) return
+        setListError(false)
+        setPrinters(data.filter((p: ActivePrinter) => isOnline(p) && (
           p.gcode_state === 'RUNNING' ||
           p.gcode_state === 'PRINTING' ||
           p.gcode_state === 'PAUSED' ||
-          p.gcode_state === 'PAUSE'
+          p.gcode_state === 'PAUSE')
         ))
-      } catch (err) {
-        console.error('Failed to fetch printers:', err)
+      } catch {
+        if (!active || request !== sequence) return
+        setListError(true)
+        setPrinters([])
+        setConfirmStop(null)
       }
     }
 
     fetchPrinters()
     const interval = setInterval(fetchPrinters, 5000)
-    return () => clearInterval(interval)
+    return () => { active = false; mounted.current = false; clearInterval(interval) }
   }, [])
 
   const sendCommand = async (printerId: number, action: string) => {
+    const principal = getCurrentUser()
+    if (!principal || !['operator', 'admin'].includes(principal.role) || !canDo('printers.edit') || listError || busy.current.has(printerId)) return
+    busy.current.add(printerId)
+    const identity = JSON.stringify(principal)
+    const stillCurrent = () => mounted.current && JSON.stringify(getCurrentUser()) === identity
     setLoading(prev => ({ ...prev, [printerId]: action }))
 
     try {
-      await fetchAPI(`/printers/${printerId}/${action}`, { method: 'POST' })
-    } catch (err: any) {
-      toast.error(`Failed to ${action}: ${err.message || 'Unknown error'}`)
+      const receipt = await fetchAPI(`/printers/${printerId}/${action}`, { method: 'POST' })
+      if (!stillCurrent()) return
+      setOutcome(receipt?.success === true ? 'Command accepted; printer confirmation pending' : 'Command not confirmed')
+    } catch {
+      if (!stillCurrent()) return
+      setOutcome('Command not confirmed')
+      toast.error('Printer command failed')
     } finally {
-      setLoading(prev => ({ ...prev, [printerId]: null }))
-      setConfirmStop(null)
+      busy.current.delete(printerId)
+      if (stillCurrent()) {
+        setLoading(prev => ({ ...prev, [printerId]: null }))
+        setConfirmStop(null)
+      }
     }
   }
 
   // Don't show if no active prints
-  if (printers.length === 0) return null
+  const user = getCurrentUser()
+  if (!user || !['operator', 'admin'].includes(user.role) || !canDo('printers.edit')) return null
 
   const activePrinting = printers.filter(p =>
     p.gcode_state === 'RUNNING' || p.gcode_state === 'PRINTING'
@@ -64,6 +93,8 @@ export default function EmergencyStop() {
 
   return (
     <>
+      {listError && <div role="alert">Printer status unavailable. Controls are disabled until status refreshes.</div>}
+      {outcome && <div role="status">{outcome}</div>}
       {/* Floating Button */}
       <button
         onClick={() => setShowPanel(!showPanel)}
@@ -93,6 +124,7 @@ export default function EmergencyStop() {
           </div>
 
           <div className="p-3 space-y-2 max-h-80 overflow-y-auto">
+            {!listError && printers.length === 0 && <p>No active prints</p>}
             {printers.map(printer => {
               const isPaused = printer.gcode_state === 'PAUSED' || printer.gcode_state === 'PAUSE'
               const isLoading = loading[printer.id]

@@ -179,6 +179,10 @@ def test_seed_rejects_existing_quota_before_any_domain_write(tmp_path: Path) -> 
 
 
 def test_edu_bambu_replay_uses_internal_synthetic_config_not_printer_credentials(monkeypatch):
+    import secrets
+    # Standalone monitor bootstrap imports the genuine authentication/provider
+    # stack. The container entrypoint normally provides this ephemeral input.
+    monkeypatch.setenv('JWT_SECRET_KEY',secrets.token_urlsafe(48))
     from modules.printers.monitors import mqtt_monitor
 
     engine = create_engine("sqlite://")

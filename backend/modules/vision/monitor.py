@@ -86,6 +86,8 @@ class VisionMonitorDaemon:
                     self._engine.reload_models()
                     self._last_model_reload = now
 
+                self._engine.publish_runtime_status()
+
                 # Periodic frame cleanup
                 if now - self._last_cleanup > FRAME_CLEANUP_INTERVAL:
                     frame_storage.cleanup_old_frames()

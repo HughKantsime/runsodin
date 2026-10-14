@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Bell, Check, X, ExternalLink, CheckCircle, XCircle, AlertOctagon, AlertTriangle, Info, Mail } from 'lucide-react'
+import { Bell, Check, X, Trash2, ExternalLink, CheckCircle, XCircle, AlertOctagon, AlertTriangle, Info, Mail } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { alerts as alertsApi, approveJob, rejectJob, fetchAPI, printers as printersApi } from '../../api'
+import { getCurrentUser } from '../../permissions'
 import { formatDate } from '../../utils/shared'
 import { PageHeader, Button, EmptyState } from '../../components/ui'
 
@@ -74,6 +75,11 @@ const TABS = [
 export default function Alerts() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [alerts, setAlerts] = useState([])
+  const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set())
+  const listGeneration = useRef(0)
+  const deletedIds = useRef(new Set<number>())
+  const pendingDeletes = useRef(new Set<number>())
+  const canDelete = ['operator', 'admin'].includes(getCurrentUser()?.role ?? '')
   const [rejectingAlertJobId, setRejectingAlertJobId] = useState(null)
   const [rejectReason, setRejectReason] = useState('')
   const [actionLoading, setActionLoading] = useState(null)
@@ -98,6 +104,7 @@ export default function Alerts() {
   }, [setSearchParams])
 
   const loadAlerts = async (reset = false) => {
+    const generation = ++listGeneration.current
     try {
       setLoading(true)
       const newOffset = reset ? 0 : offset
@@ -109,7 +116,9 @@ export default function Alerts() {
         params.severity = activeTab
       }
 
-      const data = await alertsApi.list(params)
+      const response = await alertsApi.list(params)
+      if (generation !== listGeneration.current) return
+      const data = response.filter(alert => !deletedIds.current.has(alert.id))
       if (reset) {
         setAlerts(data)
         setOffset(LIMIT)
@@ -121,7 +130,7 @@ export default function Alerts() {
     } catch (err: any) {
       console.error('Failed to load alerts:', err)
     } finally {
-      setLoading(false)
+      if (generation === listGeneration.current) setLoading(false)
     }
   }
 
@@ -140,6 +149,24 @@ export default function Alerts() {
       setAlerts(prev => prev.map(a => a.id === alertId ? { ...a, is_read: true } : a))
     } catch (err: any) {
       toast.error('Failed to mark alert as read')
+    }
+  }
+
+  const handleDelete = async (alertId: number) => {
+    if (!canDelete || pendingDeletes.current.has(alertId)) return
+    pendingDeletes.current.add(alertId)
+    setDeletingIds(new Set(pendingDeletes.current))
+    try {
+      const receipt = await alertsApi.remove(alertId)
+      if (receipt?.status !== 'ok' || receipt.alert_id !== alertId) throw new Error('Deletion was not confirmed')
+      deletedIds.current.add(alertId)
+      setAlerts(prev => prev.filter(alert => alert.id !== alertId))
+      window.dispatchEvent(new Event('odin:alerts-changed'))
+    } catch {
+      toast.error('Failed to delete alert')
+    } finally {
+      pendingDeletes.current.delete(alertId)
+      setDeletingIds(new Set(pendingDeletes.current))
     }
   }
 
@@ -357,6 +384,17 @@ export default function Alerts() {
                           title="Mark read"
                         >
                           <Check size={14} />
+                        </button>
+                      )}
+                      {canDelete && (
+                        <button
+                          onClick={() => handleDelete(alert.id)}
+                          disabled={deletingIds.has(alert.id)}
+                          aria-label="Delete alert"
+                          title="Delete alert"
+                          className="p-1.5 rounded-md transition-colors hover:bg-red-900/50 text-[var(--brand-text-muted)] hover:text-red-400 disabled:opacity-50"
+                        >
+                          <Trash2 size={14} />
                         </button>
                       )}
                       <button

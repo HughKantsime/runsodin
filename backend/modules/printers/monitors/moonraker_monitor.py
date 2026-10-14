@@ -82,6 +82,9 @@ class MoonrakerMonitor:
         
         self._running = False
         self._thread: Optional[threading.Thread] = None
+        self._marked_offline = False
+        self._status_lock = threading.RLock()
+        self._retired = False
         self._prev_state: Optional[str] = None
         self._current_job_db_id: Optional[int] = None
         self._last_progress_write = 0.0
@@ -95,6 +98,8 @@ class MoonrakerMonitor:
     
     def connect(self) -> bool:
         """Connect to the printer and start polling thread."""
+        with self._status_lock:
+            self._retired = False
         if self.printer.connect():
             # Auto-discover camera URL and save to DB
             self._discover_and_save_camera()
@@ -116,13 +121,15 @@ class MoonrakerMonitor:
             stream_url = urls.get("stream_url", "")
             if stream_url:
                 printer_events.discover_camera(self.printer_id, stream_url)
-                log.info(f"[{self.name}] Camera discovered: {stream_url}")
+                log.info("Camera discovery completed for printer %s", self.printer_id)
         except Exception as e:
-            log.warning(f"[{self.name}] Camera discovery failed: {e}")
+            log.warning("Camera discovery failed for printer %s", self.printer_id)
     
     def disconnect(self):
         """Stop polling and disconnect."""
-        self._running = False
+        with self._status_lock:
+            self._retired = True
+            self._running = False
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=5)
         self.printer.disconnect()
@@ -146,10 +153,13 @@ class MoonrakerMonitor:
     def _handle_disconnect(self):
         """Handle lost connection — attempt reconnection."""
         self.printer._connected = False
+        self._persist_offline()
         log.warning(f"[{self.name}] Connection lost, retrying in {RECONNECT_INTERVAL}s")
         
         while self._running:
             time.sleep(RECONNECT_INTERVAL)
+            if not self._marked_offline:
+                self._persist_offline()
             try:
                 if self.printer.connect():
                     self._discover_and_save_camera()
@@ -161,6 +171,17 @@ class MoonrakerMonitor:
                 log.debug(f"Reconnect attempt failed: {e}")
             log.warning(f"[{self.name}] Reconnect failed, retrying...")
     
+    def _persist_offline(self):
+        with self._status_lock:
+            if self._retired:
+                return
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text("UPDATE printers SET gcode_state='OFFLINE',print_stage='Offline' WHERE id=:pid"), {"pid": self.printer_id})
+                self._marked_offline = True
+            except Exception:
+                log.warning("Offline state persistence failed; retry on next observation")
+
     def _recover_after_reconnect(self):
         """Restore job tracking state after a reconnect."""
         try:
@@ -179,12 +200,18 @@ class MoonrakerMonitor:
     # ==================== Status Processing ====================
     
     def _process_status(self, status):
+        with self._status_lock:
+            if self._retired:
+                return
+            self._process_status_locked(status)
+
+    def _process_status_locked(self, status):
         """Process a status update — detect state changes, track jobs."""
         import modules.notifications.event_dispatcher as printer_events
         now = time.time()
 
         # Update telemetry + heartbeat (throttled to every 10 seconds)
-        if now - getattr(self, '_last_heartbeat', 0) >= 10:
+        if self._marked_offline or now - getattr(self, '_last_heartbeat', 0) >= 10:
             try:
               with engine.begin() as conn:
                 bed_t = bed_tt = noz_t = noz_tt = None
@@ -236,37 +263,6 @@ class MoonrakerMonitor:
                      "gstate": gstate, "stage": stage, "fan_speed": fan_speed_val,
                      "noz_dia": noz_dia, "pid": self.printer_id})
 
-                # WebSocket push to frontend (same as Bambu monitor)
-                ws_push('printer_telemetry', {
-                    'printer_id': self.printer_id,
-                    'bed_temp': bed_t,
-                    'bed_target': bed_tt,
-                    'nozzle_temp': noz_t,
-                    'nozzle_target': noz_tt,
-                    'state': gstate,
-                    'progress': progress,
-                    'remaining_min': remaining_min,
-                    'current_layer': current_layer,
-                    'total_layers': total_layers,
-                    'fan_speed': fan_speed_val,
-                })
-
-                # MQTT republish to external broker (same as Bambu monitor)
-                if mqtt_republish:
-                    try:
-                        mqtt_republish.republish_telemetry(self.printer_id, self.name, {
-                            "bed_temp": bed_t, "bed_target": bed_tt,
-                            "nozzle_temp": noz_t, "nozzle_target": noz_tt,
-                            "state": gstate,
-                            "progress": progress,
-                            "remaining_min": remaining_min,
-                            "current_layer": current_layer,
-                            "total_layers": total_layers,
-                            "fan_speed": fan_speed_val,
-                        })
-                    except Exception as e:
-                        log.debug(f"Failed to push printer state event: {e}")
-
                 # ---- Timeseries telemetry (60s inserts during prints) ----
                 if gstate in ('RUNNING', 'PRINTING', 'PAUSE', 'PAUSED') and now - self._last_telemetry_insert >= TELEMETRY_INSERT_INTERVAL:
                     self._last_telemetry_insert = now
@@ -290,9 +286,29 @@ class MoonrakerMonitor:
                     except Exception as e:
                         log.debug(f"[{self.name}] Env telemetry insert: {e}")
 
-                self._last_heartbeat = now
-            except Exception as e:
-                log.warning(f"Failed to update telemetry for {self.name}: {e}")
+              self._last_heartbeat = now
+              self._marked_offline = False
+
+              payload = {
+                  'printer_id': self.printer_id, 'bed_temp': bed_t, 'bed_target': bed_tt,
+                  'nozzle_temp': noz_t, 'nozzle_target': noz_tt, 'state': gstate,
+                  'progress': progress, 'remaining_min': remaining_min,
+                  'current_layer': current_layer, 'total_layers': total_layers,
+                  'fan_speed': fan_speed_val,
+              }
+              try:
+                  ws_push('printer_telemetry', payload)
+              except Exception:
+                  log.warning("Committed telemetry WebSocket delivery failed")
+              if mqtt_republish:
+                  try:
+                      mqtt_republish.republish_telemetry(self.printer_id, self.name,
+                          {key: value for key, value in payload.items() if key != 'printer_id'})
+                  except Exception:
+                      log.warning("Committed telemetry MQTT delivery failed")
+
+            except Exception:
+                log.warning("Telemetry persistence failed; retry on next observation")
 
         internal_state = status.internal_state
 
@@ -369,6 +385,7 @@ class MoonrakerMonitor:
     
     # ==================== Job Tracking ====================
     
+    @retry_production_linkage
     def _job_started(self, status):
         """Record a new print job starting."""
         # Guard: already tracking a job
@@ -385,92 +402,31 @@ class MoonrakerMonitor:
             with engine.begin() as conn:
                 from core.registry import registry
 
-                policy = registry.get_provider("EducationPolicyProvider")
-                classification = (
-                    policy.classify_monitor_observation(
-                        conn,
-                        printer_id=self.printer_id,
-                        observed_filename=filename,
-                    )
-                    if policy
-                    else None
-                )
-                education_sensitive = bool(
-                    classification
-                    and (
-                        classification.get("education_owned")
-                        or classification.get("education_reserved")
-                    )
-                )
-                # Check for existing running job — resume it instead of creating duplicate
-                existing = conn.execute(
-                    text("SELECT id, job_name, filename, scheduled_job_id FROM print_jobs "
-                    "WHERE printer_id = :pid AND status = 'running' ORDER BY id DESC LIMIT 1"),
-                    {"pid": self.printer_id}).fetchone()
-                if existing:
-                    if education_sensitive:
-                        claimed = policy.claim_monitor_observation(
-                            conn,
-                            print_job_id=existing[0],
-                            printer_id=self.printer_id,
-                            observed_filename=filename,
-                        )
-                        if claimed.get("authorized"):
-                            self._current_job_db_id = existing[0]
-                            self._last_filename = existing[1] or filename
-                            log.info(
-                                "[%s] Resumed exact Education observation %s",
-                                self.name,
-                                existing[0],
-                            )
-                            return
-                    else:
-                        self._current_job_db_id = existing[0]
-                        self._last_filename = existing[1] or filename
-                        log.info(f"[{self.name}] Resumed tracking existing job {existing[0]} ({existing[1]})")
-                        return
-
-                insert_sql = (
-                    "INSERT INTO print_jobs"
-                    " (printer_id, job_id, filename, job_name, started_at, status,"
-                    "  total_layers, bed_temp_target, nozzle_temp_target)"
-                    " VALUES (:pid, :jid, :fname, :jname, :started, 'running', :layers, :bed, :noz)")
-                params = {
-                    "pid": self.printer_id,
-                    "jid": f"mk_{int(time.time())}",
-                    "fname": filename,
-                    "jname": filename,
-                    "started": datetime.now(timezone.utc).isoformat(),
-                    "layers": total_layers,
-                    "bed": bed_target,
-                    "noz": nozzle_target,
-                }
-                self._current_job_db_id = execute_insert_returning_id(
-                    conn, insert_sql, params
-                )
-                from modules.archives.services import capture_attempt_spools
-                capture_attempt_spools(conn, self._current_job_db_id, self.printer_id, source="moonraker-first-start")
-                self._last_filename = filename
-                if education_sensitive:
-                    claimed = policy.claim_monitor_observation(
-                        conn,
-                        print_job_id=self._current_job_db_id,
-                        printer_id=self.printer_id,
-                        observed_filename=filename,
-                    )
-                    if claimed.get("authorized"):
-                        log.info(
-                            "[%s] Claimed Education observation %s for job %s",
-                            self.name,
-                            self._current_job_db_id,
-                            claimed.get("job_id"),
-                        )
+                from core.attempt_start_observation import observe_start
+                observed=observe_start(conn,printer_id=self.printer_id,protocol='moonraker',
+                    filename=filename,job_name=filename,physical_values={
+                        'job_id':f'mk_{int(time.time())}',
+                        'started_at':datetime.now(timezone.utc).isoformat(),
+                        'total_layers':total_layers,'bed_temp_target':bed_target,
+                        'nozzle_temp_target':nozzle_target},source='moonraker-first-start',allow_physical_resume=True)
+                self._current_job_db_id=observed.id
+                self._last_filename=filename
+                education_sensitive=observed.education_sensitive
+                generic_reserved=observed.reserved
+            if not observed.fresh:
+                return
             log.info(f"[{self.name}] Job started: {filename} (DB id: {self._current_job_db_id})")
 
             # Attempt auto-link to scheduled job (same logic as Bambu monitor)
-            if not education_sensitive:
+            if not education_sensitive and not generic_reserved:
                 self._try_auto_link(filename, total_layers)
+            if not education_sensitive:
+                from core.dispatch_observations import publish_observed_start
+                publish_observed_start(self.printer_id,self._current_job_db_id,filename)
 
+        except ProductionLinkageChanged:
+            self._current_job_db_id = None
+            raise
         except Exception as e:
             self._current_job_db_id = None
             log.error(f"[{self.name}] Failed to record job start: {e}")
@@ -485,6 +441,9 @@ class MoonrakerMonitor:
             log.warning(f"[{self.name}] Job ended but no current job tracked")
             return False
         
+        ended_observation_id=self._current_job_db_id
+        committed_completion = False
+        completion_job_id = None
         try:
             with engine.begin() as conn:
                 now_utc = datetime.now(timezone.utc).isoformat()
@@ -536,6 +495,11 @@ class MoonrakerMonitor:
                         error_code=status.error_message or None,
                     )
                     if result.get("education_owned") or result.get("education_reserved"):
+                        conn.commit()
+                        committed_completion = (education_terminal_status == 'completed'
+                            and result.get('authorized') is True
+                            and result.get('transitioned') is True)
+                        completion_job_id = result.get('job_id')
                         log.info("[%s] Education terminal result: %s", self.name, result)
                         self._current_job_db_id = None
                         self._last_filename = ""
@@ -581,6 +545,8 @@ class MoonrakerMonitor:
                     if end_status == "completed":
                         self._auto_deduct_filament(conn, row[0], observed_grams=filament_used_g)
                 reconcile_job_write(conn, production_orders)
+            committed_completion = end_status == 'completed'
+            completion_job_id = row[0] if row else None
             log.info(f"[{self.name}] Job {end_status}: DB id {self._current_job_db_id}")
 
             # Increment care counters on successful completion
@@ -648,14 +614,20 @@ class MoonrakerMonitor:
             log.error("[%s] Failed to record job end (%s); reconciliation required",
                       self.name, type(failure).__name__)
             return False
+        finally:
+            from core.dispatch_claims import retire_observed_terminal
+            try:
+                retire_observed_terminal(engine,printer_id=self.printer_id,print_job_id=ended_observation_id)
+            finally:
+                if committed_completion:
+                    from modules.printers.committed_terminal_events import publish_committed_completion
+                    publish_committed_completion(self.printer_id, ended_observation_id, completion_job_id)
     
     def _update_progress(self, status):
         """Update progress in DB (throttled)."""
         now = time.time()
         if now - self._last_progress_write < PROGRESS_DB_INTERVAL:
             return
-        
-        self._last_progress_write = now
         
         try:
             with engine.begin() as conn:
@@ -669,8 +641,9 @@ class MoonrakerMonitor:
                     "rem": round(status.print_duration * (100.0 - status.progress_percent) / max(status.progress_percent, 0.1) / 60.0) if status.print_duration and status.progress_percent and status.progress_percent > 1 else None,
                     "jid": self._current_job_db_id,
                 })
-        except Exception as e:
-            log.warning(f"[{self.name}] Progress update failed: {e}")
+            self._last_progress_write = now
+        except Exception:
+            log.warning("Printer progress persistence failed; will retry")
     
     def _try_dispatch(self):
         """Attempt auto-dispatch of next scheduled job after print completes."""
@@ -873,6 +846,8 @@ class MoonrakerMonitor:
 # ------------------------------------------------------------------
 def start_moonraker_monitors():
     """Load Moonraker printers from DB and start monitors."""
+    from core.monitor_bootstrap import bootstrap_monitor_authority
+    bootstrap_monitor_authority()
     monitors = []
     try:
         with engine.connect() as conn:

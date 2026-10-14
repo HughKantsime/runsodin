@@ -102,9 +102,14 @@ export interface TagRenameRequest {
 
 // ---- Timelapse ----
 
+export interface TimelapseList {
+  total: number; offset: number; limit: number; timelapses: Timelapse[];
+}
+
 export interface Timelapse {
   id: number;
   printer_id: number;
+  printer_name?: string;
   print_job_id: number | null;
   filename: string;
   frame_count: number;

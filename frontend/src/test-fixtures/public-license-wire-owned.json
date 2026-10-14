@@ -1,0 +1,44 @@
+{
+  "scope": "Actual owned signed public-license HTTP; identity fields absent; first captured synthetic digest retained",
+  "volatile_fields": [
+    "license_sha256"
+  ],
+  "body": {
+    "valid": true,
+    "tier": "education",
+    "tier_name": "Education",
+    "issued_at": "",
+    "expires_at": "2099-01-01",
+    "expired": false,
+    "max_printers": 20,
+    "max_users": 500,
+    "features": [
+      "analytics",
+      "bom",
+      "branding",
+      "care_counters",
+      "cost_calculator",
+      "csv_export",
+      "education_workflows",
+      "email_notifications",
+      "job_approval",
+      "maintenance",
+      "multi_user",
+      "orders",
+      "permissions",
+      "print_quotas",
+      "products",
+      "push_notifications",
+      "rbac",
+      "sso",
+      "usage_reports",
+      "user_groups",
+      "webhooks",
+      "white_label"
+    ],
+    "managed_externally": false,
+    "binding_present": false,
+    "binding_matches_current": false,
+    "license_sha256": "ef0f45bd6943025970176d3bcbe6f48ea914cd47dfb1b0d72bea7ef88ca6c118"
+  }
+}

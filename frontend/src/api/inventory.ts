@@ -1,6 +1,7 @@
 import { fetchAPI } from './client'
 import type {
   Spool,
+  PurchaseEvidence,
   SpoolCreate,
   SpoolListFilters,
   SpoolDryingRecord,
@@ -21,6 +22,7 @@ export const spools = {
     if (filters.org_id != null) params.append('org_id', String(filters.org_id))
     return fetchAPI(`/spools?${params}`)
   },
+  purchaseEvidence: (id: number): Promise<PurchaseEvidence> => fetchAPI(`/spools/${id}/purchase-evidence`),
   get: (id: number): Promise<Spool> => fetchAPI(`/spools/${id}`),
   create: (data: SpoolCreate): Promise<Spool> => fetchAPI('/spools', { method: 'POST', body: JSON.stringify(data) }),
   update: ({ id, ...data }: { id: number } & Record<string, unknown>): Promise<Spool> => fetchAPI(`/spools/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),

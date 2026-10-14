@@ -29,6 +29,44 @@ def _education_policy():
     return registry.get_provider("EducationPolicyProvider")
 
 
+def load_mqtt_start_weights(conn,print_job_id):
+    """Reuse recorded first-start evidence; historical absence stays unknown."""
+    import json
+    row=conn.execute('SELECT spool_snapshot FROM print_jobs WHERE id=?',(print_job_id,)).fetchone()
+    try:
+        stored=json.loads(row[0]).get('mqtt_start_weights',{}) if row and row[0] else {}
+        return {int(identifier):snapshot for identifier,snapshot in stored.items()}
+    except (ValueError,TypeError,AttributeError):return {}
+
+
+def capture_mqtt_start_weights(conn,print_job_id,printer_id,state):
+    """Extend only this newly captured first-start snapshot, never resume evidence."""
+    import json,math
+    row=conn.execute('SELECT spool_snapshot FROM print_jobs WHERE id=? AND printer_id=?',(print_job_id,printer_id)).fetchone()
+    if row is None or row[0] is None:return {}
+    snapshot=json.loads(row[0])
+    if 'mqtt_start_weights' in snapshot:return load_mqtt_start_weights(conn,print_job_id)
+    weights={}
+    owner=snapshot.get('printer_org_id')
+    for captured in snapshot.get('slots',[]):
+        slot=captured.get('slot_number');identifier=captured.get('spool_id')
+        if (type(owner) is not int or owner<=0 or type(slot) is not int or slot<0
+                or type(identifier) is not int or identifier<=0
+                or captured.get('spool_existed') is not True or captured.get('spool_org_id')!=owner):continue
+        current=conn.execute('SELECT s.initial_weight_g,s.org_id FROM filament_slots fs JOIN spools s ON s.id=fs.assigned_spool_id WHERE fs.printer_id=? AND fs.slot_number=? AND s.id=?',(printer_id,slot,identifier)).fetchall()
+        if len(current)!=1 or current[0][1]!=owner:continue
+        initial=current[0][0]
+        remain=state.get('_ams_remain',{}).get(slot)
+        if (type(initial) in (int,float) and math.isfinite(initial) and initial>0
+                and type(remain) in (int,float) and math.isfinite(remain) and 0<=remain<=100):
+            weights[identifier]={'remain_pct':remain,'initial_weight_g':initial,'slot':slot}
+    snapshot['mqtt_start_weights']=weights
+    changed=conn.execute("UPDATE print_jobs SET spool_snapshot=? WHERE id=? AND printer_id=? AND status='running' AND spool_snapshot=?",(json.dumps(snapshot,sort_keys=True,separators=(',',':')),print_job_id,printer_id,row[0]))
+    if changed.rowcount!=1:raise RuntimeError('First-start spool snapshot changed')
+    return weights
+
+
+@retry_production_linkage
 def record_job_started(
     printer_id: int,
     printer_name: str,
@@ -72,57 +110,26 @@ def record_job_started(
                 # Grab write lock upfront so SELECT->UPDATE sequences are atomic
                 cur.execute("BEGIN IMMEDIATE")
 
-                # ODIN-issued token observations are policy-owned or permanently
-                # quarantined. They must bypass every generic matcher and bump.
-                policy = _education_policy()
-                classification = (
-                    policy.classify_monitor_observation(
-                        conn,
-                        printer_id=printer_id,
-                        observed_filename=job_name,
-                    )
-                    if policy
-                    else None
-                )
-                if classification and (
-                    classification.get("education_owned")
-                    or classification.get("education_reserved")
-                ):
-                    # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- params are bound; interpolation is the fixed dialect returning-id clause
-                    cur.execute(f"""
-                        INSERT INTO print_jobs
-                        (printer_id, job_id, filename, job_name, started_at, status,
-                         total_layers, bed_temp_target, nozzle_temp_target)
-                        VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?)
-                        {sql.returning_id()}
-                    """, (printer_id, str(mqtt_job_id), filename, job_name,
-                          datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
-                          total_layers or None, bed_target, nozzle_target))
-                    if sql.is_postgres:
-                        new_job_id = cur.fetchone()[0]
-                    else:
-                        new_job_id = cur.lastrowid
-                    claimed = policy.claim_monitor_observation(
-                        conn,
-                        print_job_id=new_job_id,
-                        printer_id=printer_id,
-                        observed_filename=job_name,
-                    )
-                    linked_job_id = (
-                        int(claimed["job_id"]) if claimed.get("authorized") else None
-                    )
-                    capture_attempt_spools(conn, new_job_id, printer_id, source="bambu-mqtt-first-start")
-                    conn.execute("COMMIT")
-                    return new_job_id, linked_job_id, {}
-
-                # Lock every generic candidate parent in one sorted batch before
-                # any sweep, match, bump or print record mutates the transaction.
-                cur.execute("""
-                    SELECT id FROM jobs WHERE printer_id=? AND status IN ('scheduled','pending')
-                      AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id)
-                """, (printer_id,))
-                candidate_ids = [row[0] for row in cur.fetchall()]
-                production_orders = prepare_job_write(conn, candidate_ids)
+                from core.attempt_start_observation import observe_start
+                from core.dispatch_observations import publish_observed_start
+                observed=observe_start(conn,printer_id=printer_id,protocol='bambu',
+                    filename=filename,job_name=job_name,physical_values={
+                        'job_id':str(mqtt_job_id),
+                        'started_at':datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
+                        'total_layers':total_layers or None,'bed_temp_target':bed_target,
+                        'nozzle_temp_target':nozzle_target},source='bambu-mqtt-first-start',prepare_operational=True)
+                new_job_id=observed.id
+                if observed.education_sensitive or observed.reserved or not observed.fresh:
+                    linked_job_id=observed.linked_job_id
+                    start_weights=(capture_mqtt_start_weights(conn,new_job_id,printer_id,state)
+                                   if observed.fresh and not observed.education_sensitive
+                                   else load_mqtt_start_weights(conn,new_job_id) if not observed.education_sensitive else {})
+                    conn.execute('COMMIT')
+                    if observed.fresh and not observed.education_sensitive:
+                        publish_observed_start(printer_id,new_job_id,job_name)
+                    return new_job_id,linked_job_id,start_weights
+                candidate_ids=list(observed.candidate_ids)
+                production_orders=list(observed.production_orders)
                 candidate_placeholders = ','.join('?' for _ in candidate_ids) or '?'
                 candidate_parameters = candidate_ids or [0]
 
@@ -278,45 +285,9 @@ def record_job_started(
                 elif not linked_job_id:
                     log.info(f"[{printer_name}] No auto-match for '{job_base}' ({total_layers} layers) - no candidates to bump")
 
-                # ---- Insert print_jobs record ----
-                # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- values are bound and the only interpolated fragment is sql.returning_id()
-                cur.execute(f"""
-                    INSERT INTO print_jobs
-                    (printer_id, job_id, filename, job_name, started_at, status,
-                     total_layers, bed_temp_target, nozzle_temp_target, scheduled_job_id)
-                    VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?, ?)
-                    {sql.returning_id()}
-                """, (printer_id, str(mqtt_job_id), filename, job_name,
-                      datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
-                      total_layers or None, bed_target, nozzle_target,
-                      linked_job_id))
-                if sql.is_postgres:
-                    new_job_id = cur.fetchone()[0]
-                else:
-                    new_job_id = cur.lastrowid
-
-                capture_attempt_spools(conn, new_job_id, printer_id, source="bambu-mqtt-first-start")
-
-                # Snapshot AMS remain percentages at job start for filament usage calc
-                try:
-                    spool_rows = cur.execute("""
-                        SELECT fs.slot_number, s.id, s.initial_weight_g
-                        FROM filament_slots fs
-                        JOIN spools s ON fs.assigned_spool_id = s.id
-                        WHERE fs.printer_id = ? AND fs.assigned_spool_id IS NOT NULL
-                    """, (printer_id,)).fetchall()
-                    for slot, spool_id, initial_wt in spool_rows:
-                        if initial_wt is not None:
-                            # Read current AMS remain % from the printer's MQTT state
-                            remain_pct = state.get('_ams_remain', {}).get(slot)
-                            if remain_pct is not None:
-                                start_weights[spool_id] = {
-                                    'remain_pct': remain_pct,
-                                    'initial_weight_g': initial_wt,
-                                    'slot': slot,
-                                }
-                except Exception as e:
-                    log.debug(f"Failed to read AMS spool weights: {e}")
+                # Fresh attempt/snapshot already prepared in the same outer
+                # transaction; fuzzy queue matching remains operational only.
+                start_weights=capture_mqtt_start_weights(conn,new_job_id,printer_id,state)
 
                 reconcile_job_write(conn, production_orders)
 
@@ -330,6 +301,8 @@ def record_job_started(
 
         log.info(f"[{printer_name}] Job started: {job_name} (DB id: {new_job_id})")
 
+        from core.dispatch_observations import publish_observed_start
+        publish_observed_start(printer_id,new_job_id,job_name)
         # Dispatch deferred alerts and reschedule (outside transaction)
         for alert_kwargs in pending_alerts:
             dispatch_alert_fn(**alert_kwargs)
@@ -338,6 +311,8 @@ def record_job_started(
 
         return new_job_id, linked_job_id, start_weights
 
+    except ProductionLinkageChanged:
+        raise
     except Exception as failure:
         log.error("[%s] Failed to record job start (%s); reconciliation required",
                   printer_name,type(failure).__name__)
@@ -373,6 +348,8 @@ def record_job_ended(
     """
     import modules.notifications.event_dispatcher as printer_events
     error_code = state.get('print_error') if status == 'failed' else None
+    committed_completion = False
+    completion_job_id = None
 
     try:
         with get_db() as conn:
@@ -418,6 +395,10 @@ def record_job_ended(
                     "education_reserved"
                 ):
                     conn.commit()
+                    committed_completion = (status == 'completed'
+                        and education_result.get('authorized') is True
+                        and education_result.get('transitioned') is True)
+                    completion_job_id = education_result.get('job_id')
                     log.info(
                         "[%s] Education job terminal policy result: %s",
                         printer_name,
@@ -487,6 +468,8 @@ def record_job_ended(
 
             reconcile_job_write(conn, production_orders)
             conn.commit()
+            committed_completion = status == 'completed'
+            completion_job_id = linked_job_id
 
         log.info(f"[{printer_name}] Job {status}: DB id {current_job_id}")
 
@@ -568,3 +551,12 @@ def record_job_ended(
     except Exception:
         log.error("[%s] Failed to record job end; reconciliation required", printer_name)
         return linked_job_id
+    finally:
+        from core import db as core_db
+        from core.dispatch_claims import retire_observed_terminal
+        try:
+            retire_observed_terminal(core_db.engine,printer_id=printer_id,print_job_id=current_job_id)
+        finally:
+            if committed_completion:
+                from modules.printers.committed_terminal_events import publish_committed_completion
+                publish_committed_completion(printer_id, current_job_id, completion_job_id)

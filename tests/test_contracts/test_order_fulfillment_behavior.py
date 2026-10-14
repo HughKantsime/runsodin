@@ -65,60 +65,89 @@ def test_terminal_job_reversal_reduces_production_fulfillment(production_order, 
     assert result['status'] == 'fulfilled' and result['items'][0]['fulfilled_quantity'] == 3
 
 
-@pytest.mark.parametrize('terminal', ['completed', 'failed', 'cancelled', 'provider_unavailable'])
-def test_raw_monitor_reconciles_original_production(production_order, review_db, monkeypatch, terminal):
+@pytest.mark.parametrize('terminal', ['completed', 'failed', 'cancelled', 'provider_unavailable', 'commit_fault_completed', 'commit_fault_failed', 'commit_fault_cancelled'])
+def test_raw_monitor_reconciles_original_production(production_order, review_db, tmp_path, monkeypatch, terminal):
+    import hashlib
     from contextlib import contextmanager
+    from core.db_utils import _ConnectionAdapter
     from core.registry import registry
-    from modules.organizations.services import EducationPolicyService
     from modules.notifications import job_events
-    monkeypatch.setitem(registry._providers, 'EducationPolicyProvider', EducationPolicyService())
+    from modules.printers import dispatch
+    from tests.test_contracts.dispatch_test_support import configure_dispatch
     client, identity, order_id = production_order
-    response = client.post(f'/orders/{order_id}/schedule')
-    assert response.status_code == 200, response.text
-    engine = review_db.get_bind()
+    engine, source = configure_dispatch(review_db,tmp_path,monkeypatch,protocol='prusalink')
     with engine.begin() as connection:
-        ids = list(connection.execute(text('SELECT id FROM jobs WHERE order_item_id IN (SELECT id FROM order_items WHERE order_id=:id) ORDER BY id'), {'id': order_id}).scalars())
-        for index, identifier in enumerate(ids):
-            connection.execute(text("INSERT INTO print_jobs(id,printer_id,scheduled_job_id,job_name,status,started_at) VALUES(:id,9,:job,'Synthetic production','printing',CURRENT_TIMESTAMP)"), {'id': 700 + index, 'job': identifier})
-
+        connection.execute(text("INSERT INTO print_files(id,model_id,filename,original_filename,stored_path,org_id) VALUES(58,101,:name,:name,:path,1)"),{'name':source.name,'path':str(source)})
+    response=client.post(f'/orders/{order_id}/schedule')
+    assert response.status_code==200,response.text
+    with engine.begin() as connection:
+        ids=list(connection.execute(text('SELECT id FROM jobs WHERE order_item_id IN (SELECT id FROM order_items WHERE order_id=:id) ORDER BY id'),{'id':order_id}).scalars())
+        for identifier in ids:
+            connection.execute(text('UPDATE jobs SET printer_id=59,print_file_id=58,payload_sha256=:sha,plate_index=0 WHERE id=:id'),{'sha':hashlib.sha256(source.read_bytes()).hexdigest(),'id':identifier})
     @contextmanager
     def isolated_db():
-        connection = engine.raw_connection()
-        try:
-            yield connection
+        connection=engine.raw_connection()
+        try:yield _ConnectionAdapter(connection,False)
         except BaseException:
-            connection.rollback()
-            raise
-        finally:
-            connection.close()
-    monkeypatch.setattr(job_events, 'get_db', isolated_db)
-    monkeypatch.setattr(job_events, 'dispatch_alert', lambda **kwargs: None)
-    monkeypatch.setattr(job_events, 'increment_care_counters', lambda *args: None)
+            connection.rollback();raise
+        finally:connection.close()
+    monkeypatch.setattr(job_events,'get_db',isolated_db)
+    monkeypatch.setattr(job_events,'dispatch_alert',lambda **kwargs:None)
+    monkeypatch.setattr(job_events,'increment_care_counters',lambda *args:None)
     class QuietBus:
-        def publish(self, event):
-            pass
-    monkeypatch.setattr(job_events, 'get_event_bus', lambda: QuietBus())
-    for index in range(len(ids)):
-        job_events.job_completed(9, 700 + index, success=True)
-    result = client.get(f'/orders/{order_id}').json()
-    assert result['status'] == 'fulfilled' and result['items'][0]['fulfilled_quantity'] == 3
-    if terminal == 'provider_unavailable':
-        monkeypatch.delitem(registry._providers, 'OrderFulfillmentProvider')
-        job_events.job_completed(9, 700, success=False)
-        terminal = 'completed'  # The whole linked transition must roll back.
+        def publish(self,event):pass
+    monkeypatch.setattr(job_events,'get_event_bus',lambda:QuietBus())
+    names=[]
+    monkeypatch.setattr(dispatch,'_dispatch_prusalink',lambda jid,path,name,credentials,**kwargs:(names.append(name) or True,'Owned physical sender stub'))
+    attempts=[]
+    fault_commit=terminal.startswith('commit_fault_')
+    if fault_commit:terminal=terminal.removeprefix('commit_fault_')
+    for index,identifier in enumerate(ids):
+        dispatched = dispatch.dispatch_job(59,identifier)
+        assert dispatched[0], dispatched[1]
+        attempt=job_events.job_started(59,names[-1]);assert attempt is not None
+        attempts.append(attempt)
         with engine.connect() as connection:
-            assert connection.execute(text('SELECT status FROM print_jobs WHERE id=700')).scalar_one() == 'completed'
-    elif terminal == 'cancelled':
-        job_events.job_cancelled(9, 700)
-    elif terminal == 'failed':
-        job_events.job_completed(9, 700, success=False)
-    else:
-        job_events.job_completed(9, 700, success=True)  # Repeated terminal observation.
-    result = client.get(f'/orders/{order_id}').json()
-    assert result['status'] == ('fulfilled' if terminal == 'completed' else 'in_progress')
-    assert result['items'][0]['fulfilled_quantity'] == (3 if terminal == 'completed' else 1)
-    with engine.connect() as connection:
-        assert connection.execute(text('SELECT status FROM jobs WHERE id=:id'), {'id': ids[0]}).scalar_one() == terminal
+            assert connection.execute(text('SELECT status,scheduled_job_id FROM print_jobs WHERE id=:id'),{'id':attempt}).one()==('running',identifier)
+            assert connection.execute(text('SELECT observed_print_job_id FROM dispatch_attempt_receipts WHERE job_id=:id'),{'id':identifier}).scalar_one()==attempt
+            original_start = connection.execute(text('SELECT actual_start FROM jobs WHERE id=:id'),{'id':identifier}).scalar_one()
+        if index==0 and fault_commit:
+            with engine.begin() as connection:
+                connection.exec_driver_sql('CREATE TABLE owned_terminal_fk(value INTEGER REFERENCES users(id) DEFERRABLE INITIALLY DEFERRED)')
+                connection.exec_driver_sql("CREATE TRIGGER owned_terminal_commit_fault AFTER UPDATE ON print_jobs WHEN OLD.status='running' AND NEW.status IN ('completed','failed','cancelled') BEGIN INSERT INTO owned_terminal_fk VALUES(2147483647); END")
+            if terminal=='cancelled':job_events.job_cancelled(59,attempt)
+            else:job_events.job_completed(59,attempt,success=terminal=='completed')
+            with engine.connect() as connection:
+                assert connection.execute(text('SELECT status,ended_at FROM print_jobs WHERE id=:id'),{'id':attempt}).one()==('running',None)
+                assert connection.execute(text('SELECT status,actual_start,actual_end FROM jobs WHERE id=:id'),{'id':identifier}).one()==('printing',original_start,None)
+                assert connection.execute(text('SELECT count(*) FROM printer_dispatch_claims WHERE printer_id=59')).scalar_one()==1
+                assert connection.execute(text('SELECT count(*) FROM owned_terminal_fk')).scalar_one()==0
+            with engine.begin() as connection:
+                connection.exec_driver_sql('DROP TRIGGER owned_terminal_commit_fault')
+                connection.exec_driver_sql('DROP TABLE owned_terminal_fk')
+        if index==0 and terminal=='provider_unavailable':
+            provider=registry.get_provider('OrderFulfillmentProvider')
+            monkeypatch.delitem(registry._providers,'OrderFulfillmentProvider')
+            job_events.job_completed(59,attempt,success=True)
+            with engine.connect() as connection:
+                assert connection.execute(text('SELECT status FROM print_jobs WHERE id=:id'),{'id':attempt}).scalar_one()=='running'
+            monkeypatch.setitem(registry._providers,'OrderFulfillmentProvider',provider)
+        if index==0 and terminal=='cancelled':job_events.job_cancelled(59,attempt)
+        else:job_events.job_completed(59,attempt,success=not(index==0 and terminal=='failed'))
+        with engine.connect() as connection:
+            physical_end = connection.execute(text('SELECT ended_at FROM print_jobs WHERE id=:id'),{'id':attempt}).scalar_one()
+            job_times = connection.execute(text('SELECT actual_start,actual_end FROM jobs WHERE id=:id'),{'id':identifier}).one()
+            assert physical_end is not None and job_times==(original_start,physical_end)
+    result=client.get(f'/orders/{order_id}').json()
+    complete=terminal in ('completed','provider_unavailable')
+    assert result['status']==('fulfilled' if complete else 'in_progress')
+    assert result['items'][0]['fulfilled_quantity']==(3 if complete else 1)
+    if complete:
+        job_events.job_completed(59,attempts[0],success=False)
+        job_events.job_cancelled(59,attempts[0])
+        with engine.connect() as connection:
+            assert connection.execute(text('SELECT status FROM print_jobs WHERE id=:id'),{'id':attempts[0]}).scalar_one()=='completed'
+        assert client.get(f'/orders/{order_id}').json()['items'][0]['fulfilled_quantity']==3
 
 
 @pytest.mark.parametrize('handler', ['mqtt', 'moonraker'])
@@ -192,7 +221,7 @@ def test_direct_printer_monitor_fulfills_original_jobs(production_order, review_
 
 
 @pytest.mark.parametrize('adapter', ['session', 'connection', 'raw'])
-def test_missing_provider_rejects_original_binding_even_after_link_corruption(production_order, review_db, monkeypatch, adapter):
+def test_anchor_corruption_refused_and_missing_provider_rejects_original_binding(production_order, review_db, monkeypatch, adapter):
     from fastapi import HTTPException
     from core.registry import registry
     from core.order_production import prepare_job_write
@@ -201,7 +230,10 @@ def test_missing_provider_rejects_original_binding_even_after_link_corruption(pr
     engine = review_db.get_bind()
     with engine.begin() as connection:
         identifier = connection.execute(text('SELECT job_id FROM order_production_jobs ORDER BY job_id LIMIT 1')).scalar_one()
-        connection.execute(text('UPDATE jobs SET order_item_id=NULL WHERE id=:id'), {'id': identifier})
+        from sqlalchemy.exc import IntegrityError
+        with pytest.raises(IntegrityError,match='economic source anchor differs'):
+            connection.execute(text('UPDATE jobs SET order_item_id=NULL WHERE id=:id'), {'id': identifier})
+        assert connection.execute(text('SELECT order_item_id FROM jobs WHERE id=:id'),{'id':identifier}).scalar_one() is not None
     monkeypatch.delitem(registry._providers, 'OrderFulfillmentProvider')
     executor = Session(engine) if adapter == 'session' else engine.connect() if adapter == 'connection' else engine.raw_connection()
     try:
@@ -231,8 +263,13 @@ def test_job_completion_rechecks_row_after_parent_lock(production_order, review_
         session.execute(text(statement), {'id': identifier})
         return parents
     monkeypatch.setattr(jobs_lifecycle, 'prepare_job_write', change_locked_row)
-    response = client.post(f'/jobs/{identifier}/complete')
-    assert response.status_code == 404, response.text
+    if change == 'tenant':
+        from sqlalchemy.exc import IntegrityError
+        with pytest.raises(IntegrityError,match='economic source anchor differs'):
+            client.post(f'/jobs/{identifier}/complete')
+    else:
+        response = client.post(f'/jobs/{identifier}/complete')
+        assert response.status_code == 404, response.text
     with review_db.get_bind().connect() as connection:
         row = connection.execute(text('SELECT status,charged_to_org_id FROM jobs WHERE id=:id'), {'id': identifier}).one()
         assert row == ('pending', 1)  # Rejected transition and injected edit both rolled back.

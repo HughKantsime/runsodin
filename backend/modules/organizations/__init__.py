@@ -6,6 +6,7 @@ ROUTES = [
     "organizations.routes",
     "organizations.auth_routes",       # aggregator
     "organizations.routes_auth",
+    "organizations.routes_mfa_enrollment",
     "organizations.routes_oidc",
     "organizations.routes_sessions",
     "organizations.routes_users",
@@ -22,6 +23,7 @@ TABLES = [
     "oidc_config",
     "oidc_pending_states",
     "oidc_auth_codes",
+    "mfa_enrollments",
     "quota_usage",
     "education_cost_centers",
     "education_cost_center_grants",
@@ -59,7 +61,6 @@ def register(app, registry) -> None:
         routes_education_submissions,
         routes_classroom,
     )
-    from modules.organizations.services import EducationPolicyService, OrgSettingsService
 
     for router in (
         routes.router,
@@ -72,5 +73,14 @@ def register(app, registry) -> None:
         app.include_router(router, prefix="/api")
         app.include_router(router, prefix="/api/v1")
 
-    registry.register_provider("OrgSettingsProvider", OrgSettingsService())
-    registry.register_provider("EducationPolicyProvider", EducationPolicyService())
+    register_providers(registry)
+
+
+def register_providers(registry) -> None:
+    """Register process-local services without constructing an API application."""
+    from modules.organizations.services import EducationPolicyService, OrgSettingsService
+
+    for name, factory in (("OrgSettingsProvider", OrgSettingsService),
+                          ("EducationPolicyProvider", EducationPolicyService)):
+        if not registry.has_provider(name):
+            registry.register_provider(name, factory())

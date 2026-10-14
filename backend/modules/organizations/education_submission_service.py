@@ -12,13 +12,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import BinaryIO
 
-from sqlalchemy import text
+from sqlalchemy import inspect, literal_column, null, text
 from sqlalchemy.orm import Session
 
-from core.base import FilamentType
+from core.base import FilamentType, JobStatus
 from core.db import SessionLocal
 from core.db_compat import execute_insert_returning_id
 from core.errors import ErrorCode, OdinError
+from core.economic_identity import _add_created
+from modules.jobs.models import Job
 from modules.models_library.threemf_parser import parse_3mf
 from modules.organizations.education_storage import MIN_FREE_BYTES, StorageConfigurationError, required_free_bytes
 
@@ -533,6 +535,48 @@ def _fresh_session_factory(db: Session):
     return sessionmaker(bind=db.get_bind())
 
 
+def _lock_job_birth_authority(db: Session, operation_id: str, principal: dict, cost_center_id: int) -> int:
+    """Revalidate persisted upload ownership in the graph writer transaction."""
+    org_id, user_id = principal.get("group_id"), principal.get("id")
+    if any(type(value) is not int or value <= 0 for value in (org_id, user_id, cost_center_id)):
+        raise OdinError(ErrorCode.not_found, "Upload authorization changed", status=404)
+    connection = db.connection()
+    pg = connection.dialect.name == "postgresql"
+    if pg:
+        current = int(db.execute(text("SELECT setting FROM pg_settings WHERE name='lock_timeout'")).scalar_one())
+        bound = min(current, 1000) if current > 0 else 1000
+        db.execute(text("SELECT set_config('lock_timeout',:bound,true)"), {"bound": str(bound) + "ms"})
+    else:
+        # A deferred SQLite transaction is not writer authority. This harmless
+        # exact-row update acquires the writer lock before any scope reads.
+        changed = db.execute(text("UPDATE education_upload_operations SET operation_id=operation_id WHERE operation_id=:id"), {"id": operation_id})
+        if changed.rowcount != 1:
+            raise OdinError(ErrorCode.not_found, "Upload authorization changed", status=404)
+    suffix = " FOR UPDATE NOWAIT" if pg else ""
+    user = db.execute(text("SELECT id,group_id,is_active FROM users WHERE id=:id" + suffix), {"id": user_id}).one_or_none()
+    center = db.execute(text("SELECT id,org_id,state FROM education_cost_centers WHERE id=:id" + suffix), {"id": cost_center_id}).one_or_none()
+    grants = db.execute(text("SELECT user_id,org_id,cost_center_id,role,state FROM education_cost_center_grants WHERE user_id=:user AND org_id=:org AND cost_center_id=:center AND role='student'" + suffix), {"user": user_id, "org": org_id, "center": cost_center_id}).all()
+    operation = db.execute(text("SELECT operation_id,org_id,user_id,state FROM education_upload_operations WHERE operation_id=:id" + suffix), {"id": operation_id}).one_or_none()
+    if (user is None or tuple(user) != (user_id, org_id, True)
+            or center is None or tuple(center) != (cost_center_id, org_id, "active")
+            or len(grants) != 1 or tuple(grants[0]) != (user_id, org_id, cost_center_id, "student", "active")
+            or operation is None or tuple(operation) != (operation_id, org_id, user_id, "renamed")):
+        raise OdinError(ErrorCode.not_found, "Upload authorization changed", status=404)
+    return org_id
+
+
+def _raw_insert_job_defaults(db: Session) -> dict:
+    """Preserve omitted raw INSERT defaults instead of introducing ORM defaults."""
+    columns = {column["name"]: column for column in inspect(db.connection()).get_columns("jobs")}
+    result = {}
+    for name in ("quantity_on_bed", "is_favorite", "required_tags", "target_type"):
+        default = columns[name]["default"]
+        # This is the current database's own default, which the previous raw
+        # INSERT executed implicitly. It is never a request/archive expression.
+        result[name] = literal_column(default) if default is not None else null()
+    return result
+
+
 def _commit_submission_graph(
     db: Session,
     *,
@@ -546,7 +590,7 @@ def _commit_submission_graph(
     metadata,
     compatibility_meta: dict,
 ) -> dict:
-    org_id = int(principal["group_id"])
+    org_id = _lock_job_birth_authority(db, operation_id, principal, cost_center_id)
     filaments = [
         {
             "slot": item.slot,
@@ -609,21 +653,15 @@ def _commit_submission_graph(
         text("UPDATE print_files SET model_id=:model_id WHERE id=:file_id"),
         {"model_id": model_id, "file_id": print_file_id},
     )
-    job_id = execute_insert_returning_id(
-        db,
-        """INSERT INTO jobs
-        (model_id,item_name,status,priority,quantity,submitted_by,charged_to_user_id,charged_to_org_id,
-         hold,is_locked)
-        VALUES (:model_id,:name,'submitted',3,1,:user_id,:user_id,:org_id,:hold,:is_locked)""",
-        {
-            "model_id": model_id,
-            "name": metadata.project_name,
-            "user_id": principal["id"],
-            "org_id": org_id,
-            "hold": False,
-            "is_locked": False,
-        },
+    job = Job(
+        model_id=model_id, item_name=metadata.project_name, status=JobStatus.SUBMITTED,
+        priority=3, quantity=1, submitted_by=principal["id"],
+        charged_to_user_id=principal["id"], charged_to_org_id=org_id,
+        hold=False, is_locked=False, print_file_id=print_file_id,
+        payload_sha256=digest, plate_index=0, **_raw_insert_job_defaults(db),
     )
+    _add_created(db, job, "job", owner_org_id=org_id)
+    job_id = job.id
     submission_id = execute_insert_returning_id(
         db,
         """INSERT INTO education_submissions

@@ -271,8 +271,7 @@ export interface PlugEnergyData {
 }
 
 export interface PlugState {
-  is_on: boolean;
-  relay_state: number;
+  power_state: boolean | null;
 }
 
 // ---- AMS Environment ----

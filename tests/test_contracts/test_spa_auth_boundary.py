@@ -117,3 +117,32 @@ def test_malformed_host_cannot_disguise_api_path_as_public_spa(tmp_path, monkeyp
 def test_non_get_spa_path_is_not_public(tmp_path, monkeypatch):
     client = _build_boundary_app(tmp_path, monkeypatch)
     assert client.post("/login").status_code == 401
+
+
+import pytest
+
+
+@pytest.mark.parametrize('path',[
+    '/api/printers/1/relabel',
+    '/api/label-maker',
+    '/api/spools/1/label/extra',
+    '/api/spools/1/labelled',
+    '/api/spools/1/labels/batch/extra',
+])
+def test_label_substrings_do_not_bypass_actual_perimeter(path,monkeypatch):
+    monkeypatch.setattr(settings,'api_key','synthetic-perimeter-key')
+    monkeypatch.setattr('core.db.SessionLocal',_NoAllowlistSession)
+    app=FastAPI();calls=[]
+    @app.get(path)
+    async def mutation_marker():
+        calls.append(path)
+        return {'called':True}
+    _register_http_middleware(app)
+    with TestClient(app) as client:
+        assert client.get(path).status_code==401
+        assert calls==[]
+        assert client.get(path,headers={'X-API-Key':'wrong'}).status_code==401
+        assert calls==[]
+        allowed=client.get(path,headers={'X-API-Key':'synthetic-perimeter-key'})
+        assert allowed.status_code==200 and allowed.json()=={'called':True}
+        assert calls==[path]

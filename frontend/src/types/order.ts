@@ -170,15 +170,34 @@ export interface OrderShipRequest {
 // ---- Pricing Config ----
 
 export interface PricingConfig {
-  energy_cost_per_kwh: number;
-  labor_cost_per_hour: number;
-  overhead_percent: number;
-  default_markup_percent: number;
-  [key: string]: unknown;
+  spool_cost?: number;
+  spool_weight?: number;
+  hourly_rate?: number;
+  electricity_rate?: number;
+  printer_wattage?: number;
+  printer_cost?: number;
+  printer_lifespan?: number;
+  packaging_cost?: number;
+  failure_rate?: number;
+  monthly_rent?: number;
+  parts_per_month?: number;
+  post_processing_min?: number;
+  packing_min?: number;
+  support_min?: number;
+  default_margin?: number;
+  other_costs?: number;
+  ui_mode?: string;
 }
 
 // ---- Chargebacks ----
 
-export interface ChargebackReport {
-  [key: string]: unknown;
+export interface ChargebackRow {
+  user_id: number;
+  username: string;
+  job_count: number;
+  total_hours: number | null;
+  total_grams?: number | null;
+  total_cost: number | null;
+  currency?: string | null;
 }
+export type ChargebackReport = ChargebackRow[];

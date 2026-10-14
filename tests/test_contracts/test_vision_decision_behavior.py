@@ -9,7 +9,17 @@ def vision(review_db, monkeypatch):
     class Predictions:
         confidence = 0.9
         calls = []
+        from contextlib import contextmanager
+        @contextmanager
+        def decision_guard(self,name,observation=None,heuristic_generation=None):
+            yield self.observation_current(name,observation) if observation else self.heuristic_current(name,heuristic_generation)
         def has_model(self, name): return name == "spaghetti"
+        def configuration_state(self,name):return 1, 'ready' if self.has_model(name) else 'not_configured'
+        def heuristic_current(self,name,generation):return generation==1 and not self.has_model(name)
+        def infer_observation(self,name,frame):
+            from modules.vision.inference_engine import InferenceObservation
+            return InferenceObservation(1,True,tuple(self.infer(name,frame)))
+        def observation_current(self,name,observation):return observation.available and observation.generation==1
         def infer(self, name, frame):
             self.calls.append(name)
             return [{"confidence": self.confidence, "bbox": [0, 0, 1, 1]}]

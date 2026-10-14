@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import LoginContinuation, { readLoginAuthority, verifyLoginSession, type LoginAuthority } from './LoginContinuation'
 import { Loader2 } from 'lucide-react'
 
 export const oidcNavigation = { finish: () => window.location.replace('/') }
@@ -20,18 +21,20 @@ async function establishSession(code: string) {
     body: JSON.stringify({ code }),
   })
   if (!exchange.ok || exchange.redirected) throw new Error('Exchange failed')
-  const session = await fetch('/api/auth/me', options)
-  if (!session.ok || session.redirected) throw new Error('Session unavailable')
-  const user = await session.json()
-  if (typeof user?.username !== 'string' || !user.username.trim() ||
-      typeof user?.role !== 'string' || !user.role.trim()) throw new Error('Invalid session')
+  const data = await exchange.json()
+  const authority = readLoginAuthority(data)
+  if (authority) return authority
+  if (typeof data.access_token !== 'string' || data.token_type !== 'bearer') throw new Error('Invalid sign-in response')
+  await verifyLoginSession(data.access_token)
+  return null
 }
 
 // Must wrap all providers: none may issue unauthenticated requests mid-callback.
 export default function OIDCBootstrap({ children }: { children: ReactNode }) {
   const [callback] = useState(readCallback)
   const [failed, setFailed] = useState(false)
-  const operation = useRef<Promise<void> | null>(null)
+  const [authority, setAuthority] = useState<LoginAuthority | null>(null)
+  const operation = useRef<Promise<LoginAuthority | null> | null>(null)
 
   useEffect(() => {
     if (!callback) return
@@ -39,8 +42,8 @@ export default function OIDCBootstrap({ children }: { children: ReactNode }) {
     window.history.replaceState(null, '', '/login')
     // StrictMode replays effects; keep the entire one-time exchange operation.
     operation.current ??= establishSession(callback.code)
-    operation.current.then(() => {
-      if (active) oidcNavigation.finish()
+    operation.current.then(result => {
+      if (active) { if (result) setAuthority(result); else oidcNavigation.finish() }
     }).catch(() => { if (active) setFailed(true) })
     return () => { active = false }
   }, [callback])
@@ -51,7 +54,8 @@ export default function OIDCBootstrap({ children }: { children: ReactNode }) {
       style={{ backgroundColor: 'var(--brand-content-bg)' }}>
       <div className="text-center max-w-md">
         <h1 className="mb-4" style={{ color: 'var(--brand-accent)' }}>O.D.I.N.</h1>
-        {failed ? <div role="alert">
+        {authority ? <LoginContinuation authority={authority}
+          onComplete={() => oidcNavigation.finish()} onRestart={() => window.location.replace('/login')} /> : failed ? <div role="alert">
           <p>SSO sign-in could not be completed. Please try again or contact your administrator.</p>
           <a href="/login" className="inline-block mt-4 underline"
             style={{ color: 'var(--brand-accent)' }}>Return to sign in</a>

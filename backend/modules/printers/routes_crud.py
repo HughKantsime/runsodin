@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy import text, or_
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import OperationalError
 
 from core.db import get_db
 from core.dependencies import get_current_user, log_audit
@@ -400,40 +401,60 @@ def get_overlay_data(printer_id: int, db: Session = Depends(get_db)):
 
 @router.post("/printers/bulk-update", tags=["Printers"])
 async def bulk_update_printers(body: dict, current_user: dict = Depends(require_role("admin", scope="write:printers")), db: Session = Depends(get_db)):
-    """Bulk update printer fields for multiple printers."""
-    printer_ids = body.get("printer_ids", [])
-    if not printer_ids or not isinstance(printer_ids, list):
-        raise HTTPException(status_code=400, detail="printer_ids list is required")
-
-    action = body.get("action", "")
-    count = 0
-
-    if action == "enable":
-        for pid in printer_ids:
-            db.execute(text("UPDATE printers SET is_active = TRUE WHERE id = :id"), {"id": pid})
-            count += 1
-    elif action == "disable":
-        for pid in printer_ids:
-            db.execute(text("UPDATE printers SET is_active = FALSE WHERE id = :id"), {"id": pid})
-            count += 1
-    elif action == "add_tag":
-        tag = body.get("tag", "").strip()
-        if not tag:
-            raise HTTPException(status_code=400, detail="Tag is required")
-        for pid in printer_ids:
-            printer = db.query(Printer).filter(Printer.id == pid).first()
-            if not printer:
-                continue
-            current_tags = printer.tags if isinstance(printer.tags, list) else json.loads(printer.tags or "[]")
-            if tag not in current_tags:
-                current_tags.append(tag)
-                printer.tags = current_tags
-            count += 1
-    else:
-        raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
-
-    db.commit()
-    return {"status": "ok", "affected": count}
+    """Atomically process unique authorized printers; affected counts targets."""
+    ids = body.get("printer_ids")
+    action = body.get("action")
+    if (not isinstance(ids, list) or not ids or len(ids) > 1000
+            or any(type(pid) is not int or pid <= 0 or pid > 2147483647 for pid in ids)):
+        raise HTTPException(400, "A list of 1 to 1000 positive printer IDs is required")
+    if action not in ("enable", "disable", "add_tag"):
+        raise HTTPException(400, "Invalid bulk action")
+    tag = body.get("tag")
+    if action == "add_tag":
+        if not isinstance(tag, str) or not tag.strip() or len(tag.strip()) > 128:
+            raise HTTPException(400, "A tag of 1 to 128 characters is required")
+        tag = tag.strip()
+    ids = sorted(set(ids))
+    try:
+        # SQLite has no row locks. Acquire its writer boundary before reading
+        # ownership, then refresh any identity-map entries. No device I/O occurs.
+        if db.bind.dialect.name == "sqlite":
+            db.execute(text("UPDATE printers SET name=name WHERE id=:id"), {"id": ids[0]})
+        printers = (db.query(Printer).filter(Printer.id.in_(ids)).order_by(Printer.id)
+                    .with_for_update(nowait=True).populate_existing().all())
+        if len(printers) != len(ids) or any(not check_org_access(current_user, p.org_id) for p in printers):
+            raise HTTPException(404, "Printer not found")
+        # Validate every stored value before modifying any target.
+        copied_tags = {}
+        if action == "add_tag":
+            for printer in printers:
+                tags = printer.tags
+                if tags is None:
+                    tags = []
+                if not isinstance(tags, list) or any(not isinstance(value, str) for value in tags):
+                    raise HTTPException(409, "Printer tags require repair before bulk updates")
+                copied_tags[printer.id] = list(tags)
+        for printer in printers:
+            if action == "add_tag":
+                tags = copied_tags[printer.id]
+                if tag not in tags:
+                    printer.tags = tags + [tag]
+            else:
+                printer.is_active = action == "enable"
+        db.commit()
+        return {"status": "ok", "affected": len(printers)}
+    except OperationalError as exc:
+        db.rollback()
+        if getattr(exc.orig, "sqlstate", None) == "55P03" or getattr(exc.orig, "sqlite_errorcode", None) in (5, 6, 517):
+            raise HTTPException(409, "Printer updates are busy; retry") from None
+        raise HTTPException(503, "Printer update could not be completed") from None
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        # Includes corrupt stored JSON and commit failures; never echo stored data.
+        raise HTTPException(503, "Printer update could not be completed") from None
 
 
 # ====================================================================

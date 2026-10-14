@@ -9,10 +9,9 @@ completes, stitches frames into an MP4 video using ffmpeg.
 import os
 import time
 import logging
-import subprocess
-import shutil
 from datetime import datetime, timezone
 from pathlib import Path
+from dataclasses import dataclass
 
 import httpx
 from sqlalchemy import text
@@ -64,172 +63,109 @@ def get_active_job_for_printer(session, printer_id: int) -> dict | None:
     return None
 
 
-def get_or_create_timelapse(session, printer_id: int, job_id: int) -> int:
-    """Get existing capturing timelapse or create a new one."""
-    row = session.execute(text("""
-        SELECT id FROM timelapses
-        WHERE printer_id = :pid AND print_job_id = :jid AND status = 'capturing'
-        LIMIT 1
-    """), {"pid": printer_id, "jid": job_id}).fetchone()
-    if row:
-        return row[0]
-
-    # Create new timelapse
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    filename = f"printer_{printer_id}/{ts}.mp4"
-    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-    session.execute(text(f"""
-        INSERT INTO timelapses (printer_id, print_job_id, filename, frame_count, status, created_at)
-        VALUES (:pid, :jid, :fname, 0, 'capturing', {sql.now()})
-    """), {"pid": printer_id, "jid": job_id, "fname": filename})
-    session.commit()
-
-    row = session.execute(text("""
-        SELECT id FROM timelapses
-        WHERE printer_id = :pid AND print_job_id = :jid AND status = 'capturing'
-        ORDER BY id DESC LIMIT 1
-    """), {"pid": printer_id, "jid": job_id}).fetchone()
-    return row[0]
+@dataclass(frozen=True)
+class CaptureTicket:
+    timelapse_id: int
+    nonce: str
+    job_id: int
 
 
-def capture_frame(printer_id: int, timelapse_id: int) -> bool:
-    """Capture a single JPEG frame from go2rtc."""
-    url = f"{GO2RTC_BASE}/api/frame.jpeg?src=printer_{printer_id}"
+def get_or_create_timelapse(session, printer_id: int, job_id: int, *, return_ticket=False):
+    """Create media and its capture-time ownership in one confirmed transaction."""
+    import uuid
+    from core.timelapse_ownership_schema import anchors
+    from modules.archives.ownership import capture_content_owner
     try:
-        resp = httpx.get(url, timeout=5)
-        if resp.status_code != 200:
-            return False
-        if len(resp.content) < 1000:  # too small, probably error
-            return False
-
-        frame_dir = TIMELAPSE_DIR / str(timelapse_id) / "frames"
-        frame_dir.mkdir(parents=True, exist_ok=True)
-
-        # Sequential numbering for ffmpeg
-        existing = list(frame_dir.glob("*.jpg"))
-        frame_num = len(existing) + 1
-        frame_path = frame_dir / f"frame_{frame_num:06d}.jpg"
-        frame_path.write_bytes(resp.content)
-        return True
-    except Exception as e:
-        log.debug(f"Frame capture failed for printer {printer_id}: {e}")
-        return False
-
-
-def encode_timelapse(timelapse_id: int) -> bool:
-    """Stitch captured frames into MP4 using ffmpeg."""
-    session = SessionLocal()
-    try:
+        # Lock the selected job before its printer and recheck stale selection.
+        job_lock = session.execute(text("UPDATE jobs SET id=id WHERE id=:jid"), {"jid":job_id})
+        job = session.execute(text("SELECT print_file_id,model_id,printer_id,status FROM jobs WHERE id=:jid"), {"jid":job_id}).first()
+        if job_lock.rowcount != 1 or job is None or job[2] != printer_id or job[3] != 'printing':
+            raise RuntimeError("Capture job unavailable")
+        # A portable parent write lock serializes creation for this printer.
+        locked = session.execute(text("UPDATE printers SET id=id WHERE id=:pid"), {"pid":printer_id})
+        if locked.rowcount != 1:
+            raise RuntimeError("Capture printer unavailable")
         row = session.execute(text("""
-            SELECT id, filename, printer_id FROM timelapses WHERE id = :tid
-        """), {"tid": timelapse_id}).fetchone()
-        if not row:
-            return False
-
-        frame_dir = TIMELAPSE_DIR / str(timelapse_id) / "frames"
-        frames = sorted(frame_dir.glob("*.jpg"))
-        if len(frames) < 2:
-            # Not enough frames, mark as failed
-            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-            session.execute(text(f"""
-                UPDATE timelapses SET status = 'failed', completed_at = {sql.now()}
-                WHERE id = :tid
-            """), {"tid": timelapse_id})
+            SELECT id,ownership_operation_id FROM timelapses
+            WHERE printer_id=:pid AND print_job_id=:jid AND status='capturing'
+            ORDER BY id LIMIT 1
+        """), {"pid":printer_id,"jid":job_id}).first()
+        if row:
+            # Never adopt a legacy capture from today's printer/source graph.
             session.commit()
-            log.warning(f"Timelapse {timelapse_id}: only {len(frames)} frames, skipping encode")
-            return False
-
-        output_dir = TIMELAPSE_DIR / f"printer_{row[2]}"
-        output_dir.mkdir(parents=True, exist_ok=True)
-        output_path = TIMELAPSE_DIR / row[1]
-
-        session.execute(text("""
-            UPDATE timelapses SET status = 'encoding' WHERE id = :tid
-        """), {"tid": timelapse_id})
-        session.commit()
-
-        # ffmpeg: input pattern -> mp4
-        cmd = [
-            "ffmpeg", "-y",
-            "-framerate", str(FFMPEG_FPS),
-            "-i", str(frame_dir / "frame_%06d.jpg"),
-            "-c:v", "libx264",
-            "-preset", "fast",
-            "-crf", "23",
-            "-pix_fmt", "yuv420p",
-            "-movflags", "+faststart",
-            str(output_path),
-        ]
-
-        result = subprocess.run(cmd, capture_output=True, timeout=300)
-        if result.returncode != 0:
-            log.error(f"ffmpeg failed for timelapse {timelapse_id}: {result.stderr.decode()[-500:]}")
-            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-            session.execute(text(f"""
-                UPDATE timelapses SET status = 'failed', completed_at = {sql.now()}
-                WHERE id = :tid
-            """), {"tid": timelapse_id})
-            session.commit()
-            return False
-
-        # Update record
-        file_size = output_path.stat().st_size / (1024 * 1024)
-        duration = len(frames) / FFMPEG_FPS
-        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
+            return CaptureTicket(row[0],row[1],job_id) if return_ticket else row[0]
+        if job:
+            if job[1] is not None:
+                session.execute(text("UPDATE models SET id=id WHERE id=:mid"), {"mid":job[1]})
+            if job[0] is not None:
+                session.execute(text("UPDATE print_files SET id=id WHERE id=:fid"), {"fid":job[0]})
+            else:
+                session.execute(text("UPDATE print_files SET id=id WHERE job_id=:jid"), {"jid":job_id})
+        source = capture_content_owner(session.connection(),job_id)
+        printer = session.execute(text("SELECT org_id,shared FROM printers WHERE id=:pid"), {"pid":printer_id}).one()
+        value = printer[1]
+        if type(value) is bool:shared = value
+        elif type(value) is int and value in (0,1):shared = value == 1
+        else:raise RuntimeError("Capture visibility unavailable")
+        org = source.get('org_id')
+        state = 'unresolved'
+        if source.get('state') == 'known':
+            if org is not None and (org == printer[0] or shared):state = 'known'
+            elif org is None and shared and source.get('education_submission_id') is None:state = 'shared'
+        nonce = uuid.uuid4().hex
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        filename = f"printer_{printer_id}/{ts}_{nonce}.mp4"
         session.execute(text(f"""
-            UPDATE timelapses
-            SET status = 'ready',
-                frame_count = :fc,
-                duration_seconds = :dur,
-                file_size_mb = :sz,
-                completed_at = {sql.now()}
-            WHERE id = :tid
-        """), {"tid": timelapse_id, "fc": len(frames), "dur": round(duration, 1), "sz": round(file_size, 2)})
+            INSERT INTO timelapses(printer_id,print_job_id,filename,frame_count,status,created_at,ownership_operation_id)
+            VALUES(:pid,:jid,:filename,0,'capturing',{sql.now()},:nonce)
+        """), {"pid":printer_id,"jid":job_id,"filename":filename,"nonce":nonce})
+        tid = session.execute(text("SELECT id FROM timelapses WHERE ownership_operation_id=:nonce"), {"nonce":nonce}).scalar_one()
+        session.execute(anchors.insert(),{
+            'operation_id':nonce,'timelapse_id':tid,'printer_id':printer_id,
+            'scheduled_job_id':job_id,'filename':filename,'owner_state':state,
+            'owner_org_id':org if state == 'known' else None,
+            'ownership_source':'capture_unresolved' if state == 'unresolved' else 'first_capture_job_file',
+            'print_file_id':source.get('print_file_id'),
+            'education_submission_id':source.get('education_submission_id'),
+            'capture_printer_org_id':printer[0],'capture_printer_shared':shared,
+        })
         session.commit()
+        return CaptureTicket(tid,nonce,job_id) if return_ticket else tid
+    except Exception:
+        session.rollback()
+        raise RuntimeError("Timelapse creation could not be confirmed") from None
 
-        # Clean up frames
-        shutil.rmtree(TIMELAPSE_DIR / str(timelapse_id), ignore_errors=True)
-        log.info(f"Timelapse {timelapse_id}: encoded {len(frames)} frames -> {file_size:.1f} MB")
-        return True
 
-    except Exception as e:
-        log.error(f"Encode error for timelapse {timelapse_id}: {e}")
-        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-        session.execute(text(f"""
-            UPDATE timelapses SET status = 'failed', completed_at = {sql.now()}
-            WHERE id = :tid
-        """), {"tid": timelapse_id})
-        session.commit()
-        return False
-    finally:
-        session.close()
+def capture_frame(printer_id: int, timelapse_id: int, *, nonce=None, job_id=None) -> bool:
+    """Never infer a capture lifetime from a reusable numeric ID."""
+    from modules.archives.timelapse_frame_capture import capture_owned_frame
+    return capture_owned_frame(sessions=SessionLocal,root=TIMELAPSE_DIR,http=httpx,base=GO2RTC_BASE,
+        printer_id=printer_id,timelapse_id=timelapse_id,nonce=nonce,job_id=job_id)
+
+
+def encode_timelapse(timelapse_id: int, *, printer_id=None, nonce=None, job_id=None) -> bool:
+    """Publish only the exact ticket's completed admitted frame manifest."""
+    from modules.archives.timelapse_encode import encode_owned_timelapse
+    return encode_owned_timelapse(sessions=SessionLocal,root=TIMELAPSE_DIR,
+        timelapse_id=timelapse_id,printer_id=printer_id,nonce=nonce,job_id=job_id)
 
 
 def finalize_stale_timelapses():
-    """Find timelapses still in 'capturing' state whose print has ended and encode them."""
-    session = SessionLocal()
+    """Copy expected tickets, then end the reader before encode/reconciliation."""
+    from core.base import JobStatus
     try:
-        rows = session.execute(text("""
-            SELECT t.id, t.printer_id, t.print_job_id
-            FROM timelapses t
-            WHERE t.status = 'capturing'
-        """)).fetchall()
-
-        for row in rows:
-            tid, pid, jid = row[0], row[1], row[2]
-            # Check if the print is still running
-            job = session.execute(text("""
-                SELECT status FROM jobs WHERE id = :jid
-            """), {"jid": jid}).fetchone()
-
-            if not job or job[0] != 'printing':
-                log.info(f"Timelapse {tid}: print job {jid} no longer printing, encoding...")
-                encode_timelapse(tid)
-
-    except Exception as e:
-        log.error(f"Error finalizing stale timelapses: {e}")
-    finally:
-        session.close()
+        with SessionLocal() as session:
+            rows=session.execute(text("SELECT t.id,t.printer_id,t.print_job_id,t.ownership_operation_id "
+                "FROM timelapses t JOIN jobs j ON j.id=t.print_job_id "
+                "WHERE t.status IN ('capturing','encoding') AND j.status IN (:completed,:failed,:cancelled) "
+                "AND t.retirement_operation_id IS NULL"),{'completed':JobStatus.COMPLETED.value,'failed':JobStatus.FAILED.value,'cancelled':JobStatus.CANCELLED.value}).fetchall()
+            tickets=[]
+            for tid,pid,jid,nonce in rows:
+                if type(nonce) is str:tickets.append((pid,CaptureTicket(tid,nonce,jid)))
+        for pid,ticket in tickets:
+            encode_timelapse(ticket.timelapse_id,printer_id=pid,nonce=ticket.nonce,job_id=ticket.job_id)
+    except Exception:
+        log.error('Stale timelapse finalization could not be confirmed')
 
 
 def main_loop():
@@ -256,24 +192,23 @@ def main_loop():
                 key = (printer["id"], job["id"])
                 current_keys.add(key)
 
-                tid = active.get(key)
-                if not tid:
-                    tid = get_or_create_timelapse(session, printer["id"], job["id"])
-                    active[key] = tid
+                ticket = active.get(key)
+                if not ticket:
+                    ticket = get_or_create_timelapse(session, printer["id"], job["id"], return_ticket=True)
+                    active[key] = ticket
+                    tid = ticket.timelapse_id
                     log.info(f"Capturing timelapse {tid} for {printer['name']} (job {job['id']})")
 
-                if capture_frame(printer["id"], tid):
-                    session.execute(text("""
-                        UPDATE timelapses SET frame_count = frame_count + 1 WHERE id = :tid
-                    """), {"tid": tid})
-                    session.commit()
+                session.rollback()  # No daemon reader transaction spans camera I/O.
+                capture_frame(printer['id'],ticket.timelapse_id,nonce=ticket.nonce,job_id=ticket.job_id)
 
             # Check for prints that just ended
             ended = set(active.keys()) - current_keys
             for key in ended:
-                tid = active.pop(key)
-                log.info(f"Print ended for timelapse {tid}, starting encode...")
-                encode_timelapse(tid)
+                ticket = active.pop(key)
+                session.rollback()
+                log.info("Print ended for timelapse %s, starting encode",ticket.timelapse_id)
+                encode_timelapse(ticket.timelapse_id,printer_id=key[0],nonce=ticket.nonce,job_id=ticket.job_id)
 
             # Every 5 minutes, check for stale timelapses (e.g. daemon was restarted)
             if tick % 10 == 0:

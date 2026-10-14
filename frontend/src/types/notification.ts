@@ -46,7 +46,7 @@ export interface AlertSummary {
 }
 
 export interface UnreadCount {
-  count: number;
+  unread_count: number;
 }
 
 export interface AlertListParams {

@@ -57,7 +57,9 @@ def test_studio_print_supports_registered_dry_run(route_src: str):
     assert "dry_run_preview(" in route_src
     dry_run_pos = route_src.index("is_dry_run(request)")
     assert dry_run_pos < route_src.index("upload_3mf(")
-    assert dry_run_pos < route_src.index("INSERT INTO jobs")
+    provider_pos = route_src.index("require_queue_creation_provider()")
+    assert dry_run_pos < provider_pos < route_src.index("upload_3mf(")
+    assert provider_pos < route_src.index("queue_creator.stage_values(db,")
     assert "queue_studio_print" in route_src
     assert "No DB, filesystem, or " in route_src
     assert "printer side effects run on dry-run." in route_src
@@ -73,7 +75,7 @@ def test_studio_print_is_queue_only(route_src: str):
     )
     for call in forbidden_calls:
         assert call not in route_src
-    assert "'pending'" in route_src
+    assert '"pending"' in route_src
     assert '"queue_only"' in route_src
     assert '"dispatch_required": True' in route_src
 

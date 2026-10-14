@@ -42,6 +42,10 @@ class ModuleRegistry:
         self._providers[interface_name] = impl
         log.debug(f"Registered provider for '{interface_name}': {type(impl).__name__}")
 
+    def has_provider(self, interface_name: str) -> bool:
+        """Check availability without logging an optional lookup failure."""
+        return self._providers.get(interface_name) is not None
+
     def get_provider(self, interface_name: str) -> Any:
         """Return the registered provider for an interface.
 

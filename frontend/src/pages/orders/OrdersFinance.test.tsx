@@ -97,3 +97,80 @@ it('ignores an older edit response after a newer order has opened',async()=>{
   fireEvent.click(screen.getByRole('button',{name:'Save Changes'}))
   await waitFor(()=>expect(orders.update).toHaveBeenCalledWith(2,expect.objectContaining({order_number:'Synthetic second'})))
 })
+
+it('submits the selected nondefault platform when creating an order',async()=>{
+  render(<MemoryRouter initialEntries={['/orders']}><Orders /></MemoryRouter>)
+  await waitFor(()=>expect(screen.getAllByTitle('Edit Order').length).toBeGreaterThan(0))
+  fireEvent.click(screen.getAllByRole('button',{name:'New Order'})[0])
+  const platform=screen.getByRole('option',{name:'Wholesale'}).closest('select')!
+  expect(platform.value).toBe('etsy')
+  fireEvent.change(platform,{target:{value:'wholesale'}})
+  fireEvent.click(screen.getByRole('button',{name:'Create Order'}))
+  await waitFor(()=>expect(orders.create).toHaveBeenCalledWith(expect.objectContaining({platform:'wholesale'})))
+})
+
+it.each([[12.99,0,'$12.99'],[12.99,null,'Unknown'],[0,0,'$0.00'],[1e308,1e308,'Unknown'],[NaN,1,'Unknown'],[Infinity,1,'Unknown'],[0,-1,'$-1.00']])('shows complete order revenue with cents and zero (%s,%s)',async(first,second,total)=>{
+ vi.mocked(orders.list).mockResolvedValue([
+  {id:1,order_number:'Synthetic first revenue',status:'pending',revenue:first},
+  {id:2,order_number:'Synthetic second revenue',status:'shipped',revenue:second},
+ ] as any)
+ render(<MemoryRouter initialEntries={['/orders']}><Orders/></MemoryRouter>)
+ await screen.findAllByText('Synthetic first revenue')
+ const label=screen.getAllByText('Revenue',{exact:true}).find(element=>element.tagName==='SPAN')!
+ expect(label.parentElement!.nextElementSibling!.textContent).toBe(total)
+})
+
+it('shows the advertised total order count across statuses',async()=>{
+ vi.mocked(orders.list).mockResolvedValue([
+  {id:1,order_number:'Synthetic count pending',status:'pending',revenue:0},
+  {id:2,order_number:'Synthetic count shipped',status:'shipped',revenue:0},
+  {id:3,order_number:'Synthetic count cancelled',status:'cancelled',revenue:0},
+ ] as any)
+ render(<MemoryRouter initialEntries={['/orders']}><Orders/></MemoryRouter>)
+ await screen.findAllByText('Synthetic count pending')
+ const label=screen.getByText('Total Orders',{exact:true})
+ expect(label.parentElement!.nextElementSibling!.textContent).toBe('3')
+})
+
+it('shows an unknown average margin when order costs are not known',async()=>{
+ render(<MemoryRouter initialEntries={['/orders']}><Orders/></MemoryRouter>)
+ await screen.findAllByText('Synthetic zero order')
+ const label=screen.getByText('Average Margin',{exact:true})
+ expect(label.parentElement!.nextElementSibling!.textContent).toBe('Unknown')
+})
+
+
+it('keeps global order statistics when the visible status filter changes',async()=>{
+ const all=[
+  {id:1,order_number:'Synthetic global pending',status:'pending',revenue:12.99},
+  {id:2,order_number:'Synthetic global shipped',status:'shipped',revenue:0},
+  {id:3,order_number:'Synthetic global cancelled',status:'cancelled',revenue:2},
+ ]
+ vi.mocked(orders.list).mockImplementation(async(status:any)=>status?all.filter(order=>order.status===status):all as any)
+ render(<MemoryRouter initialEntries={['/orders']}><Orders/></MemoryRouter>)
+ await screen.findAllByText('Synthetic global shipped')
+ const value=(text:string)=>screen.getAllByText(text,{exact:true}).find(element=>element.tagName==='SPAN')!.parentElement!.nextElementSibling!.textContent
+ expect(value('Total Orders')).toBe('3');expect(value('Revenue')).toBe('$14.99')
+ fireEvent.change(screen.getByRole('option',{name:'Pending',exact:true}).closest('select')!,{target:{value:'pending'}})
+ await waitFor(()=>expect(screen.queryAllByText('Synthetic global shipped')).toHaveLength(0))
+ expect(screen.getAllByText('Synthetic global pending').length).toBeGreaterThan(0)
+ expect(value('Total Orders')).toBe('3');expect(value('Revenue')).toBe('$14.99')
+ expect(value('Pending')).toBe('1');expect(value('Shipped')).toBe('1')
+})
+
+
+it.each([
+  [[0, 0], '0.0%'], [[-10, 20], '5.0%'],
+  [[10, null], 'Unknown'], [[10, undefined], 'Unknown'],
+  [[NaN, 10], 'Unknown'], [[Infinity, 10], 'Unknown'],
+  [[1e308, 1e308], 'Unknown'], [['10', 20], 'Unknown'],
+])('average margin formats only complete finite server values (%j)', async (values, expected) => {
+  vi.mocked(orders.list).mockResolvedValue(values.map((margin, index) => ({
+    id: index + 1, order_number: `Synthetic margin ${index}`, status: 'pending',
+    revenue: 10, margin_percent: margin,
+  })) as any)
+  render(<MemoryRouter initialEntries={['/orders']}><Orders /></MemoryRouter>)
+  await screen.findAllByText('Synthetic margin 0')
+  const label = screen.getByText('Average Margin', { exact: true })
+  expect(label.parentElement!.nextElementSibling!.textContent).toBe(expected)
+})

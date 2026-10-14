@@ -24,6 +24,12 @@ export interface UserCreate {
   send_welcome_email?: boolean;
 }
 
+export interface UserCreateResult {
+  status: 'created';
+  welcome_email?: 'sent' | 'unconfirmed';
+  message?: string;
+}
+
 export interface UserUpdate {
   username?: string;
   email?: string;
@@ -39,6 +45,7 @@ export interface LoginResponse {
   access_token?: string;
   token_type?: string;
   mfa_required?: boolean;
+  mfa_setup_required?: boolean;
   mfa_token?: string;
   user?: User;
 }
@@ -150,6 +157,23 @@ export interface GroupUpdate {
 
 // ---- License ----
 
+/** Exact unauthenticated capability response; customer/device identity is absent. */
+export interface PublicLicense {
+  valid: boolean;
+  tier: string;
+  tier_name: string;
+  issued_at: string;
+  expires_at: string | null;
+  expired: boolean;
+  max_printers: number | null;
+  max_users: number | null;
+  features: string[];
+  managed_externally: boolean;
+  binding_present: boolean;
+  binding_matches_current: boolean;
+  license_sha256: string;
+}
+
 export interface License {
   valid: boolean;
   tier: string;
@@ -192,14 +216,15 @@ export interface IpAllowlistConfig {
 
 export interface AuditLog {
   id: number;
-  user_id: number | null;
-  username: string | null;
-  entity_type: string;
+  user_id?: number | null;
+  username?: string | null;
+  auth_kind?: string | null;
+  entity_type: string | null;
   entity_id: number | null;
   action: string;
-  details: Record<string, unknown> | null;
+  details: Record<string, unknown> | unknown[] | string | number | boolean | null;
   ip_address: string | null;
-  created_at: string;
+  timestamp: string | null;
 }
 
 export interface AuditLogParams {
@@ -209,14 +234,22 @@ export interface AuditLogParams {
   action?: string;
   date_from?: string;
   date_to?: string;
+  q?: string;
+}
+
+export interface AuditLogPage {
+  logs: AuditLog[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 // ---- Setup ----
 
 export interface SetupStatus {
-  is_setup_complete: boolean;
-  has_admin: boolean;
-  has_printer: boolean;
+  needs_setup: boolean;
+  has_users: boolean;
+  is_complete: boolean;
 }
 
 // ---- GDPR ----

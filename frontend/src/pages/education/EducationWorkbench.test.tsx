@@ -7,17 +7,18 @@ const state = vi.hoisted(() => ({
   capabilities: { education_enabled: true, student: false, manager: false, tenant_admin: false, student_cost_center_ids: [], managed_cost_center_ids: [] },
   licensed: true, error: false, loading: false, licenseError: false,
 }))
-vi.mock('../../api', () => ({ education: {}, getEducationMode: vi.fn() }))
+vi.mock('../../permissions', () => ({ getCurrentUser: () => ({ id: 1, username: 'student', role: 'viewer', group_id: 7 }) }))
+vi.mock('../../api', () => ({ auth: { me: vi.fn() }, education: {}, getEducationMode: vi.fn() }))
 vi.mock('../../LicenseContext', () => ({ useLicense: () => ({ isEducation: state.licensed, hasFeature: () => state.licensed, loading: state.loading, loadError: state.licenseError }) }))
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({}),
-  useQuery: ({ queryKey }: { queryKey: string[] }) => ({ data: queryKey[0] === 'education-mode' ? { enabled: true } : state.capabilities, isError: state.error, isLoading: false }),
+  useQuery: ({ queryKey }: { queryKey: string[] }) => ({ data: queryKey[0] === 'auth' ? { id: 1, username: 'student', role: 'viewer', group_id: 7 } : queryKey[0] === 'education-mode' ? { enabled: true } : state.capabilities, isError: state.error, isLoading: false }),
   useInfiniteQuery: () => ({ data: { pages: [{ items: [] }] }, hasNextPage: false }),
 }))
 vi.mock('../../components/education/CostCenterManager', () => ({ default: () => null }))
 vi.mock('../../components/education/ClassroomManager', () => ({ default: () => null }))
 vi.mock('../../components/education/SubmissionQueue', () => ({ default: () => null }))
-vi.mock('../../components/education/SubmissionUploadModal', () => ({ default: () => null }))
+vi.mock('../../components/education/SubmissionUploadModal', () => ({ default: () => null, educationAudience: () => 'owned-student' }))
 vi.mock('../../components/education/ReadinessPanel', () => ({ default: () => null }))
 beforeEach(() => { Object.assign(state.capabilities, { education_enabled: true, student: false, manager: false, tenant_admin: false }); state.licensed = true; state.error = false; state.loading = false; state.licenseError = false })
 afterEach(cleanup)

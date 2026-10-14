@@ -67,12 +67,16 @@ class ElegooMonitorThread(threading.Thread):
         self._last_telemetry_insert = 0
         self._last_ams_env = 0
         self._marked_offline = False
+        self._status_lock = threading.RLock()
+        self._retired = False
 
         # Register status callback on the adapter
         self.client.on_status(self._on_status_update)
 
     def stop(self):
-        self._running = False
+        with self._status_lock:
+            self._retired = True
+            self._running = False
         self.client.disconnect()
 
     def run(self):
@@ -97,17 +101,19 @@ class ElegooMonitorThread(threading.Thread):
             time.sleep(10)
 
             # Heartbeat: if no status update for 60s, try reconnecting
-            if self._last_heartbeat > 0 and time.time() - self._last_heartbeat > 60:
-                log.warning(f"[{self.name}] No status update for 60s, reconnecting...")
-                # Mark printer offline in DB (same as Bambu/Moonraker pattern)
-                if not self._marked_offline:
-                    self._marked_offline = True
-                    try:
-                        with engine.begin() as conn:
-                            conn.execute(text("UPDATE printers SET gcode_state='OFFLINE' WHERE id=:pid"), {"pid": self.printer_id})
-                    except Exception as e:
-                        log.debug(f"Failed to mark printer offline: {e}")
-                camera_discovered = False  # Re-discover camera on reconnect
+            reconnect = False
+            with self._status_lock:
+                if not self._retired and self._last_heartbeat > 0 and time.time() - self._last_heartbeat > 60:
+                    reconnect = True
+                    if not self._marked_offline:
+                        try:
+                            with engine.begin() as conn:
+                                conn.execute(text("UPDATE printers SET gcode_state='OFFLINE',print_stage='Offline' WHERE id=:pid"), {"pid": self.printer_id})
+                            self._marked_offline = True
+                        except Exception:
+                            log.warning("Offline state persistence failed; retry on next observation")
+            if reconnect:
+                camera_discovered = False
                 self.client.disconnect()
                 time.sleep(2)
 
@@ -120,9 +126,9 @@ class ElegooMonitorThread(threading.Thread):
             cam_url = self.client.get_webcam_url()
             if cam_url:
                 printer_events.discover_camera(self.printer_id, cam_url)
-                log.info(f"[{self.name}] Camera discovered: {cam_url}")
+                log.info("Camera discovery completed for printer %s", self.printer_id)
         except Exception as e:
-            log.warning(f"[{self.name}] Camera discovery failed: {e}")
+            log.warning("Camera discovery failed for printer %s", self.printer_id)
 
     def _on_status_update(self, status: ElegooStatus):
         """Called by the adapter whenever a status WebSocket message arrives."""
@@ -131,7 +137,13 @@ class ElegooMonitorThread(threading.Thread):
         except Exception as e:
             log.warning(f"[{self.name}] Status processing error: {e}")
 
-    def _process_status(self, status: ElegooStatus):
+    def _process_status(self, status):
+        with self._status_lock:
+            if self._retired:
+                return
+            self._process_status_locked(status)
+
+    def _process_status_locked(self, status):
         """Process status update — detect transitions, update DB, push events."""
         import modules.notifications.event_dispatcher as printer_events
 
@@ -208,8 +220,7 @@ class ElegooMonitorThread(threading.Thread):
         # ----------------------------------------------------------
         # 3. Telemetry + heartbeat (throttled to every 10 seconds)
         # ----------------------------------------------------------
-        if time.time() - self._last_heartbeat >= 10:
-            self._marked_offline = False  # Got a status update, clear offline flag
+        if self._marked_offline or time.time() - self._last_heartbeat >= 10:
             try:
                 with engine.begin() as conn:
                     bed_t = status.bed_temp
@@ -247,37 +258,6 @@ class ElegooMonitorThread(threading.Thread):
                          "gstate": gstate, "stage": stage, "fan_speed": fan_speed_val, "pid": self.printer_id}
                     )
 
-                    # WebSocket push to frontend
-                    ws_push('printer_telemetry', {
-                        'printer_id': self.printer_id,
-                        'bed_temp': bed_t,
-                        'bed_target': bed_tt,
-                        'nozzle_temp': noz_t,
-                        'nozzle_target': noz_tt,
-                        'state': gstate,
-                        'progress': progress,
-                        'remaining_min': remaining_min,
-                        'current_layer': current_layer,
-                        'total_layers': total_layers,
-                        'fan_speed': fan_speed_val,
-                    })
-
-                    # MQTT republish to external broker
-                    if _mqtt_republish:
-                        try:
-                            _mqtt_republish.republish_telemetry(self.printer_id, self.name, {
-                                "bed_temp": bed_t, "bed_target": bed_tt,
-                                "nozzle_temp": noz_t, "nozzle_target": noz_tt,
-                                "state": gstate,
-                                "progress": progress,
-                                "remaining_min": remaining_min,
-                                "current_layer": current_layer,
-                                "total_layers": total_layers,
-                                "fan_speed": fan_speed_val,
-                            })
-                        except Exception as e:
-                            log.debug(f"Failed to push printer state event: {e}")
-
                     # ---- Timeseries Telemetry Capture ----
                     # Record temps + fan speed every 60s during active prints
                     if gstate in ('PRINTING', 'HEATING', 'PAUSED') and time.time() - self._last_telemetry_insert >= 60:
@@ -307,9 +287,28 @@ class ElegooMonitorThread(threading.Thread):
                             log.debug(f"[{self.name}] Enclosure env capture: {e}")
 
                 self._last_heartbeat = time.time()
+                self._marked_offline = False
 
-            except Exception as e:
-                log.warning(f"[{self.name}] Telemetry update failed: {e}")
+                payload = {
+                    'printer_id': self.printer_id, 'bed_temp': bed_t, 'bed_target': bed_tt,
+                    'nozzle_temp': noz_t, 'nozzle_target': noz_tt, 'state': gstate,
+                    'progress': progress, 'remaining_min': remaining_min,
+                    'current_layer': current_layer, 'total_layers': total_layers,
+                    'fan_speed': fan_speed_val,
+                }
+                try:
+                    ws_push('printer_telemetry', payload)
+                except Exception:
+                    log.warning("Committed telemetry WebSocket delivery failed")
+                if _mqtt_republish:
+                    try:
+                        _mqtt_republish.republish_telemetry(self.printer_id, self.name,
+                            {key: value for key, value in payload.items() if key != 'printer_id'})
+                    except Exception:
+                        log.warning("Committed telemetry MQTT delivery failed")
+
+            except Exception:
+                log.warning("Telemetry persistence failed; retry on next observation")
 
 
 # ------------------------------------------------------------------
@@ -320,6 +319,8 @@ def start_elegoo_monitors():
     Load Elegoo printers from DB and start monitor threads.
     Called from main.py on startup.
     """
+    from core.monitor_bootstrap import bootstrap_monitor_authority
+    bootstrap_monitor_authority()
     threads = []
     try:
         with engine.connect() as conn:

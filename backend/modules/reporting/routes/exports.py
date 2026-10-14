@@ -5,12 +5,14 @@ from core.rbac import should_filter_org
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import text
-from typing import Optional
-from datetime import datetime, timezone
+from sqlalchemy import text, or_, cast, String, literal_column
+from typing import Optional, Annotated
+from datetime import date, datetime, time, timedelta, timezone
 import json
 import logging
 import csv
+import re
+from pydantic import BeforeValidator
 import io
 
 from core.db import get_db
@@ -26,6 +28,21 @@ router = APIRouter(tags=["Export"])
 
 
 # ============== CSV Export ==============
+
+def _strict_audit_date(value):
+    if not isinstance(value, str) or re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}', value) is None:
+        raise ValueError('Expected YYYY-MM-DD')
+    return date.fromisoformat(value)
+
+
+AuditDate = Annotated[date, BeforeValidator(_strict_audit_date)]
+
+
+def _audit_csv_text(value):
+    if value is None:
+        return ''
+    value = str(value)
+    return "'" + value if value.startswith(('=', '+', '-', '@', '\t', '\r')) else value
 
 @router.get("/export/jobs")
 def export_jobs_csv(
@@ -204,33 +221,44 @@ def export_models_csv(current_user: dict = Depends(require_role("operator")), db
     )
 
 
+def _audit_projection(db):
+    # Raw additive migration fields deliberately stay outside frozen ORM metadata.
+    return db.query(AuditLog, *[
+        literal_column('audit_logs.' + name).label(name)
+        for name in ('actor_user_id', 'actor_username', 'actor_auth_kind')
+    ])
+
+
 @router.get("/export/audit-logs")
 def export_audit_logs_csv(
     entity_type: Optional[str] = None,
     action: Optional[str] = None,
-    current_user: dict = Depends(require_superadmin()),
+    date_from: Optional[AuditDate] = None,
+    date_to: Optional[AuditDate] = None,
+    q: Optional[str] = Query(default=None, max_length=200),
+    current_user: dict = Depends(require_superadmin(scope='read')),
     db: Session = Depends(get_db)
 ):
     """Export audit logs as CSV. Superadmin only — audit logs span all tenants."""
-    query = db.query(AuditLog).order_by(AuditLog.timestamp.desc())
-    if entity_type:
-        query = query.filter(AuditLog.entity_type == entity_type)
-    if action:
-        query = query.filter(AuditLog.action == action)
-    logs = query.limit(5000).all()
+    query = _audit_filters(_audit_projection(db), entity_type=entity_type, action=action,
+                          date_from=date_from, date_to=date_to, q=q)
+    logs = query.order_by(AuditLog.timestamp.desc(), AuditLog.id.desc()).limit(5000).all()
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["ID", "Timestamp", "Action", "Entity Type", "Entity ID", "Details", "IP Address"])
-    for log_entry in logs:
+    writer.writerow(["ID", "Timestamp", "Action", "Entity Type", "Entity ID", "Details", "IP Address", "User ID", "Username", "Authentication"])
+    for log_entry, actor_id, actor_name, actor_kind in logs:
         writer.writerow([
             log_entry.id,
             log_entry.timestamp.isoformat() if log_entry.timestamp else "",
-            log_entry.action,
-            log_entry.entity_type or "",
-            log_entry.entity_id or "",
-            json.dumps(log_entry.details) if isinstance(log_entry.details, dict) else (log_entry.details or ""),
-            log_entry.ip_address or ""
+            _audit_csv_text(log_entry.action),
+            _audit_csv_text(log_entry.entity_type),
+            log_entry.entity_id if log_entry.entity_id is not None else "",
+            _audit_csv_text(json.dumps(log_entry.details) if isinstance(log_entry.details, dict) else log_entry.details),
+            _audit_csv_text(log_entry.ip_address),
+            actor_id if actor_id is not None else "",
+            _audit_csv_text(actor_name),
+            _audit_csv_text(actor_kind),
         ])
 
     output.seek(0)
@@ -243,31 +271,57 @@ def export_audit_logs_csv(
 
 # ============== Audit Log ==============
 
-@router.get("/audit-logs", tags=["Audit"])
-def list_audit_logs(
-    limit: int = Query(default=50, le=500),
-    offset: int = 0,
-    entity_type: Optional[str] = None,
-    action: Optional[str] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(require_superadmin()),
-):
-    """List audit log entries with pagination and filters. Superadmin only."""
-    query = db.query(AuditLog).order_by(AuditLog.timestamp.desc())
-
+def _audit_filters(query, *, entity_type=None, action=None, date_from=None, date_to=None, q=None):
+    """One bounded literal filter shared by the list and CSV projection."""
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(422, 'date_from must not be after date_to')
     if entity_type:
         query = query.filter(AuditLog.entity_type == entity_type)
     if action:
         query = query.filter(AuditLog.action == action)
+    # SQLite CURRENT_TIMESTAMP omits fractions. Comparing that text to a
+    # midnight datetime with '.000000' would admit next-day midnight. Date
+    # prefixes are exact half-open bounds for its canonical stored dates.
+    sqlite_dates = query.session.get_bind().dialect.name == 'sqlite'
     if date_from:
-        query = query.filter(AuditLog.timestamp >= date_from)
+        start = date_from.isoformat() if sqlite_dates else datetime.combine(date_from, time.min)
+        query = query.filter(AuditLog.timestamp >= start)
     if date_to:
-        query = query.filter(AuditLog.timestamp <= date_to + "T23:59:59")
+        if date_to == date.max:
+            raise HTTPException(422, 'date_to is outside the supported range')
+        next_day = date_to + timedelta(days=1)
+        end = next_day.isoformat() if sqlite_dates else datetime.combine(next_day, time.min)
+        query = query.filter(AuditLog.timestamp < end)
+    if q and q.strip():
+        literal = q.strip().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+        pattern = '%' + literal + '%'
+        query = query.filter(or_(*[
+            column.ilike(pattern, escape='\\') for column in (
+                AuditLog.action, AuditLog.entity_type, cast(AuditLog.entity_id, String),
+                cast(AuditLog.details, String), AuditLog.ip_address,
+                literal_column("audit_logs.actor_username"),
+            )
+        ]))
+    return query
+
+@router.get("/audit-logs", tags=["Audit"])
+def list_audit_logs(
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    entity_type: Optional[str] = None,
+    action: Optional[str] = None,
+    date_from: Optional[AuditDate] = None,
+    date_to: Optional[AuditDate] = None,
+    q: Optional[str] = Query(default=None, max_length=200),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_superadmin(scope='read')),
+):
+    """List audit log entries with pagination and filters. Superadmin only."""
+    query = _audit_filters(_audit_projection(db), entity_type=entity_type, action=action,
+                          date_from=date_from, date_to=date_to, q=q)
 
     total = query.count()
-    logs = query.offset(offset).limit(limit).all()
+    logs = query.order_by(AuditLog.timestamp.desc(), AuditLog.id.desc()).offset(offset).limit(limit).all()
 
     return {
         "total": total,
@@ -276,6 +330,9 @@ def list_audit_logs(
         "logs": [
             {
                 "id": log_entry.id,
+                "user_id": actor_id,
+                "username": actor_name,
+                "auth_kind": actor_kind,
                 "timestamp": log_entry.timestamp.isoformat() if log_entry.timestamp else None,
                 "action": log_entry.action,
                 "entity_type": log_entry.entity_type,
@@ -283,6 +340,6 @@ def list_audit_logs(
                 "details": log_entry.details,
                 "ip_address": log_entry.ip_address,
             }
-            for log_entry in logs
+            for log_entry, actor_id, actor_name, actor_kind in logs
         ],
     }

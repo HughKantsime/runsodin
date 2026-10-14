@@ -16,6 +16,7 @@ from email.mime.multipart import MIMEMultipart
 
 import core.crypto as crypto
 from core.db_utils import get_db
+from modules.notifications.event_selection import selects_event
 from core.webhook_utils import safe_post, trusted_post, WebhookSSRFError
 
 log = logging.getLogger("printer_events")
@@ -152,14 +153,8 @@ def send_webhook(alert_type: str, title: str, message: str, severity: str = "inf
     severity_emoji = {"critical": "\U0001f534", "error": "\U0001f534", "warning": "\U0001f7e1", "info": "\U0001f535"}
 
     for webhook_id, raw_url, wtype, alert_types_json in webhooks:
-        # Filter by alert_types
-        if alert_types_json:
-            try:
-                allowed = json.loads(alert_types_json) if isinstance(alert_types_json, str) else alert_types_json
-                if alert_type not in allowed and "all" not in allowed:
-                    continue
-            except (json.JSONDecodeError, TypeError):
-                pass
+        if not selects_event(alert_types_json, alert_type):
+            continue
 
         url = _decrypt_webhook_url(raw_url)
         emoji = severity_emoji.get(severity, "\U0001f535")

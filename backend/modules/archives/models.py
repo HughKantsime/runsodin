@@ -24,6 +24,8 @@ class Timelapse(Base):
     id = Column(Integer, primary_key=True)
     printer_id = Column(Integer, ForeignKey("printers.id", ondelete="CASCADE"), nullable=False)
     print_job_id = Column(Integer, nullable=True)
+    retirement_operation_id = Column(String(64), nullable=True)
+    ownership_operation_id = Column(String(64), nullable=True)
     filename = Column(String(255), nullable=False)  # Relative path under /data/timelapses/
     frame_count = Column(Integer, default=0)
     duration_seconds = Column(Float, nullable=True)

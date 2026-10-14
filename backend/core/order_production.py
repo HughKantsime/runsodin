@@ -6,6 +6,61 @@ from sqlalchemy.engine import Connection
 from core.registry import registry
 
 
+def _bounded_parent_job_ids(job_ids):
+    from itertools import islice
+    values = tuple(islice(iter(job_ids), 17))
+    if len(values) > 16 or any(type(value) is not int or value <= 0 for value in values):
+        raise HTTPException(400, 'Invalid bounded production parent set')
+    return tuple(sorted(set(values)))
+
+
+def prepare_parent_graph(executor, job_ids):
+    """Fence production parents before callers acquire submission/job locks.
+
+    This captures linkage only. It does not attest financial ownership, authorize
+    an observed start, lock jobs, commit, or reconcile production quantities.
+    """
+    identifiers = _bounded_parent_job_ids(job_ids)
+    provider = registry.get_provider('OrderFulfillmentProvider')
+    prepare = getattr(provider, 'prepare_parent_graph', None)
+    if not callable(prepare):
+        # Existing fail-closed provider boundary distinguishes unrelated jobs.
+        if prepare_job_write(executor, identifiers):
+            raise HTTPException(503, 'Order parent preparation unavailable')
+        return ((), (), ())
+    return prepare(executor, identifiers)
+
+
+def _validated_parent_graph(graph):
+    if type(graph) is not tuple or len(graph) != 3:
+        raise HTTPException(400, 'Invalid prepared production parent graph')
+    orders, items, rows = graph
+    if any(type(values) is not tuple for values in graph) or len(rows) > 16:
+        raise HTTPException(400, 'Invalid prepared production parent graph')
+    if any(type(row) is not tuple or len(row) != 6 for row in rows):
+        raise HTTPException(400, 'Invalid prepared production parent graph')
+    if any(type(row[0]) is not int or row[0] <= 0 or any(value is not None and (type(value) is not int or value <= 0) for value in row[1:]) for row in rows):
+        raise HTTPException(400, 'Invalid prepared production parent graph')
+    identifiers = _bounded_parent_job_ids(row[0] for row in rows)
+    if tuple(row[0] for row in rows) != identifiers:
+        raise HTTPException(400, 'Invalid prepared production parent graph')
+    expected_orders = tuple(sorted({value for row in rows for value in (row[2], row[4], row[5]) if value is not None}))
+    expected_items = tuple(sorted({value for row in rows for value in (row[1], row[3]) if value is not None}))
+    if any(type(value) is not int or value <= 0 for values in (orders, items) for value in values) or orders != expected_orders or items != expected_items:
+        raise HTTPException(400, 'Invalid prepared production parent graph')
+    return identifiers
+
+
+def recheck_parent_graph(executor, prepared_graph):
+    """SELECT-only ancestry reproof after caller job locks; never reacquire parents."""
+    _validated_parent_graph(prepared_graph)
+    provider = registry.get_provider('OrderFulfillmentProvider')
+    recheck = getattr(provider, 'recheck_parent_graph', None)
+    if not callable(recheck):
+        raise HTTPException(503, 'Order parent recheck unavailable')
+    return recheck(executor, prepared_graph)
+
+
 def prepare_job_write(executor,job_ids,changes=None):
     provider=registry.get_provider('OrderFulfillmentProvider')
     if provider is None:

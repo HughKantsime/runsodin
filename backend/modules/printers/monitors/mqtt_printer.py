@@ -28,6 +28,8 @@ from modules.printers.monitors.mqtt_telemetry import (
     parse_lights,
     parse_ams_env,
     parse_h2d_nozzles,
+    finite_nozzle_measurement,
+    parse_bambu_speed,
     parse_h2d_external_spools,
 )
 from modules.printers.monitors.mqtt_job_lifecycle import (
@@ -68,6 +70,10 @@ class PrinterMonitor:
         self._lock = Lock()
         self._status_received = Event()
         self._pending_running_state = None
+        self._pending_hms_terminal = None
+        self._connection_generation = 0
+        self._connection_retired = False
+        self._transport_offline = False
 
     def connect(self) -> bool:
         """Connect to printer MQTT.
@@ -83,11 +89,12 @@ class PrinterMonitor:
         try:
             if is_v2_enabled():
                 return self._connect_v2()
+            generation = self._begin_connection()
             self._bambu = BambuPrinter(
                 ip=self.ip,
                 serial=self.serial,
                 access_code=self.access_code,
-                on_status_update=self._on_status,
+                on_status_update=lambda status: self._on_status(status, generation),
                 client_id=f"odin_{self.printer_id}_{int(time.time())}"
             )
             if self._bambu.connect():
@@ -112,20 +119,33 @@ class PrinterMonitor:
         from modules.printers.telemetry.bambu.broker_policy import (
             resolve_bambu_broker_config,
         )
-        from modules.printers.telemetry.events import BambuReportEvent
+        from modules.printers.telemetry.events import BambuReportEvent, ConnectionEvent
+        generation = self._begin_connection()
 
         class _LegacyStatusShim:
             """Minimal legacy-PrinterStatus shape. Only raw_data is read."""
-            def __init__(self, section_dict):
+            def __init__(self, section_dict, mqtt_retained):
                 self.raw_data = {"print": section_dict}
+                self.mqtt_retained = mqtt_retained
 
         on_status = self._on_status
 
         def emit(item):
             if isinstance(item, BambuReportEvent):
                 # model_dump() preserves the same keys legacy saw
-                section_dict = item.section.model_dump(exclude_none=False)
-                on_status(_LegacyStatusShim(section_dict))
+                section_dict = item.section.model_dump(exclude_unset=True)
+                on_status(_LegacyStatusShim(section_dict, item.mqtt_retained), generation)
+            elif isinstance(item, ConnectionEvent) and item.kind in ("disconnected", "error"):
+                with self._lock:
+                    if generation != self._connection_generation or self._connection_retired:
+                        return
+                    self._transport_offline = True
+                    try:
+                        with get_db() as conn:
+                            conn.execute("UPDATE printers SET gcode_state='OFFLINE',print_stage='Offline' WHERE id=?", (self.printer_id,))
+                            conn.commit()
+                    except Exception:
+                        log.warning("Offline state persistence failed; retry on next connection check")
 
         endpoint = resolve_bambu_broker_config(
             self.ip, printer_id=f"monitor-{self.printer_id}",
@@ -166,6 +186,22 @@ class PrinterMonitor:
                 from core.registry import registry
 
                 policy = registry.get_provider("EducationPolicyProvider")
+                from core.dispatch_observations import generic_observation_reserved,prepare_generic_observation
+                incoming_name=self._state.get('subtask_name')
+                incoming=policy.classify_monitor_observation(conn,printer_id=self.printer_id,observed_filename=incoming_name) if policy else None
+                education_sensitive=bool(incoming and (incoming.get('education_owned') or incoming.get('education_reserved')))
+                if generic_observation_reserved(conn,printer_id=self.printer_id,observed_filename=incoming_name):
+                    # Unresolved physical attempts cannot be closed from idle or an unrelated task.
+                    if not education_sensitive and gcode_state in ('RUNNING','PAUSE'):
+                        identifier=prepare_generic_observation(conn,printer_id=self.printer_id,observed_filename=incoming_name)
+                        if identifier is not None:
+                            self._current_job_id=identifier
+                            self._linked_job_id=conn.execute('SELECT scheduled_job_id FROM print_jobs WHERE id=?',(identifier,)).fetchone()[0]
+                            from modules.printers.monitors.mqtt_job_lifecycle import load_mqtt_start_weights
+                            self._start_spool_weights=load_mqtt_start_weights(conn,identifier)
+                    conn.commit()
+                    log.info('[%s] Retained dispatch evidence protected during recovery',self.name)
+                    return
                 if gcode_state in ('RUNNING', 'PAUSE'):
                     # Printer is actually printing — resume tracking the most recent job
                     latest = rows[-1]
@@ -280,8 +316,17 @@ class PrinterMonitor:
         except Exception as e:
             log.error(f"[{self.name}] Orphaned job recovery failed: {e}")
 
+    def _begin_connection(self):
+        with self._lock:
+            self._connection_generation += 1
+            self._connection_retired = False
+            return self._connection_generation
+
     def disconnect(self):
         """Disconnect from printer."""
+        with self._lock:
+            self._connection_retired = True
+            self._connection_generation += 1
         if self._bambu:
             self._bambu.disconnect()
             self._bambu = None
@@ -390,19 +435,38 @@ class PrinterMonitor:
         except Exception as e:
             log.error(f"[{self.name}] Failed to dispatch alert: {e}")
 
-    def _on_status(self, status):
+    def _on_status(self, status, generation=None):
         """Handle incoming MQTT status update."""
         import modules.notifications.event_dispatcher as printer_events
         with self._lock:
+            if self._connection_retired or (generation is not None and generation != self._connection_generation):
+                return
             raw = status.raw_data.get('print', {})
+            from datetime import datetime, timezone
+            pending_nozzles = getattr(self, '_pending_right_nozzle', {})
+            for key, column, stamp in (
+                ('nozzle_temper_1', 'nozzle_1_temp', 'nozzle_1_temp_observed_at'),
+                ('nozzle_target_temper_1', 'nozzle_1_target_temp', 'nozzle_1_target_observed_at'),
+            ):
+                measured = finite_nozzle_measurement(raw.get(key))
+                if measured is not None:
+                    pending_nozzles[column] = (measured, stamp, datetime.now(timezone.utc))
+            self._pending_right_nozzle = pending_nozzles
 
             # Merge correlation and lifecycle fields before any HMS processing.
             # A first RUNNING packet may also contain a print-stopping HMS code;
             # the token observation must be claimed/quarantined first.
+            speed_fields = parse_bambu_speed(raw)
             for key, value in raw.items():
+                if key in ('nozzle_temper_1', 'nozzle_target_temper_1'):
+                    value = finite_nozzle_measurement(value)
+                elif key in ('spd_lvl', 'spd_mag'):
+                    value = speed_fields['speed_level' if key == 'spd_lvl' else 'speed_percent']
                 if value is not None:
                     self._state[key] = value
             gcode_state = self._state.get('gcode_state')
+            tracked_before = self._current_job_id
+            pending_start_before = self._pending_running_state
             self._status_received.set()
             if gcode_state in ('RUNNING', 'PAUSE') and not self._current_job_id:
                 if self._pending_running_state is None:
@@ -430,33 +494,87 @@ class PrinterMonitor:
                     if self._current_job_id:
                         self._last_gcode_state = pending['gcode_state']
                         self._pending_running_state = None
-            if gcode_state and (gcode_state != self._last_gcode_state or
-                                (gcode_state in ('RUNNING', 'PAUSE') and not self._current_job_id)):
-                self._on_state_change(self._last_gcode_state, gcode_state)
-                if not (self._pending_running_state and not self._current_job_id):
-                    self._last_gcode_state = gcode_state
+            def transition(value):
+                if value and (value != self._last_gcode_state or
+                              (value in ('RUNNING', 'PAUSE') and not self._current_job_id)):
+                    self._on_state_change(self._last_gcode_state, value)
+                    if not (self._pending_running_state and not self._current_job_id):
+                        self._last_gcode_state = value
+
+            terminal = gcode_state in ('FINISH', 'FAILED', 'IDLE')
+            if not terminal:
+                # Initial claim/quarantine must precede HMS authority resolution.
+                transition(gcode_state)
             if self._current_job_id:
                 self._pending_running_state = None
 
-            incoming_hms = raw.get('hms')
-            if isinstance(incoming_hms, list) and not incoming_hms:
-                self._last_hms_key = None
-                self._last_hms_processed_key = None
-            if incoming_hms:
-                observed_filename = self._state.get('subtask_name') or self._state.get('gcode_file')
-                hms_process_key = (observed_filename, json.dumps(incoming_hms, sort_keys=True))
-                if hms_process_key != getattr(self, '_last_hms_processed_key', None):
-                    processing_result = printer_events.process_hms_errors(
-                        self.printer_id,
-                        incoming_hms,
-                        observed_filename=observed_filename,
-                    )
-                    # This acknowledges dispatch, not notification delivery.
-                    if not (isinstance(processing_result, dict) and processing_result.get("classification_state") == "unresolved" and processing_result.get("retryable") is True):
-                        self._last_hms_processed_key = hms_process_key
+            def process_hms(packet, expected_print_job_id=None):
+                incoming_hms = packet.get('hms')
+                if isinstance(incoming_hms, list) and not incoming_hms:
+                    self._last_hms_key = None
+                    self._last_hms_processed_key = None
+                if not incoming_hms:
+                    return True
+                # HMS belongs to this packet, never an identity from cached telemetry.
+                observed_filename = packet.get('subtask_name') or packet.get('gcode_file')
+                process_key = (observed_filename, json.dumps(incoming_hms, sort_keys=True))
+                if process_key == getattr(self, '_last_hms_processed_key', None):
+                    return True
+                try:
+                    result = printer_events.process_hms_errors(
+                        self.printer_id, incoming_hms, observed_filename=observed_filename,
+                        expected_print_job_id=expected_print_job_id)
+                except Exception:
+                    return False
+                if isinstance(result, dict) and result.get('retryable') is True:
+                    return False
+                self._last_hms_processed_key = process_key
+                return True
+
+            pending_hms = self._pending_hms_terminal
+            if pending_hms is not None and pending_hms['print_job_id'] is None:
+                # Only the successful retry of this exact original start can
+                # supply missing authority. Never select a latest running row.
+                if (tracked_before is None and self._current_job_id is not None
+                        and pending_start_before is not None
+                        and pending_start_before is pending_hms.get('start')):
+                    pending_hms['print_job_id'] = self._current_job_id
+            if (pending_hms is not None and pending_hms['print_job_id'] is not None
+                    and pending_hms['print_job_id'] != self._current_job_id):
+                # A filename can be reused. Old fault evidence cannot mutate a
+                # later tracked observation, even if its display name matches.
+                self._pending_hms_terminal = None
+                pending_hms = None
+            resolved = True
+            if pending_hms is not None:
+                resolved = (pending_hms['print_job_id'] is not None and
+                            process_hms(pending_hms['packet'], pending_hms['print_job_id']))
+                if resolved:
+                    if self._current_job_id == pending_hms['print_job_id']:
+                        incoming_state = self._state
+                        try:
+                            self._state = pending_hms['state']
+                            transition(pending_hms['terminal'])
+                        finally:
+                            self._state = incoming_state
+                    self._pending_hms_terminal = None
+            if resolved:
+                resolved = process_hms(raw, self._current_job_id)
+                if not resolved and raw.get('hms'):
+                    from copy import deepcopy
+                    # One bounded observation, not an accumulating event history.
+                    self._pending_hms_terminal = {
+                        'packet': deepcopy({k: raw[k] for k in
+                            ('hms', 'subtask_name', 'gcode_file') if k in raw}),
+                        'state': dict(self._state), 'terminal': gcode_state if terminal else None,
+                        'print_job_id': self._current_job_id,
+                        'start': self._pending_running_state,
+                    }
+            if terminal and resolved:
+                transition(gcode_state)
 
             # Update telemetry + heartbeat (throttled to every 10 seconds)
-            if time.time() - getattr(self, '_last_heartbeat', 0) >= 10:
+            if self._transport_offline or time.time() - getattr(self, '_last_heartbeat', 0) >= 10:
                 try:
                     with get_db() as conn:
                         bed_t = self._state.get('bed_temper')
@@ -474,28 +592,53 @@ class PrinterMonitor:
                         cooldown_row = conn.execute('SELECT lights_toggled_at FROM printers WHERE id=?', (self.printer_id,)).fetchone()
                         lights_on = lights_on_raw
                         if cooldown_row and cooldown_row[0]:
-                            from datetime import datetime as _dt
                             try:
-                                if (_dt.utcnow() - _dt.fromisoformat(cooldown_row[0])).total_seconds() < 20:
+                                toggled_at = cooldown_row[0]
+                                if isinstance(toggled_at, str):
+                                    toggled_at = datetime.fromisoformat(toggled_at)
+                                if not isinstance(toggled_at, datetime):
+                                    raise ValueError('Invalid light toggle timestamp')
+                                if toggled_at.tzinfo is None:
+                                    toggled_at = toggled_at.replace(tzinfo=timezone.utc)
+                                age = (datetime.now(timezone.utc) - toggled_at).total_seconds()
+                                if 0 <= age < 20:
                                     lights_on = None
-                            except Exception as e:
-                                log.debug(f"Failed to parse lights toggle cooldown: {e}")
+                            except (ValueError, TypeError, OverflowError):
+                                log.debug("Invalid light toggle timestamp; reconciling observed state")
                         noz_type = self._state.get('nozzle_type')
-                        noz_dia = self._state.get('nozzle_diameter')
-                        if isinstance(noz_dia, str):
+                        # Partial packets are not configuration removal, and a
+                        # cached diameter must not overwrite a later edit.
+                        noz_dia = raw.get('nozzle_diameter')
+                        if isinstance(noz_dia, bool) or not isinstance(noz_dia, (int, float, str)):
+                            noz_dia = None
+                        else:
                             try:
                                 noz_dia = float(noz_dia)
-                            except Exception:
+                            except (TypeError, ValueError, OverflowError):
                                 noz_dia = None
+                            if noz_dia is not None:
+                                import math
+                                if not math.isfinite(noz_dia) or noz_dia <= 0:
+                                    noz_dia = None
                         fan_speed_val = self._state.get('cooling_fan_speed')
                         conn.execute(
                             f"UPDATE printers SET last_seen={sql.now()},"
                             " bed_temp=?,bed_target_temp=?,nozzle_temp=?,nozzle_target_temp=?,"
-                            " gcode_state=?,print_stage=?,hms_errors=?,lights_on=COALESCE(?,lights_on),"
-                            " nozzle_type=?,nozzle_diameter=?,fan_speed=COALESCE(?,fan_speed) WHERE id=?",
+                            " gcode_state=?,print_stage=?,hms_errors=?,"
+                            " nozzle_type=?,fan_speed=COALESCE(?,fan_speed) WHERE id=?",
                             (bed_t, bed_tt, noz_t, noz_tt, gstate, stage,
-                             hms_j, lights_on, noz_type, noz_dia, fan_speed_val, self.printer_id))
+                             hms_j, noz_type, fan_speed_val, self.printer_id))
+                        if noz_dia is not None:
+                            conn.execute("UPDATE printers SET nozzle_diameter=? WHERE id=?",
+                                         (noz_dia, self.printer_id))
+                        from modules.printers.monitors.light_state import persist_light_observation
+                        persist_light_observation(conn, self.printer_id, lights_on, cooldown_row[0] if cooldown_row else None)
+                        for column, (value, stamp, observed_at) in pending_nozzles.items():
+                            # Column names come only from the fixed observation map above.
+                            conn.execute(f'UPDATE printers SET {column}=?,{stamp}=? WHERE id=?',
+                                         (value, observed_at.isoformat(), self.printer_id))
                         conn.commit()
+                        self._pending_right_nozzle = {}
 
                         # Auto-detect printer model from MQTT — write once, never overwrite a user-set value
                         raw_pt = self._state.get('printer_type', '')
@@ -539,6 +682,7 @@ class PrinterMonitor:
                             except Exception as e:
                                 log.debug(f"Failed to push printer state event: {e}")
                         self._last_heartbeat = time.time()
+                        self._transport_offline = False
 
                         # ---- Timeseries Telemetry Capture ----
                         if gstate in ('RUNNING', 'PREPARE', 'PAUSE') and time.time() - getattr(self, '_last_telemetry_insert', 0) >= 60:
@@ -575,66 +719,21 @@ class PrinterMonitor:
                                 log.debug(f"[{self.name}] AMS env capture: {e}")
 
                         # ---- AMS Filament Slot Auto-Sync ----
-                        if time.time() - getattr(self, '_last_ams_slot_sync', 0) >= 60:
-                            self._last_ams_slot_sync = time.time()
+                        incoming_ams = raw.get('ams')
+                        if (isinstance(incoming_ams, dict)
+                                and isinstance(incoming_ams.get('ams'), list)
+                                and time.time() - getattr(self, '_last_ams_slot_sync', 0) >= 60):
+                            sync_observed_at = time.time()
                             try:
-                                ams_raw = self._state.get('ams', {})
-                                ams_units = ams_raw.get('ams', [])
-                                if ams_units:
-                                    from modules.printers.bambu_integration import map_bambu_filament_type
-                                    slot_num = 1
-                                    for unit in ams_units:
-                                        for tray in unit.get('tray', []):
-                                            tray_type = tray.get('tray_type', '')
-                                            color_hex = (tray.get('tray_color', '') or '')[:6]
-                                            rfid_tag = tray.get('tag_uid', '')
-                                            remaining = int(tray.get('remain', 0))
-                                            is_empty = tray_type == ''
-
-                                            ftype = map_bambu_filament_type(tray_type) if tray_type else 'empty'
-
-                                            existing = conn.execute(
-                                                "SELECT id, filament_type, color_hex, assigned_spool_id FROM filament_slots WHERE printer_id=? AND slot_number=?",
-                                                (self.printer_id, slot_num)
-                                            ).fetchone()
-
-                                            if existing:
-                                                slot_id, old_type, old_hex, old_spool = existing
-                                                if is_empty:
-                                                    conn.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
-                                                        f"UPDATE filament_slots SET filament_type=?, color=NULL, color_hex=NULL, loaded_at={sql.now()} WHERE id=?",
-                                                        ('empty', slot_id))
-                                                else:
-                                                    updates = {"filament_type": ftype, "color_hex": color_hex, "loaded_at": sql.now()}
-                                                    conn.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
-                                                        f"UPDATE filament_slots SET filament_type=?, color_hex=?, loaded_at={sql.now()} WHERE id=?",
-                                                        (ftype, color_hex, slot_id))
-                                                    # RFID spool matching
-                                                    if rfid_tag and not old_spool:
-                                                        spool_row = conn.execute(
-                                                            "SELECT id FROM spools WHERE rfid_tag=?", (rfid_tag,)
-                                                        ).fetchone()
-                                                        if spool_row:
-                                                            conn.execute(
-                                                                "UPDATE filament_slots SET assigned_spool_id=?, spool_confirmed=1 WHERE id=?",
-                                                                (spool_row[0], slot_id))
-                                                            if remaining > 0:
-                                                                conn.execute(
-                                                                    "UPDATE spools SET location_printer_id=?, location_slot=?, remaining_weight_g=initial_weight_g*?/100.0 WHERE id=?",
-                                                                    (self.printer_id, slot_num, remaining, spool_row[0]))
-                                                            else:
-                                                                conn.execute(
-                                                                    "UPDATE spools SET location_printer_id=?, location_slot=? WHERE id=?",
-                                                                    (self.printer_id, slot_num, spool_row[0]))
-                                            else:
-                                                conn.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
-                                                    f"INSERT INTO filament_slots (printer_id, slot_number, filament_type, color_hex, loaded_at) VALUES (?, ?, ?, ?, {sql.now()})",
-                                                    (self.printer_id, slot_num, ftype if not is_empty else 'empty', color_hex if not is_empty else None))
-
-                                            slot_num += 1
-                                    conn.commit()
-                            except Exception as e:
-                                log.debug(f"[{self.name}] AMS slot sync: {e}")
+                                from modules.printers.monitors.ams_inventory import sync_ams_inventory
+                                # Inventory receives only trays reported in this packet.
+                                # A heartbeat cannot renew cached tray observations.
+                                sync_ams_inventory(conn, self.printer_id, incoming_ams['ams'])
+                                conn.commit()
+                                self._last_ams_slot_sync = sync_observed_at
+                            except Exception:
+                                conn.rollback()
+                                log.warning("AMS inventory synchronization failed; retry on next eligible observation")
 
                     # ---- H2D Dual-Nozzle / External Spool Parsing ----
                     h2d_nozzle_data = None
@@ -664,6 +763,7 @@ class PrinterMonitor:
                         'current_layer': self._state.get('layer_num'),
                         'total_layers': self._state.get('total_layer_num'),
                         'gcode_file': self._state.get('subtask_name') or self._state.get('gcode_file'),
+                        **parse_bambu_speed(self._state),
                     }
                     if h2d_nozzle_data:
                         ws_payload['h2d_nozzles'] = h2d_nozzle_data
@@ -709,13 +809,12 @@ class PrinterMonitor:
             ams_units = ams_raw.get('ams', [])
             if ams_units:
                 ams_remain = {}
-                slot_idx = 1
-                for unit in ams_units:
-                    for tray in unit.get('tray', []):
-                        remain = tray.get('remain')
-                        if remain is not None:
-                            ams_remain[slot_idx] = int(remain)
-                        slot_idx += 1
+                from modules.printers.telemetry.bambu.ams_identity import ams_trays_by_slot
+                from modules.printers.monitors.ams_inventory import remaining_percent
+                for slot_idx, tray in ams_trays_by_slot(ams_units):
+                    known_remaining = remaining_percent(tray.get('remain'))
+                    if known_remaining is not None:
+                        ams_remain[slot_idx] = known_remaining
                 self._state['_ams_remain'] = ams_remain
 
             # Update progress if we have an active job (throttled to every 5 seconds)
@@ -842,9 +941,14 @@ class PrinterMonitor:
                         else:
                             conn.commit()
                             self._linked_job_id = claimed.get("job_id")
+                    else:
+                        from core.dispatch_observations import generic_observation_reserved
+                        if generic_observation_reserved(conn,printer_id=self.printer_id,observed_filename=self._state.get('subtask_name')):
+                            # Exact persisted identity/resume is owned by the transactional lifecycle helper.
+                            row=None
                     if not row:
                         log.info(
-                            "[%s] Existing running observation did not match Education token",
+                            "[%s] Existing running observation requires authoritative correlation",
                             self.name,
                         )
                     else:
@@ -905,8 +1009,8 @@ class PrinterMonitor:
                 )
                 conn.commit()
             self._last_progress_update = time.time()
-        except Exception as e:
-            log.error(f"[{self.name}] Failed to update progress: {e}")
+        except Exception:
+            log.error("Printer progress persistence failed; will retry")
 
     def _job_ended(self, status: str):
         """Thin wrapper: delegate to mqtt_job_lifecycle.record_job_ended()."""

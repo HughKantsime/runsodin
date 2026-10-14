@@ -1,10 +1,11 @@
 import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useLicense } from '../../LicenseContext'
-import { groups as groupsApi, users as usersApi } from '../../api'
+import { groups as groupsApi, users as usersApi, auth as authApi } from '../../api'
 import { Users, Plus, Edit2, Trash2, Shield, UserCheck, Eye, X, RefreshCw, Search, Upload, FileSpreadsheet, CheckCircle, AlertTriangle, KeyRound } from 'lucide-react'
 import clsx from 'clsx'
 import toast from 'react-hot-toast'
+import type { UserCreateResult } from '../../types'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import UpgradeModal from '../../components/shared/UpgradeModal'
 
@@ -279,6 +280,8 @@ export default function Admin() {
   const [searchQuery, setSearchQuery] = useState('')
   const [roleFilter, setRoleFilter] = useState('')
   const [deleteTarget, setDeleteTarget] = useState(null)
+  const [mfaTarget, setMfaTarget] = useState<any>(null)
+  const mfaResetBusy = useRef(false)
   const [showUpgradeModal, setShowUpgradeModal] = useState(false)
 
   const { data: users, isLoading } = useQuery({ queryKey: ['users'], queryFn: fetchUsers })
@@ -289,6 +292,7 @@ export default function Admin() {
   const groupsById = Object.fromEntries((groupsList || []).map(g => [g.id, g]))
 
   const createUser = useMutation({
+    retry: false,
     mutationFn: async (userData) => {
       const response = await fetch(`${API_BASE}/users`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(userData) })
       if (!response.ok) {
@@ -297,8 +301,17 @@ export default function Admin() {
       }
       return response.json()
     },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['users'] }); setShowModal(false) },
-    onError: (err) => toast.error(err.message),
+    onSuccess: (result: UserCreateResult, request: any) => {
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+      setShowModal(false)
+      if (request.send_welcome_email && request.email && result.welcome_email !== 'sent') {
+        toast(result.message || 'Account created, but welcome email delivery was not confirmed. Check email settings, then use Send password reset link for this user.', { icon: '⚠️', duration: 8000 })
+      }
+    },
+    onError: (err) => {
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+      toast.error(err.message)
+    },
   })
 
   const updateUser = useMutation({
@@ -328,6 +341,22 @@ export default function Admin() {
 
   const handleSave = (formData) => { if (editingUser) { updateUser.mutate({ id: editingUser.id, ...formData }) } else { createUser.mutate(formData) } }
   const handleEdit = (user) => { setEditingUser(user); setShowModal(true) }
+  const resetMfa = useMutation({
+    mutationFn: (userId: number) => authApi.adminDisableMfa(userId),
+    retry: false,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+      setMfaTarget(null)
+      toast.success('MFA disabled. The user can enroll again in their account settings.')
+    },
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+      setMfaTarget(null)
+      toast.error('MFA reset could not be confirmed. Check the user list before retrying.')
+    },
+    onSettled: () => { mfaResetBusy.current = false },
+  })
+
   const handleDelete = (user) => { setDeleteTarget(user) }
 
   // Filter users by search and role
@@ -441,6 +470,12 @@ export default function Admin() {
                             try { await usersApi.resetPasswordEmail(user.id); toast.success('Password reset link sent. Their password has not changed.') }
                             catch { toast.error('Unable to send a reset link. Check SMTP and application URL settings.') }
                           }} className="p-1.5 md:p-2 hover:bg-[var(--brand-input-bg)] rounded-md transition-colors text-[var(--brand-text-secondary)]" title="Send password reset link"><KeyRound size={14} /></button>}
+                          {user.mfa_enabled && <button
+                            aria-label={`Reset MFA for ${user.username}`}
+                            disabled={resetMfa.isPending}
+                            onClick={() => { if (!mfaResetBusy.current) setMfaTarget(user) }}
+                            className="p-1.5 md:p-2 hover:bg-[var(--brand-input-bg)] rounded-md transition-colors"
+                            title="Reset MFA"><Shield size={14} /></button>}
                           <button onClick={() => handleDelete(user)} className="p-1.5 md:p-2 hover:bg-red-900/50 text-[var(--brand-text-secondary)] hover:text-red-400 rounded-md transition-colors" title="Delete"><Trash2 size={14} /></button>
                         </div>
                       </td>
@@ -471,6 +506,19 @@ export default function Admin() {
         title="Delete User"
         message={deleteTarget ? `Delete user "${deleteTarget.username}"? This cannot be undone.` : ''}
         confirmText="Delete"
+      />
+      <ConfirmModal
+        open={!!mfaTarget}
+        pending={resetMfa.isPending}
+        title="Reset MFA"
+        message={mfaTarget ? `Disable MFA for "${mfaTarget.username}"? MFA protection will remain off until they enroll again.` : ''}
+        confirmText="Disable MFA"
+        onCancel={() => { if (!mfaResetBusy.current) setMfaTarget(null) }}
+        onConfirm={() => {
+          if (!mfaTarget || mfaResetBusy.current) return
+          mfaResetBusy.current = true
+          resetMfa.mutate(mfaTarget.id)
+        }}
       />
       <UpgradeModal isOpen={showUpgradeModal} onClose={() => setShowUpgradeModal(false)} resource="users" />
     </div>

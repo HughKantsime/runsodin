@@ -20,6 +20,7 @@ Usage:
 
 import json
 import logging
+from dataclasses import dataclass
 
 try:
     from modules.notifications.quiet_hours import should_suppress_notification
@@ -65,7 +66,7 @@ DEFAULT_PREFERENCES = [
 ]
 
 
-def seed_alert_preferences(db: Session, user_id: int):
+def seed_alert_preferences(db: Session, user_id: int, *, commit: bool = True):
     """Create default alert preferences for a new user."""
     for pref in DEFAULT_PREFERENCES:
         existing = db.query(AlertPreference).filter(
@@ -74,14 +75,25 @@ def seed_alert_preferences(db: Session, user_id: int):
         ).first()
         if not existing:
             db.add(AlertPreference(user_id=user_id, **pref))
-    db.commit()
+    if commit:
+        db.commit()
 
 
 # ============================================================
 # Deduplication
 # ============================================================
 
-def _should_deduplicate(db, user_id, alert_type, printer_id, spool_id, job_id):
+def lock_queue_alert(db: Session, job_id: int, alert_type: AlertType) -> bool:
+    """Serialize queue outcome dedup within the caller-owned transaction."""
+    if db.get_bind().dialect.name == "postgresql":
+        return db.execute(text("SELECT id FROM jobs WHERE id=:id FOR UPDATE"), {"id": job_id}).first() is not None
+    # Even a zero-row update obtains SQLite's writer boundary. Busy must propagate.
+    db.execute(text("UPDATE alerts SET is_read=is_read WHERE job_id=:id AND alert_type=:type"),
+               {"id": job_id, "type": alert_type.value})
+    return db.execute(text("SELECT id FROM jobs WHERE id=:id"), {"id": job_id}).first() is not None
+
+
+def _should_deduplicate(db, user_id, alert_type, printer_id, spool_id, job_id, metadata=None):
     """
     Check if we should skip creating this alert.
     
@@ -89,6 +101,20 @@ def _should_deduplicate(db, user_id, alert_type, printer_id, spool_id, job_id):
     - maintenance_overdue: Skip if unread alert exists for same printer within 24h
     - print events: Never deduplicate
     """
+    if alert_type in (AlertType.QUEUE_SKIPPED, AlertType.QUEUE_FAILED_START) and job_id:
+        reason = (metadata or {}).get("reason")
+        existing = db.query(Alert).filter(Alert.user_id == user_id,
+            Alert.alert_type == alert_type, Alert.job_id == job_id,
+            Alert.is_read.is_(False), Alert.is_dismissed.is_(False)).all()
+        for alert in existing:
+            stored = alert.metadata_json or {}
+            if isinstance(stored, str):
+                try:
+                    stored = json.loads(stored)
+                except ValueError:
+                    continue
+            if isinstance(stored, dict) and stored.get("reason") == reason:
+                return True
     if alert_type == AlertType.SPOOL_LOW and spool_id:
         existing = db.query(Alert).filter(
             Alert.user_id == user_id,
@@ -318,7 +344,7 @@ def get_operator_admin_ids(db: Session, group_id: int | None = None) -> List[int
 # Main Dispatcher
 # ============================================================
 
-def dispatch_alert(
+def stage_alert(
     db: Session,
     alert_type: AlertType,
     severity: AlertSeverity,
@@ -330,21 +356,18 @@ def dispatch_alert(
     metadata: dict = None,
     target_user_ids: List[int] = None,
 ):
-    """
-    Fan out an alert to users based on their preferences.
-
-    If target_user_ids is set, only those users receive the alert.
-    Otherwise broadcasts to all users (original behavior).
-
-    Handles dedup, creates in-app records, sends push + email.
-    """
+    """Stage tenant-scoped in-app alerts and immutable delivery intent without committing."""
     from modules.notifications.recipient_policy import resolve_alert_scope
+    if alert_type in (AlertType.QUEUE_SKIPPED, AlertType.QUEUE_FAILED_START) and job_id:
+        if not lock_queue_alert(db, job_id, alert_type):
+            return None
+        db.flush()
     try:
         eligible_users, _printer_org_id = resolve_alert_scope(
             db, printer_id=printer_id, job_id=job_id, spool_id=spool_id)
     except Exception:
-        logger.warning("Alert resource scope could not be resolved; delivery refused")
-        return 0
+        logger.warning("Alert resource scope could not be resolved; staging refused")
+        raise
 
     # Quiet hours: save alert to DB but suppress external notifications
     _suppress_external = should_suppress_notification(org_id=_printer_org_id)
@@ -353,11 +376,14 @@ def dispatch_alert(
         AlertPreference.alert_type == alert_type
     ).all()
 
-    # Auto-seed preferences for existing users if none found
+    # Auto-seed preferences without committing the caller transaction.
+    seeded_preferences = False
     if not preferences:
         users = db.execute(text("SELECT id FROM users WHERE is_active IS TRUE")).fetchall()
         for user_row in users:
-            seed_alert_preferences(db, user_row.id)
+            seed_alert_preferences(db, user_row.id, commit=False)
+        db.flush()
+        seeded_preferences = True
         preferences = db.query(AlertPreference).filter(
             AlertPreference.alert_type == alert_type
         ).all()
@@ -369,54 +395,117 @@ def dispatch_alert(
         preferences = [p for p in preferences if p.user_id in target_set]
     
     alerts_created = 0
-    
+    deduplicated = 0
+    in_app_users = []
+    push_users = []
+    email_users = []
     for pref in preferences:
-        if _should_deduplicate(db, pref.user_id, alert_type, printer_id, spool_id, job_id):
+        if _should_deduplicate(db, pref.user_id, alert_type, printer_id, spool_id, job_id, metadata):
+            deduplicated += 1
             continue
-        
         if pref.in_app:
-            _deliver_in_app(
-                db, pref.user_id, alert_type, severity,
-                title, message, printer_id, job_id, spool_id, metadata
-            )
+            _deliver_in_app(db, pref.user_id, alert_type, severity, title, message,
+                            printer_id, job_id, spool_id, metadata)
             alerts_created += 1
-        
-        if pref.browser_push and not _suppress_external:
-            _deliver_browser_push(db, pref.user_id, title, message, severity.value)
+            in_app_users.append(pref.user_id)
+        if pref.browser_push:
+            push_users.append(pref.user_id)
+        if pref.email:
+            email_users.append(pref.user_id)
+    return StagedAlert(alerts_created, seeded_preferences or alerts_created > 0 or
+                       (job_id is not None and alert_type in (AlertType.QUEUE_SKIPPED, AlertType.QUEUE_FAILED_START)), alert_type, severity, title, message,
+                       printer_id, job_id, spool_id, _printer_org_id,
+                       _suppress_external or (bool(preferences) and deduplicated == len(preferences)), tuple(push_users), tuple(email_users), tuple(in_app_users))
 
-        if pref.email and not _suppress_external:
-            _deliver_email(db, pref.user_id, title, message, severity.value)
-    
-    if alerts_created > 0:
-        db.commit()
-    
-    # Global webhooks have no tenant binding. Tenant alerts use only their org webhook.
-    if not _suppress_external and _printer_org_id is None:
-        try:
+
+@dataclass(frozen=True, repr=False)
+class StagedAlert:
+    alerts_created: int
+    commit_required: bool
+    alert_type: AlertType
+    severity: AlertSeverity
+    title: str
+    message: str
+    printer_id: Optional[int]
+    job_id: Optional[int]
+    spool_id: Optional[int]
+    org_id: Optional[int]
+    suppress_external: bool
+    push_users: tuple[int, ...]
+    email_users: tuple[int, ...]
+    in_app_users: tuple[int, ...]
+
+
+def deliver_staged_alert(db: Session, plan: Optional[StagedAlert]):
+    """Best-effort external delivery. Caller must have confirmed its commit first."""
+    if plan is None:
+        return
+    from modules.notifications.recipient_policy import resolve_alert_scope
+    try:
+        eligible, org_id = resolve_alert_scope(db, printer_id=plan.printer_id,
+            job_id=plan.job_id, spool_id=plan.spool_id)
+        if org_id != plan.org_id:
+            return
+        recipients = sorted(set(plan.in_app_users) & eligible)
+        if recipients:
+            from core.event_bus import get_event_bus
+            from core.interfaces.event_bus import Event
+            try:
+                get_event_bus().publish(Event("notifications.alert_dispatched", "notifications", {
+                    "alert_type": plan.alert_type.value, "severity": plan.severity.value,
+                    "title": plan.title, "message": plan.message,
+                    "printer_id": plan.printer_id, "job_id": plan.job_id, "spool_id": plan.spool_id,
+                    "count": len(recipients), "_ws_user_ids": recipients,
+                }))
+            except Exception:
+                logger.warning("Committed alert event publication failed")
+        if plan.suppress_external:
+            return
+        for uid in plan.push_users:
+            if uid in eligible:
+                # Push may remove expired subscriptions. Keep that cleanup in
+                # its own transaction, separate from the committed job session.
+                try:
+                    with Session(db.get_bind()) as push_db:
+                        _deliver_browser_push(push_db, uid, plan.title, plan.message, plan.severity.value)
+                        if push_db.deleted:
+                            push_db.commit()
+                except Exception:
+                    logger.warning("Postcommit push delivery or cleanup failed")
+        for uid in plan.email_users:
+            if uid in eligible:
+                _deliver_email(db, uid, plan.title, plan.message, plan.severity.value)
+        if org_id is None:
             from modules.notifications.channels import send_webhook
-            send_webhook(alert_type.value, title, message, severity.value,
-                         printer_id=printer_id, job_id=job_id)
-        except Exception as e:
-            logger.error(f"Webhook dispatch error: {e}")
-
-    # Org-level webhook dispatch
-    if _printer_org_id and not _suppress_external:
-        try:
+            send_webhook(plan.alert_type.value, plan.title, plan.message, plan.severity.value,
+                         printer_id=plan.printer_id, job_id=plan.job_id)
+        else:
             from core.registry import registry
-            _org_provider = registry.get_provider("OrgSettingsProvider")
-            if _org_provider:
-                org_settings = _org_provider.get_org_settings(db, _printer_org_id)
-                org_webhook_url = org_settings.get("webhook_url")
-                if org_webhook_url:
-                    _send_org_webhook(
-                        org_webhook_url, org_settings.get("webhook_type", "generic"),
-                        alert_type.value, title, message, severity.value
-                    )
-        except Exception as e:
-            logger.error(f"Org webhook dispatch error: {e}")
+            provider = registry.get_provider("OrgSettingsProvider")
+            settings = provider.get_org_settings(db, org_id) if provider else {}
+            if settings.get("webhook_url"):
+                _send_org_webhook(settings["webhook_url"], settings.get("webhook_type", "generic"),
+                    plan.alert_type.value, plan.title, plan.message, plan.severity.value)
+    except Exception:
+        logger.warning("External alert delivery failed after confirmed commit")
 
-    logger.info(f"Dispatched {alert_type.value} alert to {alerts_created} users: {title}")
-    return alerts_created
+
+def dispatch_alert(db: Session, alert_type: AlertType, severity: AlertSeverity,
+                   title: str, message: str = "", printer_id: int = None,
+                   job_id: int = None, spool_id: int = None, metadata: dict = None,
+                   target_user_ids: List[int] = None):
+    try:
+        plan = stage_alert(db, alert_type, severity, title, message, printer_id,
+                           job_id, spool_id, metadata, target_user_ids)
+    except ValueError:
+        # Legacy callers refuse invalid resource references without delivery.
+        return 0
+    if plan is None:
+        return 0
+    if plan.commit_required or db.new or db.dirty or db.deleted:
+        db.commit()
+    deliver_staged_alert(db, plan)
+    return plan.alerts_created
 
 
 def _send_org_webhook(url: str, wtype: str, alert_type_value: str,

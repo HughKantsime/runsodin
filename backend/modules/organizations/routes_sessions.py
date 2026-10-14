@@ -87,6 +87,8 @@ async def revoke_session(session_id: int, current_user: dict = Depends(require_r
 @router.delete("/sessions", tags=["Sessions"], dependencies=[Depends(require_scope("admin"))])
 async def revoke_all_sessions(request: Request, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Revoke all sessions except the current one."""
+    from core.mfa_login import cancel_pending_enrollments
+    cancel_pending_enrollments(db, current_user["id"])
     current_jti = None
     session_cookie = request.cookies.get("session")
     auth_header = request.headers.get("authorization", "")
@@ -393,6 +395,10 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
     audit = [dict(r._mapping) for r in db.execute(
         text("SELECT * FROM audit_logs WHERE entity_type = 'user' AND entity_id = :uid ORDER BY timestamp DESC LIMIT 1000"),
         {"uid": user_id}).fetchall()]
+    if not _is_superadmin(current_user):
+        for row in audit:
+            for field in ("actor_user_id", "actor_username", "actor_auth_kind"):
+                row.pop(field, None)
     sessions_data = [dict(r._mapping) for r in db.execute(
         text("SELECT id, ip_address, user_agent, created_at, last_seen_at FROM active_sessions WHERE user_id = :uid"),
         {"uid": user_id}).fetchall()]
@@ -457,22 +463,6 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
 
     user_data = dict(user._mapping)
 
-    db.execute(text("""UPDATE users SET
-        username = :anon_name, email = '[deleted]', password_hash = '[deleted]',
-        is_active = FALSE, mfa_enabled = FALSE, mfa_secret = NULL,
-        oidc_subject = NULL, oidc_provider = NULL, oidc_issuer = NULL
-        WHERE id = :id"""),
-        {"anon_name": f"[deleted-{user_id}]", "id": user_id})
-
-    db.execute(text("DELETE FROM active_sessions WHERE user_id = :uid"), {"uid": user_id})
-    db.execute(text("DELETE FROM api_tokens WHERE user_id = :uid"), {"uid": user_id})
-    db.execute(text("DELETE FROM alert_preferences WHERE user_id = :uid"), {"uid": user_id})
-    db.execute(text("DELETE FROM push_subscriptions WHERE user_id = :uid"), {"uid": user_id})
-
-    # Submission/resubmission alerts are delivered to reviewers, so deleting
-    # only alerts owned by this user would leave their former username or
-    # email in other users' inboxes. Scrub the known account identifiers while
-    # retaining the operational alert and job reference.
     identifiers = {
         value
         for value in (
@@ -482,6 +472,35 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
         )
         if isinstance(value, str) and value and value != "[deleted]"
     }
+
+    db.execute(text("""UPDATE users SET
+        username = :anon_name, email = '[deleted]', password_hash = '[deleted]',
+        is_active = FALSE, mfa_enabled = FALSE, mfa_secret = NULL,
+        oidc_subject = NULL, oidc_provider = NULL, oidc_issuer = NULL
+        WHERE id = :id"""),
+        {"anon_name": f"[deleted-{user_id}]", "id": user_id})
+
+    from core.audit_actor import erase_actor_history, actor_is_erased
+    erase_actor_history(db, user_id)
+
+    from core.privacy_replay import erase_identifying_replay
+    try:
+        erase_identifying_replay(db, user_id=user_id, identifiers=identifiers)
+    except Exception:
+        try:db.rollback()
+        except Exception:pass
+        raise HTTPException(status_code=503, detail="Erasure could not be confirmed. Try again or contact your administrator.") from None
+
+    db.execute(text("DELETE FROM mfa_enrollments WHERE user_id = :uid"), {"uid": user_id})
+    db.execute(text("DELETE FROM active_sessions WHERE user_id = :uid"), {"uid": user_id})
+    db.execute(text("DELETE FROM api_tokens WHERE user_id = :uid"), {"uid": user_id})
+    db.execute(text("DELETE FROM alert_preferences WHERE user_id = :uid"), {"uid": user_id})
+    db.execute(text("DELETE FROM push_subscriptions WHERE user_id = :uid"), {"uid": user_id})
+
+    # Submission/resubmission alerts are delivered to reviewers, so deleting
+    # only alerts owned by this user would leave their former username or
+    # email in other users' inboxes. Scrub the known account identifiers while
+    # retaining the operational alert and job reference.
     for identifier in identifiers:
         db.execute(
             text(
@@ -531,9 +550,9 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
         {"details": json.dumps({"anonymized_user_id": user_id}), "uid": user_id},
     )
 
-    log_audit(db, "gdpr_erasure", "user", user_id, {
-        "anonymized_user_id": user_id,
-        "actor_user_id": current_user["id"],
-    })
+    erasure_details = {"anonymized_user_id": user_id}
+    if not actor_is_erased(db, current_user["id"]):
+        erasure_details["actor_user_id"] = current_user["id"]
+    log_audit(db, "gdpr_erasure", "user", user_id, erasure_details)
     db.commit()
     return {"status": "ok", "message": "User data erased"}

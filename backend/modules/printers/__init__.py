@@ -23,6 +23,10 @@ TABLES = [
     "printer_telemetry",
     "hms_error_history",
     "ams_telemetry",
+    "ams_read_generations",
+    "ams_current_reads",
+    "ams_report_packets",
+    "ams_report_trays",
 ]
 
 PUBLISHES = [
@@ -40,7 +44,7 @@ SUBSCRIBES = [
 
 IMPLEMENTS = ["PrinterStateProvider"]
 
-REQUIRES = ["NotificationDispatcher", "OrgSettingsProvider", "EducationPolicyProvider"]
+REQUIRES = ["NotificationDispatcher", "OrgSettingsProvider", "EducationPolicyProvider", "TimelapseMediaProvider"]
 
 DAEMONS = [
     "printers.monitors.mqtt_monitor",

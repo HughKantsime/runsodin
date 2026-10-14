@@ -2,6 +2,7 @@ import { fetchAPI } from './client'
 import { clearSensitiveBrowserState } from '../permissions'
 import type {
   Job,
+  RecentTerminalJob,
   JobCreate,
   JobUpdate,
   JobStatus,
@@ -19,6 +20,7 @@ import type {
 const API_BASE = '/api'
 
 export const jobs = {
+  recentTerminal: (orgId: number | null = null): Promise<RecentTerminalJob[]> => fetchAPI('/jobs/recent-terminal' + (orgId != null ? '?org_id=' + orgId : '')),
   list: (status?: JobStatus, orgId: number | null = null): Promise<Job[]> => fetchAPI('/jobs' + (status ? '?status=' + status : '') + (orgId != null ? (status ? '&' : '?') + 'org_id=' + orgId : '')),
   get: (id: number): Promise<Job> => fetchAPI('/jobs/' + id),
   create: (data: JobCreate): Promise<Job> => fetchAPI('/jobs', { method: 'POST', body: JSON.stringify(data) }),

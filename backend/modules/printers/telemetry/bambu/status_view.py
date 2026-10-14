@@ -11,7 +11,7 @@ rewrite their field accessors.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from modules.printers.telemetry.state import PrinterState
 
@@ -44,7 +44,7 @@ class AMSSlotCompat:
     filament_type: str = ""
     color: str = ""
     color_hex: str = ""
-    remaining_percent: int = 0
+    remaining_percent: Optional[int] = None
     rfid_tag: str = ""
     sub_brand: str = ""
     empty: bool = True
@@ -189,19 +189,17 @@ def ams_slots_from_section(section) -> list[AMSSlotCompat]:
         return []
 
     slots: list[AMSSlotCompat] = []
-    slot_number = 1
-    for unit in section.ams.ams:
-        for tray in unit.tray:
-            color_hex = (tray.tray_color or "")[:6] if tray.tray_color else ""
-            slots.append(AMSSlotCompat(
-                slot_number=slot_number,
-                filament_type=tray.tray_type or "",
-                color=tray.tray_color or "",
-                color_hex=color_hex,
-                remaining_percent=int(tray.remain) if tray.remain is not None else 0,
-                rfid_tag=tray.tag_uid or "",
-                sub_brand=tray.tray_sub_brands or "",
-                empty=(not tray.tray_type),
-            ))
-            slot_number += 1
+    from modules.printers.telemetry.bambu.ams_identity import ams_trays_by_slot
+    for slot_number, raw_tray in ams_trays_by_slot([unit.model_dump() for unit in section.ams.ams]):
+        color_hex = (raw_tray.get("tray_color") or "")[:6] if raw_tray.get("tray_color") else ""
+        slots.append(AMSSlotCompat(
+            slot_number=slot_number,
+            filament_type=raw_tray.get("tray_type") or "",
+            color=raw_tray.get("tray_color") or "",
+            color_hex=color_hex,
+            remaining_percent=int(raw_tray.get("remain")) if raw_tray.get("remain") is not None else None,
+            rfid_tag=raw_tray.get("tag_uid") or "",
+            sub_brand=raw_tray.get("tray_sub_brands") or "",
+            empty=(not raw_tray.get("tray_type")),
+        ))
     return slots

@@ -111,3 +111,51 @@ def test_paid_system_admin_can_update_and_test_existing_hook(review_db,signed_li
     assert len(calls)==1
     assert calls[0][0]==('https://synthetic.invalid/hook',)
     assert calls[0][1]['json']['event']=='test'
+
+@pytest.mark.parametrize('operation',['create','patch'])
+@pytest.mark.parametrize('invalid',['{broken','"all"',{'all':True},123,['all',123],['all',''],['all',None],'['*1200+'0'+']'*1200])
+def test_invalid_event_selection_is_rejected_without_partial_mutation(
+    review_db,signed_license,webhook_client,operation,invalid
+):
+    signed_license(tier='pro',features=[])
+    client,identity,calls=webhook_client
+    before=[dict(row._mapping) for row in review_db.execute(text('SELECT * FROM webhooks')).all()]
+    data={'name':'Changed','url':'https://synthetic.invalid/hook','alert_types':invalid}
+    response=client.post('/webhooks',json=data) if operation=='create' else client.patch('/webhooks/501',json=data)
+    assert response.status_code==400
+    assert [dict(row._mapping) for row in review_db.execute(text('SELECT * FROM webhooks')).all()]==before
+    assert calls==[]
+
+@pytest.mark.parametrize('operation',['create','patch'])
+@pytest.mark.parametrize('selection,stored',[
+    (None,None),('',None),([], '[]'),(['print_complete'],'["print_complete"]'),
+    ('["all"]','["all"]'),
+])
+def test_valid_event_selections_persist_canonically(review_db,signed_license,webhook_client,monkeypatch,operation,selection,stored):
+    from modules.notifications.routes import webhooks
+    signed_license(tier='pro',features=[])
+    client,identity,calls=webhook_client
+    monkeypatch.setattr(webhooks,'_encrypt_webhook_url',lambda value:'synthetic-encrypted-value')
+    data={'name':'Valid selection','url':'https://synthetic.invalid/hook','alert_types':selection}
+    response=client.post('/webhooks',json=data) if operation=='create' else client.patch('/webhooks/501',json=data)
+    assert response.status_code==200
+    assert review_db.execute(text("SELECT alert_types FROM webhooks WHERE name='Valid selection'")).scalar_one()==stored
+    assert calls==[]
+
+
+def test_rejected_selection_update_preserves_original_dispatch(review_db,signed_license,webhook_client,monkeypatch):
+    from modules.notifications.routes import webhooks
+    signed_license(tier='pro',features=[])
+    client,identity,calls=webhook_client
+    review_db.execute(text('UPDATE webhooks SET alert_types=:events WHERE id=501'),{'events':'["print_complete"]'});review_db.commit()
+    class ImmediateThread:
+        def __init__(self,target,daemon):self.target=target
+        def start(self):self.target()
+    monkeypatch.setattr(webhooks.threading,'Thread',ImmediateThread)
+    response=client.patch('/webhooks/501',json={'alert_types':['all',123],'name':'Changed'})
+    assert response.status_code==400
+    webhooks._dispatch_to_webhooks(review_db,'print_failed','Synthetic','Synthetic','info')
+    assert calls==[]
+    webhooks._dispatch_to_webhooks(review_db,'print_complete','Synthetic','Synthetic','info')
+    assert len(calls)==1
+    assert calls[0][1]['json']['event']=='print_complete'

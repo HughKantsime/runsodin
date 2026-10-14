@@ -5,6 +5,16 @@ const API_BASE = '/api'
 
 // ---- Model types (defined here to avoid circular deps with job types) ----
 
+export interface ModelScheduleOptions {
+  quantity?: number;
+  priority?: number;
+  due_date?: string | null;
+  notes?: string | null;
+  plate_index?: number | null;
+  print_file_id?: number | null;
+  payload_sha256?: string | null;
+}
+
 export interface ColorRequirement {
   color: string;
   grams: number;
@@ -15,7 +25,7 @@ export interface Model {
   id: number;
   name: string;
   build_time_hours: number | null;
-  default_filament_type: FilamentType;
+  default_filament_type: FilamentType | null;
   color_requirements: Record<string, ColorRequirement> | null;
   category: string | null;
   thumbnail_url: string | null;
@@ -123,6 +133,7 @@ export interface SlicerProfileCreate {
 }
 
 export interface ProfileListParams {
+  printer_model?: string;
   slicer?: string;
   category?: string;
   printer_id?: number | string;
@@ -140,7 +151,8 @@ export const models = {
   create: (data: ModelCreate): Promise<Model> => fetchAPI('/models', { method: 'POST', body: JSON.stringify(data) }),
   update: (id: number, data: ModelUpdate): Promise<Model> => fetchAPI('/models/' + id, { method: 'PATCH', body: JSON.stringify(data) }),
   delete: (id: number): Promise<void> => fetchAPI('/models/' + id, { method: 'DELETE' }),
-  schedule: (id: number, printerId?: number): Promise<unknown> => fetchAPI('/models/' + id + '/schedule' + (printerId ? '?printer_id=' + printerId : ''), { method: 'POST' }),
+  scheduleOptions: (id: number): Promise<{ print_file_id: number | null; payload_sha256: string | null; plate_indices: number[] }> => fetchAPI('/models/' + id + '/schedule-options'),
+  schedule: (id: number, printerId?: number, options?: ModelScheduleOptions): Promise<unknown> => fetchAPI('/models/' + id + '/schedule' + (printerId ? '?printer_id=' + printerId : ''), { method: 'POST', ...(options ? { body: JSON.stringify(options) } : {}) }),
 }
 
 // Model Versioning
@@ -167,12 +179,28 @@ export const modelCost = {
 }
 
 // ============== Profiles ==============
+export interface ProfileRevision {
+  id: number;
+  profile_id: number;
+  revision_number: number;
+  changelog: string | null;
+  created_by: number | null;
+  created_at: string;
+  raw_content?: string;
+}
+
 export const profilesApi = {
+  revisions: (id: number): Promise<ProfileRevision[]> => fetchAPI(`/profiles/${id}/revisions`),
+  createRevision: (id: number, rawContent: string, changelog: string): Promise<ProfileRevision> => fetchAPI(`/profiles/${id}/revisions`, {method:'POST',body:JSON.stringify({raw_content:rawContent,changelog})}),
+  revertRevision: (id: number, revision: number): Promise<ProfileRevision> => fetchAPI(`/profiles/${id}/revert/${revision}`, {method:'POST'}),
+  diffRevisions: (id: number, from: number, to: number): Promise<{diff:string}> => fetchAPI(`/profiles/${id}/diff?from_revision=${from}&to_revision=${to}`),
+
   list: (params: ProfileListParams = {}): Promise<SlicerProfile[]> => {
     const q = new URLSearchParams()
     if (params.slicer) q.set('slicer', params.slicer)
     if (params.category) q.set('category', params.category)
     if (params.printer_id) q.set('printer_id', String(params.printer_id))
+    if (params.printer_model) q.set('printer_model', params.printer_model)
     if (params.filament_type) q.set('filament_type', params.filament_type)
     if (params.search) q.set('search', params.search)
     if (params.page) q.set('page', String(params.page))

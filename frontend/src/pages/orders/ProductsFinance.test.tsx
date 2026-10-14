@@ -76,3 +76,24 @@ it('does not replace a create form with a pending edit response',async()=>{
   expect(screen.getByRole('button',{name:'Create Product'})).toBeTruthy()
   expect(screen.queryByRole('button',{name:'Save Changes'})).toBeNull()
 })
+
+it.each([0,null])('shows zero and unknown product estimates explicitly (%s)',async estimate=>{
+ vi.mocked(products.list).mockResolvedValue([{...product,estimated_cogs:estimate}] as any)
+ render(<Products/>);await screen.findAllByText('Synthetic free product')
+ expect(screen.getByText(estimate===0?'Est. COGS: $0.00':'Est. COGS: Unknown')).toBeInTheDocument()
+ const row=screen.getAllByText('Synthetic free product').find(element=>element.closest('tr'))!.closest('tr')!
+ expect(row.children[4].textContent).toBe(estimate===0?'$0.00':'Unknown')
+})
+
+it.each([[12.99,0,'$6.50'],[0,0,'$0.00'],[12.99,null,'Unknown'],[null,null,'Unknown'],[1e308,1e308,'Unknown'],[-1,1,'Unknown']])('shows catalog counts and a complete precise average (%s,%s)',async(first,second,average)=>{
+ vi.mocked(products.list).mockResolvedValue([
+  {...product,id:1,name:'Synthetic first catalog',price:first,components:[{id:10},{id:11}]},
+  {...product,id:2,name:'Synthetic second catalog',sku:null,price:second,components:[{id:12}]},
+ ] as any)
+ render(<Products/>);await screen.findAllByText('Synthetic first catalog')
+ const value=(label:string)=>screen.getAllByText(label,{exact:true}).find(element=>element.tagName==='DIV')!.parentElement!.firstElementChild!.textContent
+ expect(value('Products')).toBe('2')
+ expect(value('Components')).toBe('3')
+ expect(value('With SKU')).toBe('1')
+ expect(value('Avg Price')).toBe(average)
+})

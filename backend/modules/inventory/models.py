@@ -10,7 +10,7 @@ from sqlalchemy import (
     Column, Integer, String, Float, DateTime, Boolean,
     ForeignKey, Enum as SQLEnum, Text, JSON
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 from sqlalchemy.sql import func
 
 from core.base import Base, FilamentType, SpoolStatus, _ENUM_VALUES
@@ -153,7 +153,7 @@ class ProductConsumable(Base):
     quantity_per_product = Column(Float, default=1)
     notes = Column(Text, nullable=True)
 
-    product = relationship("Product", backref="consumable_links")
+    product = relationship("Product", backref=backref("consumable_links", cascade="all, delete-orphan"))
     consumable = relationship("Consumable", back_populates="product_links")
 
 

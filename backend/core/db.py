@@ -16,6 +16,8 @@ apply per-module SQL migration files idempotently.
 import os
 from pathlib import Path
 
+from fastapi import Request
+from core.audit_actor import register_request_session, clear_session
 from sqlalchemy import event, text
 from sqlalchemy.orm import sessionmaker
 
@@ -59,12 +61,14 @@ elif not IS_POSTGRES:
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-def get_db():
+def get_db(request: Request = None):
     """Dependency for database sessions."""
     db = SessionLocal()
+    register_request_session(db, request)
     try:
         yield db
     finally:
+        clear_session(db)
         db.close()
 
 

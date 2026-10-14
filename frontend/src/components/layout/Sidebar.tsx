@@ -1,9 +1,11 @@
+import { useTranslation } from '../../contexts/I18nContext'
 import { useState } from "react"
 import { NavLink } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
   LayoutDashboard,
   Video,
+  Film,
   Calendar,
   Printer,
   Box,
@@ -93,6 +95,7 @@ export function NavGroup({ label, collapsed, open, onToggle }) {
 
 
 export default function Sidebar({ mobileOpen, onMobileClose }) {
+  const { t } = useTranslation()
   const [collapsed, setCollapsed] = useState(false)
   const [sections, setSections] = useState({ work: true, library: true, insights: true, tools: true })
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
@@ -129,6 +132,12 @@ export default function Sidebar({ mobileOpen, onMobileClose }) {
     queryFn: () => printers.list(false, '', org.orgId),
     refetchInterval: 15000,
   })
+
+  const onlinePrinters = (printersData || []).filter(isOnline)
+  const printingCount = onlinePrinters.filter(p => ['RUNNING', 'PRINTING'].includes(p.gcode_state?.trim().toUpperCase())).length
+  const idleCount = onlinePrinters.filter(p => ['IDLE', 'READY', 'FINISH', 'COMPLETED'].includes(p.gcode_state?.trim().toUpperCase())).length
+  const otherCount = onlinePrinters.length - printingCount - idleCount
+  const offlineCount = (printersData?.length || 0) - onlinePrinters.length
 
   // Close mobile menu on nav click
   const handleNavClick = () => {
@@ -226,38 +235,39 @@ export default function Sidebar({ mobileOpen, onMobileClose }) {
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto p-4 space-y-1 min-h-0">
           {/* Fleet */}
-          {canAccessPage('dashboard') && <NavItem collapsed={collapsed && !mobileOpen} to="/" icon={LayoutDashboard} onClick={handleNavClick}>Dashboard</NavItem>}
-          {canAccessPage('printers') && <NavItem collapsed={collapsed && !mobileOpen} to="/printers" icon={Printer} onClick={handleNavClick}>Printers</NavItem>}
-          {canAccessPage('cameras') && <NavItem collapsed={collapsed && !mobileOpen} to="/cameras" icon={Video} onClick={handleNavClick}>Cameras</NavItem>}
+          {canAccessPage('dashboard') && <NavItem collapsed={collapsed && !mobileOpen} to="/" icon={LayoutDashboard} onClick={handleNavClick}>{t('nav.dashboard')}</NavItem>}
+          {canAccessPage('printers') && <NavItem collapsed={collapsed && !mobileOpen} to="/printers" icon={Printer} onClick={handleNavClick}>{t('nav.printers')}</NavItem>}
+          {canAccessPage('cameras') && <NavItem collapsed={collapsed && !mobileOpen} to="/cameras" icon={Video} onClick={handleNavClick}>{t('nav.cameras')}</NavItem>}
+          {canAccessPage('cameras') && <NavItem collapsed={collapsed && !mobileOpen} to="/timelapses" icon={Film} onClick={handleNavClick}>Timelapses</NavItem>}
           <NavItem collapsed={collapsed && !mobileOpen} to="/archives" icon={Archive} onClick={handleNavClick}>Archives</NavItem>
-          <NavItem collapsed={collapsed && !mobileOpen} to="/alerts" icon={BellIcon} onClick={handleNavClick}>Alerts</NavItem>
+          <NavItem collapsed={collapsed && !mobileOpen} to="/alerts" icon={BellIcon} onClick={handleNavClick}>{t('nav.alerts')}</NavItem>
           <NavItem collapsed={collapsed && !mobileOpen} to="/detections" icon={Eye} onClick={handleNavClick}>Detections</NavItem>
 
           {/* Work */}
-          {(canAccessPage("jobs") || canAccessPage("upload") || canAccessPage("timeline")) && <NavGroup label="Work" collapsed={collapsed && !mobileOpen} open={sections.work} onToggle={() => toggle("work")} />}
+          {(canAccessPage("jobs") || canAccessPage("upload") || canAccessPage("timeline")) && <NavGroup label={t('nav.work')} collapsed={collapsed && !mobileOpen} open={sections.work} onToggle={() => toggle("work")} />}
           {((collapsed && !mobileOpen) || sections.work) && <>
             {educationMode && lic.isEducation && canAccessPage('education') && <NavItem collapsed={collapsed && !mobileOpen} to="/education" icon={GraduationCap} onClick={handleNavClick}>Education</NavItem>}
-            {canAccessPage('jobs') && <NavItem collapsed={collapsed && !mobileOpen} to="/jobs" icon={ListTodo} onClick={handleNavClick}>Jobs</NavItem>}
-            {canAccessPage('timeline') && <NavItem collapsed={collapsed && !mobileOpen} to="/timeline" icon={Calendar} onClick={handleNavClick}>Timeline</NavItem>}
-            {adv && lic.isPro && !educationMode && canAccessPage('jobs') && <NavItem collapsed={collapsed && !mobileOpen} to="/orders" icon={ShoppingCart} onClick={handleNavClick}>Orders{!lic.isPro && <ProBadge />}</NavItem>}
-            {canAccessPage('upload') && <NavItem collapsed={collapsed && !mobileOpen} to="/upload" icon={UploadIcon} onClick={handleNavClick}>Upload</NavItem>}
+            {canAccessPage('jobs') && <NavItem collapsed={collapsed && !mobileOpen} to="/jobs" icon={ListTodo} onClick={handleNavClick}>{t('nav.jobs')}</NavItem>}
+            {canAccessPage('timeline') && <NavItem collapsed={collapsed && !mobileOpen} to="/timeline" icon={Calendar} onClick={handleNavClick}>{t('nav.timeline')}</NavItem>}
+            {adv && lic.isPro && !educationMode && canAccessPage('jobs') && <NavItem collapsed={collapsed && !mobileOpen} to="/orders" icon={ShoppingCart} onClick={handleNavClick}>{t('nav.orders')}{!lic.isPro && <ProBadge />}</NavItem>}
+            {canAccessPage('upload') && <NavItem collapsed={collapsed && !mobileOpen} to="/upload" icon={UploadIcon} onClick={handleNavClick}>{t('nav.upload')}</NavItem>}
           </>}
 
           {/* Library */}
-          {(canAccessPage("models") || canAccessPage("spools")) && <NavGroup label="Library" collapsed={collapsed && !mobileOpen} open={sections.library} onToggle={() => toggle("library")} />}
+          {(canAccessPage("models") || canAccessPage("spools")) && <NavGroup label={t('nav.library')} collapsed={collapsed && !mobileOpen} open={sections.library} onToggle={() => toggle("library")} />}
           {((collapsed && !mobileOpen) || sections.library) && <>
-            {canAccessPage('models') && <NavItem collapsed={collapsed && !mobileOpen} to="/models" icon={Box} onClick={handleNavClick}>Models</NavItem>}
+            {canAccessPage('models') && <NavItem collapsed={collapsed && !mobileOpen} to="/models" icon={Box} onClick={handleNavClick}>{t('nav.models')}</NavItem>}
             <NavItem collapsed={collapsed && !mobileOpen} to="/profiles" icon={SlidersHorizontal} onClick={handleNavClick}>Profiles</NavItem>
-            {adv && lic.isPro && !educationMode && canAccessPage('models') && <NavItem collapsed={collapsed && !mobileOpen} to="/products" icon={ShoppingBag} onClick={handleNavClick}>Products{!lic.isPro && <ProBadge />}</NavItem>}
-            {canAccessPage('spools') && <NavItem collapsed={collapsed && !mobileOpen} to="/spools" icon={Circle} onClick={handleNavClick}>Spools</NavItem>}
+            {adv && lic.isPro && !educationMode && canAccessPage('models') && <NavItem collapsed={collapsed && !mobileOpen} to="/products" icon={ShoppingBag} onClick={handleNavClick}>{t('nav.products')}{!lic.isPro && <ProBadge />}</NavItem>}
+            {canAccessPage('spools') && <NavItem collapsed={collapsed && !mobileOpen} to="/spools" icon={Circle} onClick={handleNavClick}>{t('nav.spools')}</NavItem>}
             {adv && lic.isPro && !educationMode && canAccessPage('models') && <NavItem collapsed={collapsed && !mobileOpen} to="/consumables" icon={Package} onClick={handleNavClick}>Consumables{!lic.isPro && <ProBadge />}</NavItem>}
           </>}
 
           {/* Insights (was Monitor — Pro only) */}
           {adv && lic.isPro && (canAccessPage("analytics") || canAccessPage("maintenance")) && <NavGroup label="Insights" collapsed={collapsed && !mobileOpen} open={sections.insights} onToggle={() => toggle("insights")} />}
           {adv && lic.isPro && ((collapsed && !mobileOpen) || sections.insights) && <>
-            {canAccessPage('maintenance') && <NavItem collapsed={collapsed && !mobileOpen} to="/maintenance" icon={Wrench} onClick={handleNavClick}>Maintenance</NavItem>}
-            {canAccessPage('analytics') && <NavItem collapsed={collapsed && !mobileOpen} to="/analytics" icon={BarChart3} onClick={handleNavClick}>Analytics</NavItem>}
+            {canAccessPage('maintenance') && <NavItem collapsed={collapsed && !mobileOpen} to="/maintenance" icon={Wrench} onClick={handleNavClick}>{t('nav.maintenance')}</NavItem>}
+            {canAccessPage('analytics') && <NavItem collapsed={collapsed && !mobileOpen} to="/analytics" icon={BarChart3} onClick={handleNavClick}>{t('nav.analytics')}</NavItem>}
             {canAccessPage('analytics') && <NavItem collapsed={collapsed && !mobileOpen} to="/utilization" icon={Activity} onClick={handleNavClick}>Utilization</NavItem>}
             {canAccessPage('education_reports') && <NavItem collapsed={collapsed && !mobileOpen} to="/education-reports" icon={BarChart3} onClick={handleNavClick}>Usage Reports</NavItem>}
           </>}
@@ -265,12 +275,12 @@ export default function Sidebar({ mobileOpen, onMobileClose }) {
           {/* Tools */}
           {adv && canAccessPage("calculator") && <NavGroup label="Tools" collapsed={collapsed && !mobileOpen} open={sections.tools} onToggle={() => toggle("tools")} />}
           {adv && ((collapsed && !mobileOpen) || sections.tools) && <>
-            {canAccessPage('calculator') && <NavItem collapsed={collapsed && !mobileOpen} to="/calculator" icon={Calculator} onClick={handleNavClick}>Calculator</NavItem>}
+            {canAccessPage('calculator') && <NavItem collapsed={collapsed && !mobileOpen} to="/calculator" icon={Calculator} onClick={handleNavClick}>{t('nav.calculator')}</NavItem>}
           </>}
 
           {/* Settings */}
           <div className="mt-2" style={{ borderTop: '1px solid var(--brand-sidebar-border)', paddingTop: '0.5rem' }}>
-            {canAccessPage('settings') && <NavItem collapsed={collapsed && !mobileOpen} to="/settings" icon={Settings} onClick={handleNavClick}>Settings</NavItem>}
+            {canAccessPage('settings') && <NavItem collapsed={collapsed && !mobileOpen} to="/settings" icon={Settings} onClick={handleNavClick}>{t('nav.settings')}</NavItem>}
             {canAccessPage('audit') && <NavItem collapsed={collapsed && !mobileOpen} to="/audit" icon={FileText} onClick={handleNavClick}>Audit Log</NavItem>}
           </div>
         </nav>
@@ -285,6 +295,10 @@ export default function Sidebar({ mobileOpen, onMobileClose }) {
               <span className="text-[10px] font-mono" style={{ color: 'var(--brand-sidebar-text)' }}>
                 {printersData.filter(p => isOnline(p)).length}/{printersData.length}
               </span>
+            </div>
+            <div className="flex flex-wrap gap-x-2 gap-y-1 mb-1.5 text-[10px]" style={{ color: 'var(--brand-sidebar-text)' }}>
+              <span>Printing: {printingCount}</span><span>Idle: {idleCount}</span><span>Offline: {offlineCount}</span>
+              {otherCount > 0 && <span>Other: {otherCount}</span>}
             </div>
             <div className="h-1 rounded-full overflow-hidden" style={{ backgroundColor: 'rgb(var(--farm-800))' }}>
               <div

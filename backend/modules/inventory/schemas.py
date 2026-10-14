@@ -3,6 +3,7 @@ modules/inventory/schemas.py — Pydantic schemas for the inventory domain.
 """
 
 from datetime import datetime
+from modules.inventory.constants import MAX_LOW_STOCK_THRESHOLD_G
 from typing import Optional, List
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -28,8 +29,8 @@ class SpoolBase(BaseModel):
     location_slot: Optional[int] = None
     storage_location: Optional[str] = None
     notes: Optional[str] = None
-    pa_profile: Optional[str] = None
-    low_stock_threshold_g: int = 50
+    pa_profile: Optional[str] = Field(default=None, max_length=50)
+    low_stock_threshold_g: int = Field(default=50, ge=0, le=MAX_LOW_STOCK_THRESHOLD_G, strict=True)
     spoolman_spool_id: Optional[int] = None
 
 
@@ -44,8 +45,8 @@ class SpoolUpdate(BaseModel):
     location_slot: Optional[int] = None
     storage_location: Optional[str] = None
     notes: Optional[str] = None
-    pa_profile: Optional[str] = None
-    low_stock_threshold_g: Optional[int] = None
+    pa_profile: Optional[str] = Field(default=None, max_length=50)
+    low_stock_threshold_g: Optional[int] = Field(default=None, ge=0, le=MAX_LOW_STOCK_THRESHOLD_G, strict=True)
     rfid_tag: Optional[str] = None
     color_hex: Optional[str] = None
 

@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
 from core.db import get_db
@@ -15,6 +15,7 @@ from modules.organizations.education_review_service import (
 )
 from modules.organizations.education_schemas import (
     SubmissionApproval,
+    TeacherAMSRead,
     SubmissionRejection,
 )
 
@@ -72,9 +73,14 @@ async def get_submission_compatibility(
 async def approve_education_submission(
     submission_id: int,
     body: SubmissionApproval,
+    request: Request,
     principal: dict = Depends(require_education_principal(write=True)),
     db: Session = Depends(get_db),
 ):
+    if body.ams_mapping is not None:
+        from modules.organizations.education_ams_approval_service import approve_with_explicit_ams
+        return await approve_with_explicit_ams(request, db=db, principal=principal,
+                                              submission_id=submission_id, body=body)
     return approve_submission(
         db,
         submission_id=submission_id,
@@ -96,3 +102,13 @@ async def reject_education_submission(
         body=body,
         principal=principal,
     )
+
+
+@router.post('/{submission_id}/ams-read')
+async def read_education_submission_ams(submission_id: int, body: TeacherAMSRead, request: Request,
+    principal: dict = Depends(require_education_principal(write=True)), db: Session = Depends(get_db)):
+    # Release the cached authentication dependency's read transaction too.
+    db.rollback()
+    db.close()
+    from modules.organizations.education_ams_read_service import acquire_teacher_ams_report
+    return await acquire_teacher_ams_report(request,principal=principal,submission_id=submission_id,body=body)

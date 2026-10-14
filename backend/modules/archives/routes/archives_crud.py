@@ -567,6 +567,8 @@ def reprint_archive(
     db: Session = Depends(get_db),
 ):
     """Reprint an archived job on a specified printer with optional AMS remapping."""
+    from core.interfaces.queue_creation import require_queue_creation_provider
+    queue_creator = require_queue_creation_provider()
     archive = db.execute(
         text("SELECT * FROM print_archives WHERE id = :id"), {"id": archive_id}
     ).fetchone()
@@ -613,7 +615,7 @@ def reprint_archive(
         if expected and not hmac.compare_digest(str(expected).lower(), payload_hash):
             raise HTTPException(400, "Original print file contents changed")
     validate_plate(file_path, body.plate_index, printer.api_type)
-    slots = {slot.slot_number for slot in db.query(FilamentSlot).filter(
+    slots = {slot.slot_number: getattr(slot.filament_type, "value", slot.filament_type) for slot in db.query(FilamentSlot).filter(
         FilamentSlot.printer_id == printer.id).all()}
     mapping = validate_mapping(body.ams_mapping, file["filaments_json"], slots, printer.api_type)
     identity = user if isinstance(user, dict) else vars(user)
@@ -625,7 +627,8 @@ def reprint_archive(
         charged_to_org_id=identity.get("group_id"), quantity=1, hold=False,
         is_locked=False, target_type="specific",
     )
-    db.add(new_job)
+
+    queue_creator.stage_job(db, new_job, identity)
     db.commit()
     db.refresh(new_job)
 
@@ -653,9 +656,16 @@ def preview_model(
     original_name = row.original_filename or "model"
     if not stored_path:
         raise preview_not_found()
-    real_path = os.path.realpath(stored_path)
-    root = os.path.realpath(PREVIEW_STORAGE_ROOT).rstrip(os.sep) + os.sep
-    if not real_path.startswith(root):
+    from pathlib import Path
+    real_path = Path(stored_path).resolve()
+    roots = [Path(PREVIEW_STORAGE_ROOT).resolve()]
+    configured_root = os.environ.get("PRINT_FILE_STORAGE_ROOT")
+    if configured_root:
+        configured = Path(configured_root)
+        if not configured.is_absolute():
+            raise HTTPException(status_code=400, detail="Print file storage root must be an absolute path")
+        roots.append(configured.resolve())
+    if not any(real_path.is_relative_to(root) for root in roots):
         raise HTTPException(status_code=400, detail="Invalid file path")
     if not os.path.exists(real_path):
         raise preview_not_found()

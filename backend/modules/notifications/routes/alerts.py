@@ -252,7 +252,8 @@ async def mark_alert_read(
 
 @router.post("/alerts/mark-all-read")
 async def mark_all_read(
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_role("viewer")),
+    _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
     db: Session = Depends(get_db)
 ):
     """Mark all alerts as read for the current user."""
@@ -325,6 +326,24 @@ async def dismiss_alert(
             ),
         ),
     }
+
+
+@router.delete("/alerts/{alert_id}")
+async def delete_alert(
+    alert_id: int,
+    current_user: dict = Depends(require_role("operator")),
+    _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
+    db: Session = Depends(get_db),
+):
+    """Delete only an alert owned by the current operator or administrator."""
+    deleted = db.query(Alert).filter(
+        Alert.id == alert_id,
+        Alert.user_id == current_user["id"],
+    ).delete(synchronize_session=False)
+    if not deleted:
+        raise OdinError(ErrorCode.alert_not_found, f"Alert {alert_id} not found", status=404)
+    db.commit()
+    return {"status": "ok", "alert_id": alert_id}
 
 
 # ============== Alert Preferences ==============

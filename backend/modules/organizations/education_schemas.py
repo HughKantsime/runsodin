@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class EducationCapabilities(BaseModel):
@@ -98,10 +98,30 @@ class PrinterReplacement(BaseModel):
         return value
 
 
+class AMSMappingEntry(BaseModel):
+    model_config = {'extra': 'forbid'}
+    source_slot: Annotated[int, Field(strict=True, ge=0, le=15)]
+    target_slot: Annotated[int, Field(strict=True, ge=1, le=16)]
+
+
 class SubmissionApproval(BaseModel):
     revision: int = Field(ge=1)
     printer_id: int = Field(gt=0)
     command_id: UUID
+    ams_mapping: list[AMSMappingEntry] | None = Field(default=None, min_length=1, max_length=16)
+    ams_generation_id: Annotated[str, Field(pattern=r'^[0-9a-f]{32}$')] | None = None
+    plate_index: Annotated[int, Field(strict=True, ge=0, le=15)] | None = None
+
+    @model_validator(mode='after')
+    def require_complete_ams_selection(self):
+        if self.ams_mapping is not None:
+            if self.ams_generation_id is None or self.plate_index is None:
+                raise ValueError('AMS selection requires a current report and explicit plate')
+            if len({x.source_slot for x in self.ams_mapping}) != len(self.ams_mapping) or len({x.target_slot for x in self.ams_mapping}) != len(self.ams_mapping):
+                raise ValueError('AMS selection must not duplicate sources or trays')
+        elif self.ams_generation_id is not None or self.plate_index is not None:
+            raise ValueError('AMS report and plate require an explicit mapping')
+        return self
 
 
 class SubmissionRejection(BaseModel):
@@ -115,4 +135,18 @@ class SubmissionRejection(BaseModel):
         value = value.strip()
         if not value:
             raise ValueError("must not be blank")
+        return value
+
+
+class TeacherAMSRead(BaseModel):
+    model_config = {'extra': 'forbid'}
+    revision: Annotated[int, Field(strict=True, ge=1)]
+    printer_id: Annotated[int, Field(strict=True, gt=0)]
+    selected_slots: list[Annotated[int, Field(strict=True, ge=1, le=16)]] = Field(min_length=1, max_length=16)
+
+    @field_validator('selected_slots')
+    @classmethod
+    def unique_selected_slots(cls, value):
+        if len(set(value)) != len(value):
+            raise ValueError('Selected trays must be unique')
         return value

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { useLicense } from '../../LicenseContext'
@@ -6,6 +6,7 @@ import { groups, users as usersApi } from '../../api'
 import { Plus, Edit2, Trash2, Users, X, FolderOpen, RefreshCw } from 'lucide-react'
 
 function GroupModal({ group, operatorAdmins, onClose, onSave }) {
+  const fieldId = useId()
   const [formData, setFormData] = useState({
     name: group?.name || '',
     description: group?.description || '',
@@ -30,16 +31,16 @@ function GroupModal({ group, operatorAdmins, onClose, onSave }) {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Name</label>
-            <input type="text" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-hidden focus:border-[var(--brand-primary)]" required placeholder="e.g. Mrs. Smith's Class" />
+            <label htmlFor={`${fieldId}-name`} className="block text-sm text-[var(--brand-text-secondary)] mb-1">Name</label>
+            <input id={`${fieldId}-name`} type="text" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-hidden focus:border-[var(--brand-primary)]" required placeholder="e.g. Mrs. Smith's Class" />
           </div>
           <div>
-            <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Description (optional)</label>
-            <textarea value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-hidden focus:border-[var(--brand-primary)] resize-none" rows={2} placeholder="e.g. Period 3 Engineering" />
+            <label htmlFor={`${fieldId}-description`} className="block text-sm text-[var(--brand-text-secondary)] mb-1">Description (optional)</label>
+            <textarea id={`${fieldId}-description`} value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-hidden focus:border-[var(--brand-primary)] resize-none" rows={2} placeholder="e.g. Period 3 Engineering" />
           </div>
           <div>
-            <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Owner (approver)</label>
-            <select value={formData.owner_id} onChange={(e) => setFormData({ ...formData, owner_id: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-hidden focus:border-[var(--brand-primary)]">
+            <label htmlFor={`${fieldId}-owner`} className="block text-sm text-[var(--brand-text-secondary)] mb-1">Owner (approver)</label>
+            <select id={`${fieldId}-owner`} value={formData.owner_id} onChange={(e) => setFormData({ ...formData, owner_id: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-hidden focus:border-[var(--brand-primary)]">
               <option value="">No owner</option>
               {operatorAdmins?.map(u => (
                 <option key={u.id} value={u.id}>{u.username} ({u.role})</option>

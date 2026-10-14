@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from tests.test_contracts.test_education_review_workflow import review_db
 
 pytest.importorskip("sqlalchemy", reason="SQLAlchemy not installed")
 pytest.importorskip("fastapi", reason="FastAPI not installed")
@@ -82,12 +83,24 @@ class TestQueueJobSource:
         return src
 
     def test_canonical_pattern(self, fn_src: str):
-        _assert_canonical_write(fn_src, "create_job")
+        # Quota checking moved to the transaction-owned shared helper. Keep
+        # the handler wiring assertion, but inspect its actual error boundary.
+        assert 'charge_job_quota(db, current_user)' in fn_src
+        quota_source = _get_function_source((BACKEND_DIR / 'core' / 'quota.py').read_text(), 'charge_job_quota')
+        _assert_canonical_write(fn_src + '\n' + quota_source, "create_job")
 
-    def test_quota_exceeded_uses_odin_error(self, fn_src: str):
+    def test_quota_exceeded_uses_odin_error(self, review_db):
         """Quota exceeded is 429, must use OdinError(quota_exceeded) not HTTPException(429)."""
-        assert re.search(r"OdinError\(\s*ErrorCode\.quota_exceeded", fn_src)
-        assert not re.search(r"HTTPException\(\s*status_code\s*=\s*429", fn_src)
+        from core.quota import charge_job_quota
+        from core.errors import OdinError, ErrorCode
+        from sqlalchemy import text
+        before = review_db.execute(text('SELECT COUNT(*) FROM quota_usage')).scalar_one()
+        with pytest.raises(OdinError) as refusal:
+            charge_job_quota(review_db, {'id':1, 'quota_jobs':1, 'quota_period':'monthly'}, count=2)
+        assert refusal.value.code == ErrorCode.quota_exceeded
+        assert refusal.value.status == 429
+        assert refusal.value.retriable is False
+        assert review_db.execute(text('SELECT COUNT(*) FROM quota_usage')).scalar_one() == before
 
     def test_would_execute_includes_approval_flag(self, fn_src: str):
         assert "requires_approval" in fn_src or "initial_status" in fn_src

@@ -16,9 +16,9 @@ import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import text, update
 
 from core.auth import create_access_token
 from core.db import get_db
@@ -85,6 +85,7 @@ async def create_biometric_token(
 @router.post("/auth/biometric-refresh", response_model=BiometricRefreshResponse)
 async def refresh_with_biometric_token(
     body: BiometricRefreshRequest,
+    request: Request,
     db: Session = Depends(get_db),
 ):
     """
@@ -95,57 +96,80 @@ async def refresh_with_biometric_token(
     """
     token_hash = _hash_token(body.refresh_token)
 
-    bio_token = (
-        db.query(BiometricToken)
-        .filter(
-            BiometricToken.token_hash == token_hash,
-            BiometricToken.device_id == body.device_id,
-            BiometricToken.is_revoked == False,  # noqa: E712
+    try:
+        bio_token = (
+            db.query(BiometricToken)
+            .filter(
+                BiometricToken.token_hash == token_hash,
+                BiometricToken.device_id == body.device_id,
+                BiometricToken.is_revoked == False,  # noqa: E712
+            )
+            .first()
         )
-        .first()
-    )
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=503, detail='Login temporarily unavailable. Try again later.') from None
 
     if not bio_token:
         raise HTTPException(status_code=401, detail="Invalid or revoked biometric token")
 
     if bio_token.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
-        bio_token.is_revoked = True
-        db.commit()
+        db.rollback()
         raise HTTPException(status_code=401, detail="Biometric token expired — please log in again")
 
-    # Look up the user
-    user_row = db.execute(
-        text("SELECT * FROM users WHERE id = :id AND is_active IS TRUE"),
-        {"id": bio_token.user_id},
-    ).fetchone()
+    # Acquire parent authority before changing its credential. SQLite's exact
+    # no-op write also fences a transaction that already performed discovery.
+    try:
+        if db.get_bind().dialect.name == 'sqlite':
+            db.execute(text('UPDATE users SET id=id WHERE id=:id'), {'id': bio_token.user_id})
+        suffix = ' FOR UPDATE NOWAIT' if db.get_bind().dialect.name == 'postgresql' else ''
+        user_row = db.execute(
+            text('SELECT * FROM users WHERE id=:id AND is_active IS TRUE' + suffix),
+            {'id': bio_token.user_id},
+        ).fetchone()
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=503, detail='Login temporarily unavailable. Try again later.') from None
     if not user_row:
-        raise HTTPException(status_code=401, detail="User not found or inactive")
+        db.rollback()
+        raise HTTPException(status_code=401, detail='User not found or inactive')
 
-    # Rolling: revoke current token, issue new one
-    bio_token.is_revoked = True
-    bio_token.last_used_at = datetime.now(timezone.utc)
-
+    original_id = bio_token.id
+    original_expiry = bio_token.expires_at
+    if original_expiry.replace(tzinfo=timezone.utc) <= datetime.now(timezone.utc):
+        db.rollback()
+        raise HTTPException(status_code=401, detail='Biometric token expired; please log in again')
     new_raw = secrets.token_hex(32)
-    new_hash = _hash_token(new_raw)
     new_expires = datetime.now(timezone.utc) + timedelta(days=BIOMETRIC_TOKEN_TTL_DAYS)
-
-    new_token = BiometricToken(
-        user_id=bio_token.user_id,
-        device_id=body.device_id,
-        token_hash=new_hash,
-        expires_at=new_expires,
-    )
-    db.add(new_token)
-    db.commit()
-
-    # Issue new JWT
-    access_token = create_access_token(
-        data={"sub": user_row.username, "role": user_row.role}
-    )
-
-    log.info(f"Biometric refresh: user={bio_token.user_id} device={body.device_id[:8]}…")
-    return BiometricRefreshResponse(access_token=access_token)
-
+    try:
+        rotated = db.execute(
+            update(BiometricToken).where(
+                BiometricToken.id == original_id,
+                BiometricToken.user_id == user_row.id,
+                BiometricToken.device_id == body.device_id,
+                BiometricToken.token_hash == token_hash,
+                BiometricToken.is_revoked.is_(False),
+                BiometricToken.expires_at == original_expiry,
+            ).values(token_hash=_hash_token(new_raw), expires_at=new_expires,
+                     last_used_at=datetime.now(timezone.utc))
+            .execution_options(synchronize_session=False)
+        )
+        if rotated.rowcount != 1:
+            db.rollback()
+            raise HTTPException(status_code=401, detail='Invalid or revoked biometric token')
+        access_token = create_access_token(data={'sub': user_row.username, 'role': user_row.role})
+        from core.session_tracking import stage_session
+        if stage_session(db, user_row.id, access_token,
+                         request.client.host if request.client else 'unknown',
+                         request.headers.get('user-agent', '')) is not True:
+            raise RuntimeError('Session staging refused')
+        db.commit()
+    except HTTPException:
+        raise
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=503, detail='Login temporarily unavailable. Try again later.') from None
+    return BiometricRefreshResponse(access_token=access_token, refresh_token=new_raw, expires_at=new_expires)
 
 @router.delete("/auth/biometric-token", status_code=204)
 async def revoke_biometric_token(

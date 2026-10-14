@@ -13,6 +13,7 @@ import base64
 import hashlib
 import os
 import uuid
+import tempfile
 from datetime import datetime, date, time as datetime_time, timezone
 from typing import Optional, Dict, Any
 from pathlib import Path
@@ -42,8 +43,8 @@ TIERS = {
     },
     "pro": {
         "name": "Pro",
-        "max_printers": 9999,
-        "max_users": 9999,
+        "max_printers": None,
+        "max_users": None,
         "features": [
             "multi_user", "rbac", "sso", "white_label",
             "permissions", "branding",
@@ -335,23 +336,62 @@ def _license_expiry_deadline(value: str) -> datetime:
 
 
 def load_license() -> LicenseInfo:
-    """Load and validate the license file. Returns LicenseInfo."""
-    info = LicenseInfo()
-
-    license_path = _find_license_file()
-    if not license_path:
-        # No license file = Community tier (valid, just limited)
-        info.valid = False
-        info.tier = "community"
-        info.max_printers = TIERS["community"]["max_printers"]
-        info.max_users = TIERS["community"]["max_users"]
-        info.features = TIERS["community"]["features"]
-        return info
-
+    """Load and validate the installed license file."""
+    path = _find_license_file()
+    if not path:
+        return LicenseInfo()
     try:
-        with open(license_path, "r") as f:
-            raw = f.read().strip()
+        with open(path) as stream:
+            raw = stream.read().strip()
+    except Exception:
+        info = LicenseInfo()
+        info.error = "Failed to read license file"
+        return info
+    # Runtime retains defensive installation-ID creation after a valid signature.
+    return verify_license_text(raw, installation_id_reader=get_installation_id)
 
+
+def _read_existing_installation_id() -> str:
+    """Read binding authority without creating or changing installation state."""
+    try:
+        with open(os.path.join(LICENSE_DIR, INSTALL_ID_FILENAME)) as stream:
+            return stream.read().strip()
+    except FileNotFoundError:
+        return ""
+
+
+def normalize_license_upload(content: bytes) -> str:
+    """Normalize bounded compact/JSON imports without changing installed state."""
+    from fastapi import HTTPException
+    if len(content) > 1024 * 1024:
+        raise HTTPException(status_code=400, detail="License file is too large")
+    try:
+        license_text = content.decode("utf-8").strip()
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid license file format")
+
+    import json as _json
+    try:
+        license_json = _json.loads(license_text)
+    except RecursionError:
+        raise HTTPException(status_code=400, detail="Invalid license file format")
+    except ValueError:
+        license_json = None
+    else:
+        if not isinstance(license_json, dict) or not all(
+            isinstance(license_json.get(field), str) for field in ("payload", "signature")
+        ):
+            raise HTTPException(status_code=400, detail="Invalid license file format")
+        license_text = license_json["payload"] + "." + license_json["signature"]
+
+    return license_text
+
+
+def verify_license_text(raw: str, installation_id_reader=None) -> LicenseInfo:
+    """Verify candidate bytes using runtime rules, without installing a file."""
+    info = LicenseInfo()
+    installation_id_reader = installation_id_reader or _read_existing_installation_id
+    try:
         # License format: two base64 blocks separated by a dot
         # <base64_payload>.<base64_signature>
         parts = raw.split(".")
@@ -388,7 +428,7 @@ def load_license() -> LicenseInfo:
         payload_install_id = payload.get("installation_id")
         info.binding_present = bool(payload_install_id)
         if payload_install_id:
-            info.binding_matches_current = payload_install_id == get_installation_id()
+            info.binding_matches_current = payload_install_id == installation_id_reader()
             if not info.binding_matches_current:
                 info.error = "License is bound to a different installation"
                 return info
@@ -423,7 +463,8 @@ def load_license() -> LicenseInfo:
         info.email = payload.get("email", "")
         info.issued_at = payload.get("issued_at", "")
         info.expires_at = payload["expires_at"]
-        info.max_printers = payload.get("max_printers", tier_def["max_printers"]) or tier_def["max_printers"]
+        max_printers = payload.get("max_printers")
+        info.max_printers = tier_def["max_printers"] if max_printers is None else max_printers
         # The activation service uses null for an unspecified tier-default cap.
         # Preserve explicit numeric limits, including zero.
         max_users = payload.get("max_users")
@@ -443,8 +484,8 @@ def load_license() -> LicenseInfo:
     except json.JSONDecodeError:
         info.error = "License file contains invalid data"
         return info
-    except Exception as e:
-        info.error = f"Failed to read license: {str(e)}"
+    except Exception:
+        info.error = "License file contains invalid data"
         return info
 
 
@@ -453,9 +494,8 @@ def save_license_file(content: str, directory: str = None) -> str:
     target_dir = directory or LICENSE_DIR
     os.makedirs(target_dir, exist_ok=True)
     path = os.path.join(target_dir, LICENSE_FILENAME)
-    temporary = path + ".tmp"
     encoded = content.strip().encode("utf-8")
-    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    fd, temporary = tempfile.mkstemp(prefix=".odin-license-", suffix=".tmp", dir=target_dir)
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(encoded)
@@ -463,6 +503,15 @@ def save_license_file(content: str, directory: str = None) -> str:
             os.fsync(f.fileno())
         os.chmod(temporary, 0o600)
         os.replace(temporary, path)
+        # Replacement is visible even if the following durability confirmation fails.
+        global _cached_license, _cached_mtime
+        _cached_license = None
+        _cached_mtime = 0
+        directory_fd = os.open(target_dir, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
     except Exception:
         try:
             os.unlink(temporary)
@@ -530,7 +579,7 @@ def check_printer_limit(current_count: int):
     """Check if adding another printer would exceed the license limit."""
     from fastapi import HTTPException
     license_info = get_license()
-    if current_count >= license_info.max_printers:
+    if license_info.max_printers is not None and current_count >= license_info.max_printers:
         raise HTTPException(
             status_code=403,
             detail=f"Printer limit reached ({license_info.max_printers}). Upgrade to Pro for unlimited printers."
@@ -541,7 +590,7 @@ def check_user_limit(current_count: int):
     """Check if adding another user would exceed the license limit."""
     from fastapi import HTTPException
     license_info = get_license()
-    if current_count >= license_info.max_users:
+    if license_info.max_users is not None and current_count >= license_info.max_users:
         raise HTTPException(
             status_code=403,
             detail=f"User limit reached ({license_info.max_users}). Upgrade to Pro for unlimited users."

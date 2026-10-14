@@ -2,16 +2,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 
-import { fetchAPI } from './api'
+import { license as licenseAPI } from './api'
+import publicWire from './test-fixtures/public-license-wire-owned.json'
 import { LicenseProvider, featuresFromLicense, useLicense } from './LicenseContext'
 
-vi.mock('./api', () => ({ fetchAPI: vi.fn() }))
+vi.mock('./api', () => ({ license: { get: vi.fn() } }))
 
 function Probe() {
   const license = useLicense()
   return (
     <div>
       <span data-testid="tier">{license.tier}</span>
+      <span data-testid="expires">{String(license.expires)}</span>
+      <span data-testid="licensee">{String(license.licensee)}</span>
+      <span data-testid="installation">{String(license.installation_id)}</span>
       <span data-testid="quota">{String(license.hasFeature('print_quotas'))}</span>
       <span data-testid="groups">{String(license.hasFeature('user_groups'))}</span>
       <span data-testid="class-sections">{String(license.hasFeature('class_sections'))}</span>
@@ -29,7 +33,7 @@ describe('LicenseProvider effective feature contract', () => {
   beforeEach(() => vi.clearAllMocks())
 
   it('uses API-provided Education entitlements and limits', async () => {
-    fetchAPI.mockResolvedValue({
+    licenseAPI.get.mockResolvedValue({
       tier: 'education',
       max_users: 500,
       max_printers: 20,
@@ -48,7 +52,7 @@ describe('LicenseProvider effective feature contract', () => {
   })
 
   it('honors the backend Community max_users value', async () => {
-    fetchAPI.mockResolvedValue({
+    licenseAPI.get.mockResolvedValue({
       tier: 'community', max_users: 1, max_printers: 5, features: [],
     })
     render(<LicenseProvider><Probe /></LicenseProvider>)
@@ -63,7 +67,7 @@ describe('LicenseProvider effective feature contract', () => {
   })
 
   it('clears stale entitlements when a refresh fails', async () => {
-    fetchAPI
+    licenseAPI.get
       .mockResolvedValueOnce({
         tier: 'education', max_users: 500, max_printers: 20,
         features: ['print_quotas'], managed_externally: true,
@@ -81,4 +85,22 @@ describe('LicenseProvider effective feature contract', () => {
     expect(screen.getByTestId('loading')).toHaveTextContent('false')
     expect(screen.getByTestId('load-error')).toHaveTextContent('true')
   })
+})
+
+it.each([null, 0, 2, 374, 9999])('preserves API user cap %s and enforces finite overrides', async cap => {
+  licenseAPI.get.mockResolvedValue({ tier: 'pro', max_users: cap, max_printers: cap, features: [] })
+  render(<LicenseProvider><Probe /></LicenseProvider>)
+  await waitFor(() => expect(screen.getByTestId('tier')).toHaveTextContent('pro'))
+  expect(screen.getByTestId('max-users')).toHaveTextContent(String(cap))
+  expect(screen.getByTestId('at-limit')).toHaveTextContent(String(cap !== null && 1 >= cap))
+})
+
+
+it('uses actual public expiry while keeping private identity absent', async () => {
+  licenseAPI.get.mockResolvedValue(publicWire.body)
+  render(<LicenseProvider><Probe /></LicenseProvider>)
+  await waitFor(() => expect(screen.getByTestId('tier')).toHaveTextContent('education'))
+  expect(screen.getByTestId('expires')).toHaveTextContent('2099-01-01')
+  expect(screen.getByTestId('licensee')).toHaveTextContent('null')
+  expect(screen.getByTestId('installation')).toHaveTextContent('null')
 })

@@ -3,6 +3,7 @@ import { clearSensitiveBrowserState } from '../permissions'
 import type {
   User,
   UserCreate,
+  UserCreateResult,
   UserUpdate,
   LoginResponse,
   MfaSetupResponse,
@@ -18,9 +19,10 @@ import type {
   Quota,
   QuotaUpdate,
   IpAllowlistConfig,
-  AuditLog,
+  AuditLogPage,
   AuditLogParams,
   SetupStatus,
+  PublicLicense,
   GdprExportData,
 } from '../types'
 
@@ -106,7 +108,7 @@ export const apiTokens = {
 // Users (admin only)
 export const users = {
   list: (): Promise<User[]> => fetchAPI('/users'),
-  create: (data: UserCreate): Promise<User> => fetchAPI('/users', { method: 'POST', body: JSON.stringify(data) }),
+  create: (data: UserCreate): Promise<UserCreateResult> => fetchAPI('/users', { method: 'POST', body: JSON.stringify(data) }),
   update: (id: number, data: UserUpdate): Promise<User> => fetchAPI(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   delete: (id: number): Promise<void> => fetchAPI(`/users/${id}`, { method: 'DELETE' }),
   resetPasswordEmail: (id: number): Promise<unknown> => fetchAPI(`/users/${id}/reset-password-email`, { method: 'POST' }),
@@ -141,7 +143,7 @@ export const setup = {
 }
 
 export const license = {
-  get: (): Promise<License> => fetchAPI('/license'),
+  get: (): Promise<PublicLicense> => fetchAPI('/license'),
   upload: (file: File): Promise<License> => {
     const formData = new FormData()
     formData.append('file', file)
@@ -178,16 +180,20 @@ export const ipAllowlist = {
 }
 
 // Audit Logs
+function auditQuery(params: AuditLogParams, paging = true): string {
+  const query = new URLSearchParams()
+  if (paging && params.limit !== undefined) query.set('limit', String(params.limit))
+  if (paging && params.offset !== undefined) query.set('offset', String(params.offset))
+  if (params.entity_type) query.set('entity_type', params.entity_type)
+  if (params.action) query.set('action', params.action)
+  if (params.date_from) query.set('date_from', params.date_from)
+  if (params.date_to) query.set('date_to', params.date_to)
+  if (params.q) query.set('q', params.q)
+  const qs = query.toString()
+  return qs ? '?' + qs : ''
+}
+
 export const auditLogs = {
-  list: (params: AuditLogParams = {}): Promise<AuditLog[]> => {
-    const query = new URLSearchParams()
-    if (params.limit) query.set('limit', String(params.limit))
-    if (params.offset) query.set('offset', String(params.offset))
-    if (params.entity_type) query.set('entity_type', params.entity_type)
-    if (params.action) query.set('action', params.action)
-    if (params.date_from) query.set('date_from', params.date_from)
-    if (params.date_to) query.set('date_to', params.date_to)
-    const qs = query.toString()
-    return fetchAPI(`/audit-logs${qs ? '?' + qs : ''}`)
-  },
+  list: (params: AuditLogParams = {}): Promise<AuditLogPage> => fetchAPI(`/audit-logs${auditQuery(params)}`),
+  exportCsv: (params: AuditLogParams = {}): Promise<string> => fetchAPI(`/export/audit-logs${auditQuery(params, false)}`, {}, 'csv'),
 }

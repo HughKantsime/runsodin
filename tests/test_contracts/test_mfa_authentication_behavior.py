@@ -14,6 +14,7 @@ def mfa_client(review_db,monkeypatch):
     from core.dependencies import get_current_user
     from modules.organizations import routes_auth
     monkeypatch.setenv('ENCRYPTION_KEY',Fernet.generate_key().decode())
+    routes_auth.limiter._storage.reset()
     app=FastAPI();app.include_router(routes_auth.router)
     def request_db():
         with Session(review_db.get_bind()) as session:yield session

@@ -44,6 +44,8 @@ def _entry(
 
 
 POLICY_INVENTORY = (
+    _entry("models_library.upload_storage", "fresh actor/duplicate/model namespace helpers", "file/model/user/token", "authorize/serialize upload", "current operator with write:models; canonical Education file audience and exact owner namespace", ("generic print-file upload",), "test_print_file_upload_ownership_behavior.py", "guarded"),
+    _entry("models_library.file_management", "list/read/delete/schedule generic file", "file/model/job/printer/submission", "read/delete/queue", "current scoped viewer/operator; canonical file audience; persisted Education lifecycle protection", ("generic queue",), "test_print_file_management_audience_behavior.py", "guarded"),
     _entry("archives.attempt_accounting", "capture_attempt_spools/account_archive", "physical attempt/job/file/spool", "capture/account", "trusted archive persistence; unresolved ownership leaves inventory unchanged", ("spool usage", "filament delivery outbox"), "test_archive_ownership_accounting_boundary.py", "guarded"),
     _entry("archives.ownership", "capture_content_owner", "job/file/model/Education submission", "read ownership", "trusted first-start or explicit superadmin repair", ("immutable archive ownership",), "test_archive_legacy_ownership_behavior.py", "guarded"),
     _entry("archives.legacy_ownership", "resolve_legacy_archive_ownership", "archive/job/file/Education source graph", "bounded ownership repair", "explicit superadmin with write:jobs; caller-owned atomic transaction", ("archive visibility",), "test_archive_legacy_ownership_behavior.py", "guarded"),
@@ -58,6 +60,8 @@ POLICY_INVENTORY = (
     _entry("organizations.routes", "delete_org", "organization", "lifecycle", "superadmin", (), "test_education_policy_inventory.py", "guarded"),
     _entry("printers.routes_crud", "update/delete printer", "printer", "lifecycle", "tenant admin", (), "test_education_policy_inventory.py", "guarded"),
     _entry("core.app.websocket", "websocket_endpoint", "event", "notify", "explicit live user", ("browser websocket",), "test_education_policy_inventory.py", "guarded"),
+    _entry("printers.dispatch_admission", "admit", "job/printer/submission/retained claim", "dispatch-admission", "trusted dispatch worker; current scoped resources and exact committed claim", ("adapter-entry receipt",), "test_dispatch_receipt_admission_behavior.py", "guarded"),
+    _entry("printers.routes_dispatch_recovery", "GET /printers/{id}/dispatch-recovery", "printer/job/submission/retained claim", "read", "current scoped viewer with read:printers", (), "test_dispatch_recovery_inspection.py", "guarded"),
     _entry("printers.dispatch", "dispatch_job", "submission/job/printer", "dispatch", "trusted dispatch worker", ("printer adapter",), "test_education_dispatch_policy.py", "guarded"),
     _entry("printers.smart_plug", "printer state subscriber", "submission/job/printer", "dispatch", "trusted physical-action worker", ("smart plug",), "test_education_dispatch_policy.py", "batch2_required"),
     _entry("printers.routes_smart_plug", "router:/printers/{id}/plug/*", "printer", "physical-control", "authorized operator/admin", ("smart plug",), "test_education_dispatch_policy.py", "batch2_required"),
@@ -120,6 +124,14 @@ POLICY_INVENTORY = (
     _entry("notifications.channels", "channel send methods", "Education alert", "external-sink", "none for Education", ("email", "webhook"), "test_education_notification_privacy.py", "batch2_required"),
     _entry("notifications.event_dispatcher", "event dispatch worker", "Education event", "external-sink", "none for Education", ("notification channels",), "test_education_notification_privacy.py", "batch2_required"),
     _entry("notifications.routes.webhooks", "webhook routes/worker", "Education event", "external-sink", "none for Education", ("webhook",), "test_education_notification_privacy.py", "batch2_required"),
+    _entry("archives.first_start_valuation", "freeze_unit_valuation", "attempt/job/file/material", "capture", "sealed admitted StartPlan and material fence", ("attempt accounting",), "test_first_start_callback_order_ownership.py", "guarded"),
+    _entry("archives.timelapse_encode", "EncodeJournal", "job/printer/media lifetime", "encode/publication", "current capture graph and guarded recorded namespace", ("media worker", "media reads"), "test_timelapse_encoder_publication.py", "guarded"),
+    _entry("archives.timelapse_frame_capture", "capture frame", "job/printer/file/media lifetime", "capture", "fenced capture owner and camera graph", ("FrameJournal",), "test_timelapse_capture_ownership.py", "guarded"),
+    _entry("archives.timelapse_frame_namespace", "bind_or_open_namespace", "media lifetime/ownership anchor", "namespace", "caller transaction and exact media guard", ("frame capture", "encode"), "test_timelapse_frame_namespace.py", "guarded"),
+    _entry("archives.valuation_content_visibility", "assert_content_visible", "model/file/path/submission", "private-read", "caller bound reader and fenced content closure", ("private valuation response",), "test_private_attempt_valuation_route.py", "guarded"),
+    _entry("archives.valuation_financial_graph", "prove_financial_graph", "attempt/job/order/economic identity", "private-read", "caller reader and locked financial parents; supplies no reader authority", ("private valuation response",), "test_private_attempt_valuation_route.py", "guarded"),
+    _entry("jobs.recent_terminal", "recent terminal projection", "job/file/submission/thumbnail", "read", "token scope and tenant/content policy audience", ("dashboard",), "test_recent_terminal_jobs.py", "guarded"),
+    _entry("organizations.education_ams_payload_authority", "capture_payload_graph/lock_and_recheck_payload_graph", "submission/job/model/file/upload operation", "approve-payload", "current reviewer and exact committed upload graph", ("AMS approval",), "test_education_ams_payload_authority.py", "guarded"),
 )
 
 

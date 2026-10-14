@@ -11,6 +11,8 @@ import contextlib
 import fcntl
 import hashlib
 import json
+import importlib
+import re
 import os
 import shutil
 import sqlite3
@@ -127,7 +129,10 @@ def _sha256(path: Path) -> str:
 
 
 def _normalized_schema_sql(value: str | None) -> str:
-    return " ".join(str(value or "").lower().split())
+    # SQL keywords may change case; literal and quoted-identifier contents may not.
+    parts = re.split(r"('(?:[^']|'')*'|\"(?:[^\"]|\"\")*\")", str(value or ""))
+    return "".join(part if index % 2 else re.sub(r"\s+", " ", part.lower())
+                   for index, part in enumerate(parts)).strip()
 
 
 _ALLOWED_SQLITE_TRIGGERS = {
@@ -142,6 +147,201 @@ _ALLOWED_SQLITE_TRIGGERS = {
         "'education audit events are immutable'); END"
     ),
 }
+
+
+# Closed packaged producers; archive SQL is never a source of authority.
+_LATE_TRIGGER_MODULES = (
+    '021_economic_identity', '022_economic_source_lifetimes',
+    '023_timelapse_retirement_membership', '024_audit_actor',
+    '025_spool_purchase_evidence', '026_global_order_origins',
+    '027_power_target_operations',
+)
+
+
+def _canonical_sqlite_triggers():
+    allowed = {name: ("education_audit_events", definition)
+               for name, definition in _ALLOWED_SQLITE_TRIGGERS.items()}
+    def add(name, table, definition):
+        if name in allowed:
+            raise ValueError('Duplicate packaged trigger')
+        allowed[name] = (table, _normalized_schema_sql(definition))
+    try:
+        contract = importlib.import_module("core.schema.migrations.009_cost_foundation")
+        contract._helper_integrity()
+        for kind, name, table, definition in contract.EXPECTED_SQLITE:
+            if kind == "trigger":
+                add(name, table, definition)
+        for suffix in _LATE_TRIGGER_MODULES:
+            module = importlib.import_module('core.schema.migrations.' + suffix)
+            if suffix.startswith('021_'):
+                definitions = {}
+                for table in module.TABLES:
+                    for name, sql in module._sqlite_triggers(table).items():
+                        if name in definitions:
+                            raise ValueError('Duplicate packaged trigger')
+                        definitions[name] = sql
+            elif suffix.startswith('022_'):
+                definitions = module._sqlite_triggers()
+            else:
+                module._source()
+                if suffix.startswith('023_'):
+                    definitions = module.sqlite_triggers()
+                elif suffix.startswith('024_'):
+                    definitions = module.schema.trigger_sql(False)
+                else:
+                    definitions = module.schema.sqlite_triggers()
+            for name, definition in definitions.items():
+                # Parse only the closed trusted producer's simple header.
+                header = re.match(r'CREATE\s+TRIGGER\s+([a-z_][a-z0-9_]*)\s+BEFORE\s+(?:INSERT|UPDATE|DELETE)\s+ON\s+([a-z_][a-z0-9_]*)\b', definition, re.I)
+                after_header = re.match(r'CREATE\s+TRIGGER\s+([a-z_][a-z0-9_]*)\s+AFTER\s+UPDATE\s+ON\s+([a-z_][a-z0-9_]*)\b', definition, re.I)
+                header = header or after_header
+                if not header or header[1] != name:
+                    raise ValueError('Packaged trigger header differs')
+                add(name, header[2], definition)
+    except Exception:
+        raise BackupValidationError("Packaged backup trigger contract is unavailable") from None
+    return allowed
+
+
+# Minimum columns and recursive dependencies are literal reviewed contracts.
+_COST_COLUMNS = {
+    'cost_identities': 'identity_uid resource_kind resource_id owner_scope owner_key',
+    'cost_order_memberships': 'child_uid child_kind order_uid order_kind owner_scope owner_key',
+    'cost_job_bindings': 'job_uid job_kind order_uid item_uid item_kind owner_scope owner_key',
+    'cost_attempt_bindings': 'attempt_uid attempt_kind job_uid order_uid item_uid owner_scope owner_key',
+    'cost_obligations': 'obligation_uid order_uid order_kind item_uid item_kind owner_scope owner_key source_uid source_kind allocation_key obligation_kind required_quantity evidence_state evidence_reason',
+    'cost_attempt_participation': 'attempt_uid attempt_kind obligation_uid owner_scope owner_key state reason',
+    'finance_currency_settings': 'owner_scope owner_key currency',
+}
+_COST_DEPENDENCIES = {
+    'cost_order_memberships': ('cost_identities',),
+    'cost_job_bindings': ('cost_order_memberships',),
+    'cost_attempt_bindings': ('cost_job_bindings','cost_identities'),
+    'cost_obligations': ('cost_order_memberships',),
+    'cost_attempt_participation': ('cost_attempt_bindings','cost_obligations'),
+}
+_SOURCE_COLUMNS = {
+    'orders': 'id economic_uid org_id',
+    'order_items': 'id economic_uid order_id',
+    'jobs': 'id economic_uid order_item_id charged_to_org_id',
+    'spools': 'id economic_uid economic_birth_nonce org_id',
+    'print_jobs': 'id economic_uid economic_birth_nonce scheduled_job_id printer_id spool_snapshot',
+    'cost_source_lifetimes': 'birth_nonce resource_kind resource_id state identity_uid owner_scope owner_key job_uid order_uid item_uid attempt_uid',
+}
+
+_MEMBERSHIP_COLUMNS = {'timelapse_retirement_lifetime_bindings': 'operation_id version_nonce lifetime_nonce phase object_count '
+                                           'created_at sealed_at',
+ 'timelapse_retirement_members': 'operation_id object_index role version_nonce retained_version_nonce '
+                                 'namespace_id publication_id fact_role fact_path',
+ 'timelapse_retirement_container_receipts': 'operation_id object_index role phase completed_at',
+ 'timelapse_retirements': 'operation_id timelapse_id printer_id owner_state owner_org_id filename '
+                          'root_device root_inode state created_at',
+ 'timelapse_retirement_objects': 'operation_id object_index relative_path kind device inode uid gid mode '
+                                 'link_count byte_count mtime_ns ctime_ns state quarantine_name reason_code',
+ 'timelapse_media_versions': 'version_nonce lifetime_nonce',
+ 'timelapse_media_lifetimes': 'lifetime_nonce root_device root_inode',
+ 'timelapse_ownership_anchors': 'operation_id timelapse_id printer_id filename owner_state owner_org_id',
+ 'timelapses': 'id ownership_operation_id retirement_operation_id status printer_id filename frame_count '
+               'completed_at duration_seconds file_size_mb',
+ 'timelapse_frame_namespaces': 'namespace_id lifetime_nonce relative_path phase device inode uid gid mode',
+ 'timelapse_publications': 'operation_id kind frame_namespace_id source_lifetime result_nonce '
+                           'result_lifetime phase state destination_path published_ctime_ns source_nonce '
+                           'private_directory private_name',
+ 'timelapse_publication_facts': 'operation_id role relative_path device inode uid gid mode link_count '
+                                'byte_count mtime_ns ctime_ns',
+ 'timelapse_retained_versions': 'version_nonce lifetime_nonce state retire_operation_id '
+                                'retained_by_operation filename',
+ 'timelapse_retirement_moves': 'operation_id object_index kind phase verified_ctime_ns',
+ 'timelapse_retirement_unlinks': 'operation_id object_index phase',
+ 'audit_logs': 'action entity_type entity_id details'}
+
+_PURCHASE_COLUMNS = {
+ 'spool_purchase_evidence': 'evidence_nonce spool_uid birth_nonce resource_kind owner_scope owner_key revision currency price_decimal net_weight_g_decimal weight_basis provenance recorded_at',
+ 'spools': _SOURCE_COLUMNS['spools'] + ' price initial_weight_g purchase_evidence_nonce purchase_revision',
+}
+_ORIGIN_COLUMNS = {
+ 'orders': _SOURCE_COLUMNS['orders'] + ' economic_global_origin_nonce',
+ 'cost_global_order_origins': 'order_uid resource_kind owner_scope owner_key origin_nonce proof_kind recorded_at',
+ 'cost_global_origin_exclusions': 'order_uid resource_kind owner_scope owner_key',
+}
+_POWER_COLUMNS = 'operation_nonce request_nonce owner_nonce printer_id target_key config_key destination_key purpose physical_job_id scheduled_job_id observation_key actor_user_id auth_kind authority_key state revision created_at changed_at command_started_at release_pending_at completed_at outcome cleanup_reason'
+
+
+def _required_sqlite_guards(columns, allowed):
+    required_tables = set()
+    def require(table, names):
+        if not set(names.split()).issubset(columns.get(table, set())):
+            raise BackupValidationError('Backup has incomplete supported trigger dependencies')
+        required_tables.add(table)
+    def cost(table):
+        if table in required_tables:
+            return
+        require(table, _COST_COLUMNS[table])
+        for parent in _COST_DEPENDENCIES.get(table, ()):
+            cost(parent)
+    def source(table):
+        if table in required_tables:
+            return
+        require(table, _SOURCE_COLUMNS[table])
+        cost('cost_identities')
+        if table == 'order_items':
+            source('orders'); cost('cost_order_memberships')
+        elif table == 'jobs':
+            source('order_items'); cost('cost_job_bindings')
+    def births():
+        require('cost_source_lifetimes', _SOURCE_COLUMNS['cost_source_lifetimes'])
+        require('spools', _SOURCE_COLUMNS['spools'])
+        require('print_jobs', _SOURCE_COLUMNS['print_jobs'])
+        source('jobs'); cost('cost_attempt_bindings')
+    for table in _COST_COLUMNS:
+        if table in columns:
+            cost(table)
+    for table in ('orders','order_items','jobs'):
+        if 'economic_uid' in columns.get(table, ()):
+            source(table)
+    if 'cost_source_lifetimes' in columns or any(
+        'economic_birth_nonce' in columns.get(t, ()) or 'economic_uid' in columns.get(t, ())
+        for t in ('spools','print_jobs')
+    ):
+        births()
+    membership = ('timelapse_retirement_lifetime_bindings', 'timelapse_retirement_members', 'timelapse_retirement_container_receipts')
+    membership_active = any(t in columns for t in membership)
+    if membership_active:
+        for table, names in _MEMBERSHIP_COLUMNS.items():
+            require(table, names)
+    actor_columns = {'actor_user_id','actor_username','actor_auth_kind'}
+    if 'audit_actor_erasures' in columns or actor_columns.intersection(columns.get('audit_logs', ())):
+        require('audit_actor_erasures', 'user_id erased_at')
+        require('audit_logs', 'actor_user_id actor_username actor_auth_kind')
+    if 'spool_purchase_evidence' in columns or {'purchase_evidence_nonce','purchase_revision'}.intersection(columns.get('spools', ())):
+        births()
+        for table, names in _PURCHASE_COLUMNS.items():
+            require(table, names)
+    if any(t in columns for t in ('cost_global_order_origins','cost_global_origin_exclusions')) or 'economic_global_origin_nonce' in columns.get('orders', ()):
+        source('orders')
+        for table, names in _ORIGIN_COLUMNS.items():
+            require(table, names)
+    if 'power_target_operations' in columns:
+        require('power_target_operations', _POWER_COLUMNS)
+    if 'education_audit_events' in columns:
+        required_tables.add('education_audit_events')
+    # Table requirements do not imply unrelated late families on the same source.
+    required = set()
+    for name, (table, _) in allowed.items():
+        if table not in required_tables:
+            continue
+        if '_economic_birth_' in name and 'cost_source_lifetimes' not in required_tables:
+            continue
+        if table in ('orders','order_items','jobs') and '_economic_' in name and 'economic_uid' not in columns.get(table, ()):
+            continue
+        if '_membership_' in name and not membership_active:
+            continue
+        if name.startswith('spools_purchase_') and 'spool_purchase_evidence' not in required_tables:
+            continue
+        if name.startswith('orders_global_origin_') and 'cost_global_order_origins' not in required_tables:
+            continue
+        required.add(name)
+    return required
 
 
 @contextlib.contextmanager
@@ -184,6 +384,9 @@ def validate_database(path: Path) -> dict[str, object]:
                 raise BackupValidationError(
                     "Backup is missing required ODIN tables: " + ", ".join(missing)
                 )
+            all_columns = {table: {row[0] for row in connection.execute(
+                "SELECT name FROM pragma_table_info(?)", (table,)).fetchall()}
+                for table in tables}
             for table, required_columns in REQUIRED_COLUMNS.items():
                 columns = {
                     row[0]
@@ -199,17 +402,21 @@ def validate_database(path: Path) -> dict[str, object]:
                     )
             if any(kind == "view" for kind, _, _, _ in objects):
                 raise BackupValidationError("Backup contains unexpected triggers or views")
+            allowed_triggers = _canonical_sqlite_triggers()
             for kind, name, table_name, statement in objects:
                 if kind != "trigger":
                     continue
                 if (
-                    table_name != "education_audit_events"
-                    or _ALLOWED_SQLITE_TRIGGERS.get(name)
-                    != _normalized_schema_sql(statement)
+                    allowed_triggers.get(name)
+                    != (table_name, _normalized_schema_sql(statement))
                 ):
                     raise BackupValidationError(
                         "Backup contains unexpected triggers or views"
                     )
+            required_guards = _required_sqlite_guards(all_columns, allowed_triggers)
+            present_guards = {name for kind, name, _, _ in objects if kind == 'trigger'}
+            if required_guards - present_guards:
+                raise BackupValidationError('Backup is missing required canonical trigger guards')
         finally:
             connection.close()
     except sqlite3.Error as exc:

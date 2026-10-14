@@ -25,6 +25,7 @@ class BambuReportEvent:
     printer_id: str
     ts: float
     section: BambuPrintSection
+    mqtt_retained: bool | None = None
 
 
 @dataclass(frozen=True)

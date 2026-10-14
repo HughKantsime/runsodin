@@ -5,6 +5,9 @@ calculate_job_cost lives here so other modules (jobs) can import it
 without crossing into modules/models_library/routes.py (a boundary violation).
 """
 
+import math
+
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from core.models import SystemConfig
@@ -88,5 +91,16 @@ def calculate_job_cost(
 
     margin = model.markup_percent if model and model.markup_percent is not None else config["default_margin"]
     suggested_price = subtotal * (1 + margin / 100)
+
+    numeric_results = (
+        filament_grams, print_hours, cost_per_gram, labor_hours, material_cost,
+        labor_cost, electricity_cost, depreciation_cost, packaging_cost,
+        base_cost, failure_cost, overhead_cost, subtotal, margin, suggested_price,
+    )
+    if not all(math.isfinite(value) for value in numeric_results):
+        raise HTTPException(
+            status_code=422,
+            detail="Pricing calculation exceeds supported numeric range",
+        )
 
     return (round(subtotal, 2), round(suggested_price, 2), margin)

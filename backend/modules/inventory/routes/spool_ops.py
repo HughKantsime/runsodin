@@ -41,7 +41,7 @@ def export_spools_csv(
     writer.writerow([
         "ID", "Brand", "Name", "Material", "Color", "Initial Weight (g)",
         "Remaining Weight (g)", "% Remaining", "Status", "Vendor", "Price",
-        "Storage Location", "Notes",
+        "Storage Location", "Notes", "PA Profile",
     ])
     for s in spools:
         writer.writerow([
@@ -58,6 +58,7 @@ def export_spools_csv(
             s.price or "",
             s.storage_location or "",
             s.notes or "",
+            s.pa_profile or "",
         ])
     output.seek(0)
     return StreamingResponse(

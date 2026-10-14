@@ -412,7 +412,7 @@ def test_sqlite_compatibility_inventory_is_complete_and_current() -> None:
     }
     assert any(
         path.endswith("notifications/job_events.py")
-        and source.startswith('f"""INSERT INTO print_jobs')
+        and source.startswith('f"""UPDATE print_jobs SET')
         for path, source in qmark_sources
     )
     assert any(

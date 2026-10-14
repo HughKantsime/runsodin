@@ -6,6 +6,7 @@ how much; accounting must resolve an explicit complete mapping separately.
 from __future__ import annotations
 
 import json
+from decimal import Decimal, InvalidOperation
 from core.db_utils import _postgres_placeholders
 
 
@@ -28,27 +29,66 @@ def _finite_quantity(value):
         return False
 
 
-def capture_attempt_spools(connection, print_job_id: int, printer_id: int, *, source: str) -> bool:
+def _purchase_inputs(price, net_weight):
+    """Freeze raw purchase evidence, without guessing currency or valuation."""
+    result = {'state': 'recorded', 'reason': None, 'price': None,
+              'net_weight_g': None, 'weight_basis': 'stored_net_filament_weight',
+              'currency': None, 'valuation_state': 'unknown_currency'}
+    for key, value, positive in [('price', price, False), ('net_weight_g', net_weight, True)]:
+        reason = None
+        if value is None:
+            reason = 'missing_price' if key == 'price' else 'missing_net_weight'
+        else:
+            try:
+                if isinstance(value, bool):
+                    raise ValueError('boolean purchase input')
+                number = Decimal(str(value))
+                if not number.is_finite() or number < 0 or (positive and number == 0):
+                    raise ValueError('invalid purchase input')
+                canonical = format(number, 'f')
+                if '.' in canonical:
+                    canonical = canonical.rstrip('0').rstrip('.')
+                result[key] = '0' if number == 0 else canonical
+            except (InvalidOperation, ValueError):
+                reason = 'invalid_price' if key == 'price' else 'invalid_net_weight'
+        if reason and result['reason'] is None:
+            result.update(state='unresolved', reason=reason)
+    return result
+
+
+def capture_attempt_spools(connection, print_job_id: int, printer_id: int, *, source: str, start_scope=None, start_plan=None) -> bool:
     """Capture only a newly created running attempt; never commit or overwrite.
 
     Callers must invoke this on first physical start, not when resuming an old
     running row. Missing historical attribution remains missing on recovery.
     """
+    prospective = start_scope is not None or start_plan is not None
+    material_fence = None
+    if prospective:
+        from core.economic_source_creation import SourceCreationError
+        if start_scope is None or start_plan is None:
+            raise SourceCreationError('Paired fresh capture scope and plan required')
+        from .first_start_valuation import fence_material_membership
+        material_fence = fence_material_membership(connection, start_scope, start_plan, print_job_id)
     locked = execute(connection,
         "UPDATE print_jobs SET id=id WHERE id=? AND printer_id=? "
         "AND status='running' AND spool_snapshot IS NULL",
         (print_job_id, printer_id))
     if locked.rowcount != 1:
+        if prospective:
+            raise SourceCreationError('Fresh capture row changed')
         return False
     printer = execute(connection, 'SELECT org_id FROM printers WHERE id=?', (printer_id,)).fetchone()
     if printer is None:
+        if prospective:
+            raise SourceCreationError('Fresh capture printer disappeared')
         return False
     slots = execute(connection,
         'SELECT fs.slot_number,fs.assigned_spool_id,s.org_id,s.id '
         'FROM filament_slots fs LEFT JOIN spools s ON s.id=fs.assigned_spool_id '
-        'WHERE fs.printer_id=? ORDER BY fs.slot_number,fs.id', (printer_id,)).fetchall()
+        'WHERE fs.printer_id=? ORDER BY fs.slot_number,fs.id' + (' LIMIT 17' if prospective else ''), (printer_id,)).fetchall()
     located = execute(connection,
-        "SELECT id,org_id FROM spools WHERE location_printer_id=? AND status='active' ORDER BY id",
+        "SELECT id,org_id FROM spools WHERE location_printer_id=? AND status='active' ORDER BY id" + (' LIMIT 17' if prospective else ''),
         (printer_id,)).fetchall()
     from .ownership import capture_content_owner
     scheduled = execute(connection, 'SELECT scheduled_job_id FROM print_jobs WHERE id=?', (print_job_id,)).fetchone()[0]
@@ -56,18 +96,26 @@ def capture_attempt_spools(connection, print_job_id: int, printer_id: int, *, so
         'version': 1, 'printer_id': printer_id, 'printer_org_id': printer[0],
         'source': source,
         'content_owner': capture_content_owner(connection, scheduled),
-        'material_plan': _material_plan(connection, print_job_id, printer_id, printer[0], slots, located),
+        'material_plan': _material_plan(connection, print_job_id, printer_id, printer[0], slots, located, bounded=prospective),
         'slots': [{'slot_number': row[0], 'spool_id': row[1], 'spool_org_id': row[2], 'spool_existed': row[3] is not None}
                   for row in slots],
         'located_spools': [{'spool_id': row[0], 'spool_org_id': row[1]} for row in located],
     }
+    if prospective:
+        from .first_start_valuation import freeze_unit_valuation
+        snapshot['unit_valuation'] = freeze_unit_valuation(connection, start_scope, start_plan, print_job_id, snapshot['material_plan'], material_fence)
     changed = execute(connection,
         'UPDATE print_jobs SET spool_snapshot=? WHERE id=? AND printer_id=? AND spool_snapshot IS NULL',
         (json.dumps(snapshot, sort_keys=True, separators=(',', ':')), print_job_id, printer_id))
+    if prospective:
+        if changed.rowcount != 1:
+            raise SourceCreationError('Fresh valuation snapshot changed')
+        from core.attempt_start_plan import _complete_fresh_capture
+        _complete_fresh_capture(connection, start_scope, start_plan, print_job_id)
     return changed.rowcount == 1
 
 
-def _material_plan(connection, print_job_id, printer_id, printer_org_id, slots, located):
+def _material_plan(connection, print_job_id, printer_id, printer_org_id, slots, located, *, bounded=False):
     """Freeze explicit file/mapping evidence, never distribute across guessed slots."""
     import math
     plan = {'state': 'unresolved', 'reason': 'missing_material_mapping',
@@ -76,6 +124,8 @@ def _material_plan(connection, print_job_id, printer_id, printer_org_id, slots, 
     def unresolved(reason):
         plan.update(state='unresolved', reason=reason, allocations=[])
         return plan
+    if bounded and (len(slots) > 16 or len(located) > 16):
+        return unresolved('material_source_bound_exceeded')
     attempt = execute(connection, 'SELECT scheduled_job_id FROM print_jobs WHERE id=?', (print_job_id,)).fetchone()
     job_id = attempt[0] if attempt else None
     materials = None
@@ -100,7 +150,7 @@ def _material_plan(connection, print_job_id, printer_id, printer_org_id, slots, 
             file = job[4:8]
         else:
             files = execute(connection,
-                'SELECT id,org_id,filament_weight_grams,filaments_json FROM print_files WHERE job_id=? ORDER BY id',
+                'SELECT id,org_id,filament_weight_grams,filaments_json FROM print_files WHERE job_id=? ORDER BY id' + (' LIMIT 2' if bounded else ''),
                 (job_id,)).fetchall()
             if len(files) != 1:
                 return unresolved('ambiguous_legacy_file' if files else 'missing_file')
@@ -148,10 +198,10 @@ def _material_plan(connection, print_job_id, printer_id, printer_org_id, slots, 
             return unresolved('foreign_spool')
         if row[3] is None:
             return unresolved('missing_spool')
-        current = execute(connection, 'SELECT id,org_id FROM spools WHERE id=?', (row[1],)).fetchone()
+        current = execute(connection, 'SELECT id,org_id,price,initial_weight_g FROM spools WHERE id=?', (row[1],)).fetchone()
         if current is None:
             return unresolved('missing_spool')
-        if current[1] != row[2]:
+        if current[0] != row[1] or current[1] != row[2]:
             return unresolved('spool_identity_changed')
         grams = materials[index].get('used_grams') if materials else None
         if grams is None and len(selected) == 1:
@@ -161,6 +211,7 @@ def _material_plan(connection, print_job_id, printer_id, printer_org_id, slots, 
         allocations.append({'spool_id': row[1], 'spool_org_id': row[2],
                             'source_slot': index, 'slot_number': row[0],
                             'estimated_grams': grams,
+                            'purchase_inputs': _purchase_inputs(current[2], current[3]),
                             'quantity_provenance': 'sliced_estimate' if grams is not None else 'unknown'})
     if total is not None:
         if not _finite_quantity(total):

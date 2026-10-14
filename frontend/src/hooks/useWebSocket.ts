@@ -80,7 +80,7 @@ export default function useWebSocket() {
           switch (msg.type) {
             case 'printer_telemetry':
               // Update the specific printer in the cached printers list
-              queryClient.setQueryData(['printers'], (old) => {
+              queryClient.setQueriesData({ queryKey: ['printers'] }, (old) => {
                 if (!old || !Array.isArray(old)) return old
                 return old.map(p => {
                   if (p.id !== d.printer_id) return p
@@ -98,12 +98,14 @@ export default function useWebSocket() {
                     gcode_file: d.gcode_file ?? p.gcode_file,
                     h2d_nozzles: d.h2d_nozzles ?? p.h2d_nozzles,
                     external_spools: d.external_spools ?? p.external_spools,
+                    speed_level: d.speed_level ?? p.speed_level,
+                    speed_percent: d.speed_percent ?? p.speed_percent,
                     last_seen: new Date().toISOString().replace('T', ' ').replace('Z', '').split('.')[0],
                   }
                 })
               })
               // Update print jobs progress
-              if (d.progress != null) {
+              if ([d.progress, d.remaining_min, d.current_layer, d.total_layers].some(value => value != null)) {
                 queryClient.setQueryData(['print-jobs'], (old) => {
                   if (!old || !Array.isArray(old)) return old
                   return old.map(j => {

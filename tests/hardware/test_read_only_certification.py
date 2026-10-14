@@ -144,7 +144,7 @@ def test_protocol_fixtures_drive_real_parsers(monkeypatch):
     elegoo_payload = (FIXTURES / "elegoo-status.json").read_text()
     assert verify_live.validate_elegoo_passive_frame(elegoo_payload) == "status"
     elegoo = ElegooPrinter("printer.test")
-    elegoo._on_message(None, elegoo_payload)
+    elegoo._parse_status(json.loads(elegoo_payload))
     elegoo_status = elegoo.get_status()
     assert elegoo_status.internal_state == "PRINTING"
     assert elegoo_status.time_remaining == 900

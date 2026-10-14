@@ -163,6 +163,13 @@ def _lookup_known_bed(model_str: str):
 
 def _api_types_for_machine(machine: str | None) -> list[str]:
     normalized = str(machine or "").strip().lower()
+    from core.printer_identity import canonical_machine
+    if canonical_machine(machine) in {
+        "x1c", "p1s", "p1p", "h2d", "h2s", "h2c", "a1", "a1-mini"
+    }:
+        return ["bambu"]
+    # Preserve established generic import classifications. Education still
+    # requires its separate exact machine/nozzle/bed/material/authority checks.
     if normalized and any(marker in normalized for marker in _BAMBU_MACHINE_MARKERS):
         return ["bambu"]
     return []

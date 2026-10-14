@@ -71,6 +71,26 @@ _ALLOWED_PYTHON_MIGRATIONS = frozenset(
         "core.schema.migrations.005_order_production_snapshots",
         "core.schema.migrations.006_print_job_measurements",
         "core.schema.migrations.007_attempt_accounting",
+        "core.schema.migrations.008_profile_revisions",
+        "core.schema.migrations.009_cost_foundation",
+        "core.schema.migrations.010_h2d_nozzle_observations",
+        "core.schema.migrations.011_dispatch_claims",
+        "core.schema.migrations.012_dispatch_receipts",
+        "core.schema.migrations.013_observation_received_time",
+        "core.schema.migrations.014_dispatch_senders",
+        "core.schema.migrations.015_timelapse_retirements",
+        "core.schema.migrations.016_timelapse_ownership",
+        "core.schema.migrations.017_timelapse_recovery",
+        "core.schema.migrations.018_timelapse_unlinks",
+        "core.schema.migrations.019_timelapse_publications",
+        "core.schema.migrations.020_ams_evidence",
+        "core.schema.migrations.021_economic_identity",
+        "core.schema.migrations.022_economic_source_lifetimes",
+        "core.schema.migrations.023_timelapse_retirement_membership",
+        "core.schema.migrations.024_audit_actor",
+        "core.schema.migrations.025_spool_purchase_evidence",
+        "core.schema.migrations.026_global_order_origins",
+        "core.schema.migrations.027_power_target_operations",
     }
 )
 
@@ -131,6 +151,18 @@ def translate_statement(statement: str, dialect: str) -> str:
 
 def _checksum(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def acquire_schema_writer_lock(connection: Connection) -> None:
+    """Bound the existing PostgreSQL writer fence in the caller transaction."""
+    if connection.dialect.name != "postgresql":
+        return
+    if connection.connection.driver_connection.autocommit:
+        raise MigrationError("Schema writer transaction required")
+    bound = int(connection.execute(text("SELECT setting FROM pg_settings WHERE name='lock_timeout'")).scalar_one())
+    if bound == 0 or bound > 2000:
+        connection.execute(text("SELECT set_config('lock_timeout','2000',true)"))
+    connection.execute(text("SELECT pg_advisory_xact_lock(71403114720480978)"))
 
 
 def ensure_ledger(connection: Connection) -> None:
@@ -444,9 +476,7 @@ def apply_dedicated_python_migration(engine: Engine, module_name: str) -> bool:
     if engine.dialect.name != "sqlite":
         with engine.begin() as connection:
             if connection.dialect.name == "postgresql":
-                connection.execute(
-                    text("SELECT pg_advisory_xact_lock(71403114720480978)")
-                )
+                acquire_schema_writer_lock(connection)
             return apply_python_migration(connection, module_name)
 
     connection = engine.connect()
@@ -514,7 +544,7 @@ def run_migration_files(
     applied: list[str] = []
     with engine.begin() as connection:
         if connection.dialect.name == "postgresql":
-            connection.execute(text("SELECT pg_advisory_xact_lock(71403114720480978)"))
+            acquire_schema_writer_lock(connection)
         for migration_id, path in files:
             if apply_migration_file(connection, path, migration_id=migration_id):
                 applied.append(migration_id)

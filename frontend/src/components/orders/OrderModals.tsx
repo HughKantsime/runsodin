@@ -323,28 +323,22 @@ export function OrderDetailModal({ isOpen, order, onClose, onSchedule, onShip, o
                 <span>-${order.shipping_cost.toFixed(2)}</span>
               </div>
             )}
-            {order.actual_cost > 0 && (
-              <div className="flex justify-between text-[var(--brand-muted)]">
-                <span>Production Cost</span>
-                <span>-${order.actual_cost.toFixed(2)}</span>
-              </div>
-            )}
-            {order.profit !== null && order.profit !== undefined && (
-              <>
-                <div className="flex justify-between font-medium pt-1 mt-1 border-t border-[var(--brand-card-border)]">
-                  <span className="text-[var(--brand-text)]">Profit</span>
-                  <span className={order.profit >= 0 ? 'text-status-printing' : 'text-status-failed'}>
-                    ${order.profit?.toFixed(2)}
-                  </span>
-                </div>
-                {order.margin_percent && (
-                  <div className="flex justify-between text-[var(--brand-muted)]">
-                    <span>Margin</span>
-                    <span>{order.margin_percent}%</span>
-                  </div>
-                )}
-              </>
-            )}
+            <div className="flex justify-between text-[var(--brand-muted)]">
+              <span>Estimated Cost</span>
+              <span>{typeof order.estimated_cost === 'number' && Number.isFinite(order.estimated_cost) ? `$${order.estimated_cost.toFixed(2)}` : 'Unknown'}</span>
+            </div>
+            <div className="flex justify-between text-[var(--brand-muted)]">
+              <span>Actual Cost</span>
+              <span>{typeof order.actual_cost === 'number' && Number.isFinite(order.actual_cost) ? `$${order.actual_cost.toFixed(2)}` : 'Unknown'}</span>
+            </div>
+            <div className="flex justify-between font-medium pt-1 mt-1 border-t border-[var(--brand-card-border)]">
+              <span className="text-[var(--brand-text)]">Profit</span>
+              <span>{typeof order.profit === 'number' && Number.isFinite(order.profit) ? `$${order.profit.toFixed(2)}` : 'Unknown'}</span>
+            </div>
+            <div className="flex justify-between text-[var(--brand-muted)]">
+              <span>Margin</span>
+              <span>{typeof order.margin_percent === 'number' && Number.isFinite(order.margin_percent) ? `${order.margin_percent}%` : 'Unknown'}</span>
+            </div>
           </div>
         </div>
 
@@ -359,7 +353,7 @@ export function OrderDetailModal({ isOpen, order, onClose, onSchedule, onShip, o
   )
 }
 
-export function ShippingModal({ isOpen, order, shippingForm, setShippingForm, onClose, onSubmit }: { isOpen: boolean; order: any; shippingForm: any; setShippingForm: (fn: any) => void; onClose: () => void; onSubmit: () => void }) {
+export function ShippingModal({ isOpen, order, shippingForm, setShippingForm, onClose, onSubmit, isSubmitting = false }: { isOpen: boolean; order: any; shippingForm: any; setShippingForm: (fn: any) => void; onClose: () => void; onSubmit: () => void; isSubmitting?: boolean }) {
   if (!isOpen || !order) return null
 
   return (
@@ -369,6 +363,7 @@ export function ShippingModal({ isOpen, order, shippingForm, setShippingForm, on
           <label className="block text-sm font-medium mb-1 text-[var(--brand-text)]">Tracking Number</label>
           <input
             type="text"
+            disabled={isSubmitting}
             value={shippingForm.tracking_number}
             onChange={(e) => setShippingForm(f => ({ ...f, tracking_number: e.target.value }))}
             className="w-full rounded-md px-3 py-2 bg-[var(--brand-content-bg)] border border-[var(--brand-card-border)] text-[var(--brand-text)] text-sm"
@@ -378,6 +373,7 @@ export function ShippingModal({ isOpen, order, shippingForm, setShippingForm, on
         <div>
           <label className="block text-sm font-medium mb-1 text-[var(--brand-text)]">Carrier</label>
           <select
+            disabled={isSubmitting}
             value={shippingForm.carrier}
             onChange={(e) => setShippingForm(f => ({ ...f, carrier: e.target.value }))}
             className="w-full rounded-md px-3 py-2 bg-[var(--brand-content-bg)] border border-[var(--brand-card-border)] text-[var(--brand-text)] text-sm"
@@ -391,8 +387,8 @@ export function ShippingModal({ isOpen, order, shippingForm, setShippingForm, on
           </select>
         </div>
         <div className="flex justify-end gap-2 pt-2">
-          <button onClick={onClose} className="px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md transition-colors text-sm">Cancel</button>
-          <button onClick={onSubmit} className="px-4 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary-hover)] rounded-md transition-colors text-sm flex items-center gap-2">
+          <button disabled={isSubmitting} onClick={onClose} className="px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md transition-colors text-sm">Cancel</button>
+          <button disabled={isSubmitting} onClick={onSubmit} className="px-4 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary-hover)] rounded-md transition-colors text-sm flex items-center gap-2">
             <Truck size={14} /> Mark Shipped
           </button>
         </div>

@@ -2,11 +2,14 @@
 
 from datetime import datetime
 from io import BytesIO
+from modules.inventory.constants import MAX_LOW_STOCK_THRESHOLD_G
 from typing import Optional
 
 import qrcode
 from PIL import Image, ImageDraw, ImageFont
-from pydantic import BaseModel as PydanticBaseModel, ConfigDict
+from pydantic import BaseModel as PydanticBaseModel, ConfigDict, Field, model_validator
+
+from core.spool_purchase_validation import PurchaseInput, MAX_REVISION
 
 import logging
 log = logging.getLogger("odin.api")
@@ -17,6 +20,9 @@ log = logging.getLogger("odin.api")
 # ====================================================================
 
 class SpoolCreate(PydanticBaseModel):
+    purchase_evidence: Optional[PurchaseInput] = None
+    pa_profile: Optional[str] = Field(default=None, max_length=50)
+    low_stock_threshold_g: int = Field(default=50, ge=0, le=MAX_LOW_STOCK_THRESHOLD_G, strict=True)
     filament_id: int
     initial_weight_g: float = 1000.0
     spool_weight_g: float = 250.0
@@ -29,6 +35,19 @@ class SpoolCreate(PydanticBaseModel):
 
 
 class SpoolUpdate(PydanticBaseModel):
+    purchase_evidence: Optional[PurchaseInput] = None
+    expected_purchase_revision: Optional[int] = Field(default=None, strict=True, ge=0, le=MAX_REVISION)
+
+    @model_validator(mode="after")
+    def purchase_operation(self):
+        operation = "purchase_evidence" in self.model_fields_set
+        expected = "expected_purchase_revision" in self.model_fields_set
+        if operation != expected or (expected and self.expected_purchase_revision is None):
+            raise ValueError("Purchase operation requires expected_purchase_revision and a full evidence object or null")
+        return self
+
+    pa_profile: Optional[str] = Field(default=None, max_length=50)
+    low_stock_threshold_g: Optional[int] = Field(default=None, ge=0, le=MAX_LOW_STOCK_THRESHOLD_G, strict=True)
     remaining_weight_g: Optional[float] = None
     status: Optional[str] = None
     storage_location: Optional[str] = None

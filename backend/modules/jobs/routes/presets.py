@@ -1,5 +1,7 @@
 """Print presets, failure reasons, config, and print-job tracking."""
 
+from core.quota import charge_job_quota
+
 from core.rbac import should_filter_org
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -239,7 +241,7 @@ class CreatePresetRequest(BaseModel):
 @router.post("/presets", tags=["Presets"], status_code=status.HTTP_201_CREATED)
 def create_preset(
     request_data: CreatePresetRequest,
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_role("operator", scope="write:jobs")),
     db: Session = Depends(get_db),
 ):
     """Create a new print preset."""
@@ -264,7 +266,7 @@ def create_preset(
 @router.delete("/presets/{preset_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Presets"])
 def delete_preset(
     preset_id: int,
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_role("operator", scope="write:jobs")),
     db: Session = Depends(get_db),
 ):
     """Delete a print preset."""
@@ -278,7 +280,7 @@ def delete_preset(
 @router.post("/presets/{preset_id}/schedule", tags=["Presets"])
 def schedule_from_preset(
     preset_id: int,
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_role("operator", scope="write:jobs")),
     db: Session = Depends(get_db),
 ):
     """Create a new job from a preset."""
@@ -311,7 +313,10 @@ def schedule_from_preset(
             if model.suggested_price:
                 job.suggested_price = model.suggested_price
 
-    db.add(job)
+    charge_job_quota(db, current_user)
+    job.charged_to_user_id = current_user.get("id")
+    from modules.jobs.routes.jobs_crud import _stage_prospective_queue_job
+    _stage_prospective_queue_job(db, job, current_user)
     db.commit()
     db.refresh(job)
     return {"id": job.id, "item_name": job.item_name, "status": job.status.value}

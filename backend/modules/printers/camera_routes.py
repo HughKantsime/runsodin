@@ -1,3 +1,5 @@
+from core.interfaces.timelapse_media import require_timelapse_media_provider
+from core.timelapse_media_errors import RetirementUnavailable,EditUnavailable,NoCompletedReceiptYet
 """O.D.I.N. — Camera & Timelapse Routes
 
 Timelapse list/video/delete, camera list/toggle/stream/WebRTC.
@@ -9,15 +11,12 @@ from core.rbac import should_filter_org
 # Depends on: core, organizations
 # Owns tables: timelapses (shared with archives)
 
-from datetime import datetime
 from pathlib import Path
 from typing import Optional
 import logging
 import math
 import os
-import shutil
 import subprocess
-import tempfile
 
 import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status, Request, Response
@@ -30,10 +29,12 @@ from core.dependencies import get_current_user, log_audit, validate_access_token
 from core.rbac import require_role, check_org_access, has_permission, token_scope_granted
 from modules.printers.models import Printer
 from modules.archives.models import Timelapse
+from core.timelapse_access import assert_timelapse_access,timelapse_visibility,visible_printer_name,inherit_timelapse_owner
 from modules.printers.routes import get_camera_url, sync_go2rtc_config
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
+TIMELAPSE_ROOT="/data/timelapses"
 
 
 def _check_printer_org(current_user: dict, printer_id: int, db) -> None:
@@ -78,13 +79,8 @@ def list_timelapses(
     current_user: dict = Depends(require_role("viewer", scope="read:printers")),
 ):
     """List timelapse recordings with optional filters."""
-    from core.rbac import get_org_scope
-    org = get_org_scope(current_user)
-    q = db.query(Timelapse).order_by(Timelapse.created_at.desc())
-    if should_filter_org(current_user, org):
-        q = q.join(Printer, Timelapse.printer_id == Printer.id).filter(
-            (Printer.org_id == org) | (Printer.org_id == None) | (Printer.shared == True)
-        )
+    condition,parameters=timelapse_visibility(current_user)
+    q=db.query(Timelapse).filter(text(condition)).params(**parameters).order_by(Timelapse.created_at.desc(),Timelapse.id.desc())
     if printer_id:
         q = q.filter(Timelapse.printer_id == printer_id)
     if status_filter:
@@ -99,7 +95,7 @@ def list_timelapses(
             {
                 "id": t.id,
                 "printer_id": t.printer_id,
-                "printer_name": t.printer.name if t.printer else None,
+                "printer_name": visible_printer_name(db,t,current_user),
                 "print_job_id": t.print_job_id,
                 "filename": t.filename,
                 "frame_count": t.frame_count,
@@ -117,6 +113,7 @@ def list_timelapses(
 @router.get("/timelapses/{timelapse_id}", tags=["Timelapses"])
 def get_timelapse(
     timelapse_id: int,
+    response: Response,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_role("viewer", scope="read:printers")),
 ):
@@ -124,11 +121,12 @@ def get_timelapse(
     t = db.query(Timelapse).filter(Timelapse.id == timelapse_id).first()
     if not t:
         raise HTTPException(status_code=404, detail="Timelapse not found")
-    _check_printer_org(current_user, t.printer_id, db)
+    assert_timelapse_access(db,t,current_user)
+    if t.ownership_operation_id:response.headers["ETag"]='"'+t.ownership_operation_id+'"'
     return {
         "id": t.id,
         "printer_id": t.printer_id,
-        "printer_name": t.printer.name if t.printer else None,
+        "printer_name": visible_printer_name(db,t,current_user),
         "print_job_id": t.print_job_id,
         "filename": t.filename,
         "frame_count": t.frame_count,
@@ -140,49 +138,52 @@ def get_timelapse(
     }
 
 
-@router.get("/timelapses/{timelapse_id}/video", tags=["Timelapses"])
-def get_timelapse_video(timelapse_id: int, token: Optional[str] = None, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
-    """Serve the timelapse MP4 file. Accepts ?token= query param for <video> src auth."""
-    # <video> elements can't send Bearer headers, so accept token as query param.
-    # Goes through the SAME validation as get_current_user: blacklist check,
-    # rejects ws/mfa_pending/mfa_setup_required tokens.
-    if not current_user and token:
-        current_user = validate_access_token(token, db)
-    _authorize_media(current_user)
-    t = db.query(Timelapse).filter(Timelapse.id == timelapse_id).first()
-    if not t:
-        raise HTTPException(status_code=404, detail="Timelapse not found")
-    _check_printer_org(current_user, t.printer_id, db)
-    if t.status != "ready":
-        raise HTTPException(status_code=400, detail=f"Timelapse is {t.status}, not ready")
-    video_path = Path(os.path.realpath(Path("/data/timelapses") / t.filename))
-    if not str(video_path).startswith("/data/timelapses/"):
-        raise HTTPException(status_code=404, detail="Not found")
-    if not video_path.is_file():
-        raise HTTPException(status_code=404, detail="Video file not found")
-    return FileResponse(str(video_path), media_type="video/mp4", filename=video_path.name)
+def _read_lifetime(request,db,principal,tid,*,query_allowed=False,attachment=False):
+    from modules.printers.timelapse_request_authority import selected_evidence
+    from core.timelapse_media_lock import MediaGuardUnavailable
+    if len(request.headers.getlist('range'))>1:raise HTTPException(416,'Multiple byte ranges refused')
+    expected=request.query_params.get('version')
+    if len(request.query_params.getlist('version'))>1:raise HTTPException(400,'Invalid version precondition')
+    if expected is not None:
+        import re
+        if not re.fullmatch(r'"[A-Za-z0-9_-]{1,64}"',expected):raise HTTPException(400,'Invalid version precondition')
+        expected=expected[1:-1]
+    try:
+        provider=require_timelapse_media_provider()
+        evidence=selected_evidence(request,db,principal,provider=provider,purpose='read',query_allowed=query_allowed)
+        engine=db.get_bind();db.rollback();db.close()
+        return provider.admitted_response(engine,TIMELAPSE_ROOT,tid,evidence,range_header=request.headers.get('range'),head=request.method=='HEAD',filename=f'odin_timelapse_{tid}.mp4' if attachment else None,expected_nonce=expected)
+    except (RetirementUnavailable,MediaGuardUnavailable) as error:raise HTTPException(503,detail='Timelapse admission refused: '+getattr(error,'reason','writer_active')) from None
 
+@router.api_route("/timelapses/{timelapse_id}/video",methods=['GET','HEAD'],tags=['Timelapses'])
+def get_timelapse_video(timelapse_id:int,request:Request,token:Optional[str]=None,db:Session=Depends(get_db),current_user:dict=Depends(get_current_user)):
+    return _read_lifetime(request,db,current_user,timelapse_id,query_allowed=True,attachment=True)
 
-@router.delete("/timelapses/{timelapse_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Timelapses"])
-def delete_timelapse(timelapse_id: int, db: Session = Depends(get_db), current_user: dict = Depends(require_role("admin", scope="write:printers"))):
-    """Delete a timelapse recording and its video file."""
-    t = db.query(Timelapse).filter(Timelapse.id == timelapse_id).first()
-    if not t:
-        raise HTTPException(status_code=404, detail="Timelapse not found")
-    _check_printer_org(current_user, t.printer_id, db)
-    # Delete video file
-    video_path = Path(os.path.realpath(Path("/data/timelapses") / t.filename))
-    if not str(video_path).startswith("/data/timelapses/"):
-        raise HTTPException(status_code=400, detail="Invalid file path")
-    if video_path.exists():
-        video_path.unlink()
-    # Delete frame directory if still around
-    frame_dir = Path("/data/timelapses") / str(t.id)
-    if frame_dir.exists():
-        shutil.rmtree(str(frame_dir), ignore_errors=True)
-    db.delete(t)
-    log_audit(db, "delete", "timelapse", t.id, {"printer_id": t.printer_id})
-    db.commit()
+@router.delete("/timelapses/{timelapse_id}",status_code=204,tags=['Timelapses'])
+def delete_timelapse(timelapse_id:int,request:Request,db:Session=Depends(get_db),current_user:dict=Depends(require_role('admin',scope='write:printers'))):
+    import re
+    from modules.printers.timelapse_request_authority import selected_evidence
+    from core.timelapse_request_budget import VerificationBudget
+    value=request.headers.get('if-match')
+    if value is None:raise HTTPException(428,'Exact lifetime If-Match required')
+    if len(request.headers.getlist('if-match'))!=1:raise HTTPException(400,'Invalid lifetime If-Match')
+    if not re.fullmatch(r'"[A-Za-z0-9_-]{1,64}"',value):raise HTTPException(400,'Invalid lifetime If-Match')
+    nonce=value[1:-1]
+    try:
+        provider=require_timelapse_media_provider()
+        evidence=selected_evidence(request,db,current_user,provider=provider,purpose='retire')
+        engine=db.get_bind();db.rollback();db.close();budget=VerificationBudget()
+        try:
+            provider.sealed_lifetime_receipt(engine,evidence,operation_id=nonce,original_id=timelapse_id)
+            return Response(status_code=204)
+        except NoCompletedReceiptYet:pass
+        with Session(engine) as admission:
+            provider.authorize_retirement(admission,evidence,timelapse_id,nonce)
+        provider.prepare_request_lifetime_retirement(engine,TIMELAPSE_ROOT,timelapse_id,evidence,expected_nonce=nonce,budget=budget)
+        provider.retire_sealed_lifetime(engine,TIMELAPSE_ROOT,timelapse_id,evidence,expected_nonce=nonce,budget=budget)
+        provider.sealed_lifetime_receipt(engine,evidence,operation_id=nonce,original_id=timelapse_id)
+        return Response(status_code=204)
+    except RetirementUnavailable as error:raise HTTPException(503,detail='Timelapse retirement refused: '+error.reason) from None
 
 
 def _check_ffmpeg() -> bool:
@@ -204,175 +205,70 @@ def _get_timelapse_path(t: Timelapse) -> Path:
     return video_path
 
 
-@router.get("/timelapses/{timelapse_id}/stream", tags=["Timelapses"])
-def stream_timelapse(
-    timelapse_id: int,
-    token: Optional[str] = None,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
-):
-    """Stream timelapse video for in-browser playback (no Content-Disposition)."""
-    # Same query-param token flow as /video — use full validator.
-    if not current_user and token:
-        current_user = validate_access_token(token, db)
-    _authorize_media(current_user)
-    t = db.query(Timelapse).filter(Timelapse.id == timelapse_id).first()
-    if not t:
-        raise HTTPException(status_code=404, detail="Timelapse not found")
-    _check_printer_org(current_user, t.printer_id, db)
-    if t.status != "ready":
-        raise HTTPException(status_code=400, detail=f"Timelapse is {t.status}, not ready")
-    video_path = _get_timelapse_path(t)
-    return FileResponse(str(video_path), media_type="video/mp4")
+@router.api_route("/timelapses/{timelapse_id}/stream",methods=['GET','HEAD'],tags=['Timelapses'])
+def stream_timelapse(timelapse_id:int,request:Request,token:Optional[str]=None,db:Session=Depends(get_db),current_user:dict=Depends(get_current_user)):
+    return _read_lifetime(request,db,current_user,timelapse_id,query_allowed=True)
+
+@router.api_route("/timelapses/{timelapse_id}/download",methods=['GET','HEAD'],tags=['Timelapses'])
+def download_timelapse(timelapse_id:int,request:Request,db:Session=Depends(get_db),current_user:dict=Depends(get_current_user)):
+    return _read_lifetime(request,db,current_user,timelapse_id,attachment=True)
 
 
-@router.get("/timelapses/{timelapse_id}/download", tags=["Timelapses"])
-def download_timelapse(
-    timelapse_id: int,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
-):
-    """Download timelapse as attachment."""
-    _authorize_media(current_user)
-    t = db.query(Timelapse).filter(Timelapse.id == timelapse_id).first()
-    if not t:
-        raise HTTPException(status_code=404, detail="Timelapse not found")
-    _check_printer_org(current_user, t.printer_id, db)
-    if t.status != "ready":
-        raise HTTPException(status_code=400, detail=f"Timelapse is {t.status}, not ready")
-    video_path = _get_timelapse_path(t)
-    safe_name = f"odin_timelapse_{t.id}.mp4"
-    return FileResponse(
-        str(video_path),
-        media_type="video/mp4",
-        filename=safe_name,
-        headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
-    )
+def _edit_contention(error):
+    from sqlalchemy.exc import DBAPIError
+    if not isinstance(error,DBAPIError):return False
+    code=getattr(error.orig,'sqlstate',None)
+    sqlite=getattr(error.orig,'sqlite_errorcode',None)
+    return code in ('55P03','40P01','57014') or (type(sqlite) is int and sqlite & 255 in (5,6))
 
 
-@router.post("/timelapses/{timelapse_id}/trim", tags=["Timelapses"])
-def trim_timelapse(
-    timelapse_id: int,
-    body: dict = Body(...),
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("operator", scope="write:printers")),
-):
-    """Trim timelapse to start/end points using ffmpeg. Overwrites original."""
-    if not _check_ffmpeg():
-        raise HTTPException(status_code=501, detail="ffmpeg is not installed — timelapse editing is unavailable")
-    start_seconds = body.get("start_seconds", 0)
-    end_seconds = body.get("end_seconds")
-    if end_seconds is None:
-        raise HTTPException(status_code=400, detail="end_seconds is required")
-    if not _finite_edit_number(start_seconds) or not _finite_edit_number(end_seconds):
-        raise HTTPException(status_code=400, detail="Time range must contain finite numbers")
-    if start_seconds < 0 or end_seconds <= start_seconds:
-        raise HTTPException(status_code=400, detail="Invalid time range")
-
-    t = db.query(Timelapse).filter(Timelapse.id == timelapse_id).first()
-    if not t:
-        raise HTTPException(status_code=404, detail="Timelapse not found")
-    _check_printer_org(current_user, t.printer_id, db)
-    if t.status != "ready":
-        raise HTTPException(status_code=400, detail=f"Timelapse is {t.status}, not ready")
-    video_path = _get_timelapse_path(t)
-
-    with tempfile.NamedTemporaryFile(suffix=".mp4", dir=video_path.parent, delete=False) as tmp:
-        tmp_path = tmp.name
+def _edit_request(tid,request,body,db,principal,kind):
+    import re
+    from core.timelapse_recipes import make_recipe
+    from modules.printers.timelapse_request_authority import selected_evidence
+    from core.timelapse_media_lock import MediaGuardUnavailable
+    value=request.headers.get('if-match')
+    if value is None:raise HTTPException(428,'Exact recording If-Match required')
+    if len(request.headers.getlist('if-match'))!=1 or not re.fullmatch(r'"[A-Za-z0-9_-]{1,64}"',value):raise HTTPException(400,'Invalid recording If-Match')
+    identifier=body.get('operation_id')
+    if type(identifier) is not str or not re.fullmatch('[0-9a-f]{32}',identifier):raise HTTPException(400,'Invalid edit operation ID')
     try:
-        cmd = [
-            "ffmpeg", "-y", "-ss", str(start_seconds), "-to", str(end_seconds),
-            "-i", str(video_path), "-c", "copy", tmp_path,
-        ]
-        result = subprocess.run(cmd, capture_output=True, timeout=300)  # noqa: S603
-        if result.returncode != 0:
-            raise HTTPException(status_code=500, detail="ffmpeg trim failed")
-        os.replace(tmp_path, str(video_path))
-    except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=504, detail="ffmpeg timed out")
-    finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
-
-    new_duration = end_seconds - start_seconds
-    t.duration_seconds = new_duration
-    file_stat = video_path.stat()
-    t.file_size_mb = round(file_stat.st_size / (1024 * 1024), 2)
-    log_audit(db, "update", "timelapse", t.id, {"action": "trim", "start": start_seconds, "end": end_seconds})
-    db.commit()
-
-    return {
-        "id": t.id, "duration_seconds": t.duration_seconds,
-        "file_size_mb": t.file_size_mb, "status": t.status,
-    }
-
-
-VALID_SPEED_MULTIPLIERS = {0.5, 1.0, 1.5, 2.0, 4.0, 8.0}
-
-
-@router.post("/timelapses/{timelapse_id}/speed", tags=["Timelapses"])
-def speed_timelapse(
-    timelapse_id: int,
-    body: dict = Body(...),
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("operator", scope="write:printers")),
-):
-    """Create speed-adjusted copy of timelapse using ffmpeg."""
-    if not _check_ffmpeg():
-        raise HTTPException(status_code=501, detail="ffmpeg is not installed — timelapse editing is unavailable")
-    multiplier = body.get("multiplier")
-    if not _finite_edit_number(multiplier) or multiplier not in VALID_SPEED_MULTIPLIERS:
-        raise HTTPException(status_code=400, detail=f"multiplier must be one of {sorted(VALID_SPEED_MULTIPLIERS)}")
-    multiplier = float(multiplier)
-
-    t = db.query(Timelapse).filter(Timelapse.id == timelapse_id).first()
-    if not t:
-        raise HTTPException(status_code=404, detail="Timelapse not found")
-    _check_printer_org(current_user, t.printer_id, db)
-    if t.status != "ready":
-        raise HTTPException(status_code=400, detail=f"Timelapse is {t.status}, not ready")
-    video_path = _get_timelapse_path(t)
-
-    speed_label = str(multiplier).replace(".", "_")
-    out_name = f"{video_path.stem}_{speed_label}x.mp4"
-    out_path = video_path.parent / out_name
-    setpts = round(1.0 / multiplier, 4)
-
+        recipe=make_recipe(kind,start_seconds=body.get('start_seconds',0),end_seconds=body.get('end_seconds')) if kind=='trim' else make_recipe(kind,multiplier=body.get('multiplier'))
+    except ValueError:raise HTTPException(400,'Invalid edit recipe') from None
     try:
-        cmd = [
-            "ffmpeg", "-y", "-i", str(video_path),
-            "-vf", f"setpts={setpts}*PTS", "-an", str(out_path),
-        ]
-        result = subprocess.run(cmd, capture_output=True, timeout=600)  # noqa: S603
-        if result.returncode != 0:
-            raise HTTPException(status_code=500, detail="ffmpeg speed adjustment failed")
-    except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=504, detail="ffmpeg timed out")
+        provider=require_timelapse_media_provider()
+        evidence=selected_evidence(request,db,principal,provider=provider,purpose='edit')
+        engine=db.get_bind();db.rollback();db.close()
+        receipt=provider.execute_edit(engine,TIMELAPSE_ROOT,tid,evidence,identifier,nonce=value[1:-1],recipe=recipe)
+        return Response(content=__import__('json').dumps(receipt),media_type='application/json',headers={'ETag':'"'+receipt['result_nonce']+'"'})
+    except (EditUnavailable,RetirementUnavailable,MediaGuardUnavailable,OSError,ValueError):raise HTTPException(503,'Timelapse edit could not be confirmed') from None
+    except Exception as error:
+        if _edit_contention(error):raise HTTPException(503,'Timelapse edit is busy; retry the same operation') from None
+        raise
 
-    file_stat = out_path.stat()
-    new_duration = (t.duration_seconds or 0) / multiplier
-    new_tl = Timelapse(
-        printer_id=t.printer_id,
-        print_job_id=t.print_job_id,
-        filename=str(Path(t.filename).parent / out_name),
-        frame_count=t.frame_count,
-        duration_seconds=round(new_duration, 1),
-        file_size_mb=round(file_stat.st_size / (1024 * 1024), 2),
-        status="ready",
-        created_at=datetime.utcnow(),
-        completed_at=datetime.utcnow(),
-    )
-    db.add(new_tl)
-    db.flush()
-    db.refresh(new_tl)
-    log_audit(db, "create", "timelapse", new_tl.id, {"action": "speed", "multiplier": multiplier, "source_id": t.id})
-    db.commit()
+@router.post('/timelapses/{timelapse_id}/trim',tags=['Timelapses'])
+def trim_timelapse(timelapse_id:int,request:Request,body:dict=Body(...),db:Session=Depends(get_db),current_user:dict=Depends(require_role('operator',scope='write:printers'))):
+    return _edit_request(timelapse_id,request,body,db,current_user,'trim')
 
-    return {
-        "id": new_tl.id, "duration_seconds": new_tl.duration_seconds,
-        "file_size_mb": new_tl.file_size_mb, "status": new_tl.status,
-        "filename": new_tl.filename,
-    }
+VALID_SPEED_MULTIPLIERS={.5,1,1.5,2,4,8}
+
+@router.post('/timelapses/{timelapse_id}/speed',tags=['Timelapses'])
+def speed_timelapse(timelapse_id:int,request:Request,body:dict=Body(...),db:Session=Depends(get_db),current_user:dict=Depends(require_role('operator',scope='write:printers'))):
+    return _edit_request(timelapse_id,request,body,db,current_user,'speed')
+
+@router.get('/timelapses/{timelapse_id}/edits/{operation_id}',tags=['Timelapses'])
+def edit_receipt(timelapse_id:int,operation_id:str,request:Request,db:Session=Depends(get_db),current_user:dict=Depends(require_role('operator',scope='write:printers'))):
+    from modules.printers.timelapse_request_authority import selected_evidence
+    from core.timelapse_media_lock import MediaGuardUnavailable
+    try:
+        provider=require_timelapse_media_provider()
+        evidence=selected_evidence(request,db,current_user,provider=provider,purpose='edit')
+        engine=db.get_bind();db.rollback();db.close()
+        return provider.execute_edit(engine,TIMELAPSE_ROOT,timelapse_id,evidence,operation_id,lookup=True)
+    except (EditUnavailable,RetirementUnavailable,MediaGuardUnavailable,OSError,ValueError):raise HTTPException(503,'Timelapse edit could not be confirmed') from None
+    except Exception as error:
+        if _edit_contention(error):raise HTTPException(503,'Timelapse edit is busy; retry the same operation') from None
+        raise
 
 
 # ====================================================================

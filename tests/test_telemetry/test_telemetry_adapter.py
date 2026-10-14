@@ -225,7 +225,8 @@ class TestFailLoudParsing:
         )
         degraded = [e for e in captured_events if isinstance(e, DegradedEvent)]
         assert len(degraded) == 1
-        assert "no recognized section" in degraded[0].reason
+        assert degraded[0].reason == "Invalid Bambu telemetry payload"
+        assert degraded[0].raw_excerpt is None
         assert adapter.status().state == PrinterState.DEGRADED
 
     def test_unknown_gcode_state_emits_degraded(self, adapter, captured_events):
@@ -240,7 +241,8 @@ class TestFailLoudParsing:
         )
         degraded = [e for e in captured_events if isinstance(e, DegradedEvent)]
         assert len(degraded) == 1
-        assert "CRASHED_HARD" in degraded[0].raw_excerpt
+        assert degraded[0].raw_excerpt is None
+        assert degraded[0].reason == "Invalid Bambu telemetry payload"
 
 
 class TestEmitterResilience:
@@ -272,3 +274,22 @@ class TestTopicDerivation:
 
     def test_topic_request(self, config):
         assert config.topic_request == "device/0948AD561201838/request"
+
+
+@pytest.mark.parametrize('field',['spd_lvl','spd_mag'])
+@pytest.mark.parametrize('invalid',[True,2.0,'2.0'],ids=['bool','whole-float','decimal-text'])
+def test_invalid_speed_packet_degrades_without_invented_report_and_recovers(adapter,captured_events,field,invalid):
+    adapter.start()
+    try:
+        adapter._fake.fire_connect(reason_code=0)
+        adapter._fake.fire_message('device/synthetic/report',json.dumps({'print':{'gcode_state':'RUNNING',field:invalid}}).encode())
+        assert adapter.status().state == PrinterState.DEGRADED
+        assert len([e for e in captured_events if isinstance(e,DegradedEvent)]) == 1
+        assert not any(isinstance(e,BambuReportEvent) for e in captured_events)
+        adapter._fake.fire_message('device/synthetic/report',json.dumps({'print':{'gcode_state':'RUNNING','spd_lvl':'1','spd_mag':'0'}}).encode())
+        reports=[e for e in captured_events if isinstance(e,BambuReportEvent)]
+        assert len(reports)==1
+        assert reports[0].section.spd_lvl==1 and reports[0].section.spd_mag==0
+        assert adapter.status().state == PrinterState.PRINTING
+    finally:
+        adapter.stop()

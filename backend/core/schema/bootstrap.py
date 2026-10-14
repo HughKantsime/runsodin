@@ -17,13 +17,31 @@ from core.schema.migrator import (
     apply_migration_file,
     apply_python_migration,
     ensure_ledger,
+    acquire_schema_writer_lock,
 )
 
 
 RAW_REQUIRED_TABLES = frozenset(
     {
+        "audit_actor_erasures",
+        "spool_purchase_evidence",
+        "cost_global_order_origins",
+        "cost_global_origin_exclusions",
+        "power_target_operations",
+        "cost_identities",
+        "cost_order_memberships",
+        "cost_job_bindings",
+        "cost_attempt_bindings",
+        "cost_obligations",
+        "cost_attempt_participation",
+        "finance_currency_settings",
+
         "active_sessions",
         "ams_telemetry",
+        "ams_read_generations",
+        "ams_current_reads",
+        "ams_report_packets",
+        "ams_report_trays",
         "api_tokens",
         "biometric_tokens",
         "hms_error_history",
@@ -44,6 +62,7 @@ RAW_REQUIRED_TABLES = frozenset(
         "classroom_course_mappings",
         "classroom_roster_identities",
         "login_attempts",
+        "mfa_enrollments",
         "model_revisions",
         "oidc_auth_codes",
         "oidc_config",
@@ -51,9 +70,27 @@ RAW_REQUIRED_TABLES = frozenset(
         "password_reset_tokens",
         "print_archives",
         "filament_delivery_outbox",
+        "timelapse_retirements",
+        "timelapse_ownership_anchors",
+        "timelapse_retirement_objects",
+        "timelapse_retirement_parents",
+        "timelapse_retirement_quarantine",
+        "timelapse_retirement_moves",
+        "timelapse_retirement_unlinks",
+        "timelapse_media_lifetimes",
+        "timelapse_media_versions",
+        "timelapse_frame_namespaces",
+        "timelapse_frame_bindings",
+        "timelapse_publications",
+        "timelapse_publication_facts",
+        "timelapse_retained_versions",
+        "timelapse_retirement_lifetime_bindings",
+        "timelapse_retirement_members",
+        "timelapse_retirement_container_receipts",
         "print_files",
         "print_jobs",
         "printer_profiles",
+        "printer_profile_revisions",
         "printer_telemetry",
         "projects",
         "push_devices",
@@ -68,13 +105,53 @@ RAW_REQUIRED_TABLES = frozenset(
     }
 )
 
+# Current raw inventory is literal: historical package import must not execute
+# a newer migration helper before selecting its closed source contract.
+POWER_OPERATION_COLUMNS = tuple("operation_nonce request_nonce owner_nonce printer_id target_key config_key destination_key purpose physical_job_id scheduled_job_id observation_key actor_user_id auth_kind authority_key state revision created_at changed_at command_started_at release_pending_at completed_at outcome cleanup_reason".split())
+
 RAW_REQUIRED_COLUMNS = {
+    "power_target_operations": frozenset(POWER_OPERATION_COLUMNS),
+    "cost_global_order_origins": frozenset("order_uid resource_kind owner_scope owner_key origin_nonce proof_kind recorded_at".split()),
+    "cost_global_origin_exclusions": frozenset("order_uid resource_kind owner_scope owner_key".split()),
+    "spool_purchase_evidence": frozenset("evidence_nonce spool_uid birth_nonce resource_kind owner_scope owner_key revision currency price_decimal net_weight_g_decimal weight_basis provenance recorded_at".split()),
+    "audit_actor_erasures": frozenset({"user_id", "erased_at"}),
+    "audit_logs": frozenset({"actor_user_id", "actor_username", "actor_auth_kind"}),
+    "cost_identities": frozenset("identity_uid resource_kind resource_id owner_scope owner_key".split()),
+    "cost_order_memberships": frozenset("child_uid child_kind order_uid order_kind owner_scope owner_key".split()),
+    "cost_job_bindings": frozenset("job_uid job_kind order_uid item_uid item_kind owner_scope owner_key".split()),
+    "cost_attempt_bindings": frozenset("attempt_uid attempt_kind job_uid order_uid item_uid owner_scope owner_key".split()),
+    "cost_obligations": frozenset("obligation_uid order_uid order_kind item_uid item_kind owner_scope owner_key source_uid source_kind allocation_key obligation_kind required_quantity evidence_state evidence_reason".split()),
+    "cost_attempt_participation": frozenset("attempt_uid attempt_kind obligation_uid owner_scope owner_key state reason".split()),
+    "finance_currency_settings": frozenset("owner_scope owner_key currency".split()),
+
+    "ams_read_generations": frozenset("generation_id printer_id owner_org_id configuration_key runtime_incarnation started_at state completed_at invalidated_at".split()),
+    "ams_current_reads": frozenset("printer_id generation_id runtime_incarnation".split()),
+    "ams_report_packets": frozenset("packet_sequence packet_id generation_id received_at receipt_provenance".split()),
+    "ams_report_trays": frozenset("packet_sequence slot_number unit_id tray_id material material_state mechanically_ready".split()),
+    "timelapse_ownership_anchors": frozenset("operation_id timelapse_id printer_id scheduled_job_id filename owner_state owner_org_id ownership_source print_file_id education_submission_id capture_printer_org_id capture_printer_shared created_at".split()),
+    "timelapse_retirements": frozenset("operation_id timelapse_id printer_id owner_state owner_org_id filename root_device root_inode state revision reason_code created_at completed_at".split()),
+    "timelapse_retirement_objects": frozenset("operation_id object_index relative_path kind device inode uid gid mode link_count byte_count mtime_ns ctime_ns state quarantine_name reason_code".split()),
+    "timelapse_retirement_parents": frozenset("operation_id relative_path device inode uid gid mode".split()),
+    "timelapse_retirement_quarantine": frozenset("operation_id device inode uid gid mode".split()),
+    "timelapse_retirement_unlinks": frozenset("operation_id object_index phase".split()),
+    "timelapse_media_lifetimes": frozenset("lifetime_nonce original_timelapse_id original_printer_id root_device root_inode root_uid root_gid root_mode created_at".split()),
+    "timelapse_media_versions": frozenset("version_nonce lifetime_nonce".split()),
+    "timelapse_frame_namespaces": frozenset("namespace_id lifetime_nonce relative_path phase device inode uid gid mode created_at".split()),
+    "timelapse_frame_bindings": frozenset("lifetime_nonce namespace_id next_number".split()),
+    "timelapse_publications": frozenset("operation_id source_nonce source_lifetime recipe_version encode_fps speed_numerator speed_denominator trim_start trim_end kind source_timelapse_id source_printer_id source_filename source_status source_preclaim_status actor_id frame_namespace_id frame_number payload_byte_count payload_digest_sha256 private_directory private_name destination_path result_nonce result_lifetime result_tid phase state revision reason_code published_ctime_ns created_at completed_at".split()),
+    "timelapse_publication_facts": frozenset("operation_id role relative_path kind device inode uid gid mode link_count byte_count mtime_ns ctime_ns digest_sha256".split()),
+    "timelapse_retained_versions": frozenset("version_nonce lifetime_nonce retained_by_operation filename state retire_operation_id".split()),
+    "timelapse_retirement_lifetime_bindings": frozenset("operation_id version_nonce lifetime_nonce phase object_count created_at sealed_at".split()),
+    "timelapse_retirement_members": frozenset("operation_id object_index role version_nonce retained_version_nonce namespace_id publication_id fact_role fact_path".split()),
+    "timelapse_retirement_container_receipts": frozenset("operation_id object_index role phase completed_at".split()),
+    "timelapse_retirement_moves": frozenset("operation_id object_index kind digest_sha256 phase verified_ctime_ns".split()),
     "active_sessions": frozenset("id user_id token_jti ip_address user_agent created_at last_seen_at".split()),
     "ams_telemetry": frozenset("id printer_id ams_unit humidity temperature recorded_at".split()),
     "api_tokens": frozenset("id user_id name token_hash token_prefix scopes expires_at last_used_at created_at".split()),
     "groups": frozenset("id name description owner_id created_at updated_at is_org branding_json settings_json".split()),
     "hms_error_history": frozenset("id printer_id code message severity source occurred_at".split()),
     "idempotency_keys": frozenset("key user_id method path request_hash auth_fingerprint state response_status response_body response_media_type created_at updated_at".split()),
+    "mfa_enrollments": frozenset("jti user_id expires_at state encrypted_pending_secret created_at consumed_at".split()),
     "login_attempts": frozenset("id ip username attempted_at success".split()),
     "model_revisions": frozenset("id model_id revision_number file_path changelog uploaded_by created_at".split()),
     "oidc_auth_codes": frozenset("code access_token expires_at".split()),
@@ -84,6 +161,7 @@ RAW_REQUIRED_COLUMNS = {
     "print_archives": frozenset("id job_id print_job_id printer_id user_id print_name status started_at completed_at actual_duration_seconds filament_used_grams cost_estimate thumbnail_b64 file_path notes created_at tags plate_count plate_thumbnails print_file_id project_id energy_kwh energy_cost consumption_json file_hash".split()),
     "print_files": frozenset("id filename original_filename project_name print_time_seconds total_weight_grams layer_count layer_height nozzle_diameter printer_model supports_used bed_type filaments_json thumbnail_b64 mesh_data model_id job_id uploaded_at stored_path filament_weight_grams bed_x_mm bed_y_mm compatible_api_types file_hash plate_count org_id created_by storage_bytes blob_state compatibility_facts_json".split()),
     "print_jobs": frozenset("id printer_id job_id filename job_name started_at ended_at status progress_percent remaining_minutes total_layers current_layer bed_temp_target nozzle_temp_target filament_slots error_code scheduled_job_id created_at model_revision_id".split()),
+    "printer_profile_revisions": frozenset("id profile_id revision_number raw_content file_format slicer category changelog created_by created_at".split()),
     "printer_profiles": frozenset("id created_by printer_id org_id name description slicer category file_format filament_type raw_content is_shared is_default tags last_applied_at last_applied_printer_id created_at updated_at".split()),
     "printer_telemetry": frozenset("id printer_id bed_temp nozzle_temp bed_target nozzle_target fan_speed recorded_at".split()),
     "projects": frozenset("id created_by org_id name description color status expected_parts created_at updated_at".split()),
@@ -121,8 +199,20 @@ POST_EDUCATION_SQL_MIGRATIONS = frozenset(
 )
 
 
+for _economic_table in ('orders', 'order_items', 'jobs'):
+    RAW_REQUIRED_COLUMNS[_economic_table] = RAW_REQUIRED_COLUMNS.get(_economic_table, frozenset()) | frozenset({'economic_uid'})
+for _source_table in ('spools', 'print_jobs'):
+    RAW_REQUIRED_COLUMNS[_source_table] = RAW_REQUIRED_COLUMNS.get(_source_table, frozenset()) | frozenset({'economic_uid', 'economic_birth_nonce'})
+RAW_REQUIRED_COLUMNS['orders'] |= frozenset({'economic_global_origin_nonce'})
+RAW_REQUIRED_COLUMNS['spools'] |= frozenset({'purchase_evidence_nonce','purchase_revision'})
+RAW_REQUIRED_COLUMNS['cost_source_lifetimes'] = frozenset({'birth_nonce','resource_kind','resource_id','state','identity_uid','owner_scope','owner_key','job_uid','order_uid','item_uid','attempt_uid'})
+
+
 def import_all_models() -> None:
     import core.models  # noqa: F401
+    import core.dispatch_claim_schema  # noqa: F401
+    import core.dispatch_receipt_schema  # noqa: F401
+    import core.dispatch_sender_schema  # noqa: F401
     import modules.archives.models  # noqa: F401
     import modules.inventory.models  # noqa: F401
     import modules.jobs.models  # noqa: F401
@@ -175,43 +265,75 @@ def _orm_checksum() -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _record_orm_baseline(connection) -> bool:
-    migration_id = "orm-baseline:1"
-    checksum = _orm_checksum()
-    row = connection.execute(
-        text(
-            "SELECT checksum, dialect FROM odin_schema_migrations "
-            "WHERE migration_id = :migration_id"
-        ),
-        {"migration_id": migration_id},
-    ).fetchone()
-    expected = (checksum, connection.dialect.name)
-    if row:
-        if (str(row[0]), str(row[1])) != expected:
-            from core.schema.migrator import MigrationError
+CURRENT_ORM_BASELINE = "main_audit_20261012"
 
-            raise MigrationError(f"Migration history mismatch: {migration_id}")
+
+def _recognized_orm_checksums() -> frozenset[str]:
+    """Explicit build manifests, never inferred from the database being upgraded."""
+    from core.schema.migrator import MigrationError
+
+    catalog = json.loads(Path(__file__).with_name("orm_baselines.json").read_text())
+    checksums = set()
+    for entry in catalog.values():
+        payload = json.dumps(entry["manifest"], sort_keys=True, separators=(",", ":"))
+        checksum = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        if checksum != entry["checksum"]:
+            raise MigrationError("Pinned ORM baseline catalog checksum mismatch")
+        checksums.add(checksum)
+    return frozenset(checksums)
+
+
+def _validate_orm_baseline(connection) -> None:
+    """Refuse unknown build/history before any schema-mutating bootstrap phase."""
+    from core.schema.migrator import MigrationError
+
+    recognized = _recognized_orm_checksums()
+    catalog = json.loads(Path(__file__).with_name("orm_baselines.json").read_text())
+    if _orm_checksum() != catalog[CURRENT_ORM_BASELINE]["checksum"]:
+        raise MigrationError("Current ORM manifest is not pinned for this build")
+    if MIGRATION_TABLE.name not in inspect(connection).get_table_names():
+        return
+    row = connection.execute(
+        text("SELECT checksum, dialect FROM odin_schema_migrations "
+             "WHERE migration_id = 'orm-baseline:1'")
+    ).fetchone()
+    if row and (str(row[0]) not in recognized or str(row[1]) != connection.dialect.name):
+        raise MigrationError("Migration history mismatch: orm-baseline:1")
+
+
+def _record_orm_baseline(connection) -> bool:
+    _validate_orm_baseline(connection)
+    row = connection.execute(
+        text("SELECT migration_id FROM odin_schema_migrations "
+             "WHERE migration_id = 'orm-baseline:1'")
+    ).fetchone()
+    if row:
         return False
     connection.execute(
         MIGRATION_TABLE.insert().values(
-            migration_id=migration_id,
-            checksum=checksum,
+            migration_id="orm-baseline:1",
+            checksum=_orm_checksum(),
             dialect=connection.dialect.name,
         )
     )
     return True
 
 
-def validate_schema(connection) -> dict[str, int]:
+def validate_schema(connection, *, _contract=None) -> dict[str, int]:
+    from core.schema.pre026_restore_contract import check_contract,inventory_for
+    check_contract(_contract)
+    INVENTORY = inventory_for(_contract) if _contract is not None else None
+    raw_tables=RAW_REQUIRED_TABLES if _contract is None else frozenset(INVENTORY["raw_tables"])
+    raw_columns=RAW_REQUIRED_COLUMNS if _contract is None else INVENTORY["raw_columns"]
     inspector = inspect(connection)
     actual_tables = set(inspector.get_table_names())
     required_tables = (
-        set(Base.metadata.tables) | set(RAW_REQUIRED_TABLES) | {MIGRATION_TABLE.name}
+        set(Base.metadata.tables) | set(raw_tables) | {MIGRATION_TABLE.name}
     )
     missing_tables = sorted(required_tables - actual_tables)
     if missing_tables:
         raise RuntimeError("Schema validation missing tables: " + ", ".join(missing_tables))
-    for table_name, required_columns in RAW_REQUIRED_COLUMNS.items():
+    for table_name, required_columns in raw_columns.items():
         actual_columns = {
             item["name"] for item in inspector.get_columns(table_name)
         }
@@ -231,6 +353,8 @@ def validate_schema(connection) -> dict[str, int]:
                 f"Schema validation missing columns on {table_name}: "
                 + ", ".join(missing_columns)
             )
+    from core.schema.mfa_enrollments import validate_enrollment_shape
+    validate_enrollment_shape(connection)
     return {"tables": len(actual_tables), "required_tables": len(required_tables)}
 
 
@@ -308,20 +432,24 @@ def _validate_adoptable_legacy_core(connection) -> None:
         )
 
 
-def bootstrap_database(
+def _bootstrap_database_contract(
     engine: Engine,
     backend_root: Path | None = None,
+    *, contract=None,
 ) -> dict[str, object]:
+    from core.schema.pre026_restore_contract import check_contract,fixed_sql_files,PRE027_RESTORE026
+    check_contract(contract)
     import_all_models()
     root = backend_root or Path(__file__).resolve().parents[2]
     applied: list[str] = []
     with engine.begin() as connection:
         if connection.dialect.name == "postgresql":
-            connection.execute(text("SELECT pg_advisory_xact_lock(71403114720480978)"))
+            acquire_schema_writer_lock(connection)
+        _validate_orm_baseline(connection)
         _validate_adoptable_legacy_core(connection)
         Base.metadata.create_all(bind=connection)
         ensure_ledger(connection)
-        for migration_id, path in migration_files(root):
+        for migration_id, path in (migration_files(root) if contract is None else fixed_sql_files(root,contract=contract)):
             if apply_migration_file(connection, path, migration_id=migration_id):
                 applied.append(migration_id)
         python_migration = "core.schema.migrations.001_legacy_columns"
@@ -334,21 +462,21 @@ def bootstrap_database(
 
     with engine.begin() as connection:
         if connection.dialect.name == "postgresql":
-            connection.execute(text("SELECT pg_advisory_xact_lock(71403114720480978)"))
-        for migration_id, path in post_education_migration_files(root):
+            acquire_schema_writer_lock(connection)
+        for migration_id, path in (post_education_migration_files(root) if contract is None else fixed_sql_files(root,post=True,contract=contract)):
             if apply_migration_file(connection, path, migration_id=migration_id):
                 applied.append(migration_id)
 
     monitor_migration = "core.schema.migrations.003_education_monitor_claims"
     with engine.begin() as connection:
         if connection.dialect.name == "postgresql":
-            connection.execute(text("SELECT pg_advisory_xact_lock(71403114720480978)"))
+            acquire_schema_writer_lock(connection)
         if apply_python_migration(connection, monitor_migration):
             applied.append("python:003-education-monitor-claims")
 
     with engine.begin() as connection:
         if connection.dialect.name == "postgresql":
-            connection.execute(text("SELECT pg_advisory_xact_lock(71403114720480978)"))
+            acquire_schema_writer_lock(connection)
         if apply_python_migration(connection, "core.schema.migrations.004_quiet_hours_scoped_claims"):
             applied.append("python:004-quiet-hours-scoped-claims")
         if apply_python_migration(connection, "core.schema.migrations.005_order_production_snapshots"):
@@ -357,13 +485,53 @@ def bootstrap_database(
             applied.append("python:006-print-job-measurements")
         if apply_python_migration(connection, "core.schema.migrations.007_attempt_accounting"):
             applied.append("python:007-attempt-accounting")
+        if apply_python_migration(connection, "core.schema.migrations.008_profile_revisions"):
+            applied.append("python:008-profile-revisions")
+        if apply_python_migration(connection, "core.schema.migrations.009_cost_foundation"):
+            applied.append("python:009-cost-foundation")
+        if apply_python_migration(connection, "core.schema.migrations.010_h2d_nozzle_observations"):
+            applied.append("python:010-h2d-nozzle-observations")
+        if apply_python_migration(connection, "core.schema.migrations.011_dispatch_claims"):
+            applied.append("python:011-dispatch-claims")
+        if apply_python_migration(connection, "core.schema.migrations.012_dispatch_receipts"):
+            applied.append("python:012-dispatch-receipts")
+        if apply_python_migration(connection, "core.schema.migrations.013_observation_received_time"):
+            applied.append("python:013-observation-received-time")
+        if apply_python_migration(connection, "core.schema.migrations.014_dispatch_senders"):
+            applied.append("python:014-dispatch-senders")
+        if apply_python_migration(connection, "core.schema.migrations.015_timelapse_retirements"):
+            applied.append("python:015-timelapse-retirements")
+        if apply_python_migration(connection, "core.schema.migrations.016_timelapse_ownership"):
+            applied.append("python:016-timelapse-ownership")
+        if apply_python_migration(connection, "core.schema.migrations.017_timelapse_recovery"):
+            applied.append("python:017-timelapse-recovery")
+        if apply_python_migration(connection, "core.schema.migrations.018_timelapse_unlinks"):
+            applied.append("python:018-timelapse-unlinks")
+        if apply_python_migration(connection, "core.schema.migrations.019_timelapse_publications"):
+            applied.append("python:019-timelapse-publications")
+        if apply_python_migration(connection, "core.schema.migrations.020_ams_evidence"):
+            applied.append("python:020-ams-evidence")
+        if apply_python_migration(connection, "core.schema.migrations.021_economic_identity"):
+            applied.append("python:021-economic-identity")
+        if apply_python_migration(connection, "core.schema.migrations.022_economic_source_lifetimes"):
+            applied.append("python:022-economic-source-lifetimes")
+        if apply_python_migration(connection, "core.schema.migrations.023_timelapse_retirement_membership"):
+            applied.append("python:023-timelapse-retirement-membership")
+        if apply_python_migration(connection, "core.schema.migrations.024_audit_actor"):
+            applied.append("python:024-audit-actor")
+        if apply_python_migration(connection, "core.schema.migrations.025_spool_purchase_evidence"):
+            applied.append("python:025-spool-purchase-evidence")
+        if (contract is None or contract is PRE027_RESTORE026) and apply_python_migration(connection, "core.schema.migrations.026_global_order_origins"):
+            applied.append("python:026-global-order-origins")
+        if contract is None and apply_python_migration(connection, "core.schema.migrations.027_power_target_operations"):
+            applied.append("python:027-power-target-operations")
 
     with engine.begin() as connection:
         if connection.dialect.name == "postgresql":
-            connection.execute(text("SELECT pg_advisory_xact_lock(71403114720480978)"))
+            acquire_schema_writer_lock(connection)
         if _record_orm_baseline(connection):
             applied.append("orm-baseline:1")
-        validation = validate_schema(connection)
+        validation = validate_schema(connection, _contract=contract)
         fingerprint = schema_fingerprint(connection)
     return {
         "dialect": engine.dialect.name,
@@ -371,3 +539,8 @@ def bootstrap_database(
         "schema_fingerprint": fingerprint,
         **validation,
     }
+
+
+def bootstrap_database(engine: Engine, backend_root: Path | None = None) -> dict[str, object]:
+    """Ordinary startup always uses the current schema contract."""
+    return _bootstrap_database_contract(engine,backend_root)

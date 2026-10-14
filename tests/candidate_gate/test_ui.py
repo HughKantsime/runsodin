@@ -249,7 +249,11 @@ def test_compiled_order_edit_keeps_zero_and_downloads_invoice(role_page_factory,
     saved=admin.get(f'{BASE_URL}/api/orders/{identifier}',timeout=10).json()
     assert all(saved[key]==0 for key in ('revenue','platform_fees','payment_fees','shipping_charged'))
     assert saved['items'][0]['unit_price']==0 and saved['items'][0]['subtotal']==0
+    assert all(saved[key] is None for key in ('actual_cost','profit','margin_percent'))
     page.get_by_role('button',name=label,exact=True).click()
+    for field in ('Actual Cost','Profit','Margin'):
+        expect(page.get_by_text(field,exact=True).locator('..')).to_contain_text('Unknown')
+    expect(page.get_by_text('Estimated Cost',exact=True).locator('..')).to_contain_text('$0.00')
     with page.expect_download() as receipt:
         page.get_by_role('button',name='Invoice',exact=True).click()
     download=receipt.value
@@ -697,7 +701,8 @@ def test_compiled_camera_detail_load_retry_and_fullscreen_failure(role_page_fact
     page=role_page_factory('admin')
     if mobile:page.set_viewport_size({'width':390,'height':844})
     state={'failed':True}
-    printer={'id':900,'name':'Synthetic detail printer','gcode_state':'RUNNING','nozzle_temp':210,'nozzle_target_temp':220,'bed_temp':60,'bed_target_temp':60,'fan_speed':0,'mc_percent':45,'mc_remaining_time':75,'gcode_file':'Synthetic detail job','layer_num':12,'total_layer_num':100,'filament_slots':[]}
+    from datetime import datetime,timezone
+    printer={'last_seen':datetime.now(timezone.utc).isoformat(),'id':900,'name':'Synthetic detail printer','gcode_state':'RUNNING','nozzle_temp':210,'nozzle_target_temp':220,'bed_temp':60,'bed_target_temp':60,'fan_speed':0,'mc_percent':45,'mc_remaining_time':75,'gcode_file':'Synthetic detail job','layer_num':12,'total_layer_num':100,'filament_slots':[]}
     def printer_list(route):
         if state['failed']:route.fulfill(status=503,json={'detail':'Synthetic unavailable'})
         else:route.fulfill(json=[printer])
@@ -825,3 +830,608 @@ def test_compiled_profile_import_download_and_unavailable_retry(role_page_factor
             identifiers = [row['id'] for row in admin.get(f'{BASE_URL}/api/profiles',params={'search':label},timeout=10).json()['profiles']]
         for identifier in identifiers:
             assert admin.delete(f'{BASE_URL}/api/profiles/{identifier}',timeout=10).status_code==204
+
+
+@pytest.mark.parametrize('mobile',[False,True])
+def test_compiled_generic_upload_persists_variant_and_previews_real_payload(role_page_factory,admin,mobile):
+    page=role_page_factory('admin',mobile=mobile)
+    _goto(page,'/upload')
+    with page.expect_response(lambda response:response.url.endswith('/api/print-files/upload') and response.request.method=='POST',timeout=20_000) as uploaded:
+        page.locator('#file-upload').set_input_files(FIXTURE)
+    response=uploaded.value
+    assert response.status==200
+    body=response.json();file_id=body['id'];model_id=body['model_id']
+    expect(page.get_by_role('heading',name=body['project_name'],exact=True)).to_be_visible()
+    model=admin.get(f'{BASE_URL}/api/models/{model_id}',timeout=10)
+    assert model.status_code==200
+    preview=admin.get(f'{BASE_URL}/api/files/{file_id}/preview-model',timeout=10)
+    assert preview.status_code==200 and preview.content==FIXTURE.read_bytes()
+    variants=admin.get(f'{BASE_URL}/api/models/{model_id}/variants',timeout=10)
+    assert variants.status_code==200 and file_id in {row['id'] for row in variants.json()['variants']}
+    page.get_by_role('button',name='View in Library',exact=True).click()
+    expect(page.get_by_role('heading',name=model.json()['name'],exact=True)).to_be_visible()
+    page.reload(wait_until='domcontentloaded')
+    expect(page.get_by_role('heading',name=model.json()['name'],exact=True)).to_be_visible()
+    assert page.evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth+1')
+
+
+@pytest.mark.parametrize('mobile',[False,True])
+def test_compiled_cfg_history_diff_and_restore_persist_without_printer_commands(role_page_factory,admin,tmp_path,mobile):
+    label=f'SyntheticHistoryCfg{mobile}'
+    original='[printer]\r\nkinematics: cartesian\r\nmax_velocity: 180\r\n'
+    updated='[printer]\nkinematics: cartesian\nmax_velocity: 220\n'
+    page=role_page_factory('admin',mobile=mobile)
+    identifier=None
+    apply_requests=[]
+    page.on('request',lambda request:apply_requests.append(request.url) if '/api/profiles/' in request.url and request.url.endswith('/apply') else None)
+    try:
+        _goto(page,'/profiles')
+        page.locator('input[type=file]').set_input_files({'name':label+'.cfg','mimeType':'text/plain','buffer':original.encode()})
+        expect(page.get_by_text('Imported 1 profile(s)',exact=True)).to_be_visible()
+        page.get_by_placeholder('Search profiles...').fill(label)
+        expect(page.get_by_text(label,exact=True)).to_be_visible()
+        saved=admin.get(f'{BASE_URL}/api/profiles',params={'search':label},timeout=10).json()['profiles']
+        assert len(saved)==1
+        identifier=saved[0]['id']
+        assert admin.get(f'{BASE_URL}/api/profiles/{identifier}',timeout=10).json()['raw_content']==original
+        card=page.locator('div').filter(has=page.get_by_text(label,exact=True)).filter(has=page.get_by_title('Profile history')).last
+        expect(card.get_by_title('Apply to printer')).to_have_count(0)
+        card.get_by_title('Profile history').click()
+        dialog=page.get_by_role('dialog',name=f'History: {label}')
+        expect(dialog.get_by_label('Current profile content')).to_have_value(original.replace('\r\n','\n'))
+        expect(dialog.get_by_text('No saved revisions yet.',exact=False)).to_be_visible()
+        dialog.get_by_label('Current profile content').fill(updated)
+        dialog.get_by_label('Change notes').fill('Synthetic browser tuning')
+        with page.expect_response(lambda response:response.url.endswith(f'/api/profiles/{identifier}/revisions') and response.request.method=='POST') as written:
+            dialog.get_by_role('button',name='Save revision',exact=True).click()
+        assert written.value.status==200 and written.value.json()['revision_number']==2
+        expect(dialog.get_by_text('Revision 2 saved',exact=True)).to_be_visible()
+        assert admin.get(f'{BASE_URL}/api/profiles/{identifier}',timeout=10).json()['raw_content']==updated
+        history=admin.get(f'{BASE_URL}/api/profiles/{identifier}/revisions',timeout=10).json()
+        assert [row['revision_number'] for row in history]==[2,1]
+        dialog.get_by_role('button',name='Compare revision 1',exact=True).click()
+        comparison=dialog.get_by_role('region',name='Revision comparison').locator('pre')
+        expect(comparison).to_contain_text('-max_velocity: 180')
+        expect(comparison).to_contain_text('+max_velocity: 220')
+        dialog.get_by_role('button',name='Restore revision 1',exact=True).click()
+        page.get_by_role('button',name='Restore content',exact=True).click()
+        expect(dialog.get_by_text('Revision 3 saved from restored content',exact=True)).to_be_visible()
+        expect(dialog.get_by_label('Current profile content')).to_have_value(original.replace('\r\n','\n'))
+        assert admin.get(f'{BASE_URL}/api/profiles/{identifier}/export',timeout=10).content==original.encode()
+        assert [row['revision_number'] for row in admin.get(f'{BASE_URL}/api/profiles/{identifier}/revisions',timeout=10).json()]==[3,2,1]
+        page.screenshot(path=str(tmp_path/f'profile-history-{mobile}.png'))
+        assert page.evaluate('document.documentElement.scrollWidth<=document.documentElement.clientWidth+1')
+        page.reload(wait_until='domcontentloaded')
+        page.get_by_placeholder('Search profiles...').fill(label)
+        card=page.locator('div').filter(has=page.get_by_text(label,exact=True)).filter(has=page.get_by_title('Profile history')).last
+        with page.expect_download() as event:card.get_by_title('Download').click()
+        download=event.value
+        target=tmp_path/(label+'.cfg');download.save_as(target)
+        assert download.failure() is None and download.suggested_filename==label+'.cfg'
+        assert target.read_bytes()==original.encode()
+        assert apply_requests==[]
+    finally:
+        if identifier is not None:assert admin.delete(f'{BASE_URL}/api/profiles/{identifier}',timeout=10).status_code==204
+
+
+@pytest.mark.parametrize('mobile', [False, True])
+def test_compiled_product_complete_estimates_preserve_zero_and_unknown(role_page_factory, admin, tmp_path, mobile):
+    """Real mixed BOM estimates; only browser license presentation is substituted."""
+    model_ids, product_ids, supply_ids = [], [], []
+    try:
+        models = {}
+        for key, cost in [('free', 0), ('priced', 2.5), ('unknown', None)]:
+            response = admin.post(BASE_URL+'/api/models', json={'name':f'Synthetic cost model {key} {mobile}', 'cost_per_item':cost}, timeout=10)
+            assert response.status_code == 201
+            models[key] = response.json()['id']; model_ids.append(models[key])
+        supply = admin.post(BASE_URL+'/api/consumables', json={'name':f'Synthetic cost supply {mobile}', 'cost_per_unit':0.75, 'current_stock':20}, timeout=10)
+        assert supply.status_code == 200
+        supply_id = supply.json()['id']; supply_ids.append(supply_id)
+        expected = []
+        for key, estimate in [('free', 0), ('priced', 10.5), ('unknown', None)]:
+            label = f'Synthetic complete estimate {key} {mobile}'
+            response = admin.post(BASE_URL+'/api/products', json={'name':label,'price':25,'components':[{'model_id':models[key], 'quantity_needed':3}]}, timeout=10)
+            assert response.status_code == 200
+            identifier = response.json()['id']; product_ids.append(identifier)
+            if key != 'free':
+                linked = admin.post(f'{BASE_URL}/api/products/{identifier}/consumables', json={'consumable_id':supply_id, 'quantity_per_product':4}, timeout=10)
+                assert linked.status_code == 200
+            detail = admin.get(f'{BASE_URL}/api/products/{identifier}', timeout=10)
+            assert detail.status_code == 200 and detail.json()['estimated_cogs'] == estimate
+            expected.append((label, identifier, estimate))
+        page = role_page_factory('admin', mobile=mobile)
+        def feature_facts(route):
+            response = route.fetch(); data = response.json()
+            data['features'] = list(set(data.get('features', [])) | {'products'})
+            route.fulfill(response=response, json=data)
+        page.route('**/api/license', feature_facts)
+        def assert_display():
+            for label, identifier, estimate in expected:
+                formatted = 'Unknown' if estimate is None else f'${estimate:.2f}'
+                if mobile:
+                    card = page.locator('div.p-4').filter(has=page.get_by_role('button', name=label, exact=True)).last
+                    expect(card.get_by_text('Est. COGS: '+formatted, exact=True)).to_be_visible()
+                else:
+                    row = page.locator('tr').filter(has=page.get_by_role('button', name=label, exact=True))
+                    expect(row.locator('td').nth(4)).to_have_text(formatted)
+            assert page.evaluate('document.documentElement.scrollWidth<=document.documentElement.clientWidth+1')
+        _goto(page, '/products'); assert_display()
+        page.reload(wait_until='domcontentloaded'); assert_display()
+        rows = admin.get(BASE_URL+'/api/products', timeout=10).json()
+        for label, identifier, estimate in expected:
+            assert next(row for row in rows if row['id']==identifier)['estimated_cogs'] == estimate
+        assert admin.get(f'{BASE_URL}/api/consumables/{supply_id}', timeout=10).json()['current_stock'] == 20
+        page.screenshot(path=str(tmp_path/f'product-estimates-{mobile}.png'))
+    finally:
+        for identifier in product_ids:
+            assert admin.delete(f'{BASE_URL}/api/products/{identifier}', timeout=10).status_code == 204
+        for identifier in supply_ids:
+            removed = admin.delete(f'{BASE_URL}/api/consumables/{identifier}', timeout=10)
+            assert removed.status_code == 200 and removed.json() == {'success':True}
+            assert admin.get(f'{BASE_URL}/api/consumables/{identifier}', timeout=10).status_code == 404
+        for identifier in model_ids:
+            assert admin.delete(f'{BASE_URL}/api/models/{identifier}', timeout=10).status_code == 204
+
+
+@pytest.mark.parametrize('mobile', [False, True])
+def test_compiled_product_statistics_use_complete_precise_prices(role_page_factory, admin, tmp_path, mobile):
+    """Temporarily edit only disposable candidate products, then restore their prices."""
+    originals = admin.get(BASE_URL+'/api/products', timeout=10).json()
+    originals = {row['id']:row['price'] for row in originals}
+    identifier = None
+    try:
+        created = admin.post(BASE_URL+'/api/products', json={'name':f'Synthetic statistics price {mobile}', 'price':12.99, 'sku':'SYNTHETIC-STATS'}, timeout=10)
+        assert created.status_code == 200
+        identifier = created.json()['id']
+        for existing in originals:
+            assert admin.patch(f'{BASE_URL}/api/products/{existing}', json={'price':0}, timeout=10).status_code == 200
+        rows = admin.get(BASE_URL+'/api/products', timeout=10).json()
+        page = role_page_factory('admin', mobile=mobile)
+        def feature_facts(route):
+            response=route.fetch();data=response.json()
+            data['features']=list(set(data.get('features',[]))|{'products'})
+            route.fulfill(response=response,json=data)
+        page.route('**/api/license', feature_facts)
+        def value(label):
+            import re
+            return page.locator('div.text-xs').filter(has_text=re.compile('^'+re.escape(label)+'$')).locator('..').locator('div').first
+        _goto(page, '/products')
+        expect(value('Products')).to_have_text(str(len(rows)))
+        expect(value('Components')).to_have_text(str(sum(len(row['components']) for row in rows)))
+        expect(value('With SKU')).to_have_text(str(sum(bool(row['sku']) for row in rows)))
+        expect(value('Avg Price')).to_have_text(f'${12.99/len(rows):.2f}')
+        page.reload(wait_until='domcontentloaded')
+        expect(value('Avg Price')).to_have_text(f'${12.99/len(rows):.2f}')
+        assert admin.patch(f'{BASE_URL}/api/products/{identifier}', json={'price':None}, timeout=10).status_code == 200
+        page.reload(wait_until='domcontentloaded')
+        expect(value('Avg Price')).to_have_text('Unknown')
+        assert admin.patch(f'{BASE_URL}/api/products/{identifier}', json={'price':0}, timeout=10).status_code == 200
+        page.reload(wait_until='domcontentloaded')
+        expect(value('Avg Price')).to_have_text('$0.00')
+        assert page.evaluate('document.documentElement.scrollWidth<=document.documentElement.clientWidth+1')
+        page.screenshot(path=str(tmp_path/f'product-statistics-{mobile}.png'))
+    finally:
+        for existing, price in originals.items():
+            assert admin.patch(f'{BASE_URL}/api/products/{existing}', json={'price':price}, timeout=10).status_code == 200
+            assert admin.get(f'{BASE_URL}/api/products/{existing}', timeout=10).json()['price'] == price
+        if identifier is not None:
+            assert admin.delete(f'{BASE_URL}/api/products/{identifier}', timeout=10).status_code == 204
+
+
+@pytest.mark.parametrize('mobile', [False, True])
+def test_compiled_order_global_statistics_preserve_cents_unknown_and_filters(role_page_factory, admin, tmp_path, mobile):
+    """Only owned candidate order revenue is changed; originals restored after UI checks."""
+    import re
+    originals = {row['id']:row['revenue'] for row in admin.get(BASE_URL+'/api/orders', timeout=10).json()}
+    identifiers = []
+    try:
+        for existing in originals:
+            assert admin.patch(f'{BASE_URL}/api/orders/{existing}', json={'revenue':0}, timeout=10).status_code == 200
+        for status, revenue in [('pending',12.99), ('cancelled',2)]:
+            response=admin.post(BASE_URL+'/api/orders', json={'order_number':f'Synthetic global stats {status} {mobile}', 'revenue':revenue,'items':[]}, timeout=10)
+            assert response.status_code == 200
+            identifier=response.json()['id'];identifiers.append(identifier)
+            if status!='pending':
+                assert admin.patch(f'{BASE_URL}/api/orders/{identifier}', json={'status':status}, timeout=10).status_code == 200
+        rows=admin.get(BASE_URL+'/api/orders', timeout=10).json()
+        page=role_page_factory('admin',mobile=mobile)
+        def feature_facts(route):
+            response=route.fetch();data=response.json()
+            data['features']=list(set(data.get('features',[]))|{'orders'})
+            route.fulfill(response=response,json=data)
+        page.route('**/api/license',feature_facts)
+        def value(label):
+            return page.locator('span.uppercase').filter(has_text=re.compile('^'+re.escape(label)+'$')).locator('..').locator('..').locator('div.font-mono')
+        _goto(page,'/orders')
+        expect(value('Total Orders')).to_have_text(str(len(rows)))
+        expect(value('Revenue')).to_have_text('$14.99')
+        expect(value('Pending')).to_have_text(str(sum(row['status']=='pending' for row in rows)))
+        expect(value('Shipped')).to_have_text(str(sum(row['status']=='shipped' for row in rows)))
+        page.get_by_role('option',name='Pending',exact=True).locator('..').select_option('pending')
+        expect(page.get_by_role('button',name=f'Synthetic global stats pending {mobile}',exact=True)).to_be_visible()
+        expect(page.get_by_text(f'Synthetic global stats cancelled {mobile}',exact=True)).to_have_count(0)
+        expect(value('Total Orders')).to_have_text(str(len(rows)))
+        expect(value('Revenue')).to_have_text('$14.99')
+        page.reload(wait_until='domcontentloaded')
+        expect(value('Total Orders')).to_have_text(str(len(rows)))
+        expect(value('Revenue')).to_have_text('$14.99')
+        assert admin.patch(f'{BASE_URL}/api/orders/{identifiers[0]}', json={'revenue':None}, timeout=10).status_code == 200
+        page.reload(wait_until='domcontentloaded')
+        expect(value('Revenue')).to_have_text('Unknown')
+        for identifier in identifiers:
+            assert admin.patch(f'{BASE_URL}/api/orders/{identifier}', json={'revenue':0}, timeout=10).status_code == 200
+        page.reload(wait_until='domcontentloaded')
+        expect(value('Revenue')).to_have_text('$0.00')
+        assert page.evaluate('document.documentElement.scrollWidth<=document.documentElement.clientWidth+1')
+        page.screenshot(path=str(tmp_path/f'order-statistics-{mobile}.png'))
+    finally:
+        for identifier in identifiers:
+            assert admin.delete(f'{BASE_URL}/api/orders/{identifier}', timeout=10).status_code == 204
+        for existing, revenue in originals.items():
+            assert admin.patch(f'{BASE_URL}/api/orders/{existing}', json={'revenue':revenue}, timeout=10).status_code == 200
+            assert admin.get(f'{BASE_URL}/api/orders/{existing}', timeout=10).json()['revenue'] == revenue
+
+@pytest.mark.parametrize('mobile',[False,True])
+def test_branding_save_upload_fetch_and_remove_compiled(role_page_factory,admin,mobile):
+    """Real branding APIs/assets; only licensed tab presentation is substituted."""
+    from io import BytesIO
+    from PIL import Image
+    original=admin.get(BASE_URL+'/api/branding',timeout=10).json()
+    assert original['favicon_url'] is None, 'Owned candidate starts without a custom favicon'
+    page=role_page_factory('admin',mobile=mobile)
+    def feature_facts(route):
+        response=route.fetch();data=response.json()
+        data['tier']='pro'
+        data['features']=list(set(data.get('features',[]))|{'branding'})
+        route.fulfill(response=response,json=data)
+    page.route('**/api/license',feature_facts)
+    try:
+        _goto(page,'/settings')
+        page.get_by_role('button',name='Branding',exact=True).click()
+        expect(page.get_by_role('heading',name='White-Label Branding')).to_be_visible()
+        page.get_by_placeholder('O.D.I.N.',exact=True).fill('Synthetic compiled branding')
+        dark_toggle=page.get_by_role('button',name='Switch to dark mode',exact=True)
+        if dark_toggle.count():dark_toggle.click()
+        page.get_by_text('Primary',exact=True).locator('..').locator('..').locator('input[type=text]').fill('#112233')
+        page.get_by_role('button',name='Save Changes',exact=True).click()
+        expect(page.get_by_role('button',name='Saved!',exact=True)).to_be_visible()
+        assert admin.get(BASE_URL+'/api/branding',timeout=10).json()['app_name']=='Synthetic compiled branding'
+        assert admin.get(BASE_URL+'/api/branding',timeout=10).json()['primary_color']=='#112233'
+        expect(page.locator('html')).to_have_css('--brand-primary','#112233')
+        page.get_by_role('button',name='Switch to light mode',exact=True).click()
+        expect(page.locator('html')).to_have_class(__import__('re').compile(r'.*light.*'))
+        page.get_by_role('button',name='Switch to dark mode',exact=True).click()
+        expect(page.locator('html')).to_have_css('--brand-primary','#112233')
+        image=BytesIO();Image.new('RGB',(16,16),(20,70,100)).save(image,format='PNG')
+        page.locator('input[type=file]').nth(1).set_input_files({'name':'synthetic.png','mimeType':'image/png','buffer':image.getvalue()})
+        preview=page.get_by_alt_text('Favicon',exact=True)
+        expect(preview).to_be_visible()
+        url=preview.get_attribute('src')
+        assert url and '/static/branding/favicon-' in url
+        response=admin.get(BASE_URL+url,timeout=10)
+        assert response.status_code==200 and response.content==image.getvalue()
+        expect(page.locator('link[rel="icon"]')).to_have_attribute('href',url)
+        preview.locator('..').get_by_role('button',name='Remove',exact=True).click()
+        expect(preview).to_have_count(0)
+        expect(page.locator('link[rel="icon"]')).to_have_attribute('href','/favicon.svg')
+        assert admin.get(BASE_URL+'/api/branding',timeout=10).json()['favicon_url'] is None
+    finally:
+        admin.delete(BASE_URL+'/api/branding/favicon',timeout=10)
+        assert admin.put(BASE_URL+'/api/branding',json=original,timeout=10).status_code==200
+
+
+def test_compiled_alert_delete_failure_retry_and_persisted_badge(role_page_factory, admin):
+    """Owned synthetic alert; real delete/persistence/count, injected initial refusal."""
+    page = role_page_factory('admin', mobile=True)
+    response = admin.get(BASE_URL+'/api/alerts', timeout=10)
+    assert response.status_code == 200
+    alert = next(row for row in response.json() if row['title']=='ODIN Candidate Gate Alert')
+    alert_id = alert['id']
+    before = admin.get(BASE_URL+'/api/alerts/unread-count', timeout=10).json()['unread_count']
+    _goto(page, '/alerts')
+    expect(page.get_by_text('ODIN Candidate Gate Alert', exact=True)).to_be_visible()
+    page.get_by_role('button',name='Info',exact=True).click()
+    expect(page.get_by_text('ODIN Candidate Gate Alert',exact=True)).to_have_count(0)
+    page.get_by_role('button',name='Warning',exact=True).click()
+    expect(page.get_by_text('ODIN Candidate Gate Alert',exact=True)).to_be_visible()
+    endpoint = f'**/api/alerts/{alert_id}'
+    page.route(endpoint, lambda route: route.fulfill(status=503, content_type='application/json', body='{"detail":"Synthetic refusal"}'))
+    page.get_by_role('button', name='Delete alert', exact=True).click()
+    expect(page.get_by_text('Failed to delete alert', exact=True)).to_be_visible()
+    expect(page.get_by_text('ODIN Candidate Gate Alert', exact=True)).to_be_visible()
+    assert any(row['id']==alert_id for row in admin.get(BASE_URL+'/api/alerts', timeout=10).json())
+    page.unroute(endpoint)
+    page.get_by_role('button', name='Delete alert', exact=True).click()
+    expect(page.get_by_text('ODIN Candidate Gate Alert', exact=True)).to_have_count(0)
+    assert not any(row['id']==alert_id for row in admin.get(BASE_URL+'/api/alerts', timeout=10).json())
+    assert admin.get(BASE_URL+'/api/alerts/unread-count', timeout=10).json()['unread_count']==before-1
+    if before-1:
+        expect(page.get_by_role('button', name=f'Notifications, {before-1} unread', exact=True)).to_be_visible()
+    else:
+        expect(page.get_by_role('button', name='Notifications', exact=True)).to_be_visible()
+    page.reload(wait_until='domcontentloaded')
+    expect(page.get_by_text('ODIN Candidate Gate Alert', exact=True)).to_have_count(0)
+    desktop = role_page_factory('admin')
+    _goto(desktop, '/alerts')
+    expect(desktop.get_by_text('ODIN Candidate Gate Alert',exact=True)).to_have_count(0)
+
+
+@pytest.mark.parametrize('mobile',[False,True])
+def test_compiled_welcome_unconfirmed_feedback_synthetic_response(role_page_factory,admin,mobile):
+    """Built UI feedback only: create/license responses substituted, no mail/account mutation."""
+    page=role_page_factory('admin',mobile=mobile)
+    originals=admin.get(BASE_URL+'/api/users',timeout=10).json()
+    message='Account created, but welcome email delivery was not confirmed. Check email settings, then use Send password reset link for this user.'
+    state={'created':False,'posts':0,'reads':0}
+    name='Synthetic compiled welcome '+str(mobile)
+    def license_facts(route):
+        response=route.fetch();data=response.json()
+        data['features']=list(set(data.get('features',[]))|{'user_groups'})
+        data['max_users']=9999
+        data['tier']='pro'  # Licensed UI feed only; backend license unchanged.
+        route.fulfill(response=response,json=data)
+    def users(route):
+        if route.request.method=='POST':
+            state['posts']+=1
+            submitted=route.request.post_data_json
+            assert submitted['send_welcome_email'] is True and submitted['username']==name
+            state['created']=True
+            route.fulfill(status=200,json={'status':'created','welcome_email':'unconfirmed','message':message})
+        else:
+            state['reads']+=1
+            rows=list(originals)
+            if state['created']:rows.append({'id':9900,'username':name,'email':'compiled@example.invalid','role':'viewer','is_active':True})
+            route.fulfill(status=200,json=rows)
+    page.route('**/api/license',license_facts)
+    page.route('**/api/users',users)
+    _goto(page,'/settings')
+    page.get_by_role('button',name='Access',exact=True).click()
+    expect(page.get_by_role('heading',name='Admin',exact=True)).to_be_visible()
+    page.get_by_role('button',name='Add User',exact=True).click()
+    form=page.locator('form').filter(has=page.get_by_role('button',name='Create User',exact=True))
+    form.locator('input[type=text]').fill(name)
+    form.locator('input[type=email]').fill('compiled@example.invalid')
+    form.get_by_label('Send welcome email with auto-generated password').check()
+    form.get_by_role('button',name='Create User',exact=True).click()
+    expect(page.get_by_text(message,exact=True)).to_be_visible()
+    expect(page.get_by_role('heading',name='New User',exact=True)).to_have_count(0)
+    expect(page.get_by_text(name,exact=True)).to_be_visible()
+    assert state['posts']==1 and state['reads']>=2
+    assert admin.get(BASE_URL+'/api/users',timeout=10).json()==originals
+
+
+@pytest.mark.parametrize('mobile',[False,True])
+def test_compiled_admin_mfa_recovery_real_account(role_page_factory,admin,mobile):
+    """Real owned account recovery; licensed UI feed substituted only."""
+    import requests,pyotp
+    username,password=PERSONAS['viewer']
+    target=next(row for row in admin.get(BASE_URL+'/api/users',timeout=10).json() if row['username']==username)
+    assert target['mfa_enabled'] is False
+    viewer=requests.Session()
+    try:
+        assert viewer.post(BASE_URL+'/api/auth/login',data={'username':username,'password':password},timeout=10).status_code==200
+        setup=viewer.post(BASE_URL+'/api/auth/mfa/setup',timeout=10)
+        assert setup.status_code==200
+        secret=setup.json()['secret']
+        assert viewer.post(BASE_URL+'/api/auth/mfa/confirm',json={'code':pyotp.TOTP(secret).now()},timeout=10).status_code==200
+        page=role_page_factory('admin',mobile=mobile)
+        def licensed_ui(route):
+            response=route.fetch();data=response.json()
+            data['features']=list(set(data.get('features',[]))|{'user_groups'})
+            data['tier']='pro';data['max_users']=9999
+            route.fulfill(response=response,json=data)
+        page.route('**/api/license',licensed_ui)
+        deletes=[]
+        page.on('request',lambda request:deletes.append(True) if request.method=='DELETE' and request.url.endswith('/mfa') else None)
+        _goto(page,'/settings')
+        page.get_by_role('button',name='Access',exact=True).click()
+        button=page.get_by_role('button',name='Reset MFA for '+username,exact=True)
+        expect(button).to_be_visible()
+        button.click()
+        expect(page.get_by_role('heading',name='Reset MFA',exact=True)).to_be_visible()
+        assert deletes==[]
+        page.get_by_role('button',name='Cancel',exact=True).click()
+        assert deletes==[]
+        assert next(row for row in admin.get(BASE_URL+'/api/users',timeout=10).json() if row['id']==target['id'])['mfa_enabled'] is True
+        button.click()
+        page.get_by_role('button',name='Disable MFA',exact=True).click()
+        expect(page.get_by_text('MFA disabled. The user can enroll again in their account settings.',exact=True)).to_be_visible()
+        expect(page.get_by_role('heading',name='Reset MFA',exact=True)).to_have_count(0)
+        expect(button).to_have_count(0)
+        assert deletes==[True]
+        assert next(row for row in admin.get(BASE_URL+'/api/users',timeout=10).json() if row['id']==target['id'])['mfa_enabled'] is False
+    finally:
+        viewer.close()
+        current=next(row for row in admin.get(BASE_URL+'/api/users',timeout=10).json() if row['id']==target['id'])
+        if current['mfa_enabled']:
+            assert admin.delete(BASE_URL+'/api/admin/users/'+str(target['id'])+'/mfa',timeout=10).status_code==200
+        assert next(row for row in admin.get(BASE_URL+'/api/users',timeout=10).json() if row['id']==target['id'])['mfa_enabled'] is False
+
+
+@pytest.mark.parametrize('mobile',[False,True])
+def test_compiled_mfa_status_unknown_and_retry(role_page_factory,admin,mobile):
+    """Built status UI with synthetic status/license feeds; no MFA mutation."""
+    page=role_page_factory('admin',mobile=mobile)
+    original=admin.get(BASE_URL+'/api/users',timeout=10).json()
+    state={'reads':0,'mutations':0}
+    def license_ui(route):
+        response=route.fetch();data=response.json()
+        data['tier']='pro';data['max_users']=9999
+        data['features']=list(set(data.get('features',[]))|{'user_groups'})
+        route.fulfill(response=response,json=data)
+    def status(route):
+        state['reads']+=1
+        if state['reads']==1:route.fulfill(status=503,json={'detail':'Synthetic unavailable'})
+        elif state['reads']==2:route.fulfill(status=200,json={'mfa_enabled':'false'})
+        else:route.fulfill(status=200,json={'mfa_enabled':True})
+    page.route('**/api/license',license_ui)
+    page.route('**/api/auth/mfa/status',status)
+    page.on('request',lambda request:state.update(mutations=state['mutations']+1) if '/api/auth/mfa' in request.url and request.method in ('POST','DELETE') else None)
+    _goto(page,'/settings')
+    page.get_by_role('button',name='Access',exact=True).click()
+    page.get_by_role('button',name='Authentication (OIDC & MFA)',exact=True).click()
+    message=page.get_by_text('Unable to load MFA status. Retry before making changes.',exact=True)
+    expect(message).to_be_visible()
+    expect(page.get_by_role('button',name='Set Up Two-Factor Authentication',exact=True)).to_have_count(0)
+    expect(page.get_by_role('button',name='Disable MFA',exact=True)).to_have_count(0)
+    with page.expect_response(lambda response: response.url.endswith('/api/auth/mfa/status')):
+        page.get_by_role('button',name='Retry MFA status',exact=True).click()
+    expect(message).to_be_visible()
+    assert state['reads']==2
+    expect(page.get_by_role('button',name='Set Up Two-Factor Authentication',exact=True)).to_have_count(0)
+    page.get_by_role('button',name='Retry MFA status',exact=True).click()
+    expect(page.get_by_text('Your account is protected with two-factor authentication.',exact=True)).to_be_visible()
+    expect(message).to_have_count(0)
+    assert state['reads']==3 and state['mutations']==0
+    assert admin.get(BASE_URL+'/api/users',timeout=10).json()==original
+
+
+@pytest.mark.parametrize('mobile',[False,True])
+def test_compiled_required_mfa_password_enrollment_real_account(page,admin,mobile):
+    """Actual owned HTTP enrollment and subsequent challenge, no auth response substitutes."""
+    import pyotp
+    username,password=PERSONAS['viewer']
+    rows=admin.get(BASE_URL+'/api/users',timeout=10).json()
+    target=next(row for row in rows if row['username']==username)
+    assert target['mfa_enabled'] is False
+    before=admin.get(BASE_URL+'/api/config/require-mfa',timeout=10).json()['require_mfa']
+    try:
+        assert admin.put(BASE_URL+'/api/config/require-mfa',json={'require_mfa':True},timeout=10).status_code==200
+        if mobile:page.set_viewport_size({'width':390,'height':844})
+        _goto(page,'/login')
+        page.locator('#login-username').fill(username)
+        page.locator('#login-password').fill(password)
+        page.get_by_role('button',name='Sign In',exact=True).click()
+        expect(page.get_by_role('heading',name='Set up two-factor authentication',exact=True)).to_be_visible()
+        expect(page.get_by_alt_text('Authenticator setup QR code')).to_be_visible()
+        assert page.request.get(BASE_URL+'/api/auth/me').status==401
+        secret=page.locator('section[aria-label="Complete sign-in"] code').text_content()
+        valid_secret=isinstance(secret,str) and len(secret)==32
+        assert valid_secret
+        page.locator('#continuation-code').fill(pyotp.TOTP(secret).now())
+        page.get_by_role('button',name='Verify and sign in',exact=True).click()
+        expect(page.get_by_role('heading',name='Dashboard',exact=True)).to_be_visible(timeout=20000)
+        user=page.request.get(BASE_URL+'/api/auth/me').json()
+        correct_user=user.get('username')==username
+        assert correct_user
+        dimensions=page.evaluate('() => ({scroll:document.documentElement.scrollWidth,client:document.documentElement.clientWidth})')
+        assert dimensions['scroll']<=dimensions['client']+1
+        page.context.clear_cookies()
+        _goto(page,'/login')
+        page.locator('#login-username').fill(username)
+        page.locator('#login-password').fill(password)
+        page.get_by_role('button',name='Sign In',exact=True).click()
+        expect(page.get_by_role('heading',name='Two-factor authentication',exact=True)).to_be_visible()
+        assert page.request.get(BASE_URL+'/api/auth/me').status==401
+        page.locator('#continuation-code').fill(pyotp.TOTP(secret).now())
+        page.get_by_role('button',name='Verify and sign in',exact=True).click()
+        expect(page.get_by_role('heading',name='Dashboard',exact=True)).to_be_visible(timeout=20000)
+    finally:
+        assert admin.put(BASE_URL+'/api/config/require-mfa',json={'require_mfa':before},timeout=10).status_code==200
+        assert admin.delete(BASE_URL+f'/api/admin/users/{target["id"]}/mfa',timeout=10).status_code==200
+
+@pytest.mark.parametrize('mobile',[False,True])
+def test_compiled_sso_continuation_real_restricted_authorities(page,admin,mobile):
+    """SSO exchange transport substituted; real login grants/enrollment/challenge/cookies."""
+    import requests,pyotp
+    username,password=PERSONAS['viewer']
+    target=next(row for row in admin.get(BASE_URL+'/api/users',timeout=10).json() if row['username']==username)
+    before=admin.get(BASE_URL+'/api/config/require-mfa',timeout=10).json()['require_mfa']
+    try:
+        assert admin.put(BASE_URL+'/api/config/require-mfa',json={'require_mfa':True},timeout=10).status_code==200
+        if mobile:page.set_viewport_size({'width':390,'height':844})
+        with requests.Session() as client:
+            grant=client.post(BASE_URL+'/api/auth/login',data={'username':username,'password':password},timeout=10)
+        assert grant.status_code==200 and grant.json().get('mfa_setup_required') is True
+        current={'response':grant.json(),'exchanges':0}
+        def exchange(route):
+            current['exchanges']+=1
+            route.fulfill(status=200,json=current['response'])
+        page.route('**/api/auth/oidc/exchange',exchange)
+        _goto(page,'/login?oidc_code=synthetic-owned-code')
+        expect(page.get_by_alt_text('Authenticator setup QR code')).to_be_visible()
+        assert page.request.get(BASE_URL+'/api/auth/me').status==401
+        assert current['exchanges']==1
+        assert page.evaluate('location.search')==''
+        secret=page.locator('section[aria-label="Complete sign-in"] code').text_content()
+        valid_secret=isinstance(secret,str) and len(secret)==32
+        assert valid_secret
+        page.locator('#continuation-code').fill(pyotp.TOTP(secret).now())
+        page.get_by_role('button',name='Verify and sign in',exact=True).click()
+        expect(page.get_by_role('heading',name='Dashboard',exact=True)).to_be_visible(timeout=20000)
+        page.context.clear_cookies()
+        with requests.Session() as client:
+            challenge=client.post(BASE_URL+'/api/auth/login',data={'username':username,'password':password},timeout=10)
+        assert challenge.status_code==200 and challenge.json().get('mfa_required') is True
+        current['response']=challenge.json()
+        _goto(page,'/login?oidc_code=synthetic-owned-challenge')
+        expect(page.get_by_role('heading',name='Two-factor authentication',exact=True)).to_be_visible()
+        assert page.request.get(BASE_URL+'/api/auth/me').status==401
+        assert current['exchanges']==2
+        page.locator('#continuation-code').fill(pyotp.TOTP(secret).now())
+        page.get_by_role('button',name='Verify and sign in',exact=True).click()
+        expect(page.get_by_role('heading',name='Dashboard',exact=True)).to_be_visible(timeout=20000)
+        actual_user=page.request.get(BASE_URL+'/api/auth/me').json().get('username')==username
+        assert actual_user
+        assert page.evaluate("localStorage.getItem('access_token')===null && sessionStorage.getItem('mfa_token')===null")
+    finally:
+        assert admin.put(BASE_URL+'/api/config/require-mfa',json={'require_mfa':before},timeout=10).status_code==200
+        assert admin.delete(BASE_URL+f'/api/admin/users/{target["id"]}/mfa',timeout=10).status_code==200
+
+
+@pytest.mark.parametrize('mobile', [False, True])
+def test_compiled_retention_known_policy_validation_and_persistence(role_page_factory, admin, mobile):
+    """Real owned configuration API; no cleanup execution or production changes."""
+    original = admin.get(BASE_URL + '/api/config/retention', timeout=10).json()
+    page = role_page_factory('admin', mobile=mobile)
+    try:
+        _goto(page, '/settings')
+        page.get_by_role('button', name='System', exact=True).click()
+        field = page.get_by_label('Completed jobs', exact=True)
+        expect(field).to_have_value(str(original['completed_jobs_days']))
+        field.fill('')
+        page.get_by_role('button', name='Save Policy', exact=True).click()
+        expect(page.get_by_role('alert').filter(has_text='nonnegative whole')).to_be_visible()
+        assert admin.get(BASE_URL + '/api/config/retention', timeout=10).json() == original
+        field.fill('0')
+        expected = {**original, 'completed_jobs_days': 0}
+        page.get_by_role('button', name='Save Policy', exact=True).click()
+        expect(page.get_by_role('status').filter(has_text='Retention policy saved')).to_be_visible()
+        assert admin.get(BASE_URL + '/api/config/retention', timeout=10).json() == expected
+        page.reload(wait_until='domcontentloaded')
+        page.get_by_role('button', name='System', exact=True).click()
+        expect(page.get_by_label('Completed jobs', exact=True)).to_have_value('0')
+        page.get_by_label('Completed jobs', exact=True).fill('45')
+        expect(page.get_by_role('button', name='Run Cleanup Now', exact=True)).to_be_disabled()
+    finally:
+        assert admin.put(BASE_URL + '/api/config/retention', json=original, timeout=10).status_code == 200
+        assert admin.get(BASE_URL + '/api/config/retention', timeout=10).json() == original
+
+
+@pytest.mark.parametrize('mobile', [False, True])
+def test_compiled_allowlist_ipv6_host_persistence_owned_api(role_page_factory, admin, mobile):
+    """Licensed presentation feed substituted; actual CIDR persistence/middleware remain real."""
+    original = admin.get(BASE_URL + '/api/config/ip-allowlist', timeout=10).json()
+    page = role_page_factory('admin', mobile=mobile)
+    def licensed_presentation(route):
+        response = route.fetch()
+        data = response.json()
+        data['features'] = list(set(data.get('features', [])) | {'user_groups'})
+        data['tier'] = 'pro'
+        route.fulfill(response=response, json=data)
+    page.route('**/api/license', licensed_presentation)
+    try:
+        _goto(page, '/settings')
+        page.get_by_role('button', name='Access', exact=True).click()
+        page.get_by_role('button', name='Quotas & Restrictions', exact=True).click()
+        page.get_by_label('Enable IP allowlisting', exact=True).check()
+        page.get_by_role('textbox', name='IP address or CIDR', exact=True).fill('2001:db8:abcd::1')
+        page.get_by_role('button', name='Add', exact=True).click()
+        expect(page.get_by_text('2001:db8:abcd::1/128', exact=True)).to_be_visible()
+        page.get_by_role('button', name='Save', exact=True).click()
+        expect(page.get_by_role('status').filter(has_text='IP allowlist saved')).to_be_visible()
+        saved = admin.get(BASE_URL + '/api/config/ip-allowlist', timeout=10).json()
+        assert saved['enabled'] is True and '2001:db8:abcd::1/128' in saved['cidrs']
+    finally:
+        assert admin.put(BASE_URL + '/api/config/ip-allowlist', json=original, timeout=10).status_code == 200
+        assert admin.get(BASE_URL + '/api/config/ip-allowlist', timeout=10).json() == original

@@ -76,6 +76,7 @@ export function formatMMSS(sec: number): string {
 
 /** Check whether a printer is online based on its last_seen timestamp. */
 export function isOnline(printer: Printer): boolean {
+  if (printer.gcode_state?.trim().toUpperCase() === 'OFFLINE') return false
   if (!printer.last_seen) return false
   // Server timestamps without a zone are UTC; preserve explicit zones.
   const timestamp = printer.last_seen.trim()

@@ -30,7 +30,77 @@ class Execution:
         rows=self.rows(statement,params);return rows[0] if rows else None
 
 
+def _require_active_parent_transaction(executor):
+    """Inspect caller physical transaction without acquiring a writer reservation."""
+    from core.economic_source_creation import SourceCreationError
+    connection = executor
+    if isinstance(executor, Session):
+        if not executor.in_transaction():
+            raise SourceCreationError('Caller physical transaction required')
+        connection = executor.connection()
+    if isinstance(connection, Connection):
+        if not connection.in_transaction():
+            raise SourceCreationError('Caller physical transaction required')
+        driver = connection.connection.driver_connection
+    else:
+        raw = getattr(connection, '_connection', connection)
+        driver = getattr(raw, 'driver_connection', raw)
+    active = (int(driver.info.transaction_status) in (2, 3)
+              if hasattr(driver, 'info') else bool(getattr(driver, 'in_transaction', False)))
+    if not active:
+        raise SourceCreationError('Caller physical transaction required')
+
+
+def _parent_snapshot(adapter, identifiers):
+    from core.order_production import ProductionLinkageChanged
+    query = '''SELECT j.id,j.order_item_id,i.order_id AS direct_order,
+            b.order_item_id AS bound_item,bi.order_id AS bound_order,s.order_id AS snapshot_order
+            FROM jobs j LEFT JOIN order_items i ON i.id=j.order_item_id
+            LEFT JOIN order_production_jobs b ON b.job_id=j.id
+            LEFT JOIN order_items bi ON bi.id=b.order_item_id
+            LEFT JOIN order_production_items s ON s.order_item_id=b.order_item_id WHERE j.id=:id'''
+    rows = []
+    for identifier in identifiers:
+        matches = adapter.rows(query, {'id': identifier})
+        if len(matches) != 1:
+            raise ProductionLinkageChanged()
+        rows.append(tuple(matches[0][key] for key in ('id','order_item_id','direct_order','bound_item','bound_order','snapshot_order')))
+    return tuple(rows)
+
+
 class OrderFulfillmentService:
+    def prepare_parent_graph(self, executor, job_ids):
+        """Lock orders/items only, then reprove every captured job edge."""
+        from core.economic_source_creation import _connection
+        from core.order_production import ProductionLinkageChanged, _bounded_parent_job_ids
+        connection = _connection(executor)
+        dialect = getattr(connection, 'dialect', None)
+        raw = getattr(connection, '_connection', connection)
+        driver = getattr(raw, 'driver_connection', raw)
+        postgres = (dialect.name == 'postgresql' if dialect is not None else hasattr(driver, 'info'))
+        adapter = Execution(executor)
+        identifiers = _bounded_parent_job_ids(job_ids)
+        before = _parent_snapshot(adapter, identifiers)
+        orders = tuple(sorted({value for row in before for value in (row[2],row[4],row[5]) if value is not None}))
+        items = tuple(sorted({value for row in before for value in (row[1],row[3]) if value is not None}))
+        for table, column, values in (('orders', 'id', orders), ('order_items', 'id', items)):
+            for identifier in values:
+                statement = (f'SELECT {column} FROM {table} WHERE id=:id FOR UPDATE NOWAIT' if postgres
+                             else f'UPDATE {table} SET id=id WHERE id=:id RETURNING id')
+                if adapter.one(statement, {'id': identifier}) is None:
+                    raise ProductionLinkageChanged()
+        if _parent_snapshot(adapter, identifiers) != before:
+            raise ProductionLinkageChanged()
+        return orders, items, before
+
+    def recheck_parent_graph(self, executor, prepared_graph):
+        from core.order_production import _validated_parent_graph, ProductionLinkageChanged
+        identifiers = _validated_parent_graph(prepared_graph)
+        _require_active_parent_transaction(executor)
+        if _parent_snapshot(Execution(executor), identifiers) != prepared_graph[2]:
+            raise ProductionLinkageChanged()
+        return prepared_graph
+
     def lock_orders(self,executor,order_ids):
         adapter=Execution(executor)
         for identifier in sorted(set(order_ids)):
@@ -70,7 +140,13 @@ class OrderFulfillmentService:
             adapter.execute('INSERT INTO order_production_components(order_item_id,model_id,pieces_per_unit) VALUES(:item,:model,:pieces)',{'item':item.id,'model':model_id,'pieces':pieces})
 
     def bind_job(self,executor,job):
-        Execution(executor).execute('INSERT INTO order_production_jobs(job_id,order_item_id,model_id,piece_count) VALUES(:job,:item,:model,:pieces)',{'job':job.id,'item':job.order_item_id,'model':job.model_id,'pieces':job.quantity_on_bed})
+        adapter = Execution(executor)
+        if adapter.execute('UPDATE jobs SET id=id WHERE id=:job', {'job':job.id}).rowcount != 1:
+            raise HTTPException(409, 'Production job no longer exists')
+        current = adapter.one('SELECT order_item_id,model_id,quantity_on_bed FROM jobs WHERE id=:job', {'job':job.id})
+        if current is None or any(current[name] != getattr(job,name) for name in ('order_item_id','model_id','quantity_on_bed')):
+            raise HTTPException(409, 'Production job identity changed')
+        adapter.execute('INSERT INTO order_production_jobs(job_id,order_item_id,model_id,piece_count) VALUES(:job,:item,:model,:pieces)',{'job':job.id,'item':job.order_item_id,'model':job.model_id,'pieces':job.quantity_on_bed})
 
     def reconcile_orders(self,executor,order_ids):
         if isinstance(executor,Session):executor.flush()

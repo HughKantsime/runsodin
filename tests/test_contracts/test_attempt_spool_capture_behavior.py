@@ -66,7 +66,8 @@ def test_actual_start_paths_capture_in_same_commit(capture_case,monkeypatch,path
  @contextmanager
  def database():
   conn=capture_case.raw_connection()
-  try:yield conn
+  from core.db_utils import _ConnectionAdapter
+  try:yield _ConnectionAdapter(conn,capture_case.dialect.name=='postgresql')
   finally:conn.close()
  monkeypatch.setattr(registry,'get_provider',lambda name:None)
  monkeypatch.setattr(mqtt_job_lifecycle,'get_db',database)
@@ -125,7 +126,8 @@ def test_v2_report_bridge_creates_durable_attempt_without_mqtt_transport(capture
  @contextmanager
  def database():
   conn=capture_case.raw_connection()
-  try:yield conn
+  from core.db_utils import _ConnectionAdapter
+  try:yield _ConnectionAdapter(conn,capture_case.dialect.name=='postgresql')
   finally:conn.close()
  monkeypatch.setattr(registry,'get_provider',lambda name:None)
  monkeypatch.setattr(mqtt_printer,'get_db',database)

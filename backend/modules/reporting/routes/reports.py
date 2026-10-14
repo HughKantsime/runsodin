@@ -5,7 +5,8 @@ from core.rbac import should_filter_org
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
+import re
 import json
 import logging
 
@@ -48,6 +49,17 @@ def _validated_schedule_fields(body, *, partial=False):
 
 # ============== Chargeback Report ==============
 
+def _chargeback_date(value):
+    if value is None:
+        return None
+    if type(value) is not str or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
+        raise HTTPException(422, "Dates must use YYYY-MM-DD")
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        raise HTTPException(422, "Invalid calendar date") from None
+
+
 @router.get("/reports/chargebacks")
 async def chargeback_report(
     start_date: str = None, end_date: str = None,
@@ -55,7 +67,13 @@ async def chargeback_report(
     db: Session = Depends(get_db)
 ):
     """Generate chargeback report — cost summary by user (org-scoped)."""
-    org = get_org_scope(current_user)
+    start_day, end_day = _chargeback_date(start_date), _chargeback_date(end_date)
+    if start_day is not None and end_day is not None and start_day > end_day:
+        raise HTTPException(422, "Start date must not follow end date")
+    org = current_user.get("group_id")
+    platform = current_user.get("role") == "admin" and org is None
+    if not platform and (type(org) is not int or org <= 0):
+        return []
     query = """
         SELECT j.charged_to_user_id as user_id, u.username,
                COUNT(*) as job_count,
@@ -66,15 +84,21 @@ async def chargeback_report(
         WHERE j.charged_to_user_id IS NOT NULL
     """
     params = {}
-    if should_filter_org(current_user, org):
-        query += " AND (j.charged_to_org_id = :org OR j.charged_to_org_id IS NULL)"
+    if not platform:
+        query += " AND j.charged_to_org_id = :org"
         params["org"] = org
-    if start_date:
+    # Canonical job timestamps are naive UTC. Calendar end dates include
+    # the complete selected UTC day without session-timezone conversion.
+    if start_day is not None:
         query += " AND j.created_at >= :start"
-        params["start"] = start_date
-    if end_date:
-        query += " AND j.created_at <= :end"
-        params["end"] = end_date
+        params["start"] = datetime.combine(start_day, time.min)
+    if end_day is not None:
+        if end_day == date.max:
+            query += " AND j.created_at <= :end"
+            params["end"] = datetime.max
+        else:
+            query += " AND j.created_at < :end"
+            params["end"] = datetime.combine(end_day + timedelta(days=1), time.min)
     query += " GROUP BY j.charged_to_user_id, u.username ORDER BY total_cost DESC"
 
     rows = db.execute(text(query), params).fetchall()

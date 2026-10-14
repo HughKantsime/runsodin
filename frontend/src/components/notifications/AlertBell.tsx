@@ -32,17 +32,25 @@ export default function AlertBell() {
   const navigate = useNavigate()
 
   useEffect(() => {
+    let generation = 0
+    let mounted = true
     const fetchCount = async () => {
+      const requestGeneration = ++generation
       try {
         const data = await alertsApi.unreadCount()
-        setUnreadCount(data.unread_count)
+        if (mounted && requestGeneration === generation) setUnreadCount(data.unread_count)
       } catch (err: any) {
         console.error('Failed to fetch alert count:', err)
       }
     }
     fetchCount()
     const interval = setInterval(fetchCount, 10000)
-    return () => clearInterval(interval)
+    window.addEventListener('odin:alerts-changed', fetchCount)
+    return () => {
+      mounted = false
+      clearInterval(interval)
+      window.removeEventListener('odin:alerts-changed', fetchCount)
+    }
   }, [])
 
   useEffect(() => {

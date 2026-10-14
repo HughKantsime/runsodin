@@ -17,7 +17,6 @@ Run without container: pytest tests/test_contracts/test_license_pop.py -v
 import ast
 import base64
 import os
-import sys
 import tempfile
 from pathlib import Path
 
@@ -35,12 +34,13 @@ class TestDeviceKeypairLifecycle:
     def setup_method(self):
         # Use a fresh temp LICENSE_DIR per test so state is isolated.
         self._tmpdir = tempfile.mkdtemp(prefix="odin-license-test-")
-        os.environ["LICENSE_DIR"] = self._tmpdir
-        # Force reload so LICENSE_DIR env var takes effect
-        if "license_manager" in sys.modules:
-            del sys.modules["license_manager"]
+        import license_manager
+        self._patch = pytest.MonkeyPatch()
+        # Keep the canonical module identity used by core re-exports and routes.
+        self._patch.setattr(license_manager, "LICENSE_DIR", self._tmpdir)
 
     def teardown_method(self):
+        self._patch.undo()
         import shutil
         shutil.rmtree(self._tmpdir, ignore_errors=True)
 
@@ -74,11 +74,13 @@ class TestSignatureFormat:
 
     def setup_method(self):
         self._tmpdir = tempfile.mkdtemp(prefix="odin-license-sig-test-")
-        os.environ["LICENSE_DIR"] = self._tmpdir
-        if "license_manager" in sys.modules:
-            del sys.modules["license_manager"]
+        import license_manager
+        self._patch = pytest.MonkeyPatch()
+        # Keep the canonical module identity used by core re-exports and routes.
+        self._patch.setattr(license_manager, "LICENSE_DIR", self._tmpdir)
 
     def teardown_method(self):
+        self._patch.undo()
         import shutil
         shutil.rmtree(self._tmpdir, ignore_errors=True)
 

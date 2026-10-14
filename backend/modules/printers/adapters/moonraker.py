@@ -432,9 +432,9 @@ class MoonrakerPrinter:
                     
                     self._webcam_stream = stream
                     self._webcam_snapshot = snapshot
-                    log.info(f"Webcam discovered: {stream}")
+                    log.info("Webcam discovered")
         except Exception as e:
-            log.warning(f"Webcam discovery failed: {e}")
+            log.warning("Webcam discovery failed")
     
     def get_webcam_urls(self) -> Dict[str, str]:
         """Return cached webcam URLs."""

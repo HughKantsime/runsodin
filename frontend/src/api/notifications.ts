@@ -25,6 +25,11 @@ export const alerts = {
   summary: (): Promise<AlertSummary> => fetchAPI('/alerts/summary'),
   markRead: (id: number): Promise<void> => fetchAPI(`/alerts/${id}/read`, { method: 'PATCH' }),
   markAllRead: (): Promise<void> => fetchAPI('/alerts/mark-all-read', { method: 'POST' }),
+  remove: async (id: number): Promise<{status: 'ok'; alert_id: number}> => {
+    const receipt = await fetchAPI<{status: string; alert_id: number}>(`/alerts/${id}`, { method: 'DELETE' })
+    if (receipt?.status !== 'ok' || receipt.alert_id !== id) throw new Error('Deletion was not confirmed')
+    return {status: 'ok', alert_id: id}
+  },
   dismiss: (id: number): Promise<void> => fetchAPI(`/alerts/${id}/dismiss`, { method: 'PATCH' }),
 };
 

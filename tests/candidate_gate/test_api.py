@@ -258,3 +258,52 @@ def test_candidate_printer_history_remains_readable_and_authenticated(viewer,bas
         if endpoint=='hms-history':assert payload['entries']==[] and payload['total']==0
         assert requests.get(f'{base_url}/api/printers/{identifier}/{endpoint}',timeout=10).status_code==401
         assert viewer.get(f'{base_url}/api/printers/999999/{endpoint}',timeout=10).status_code==404
+
+
+def test_candidate_generic_upload_and_revision_lifecycle_preserve_real_payload(operator,viewer,base_url):
+    payload=b'; Synthetic candidate upload\nG28\n'
+    response=operator.post(f'{base_url}/api/print-files/upload',files={'file':('Synthetic candidate revision.gcode',payload,'application/octet-stream')},timeout=15)
+    assert response.status_code==200
+    body=_json(response);identifier=body['model_id'];file_id=body['id']
+    preview=operator.get(f'{base_url}/api/files/{file_id}/preview-model',timeout=10)
+    assert preview.status_code==200 and preview.content==payload
+    assert viewer.post(f'{base_url}/api/models/{identifier}/revisions',files={'file':('Synthetic denied.gcode',payload,'application/octet-stream')},timeout=10).status_code==403
+    revision_payload=b'; Synthetic distinct revision one\nG1 X10\n'
+    created=operator.post(f'{base_url}/api/models/{identifier}/revisions',files={'file':('Synthetic revision.gcode',revision_payload,'application/octet-stream')},timeout=15)
+    assert created.status_code==200 and _json(created)['revision_number']==1
+    second=operator.post(f'{base_url}/api/models/{identifier}/revisions',files={'file':('Synthetic revision two.gcode',b'; Synthetic distinct revision two\nG1 X20\n','application/octet-stream')},timeout=15)
+    assert second.status_code==200 and _json(second)['revision_number']==2
+    reverted=operator.post(f'{base_url}/api/models/{identifier}/revisions/1/revert',timeout=15)
+    assert reverted.status_code==200 and _json(reverted)=={'revision_number':3,'reverted_from':1}
+    rows=_json(operator.get(f'{base_url}/api/models/{identifier}/revisions',timeout=10))
+    assert [row['revision_number'] for row in rows]==[3,2,1]
+    assert rows[0]['changelog']=='Reverted to v1'
+    assert len({row['file_path'] for row in rows})==3
+    # Revision payload bytes are separately checked against owned SQLite/Pg files.
+    # These HTTP routes do not expose revision downloads or select an active payload.
+
+
+def test_candidate_generic_file_queue_is_atomic_and_preserves_payload(operator,viewer,base_url):
+    payload=b'; Synthetic direct file queue\nG1 X12 Y34\n'
+    response=operator.post(f'{base_url}/api/print-files/upload',files={'file':('Synthetic direct queue.gcode',payload,'application/octet-stream')},timeout=15)
+    assert response.status_code==200
+    uploaded=_json(response);file_id=uploaded['id'];model_id=uploaded['model_id']
+    detail=viewer.get(f'{base_url}/api/print-files/{file_id}',timeout=10)
+    assert detail.status_code==200 and _json(detail)['model_id']==model_id
+    assert 'stored_path' not in _json(detail)
+    assert viewer.post(f'{base_url}/api/print-files/{file_id}/schedule',timeout=10).status_code==403
+    queued=operator.post(f'{base_url}/api/print-files/{file_id}/schedule',timeout=10)
+    assert queued.status_code==200
+    job_id=_json(queued)['job_id']
+    assert _json(operator.get(f'{base_url}/api/print-files/{file_id}',timeout=10))['job_id']==job_id
+    job=operator.get(f'{base_url}/api/jobs/{job_id}',timeout=10)
+    assert job.status_code==200 and _json(job)['model_id']==model_id and _json(job)['status']=='pending'
+    assert operator.post(f'{base_url}/api/print-files/{file_id}/schedule',timeout=10).status_code==409
+    assert operator.delete(f'{base_url}/api/print-files/{file_id}',timeout=10).status_code==409
+    listed=_json(viewer.get(f'{base_url}/api/print-files?include_scheduled=true&limit=100',timeout=10))
+    row=next(row for row in listed if row['id']==file_id)
+    assert row['job_id']==job_id and row['job_status']=='pending'
+    preview=viewer.get(f'{base_url}/api/files/{file_id}/preview-model',timeout=10)
+    assert preview.status_code==200 and preview.content==payload
+    # Exact job payload/actor/charge columns and competing queue commits are separately
+    # checked against the owned native database. This case never dispatches a printer.

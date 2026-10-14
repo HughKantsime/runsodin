@@ -206,5 +206,17 @@ export interface JobFailureUpdate {
 // ---- Approval ----
 
 export interface ApprovalSetting {
-  enabled: boolean;
+  require_job_approval: boolean;
+}
+
+export interface RecentTerminalJob {
+  id: number;
+  item_name: string;
+  status: 'completed' | 'failed';
+  actual_end: string | null;
+  duration_seconds: number | null;
+  printer_name: string | null;
+  model_name: string | null;
+  fail_reason: string | null;
+  thumbnail_data: string | null;
 }

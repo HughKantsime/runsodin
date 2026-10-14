@@ -1,158 +1,155 @@
-"""Education usage-report query service kept outside the route module."""
-
+"""Education report from one retained-owner-qualified, bounded query snapshot."""
 from __future__ import annotations
-
 import json
+import math
 from datetime import datetime, timedelta, timezone
-
+from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-
 from core.base import JobStatus
+from core.db_compat import as_utc_datetime
+from core.rbac import check_org_access
+from core.report_job_ownership import proved_job_owner_sql, proved_education_job_sql
+
+MAX_REPORT_JOBS=65536
 
 
-def build_education_usage_report(days: int, db: Session, current_user: dict) -> dict:
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    params = {
-        "cutoff": cutoff,
-        "completed": JobStatus.COMPLETED.value,
-        "failed": JobStatus.FAILED.value,
-    }
-    user_scope = ""
-    if current_user.get("role") != "admin":
-        user_group_id = current_user.get("group_id")
-        if user_group_id is None:
-            return {
-                "summary": {
-                    "total_users_active": 0,
-                    "total_print_hours": 0,
-                    "total_jobs": 0,
-                    "approval_rate": 0,
-                    "rejection_rate": 0,
-                },
-                "users": [],
-                "daily_submissions": {},
-                "days": days,
-            }
-        user_scope = " AND u.group_id = :group_id"
-        params["group_id"] = user_group_id
+def _number(value):
+    if isinstance(value,bool) or not isinstance(value,(int,float)):return None
+    result=float(value)
+    return result if math.isfinite(result) and result>=0 else None
 
-    # The only SQL fragment is selected from this closed role branch; every
-    # runtime value remains a bound parameter.
-    aggregate_rows = db.execute(
-        text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
-            """
-            SELECT u.id AS user_id, u.username, u.email, u.role,
-                   COUNT(j.id) AS submitted,
-                   SUM(CASE WHEN j.approved_by IS NOT NULL AND j.rejected_reason IS NULL THEN 1 ELSE 0 END) AS approved,
-                   SUM(CASE WHEN j.rejected_reason IS NOT NULL THEN 1 ELSE 0 END) AS rejected,
-                   SUM(CASE WHEN j.status = :completed THEN 1 ELSE 0 END) AS completed,
-                   SUM(CASE WHEN j.status = :failed THEN 1 ELSE 0 END) AS failed,
-                   SUM(CASE WHEN j.status = :completed
-                       THEN COALESCE(j.duration_hours, m.build_time_hours, 0) * COALESCE(j.quantity, 1)
-                       ELSE 0 END) AS hours,
-                   MAX(j.created_at) AS last_activity
-            FROM users u
-            JOIN jobs j ON j.submitted_by = u.id AND j.created_at >= :cutoff
-            LEFT JOIN models m ON m.id = j.model_id
-            WHERE 1 = 1
-            """
-            + user_scope
-            + """
-            GROUP BY u.id, u.username, u.email, u.role
-            ORDER BY submitted DESC, u.id ASC
-            """
-        ),
-        params,
-    ).fetchall()
 
-    # Parse only completed model JSON rows for SQLite/PostgreSQL portability.
-    filament_rows = db.execute(
-        text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
-            """
-            SELECT j.submitted_by, j.quantity, m.color_requirements
-            FROM jobs j
-            JOIN users u ON u.id = j.submitted_by
-            JOIN models m ON m.id = j.model_id
-            WHERE j.created_at >= :cutoff AND j.status = :completed
-            """
-            + user_scope
-        ),
-        params,
-    ).fetchall()
-    grams_by_user: dict[int, float] = {}
-    for row in filament_rows:
-        requirements = row.color_requirements
-        if isinstance(requirements, str):
-            try:
-                requirements = json.loads(requirements)
-            except (TypeError, ValueError):
-                requirements = {}
-        grams = sum(
-            float(item.get("grams", 0) or 0)
-            for item in (requirements or {}).values()
-            if isinstance(item, dict)
-        )
-        grams_by_user[row.submitted_by] = (
-            grams_by_user.get(row.submitted_by, 0) + grams * (row.quantity or 1)
-        )
+def _hours(start,end):
+    try:
+        result=(as_utc_datetime(end)-as_utc_datetime(start)).total_seconds()/3600
+        return result if math.isfinite(result) and result>0 else None
+    except (TypeError,ValueError,OverflowError):return None
 
-    user_stats = []
-    fleet_hours = fleet_jobs = fleet_approved = fleet_rejected = 0
-    for row in aggregate_rows:
-        submitted = int(row.submitted or 0)
-        approved = int(row.approved or 0)
-        rejected = int(row.rejected or 0)
-        completed = int(row.completed or 0)
-        failed = int(row.failed or 0)
-        hours = float(row.hours or 0)
-        last_activity = row.last_activity
-        if last_activity and hasattr(last_activity, "isoformat"):
-            last_activity = last_activity.isoformat()
-        user_stats.append({
-            "user_id": row.user_id,
-            "username": row.username,
-            "email": row.email,
-            "role": row.role,
-            "total_jobs_submitted": submitted,
-            "total_jobs_approved": approved,
-            "total_jobs_rejected": rejected,
-            "total_jobs_completed": completed,
-            "total_jobs_failed": failed,
-            "total_print_hours": round(hours, 1),
-            "total_filament_grams": round(grams_by_user.get(row.user_id, 0), 1),
-            "approval_rate": round(approved / submitted * 100, 1) if submitted else 0,
-            "success_rate": round(completed / (completed + failed) * 100, 1) if (completed + failed) else 0,
-            "last_activity": last_activity,
-        })
-        fleet_hours += hours
-        fleet_jobs += submitted
-        fleet_approved += approved
-        fleet_rejected += rejected
 
-    daily_rows = db.execute(
-        text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
-            """
-            SELECT DATE(j.created_at) AS day, COUNT(*) AS submissions
-            FROM jobs j
-            JOIN users u ON u.id = j.submitted_by
-            WHERE j.created_at >= :cutoff
-            """
-            + user_scope
-            + " GROUP BY DATE(j.created_at) ORDER BY day"
-        ),
-        params,
-    ).fetchall()
-    daily = {str(row.day): int(row.submissions) for row in daily_rows if row.day}
-    return {
-        "summary": {
-            "total_users_active": len(user_stats),
-            "total_print_hours": round(fleet_hours, 1),
-            "total_jobs": fleet_jobs,
-            "approval_rate": round(fleet_approved / fleet_jobs * 100, 1) if fleet_jobs else 0,
-            "rejection_rate": round(fleet_rejected / fleet_jobs * 100, 1) if fleet_jobs else 0,
-        },
-        "users": user_stats,
-        "daily_submissions": daily,
-        "days": days,
-    }
+def _bucket():
+    return dict(total_jobs_submitted=0,total_jobs_approved=0,total_jobs_rejected=0,
+                total_jobs_completed=0,total_jobs_failed=0,total_print_hours=0.0,
+                estimated_print_hours=0.0,estimated_filament_grams=0.0,
+                unknown_actual_hours_jobs=0,unknown_estimated_hours_jobs=0,
+                unknown_filament_estimate_jobs=0,accuracy_samples=0,
+                unknown_accuracy_jobs=0,unproven_history_jobs=0,_accuracy_sum=0.0)
+
+
+def _accumulate(bucket,key,value):
+    if bucket[key] is None:return
+    total=bucket[key]+value
+    if math.isfinite(total):bucket[key]=total
+    else:
+        bucket[key]=None
+        bucket[key+'_unavailable_reason']='numeric_overflow'
+
+
+def _add(bucket,row):
+    bucket['total_jobs_submitted']+=1
+    bucket['total_jobs_approved']+=int(row['approved_by'] is not None and row['rejected_reason'] is None)
+    bucket['total_jobs_rejected']+=int(row['rejected_reason'] is not None)
+    completed=row['status']==JobStatus.COMPLETED.value
+    bucket['total_jobs_completed']+=int(completed)
+    bucket['total_jobs_failed']+=int(row['status']==JobStatus.FAILED.value)
+    if not row['owner_proved']:
+        bucket['unproven_history_jobs']+=1
+        return
+    if not completed:return
+    actual=_hours(row['actual_start'],row['actual_end'])
+    estimate=_hours(row['scheduled_start'],row['scheduled_end'])
+    if actual is None:bucket['unknown_actual_hours_jobs']+=1
+    else:_accumulate(bucket,'total_print_hours',actual)
+    quantity=_number(row['quantity'])
+    duration=_number(row['duration_hours'])
+    if duration is None:duration=_number(row['model_hours'])
+    if duration is None or quantity is None or quantity<=0:
+        bucket['unknown_estimated_hours_jobs']+=1
+    elif math.isfinite(duration*quantity):_accumulate(bucket,'estimated_print_hours',duration*quantity)
+    else:bucket['unknown_estimated_hours_jobs']+=1
+    if actual is None or estimate is None:bucket['unknown_accuracy_jobs']+=1
+    else:
+        bucket['_accuracy_sum']+=min(actual,estimate)/max(actual,estimate)*100
+        bucket['accuracy_samples']+=1
+    requirements=row['color_requirements']
+    try:
+        if isinstance(requirements,str):
+            if len(requirements)>65536:raise ValueError('size')
+            requirements=json.loads(requirements)
+        if not isinstance(requirements,dict) or not requirements or quantity is None or quantity<=0:raise ValueError('unknown')
+        values=[_number(v.get('grams')) if isinstance(v,dict) else None for v in requirements.values()]
+        if any(v is None for v in values):raise ValueError('unknown')
+        grams=sum(values)*quantity
+        if not math.isfinite(grams):raise ValueError('overflow')
+        _accumulate(bucket,'estimated_filament_grams',grams)
+    except (ValueError,TypeError,RecursionError,OverflowError):bucket['unknown_filament_estimate_jobs']+=1
+
+
+def _finish(bucket):
+    result=dict(bucket)
+    total=result['total_jobs_submitted']
+    terminal=result['total_jobs_completed']+result['total_jobs_failed']
+    result['approval_rate']=round(result['total_jobs_approved']/total*100,1) if total else 0
+    result['success_rate']=round(result['total_jobs_completed']/terminal*100,1) if terminal else 0
+    samples=result['accuracy_samples']
+    result['accuracy']=round(result.pop('_accuracy_sum')/samples,1) if samples else None
+    for key in ('total_print_hours','estimated_print_hours','estimated_filament_grams'):
+        if result[key] is not None:result[key]=round(result[key],1)
+    # No retained currency exists for historical estimated_cost. Current settings
+    # cannot price these amounts, including an apparently homogeneous org cohort.
+    result.update(total_cost=None,currency=None,cost_basis='unbound_estimate_currency',
+                  accuracy_basis='retained_schedule_interval',filament_basis='model_estimate',
+                  unknown_cost_jobs=total)
+    return result
+
+
+def build_education_usage_report(days:int,db:Session,current_user:dict)->dict:
+    as_of=datetime.now(timezone.utc);cutoff=as_of-timedelta(days=days)
+    org=current_user.get('group_id')
+    platform=current_user.get('role')=='admin' and org is None
+    valid=type(org) is int and org>0
+    if not platform and not valid:rows=[]
+    else:
+        proof='('+proved_job_owner_sql()+') AND ('+proved_education_job_sql()+')'
+        scope='' if platform else ' AND u.group_id=:org AND j.charged_to_org_id=:org AND ('+proof+')'
+        rows=db.execute(text('''SELECT j.id,j.status,j.approved_by,j.rejected_reason,j.quantity,
+          j.duration_hours,j.actual_start,j.actual_end,j.scheduled_start,j.scheduled_end,
+          j.created_at,j.submitted_by,j.printer_id,j.model_id,u.username,u.email,u.role,
+          m.build_time_hours AS model_hours,m.color_requirements,m.name AS model_name,
+          m.org_id AS model_org,p.name AS printer_name,p.org_id AS printer_org,p.shared AS printer_shared,
+          CASE WHEN '''+proof+''' THEN 1 ELSE 0 END AS owner_proved
+          FROM jobs j JOIN users u ON u.id=j.submitted_by
+          LEFT JOIN models m ON m.id=j.model_id LEFT JOIN printers p ON p.id=j.printer_id
+          WHERE j.created_at>=:cutoff AND j.created_at<:as_of'''+scope+'''
+          ORDER BY j.id LIMIT :row_limit'''),
+          {'org':org,'cutoff':cutoff,'as_of':as_of,'row_limit':MAX_REPORT_JOBS+1}).mappings().all()
+        if len(rows)>MAX_REPORT_JOBS:raise HTTPException(413,'Usage report exceeds bounded job limit')
+        if len({r['id'] for r in rows})!=len(rows):raise HTTPException(503,'Usage report identity could not be confirmed')
+    users={};printers={};models={};daily={};summary=_bucket()
+    for row in rows:
+        row=dict(row)
+        model_visible=bool(row['model_id'] is not None and row['model_name'] is not None
+                           and check_org_access(current_user,row['model_org']))
+        if not model_visible:
+            row['model_hours']=None
+            row['color_requirements']=None
+        user=users.setdefault(row['submitted_by'],dict(_bucket(),user_id=row['submitted_by'],username=row['username'],email=row['email'],role=row['role'],last_activity=None))
+        activity=as_utc_datetime(row['created_at']).isoformat()
+        if user['last_activity'] is None or activity>user['last_activity']:user['last_activity']=activity
+        day=as_utc_datetime(row['created_at']).date().isoformat();daily[day]=daily.get(day,0)+1
+        _add(summary,row);_add(user,row)
+        # Unproven platform rows supply maintenance counts only, no resource IDs.
+        for groups,kind in ((printers,'printer'),(models,'model')):
+            visible=bool(row['owner_proved'] and row[kind+'_id'] is not None and row[kind+'_name'] is not None
+                         and (check_org_access(current_user,row[kind+'_org']) or
+                              (kind=='printer' and row['printer_shared'] in (True,1))))
+            key=row[kind+'_id'] if visible else None
+            group=groups.setdefault(key,dict(_bucket(),id=key,name=row[kind+'_name'] if visible else None,available=visible))
+            _add(group,row)
+    result=_finish(summary)
+    result.update(total_users_active=len(users),total_jobs=result['total_jobs_submitted'],
+                  rejection_rate=round(result['total_jobs_rejected']/result['total_jobs_submitted']*100,1) if result['total_jobs_submitted'] else 0)
+    return dict(summary=result,users=[_finish(v) for v in sorted(users.values(),key=lambda v:(-v['total_jobs_submitted'],v['user_id']))],
+                daily_submissions=dict(sorted(daily.items())),by_printer=[_finish(v) for v in printers.values()],
+                by_model=[_finish(v) for v in models.values()],days=days,window_basis='submission_created_at',
+                as_of=as_of.isoformat(),history_basis='proved_retained_owner_or_platform_count_only')

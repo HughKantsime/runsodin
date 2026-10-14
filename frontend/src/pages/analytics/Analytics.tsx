@@ -75,7 +75,7 @@ function PrinterUtilization({ data }) {
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium">{printer.name}</span>
                   <span className={`text-xs ${successColor}`}>
-                    {printer.success_rate || 100}%
+                    {printer.success_rate ?? 100}%
                   </span>
                 </div>
                 <span className="text-sm font-bold tabular-nums">{pct}%</span>
@@ -102,7 +102,7 @@ function PrinterUtilization({ data }) {
   )
 }
 
-function ModelRankings({ topData, worstData }) {
+function ModelRankings({ topData, worstData, jobCountData = [] }) {
   const RankRow = ({ item, index, isWorst }) => {
     const medalColors = isWorst
       ? ['bg-red-900/50 text-red-300', 'bg-red-900/30 text-red-400', 'bg-red-900/20 text-red-500']
@@ -128,6 +128,17 @@ function ModelRankings({ topData, worstData }) {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
+        <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)] mb-3">Top Printed Models</h3>
+        {jobCountData.map((item, index) => (
+          <div key={item.id} className="flex gap-3 items-center py-2.5 border-b border-[var(--brand-card-border)]/50 last:border-0">
+            <span className="text-sm text-[var(--brand-text-muted)]">{index + 1}</span>
+            <span className="text-sm flex-1 truncate">{item.name}</span>
+            <span className="text-sm tabular-nums">{item.job_count} completed {item.job_count === 1 ? 'job' : 'jobs'}</span>
+          </div>
+        ))}
+        {jobCountData.length === 0 && <p className="text-sm text-[var(--brand-text-muted)] py-6 text-center">No completed model jobs yet</p>}
+      </div>
       <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
         <div className="flex items-center gap-2 mb-3">
           <TrendingUp size={16} className="text-green-400" />
@@ -189,15 +200,25 @@ function FleetOverview({ summary }) {
 
 
 function CostRevenueChart({ data }) {
+  const knownDailyMoney = (row: unknown): row is { revenue: number; cost: number } =>
+    typeof row === 'object' && row !== null && 'revenue' in row && 'cost' in row
+    && typeof row.revenue === 'number' && Number.isFinite(row.revenue)
+    && typeof row.cost === 'number' && Number.isFinite(row.cost)
+    && Number.isFinite(row.revenue - row.cost)
+  const dailyMoneyUnavailable = data && Object.values(data).some(row => !knownDailyMoney(row))
   const chartData = data ? Object.entries(data)
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, counts]) => ({
-      date: new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-      revenue: counts.revenue || 0,
-      cost: counts.cost || 0,
-      profit: (counts.revenue || 0) - (counts.cost || 0),
-    }))
-    .filter(d => d.revenue > 0 || d.cost > 0) : []
+    .flatMap(([date, counts]) => {
+      if (!knownDailyMoney(counts)) return []
+      const profit = counts.revenue - counts.cost
+      if (!Number.isFinite(profit)) return []
+      return [{
+        date: new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        revenue: counts.revenue,
+        cost: counts.cost,
+        profit,
+      }]
+    }) : []
 
   return (
     <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
@@ -205,6 +226,7 @@ function CostRevenueChart({ data }) {
         <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)]">Revenue vs Cost</h3>
         <span className="text-xs text-[var(--brand-text-muted)]">Last 30 days</span>
       </div>
+      {dailyMoneyUnavailable && chartData.length > 0 && <p>Some daily revenue and cost values are unavailable.</p>}
       {chartData.length > 0 ? (
         <ResponsiveContainer width="100%" height={220}>
           <BarChart data={chartData}>
@@ -221,7 +243,7 @@ function CostRevenueChart({ data }) {
           </BarChart>
         </ResponsiveContainer>
       ) : (
-        <div className="text-center py-12 text-[var(--brand-text-muted)] text-sm">No cost/revenue data yet</div>
+        <div className="text-center py-12 text-[var(--brand-text-muted)] text-sm">{dailyMoneyUnavailable ? 'Daily revenue and cost are unavailable.' : 'No cost/revenue data yet'}</div>
       )}
     </div>
   )
@@ -463,7 +485,7 @@ export default function Analytics() {
       </div>
 
       {/* Rankings */}
-      <ModelRankings topData={top_by_hour} worstData={worst_performers} />
+      <ModelRankings topData={top_by_hour} worstData={worst_performers} jobCountData={data.top_by_jobs || []} />
 
       {/* Failure Analytics */}
       {failureLoading ? (

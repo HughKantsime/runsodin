@@ -1,6 +1,7 @@
 import { Thermometer, Wind, Activity } from 'lucide-react'
 import { getShortName, isOnline } from '../../utils/shared'
 import { SpoolRing } from '../ui'
+import PrintProgress from './PrintProgress'
 
 // TODO: type this properly — runtime printer shape has extra MQTT fields
 interface PrinterLike {
@@ -99,20 +100,12 @@ export function FilamentSlotsPanel({ printer }: { printer: PrinterLike }) {
 }
 
 export function ActiveJobPanel({ printer }: { printer: PrinterLike }) {
-  const isPrinting = printer.gcode_state === 'RUNNING' || printer.gcode_state === 'PAUSE'
+  const isPrinting = isOnline(printer) && ['RUNNING', 'PAUSE'].includes(printer.gcode_state?.toUpperCase() || '')
   if (!isPrinting) return null
 
-  const progress = printer.mc_percent || 0
-  const remaining = printer.mc_remaining_time
   const jobName = printer.gcode_file || 'Printing'
   const currentLayer = printer.layer_num
   const totalLayers = printer.total_layer_num
-
-  const formatTime = (minutes: number) => {
-    if (!minutes) return ''
-    if (minutes < 60) return `${Math.round(minutes)}m left`
-    return `${Math.floor(minutes / 60)}h ${Math.round(minutes % 60)}m left`
-  }
 
   return (
     <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
@@ -120,13 +113,7 @@ export function ActiveJobPanel({ printer }: { printer: PrinterLike }) {
         <Activity size={13} className="text-[var(--brand-primary)] animate-pulse" /> Current Job
       </h3>
       <p className="text-sm font-medium mb-3 truncate">{jobName}</p>
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-2xl font-bold text-green-400">{progress}%</span>
-        {remaining && <span className="text-xs text-[var(--brand-text-muted)]">{formatTime(remaining)}</span>}
-      </div>
-      <div className="w-full bg-[var(--brand-card-border)] rounded-full h-2.5 mb-2">
-        <div className="bg-green-500 h-2.5 rounded-full transition-all duration-500" style={{ width: `${progress}%` }} />
-      </div>
+      <PrintProgress percent={printer.mc_percent} remainingMinutes={printer.mc_remaining_time} />
       {currentLayer && totalLayers && (
         <p className="text-xs text-[var(--brand-text-muted)]">Layer {currentLayer}/{totalLayers}</p>
       )}

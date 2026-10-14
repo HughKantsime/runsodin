@@ -1,18 +1,20 @@
 import { fetchAPI } from './client'
 
 export interface SearchResult {
-  type: string;
-  id: number;
-  title: string;
-  subtitle: string | null;
-  url: string;
-  [key: string]: unknown;
+  id: number
+  name: string
+  type?: string
+  qr_code?: string
+  status?: string
 }
 
 export interface SearchResponse {
-  results: SearchResult[];
-  query: string;
-  total: number;
+  orders: SearchResult[]
+  products: SearchResult[]
+  models: SearchResult[]
+  jobs: SearchResult[]
+  spools: SearchResult[]
+  printers: SearchResult[]
 }
 
 export const search = {

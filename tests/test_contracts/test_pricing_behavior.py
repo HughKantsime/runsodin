@@ -189,3 +189,16 @@ def test_finite_configuration_cannot_publish_nonfinite_estimates(pricing_client)
     result=client.get('/models/199/cost',headers=issue(['read:models']))
     assert result.status_code==422
     assert result.json()['detail']=='Pricing calculation exceeds supported numeric range'
+
+
+def test_job_calculator_cannot_return_nonfinite_estimates(pricing_client, review_db):
+    from fastapi import HTTPException
+    from modules.models_library.services import calculate_job_cost
+    client, issue = pricing_client
+    saved = client.put('/pricing-config', headers=issue(['admin']),
+                       json={'spool_cost': 1e308, 'spool_weight': 1e-308})
+    assert saved.status_code == 200
+    with pytest.raises(HTTPException) as rejected:
+        calculate_job_cost(review_db, model_id=199)
+    assert rejected.value.status_code == 422
+    assert rejected.value.detail == 'Pricing calculation exceeds supported numeric range'

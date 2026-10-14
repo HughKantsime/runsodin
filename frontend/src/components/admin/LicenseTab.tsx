@@ -1,15 +1,51 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, type ChangeEvent } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import type { User, PublicLicense } from '../../types/user'
 import { FileText, Key, Download } from 'lucide-react'
 import { license as licenseApi, downloadBlob } from '../../api'
 import { Button, Card, Input } from '../ui'
 
 export default function LicenseTab() {
-  const [licenseInfo, setLicenseInfo] = useState(null)
+  const queryClient = useQueryClient()
+  const { data: principal } = useQuery<User | null>({ queryKey: ['auth', 'me'], enabled: false })
+  const audience = (user: User | null | undefined) => user?.role === 'admin' && Number.isInteger(user.id) && user.id > 0 ? JSON.stringify([user.id, user.role, user.group_id ?? null]) : null
+  const currentAudience = audience(principal)
+  const generation = useRef(0)
+  const [installation, setInstallation] = useState<{ audience: string; id: string } | null>(null)
+  const [idBusy, setIdBusy] = useState(false)
+  const [idMessage, setIdMessage] = useState<string | null>(null)
+  useEffect(() => {
+    generation.current += 1
+    setInstallation(null)
+    setIdBusy(false)
+    setIdMessage(null)
+    return () => { generation.current += 1 }
+  }, [currentAudience])
+  const stillCurrent = (owner: string, stamp: number) => generation.current === stamp && audience(queryClient.getQueryData<User | null>(['auth', 'me'])) === owner
+  const showInstallId = async () => {
+    const owner = audience(queryClient.getQueryData<User | null>(['auth', 'me']))
+    if (!owner || owner !== currentAudience || idBusy) return
+    const stamp = generation.current
+    setIdBusy(true)
+    setIdMessage(null)
+    try {
+      const data = await licenseApi.getInstallationId()
+      if (stillCurrent(owner, stamp)) {
+        if (typeof data.installation_id !== 'string' || !data.installation_id) throw new Error('Invalid identity response')
+        setInstallation({ audience: owner, id: data.installation_id })
+      }
+    } catch {
+      if (stillCurrent(owner, stamp)) setIdMessage('Could not load installation ID. Try again.')
+    } finally {
+      if (stillCurrent(owner, stamp)) setIdBusy(false)
+    }
+  }
+  const [licenseInfo, setLicenseInfo] = useState<PublicLicense | null>(null)
   const [uploading, setUploading] = useState(false)
   const [activating, setActivating] = useState(false)
   const [licenseKey, setLicenseKey] = useState('')
-  const [message, setMessage] = useState(null)
-  const fileInputRef = useRef(null)
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
     loadLicense()
@@ -32,13 +68,13 @@ export default function LicenseTab() {
       setLicenseKey('')
       loadLicense()
     } catch (err) {
-      setMessage({ type: 'error', text: 'Activation failed: ' + err.message })
+      setMessage({ type: 'error', text: 'Activation failed: ' + (err instanceof Error ? err.message : 'Unknown error') })
     } finally {
       setActivating(false)
     }
   }
 
-  const handleUpload = async (e) => {
+  const handleUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     setUploading(true)
@@ -48,7 +84,7 @@ export default function LicenseTab() {
       setMessage({ type: 'success', text: `License activated: ${data.tier} tier` })
       loadLicense()
     } catch (err) {
-      setMessage({ type: 'error', text: 'Upload failed: ' + err.message })
+      setMessage({ type: 'error', text: 'Upload failed: ' + (err instanceof Error ? err.message : 'Unknown error') })
     } finally {
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
@@ -83,16 +119,26 @@ export default function LicenseTab() {
     }
   }
 
-  const copyInstallId = () => {
-    if (licenseInfo?.installation_id) {
-      navigator.clipboard.writeText(licenseInfo.installation_id)
-      setMessage({ type: 'success', text: 'Installation ID copied to clipboard' })
+  const copyInstallId = async () => {
+    const owner = audience(queryClient.getQueryData<User | null>(['auth', 'me']))
+    if (!owner || owner !== currentAudience || installation?.audience !== owner || idBusy) return
+    const stamp = generation.current
+    setIdBusy(true)
+    setIdMessage(null)
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable')
+      await navigator.clipboard.writeText(installation.id)
+      if (stillCurrent(owner, stamp)) setIdMessage('Installation ID copied to clipboard')
+    } catch {
+      if (stillCurrent(owner, stamp)) setIdMessage('Could not copy. Select the installation ID and copy it manually.')
+    } finally {
+      if (stillCurrent(owner, stamp)) setIdBusy(false)
     }
   }
 
   const tier = licenseInfo?.tier || 'community'
   const managedExternally = licenseInfo?.managed_externally === true
-  const tierColors = {
+  const tierColors: Record<string, string> = {
     community: 'text-[var(--brand-text-secondary)]',
     pro: 'text-[var(--brand-primary)]',
     education: 'text-blue-400',
@@ -115,38 +161,34 @@ export default function LicenseTab() {
             <span className="text-[var(--brand-text-muted)]">License:</span>
             <span className="ml-2 text-[var(--brand-text-primary)]">BSL 1.1 (converts to Apache 2.0 on 2029-02-07)</span>
           </div>
-          {licenseInfo?.licensee && (
-            <div>
-              <span className="text-[var(--brand-text-muted)]">Licensed to:</span>
-              <span className="ml-2 text-[var(--brand-text-primary)]">{licenseInfo.licensee}</span>
-            </div>
-          )}
-          {licenseInfo?.expires && (
+          {licenseInfo?.expires_at && (
             <div>
               <span className="text-[var(--brand-text-muted)]">Expires:</span>
-              <span className="ml-2 text-[var(--brand-text-primary)]">{new Date(licenseInfo.expires).toLocaleDateString()}</span>
+              <span className="ml-2 text-[var(--brand-text-primary)]">{licenseInfo.expires_at}</span>
             </div>
           )}
           <div>
             <span className="text-[var(--brand-text-muted)]">Max printers:</span>
-            <span className="ml-2 text-[var(--brand-text-primary)]">{licenseInfo?.max_printers === -1 ? 'Unlimited' : (licenseInfo?.max_printers || 5)}</span>
+            <span className="ml-2 text-[var(--brand-text-primary)]">{licenseInfo?.max_printers === null ? 'Unlimited' : (licenseInfo?.max_printers ?? 5)}</span>
           </div>
           <div>
             <span className="text-[var(--brand-text-muted)]">Max users:</span>
-            <span className="ml-2 text-[var(--brand-text-primary)]">{licenseInfo?.max_users === -1 ? 'Unlimited' : (licenseInfo?.max_users || 1)}</span>
+            <span className="ml-2 text-[var(--brand-text-primary)]">{licenseInfo?.max_users === null ? 'Unlimited' : (licenseInfo?.max_users ?? 1)}</span>
           </div>
         </div>
 
-        {licenseInfo?.installation_id && (
+        {currentAudience && (
           <div className="mt-4 pt-4 border-t border-[var(--brand-card-border)]">
             <span className="text-[var(--brand-text-muted)] text-sm">Installation ID:</span>
             <div className="flex items-center gap-2 mt-1">
-              <code className="text-xs text-[var(--brand-text-secondary)] bg-[var(--brand-card-bg)] px-2 py-1 rounded font-mono flex-1 select-all">{licenseInfo.installation_id}</code>
-              <button onClick={copyInstallId} className="text-xs text-[var(--brand-primary)] hover:text-[var(--brand-primary)] transition-colors px-2 py-1">Copy</button>
+              <code className="text-xs text-[var(--brand-text-secondary)] bg-[var(--brand-card-bg)] px-2 py-1 rounded font-mono flex-1 select-all">{installation?.audience === currentAudience ? installation.id : ''}</code>
+              <button disabled={idBusy} onClick={installation?.audience === currentAudience ? copyInstallId : showInstallId} className="text-xs text-[var(--brand-primary)] hover:text-[var(--brand-primary)] transition-colors px-2 py-1">{installation?.audience === currentAudience ? 'Copy' : 'Show installation ID'}</button>
             </div>
           </div>
         )}
       </Card>
+
+      {idMessage && <p role="status">{idMessage}</p>}
 
       {managedExternally ? (
         <Card padding="lg">

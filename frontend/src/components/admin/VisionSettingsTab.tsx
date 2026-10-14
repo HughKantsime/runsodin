@@ -1,39 +1,8 @@
-import { useState, useEffect, useRef } from 'react'
-import { Save, Eye, Upload, CheckCircle } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Save, Eye, CheckCircle } from 'lucide-react'
 import { vision, printers } from '../../api'
-
-function ModelUpload({ onUploaded }) {
-  const [uploading, setUploading] = useState(false)
-  const fileRef = useRef(null)
-
-  const handleUpload = async () => {
-    const file = fileRef.current?.files?.[0]
-    if (!file) return
-    setUploading(true)
-    try {
-      const name = file.name.replace('.onnx', '')
-      const dt = name.includes('spaghetti') ? 'spaghetti' : name.includes('first') ? 'first_layer' : name.includes('detach') ? 'detachment' : 'spaghetti'
-      const data = await vision.uploadModel(file, name, dt)
-      onUploaded(data)
-      fileRef.current.value = ''
-    } catch (e) { console.error('Upload failed:', e) }
-    setUploading(false)
-  }
-
-  return (
-    <div className="flex items-center gap-2">
-      <input ref={fileRef} type="file" accept=".onnx" className="text-xs text-[var(--brand-text-secondary)]" />
-      <button
-        onClick={handleUpload}
-        disabled={uploading}
-        className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-input-bg)] rounded-md text-xs font-medium transition-colors disabled:opacity-50"
-      >
-        <Upload size={12} />
-        {uploading ? 'Uploading...' : 'Upload Model'}
-      </button>
-    </div>
-  )
-}
+import ModelUpload from './VisionModelUpload'
+import { getCurrentUser } from '../../permissions'
 
 export default function VisionSettingsTab() {
   const [globalSettings, setGlobalSettings] = useState({ enabled: true, retention_days: 30 })
@@ -41,12 +10,14 @@ export default function VisionSettingsTab() {
   const [models, setModels] = useState([])
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
+  const user = getCurrentUser()
+  const managesGlobalModels = user?.role === 'admin' && !user.group_id
 
   useEffect(() => {
     // Load global settings
     vision.getSettings().then(setGlobalSettings).catch(() => {})
     // Load models
-    vision.getModels().then(setModels).catch(() => {})
+    if (managesGlobalModels) vision.getModels().then(setModels).catch(() => setMsg('Model registry could not be loaded'))
     // Load printers with vision settings
     printers.list().then(async (printerList) => {
       const withVision = await Promise.all(
@@ -82,12 +53,9 @@ export default function VisionSettingsTab() {
 
   const activateModel = async (modelId) => {
     try {
-      const data = await vision.activateModel(modelId)
-      setModels(prev => prev.map(m => ({
-        ...m,
-        is_active: m.detection_type === data.detection_type ? (m.id === modelId ? 1 : 0) : m.is_active
-      })))
-    } catch (e) { console.error('Failed to activate model:', e) }
+      await vision.activateModel(modelId)
+      setModels(await vision.getModels())
+    } catch { setMsg('Model activation failed') }
   }
 
   return (
@@ -244,8 +212,11 @@ export default function VisionSettingsTab() {
       </div>
 
       {/* Model Management */}
-      <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 md:p-6">
+      {managesGlobalModels && <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 md:p-6">
         <h3 className="text-base font-semibold mb-3">ONNX Models</h3>
+        <button className="text-sm mb-3 underline" onClick={async () => {
+          try { setModels(await vision.getModels()) } catch { setMsg('Model status could not be refreshed') }
+        }}>Refresh model status</button>
         {models.length === 0 && (
           <p className="text-sm text-[var(--brand-text-muted)]">No models uploaded. Upload ONNX models to enable detection.</p>
         )}
@@ -262,6 +233,7 @@ export default function VisionSettingsTab() {
                   <span className="flex items-center gap-1 text-xs text-green-400">
                     <CheckCircle size={12} />
                     Active
+                    <span className="text-[var(--brand-text-muted)]">Reported readiness: {m.runtime_status?.state === 'loaded' ? 'loaded; inference not yet verified' : m.runtime_status?.state || 'unknown'}</span>
                   </span>
                 ) : (
                   <button
@@ -278,9 +250,9 @@ export default function VisionSettingsTab() {
 
         {/* Upload */}
         <div className="mt-3">
-          <ModelUpload onUploaded={(m) => setModels(prev => [m, ...prev])} />
+          <ModelUpload onUploaded={async () => setModels(await vision.getModels())} />
         </div>
-      </div>
+      </div>}
     </div>
   )
 }

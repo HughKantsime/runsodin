@@ -144,7 +144,7 @@ export default function TVDashboard() {
   const totalPages = Math.max(1, Math.ceil(allPrinters.length / CARDS_PER_PAGE))
   const printingCount = allPrinters.filter(p => p.gcode_state === 'RUNNING' || p.gcode_state === 'PAUSE').length
   const errorCount = allPrinters.filter(p => p.hms_errors?.length > 0).length
-  const unreadAlerts = alertSummary?.unread_count || 0
+  const unreadAlerts = alertSummary?.total ?? 0
 
   // Reset and restart auto-pagination timer
   const resetAutoPage = React.useCallback(() => {

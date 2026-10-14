@@ -254,7 +254,7 @@ class PrusaLinkPrinter:
                 # snapshot/stream is at a fixed path
                 return f"{self.base_url}/api/v1/cameras/snap"
         except Exception as e:
-            log.debug(f"Camera API probe failed: {e}")
+            log.debug("Camera API probe failed")
 
         # Fallback: try the snapshot endpoint directly
         try:
@@ -269,7 +269,7 @@ class PrusaLinkPrinter:
             if resp.status_code == 200:
                 return url
         except Exception as e:
-            log.debug(f"Camera snapshot probe failed: {e}")
+            log.debug("Camera snapshot probe failed")
 
         return None
 

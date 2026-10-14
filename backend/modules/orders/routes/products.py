@@ -10,6 +10,7 @@ import logging
 from core.db import get_db
 from core.rbac import require_role, get_org_scope, check_org_access
 from modules.orders.models import Product, ProductComponent
+from modules.orders.product_costing import estimated_product_cogs
 from modules.inventory.models import Consumable, ProductConsumable
 from modules.models_library.models import Model
 from modules.orders.schemas import (
@@ -35,15 +36,7 @@ def list_products(current_user: dict = Depends(require_role("viewer", scope="rea
     for p in products:
         resp = ProductResponse.model_validate(p)
         resp.component_count = len(p.components)
-        # Calculate estimated COGS from printed components + consumables
-        cogs = 0
-        for comp in p.components:
-            if comp.model and comp.model.cost_per_item:
-                cogs += comp.model.cost_per_item * comp.quantity_needed
-        for pc in getattr(p, 'consumable_links', []):
-            if pc.consumable and pc.consumable.cost_per_unit:
-                cogs += pc.consumable.cost_per_unit * pc.quantity_per_product
-        resp.estimated_cogs = round(cogs, 2) if cogs > 0 else None
+        resp.estimated_cogs = estimated_product_cogs(p)
         # Enrich consumables
         resp.consumables = [
             ProductConsumableResponse(id=pc.id, product_id=pc.product_id, consumable_id=pc.consumable_id,
@@ -103,13 +96,10 @@ def get_product(product_id: int, current_user: dict = Depends(require_role("view
 
     # Enrich components with model names
     enriched_components = []
-    cogs = 0
     for comp in product.components:
         comp_resp = ProductComponentResponse.model_validate(comp)
         if comp.model:
             comp_resp.model_name = comp.model.name
-            if comp.model.cost_per_item:
-                cogs += comp.model.cost_per_item * comp.quantity_needed
         enriched_components.append(comp_resp)
     resp.components = enriched_components
 
@@ -122,10 +112,8 @@ def get_product(product_id: int, current_user: dict = Depends(require_role("view
             consumable_name=pc.consumable.name if pc.consumable else None
         )
         resp.consumables.append(pc_resp)
-        if pc.consumable and pc.consumable.cost_per_unit:
-            cogs += pc.consumable.cost_per_unit * pc.quantity_per_product
 
-    resp.estimated_cogs = round(cogs, 2) if cogs > 0 else None
+    resp.estimated_cogs = estimated_product_cogs(product)
     return resp
 
 

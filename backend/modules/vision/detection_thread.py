@@ -102,6 +102,15 @@ class PrinterVisionThread(threading.Thread):
         if collect:
             frame_storage.save_training_frame(self.printer_id, frame)
 
+        if not hasattr(self, '_history_generations'):
+            self._history_generations = {}
+        for kind in DETECTION_TYPES:
+            generation, state = self.engine.configuration_state(kind)
+            if (self._history_generations.get(kind) != generation
+                    or state == 'unavailable'):
+                self._history[kind].clear()
+            self._history_generations[kind] = generation
+
         # Determine which detections to run based on layer
         checks = []
         if self.gcode_state == 'RUNNING' and self.settings.get('spaghetti_enabled', 1) and self.engine.has_model('spaghetti'):
@@ -116,32 +125,55 @@ class PrinterVisionThread(threading.Thread):
         for detection_type, threshold in checks:
             if self.gcode_state != 'RUNNING':
                 break
-            detections = self.engine.infer(detection_type, frame)
+            observation = self.engine.infer_observation(detection_type, frame)
+            if not self.engine.observation_current(detection_type, observation):
+                self._history[detection_type].clear()
+                continue
+            detections = observation.detections
             if self.gcode_state != 'RUNNING':
                 break
-            # Get best detection above threshold
-            best = max(detections, key=lambda d: d['confidence'], default=None)
-            above = best is not None and best['confidence'] >= threshold
+            with self.engine.decision_guard(detection_type, observation) as admitted:
+                if not admitted:
+                    self._history[detection_type].clear()
+                    continue
+                if self._history_generations.get(detection_type) != observation.generation:
+                    self._history[detection_type].clear()
+                self._history_generations[detection_type] = observation.generation
+                # Get best detection above threshold
+                best = max(detections, key=lambda d: d['confidence'], default=None)
+                above = best is not None and best['confidence'] >= threshold
 
-            self._update_history(detection_type, above)
+                self._update_history(detection_type, above)
 
-            if self._should_trigger(detection_type):
-                self._on_detection(detection_type, best, frame)
-                # Reset history after triggering
-                self._history[detection_type].clear()
+                if self._should_trigger(detection_type):
+                    self._on_detection(detection_type, best, frame)
+                    # Reset history after triggering
+                    self._history[detection_type].clear()
 
         # Build plate empty detection — runs when printer is IDLE, not during printing
         if (self.settings.get('build_plate_empty_enabled', 0)
                 and self.gcode_state in ('IDLE', 'FINISH', 'FINISHED')):
             threshold = self.settings.get('build_plate_empty_threshold', 0.70)
-            is_empty, confidence = self._detect_build_plate_empty(frame)
-            above = is_empty and confidence >= threshold
-            self._update_history('build_plate_empty', above)
-            if self._should_trigger('build_plate_empty'):
-                # Synthetic detection dict for _on_detection
-                det = {'confidence': confidence, 'bbox': []}
-                self._on_detection('build_plate_empty', det, frame)
+            plate = self._detect_build_plate_empty(frame)
+            if plate is None:
                 self._history['build_plate_empty'].clear()
+                return
+            is_empty, confidence, observation, generation = plate
+            with self.engine.decision_guard('build_plate_empty', observation, generation) as admitted:
+                if not admitted:
+                    self._history['build_plate_empty'].clear()
+                    return
+                admitted_generation = observation.generation if observation is not None else generation
+                if self._history_generations.get('build_plate_empty') != admitted_generation:
+                    self._history['build_plate_empty'].clear()
+                self._history_generations['build_plate_empty'] = admitted_generation
+                above = is_empty and confidence >= threshold
+                self._update_history('build_plate_empty', above)
+                if self._should_trigger('build_plate_empty'):
+                    # Synthetic detection dict for _on_detection
+                    det = {'confidence': confidence, 'bbox': []}
+                    self._on_detection('build_plate_empty', det, frame)
+                    self._history['build_plate_empty'].clear()
 
     def _detect_build_plate_empty(self, frame: np.ndarray) -> tuple:
         """Heuristic baseline for empty plate detection (Option B).
@@ -150,13 +182,15 @@ class PrinterVisionThread(threading.Thread):
         Returns (is_empty: bool, confidence: float).
         If an ONNX model is available for 'build_plate_empty', uses that instead.
         """
-        # Option A: use ONNX model if available
-        if self.engine.has_model('build_plate_empty'):
-            detections = self.engine.infer('build_plate_empty', frame)
-            best = max(detections, key=lambda d: d['confidence'], default=None)
-            if best:
-                return (True, best['confidence'])
-            return (False, 0.0)
+        generation, state = self.engine.configuration_state('build_plate_empty')
+        if state == 'unavailable':
+            return None
+        if state == 'ready':
+            observation = self.engine.infer_observation('build_plate_empty', frame)
+            if not self.engine.observation_current('build_plate_empty', observation):
+                return None
+            best = max(observation.detections, key=lambda d: d['confidence'], default=None)
+            return (True, best['confidence'], observation, generation) if best else (False, 0.0, observation, generation)
 
         # Option B: heuristic — check if center region is uniform
         h, w = frame.shape[:2]
@@ -172,11 +206,13 @@ class PrinterVisionThread(threading.Thread):
 
         # Empty plate heuristic: low standard deviation = uniform surface
         # Typical empty plate: std < 25, not too dark (mean > 40)
+        if not self.engine.heuristic_current('build_plate_empty', generation):
+            return None
         if std_dev < 25 and mean_val > 40:
             # Higher confidence when more uniform
             confidence = max(0.0, min(1.0, 1.0 - (std_dev / 50.0)))
-            return (True, confidence)
-        return (False, 0.0)
+            return (True, confidence, None, generation)
+        return (False, 0.0, None, generation)
 
     def _capture_frame(self) -> Optional[np.ndarray]:
         """Fetch a JPEG frame from go2rtc snapshot API."""

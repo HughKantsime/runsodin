@@ -7,7 +7,7 @@ from fpdf import FPDF
 from fpdf.fonts import FontFace
 
 _FONT_DIR = Path(__file__).with_name('fonts')
-_BRANDING_DIR = Path(__file__).resolve().parents[1] / 'static' / 'branding'
+_BRANDING_DIR = Path(__file__).resolve().parents[2] / 'static' / 'branding'
 
 
 class InvoiceUnsupportedText(ValueError):
@@ -97,7 +97,7 @@ class InvoiceGenerator:
         pdf.set_y(14)
         # Only uploaded local raster assets are eligible; never fetch a logo URL.
         logo = self.branding.get('logo_url')
-        if logo in ('/static/branding/logo.png', '/static/branding/logo.jpg', '/static/branding/logo.webp'):
+        if isinstance(logo, str) and __import__('re').fullmatch(r'/static/branding/logo(?:-[0-9a-f]{32})?\.(?:png|jpg|webp)', logo):
             path = (_BRANDING_DIR / logo.rsplit('/', 1)[1]).resolve()
             if path.is_relative_to(_BRANDING_DIR.resolve()) and path.is_file() and path.stat().st_size <= 5*1024*1024:
                 from PIL import Image

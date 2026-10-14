@@ -14,8 +14,23 @@ export interface FailureAnalyticsData {
   [key: string]: unknown;
 }
 
+export interface PrinterStats {
+  id: number;
+  name: string;
+  completed_jobs: number;
+  failed_jobs: number;
+  total_hours: number;
+  utilization_pct: number;
+  success_rate: number;
+  avg_job_hours: number;
+}
+
 export interface StatsData {
-  [key: string]: unknown;
+  printers: { total: number; active: number };
+  jobs: { pending: number; scheduled: number; printing: number; completed_today: number };
+  models: number;
+  spoolman_connected: boolean;
+  printer_stats: PrinterStats[];
 }
 
 export interface EducationUsageReport {

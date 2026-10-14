@@ -28,13 +28,21 @@ const optionalAmount = (value) => {
 
 function OrderStatsBar({ orders: ordersList }) {
   if (!ordersList.length) return null
+  const knownRevenue = ordersList.every(order => typeof order.revenue === 'number' && Number.isFinite(order.revenue))
+  const revenueTotal = knownRevenue ? ordersList.reduce((sum, order) => sum + order.revenue, 0) : null
+  const knownMargins = ordersList.every(order => typeof order.margin_percent === 'number' && Number.isFinite(order.margin_percent))
+  const marginSum = knownMargins ? ordersList.reduce((sum, order) => sum + order.margin_percent, 0) : null
+  const averageMargin = marginSum != null && Number.isFinite(marginSum) ? `${(marginSum / ordersList.length).toFixed(1)}%` : 'Unknown'
+  const revenue = revenueTotal != null && Number.isFinite(revenueTotal) ? `$${revenueTotal.toFixed(2)}` : 'Unknown'
   return (
-    <div className="grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-3 mb-6">
+    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2 md:gap-3 mb-6">
+      <StatCard label="Total Orders" value={ordersList.length} icon={Package} color="default" />
       <StatCard label="Pending" value={ordersList.filter(o => o.status === 'pending').length} icon={Clock} color="amber" />
       <StatCard label="In Progress" value={ordersList.filter(o => o.status === 'in_progress').length} icon={TrendingUp} color="blue" />
       <StatCard label="Fulfilled" value={ordersList.filter(o => o.status === 'fulfilled').length} icon={Package} color="green" />
       <StatCard label="Shipped" value={ordersList.filter(o => o.status === 'shipped').length} icon={Truck} color="purple" />
-      <StatCard label="Revenue" value={'$' + ordersList.reduce((s, o) => s + (o.revenue || 0), 0).toFixed(0)} icon={DollarSign} color="green" />
+      <StatCard label="Revenue" value={revenue} icon={DollarSign} color="green" />
+      <StatCard label="Average Margin" value={averageMargin} subtitle="Mean of per-order margins" icon={TrendingUp} color="default" />
     </div>
   )
 }
@@ -58,6 +66,9 @@ export default function Orders() {
   const [searchQuery, setSearchQuery] = useState('')
   const [confirmAction, setConfirmAction] = useState(null)
   const [shippingOrder, setShippingOrder] = useState(null)
+  const [shippingPending, setShippingPending] = useState(false)
+  const shippingInFlight = useRef(false)
+  const closeShipping = () => { if (!shippingInFlight.current) setShippingOrder(null) }
   const [shippingForm, setShippingForm] = useState({ tracking_number: '', carrier: '' })
   const [allOrders, setAllOrders] = useState([])
 
@@ -66,17 +77,22 @@ export default function Orders() {
   }, [statusFilter])
 
   useEffect(() => {
-    const onKey = (e) => { if (e.key !== 'Escape') return; if (shippingOrder) setShippingOrder(null); else if (editingOrder) closeEdit(); else if (showDetailModal) setShowDetailModal(false); else if (showModal) setShowModal(false) }
+    const onKey = (e) => { if (e.key !== 'Escape') return; if (shippingOrder) closeShipping(); else if (editingOrder) closeEdit(); else if (showDetailModal) setShowDetailModal(false); else if (showModal) setShowModal(false) }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [shippingOrder, editingOrder, showDetailModal, showModal])
 
-  const loadData = async () => {
+  const loadData = async (committedShipment = null) => {
     try {
       const [ords, prods, all] = await Promise.all([orders.list(statusFilter || null), products.list(), statusFilter ? orders.list(null) : null])
-      setOrderList(ords); setProductList(prods); setAllOrders(statusFilter ? all : ords)
+      const preserveShipment = rows => rows.map(row => row.id === committedShipment?.id
+        ? { ...row, status: committedShipment.status, tracking_number: committedShipment.tracking_number, shipped_date: committedShipment.shipped_date }
+        : row)
+      setOrderList(preserveShipment(ords).filter(row => !statusFilter || row.status === statusFilter)); setProductList(prods); setAllOrders(preserveShipment(statusFilter ? all : ords))
+      return true
     } catch (err: any) { console.error('Failed to load:', err) }
     finally { setLoading(false) }
+    return false
   }
 
   const openCreateModal = () => { setFormData(EMPTY_ORDER_FORM); setItems([]); setShowModal(true) }
@@ -217,9 +233,34 @@ export default function Orders() {
     }
   }
 
-  const handleShip = (order) => { setShippingForm({ tracking_number: order.tracking_number || '', carrier: '' }); setShippingOrder(order) }
+  const handleShip = (order) => { if (shippingInFlight.current) return; setShippingForm({ tracking_number: order.tracking_number || '', carrier: '' }); setShippingOrder(order) }
 
-  const submitShipping = async () => { try { await orders.ship(shippingOrder.id, { tracking_number: shippingForm.tracking_number || null }); toast.success('Order marked as shipped'); loadData(); if (selectedOrder?.id === shippingOrder.id) { const full = await orders.get(shippingOrder.id); setSelectedOrder(full) } setShippingOrder(null) } catch { toast.error('Failed to mark as shipped') } }
+  const submitShipping = async () => {
+    if (!shippingOrder || shippingInFlight.current) return
+    shippingInFlight.current = true
+    setShippingPending(true)
+    const orderId = shippingOrder.id
+    let shipped = false
+    try {
+      const committed = await orders.ship(orderId, { tracking_number: shippingForm.tracking_number || null })
+      shipped = true
+      setOrderList(current => current.map(row => row.id === orderId ? { ...row, ...committed } : row).filter(row => !statusFilter || row.status === statusFilter))
+      setAllOrders(current => current.map(row => row.id === orderId ? { ...row, ...committed } : row))
+      setSelectedOrder(current => current?.id === orderId ? { ...current, ...committed } : current)
+      toast.success('Order marked as shipped')
+      setShippingOrder(current => current?.id === orderId ? null : current)
+      if (!await loadData(committed)) throw new Error('Shipment refresh failed')
+      if (selectedOrder?.id === orderId) {
+        const full = await orders.get(orderId)
+        setSelectedOrder(current => current?.id === orderId ? { ...full, status: committed.status, tracking_number: committed.tracking_number, shipped_date: committed.shipped_date } : current)
+      }
+    } catch {
+      toast.error(shipped ? 'Order shipped, but details could not be refreshed' : 'Failed to mark as shipped')
+    } finally {
+      shippingInFlight.current = false
+      setShippingPending(false)
+    }
+  }
 
   const handleCancel = (order) => setConfirmAction({ title: 'Cancel Order', message: `Cancel order ${order.order_number || '#' + order.id}?`, onConfirm: async () => { try { await orders.update(order.id, { status: 'cancelled' }); toast.success('Order cancelled'); loadData(); if (selectedOrder?.id === order.id) { const full = await orders.get(order.id); setSelectedOrder(full) } } catch { toast.error('Failed to cancel order') } setConfirmAction(null) } })
 
@@ -323,7 +364,8 @@ export default function Orders() {
         order={shippingOrder}
         shippingForm={shippingForm}
         setShippingForm={setShippingForm}
-        onClose={() => setShippingOrder(null)}
+        onClose={closeShipping}
+        isSubmitting={shippingPending}
         onSubmit={submitShipping}
       />
 

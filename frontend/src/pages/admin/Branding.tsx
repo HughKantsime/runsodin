@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react"
 import { Palette, Upload, RotateCcw, Eye, Save, Image, Type, Paintbrush, Monitor, PanelLeft } from "lucide-react"
+import { applyBrandingFavicon, useBrandingUpdate } from '../../BrandingContext'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import { Button, Input, Card, Select } from '../../components/ui'
 
@@ -112,6 +113,7 @@ function getAuthHeaders(contentType = 'application/json') {
 }
 
 export default function Branding() {
+  const updateConfirmedBranding = useBrandingUpdate()
   const [branding, setBranding] = useState(null)
   const [draft, setDraft] = useState(null)
   const [saving, setSaving] = useState(false)
@@ -122,15 +124,20 @@ export default function Branding() {
   const logoInputRef = useRef(null)
   const faviconInputRef = useRef(null)
 
-  useEffect(() => {
-    fetch(`${API_BASE}/branding`)
-      .then(res => res.json())
-      .then(data => {
-        setBranding(data)
-        setDraft({ ...DEFAULTS, ...data })
-      })
-      .catch(() => setError("Failed to load branding config"))
-  }, [])
+  const loadBranding = async () => {
+    setError(null)
+    try {
+      const response = await fetch(`${API_BASE}/branding`)
+      if (!response.ok) throw new Error("Branding request failed")
+      const data = await response.json()
+      setBranding(data)
+      setDraft({ ...DEFAULTS, ...data })
+    } catch {
+      setError("Failed to load branding config")
+    }
+  }
+
+  useEffect(() => { void loadBranding() }, [])
 
   const updateDraft = (field, value) => {
     setDraft(prev => ({ ...prev, [field]: value }))
@@ -153,6 +160,7 @@ export default function Branding() {
       setDraft({ ...DEFAULTS, ...data })
       setSaved(true)
       applyLiveCSS(data)
+      updateConfirmedBranding(data)
       setTimeout(() => setSaved(false), 3000)
     } catch (err: any) {
       setError(err.message)
@@ -181,6 +189,8 @@ export default function Branding() {
       if (!res.ok) throw new Error("Remove failed")
       setBranding(prev => ({ ...prev, favicon_url: null }))
       setDraft(prev => ({ ...prev, favicon_url: null }))
+      applyBrandingFavicon(null)
+      updateConfirmedBranding({ favicon_url: null })
     } catch (err: any) {
       setError(err.message)
     }
@@ -202,6 +212,8 @@ export default function Branding() {
       const data = await res.json()
       setBranding(prev => ({ ...prev, ...data }))
       setDraft(prev => ({ ...prev, ...data }))
+      if (endpoint === "favicon") applyBrandingFavicon(data.favicon_url)
+      updateConfirmedBranding(data)
     } catch (err: any) {
       setError(err.message)
     }
@@ -217,6 +229,7 @@ export default function Branding() {
       if (!res.ok) throw new Error("Remove failed")
       setBranding(prev => ({ ...prev, logo_url: null }))
       setDraft(prev => ({ ...prev, logo_url: null }))
+      updateConfirmedBranding({ logo_url: null })
     } catch (err: any) {
       setError(err.message)
     }
@@ -225,7 +238,10 @@ export default function Branding() {
   if (!draft) {
     return (
       <div className="p-6 md:p-8">
-        <div className="text-[var(--brand-text-secondary)]">Loading branding configuration...</div>
+        {error ? <div role="alert">
+          <p>{error}</p>
+          <Button onClick={loadBranding}>Retry</Button>
+        </div> : <div className="text-[var(--brand-text-secondary)]">Loading branding configuration...</div>}
       </div>
     )
   }

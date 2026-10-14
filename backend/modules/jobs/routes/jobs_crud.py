@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import List, Optional
 from datetime import datetime, timedelta, timezone
-from pydantic import BaseModel as PydanticBaseModel
 import json
 import logging
 
@@ -27,7 +26,7 @@ from core.rbac import (
     require_role,
 )
 from core.responses import build_next_actions, next_action
-from core.quota import _get_period_key, _get_quota_usage
+from core.quota import charge_job_quota
 from core.base import JobStatus, AlertType, AlertSeverity
 from modules.jobs.models import Job
 from modules.printers.models import Printer
@@ -43,22 +42,7 @@ logger = log
 router = APIRouter(prefix="/jobs", tags=["Jobs"])
 
 
-class JobBatchRequest(PydanticBaseModel):
-    """Send the same job to multiple printers simultaneously."""
-    item_name: str
-    model_id: Optional[int] = None
-    printer_ids: List[int]
-    priority: int = 3
-    duration_hours: Optional[float] = None
-    colors_required: Optional[str] = None
-    filament_type: Optional[str] = None
-    notes: Optional[str] = None
-    queue_only: bool = False
-
-
-class JobReorderRequest(PydanticBaseModel):
-    job_ids: list[int]
-
+from modules.jobs.queue_creation import _stage_prospective_queue_job, _stage_prospective_queue_values, _stage_queue_entries, _deliver_queue_entries, JobBatchRequest, JobReorderRequest
 
 @router.get("/filament-check", tags=["Jobs"])
 def check_filament_compatibility(
@@ -107,9 +91,12 @@ def create_jobs_bulk(jobs: List[JobCreate], current_user: dict = Depends(require
         if _org_provider:
             org_settings = _org_provider.get_org_settings(db, current_user["group_id"])
 
-    db_jobs = []
+    # Preflight every Education boundary before quota mutation or job staging.
     for job in jobs:
         assert_generic_model_reference_allowed(db, job.model_id)
+    charge_job_quota(db, current_user, len(jobs))
+    db_jobs = []
+    for job in jobs:
         # Calculate cost if model is linked
         estimated_cost, suggested_price, _ = (None, None, None)
         if job.model_id:
@@ -138,10 +125,12 @@ def create_jobs_bulk(jobs: List[JobCreate], current_user: dict = Depends(require
             charged_to_user_id=current_user.get("id") if current_user else None,
             charged_to_org_id=current_user.get("group_id") if current_user else None,
         )
-        db.add(db_job)
+        _stage_prospective_queue_job(db, db_job, current_user)
         db_jobs.append(db_job)
 
+    plans = _stage_queue_entries(db, db_jobs, current_user)
     db.commit()
+    _deliver_queue_entries(db, plans)
     for job in db_jobs:
         db.refresh(job)
     return db_jobs
@@ -183,6 +172,7 @@ def create_jobs_batch(
     if body.model_id:
         estimated_cost, suggested_price, _ = calculate_job_cost(db, model_id=body.model_id)
 
+    charge_job_quota(db, current_user, len(body.printer_ids))
     created = []
     for pid in body.printer_ids:
         db_job = Job(
@@ -203,10 +193,12 @@ def create_jobs_batch(
             charged_to_org_id=current_user.get("group_id"),
             submitted_by=current_user.get("id"),
         )
-        db.add(db_job)
+        _stage_prospective_queue_job(db, db_job, current_user)
         created.append(db_job)
 
+    plans = _stage_queue_entries(db, created, current_user)
     db.commit()
+    _deliver_queue_entries(db, plans)
     return [{"id": j.id, "printer_id": j.printer_id, "status": j.status.value if hasattr(j.status, 'value') else str(j.status)} for j in created]
 
 
@@ -244,7 +236,7 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_role
     job_ids = list(dict.fromkeys(job_ids))
 
     action = body.get("action", "")
-    if action not in {'cancel', 'set_priority', 'delete', 'hold', 'unhold'}:
+    if action not in {'cancel', 'set_priority', 'delete', 'hold', 'unhold', 'reschedule'}:
         raise HTTPException(400, f'Unknown action: {action}')
     priority = body.get('priority', 3)
     if action == 'set_priority' and (type(priority) is not int or not 1 <= priority <= 5):
@@ -260,7 +252,31 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_role
     db.expire_all()
 
 
-    if action == "cancel":
+    if action == 'reschedule':
+        for jid in sorted(authorized_ids):
+            # Parents were locked above. Claim creation takes this same job
+            # lock before inserting a preparation fence.
+            locked = db.execute(text('UPDATE jobs SET status=status WHERE id=:id RETURNING id'), {'id': jid}).first()
+            if locked is None:
+                continue
+            job = db.query(Job).filter(Job.id == jid).populate_existing().first()
+            if not job or not check_org_access(current_user, job.charged_to_org_id):
+                continue
+            assert_generic_job_mutation_allowed(db, jid)
+            if job.status not in (JobStatus.PENDING, JobStatus.SCHEDULED):
+                continue
+            if db.execute(text('SELECT 1 FROM printer_dispatch_claims WHERE job_id=:id'), {'id': jid}).first():
+                continue
+            if (job.status == JobStatus.PENDING and job.printer_id is None
+                    and job.scheduled_start is None and job.scheduled_end is None
+                    and job.match_score is None and not job.is_locked):
+                continue
+            changed = db.execute(text("""UPDATE jobs SET status='pending',printer_id=NULL,
+                scheduled_start=NULL,scheduled_end=NULL,match_score=NULL,is_locked=FALSE
+                WHERE id=:id AND status IN ('pending','scheduled')
+                AND NOT EXISTS(SELECT 1 FROM printer_dispatch_claims WHERE job_id=:id)"""), {'id': jid})
+            count += changed.rowcount
+    elif action == "cancel":
         for jid in job_ids:
             job = db.query(Job).filter(Job.id == jid).first()
             if not job or not check_org_access(current_user, job.charged_to_org_id):
@@ -308,7 +324,10 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_role
     log_audit(db, f"bulk_{action}", "jobs", details=f"{count} jobs")
     reconcile_job_write(db, production_orders)
     db.commit()
-    return {"status": "ok", "affected": count}
+    result = {"status": "ok", "affected": count}
+    if action == 'reschedule':
+        result['skipped'] = len(job_ids) - count
+    return result
 
 
 @router.get("", response_model=List[JobResponse], tags=["Jobs"])
@@ -365,20 +384,6 @@ def create_job(
     from modules.models_library.services import calculate_job_cost
 
     assert_generic_model_reference_allowed(db, job.model_id)
-    # Check print quota before creating job
-    if current_user:
-        quota_jobs = current_user.get("quota_jobs")
-        if quota_jobs is not None and quota_jobs > 0:
-            period = current_user.get("quota_period") or "monthly"
-            usage = _get_quota_usage(db, current_user["id"], period)
-            if usage["jobs_used"] >= quota_jobs:
-                raise OdinError(
-                    ErrorCode.quota_exceeded,
-                    f"Job quota exceeded ({usage['jobs_used']}/{quota_jobs} for this {period} period)",
-                    status=429,
-                    retriable=False,
-                )
-
     # Calculate cost if model is linked
     estimated_cost, suggested_price, _ = (None, None, None)
     if job.model_id:
@@ -394,6 +399,8 @@ def create_job(
     initial_status = JobStatus.PENDING
     submitted_by = None
     if approval_required and current_user and current_user.get("role") == "viewer":
+        from core.license_manager import require_feature
+        require_feature("job_approval")
         initial_status = "submitted"
         submitted_by = current_user.get("id")
 
@@ -477,47 +484,31 @@ def create_job(
         target_type=job.target_type or "specific",
         target_filter=job.target_filter,
     )
-    db.add(db_job)
+    charge_job_quota(db, current_user)
+    _stage_prospective_queue_job(db, db_job, current_user)
     db.flush()
     db.refresh(db_job)
     log_audit(db, "job.created", "job", db_job.id, {"item_name": db_job.item_name, "status": str(initial_status)})
 
-    # Keep job creation, its audit record, and quota accounting in one
-    # transaction. The former second commit doubled SQLite writer-lock churn
-    # under classroom submission bursts and could leave quota out of sync if
-    # the process stopped between commits.
-    if current_user and current_user.get("quota_jobs"):
-        period = current_user.get("quota_period") or "monthly"
-        pk = _get_period_key(period)
-        db.execute(text("""INSERT INTO quota_usage (user_id, period_key, jobs_used)
-                           VALUES (:uid, :pk, 1)
-                           ON CONFLICT(user_id, period_key) DO UPDATE SET jobs_used = jobs_used + 1, updated_at = CURRENT_TIMESTAMP"""),
-                   {"uid": current_user["id"], "pk": pk})
-    # If submitted for approval, notify group owner (or all operators/admins as fallback)
+    # Stage alerts in the same transaction as job, audit and quota writes.
+    from modules.notifications.alert_dispatcher import (
+        stage_alert, deliver_staged_alert, get_group_owner_id, get_operator_admin_ids,
+    )
+    alert_plan = None
     if initial_status == "submitted":
-        try:
-            from modules.notifications.alert_dispatcher import dispatch_alert, get_group_owner_id, get_operator_admin_ids
-            owner_id = get_group_owner_id(db, current_user["id"])
-            target_ids = [owner_id] if owner_id else get_operator_admin_ids(
-                db, current_user.get("group_id")
-            )
-            dispatch_alert(
-                db=db,
-                alert_type=AlertType.JOB_SUBMITTED,
-                severity=AlertSeverity.INFO,
-                title=f"Job awaiting approval: {job.item_name or 'Untitled'}",
-                message=f"{current_user.get('display_name') or current_user.get('username', 'A user')} submitted a print job",
-                job_id=db_job.id,
-                target_user_ids=target_ids,
-            )
-        except Exception as e:
-            logger.warning(f"Failed to dispatch job_submitted alert: {e}")
-
-    # dispatch_alert commits when it creates in-app records, atomically
-    # persisting this pending job and its notifications. This final commit is
-    # the fallback for non-approval jobs or configurations with no in-app
-    # recipients; when dispatch already committed it is a harmless no-op.
+        owner_id = get_group_owner_id(db, current_user["id"])
+        target_ids = [owner_id] if owner_id else get_operator_admin_ids(db, current_user.get("group_id"))
+        alert_plan = stage_alert(db, AlertType.JOB_SUBMITTED, AlertSeverity.INFO,
+            f"Job awaiting approval: {job.item_name or 'Untitled'}",
+            f"{current_user.get('display_name') or current_user.get('username', 'A user')} submitted a print job",
+            job_id=db_job.id, target_user_ids=target_ids)
+    elif initial_status == "pending" and current_user:
+        alert_plan = stage_alert(db, AlertType.QUEUE_ADDED, AlertSeverity.INFO,
+            f"Job added to queue: {job.item_name or 'Untitled'}",
+            job_id=db_job.id, target_user_ids=[current_user["id"]])
+    # An uncertain commit must not trigger external delivery or automatic retry.
     db.commit()
+    deliver_staged_alert(db, alert_plan)
 
     # Return JobResponse fields + next_actions as a dict. response_model
     # is intentionally omitted on this route — see docstring.
@@ -556,18 +547,57 @@ def get_job(
 
 
 @router.patch("/{job_id}", response_model=JobResponse, tags=["Jobs"])
-def update_job(job_id: int, updates: JobUpdate, current_user: dict = Depends(require_role("operator", scope="write:jobs")), db: Session = Depends(get_db)):
+async def update_job(job_id: int, updates: JobUpdate, request: Request, current_user: dict = Depends(require_role("viewer", scope="write:jobs")), db: Session = Depends(get_db)):
     """Update a job."""
+    correction = current_user.get('role') == 'viewer'
+    if correction:
+        raw = await request.json()
+        if not isinstance(raw, dict) or set(raw) - {'item_name', 'quantity', 'notes', 'due_date'}:
+            raise HTTPException(403, 'Only submission details can be corrected')
+        if 'item_name' in raw and (not isinstance(raw['item_name'], str) or not raw['item_name'].strip() or len(raw['item_name']) > 200):
+            raise HTTPException(422, 'Choose a nonempty item name of at most 200 characters')
+        if 'quantity' in raw and (type(raw['quantity']) is not int or not 1 <= raw['quantity'] <= 10000):
+            raise HTTPException(422, 'Choose an explicit quantity from 1 to 10000')
+        if 'notes' in raw and raw['notes'] is not None and (not isinstance(raw['notes'], str) or len(raw['notes']) > 10000):
+            raise HTTPException(422, 'Notes must be text of at most 10000 characters')
+
+    def allowed_correction(candidate):
+        return (candidate is not None and type(current_user.get('id')) is int and current_user['id'] > 0
+                and type(current_user.get('group_id')) is int and current_user['group_id'] > 0
+                and candidate.charged_to_org_id == current_user['group_id']
+                and candidate.submitted_by == current_user['id'] and candidate.status == JobStatus.REJECTED
+                and candidate.order_item_id is None
+                and db.execute(text('SELECT 1 FROM order_production_jobs WHERE job_id=:id'), {'id':job_id}).first() is None)
+
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     if not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
+    if correction and not allowed_correction(job):
+        raise HTTPException(403, 'Only your own rejected submission can be corrected')
     assert_generic_job_mutation_allowed(db, job_id)
     production_orders = prepare_job_write(db, [job_id], updates.model_dump(exclude_unset=True))
+    if correction:
+        try:
+            statement = ('SELECT id FROM jobs WHERE id=:id FOR UPDATE NOWAIT'
+                         if db.get_bind().dialect.name == 'postgresql' else
+                         'UPDATE jobs SET status=status WHERE id=:id')
+            db.execute(text(statement), {'id':job_id})
+        except Exception:
+            db.rollback()
+            raise HTTPException(503, 'Job correction temporarily unavailable') from None
     job = db.query(Job).filter(Job.id == job_id).populate_existing().first()
     if not job or not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
+    if correction:
+        if not allowed_correction(job):
+            db.rollback()
+            raise HTTPException(409, 'Submission changed; reload before correcting it')
+        if db.execute(text('SELECT 1 FROM printer_dispatch_claims WHERE job_id=:id'), {'id':job_id}).first():
+            db.rollback()
+            raise HTTPException(409, 'Submission has an active dispatch claim')
+        assert_generic_job_mutation_allowed(db, job_id)
 
     if (job.print_file_id is not None and "model_id" in updates.model_fields_set
             and updates.model_id != job.model_id):
@@ -654,8 +684,11 @@ async def repeat_job(job_id: int, current_user: dict = Depends(require_role("ope
         quantity_on_bed=original.quantity_on_bed,
     )
 
-    db.add(new_job)
+    charge_job_quota(db, current_user)
+    _stage_prospective_queue_job(db, new_job, current_user)
+    plans = _stage_queue_entries(db, [new_job], current_user)
     db.commit()
+    _deliver_queue_entries(db, plans)
     db.refresh(new_job)
 
     return {

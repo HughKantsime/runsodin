@@ -106,6 +106,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
     bed_x_mm: '',
     bed_y_mm: '',
   })
+  const [submitError, setSubmitError] = useState<string | null>(null)
   const [testStatus, setTestStatus] = useState<TestStatus>(null)
   const [testMessage, setTestMessage] = useState('')
   const [modelOverride, setModelOverride] = useState(false)
@@ -114,6 +115,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
   const BAMBU_MODELS = ['X1C', 'X1E', 'X1', 'P1S', 'P1P', 'A1', 'A1 Mini', 'H2D']
 
   useEffect(() => {
+    setSubmitError(null)
     if (printer) {
       let serial = ''
       let access_code = ''
@@ -211,13 +213,19 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
+    setSubmitError(null)
+    const cameraUrl = formData.camera_url || ''
+    const unchangedMaskedCamera = cameraUrl.includes('***@') && cameraUrl === printer?.camera_url
+    if (cameraUrl.includes('***@') && !unchangedMaskedCamera) {
+      setSubmitError('Enter a complete replacement camera URL or clear the field.')
+      return
+    }
 
     const submitData: any = {
       name: formData.name,
       nickname: formData.nickname || null,
       model: formData.model,
       slot_count: formData.slot_count,
-      camera_url: formData.camera_url && !formData.camera_url.includes('***@') ? formData.camera_url : null,
       tags: formData.tags || [],
       timelapse_enabled: formData.timelapse_enabled || false,
       shared: formData.shared || false,
@@ -225,6 +233,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
       bed_y_mm: formData.bed_y_mm !== '' && !isNaN(parseFloat(formData.bed_y_mm)) ? parseFloat(formData.bed_y_mm) : null,
     }
 
+    if (!unchangedMaskedCamera) submitData.camera_url = cameraUrl || null
     if (formData.api_type) submitData.api_type = formData.api_type
     if (formData.api_host) submitData.api_host = formData.api_host
     if (formData.serial && formData.access_code) {
@@ -241,6 +250,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={isEditing ? 'Edit Printer' : 'Add New Printer'} size="lg">
       <form onSubmit={handleSubmit} className="space-y-4">
+        {submitError && <p role="alert" className="text-sm text-red-400">{submitError}</p>}
         <div>
           <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Machine ID {!isEditing && '*'}</label>
           <input type="text" required={!isEditing} value={formData.name} onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value.replace(/\s+/g, '-') }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder="e.g., p1s-01, x1c-floor2" />

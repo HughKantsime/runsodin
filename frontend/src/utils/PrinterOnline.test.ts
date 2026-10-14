@@ -16,3 +16,6 @@ it('treats missing and malformed heartbeats as offline', () => {
 it('accepts fractional seconds from database serialization', () => expect(isOnline(printer('2026-10-11T11:59:30.123456'))).toBe(true))
 it('accepts a positive offset without replacing its timezone', () => expect(isOnline(printer('2026-10-11T17:29:30+05:30'))).toBe(true))
 it('accepts a UTC timestamp surrounded by whitespace', () => expect(isOnline(printer(' 2026-10-11T11:59:30Z '))).toBe(true))
+it('honors an explicitly offline monitor state even with a recent heartbeat', () => {
+ expect(isOnline({ ...printer('2026-10-11T11:59:59Z'), gcode_state: 'OFFLINE' } as Printer)).toBe(false)
+})

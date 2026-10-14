@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Search, X, Package, ListTodo, Printer, Database } from 'lucide-react'
 import { search } from '../../api'
+import { useLicense } from '../../LicenseContext'
+import { canAccessPage } from '../../permissions'
 
 interface SearchResultItem {
   id: number
@@ -11,6 +13,8 @@ interface SearchResultItem {
 }
 
 interface SearchResults {
+  orders: SearchResultItem[]
+  products: SearchResultItem[]
   models: SearchResultItem[]
   jobs: SearchResultItem[]
   spools: SearchResultItem[]
@@ -45,6 +49,7 @@ export default function GlobalSearch() {
   const inputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
+  const license = useLicense()
 
   // Close on click outside
   useEffect(() => {
@@ -57,10 +62,13 @@ export default function GlobalSearch() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // Keyboard shortcut (Cmd+K or Ctrl+K)
+  // Search shortcuts; slash must not interrupt typing in another editor.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      const target = e.target instanceof HTMLElement ? e.target : null
+      const editing = target?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')
+      const slash = e.key === '/' && !e.metaKey && !e.ctrlKey && !e.altKey && !editing
+      if (((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') || slash) {
         e.preventDefault()
         inputRef.current?.focus()
         setIsOpen(true)
@@ -76,28 +84,33 @@ export default function GlobalSearch() {
 
   // Search on query change
   useEffect(() => {
+    let active = true
+    setResults(null)
+    setLoading(false)
     if (query.length < 2) {
-      setResults(null)
-      return
+      return () => { active = false }
     }
     const timer = setTimeout(async () => {
       setLoading(true)
       try {
         const data = await search.query(query)
-        setResults(data)
+        if (!active) return
+        setResults({ ...data, orders: license.isPro && canAccessPage('jobs') ? (data.orders || []) : [], products: license.isPro && canAccessPage('models') ? (data.products || []) : [] })
       } catch (err) {
-        console.error('Search failed:', err)
+        if (active) console.error('Search failed:', err)
       } finally {
-        setLoading(false)
+        if (active) setLoading(false)
       }
     }, 300)
-    return () => clearTimeout(timer)
-  }, [query])
+    return () => { active = false; clearTimeout(timer) }
+  }, [query, license.isPro])
 
   const handleSelect = (type: string, id: number) => {
     setIsOpen(false)
     setQuery('')
     const routes: Record<string, string> = {
+      order: '/orders',
+      product: '/products',
       model: '/models',
       job: '/jobs',
       spool: '/spools',
@@ -110,7 +123,7 @@ export default function GlobalSearch() {
   }
 
   const totalResults = results
-    ? results.models.length + results.jobs.length + results.spools.length + results.printers.length
+    ? results.models.length + results.jobs.length + results.spools.length + results.printers.length + results.orders.length + results.products.length
     : 0
 
   return (
@@ -118,7 +131,7 @@ export default function GlobalSearch() {
       {/* Search Input */}
       <div className="relative" role="search">
         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--brand-text-muted)]" aria-hidden="true" />
-        <label htmlFor="global-search" className="sr-only">Search printers, jobs, models, spools</label>
+        <label htmlFor="global-search" className="sr-only">Search printers, jobs, models, spools, orders, products</label>
         <input
           id="global-search"
           ref={inputRef}
@@ -154,6 +167,12 @@ export default function GlobalSearch() {
             <div className="p-4 text-center text-[var(--brand-text-muted)] text-sm">No results for "{query}"</div>
           ) : (
             <>
+              {(['orders', 'products'] as const).map(group => results![group].length > 0 && (
+                <div key={group}>
+                  <div className="px-3 py-2 text-xs font-medium text-[var(--brand-text-muted)] bg-[var(--brand-surface)]">{group === 'orders' ? 'Orders' : 'Products'}</div>
+                  {results![group].map(item => <button key={`${group}-${item.id}`} aria-label={item.name} onClick={() => handleSelect(group === 'orders' ? 'order' : 'product', item.id)} className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--brand-surface)] text-left text-sm focus:bg-[var(--brand-surface)]"><Package size={14} /><span className="truncate"><Highlight text={item.name} query={query} /></span></button>)}
+                </div>
+              ))}
               {results!.models.length > 0 && (
                 <div>
                   <div className="px-3 py-2 text-xs font-medium text-[var(--brand-text-muted)] bg-[var(--brand-surface)]">Models</div>

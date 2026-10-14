@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
+import LoginContinuation, { readLoginAuthority, verifyLoginSession, type LoginAuthority } from '../../components/auth/LoginContinuation'
 import SSOButton from '../../components/auth/SSOButton'
 import { useNavigate } from 'react-router-dom'
-import { Lock, User, AlertCircle, ShieldCheck } from 'lucide-react'
+import { Lock, User, AlertCircle } from 'lucide-react'
 import { useBranding } from '../../BrandingContext'
 import { refreshPermissions } from '../../permissions'
 import * as api from '../../api'
@@ -14,11 +15,7 @@ export default function Login() {
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
 
-  // MFA state
-  const [mfaRequired, setMfaRequired] = useState(false)
-  const [mfaToken, setMfaToken] = useState('')
-  const [mfaCode, setMfaCode] = useState('')
-  const mfaInputRef = useRef(null)
+  const [authority, setAuthority] = useState<LoginAuthority | null>(null)
 
   // Forgot password state
   const [showForgot, setShowForgot] = useState(false)
@@ -31,18 +28,6 @@ export default function Login() {
     api.auth.capabilities().then(c => setSmtpEnabled(c?.smtp_enabled || false)).catch(() => {})
   }, [])
 
-
-  // Auto-focus MFA input
-  useEffect(() => {
-    if (mfaRequired && mfaInputRef.current) {
-      mfaInputRef.current.focus()
-    }
-  }, [mfaRequired])
-
-  const completeLogin = () => {
-    // Session is established via httpOnly cookie set by the server.
-    // No localStorage token storage needed.
-  }
 
 const handleSubmit = async (e) => {
     e.preventDefault()
@@ -63,60 +48,17 @@ const handleSubmit = async (e) => {
 
       const data = await response.json()
 
-      // Check if MFA is required
-      if (data.mfa_required) {
-        setMfaToken(data.access_token)
-        setMfaRequired(true)
-        setIsLoading(false)
-        return
-      }
-
-      completeLogin(data)
+      const continuation = readLoginAuthority(data)
+      setPassword('')
+      if (continuation) { setAuthority(continuation); return }
+      if (typeof data.access_token !== 'string' || data.token_type !== 'bearer') throw new Error('Invalid sign-in response')
+      await verifyLoginSession(data.access_token)
       await refreshPermissions()
       navigate('/')
     } catch (err: any) {
       setError(err.message)
     } finally {
       setIsLoading(false)
-    }
-  }
-
-  const handleMfaSubmit = async (e) => {
-    if (e) e.preventDefault()
-    setError('')
-    setIsLoading(true)
-
-    try {
-      const response = await fetch('/api/auth/mfa/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mfa_token: mfaToken, code: mfaCode })
-      })
-
-      if (!response.ok) {
-        const data = await response.json()
-        throw new Error(data.detail || 'Invalid code')
-      }
-
-      const data = await response.json()
-      completeLogin(data)
-      await refreshPermissions()
-      navigate('/')
-    } catch (err: any) {
-      setError(err.message)
-      setMfaCode('')
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  // Auto-submit MFA when 6 digits entered
-  const handleMfaCodeChange = (e) => {
-    const val = e.target.value.replace(/\D/g, '')
-    setMfaCode(val)
-    if (val.length === 6) {
-      // Defer to next tick so state is updated
-      setTimeout(() => handleMfaSubmit(), 0)
     }
   }
 
@@ -139,7 +81,7 @@ const handleSubmit = async (e) => {
               </h1>
             )}
             <p className="mt-1" style={{ color: 'var(--brand-text-muted)' }}>
-              {mfaRequired ? 'Two-Factor Authentication' : branding.app_subtitle}
+              {authority ? 'Two-Factor Authentication' : branding.app_subtitle}
             </p>
           </div>
 
@@ -151,58 +93,10 @@ const handleSubmit = async (e) => {
             </div>
           )}
 
-          {mfaRequired ? (
-            /* MFA Code Form */
-            <form onSubmit={handleMfaSubmit} className="space-y-6">
-              <div className="text-center mb-4">
-                <ShieldCheck size={40} className="mx-auto mb-3" style={{ color: 'var(--brand-accent)' }} />
-                <p className="text-sm" style={{ color: 'var(--brand-text-secondary)' }}>
-                  Enter the 6-digit code from your authenticator app
-                </p>
-              </div>
-              <div>
-                <div className="relative">
-                  <Lock size={18} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--brand-text-muted)' }} />
-                  <input
-                    id="mfa-code"
-                    aria-label="Authentication code"
-                    ref={mfaInputRef}
-                    type="text"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    maxLength={6}
-                    value={mfaCode}
-                    onChange={handleMfaCodeChange}
-                    className="w-full rounded-md py-3 pl-10 pr-4 focus:outline-hidden text-center text-2xl tracking-[0.5em] font-mono"
-                    style={{
-                      backgroundColor: 'var(--brand-input-bg)',
-                      border: '1px solid var(--brand-input-border)',
-                      color: 'var(--brand-text-primary)',
-                    }}
-                    placeholder="000000"
-                    required
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={isLoading || mfaCode.length !== 6}
-                className="w-full font-medium py-3 rounded-md transition-colors disabled:opacity-50"
-                style={{ backgroundColor: 'var(--brand-primary)', color: 'var(--brand-on-primary)' }}
-              >
-                {isLoading ? 'Verifying...' : 'Verify'}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => { setMfaRequired(false); setMfaToken(''); setMfaCode(''); setError('') }}
-                className="w-full text-sm py-2 transition-colors"
-                style={{ color: 'var(--brand-text-muted)' }}
-              >
-                Back to login
-              </button>
-            </form>
+          {authority ? (
+            <LoginContinuation authority={authority}
+              onComplete={async () => { await refreshPermissions(); navigate('/') }}
+              onRestart={() => { setAuthority(null); setError('') }} />
           ) : (
             /* Normal Login Form */
             <>

@@ -33,15 +33,23 @@ def test_dispatch_acknowledgment_preserves_newer_completion(linked_job, monkeypa
     from modules.printers import dispatch
     client, engine, order_id, identifier = linked_job
     payload = tmp_path/'synthetic.gcode'; payload.write_text('; inert fixture\n')
+    from core import auth
+    from modules.printers import smart_plug, dispatch_acquisition
+    import secrets
     monkeypatch.setattr(db, 'engine', engine)
-    monkeypatch.setattr(dispatch, '_load_job', lambda jid: {
-        'id':identifier,'printer_id':9,'status':'scheduled','item_name':'Synthetic production',
-        'model_id':101,'stored_path':str(payload),'original_filename':payload.name})
-    monkeypatch.setattr(dispatch, '_get_printer_info', lambda pid: {'api_type':'moonraker','ip':'127.0.0.1'})
+    monkeypatch.setattr(auth, 'SECRET_KEY', secrets.token_hex(32))
+    monkeypatch.setattr(smart_plug, 'engine', engine)
+    monkeypatch.setattr(dispatch_acquisition, 'bounded_status_is_idle', lambda *args: True)
+    with engine.begin() as connection:
+        connection.execute(text("INSERT INTO print_files(id,model_id,stored_path,filename,original_filename,org_id) VALUES(501,101,:path,:name,:name,1)"),
+                           {'path':str(payload), 'name':payload.name})
+        connection.execute(text("UPDATE printers SET api_type='moonraker',api_host='127.0.0.1',api_key='',gcode_state='IDLE' WHERE id=9"))
     monkeypatch.setattr(dispatch, '_ws', lambda *args: None)
     calls = []
     def isolated_transport(*args):
         calls.append(True)
+        with engine.connect() as connection:
+            assert connection.execute(text('SELECT state FROM printer_dispatch_claims WHERE job_id=:id'), {'id':identifier}).scalar_one() == 'adapter_entered'
         if race:
             response = client.post(f'/jobs/{identifier}/complete')
             assert response.status_code == 200, response.text
@@ -49,6 +57,10 @@ def test_dispatch_acknowledgment_preserves_newer_completion(linked_job, monkeypa
     monkeypatch.setattr(dispatch, '_dispatch_moonraker', isolated_transport)
     success, message = dispatch.dispatch_job(9, identifier)
     assert success, message
+    assert calls == [True]
+    with engine.connect() as connection:
+        assert connection.execute(text('SELECT state FROM printer_dispatch_claims WHERE job_id=:id'), {'id':identifier}).scalar_one() == 'accepted'
+    assert not dispatch.dispatch_job(9, identifier)[0]
     assert calls == [True]
     if race:
         assert_completed(engine, order_id, identifier)
@@ -198,7 +210,8 @@ def test_mqtt_start_sweep_and_bump_use_atomic_production_boundary(linked_job, mo
     def isolated_db():
         connection = engine.raw_connection()
         try:
-            yield connection
+            from core.db_utils import _ConnectionAdapter
+            yield _ConnectionAdapter(connection,False)
         except BaseException:
             connection.rollback()
             raise

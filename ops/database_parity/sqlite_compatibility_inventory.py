@@ -15,9 +15,86 @@ INVENTORY = ROOT / "ops" / "database_parity" / "sqlite_compatibility_inventory.j
 
 
 CLASSIFICATIONS: dict[str, tuple[str, str]] = {
+    "backend/modules/archives/project_zip_manifest.py": (
+        "dialect-neutral",
+        "The bounded UTC timestamp regular expression contains a qmark-like fragment; this closed ZIP metadata parser performs no database operations or SQL.",
+    ),
+    'backend/core/economic_source_creation.py': ('sqlite-provider-only', 'SQLite foreign-key checks and BEGIN IMMEDIATE are provider guarded; PostgreSQL fixed internal qmark templates translate through the caller-owned executor. Classification does not certify financial valuation.'),
+    'backend/core/global_order_origin_schema.py': ('sqlite-provider-only', 'SQLite catalog, enforcement PRAGMAs and writer promotion are dialect guarded; PostgreSQL uses explicit native catalog and relation-lock validation.'),
+    'backend/core/power_target_operation_schema.py': ('sqlite-provider-only', 'SQLite driver transaction and enforcement/catalog checks are dialect guarded; PostgreSQL uses separately typed catalog, finite-time and bounded lock checks.'),
+    'backend/core/power_target_operations.py': ('dialect-neutral', 'Closed operation templates use the shared power schema executor for provider-specific qmark binding and timestamps; this storage helper does not authorize device commands.'),
+    'backend/core/schema/migrations/021_economic_identity.py': ('sqlite-provider-only', 'SQLite declarations, trigger catalog and foreign-key PRAGMAs are guarded by dialect; PostgreSQL validates native constraints and exact guard definitions.'),
+    'backend/core/schema/migrations/022_economic_source_lifetimes.py': ('sqlite-provider-only', 'SQLite lifetime DDL and retained enforcement checks are dialect guarded; PostgreSQL has its own source-owned constraints and guard validation.'),
+    'backend/core/spool_purchase_evidence.py': ('sqlite-provider-only', 'SQLite foreign-key enforcement and writer transaction checks are dialect guarded; PostgreSQL uses finite native locks in the caller transaction.'),
+    'backend/core/spool_purchase_schema.py': ('sqlite-provider-only', 'SQLite catalog, shadowing and foreign-key checks are dialect guarded; PostgreSQL uses native schema and exact canonical guard validation.'),
+    'backend/modules/archives/timelapse_action_authority.py': ('sqlite-provider-only', 'SQLite foreign-key enforcement and BEGIN IMMEDIATE are dialect guarded; PostgreSQL action authority uses its own caller transaction and source locks.'),
+    "backend/core/schema/migrations/020_ams_evidence.py": (
+        "sqlite-provider-only",
+        "Explicit SQLite branch uses canonical DDL, integrity/FK PRAGMAs and writer promotion; PostgreSQL uses native catalog reflection and locked authority",
+    ),
+    "backend/core/ams_source_inspection.py": (
+        "dialect-neutral",
+        "G-code header regular expression contains a qmark-like fragment; this bounded archive parser has no database operations or SQL.",
+    ),
+    "backend/core/schema/migrations/019_timelapse_publications.py": (
+        "sqlite-provider-only",
+        "Unregistered publication prototype: SQLite BEGIN IMMEDIATE, no-row writer promotion and retained-integrity PRAGMAs are guarded; PostgreSQL uses separate qualified native relation locks and metadata checks. Classification does not register the migration or certify restore/parity.",
+    ),
+    "backend/core/schema/migrations/018_timelapse_unlinks.py": (
+        "sqlite-provider-only",
+        "Dialect-guarded SQLite BEGIN IMMEDIATE owns additive DDL; native PostgreSQL validates exact inherited same-schema checked foreign authority and retained unlink/object phase correspondence",
+    ),
+    "backend/core/schema/migrations/017_timelapse_recovery.py": (
+        "sqlite-provider-only",
+        "SQLite-only BEGIN IMMEDIATE and table integrity/foreign-key checks; PostgreSQL separately validates exact checked same-schema nondeferrable foreign authorities and update actions",
+    ),
+    "backend/core/schema/migrations/016_timelapse_ownership.py": (
+        "sqlite-provider-only",
+        "SQLite additive DDL ownership and integrity PRAGMAs are dialect guarded; PostgreSQL uses strict native column and validated constraint inspection",
+    ),
+    "backend/core/schema/migrations/015_timelapse_retirements.py": (
+        "sqlite-provider-only",
+        "SQLite caller-owned BEGIN IMMEDIATE and PRAGMA retained-evidence checks are dialect guarded; PostgreSQL uses native validated constraint and parent-OID inspection with strict additive adoption",
+    ),
+    "backend/core/schema/mfa_enrollments.py": (
+        "sqlite-provider-only",
+        "SQLite PRAGMA foreign-key inspection is dialect guarded; PostgreSQL validates the canonical users relation and validated constraints through native metadata, with strict adoption tests on both providers",
+    ),
     "backend/modules/archives/attempt_accounting.py": (
         "dialect-neutral",
         "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+    ),
+    "backend/core/schema/migrations/009_cost_foundation.py": (
+        "sqlite-provider-only",
+        "SQLite schema signature and statement-completeness checks are dialect guarded; PostgreSQL uses its own frozen schema contract and advisory transaction lock",
+    ),
+    "backend/core/schema/cost_contract_signature.py": (
+        "sqlite-provider-only",
+        "Explicit SQLite sqlite_master signature is separate from PostgreSQL catalog signature; both use bound values",
+    ),
+    "backend/core/schema/migrations/012_dispatch_receipts.py": (
+        "sqlite-provider-only",
+        "Dialect-guarded SQLite receipt integrity checks; PostgreSQL requires canonical validated constraints and timezone-aware contract",
+    ),
+    "backend/core/schema/migrations/014_dispatch_senders.py": (
+        "sqlite-provider-only",
+        "Explicit SQLite DDL transaction and retained-row integrity validation; PostgreSQL separately validates canonical constraints and timezone-aware storage",
+    ),
+    "backend/core/schema/migrations/011_dispatch_claims.py": (
+        "sqlite-provider-only",
+        "Dialect-guarded table-scoped integrity validation rejects incompatible retained SQLite claim rows; PostgreSQL separately requires canonical checks validated in its catalog",
+    ),
+    "backend/core/schema/migrations/010_h2d_nozzle_observations.py": (
+        "sqlite-provider-only",
+        "SQLite-only BEGIN IMMEDIATE protects additive DDL; timestamp SQL translates for PostgreSQL and adopted column shapes are checked before mutation",
+    ),
+    "backend/modules/printers/monitors/ams_inventory.py": (
+        "dialect-neutral",
+        "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
+    ),
+    "backend/modules/printers/monitors/light_state.py": (
+        "dialect-neutral",
+        "Caller-owned shared DBAPI qmark bindings; PostgreSQL timestamp cast and SQLite exact snapshot comparison protect concurrent light commands",
     ),
     "backend/modules/archives/ownership.py": (
         "dialect-neutral",

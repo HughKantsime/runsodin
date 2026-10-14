@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Database, HardDrive, Plus, RefreshCw, Download, Trash2, CheckCircle, AlertTriangle, FileSpreadsheet, FileText, Shield, Wifi, Save, Smartphone } from 'lucide-react'
-import { gdpr, fetchAPI, config as configApi, backups as backupsApi, downloadBlob } from '../../api'
+import { gdpr, fetchAPI, config as configApi, backups as backupsApi, downloadBlob, adminBundle } from '../../api'
 import BackupRestore from './BackupRestore'
 import TroubleshootingPanel from './TroubleshootingPanel'
 import DataRetentionSettings from './DataRetentionSettings'
@@ -279,6 +279,23 @@ function AuditLogLink() {
 }
 
 export default function SystemTab() {
+  const [bundlePending, setBundlePending] = useState(false)
+  const [bundleError, setBundleError] = useState('')
+  const bundleInFlight = useRef(false)
+  const downloadSupportBundle = async () => {
+    if (bundleInFlight.current) return
+    bundleInFlight.current = true
+    setBundlePending(true)
+    setBundleError('')
+    try {
+      await adminBundle.download()
+    } catch (err) {
+      setBundleError(err instanceof Error ? err.message : 'Could not download support bundle. Please try again.')
+    } finally {
+      bundleInFlight.current = false
+      setBundlePending(false)
+    }
+  }
   const queryClient = useQueryClient()
   const [deleteConfirm, setDeleteConfirm] = useState(null)
 
@@ -349,6 +366,15 @@ export default function SystemTab() {
       </Card>
 
       <TroubleshootingPanel />
+
+      <Card padding="lg" className="mb-4 md:mb-6">
+        <h2 className="text-lg font-display font-semibold mb-2">Support bundle</h2>
+        <p className="text-sm text-[var(--brand-text-muted)] mb-3">Download diagnostic information and redacted logs to review before sharing with support.</p>
+        <Button variant="secondary" icon={Download} disabled={bundlePending} onClick={downloadSupportBundle}>
+          {bundlePending ? 'Preparing support bundle...' : 'Download support bundle'}
+        </Button>
+        {bundleError && <p role="alert" className="text-sm text-red-400 mt-2">{bundleError}</p>}
+      </Card>
 
       {/* Database Backups */}
       <Card padding="lg" className="mb-4 md:mb-6">

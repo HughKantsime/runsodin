@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from "react"
+import { createContext, useContext, useState, useEffect, useRef, useCallback } from "react"
 
 const API_BASE = '/api'
 
@@ -63,11 +63,27 @@ function loadBrandingFonts(b) {
 }
 
 const BrandingContext = createContext(DEFAULT_BRANDING)
+const BrandingUpdateContext = createContext<(patch: any) => void>(() => {})
 
 export function BrandingProvider({ children }) {
   const [branding, setBranding] = useState(DEFAULT_BRANDING)
+  const generation = useRef(0)
+  const organizationOverlay = useRef({})
+  const confirmedPatch = useRef({})
+  const currentBranding = useRef(DEFAULT_BRANDING)
+  const updateConfirmedBranding = useCallback((patch) => {
+    generation.current += 1
+    confirmedPatch.current = { ...confirmedPatch.current, ...patch }
+    const merged = { ...currentBranding.current, ...patch, ...organizationOverlay.current }
+    currentBranding.current = merged
+    setBranding(merged)
+    loadBrandingFonts(merged)
+    applyBrandingCSS(merged)
+    applyBrandingMeta(merged)
+  }, [])
 
   useEffect(() => {
+    const initialGeneration = generation.current
     fetch(`${API_BASE}/branding`)
       .then(res => {
         if (res.ok) return res.json()
@@ -85,21 +101,29 @@ export function BrandingProvider({ children }) {
               const settingsRes = await fetch(`${API_BASE}/orgs/${me.group_id}/settings`, { credentials: 'include' })
               if (settingsRes.ok) {
                 const orgSettings = await settingsRes.json()
-                if (orgSettings.branding_app_name) merged.app_name = orgSettings.branding_app_name
-                if (orgSettings.branding_logo_url) merged.logo_url = orgSettings.branding_logo_url
+                const overlay: any = {}
+                if (orgSettings.branding_app_name) overlay.app_name = orgSettings.branding_app_name
+                if (orgSettings.branding_logo_url) overlay.logo_url = orgSettings.branding_logo_url
+                organizationOverlay.current = overlay
+                merged = { ...merged, ...overlay }
               }
             }
           }
         } catch { /* org branding overlay is best-effort */ }
 
+        // Preserve confirmed fields while filling settings absent from partial patches.
+        merged = { ...merged, ...confirmedPatch.current, ...organizationOverlay.current }
+        currentBranding.current = merged
         setBranding(merged)
         loadBrandingFonts(merged)
         applyBrandingCSS(merged)
         applyBrandingMeta(merged)
       })
       .catch(() => {
-        // Use defaults silently - branding table may not exist yet
+        // A stale request must not replace a confirmed mutation.
+        if (generation.current !== initialGeneration) return
         applyBrandingCSS(DEFAULT_BRANDING)
+        applyBrandingMeta(DEFAULT_BRANDING)
       })
   }, [])
 
@@ -117,9 +141,15 @@ export function BrandingProvider({ children }) {
 
   return (
     <BrandingContext.Provider value={branding}>
-      {children}
+      <BrandingUpdateContext.Provider value={updateConfirmedBranding}>
+        {children}
+      </BrandingUpdateContext.Provider>
     </BrandingContext.Provider>
   )
+}
+
+export function useBrandingUpdate() {
+  return useContext(BrandingUpdateContext)
 }
 
 export function useBranding() {
@@ -229,15 +259,19 @@ function applyBrandingMeta(b) {
       : b.app_name
   }
 
-  if (b.favicon_url) {
-    let link = document.querySelector("link[rel~='icon']")
-    if (!link) {
-      link = document.createElement("link")
-      link.rel = "icon"
-      document.head.appendChild(link)
-    }
-    link.href = b.favicon_url
+  applyBrandingFavicon(b.favicon_url)
+
+}
+
+export function applyBrandingFavicon(url: string | null) {
+  let link = document.querySelector<HTMLLinkElement>("link[rel~='icon']")
+  if (!link) {
+    link = document.createElement("link")
+    link.rel = "icon"
+    document.head.appendChild(link)
   }
+  link.removeAttribute("type")
+  link.href = url || "/favicon.svg"
 }
 
 export default BrandingContext

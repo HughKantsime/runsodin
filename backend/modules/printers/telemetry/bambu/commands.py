@@ -65,6 +65,9 @@ class BambuCommandAdapter:
         if self._client is not None:
             raise RuntimeError("command adapter already started")
         client = self._client_factory()
+        # Retain ownership before setup/connect can partially start a client.
+        # The session's finally must be able to stop it on every exit path.
+        self._client = client
         if self._config.access_code:
             client.username_pw_set(self._config.username, self._config.access_code)
         if self._config.use_tls:
@@ -76,7 +79,6 @@ class BambuCommandAdapter:
         client.on_disconnect = self._on_disconnect
         client.connect(self._config.host, self._config.port, keepalive=60)
         client.loop_start()
-        self._client = client
 
     def stop(self) -> None:
         if self._client is None:

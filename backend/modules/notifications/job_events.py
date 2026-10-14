@@ -37,6 +37,7 @@ def _education_policy():
         return None
 
 
+@retry_production_linkage
 def job_started(
     printer_id: int,
     job_name: str,
@@ -49,28 +50,20 @@ def job_started(
     """
     try:
         with get_db() as conn:
-            cur = conn.cursor()
-            cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
-                f"""INSERT INTO print_jobs
-                    (printer_id, filename, job_name, started_at, status, total_layers, scheduled_job_id)
-                VALUES (?, ?, ?, {sql.now()}, 'running', ?, ?){sql.returning_id()}""",
-                (printer_id, job_name, job_name, total_layers, scheduled_job_id)
-            )
-            if sql.is_postgres:
-                job_id = cur.fetchone()[0]
-            else:
-                job_id = cur.lastrowid
-            policy = _education_policy()
-            education_result = None
-            if policy:
-                education_result = policy.claim_monitor_observation(
-                    conn,
-                    print_job_id=job_id,
-                    printer_id=printer_id,
-                    observed_filename=job_name,
-                )
-            capture_attempt_spools(conn, job_id, printer_id, source="printer-event-first-start")
-            conn.commit()
+            from core.attempt_start_observation import observe_start
+            conn.execute('BEGIN IMMEDIATE')
+            try:
+                result=observe_start(conn,printer_id=printer_id,filename=job_name,job_name=job_name,
+                    physical_values={'started_at':conn.execute('SELECT '+sql.now()).fetchone()[0],
+                                     'total_layers':total_layers},source='printer-event-first-start')
+                job_id=result.id
+                education_result={'education_owned':result.education_sensitive,'education_reserved':result.education_sensitive}
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            if not result.fresh:
+                return job_id
 
         log.info(f"Job started on printer {printer_id}: {job_name} (print_jobs.id={job_id})")
 
@@ -80,18 +73,23 @@ def job_started(
         ):
             return job_id
 
-        bus = get_event_bus()
-        bus.publish(Event(
-            event_type=ev.JOB_STARTED,
-            source_module="notifications",
-            data={
-                "printer_id": printer_id,
-                "job_name": job_name,
-                "print_job_id": job_id,
-            },
-        ))
+        try:
+            bus = get_event_bus()
+            bus.publish(Event(
+                event_type=ev.JOB_STARTED,
+                source_module="notifications",
+                data={
+                    "printer_id": printer_id,
+                    "job_name": job_name,
+                    "print_job_id": job_id,
+                },
+            ))
+        except Exception:
+            log.warning("Committed print start event delivery failed; observation retained")
         return job_id
 
+    except ProductionLinkageChanged:
+        raise
     except Exception as e:
         log.error(f"Failed to record job start for printer {printer_id}: {e}")
         return None
@@ -111,6 +109,9 @@ def job_completed(
     Creates alerts for completion/failure.
     """
     status = "completed" if success else "failed"
+    committed_completion = False
+    completion_job_id = None
+    completion_metadata = None
 
     try:
         with get_db() as conn:
@@ -130,10 +131,19 @@ def job_completed(
                     "education_reserved"
                 ):
                     conn.commit()
+                    committed_completion = (success is True
+                        and education_result.get('authorized') is True
+                        and education_result.get('transitioned') is True)
+                    completion_job_id = education_result.get('job_id')
                     return education_result
 
             # Update print_jobs record
             linked_id, production_orders = prepare_print_job_write(conn, print_job_id)
+            current = cur.execute(
+                'SELECT printer_id,status FROM print_jobs WHERE id=?', (print_job_id,)
+            ).fetchone()
+            if current is None or current[0] != printer_id or current[1] != 'running':
+                return None
 
             cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
                 f"""UPDATE print_jobs SET
@@ -145,12 +155,15 @@ def job_completed(
 
             # Get job details for alert
             cur.execute(
-                "SELECT job_name, scheduled_job_id FROM print_jobs WHERE id = ?",
+                "SELECT job_name, scheduled_job_id, ended_at FROM print_jobs WHERE id = ?",
                 (print_job_id,)
             )
             row = cur.fetchone()
             job_name = row[0] if row else "Unknown"
             scheduled_job_id = row[1] if row else None
+            from core.dispatch_observations import _utc
+            # jobs.actual_end is canonical naive UTC; PG physical ended_at is aware.
+            ended_at = _utc(row[2]).replace(tzinfo=None)
 
             # Get printer name
             cur.execute("SELECT name, nickname FROM printers WHERE id = ?", (printer_id,))
@@ -160,12 +173,15 @@ def job_completed(
             # Update scheduled job status if linked
             if scheduled_job_id:
                 cur.execute(
-                    "UPDATE jobs SET status = ? WHERE id = ?",
-                    (status, scheduled_job_id)
+                    "UPDATE jobs SET status = ?, actual_end = ? WHERE id = ?",
+                    (status, ended_at, scheduled_job_id)
                 )
 
             reconcile_job_write(conn, production_orders)
             conn.commit()
+            committed_completion = success is True
+            completion_job_id = scheduled_job_id
+            completion_metadata = {'job_name': job_name, 'duration_seconds': duration_seconds}
 
         # Increment care counters if successful
         if success and duration_seconds:
@@ -204,20 +220,21 @@ def job_completed(
 
         log.info(f"Job {status} on printer {printer_id}: {job_name}")
 
-        bus = get_event_bus()
-        bus.publish(Event(
-            event_type=ev.JOB_COMPLETED if success else ev.JOB_FAILED,
-            source_module="notifications",
-            data={
-                "printer_id": printer_id,
-                "job_name": job_name,
-                "status": status,
-                "print_job_id": print_job_id,
-                "scheduled_job_id": scheduled_job_id,
-                "success": success,
-                "duration_seconds": duration_seconds,
-            },
-        ))
+        if not success:
+            bus = get_event_bus()
+            bus.publish(Event(
+                event_type=ev.JOB_FAILED,
+                source_module="notifications",
+                data={
+                    "printer_id": printer_id,
+                    "job_name": job_name,
+                    "status": status,
+                    "print_job_id": print_job_id,
+                    "scheduled_job_id": scheduled_job_id,
+                    "success": success,
+                    "duration_seconds": duration_seconds,
+                },
+            ))
 
         # Start bed-cooled monitoring if enabled and print was successful
         if success:
@@ -227,6 +244,16 @@ def job_completed(
         raise
     except Exception:
         log.error("Failed to record job completion for printer %s; reconciliation required", printer_id)
+    finally:
+        from core import db as core_db
+        from core.dispatch_claims import retire_observed_terminal
+        try:
+            retire_observed_terminal(core_db.engine,printer_id=printer_id,print_job_id=print_job_id)
+        finally:
+            if committed_completion:
+                from core.committed_terminal_events import publish_committed_completion
+                publish_committed_completion(printer_id, print_job_id, completion_job_id,
+                                             metadata=completion_metadata, source_module='notifications')
 
 
 @retry_production_linkage
@@ -257,6 +284,11 @@ def job_cancelled(
                     return education_result
 
             linked_id, production_orders = prepare_print_job_write(conn, print_job_id)
+            current = cur.execute(
+                "SELECT printer_id,status FROM print_jobs WHERE id=?", (print_job_id,)
+            ).fetchone()
+            if current is None or current[0] != printer_id or current[1] != "running":
+                return None
 
             cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
                 f"""UPDATE print_jobs SET
@@ -267,12 +299,15 @@ def job_cancelled(
             )
 
             cur.execute(
-                "SELECT job_name, scheduled_job_id FROM print_jobs WHERE id = ?",
+                "SELECT job_name, scheduled_job_id, ended_at FROM print_jobs WHERE id = ?",
                 (print_job_id,)
             )
             row = cur.fetchone()
             job_name = row[0] if row else "Unknown"
             scheduled_job_id = row[1] if row else None
+            from core.dispatch_observations import _utc
+            # jobs.actual_end is canonical naive UTC; PG physical ended_at is aware.
+            ended_at = _utc(row[2]).replace(tzinfo=None)
 
             cur.execute("SELECT name, nickname FROM printers WHERE id = ?", (printer_id,))
             prow = cur.fetchone()
@@ -280,8 +315,8 @@ def job_cancelled(
 
             if scheduled_job_id:
                 cur.execute(
-                    "UPDATE jobs SET status = 'cancelled' WHERE id = ?",
-                    (scheduled_job_id,)
+                    "UPDATE jobs SET status = 'cancelled', actual_end = ? WHERE id = ?",
+                    (ended_at, scheduled_job_id)
                 )
 
             reconcile_job_write(conn, production_orders)
@@ -316,6 +351,10 @@ def job_cancelled(
         raise
     except Exception:
         log.error("Failed to record job cancellation for printer %s; reconciliation required", printer_id)
+    finally:
+        from core import db as core_db
+        from core.dispatch_claims import retire_observed_terminal
+        retire_observed_terminal(core_db.engine,printer_id=printer_id,print_job_id=print_job_id)
 
 
 def update_job_progress(

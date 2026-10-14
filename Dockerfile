@@ -85,9 +85,12 @@ COPY docker/supervisord.vision.conf /etc/supervisor/conf.d/vision.conf
 COPY docker/supervisord.reports.conf /etc/supervisor/conf.d/reports.conf
 
 # Copy entrypoint
-COPY docker/entrypoint.sh /app/entrypoint.sh
+COPY docker/entrypoint.sh /usr/local/bin/odin-entrypoint
+COPY docker/runtime_identity.py /usr/local/libexec/odin-runtime-identity.py
+COPY docker/branding_defaults.py /usr/local/libexec/odin-branding-defaults.py
 COPY docker/seed_edu_if_enabled.sh /app/seed_edu_if_enabled.sh
-RUN chmod +x /app/entrypoint.sh
+RUN chmod 0555 /usr/local/bin/odin-entrypoint \
+    && chmod 0444 /usr/local/libexec/odin-runtime-identity.py /usr/local/libexec/odin-branding-defaults.py
 
 # Create non-root user for runtime (supervisord drops to this user)
 # entrypoint.sh still runs as root to handle secret generation and chown
@@ -96,7 +99,12 @@ RUN groupadd -r -g 10001 odin \
 
 # Create data directories (will be mounted as volumes)
 RUN mkdir -p /data /data/backups /data/uploads /data/static/branding /app/go2rtc \
-    && chown -R odin:odin /app /data 2>/dev/null || true
+    && mkdir -p /usr/local/share/odin/branding-defaults \
+    && cp -a /app/backend/static/branding/. /usr/local/share/odin/branding-defaults/ \
+    && rm -rf /app/backend/static/branding \
+    && ln -s /data/static/branding /app/backend/static/branding \
+    && chmod -R go-w /app \
+    && chown -R odin:odin /app/go2rtc /data
 
 # Default environment
 ENV PYTHONUNBUFFERED=1 \
@@ -111,7 +119,7 @@ EXPOSE 8000 8555
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD curl -f http://localhost:8000/health/ready || exit 1
 
-ENTRYPOINT ["/app/entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/odin-entrypoint"]
 CMD ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisor/conf.d/odin.conf"]
 ARG ODIN_BUILD_OWNER=unowned
 LABEL com.runsodin.validation-image-owner=${ODIN_BUILD_OWNER}

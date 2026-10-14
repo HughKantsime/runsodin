@@ -8,6 +8,14 @@ Extracted from VisionMonitorDaemon to isolate model lifecycle management.
 import os
 import logging
 import time
+import threading
+import hashlib
+import uuid
+from modules.vision.runtime_status import write_status, registry_fingerprint
+from contextlib import contextmanager
+from dataclasses import dataclass
+from types import MappingProxyType
+from modules.vision.output_contract import OutputContract, InvalidModelOutput
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -30,102 +38,210 @@ log = logging.getLogger('vision_monitor')
 VISION_MODELS_DIR = '/data/vision_models'
 
 
+@dataclass(frozen=True)
+class ModelSnapshot:
+    generation: int
+    state: str
+    session: object = None
+    input_size: int = 640
+    contract: object = None
+    fingerprint: str = ''
+    model_id: int = 0
+    observed_ok: bool = False
+
+
+@dataclass(frozen=True)
+class InferenceObservation:
+    generation: int
+    available: bool
+    detections: tuple = ()
+
+
+
 class VisionInferenceEngine:
     """Loads and caches ONNX models, runs inference."""
 
     def __init__(self):
-        self._sessions: Dict[str, 'ort.InferenceSession'] = {}
-        self._model_info: Dict[str, dict] = {}
+        self._lock = threading.RLock()
+        self._reload_lock = threading.Lock()
+        self._snapshots = MappingProxyType({})
+        self._generation = 0
+        self._registry_available = False
         self._last_reload = 0
+        self._incarnation = uuid.uuid4().hex
 
     def reload_models(self):
-        """Load active ONNX models from DB registry."""
-        if ort is None:
-            log.warning("onnxruntime not installed, inference disabled")
-            return
-
-        try:
-            with engine.connect() as conn:
-                rows = conn.execute(
-                    text("SELECT id, name, detection_type, filename, input_size "
-                    "FROM vision_models WHERE is_active IS TRUE")
-                ).mappings().fetchall()
-        except Exception as e:
-            log.error(f"Failed to load model registry: {e}")
-            return
-
-        loaded_types = set()
-        for row in rows:
-            dt = row['detection_type']
-            model_path = os.path.join(VISION_MODELS_DIR, row['filename'])
-
-            if not os.path.isfile(model_path):
-                log.warning(f"Model file not found: {model_path}")
-                continue
-
-            # Only reload if not already loaded or file changed
-            if dt in self._sessions:
-                if self._model_info.get(dt, {}).get('id') == row['id']:
-                    loaded_types.add(dt)
-                    continue
-
+        """Publish one immutable registry generation; failures remain configured."""
+        with self._reload_lock:
             try:
-                sess_opts = ort.SessionOptions()
-                sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-                sess_opts.intra_op_num_threads = 2
-                session = ort.InferenceSession(model_path, sess_opts, providers=['CPUExecutionProvider'])
-                self._sessions[dt] = session
-                self._model_info[dt] = {
-                    'id': row['id'],
-                    'name': row['name'],
-                    'input_size': row['input_size'] or 640,
-                }
-                loaded_types.add(dt)
-                log.info(f"Loaded model for {dt}: {row['name']} ({row['filename']})")
-            except Exception as e:
-                log.error(f"Failed to load model {row['filename']}: {e}")
+                with engine.connect() as conn:
+                    rows = conn.execute(text(
+                        "SELECT id,name,detection_type,filename,input_size,metadata_json "
+                        "FROM vision_models WHERE is_active IS TRUE"
+                    )).mappings().fetchall()
+            except Exception:
+                with self._lock:
+                    self._generation += 1
+                    self._registry_available = False
+                    self._snapshots = MappingProxyType({})
+                log.error("Vision model registry unavailable")
+                return
+            grouped = {}
+            for row in rows:
+                grouped.setdefault(row['detection_type'], []).append(row)
+            with self._lock:
+                generation = self._generation + 1
+                previous = self._snapshots
+            snapshots = {}
+            for kind, candidates in grouped.items():
+                unavailable = ModelSnapshot(generation, 'unavailable')
+                snapshots[kind] = unavailable
+                if len(candidates) != 1 or ort is None:
+                    continue
+                row = candidates[0]
+                try:
+                    path = os.path.join(VISION_MODELS_DIR, row['filename'])
+                    size = row['input_size'] or 640
+                    if type(size) is not int or not 16 <= size <= 4096:
+                        raise InvalidModelOutput('Invalid input size')
+                    with open(path, 'rb') as source:
+                        model_bytes = source.read(500 * 1024 * 1024 + 1)
+                    if len(model_bytes) > 500 * 1024 * 1024:
+                        raise InvalidModelOutput('Model exceeds size limit')
+                    digest = hashlib.sha256(model_bytes)
+                    fingerprint = registry_fingerprint(row['id'],row['filename'],size,row['metadata_json'],digest.hexdigest())
+                    snapshots[kind] = ModelSnapshot(generation,'unavailable',fingerprint=fingerprint,model_id=row['id'])
+                    old = previous.get(kind)
+                    if old and old.state == 'ready' and old.fingerprint == fingerprint:
+                        snapshots[kind] = ModelSnapshot(generation,'ready',old.session,
+                            old.input_size,old.contract,fingerprint,row['id'])
+                        continue
+                    options = ort.SessionOptions()
+                    options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+                    options.intra_op_num_threads = 2
+                    session = ort.InferenceSession(model_bytes, options, providers=['CPUExecutionProvider'])
+                    inputs = session.get_inputs()
+                    if len(inputs) != 1:
+                        raise InvalidModelOutput('One image input required')
+                    image = inputs[0]
+                    if (image.type != 'tensor(float)' or len(image.shape) != 4
+                        or image.shape[0] != 1 or image.shape[1] != 3
+                        or image.shape[2:] != [size,size]):
+                        raise InvalidModelOutput('Unsupported image input contract')
+                    metadata = row['metadata_json']
+                    if metadata:
+                        contract = OutputContract.from_metadata(metadata)
+                    else:
+                        outputs = {o.name: o.shape for o in session.get_outputs()}
+                        boxes, confs = outputs.get('boxes'), outputs.get('confs')
+                        if (len(outputs) != 2 or boxes is None or confs is None
+                            or len(boxes) != 4 or boxes[0] != 1 or boxes[2:] != [1,4]
+                            or len(confs) != 3 or confs[0] != 1 or confs[2] != 1
+                            or boxes[1] != confs[1]):
+                            raise InvalidModelOutput('Explicit output contract required')
+                        contract = OutputContract('obico_boxes_confs',None,1,(0,))
+                    snapshots[kind] = ModelSnapshot(generation,'ready',session,size,contract,fingerprint,row['id'])
+                except Exception:
+                    log.warning("Configured vision model unavailable for %s",kind)
+            with self._lock:
+                self._generation = generation
+                self._registry_available = True
+                self._snapshots = MappingProxyType(snapshots)
+                self._last_reload = time.time()
 
-        # Remove sessions for types no longer active
-        for dt in list(self._sessions.keys()):
-            if dt not in loaded_types:
-                del self._sessions[dt]
-                del self._model_info[dt]
+    def publish_runtime_status(self):
+        with self._lock:
+            models = {kind:{'id':snapshot.model_id,'state':('loaded' if snapshot.state == 'ready' and not snapshot.observed_ok else snapshot.state),
+                           'fingerprint':snapshot.fingerprint}
+                      for kind,snapshot in self._snapshots.items()}
+            generation = self._generation
+            try:
+                write_status(os.path.join(VISION_MODELS_DIR,'.runtime'),self._incarnation,generation,models)
+            except (OSError,ValueError):
+                log.warning('Vision runtime status unavailable')
 
-        self._last_reload = time.time()
+    def model_state(self, detection_type):
+        with self._lock:
+            if not self._registry_available:
+                return 'unavailable'
+            snapshot = self._snapshots.get(detection_type)
+            return snapshot.state if snapshot else 'not_configured'
 
-    def has_model(self, detection_type: str) -> bool:
-        return detection_type in self._sessions
+    def configuration_state(self, detection_type):
+        with self._lock:
+            return self._generation, self.model_state(detection_type)
 
-    def get_input_size(self, detection_type: str) -> int:
-        return self._model_info.get(detection_type, {}).get('input_size', 640)
+    def heuristic_current(self, detection_type, generation):
+        with self._lock:
+            return self._generation == generation and self.model_state(detection_type) == 'not_configured'
 
-    def infer(self, detection_type: str, frame: np.ndarray) -> List[dict]:
-        """
-        Run inference on a preprocessed frame.
-        Returns list of detections: [{confidence, bbox: [x1,y1,x2,y2], class_id}]
-        """
-        session = self._sessions.get(detection_type)
-        if session is None:
-            return []
+    def has_model(self, detection_type):
+        return self.model_state(detection_type) == 'ready'
 
-        input_size = self.get_input_size(detection_type)
-        blob = self._preprocess(frame, input_size)
+    def get_input_size(self, detection_type):
+        with self._lock:
+            snapshot = self._snapshots.get(detection_type)
+            return snapshot.input_size if snapshot else 640
 
-        input_name = session.get_inputs()[0].name
+    def observation_current(self, detection_type, observation):
+        with self._lock:
+            snapshot = self._snapshots.get(detection_type)
+            return bool(observation.available and self._registry_available and snapshot
+                and snapshot.state == 'ready' and snapshot.generation == observation.generation)
+
+    @contextmanager
+    def decision_guard(self, detection_type, observation=None, heuristic_generation=None):
+        # Reload publication and decision admission share the same lock.
+        # A checked observation cannot lose its authority before admission.
+        with self._lock:
+            valid = (self.observation_current(detection_type, observation)
+                     if observation is not None else
+                     self.heuristic_current(detection_type, heuristic_generation))
+            yield valid
+
+    def infer_observation(self, detection_type, frame):
+        with self._lock:
+            snapshot = self._snapshots.get(detection_type)
+            generation = self._generation
+            available = self._registry_available
+        if not available or snapshot is None or snapshot.state != 'ready':
+            return InferenceObservation(generation,False)
         try:
-            outputs = session.run(None, {input_name: blob})
-        except Exception as e:
-            log.error(f"Inference failed for {detection_type}: {e}")
-            return []
+            session = snapshot.session
+            blob = self._preprocess(frame,snapshot.input_size)
+            outputs = session.run(None,{session.get_inputs()[0].name:blob})
+            names = [o.name for o in session.get_outputs()]
+            if snapshot.contract.format == 'obico_boxes_confs':
+                snapshot.contract.obico_arrays(outputs,names)
+                detections = self._postprocess_obico(outputs,names,frame.shape,snapshot.input_size)
+            else:
+                detections = self._postprocess_yolov8(outputs,frame.shape,snapshot.input_size,snapshot.contract)
+            observation = InferenceObservation(snapshot.generation,True,tuple(detections))
+            with self._lock:
+                if not self.observation_current(detection_type,observation):
+                    return InferenceObservation(snapshot.generation,False)
+                current = self._snapshots[detection_type]
+                updated = dict(self._snapshots)
+                updated[detection_type] = ModelSnapshot(current.generation,'ready',current.session,
+                    current.input_size,current.contract,current.fingerprint,current.model_id,True)
+                self._snapshots = MappingProxyType(updated)
+            return observation
+        except Exception:
+            with self._lock:
+                current = self._snapshots.get(detection_type)
+                if current and current.generation == snapshot.generation and current.session is snapshot.session:
+                    updated = dict(self._snapshots)
+                    updated[detection_type] = ModelSnapshot(snapshot.generation,'unavailable',
+                        snapshot.session,snapshot.input_size,snapshot.contract,snapshot.fingerprint,snapshot.model_id)
+                    self._snapshots = MappingProxyType(updated)
+            log.warning("Vision inference observation unavailable for %s",detection_type)
+            return InferenceObservation(snapshot.generation,False)
 
-        # Detect output format and dispatch to appropriate postprocessor
-        output_names = [o.name for o in session.get_outputs()]
-        if len(outputs) == 2 and 'boxes' in output_names and 'confs' in output_names:
-            # Obico/Darknet format: separate boxes (1,N,1,4) + confs (1,N,1)
-            return self._postprocess_obico(outputs, output_names, frame.shape, input_size)
-        else:
-            # YOLOv8 format: single tensor (1, 5+nc, N)
-            return self._postprocess_yolov8(outputs, frame.shape, input_size)
+    def infer(self, detection_type, frame):
+        observation = self.infer_observation(detection_type,frame)
+        if not observation.available:
+            raise InvalidModelOutput('Inference unavailable')
+        return list(observation.detections)
 
     def _preprocess(self, frame: np.ndarray, input_size: int) -> np.ndarray:
         """Resize, normalize, transpose to NCHW float32 batch."""
@@ -140,13 +256,10 @@ class VisionInferenceEngine:
     ) -> List[dict]:
         """
         Parse Obico/Darknet YOLO output.
-        boxes: (1, N, 1, 4) — x1, y1, x2, y2 normalized [0..1]
+        boxes: (1, N, 1, 4), relative x1/y1/x2/y2; may extend outside image
         confs: (1, N, 1) — objectness confidence
         """
-        boxes_idx = output_names.index('boxes')
-        confs_idx = output_names.index('confs')
-        boxes = outputs[boxes_idx].squeeze()  # (N, 4)
-        confs = outputs[confs_idx].squeeze()   # (N,)
+        boxes, confs = OutputContract('obico_boxes_confs',None,1,(0,)).obico_arrays(outputs,output_names)
 
         h_orig, w_orig = orig_shape[:2]
 
@@ -174,19 +287,13 @@ class VisionInferenceEngine:
         return detections
 
     def _postprocess_yolov8(
-        self, outputs: list, orig_shape: tuple, input_size: int
+        self, outputs: list, orig_shape: tuple, input_size: int,
+        contract: OutputContract = None,
     ) -> List[dict]:
-        """Parse YOLOv8 output: (1, 5+nc, num_boxes) -> list of detections."""
-        output = outputs[0]  # shape: (1, 5+nc, N) or (1, N, 5+nc)
-
-        # Handle both transposed and non-transposed output shapes
-        if output.ndim == 3:
-            if output.shape[1] < output.shape[2]:
-                # (1, 5+nc, N) -> transpose to (1, N, 5+nc)
-                output = np.transpose(output, (0, 2, 1))
-            preds = output[0]  # (N, 5+nc)
-        else:
-            return []
+        """Parse only a declared YOLO layout with exactly 4+class_count features."""
+        if contract is None:
+            raise InvalidModelOutput('Explicit output contract required')
+        preds = contract.yolo_rows(outputs)
 
         h_orig, w_orig = orig_shape[:2]
         scale_x = w_orig / input_size
@@ -198,6 +305,8 @@ class VisionInferenceEngine:
             class_scores = pred[4:]
             class_id = int(np.argmax(class_scores))
             confidence = float(class_scores[class_id])
+            if class_id not in contract.positive_class_ids:
+                continue
 
             if confidence < 0.3:  # pre-filter low confidence
                 continue

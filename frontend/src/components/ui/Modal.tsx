@@ -34,6 +34,12 @@ export default function Modal({
   const modalRef = useRef<HTMLDivElement>(null)
   const previouslyFocusedRef = useRef<HTMLElement | null>(null)
   const titleId = useId()
+  const onCloseRef = useRef(onClose)
+
+  // A new callback must not restart focus setup while a form is being edited.
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
 
   // Focus trap and Escape key
   useEffect(() => {
@@ -50,7 +56,7 @@ export default function Modal({
 
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose()
+        onCloseRef.current()
         return
       }
       if (e.key === 'Tab' && modalRef.current) {
@@ -75,7 +81,7 @@ export default function Modal({
       document.removeEventListener('keydown', handleKey)
       previouslyFocusedRef.current?.focus()
     }
-  }, [isOpen, onClose])
+  }, [isOpen])
 
   // Body scroll lock
   useEffect(() => {

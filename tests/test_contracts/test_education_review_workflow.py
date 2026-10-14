@@ -611,3 +611,11 @@ def test_stale_revision_and_revoked_manager_leave_graph_unchanged(review_db):
     assert review_db.execute(
         text("SELECT status FROM education_submissions WHERE id=14")
     ).scalar_one() == "submitted"
+
+
+def test_explicit_ams_approval_requires_current_report_and_plate():
+    from pydantic import ValidationError
+    from modules.organizations.education_schemas import SubmissionApproval
+    with pytest.raises(ValidationError, match='current report and explicit plate'):
+        SubmissionApproval.model_validate({'revision':1,'printer_id':9,'command_id':str(uuid.uuid4()),
+            'ams_mapping':[{'source_slot':0,'target_slot':1}]})

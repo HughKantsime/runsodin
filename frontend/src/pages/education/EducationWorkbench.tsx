@@ -11,34 +11,38 @@ import {
   ShieldCheck,
   UsersRound,
 } from 'lucide-react'
-import { education, getEducationMode } from '../../api'
+import { auth, education, getEducationMode } from '../../api'
 import { useLicense } from '../../LicenseContext'
-import type { EducationCapabilities, EducationCostCenter } from '../../types'
+import type { EducationCapabilities, EducationCostCenter, EducationSubmission, User } from '../../types'
 import CostCenterManager from '../../components/education/CostCenterManager'
 import ClassroomManager from '../../components/education/ClassroomManager'
 import SubmissionQueue from '../../components/education/SubmissionQueue'
-import SubmissionUploadModal from '../../components/education/SubmissionUploadModal'
+import SubmissionUploadModal, { educationAudience } from '../../components/education/SubmissionUploadModal'
 import ReadinessPanel from '../../components/education/ReadinessPanel'
 import { Button, Card, EmptyState, PageHeader, StatCard, TabBar } from '../../components/ui'
 
 type WorkbenchTab = 'overview' | 'submissions' | 'review' | 'centers' | 'classroom'
 
 export default function EducationWorkbench() {
+  const { data: principal } = useQuery<User | null>({ queryKey: ['auth', 'me'], queryFn: auth.me, enabled: false })
+  const audience = educationAudience(principal)
+  const [revision, setRevision] = useState<EducationSubmission | null>(null)
   const queryClient = useQueryClient()
   const license = useLicense()
   const [activeTab, setActiveTab] = useState<WorkbenchTab>('overview')
   const [uploadOpen, setUploadOpen] = useState(false)
   const [includeArchived, setIncludeArchived] = useState(false)
 
-  const modeQuery = useQuery({ queryKey: ['education-mode'], queryFn: getEducationMode })
+  const modeQuery = useQuery({ queryKey: ['education-mode', audience], queryFn: getEducationMode, enabled: !!audience })
   const capabilitiesQuery = useQuery({
-    queryKey: ['education-capabilities'],
+    queryKey: ['education-capabilities', audience],
     queryFn: education.capabilities,
+    enabled: !!audience,
   })
   const capabilities = capabilitiesQuery.data
 
   const centersQuery = useInfiniteQuery({
-    queryKey: ['education-centers', includeArchived],
+    queryKey: ['education-centers', audience, includeArchived],
     queryFn: ({ pageParam }) => education.listCenters({
       includeArchived,
       cursor: pageParam,
@@ -46,7 +50,7 @@ export default function EducationWorkbench() {
     }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => page.next_cursor || undefined,
-    enabled: !!capabilities?.education_enabled,
+    enabled: !!audience && !!capabilities?.education_enabled,
   })
   useEffect(() => {
     if (centersQuery.hasNextPage && !centersQuery.isFetchingNextPage) {
@@ -56,7 +60,16 @@ export default function EducationWorkbench() {
 
   const centers = centersQuery.data?.pages.flatMap((page) => page.items) || []
   const activeCenters = centers.filter((center) => center.active)
-  const studentCenters = activeCenters.filter((center) => capabilities?.student_cost_center_ids.includes(center.id))
+  const studentCenters = capabilities?.student ? activeCenters.filter((center) => capabilities.student_cost_center_ids.includes(center.id)) : []
+  useEffect(() => {
+    setUploadOpen(false)
+    setRevision(null)
+    setActiveTab('overview')
+  }, [audience])
+  useEffect(() => {
+    if (!capabilities?.student || (revision && !studentCenters.some(center => center.id === revision.cost_center_id))) setUploadOpen(false)
+  }, [capabilities?.student, revision, studentCenters])
+  const openUpload = () => { setRevision(null); setUploadOpen(true) }
   const managedCenters = activeCenters.filter((center) => capabilities?.managed_cost_center_ids.includes(center.id))
 
   const tabs = useMemo(() => {
@@ -81,6 +94,8 @@ export default function EducationWorkbench() {
     setActiveTab('classroom')
     window.history.replaceState({}, '', window.location.pathname)
   }, [capabilities?.tenant_admin])
+
+  if (!audience) return <div className="p-4 md:p-6">Sign in to view Education.</div>
 
   if (capabilitiesQuery.isLoading || modeQuery.isLoading || license.loading) {
     return <div className="p-4 md:p-6 text-sm text-[var(--brand-text-secondary)]">Loading Education workspace…</div>
@@ -146,7 +161,7 @@ export default function EducationWorkbench() {
         subtitle="Classes, student submissions, teacher review, and authorized printers"
       >
         {capabilities.student && studentCenters.length > 0 && (
-          <Button icon={FileUp} onClick={() => setUploadOpen(true)}>Submit print</Button>
+          <Button icon={FileUp} onClick={openUpload}>Submit print</Button>
         )}
       </PageHeader>
 
@@ -165,18 +180,22 @@ export default function EducationWorkbench() {
           activeCenters={activeCenters}
           studentCenters={studentCenters}
           managedCenters={managedCenters}
-          onSubmit={() => setUploadOpen(true)}
+          onSubmit={openUpload}
           onReview={() => setActiveTab('review')}
           onManage={() => setActiveTab('centers')}
         />
       )}
 
       {activeTab === 'submissions' && (
-        <SubmissionQueue centers={studentCenters} reviewable={false} mineOnly />
+        <SubmissionQueue key={audience} centers={studentCenters} reviewable={false} mineOnly onRevise={(submission) => {
+          setRevision(submission)
+          setUploadOpen(true)
+        }} />
       )}
 
       {activeTab === 'review' && (
         <SubmissionQueue
+          key={audience}
           centers={capabilities.tenant_admin ? activeCenters : managedCenters}
           reviewable
         />
@@ -196,6 +215,9 @@ export default function EducationWorkbench() {
       )}
 
       <SubmissionUploadModal
+        key={audience}
+        audience={audience}
+        revision={revision}
         open={uploadOpen}
         onClose={() => setUploadOpen(false)}
         centers={studentCenters}

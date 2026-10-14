@@ -2,7 +2,7 @@
 
 from core.rbac import should_filter_org
 
-from fastapi import APIRouter, Depends, HTTPException, status, Response
+from fastapi import APIRouter, Depends, HTTPException, status, Response, Request
 from fastapi.responses import Response as FastAPIResponse
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy import update, text
@@ -11,6 +11,7 @@ from typing import List, Optional
 from datetime import datetime, timezone
 import logging
 
+from core.economic_identity import _add_created
 from core.db import get_db
 from core.dependencies import log_audit
 from core.rbac import (
@@ -89,19 +90,18 @@ def _enrich_order_response(order: Order, db: Session) -> OrderResponse:
 
     # Calculate costs from jobs
     estimated_cost = sum(j.estimated_cost or 0 for j in jobs)
-    actual_cost = sum(j.estimated_cost or 0 for j in jobs if j.status == JobStatus.COMPLETED)
 
     # Add fees and shipping
     total_fees = (order.platform_fees or 0) + (order.payment_fees or 0) + (order.shipping_cost or 0)
 
     has_recorded_fees = any(value is not None for value in (order.platform_fees, order.payment_fees, order.shipping_cost))
     resp.estimated_cost = round(estimated_cost + total_fees, 2) if any(j.estimated_cost is not None for j in jobs) or has_recorded_fees else None
-    resp.actual_cost = round(actual_cost + total_fees, 2) if any(j.estimated_cost is not None and j.status == JobStatus.COMPLETED for j in jobs) or has_recorded_fees else None
-
-    # Calculate profit
-    if order.revenue is not None and resp.actual_cost is not None:
-        resp.profit = round(order.revenue - resp.actual_cost, 2)
-        resp.margin_percent = round((resp.profit / order.revenue) * 100, 1) if order.revenue > 0 else None
+    # Completed job estimates and recorded fees do not prove measured production
+    # cost. Keep actual financials unknown until complete historical valuation,
+    # obligations and matching currency have an authoritative source.
+    resp.actual_cost = None
+    resp.profit = None
+    resp.margin_percent = None
 
     return resp
 
@@ -154,8 +154,26 @@ def list_orders(
     return result
 
 
+def _stage_prospective_order_resource(db, resource, kind, actor, owner):
+    """Fresh birth attestation uses actual caller authority, never NULL alone."""
+    platform = actor.get("role") == "admin" and actor.get("group_id") is None
+    authorized = (type(owner) is int and owner > 0 and
+                  ((type(actor.get("group_id")) is int and actor.get("group_id") == owner) or platform)) or (owner is None and platform)
+    if kind == "item":
+        parent_uid = db.execute(text("SELECT economic_uid FROM orders WHERE id=:id"), {"id": resource.order_id}).scalar_one_or_none()
+        authorized = authorized and bool(parent_uid)
+    elif kind == "job":
+        parents = db.execute(text("SELECT i.economic_uid,o.economic_uid FROM order_items i JOIN orders o ON o.id=i.order_id WHERE i.id=:id"), {"id": resource.order_item_id}).first()
+        authorized = authorized and parents is not None and bool(parents[0]) and bool(parents[1])
+    if authorized:
+        return _add_created(db, resource, kind, owner_org_id=owner, global_authority=platform and owner is None)
+    db.add(resource)
+    db.flush()
+    return resource
+
+
 @router.post("", response_model=OrderResponse)
-def create_order(data: OrderCreate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def create_order(data: OrderCreate, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db), request: Request = None):
     """Create a new order with optional line items."""
     for item in data.items or []:
         product = db.query(Product).filter(Product.id == item.product_id).first()
@@ -176,8 +194,12 @@ def create_order(data: OrderCreate, current_user: dict = Depends(require_role("o
         labor_minutes=data.labor_minutes or 0,
         org_id=current_user.get("group_id"),
     )
-    db.add(order)
-    db.flush()
+    from core.global_order_creation import has_verified_origin_request, create_attested_global_order
+    if (order.org_id is None and current_user.get('role') == 'admin'
+            and has_verified_origin_request(db, request, current_user)):
+        order = create_attested_global_order(db, order, request, current_user)
+    else:
+        _stage_prospective_order_resource(db, order, "order", current_user, order.org_id)
 
     # Add line items if provided
     if data.items:
@@ -193,7 +215,7 @@ def create_order(data: OrderCreate, current_user: dict = Depends(require_role("o
                 quantity=item_data.quantity,
                 unit_price=item_data.unit_price if item_data.unit_price is not None else product.price
             )
-            db.add(item)
+            _stage_prospective_order_resource(db, item, "item", current_user, order.org_id)
 
     db.commit()
     db.refresh(order)
@@ -213,7 +235,7 @@ def get_order(order_id: int, current_user: dict = Depends(require_role("viewer")
 
 
 @router.patch("/{order_id}", response_model=OrderResponse)
-def update_order(order_id: int, data: OrderUpdate, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+def update_order(order_id: int, data: OrderUpdate, current_user: dict = Depends(require_role("admin", scope="write")), db: Session = Depends(get_db)):
     """Update an order."""
     order = db.query(Order).options(selectinload(Order.items)).filter(Order.id == order_id).first()
     if not order:
@@ -240,7 +262,7 @@ def update_order(order_id: int, data: OrderUpdate, current_user: dict = Depends(
 
 
 @router.delete("/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_order(order_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def delete_order(order_id: int, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
     """Delete an order."""
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
@@ -256,7 +278,7 @@ def delete_order(order_id: int, current_user: dict = Depends(require_role("opera
 # -------------- Order Items --------------
 
 @router.post("/{order_id}/items", response_model=OrderItemResponse)
-def add_order_item(order_id: int, data: OrderItemCreate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def add_order_item(order_id: int, data: OrderItemCreate, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
     """Add a line item to an order."""
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
@@ -275,7 +297,7 @@ def add_order_item(order_id: int, data: OrderItemCreate, current_user: dict = De
         quantity=data.quantity,
         unit_price=data.unit_price if data.unit_price is not None else product.price
     )
-    db.add(item)
+    _stage_prospective_order_resource(db, item, "item", current_user, order.org_id)
     db.commit()
     db.refresh(item)
 
@@ -288,7 +310,7 @@ def add_order_item(order_id: int, data: OrderItemCreate, current_user: dict = De
 
 
 @router.patch("/{order_id}/items/{item_id}", response_model=OrderItemResponse)
-def update_order_item(order_id: int, item_id: int, data: OrderItemUpdate, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+def update_order_item(order_id: int, item_id: int, data: OrderItemUpdate, current_user: dict = Depends(require_role("admin", scope="write")), db: Session = Depends(get_db)):
     """Update an order line item."""
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
@@ -323,7 +345,7 @@ def update_order_item(order_id: int, item_id: int, data: OrderItemUpdate, curren
 
 
 @router.delete("/{order_id}/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_order_item(order_id: int, item_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def delete_order_item(order_id: int, item_id: int, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
     """Remove a line item from an order."""
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
@@ -458,8 +480,7 @@ def schedule_order(order_id: int, current_user: dict = Depends(require_role("ope
                 filament_type=model.default_filament_type,
                 charged_to_org_id=order.org_id, charged_to_user_id=current_user.get("id"),
                 submitted_by=current_user.get("id"))
-            db.add(job)
-            db.flush()
+            _stage_prospective_order_resource(db, job, "job", current_user, order.org_id)
             provider.bind_job(db,job)
             jobs_created.append({"model": model.name, "quantity_on_bed": quantity})
         db.commit()
@@ -512,7 +533,7 @@ def get_order_invoice(
 
 
 @router.patch("/{order_id}/ship", response_model=OrderResponse)
-def ship_order(order_id: int, data: OrderShipRequest, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def ship_order(order_id: int, data: OrderShipRequest, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
     """Mark an order as shipped."""
     order = db.query(Order).options(selectinload(Order.items)).filter(Order.id == order_id).first()
     if not order:

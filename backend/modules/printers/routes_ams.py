@@ -3,16 +3,19 @@
 from datetime import datetime, timezone
 from typing import List, Optional
 import logging
+import math
 import time
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy import null, text
+from sqlalchemy.exc import OperationalError, IntegrityError
 
 from core.db import get_db
 from core.dependencies import log_audit
-from core.rbac import require_role
+from core.rbac import require_role, check_org_access
 from core.config import settings
 import core.crypto as crypto
 from modules.printers.models import Printer, FilamentSlot
@@ -77,17 +80,91 @@ class ManualSlotAssignment(PydanticBaseModel):
 # AMS Sync
 # ====================================================================
 
+def _ams_mutation_graph(db, printer_id, tags):
+    slots = db.query(FilamentSlot).filter(FilamentSlot.printer_id == printer_id).populate_existing().all()
+    matches = db.query(Spool).filter(Spool.rfid_tag.in_(tags)).populate_existing().all() if tags else []
+    spool_ids = {slot.assigned_spool_id for slot in slots if slot.assigned_spool_id is not None}
+    spool_ids.update(spool.id for spool in matches)
+    spools = db.query(Spool).filter(Spool.id.in_(spool_ids)).populate_existing().all() if spool_ids else []
+    if {spool.id for spool in spools} != spool_ids:
+        raise HTTPException(409, "Spool association unavailable for this organization")
+    return (
+        {slot.id: slot.assigned_spool_id for slot in slots},
+        {spool.id: spool.location_printer_id for spool in spools},
+        {spool.rfid_tag: spool.id for spool in matches},
+    )
+
+
+def _lock_ams_mutation(db, printer_id, current_user, tags, acquired_connection):
+    """Lock and recheck the complete known mutation graph after acquisition.
+
+    PostgreSQL locks sorted printer, slot, then spool rows with NOWAIT. SQLite
+    takes a writer boundary before fresh reads. Linkage changes abort the
+    complete mutation phase before writes; locks never span network acquisition.
+    """
+    try:
+        if db.bind.dialect.name == "sqlite":
+            db.execute(text("UPDATE printers SET name=name WHERE id=:id"), {"id": printer_id})
+        db.expire_all()
+        before = _ams_mutation_graph(db, printer_id, tags)
+        printer_ids = {printer_id} | {value for value in before[1].values() if value is not None}
+        printers = db.query(Printer).filter(Printer.id.in_(printer_ids)).order_by(Printer.id).with_for_update(nowait=True).populate_existing().all()
+        db.query(FilamentSlot).filter(FilamentSlot.id.in_(before[0])).order_by(FilamentSlot.id).with_for_update(nowait=True).populate_existing().all()
+        spools = db.query(Spool).filter(Spool.id.in_(before[1])).order_by(Spool.id).with_for_update(nowait=True).populate_existing().all()
+        db.expire_all()
+        if _ams_mutation_graph(db, printer_id, tags) != before:
+            raise HTTPException(409, "AMS associations changed; retry synchronization")
+        printers = {row.id: row for row in printers}
+        printer = printers.get(printer_id)
+        if not printer or not check_org_access(current_user, printer.org_id):
+            raise HTTPException(404, "Printer not found")
+        if (printer.api_type, printer.api_host, printer.api_key) != acquired_connection:
+            raise HTTPException(409, "Printer configuration changed; retry synchronization")
+        if set(printers) != printer_ids:
+            raise HTTPException(409, "Spool association unavailable for this organization")
+        for spool in spools:
+            if not check_org_access(current_user, spool.org_id):
+                raise HTTPException(409, "Spool association unavailable for this organization")
+            if spool.location_printer_id is not None and not check_org_access(current_user, printers[spool.location_printer_id].org_id):
+                raise HTTPException(409, "Spool association unavailable for this organization")
+        return printer, {spool.rfid_tag: spool for spool in spools if spool.rfid_tag in tags}
+    except OperationalError as exc:
+        db.rollback()
+        if getattr(exc.orig, "sqlstate", None) == "55P03" or getattr(exc.orig, "sqlite_errorcode", None) in (5, 6, 517):
+            raise HTTPException(409, "AMS synchronization is busy; retry") from None
+        raise
+    except HTTPException:
+        db.rollback()
+        raise
+
+
 @router.post("/printers/{printer_id}/sync-ams", tags=["Printers"])
-def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)):
     """Sync AMS filament state from printer."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
-    if not printer:
+    if not printer or not check_org_access(current_user, printer.org_id):
         raise HTTPException(status_code=404, detail="Printer not found")
+
+    def authorize_spool(spool):
+        if not spool:
+            return
+        if not check_org_access(current_user, spool.org_id):
+            raise HTTPException(status_code=409, detail="Spool association unavailable for this organization")
+        if spool.location_printer_id is not None:
+            previous = db.query(Printer).filter(Printer.id == spool.location_printer_id).first()
+            if previous is None or not check_org_access(current_user, previous.org_id):
+                raise HTTPException(status_code=409, detail="Spool association unavailable for this organization")
+
+    # Validate legacy/poisoned associations before any acquisition or write.
+    for existing_slot in db.query(FilamentSlot).filter(FilamentSlot.printer_id == printer_id).all():
+        authorize_spool(existing_slot.assigned_spool)
 
     if not printer.api_type:
         raise HTTPException(status_code=400, detail="Printer api_type not configured")
     if not printer.api_host:
         raise HTTPException(status_code=400, detail="Printer api_host (IP) not configured")
+
+    acquired_connection = (printer.api_type, printer.api_host, printer.api_key)
 
     # ---- Moonraker / Klipper MMU sync ----
     if printer.api_type.lower() == "moonraker":
@@ -123,6 +200,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
             "PA-CF": FilamentType.NYLON_CF, "PA-GF": FilamentType.NYLON_GF,
             "PET-CF": FilamentType.PETG_CF, "PLA-CF": FilamentType.PLA_CF,
         }
+        printer, _ = _lock_ams_mutation(db, printer_id, current_user, [], acquired_connection)
         updated_slots = []
         for mmu_slot in mk_status.filament_slots:
             slot_num = mmu_slot.gate + 1
@@ -253,6 +331,20 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
         "PLA-CF": FilamentType.PLA_CF,
     }
 
+    # RFID is globally unique: refuse inaccessible matches before any slot
+    # updates, rather than silently transferring them or creating duplicates.
+    for reported_slot in bambu_status.ams_slots:
+        if reported_slot.rfid_tag:
+            authorize_spool(db.query(Spool).filter(Spool.rfid_tag == reported_slot.rfid_tag).first())
+
+    def measured_remaining(value):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        try:
+            return value if math.isfinite(value) and 0 <= value <= 100 else None
+        except OverflowError:
+            return None
+
     local_library = db.query(FilamentLibrary).all()
 
     spoolman_spools = []
@@ -298,7 +390,8 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
     def find_spool_by_rfid(rfid_tag):
         if not rfid_tag:
             return None
-        return db.query(Spool).filter(Spool.rfid_tag == rfid_tag).first()
+        # Only the locked, reauthorized snapshot may supply mutation targets.
+        return locked_rfid.get(rfid_tag)
 
     def get_color_name(hex_code):
         if not hex_code:
@@ -343,6 +436,8 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
         except Exception:
             return f"#{hex_code.upper()}"
 
+    printer, locked_rfid = _lock_ams_mutation(db, printer_id, current_user,
+        [slot.rfid_tag for slot in bambu_status.ams_slots if slot.rfid_tag], acquired_connection)
     updated_slots = []
     for ams_slot in bambu_status.ams_slots:
         db_slot = db.query(FilamentSlot).filter(
@@ -374,8 +469,16 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
                 rfid_match.location_printer_id = printer_id
                 rfid_match.location_slot = ams_slot.slot_number
                 rfid_match.storage_location = None
-                if ams_slot.remaining_percent and ams_slot.remaining_percent > 0:
-                    rfid_match.remaining_weight_g = rfid_match.initial_weight_g * (ams_slot.remaining_percent / 100)
+                remaining = measured_remaining(ams_slot.remaining_percent)
+                initial = rfid_match.initial_weight_g
+                if remaining is not None and isinstance(initial, (int, float)) and not isinstance(initial, bool):
+                    try:
+                        if math.isfinite(initial) and initial >= 0:
+                            measured_weight = initial * (remaining / 100)
+                            if math.isfinite(measured_weight):
+                                rfid_match.remaining_weight_g = measured_weight
+                    except OverflowError:
+                        pass  # Invalid retained basis cannot create a measurement.
                 updated_slots.append({
                     "slot": ams_slot.slot_number, "type": ftype.value, "color": color_name,
                     "color_hex": color_hex, "spool_id": rfid_match.id,
@@ -416,13 +519,21 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
                     qr_code=f"SPL-{uuid.uuid4().hex[:8].upper()}",
                     rfid_tag=ams_slot.rfid_tag,
                     color_hex=color_hex,
-                    remaining_weight_g=1000.0 * (ams_slot.remaining_percent / 100) if ams_slot.remaining_percent else 1000.0,
+                    remaining_weight_g=(1000.0 * (measured_remaining(ams_slot.remaining_percent) / 100)
+                        if measured_remaining(ams_slot.remaining_percent) is not None else null()),
+                    org_id=printer.org_id,
                     status=SpoolStatus.ACTIVE,
                     location_printer_id=printer_id,
                     location_slot=ams_slot.slot_number,
                 )
                 db.add(new_spool)
-                db.flush()
+                try:
+                    db.flush()
+                except IntegrityError as exc:
+                    db.rollback()
+                    if getattr(exc.orig, "sqlstate", None) == "23505" or getattr(exc.orig, "sqlite_errorcode", None) == 2067:
+                        raise HTTPException(409, "Spool association changed; retry synchronization") from None
+                    raise
                 color_name = f"{library_entry.brand} {library_entry.name}".strip()
                 db_slot.filament_type = ftype
                 db_slot.color = color_name

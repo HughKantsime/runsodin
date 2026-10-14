@@ -1,3 +1,4 @@
+import DispatchRecoveryPanel from '../../components/printers/DispatchRecoveryPanel'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Printer, Thermometer, Clock, Wifi, WifiOff, Activity } from 'lucide-react'
@@ -127,6 +128,8 @@ export default function PrinterDetail() {
           color="purple"
         />
       </div>
+
+      <DispatchRecoveryPanel printerId={Number(id)} />
 
       {/* Current Job */}
       <Card className="mb-6">

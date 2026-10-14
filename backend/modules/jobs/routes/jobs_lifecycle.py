@@ -410,7 +410,7 @@ def dispatch_job_to_printer(
 
 
 @router.post("/{job_id}/resubmit", tags=["Jobs"])
-def resubmit_job(job_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+def resubmit_job(job_id: int, db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer", scope="write:jobs"))):
     require_feature("job_approval")
     """Resubmit a rejected job for approval again."""
     if not current_user:

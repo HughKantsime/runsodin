@@ -69,7 +69,7 @@ def page(browser_instance: Browser, request) -> Page:
         artifact_dir = Path(_required("ODIN_CANDIDATE_ARTIFACT_DIR"))
         artifact_dir.mkdir(parents=True, exist_ok=True)
         safe_name = re.sub(r"[^a-zA-Z0-9_.-]+", "-", request.node.nodeid).strip("-")
-        candidate_page.screenshot(path=artifact_dir / f"{safe_name}.png", full_page=True, mask=[candidate_page.locator("code"), candidate_page.locator("input[type=password]")])
+        candidate_page.screenshot(path=artifact_dir / f"{safe_name}.png", full_page=True, mask=[candidate_page.locator("code"), candidate_page.locator("input[type=password]"), candidate_page.get_by_alt_text("Authenticator setup QR code"), candidate_page.locator("#continuation-code")])
     context.close()
 
 

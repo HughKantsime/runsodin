@@ -27,15 +27,28 @@ SUBSCRIBES = [
     "printer.state_changed",
 ]
 
-IMPLEMENTS = ["JobStateProvider"]
+IMPLEMENTS = ["JobStateProvider", "QueueCreationProvider"]
 
 REQUIRES = ["PrinterStateProvider"]
 
 DAEMONS = []
 
 
+
+def register_providers(registry) -> None:
+    """Install queue staging without importing API routes or opening a DB."""
+    from modules.jobs.queue_creation_provider import QueueCreationService
+    if not registry.has_provider("QueueCreationProvider"):
+        registry.register_provider("QueueCreationProvider", QueueCreationService())
+    provider = registry.get_provider("QueueCreationProvider")
+    if not isinstance(provider, QueueCreationService) or any(
+        not callable(getattr(provider, method, None)) for method in ("stage_job", "stage_values")
+    ):
+        raise TypeError("Invalid queue creation service")
+
 def register(app, registry) -> None:
     """Register the jobs module: routes and JobStateProvider."""
+    register_providers(registry)
     import modules.jobs as _self
     from modules.jobs import routes, scheduler_routes
 

@@ -12,6 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.errors import ErrorCode, OdinError
+from core.education_archive_audience import _BASE_SELECT, _SUBMISSION_AUDIENCE, archive_audience_sql
 from modules.organizations.education_admin_support import (
     claim_command,
     complete_command,
@@ -90,56 +91,17 @@ def _projection(row) -> dict:
 def _decision_hash(submission_id: int, body) -> str:
     payload = {
         "submission_id": int(submission_id),
-        "body": body.model_dump(mode="json"),
+        "body": body.model_dump(mode="json", exclude_none=True),
     }
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
 
 
-_BASE_SELECT = (
-    "SELECT s.id,s.org_id,s.job_id,s.print_file_id,s.cost_center_id,s.submitted_by,"
-    "s.status,s.approved_printer_id,s.approved_by,s.lifecycle_revision,"
-    "s.compatibility_engine_version,s.created_at,s.updated_at,c.state AS center_state,"
-    "j.status AS job_status,j.item_name,j.rejected_reason,u.username AS submitter_username "
-    "FROM education_submissions s "
-    "JOIN education_cost_centers c ON c.id=s.cost_center_id AND c.org_id=s.org_id "
-    "JOIN jobs j ON j.id=s.job_id AND j.charged_to_org_id=s.org_id "
-    "JOIN users u ON u.id=s.submitted_by AND u.group_id=s.org_id "
-)
 
 
-_SUBMISSION_AUDIENCE = (
-    "(:is_admin=1 OR s.submitted_by=:user_id OR EXISTS ("
-    "SELECT 1 FROM education_cost_center_grants g WHERE g.org_id=s.org_id "
-    "AND g.cost_center_id=s.cost_center_id AND g.user_id=:user_id "
-    "AND g.role='manager' AND g.state='active' AND c.state='active'))"
-)
 
 
-def archive_audience_sql() -> str:
-    """Filter archive projections before count, pagination and export."""
-    audience = _SUBMISSION_AUDIENCE.replace(":is_admin", ":_arc_admin").replace(":user_id", ":_arc_user")
-    return (
-        "((a.education_submission_id IS NULL AND NOT EXISTS ("
-        "SELECT 1 FROM education_submissions raw WHERE raw.print_file_id=a.print_file_id OR raw.job_id=a.job_id)"
-        " AND NOT EXISTS (SELECT 1 FROM education_upload_operations raw_o JOIN print_files raw_f"
-        " ON raw_f.id=a.print_file_id WHERE raw_o.final_path=raw_f.stored_path AND raw_o.final_path IS NOT NULL))"
-        " OR EXISTS (" + _BASE_SELECT
-        + " JOIN print_files f ON f.id=s.print_file_id AND f.org_id=s.org_id"
-        + " AND f.created_by=s.submitted_by"
-        + " JOIN education_upload_operations o ON o.operation_id=s.operation_id"
-        + " AND o.org_id=s.org_id AND o.user_id=s.submitted_by"
-        + " AND o.final_path=f.stored_path AND o.state='committed'"
-        + " JOIN models m ON m.id=s.model_id AND m.org_id=s.org_id"
-        + " AND m.print_file_id=f.id AND j.model_id=m.id"
-        + " WHERE s.id=a.education_submission_id AND s.org_id=a.org_id"
-        + " AND s.org_id=:_arc_org AND s.job_id=a.job_id"
-        + " AND s.print_file_id=a.print_file_id"
-        + " AND NOT EXISTS (SELECT 1 FROM education_upload_operations other_o"
-        + " WHERE other_o.final_path=f.stored_path AND other_o.final_path IS NOT NULL"
-        + " AND other_o.operation_id<>s.operation_id) AND " + audience + "))"
-    )
 
 
 def assert_file_preview_allowed(db: Session, *, file_id: int, principal: dict) -> None:
@@ -441,12 +403,14 @@ def _discard_pending_claim(
     db.commit()
 
 
-def approve_submission(db: Session, *, submission_id: int, body, principal: dict) -> dict:
+def approve_submission(db: Session, *, submission_id: int, body, principal: dict, prepared_ams=None) -> dict:
     row = _reviewable_submission(db, submission_id=submission_id, principal=principal)
     action = "submission.approve"
     command_id = str(body.command_id)
     digest = _decision_hash(submission_id, body)
     claimed = False
+    approved_ams = None
+    approval_commit_attempted = False
     try:
         replay = claim_command(
             db,
@@ -460,6 +424,26 @@ def approve_submission(db: Session, *, submission_id: int, body, principal: dict
             return replay
         claimed = True
         _assert_review_state(row, body.revision)
+        approved_ams = None
+        if getattr(body, 'ams_mapping', None) is not None:
+            from modules.organizations.education_ams_payload_authority import PreparedAMSApproval, lock_and_recheck_payload_graph
+            from modules.organizations.education_ams_teacher_authority import lock_teacher_ams_context
+            from modules.printers.services import validate_current_ams_selection
+            if type(prepared_ams) is not PreparedAMSApproval:
+                raise OdinError(ErrorCode.resource_conflict, 'AMS approval requires verified payload bytes', status=409)
+            context = lock_teacher_ams_context(db, principal=principal, submission_id=submission_id,
+                printer_id=body.printer_id, revision=body.revision)
+            graph = lock_and_recheck_payload_graph(db, captured=prepared_ams.graph, principal=principal)
+            facts = prepared_ams.verified_payload
+            if (graph.submission_id != submission_id or context.print_file_id != graph.file_id
+                    or context.job_id != graph.job_id or facts.get('payload_sha256') != graph.sha256
+                    or facts.get('storage_bytes') != graph.storage_bytes or facts.get('plate_index') != body.plate_index):
+                raise OdinError(ErrorCode.resource_conflict, 'Submission payload changed; reload required', status=409)
+            numeric = validate_current_ams_selection(db, printer_id=body.printer_id, expected_org_id=graph.org_id,
+                generation_id=body.ams_generation_id, mapping=[x.model_dump() for x in body.ams_mapping], verified_payload=facts)
+            approved_ams = {'ams_mapping': numeric, 'print_file_id': graph.file_id,
+                            'payload_sha256': graph.sha256, 'plate_index': body.plate_index,
+                            'ams_generation_id': body.ams_generation_id}
         entitled = db.execute(
             text(
                 "SELECT 1 FROM education_cost_center_printers e JOIN printers p "
@@ -532,6 +516,16 @@ def approve_submission(db: Session, *, submission_id: int, body, principal: dict
                 "org_id": row.org_id,
             },
         )
+        if approved_ams is not None:
+            pinned = db.execute(text("UPDATE jobs SET ams_mapping=:mapping,print_file_id=:file_id,"
+                "payload_sha256=:payload_hash,plate_index=:plate WHERE id=:job_id AND charged_to_org_id=:org_id "
+                "AND status='pending' AND (print_file_id IS NULL OR print_file_id=:file_id) "
+                "AND (payload_sha256 IS NULL OR payload_sha256=:payload_hash)"),
+                {'mapping': json.dumps(approved_ams['ams_mapping']), 'file_id': approved_ams['print_file_id'],
+                 'payload_hash': approved_ams['payload_sha256'], 'plate': approved_ams['plate_index'],
+                 'job_id': row.job_id, 'org_id': row.org_id})
+            if pinned.rowcount != 1:
+                raise OdinError(ErrorCode.revision_conflict, 'reload_required', status=409)
         if changed.rowcount != 1 or job_changed.rowcount != 1:
             raise OdinError(
                 ErrorCode.revision_conflict, "reload_required", status=409, retriable=True
@@ -546,6 +540,8 @@ def approve_submission(db: Session, *, submission_id: int, body, principal: dict
             "compatibility_engine_version": compatibility["engine_version"],
             "compatibility": compatibility,
         }
+        if approved_ams is not None:
+            result.update(approved_ams)
         _record_decision(
             db,
             row=row,
@@ -559,21 +555,34 @@ def approve_submission(db: Session, *, submission_id: int, body, principal: dict
                 "to_status": "pending",
                 "printer_id": int(body.printer_id),
                 "compatibility": compatibility,
+                **({'ams_selection': approved_ams} if approved_ams is not None else {}),
             },
         )
+        approval_commit_attempted = True
         db.commit()
         return result
     except Exception:
+        unconfirmed = approved_ams is not None and approval_commit_attempted
+        if unconfirmed:
+            try:
+                db.rollback()
+            except Exception:
+                try: db.close()
+                except Exception: pass
+            if claimed:
+                try:
+                    _discard_pending_claim(db, row=row, principal=principal, action=action,
+                                           command_id=command_id, digest=digest)
+                except Exception:
+                    try: db.close()
+                    except Exception: pass
+            raise OdinError(ErrorCode.resource_conflict,
+                            'Approval result is unconfirmed. Refresh or replay the same command ID.',
+                            status=503, extra={'reason': 'approval_unconfirmed'}) from None
         db.rollback()
         if claimed:
-            _discard_pending_claim(
-                db,
-                row=row,
-                principal=principal,
-                action=action,
-                command_id=command_id,
-                digest=digest,
-            )
+            _discard_pending_claim(db, row=row, principal=principal, action=action,
+                                   command_id=command_id, digest=digest)
         raise
 
 

@@ -214,19 +214,14 @@ def get_nozzle_status(printer_id: int, current_user: dict = Depends(require_role
     }
 
     if printer.machine_type == "H2D":
-        nozzle_1_temp = None
-        nozzle_1_target = None
-        try:
-            pass
-        except Exception as e:
-            log.debug(f"Failed to get H2D nozzle 1 temps: {e}")
-
         return {
             "nozzle_count": 2,
             "nozzle_0": nozzle_0,
             "nozzle_1": {
-                "temp": nozzle_1_temp,
-                "target": nozzle_1_target,
+                "temp": printer.nozzle_1_temp,
+                "target": printer.nozzle_1_target_temp,
+                "temp_observed_at": printer.nozzle_1_temp_observed_at,
+                "target_observed_at": printer.nozzle_1_target_observed_at,
                 "type": printer.nozzle_type,
                 "diameter": printer.nozzle_diameter,
             },

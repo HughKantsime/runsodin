@@ -1,11 +1,14 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { Eye, Check, X, AlertTriangle, Camera, Filter, ChevronDown, CheckCircle2 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { vision, printers } from '../../api'
+import { auth, vision, printers } from '../../api'
 import { canDo } from '../../permissions'
-import DetectionFeed from '../../components/vision/DetectionFeed'
+import type { User } from '../../types'
+import TrainingDataset from '../../components/vision/TrainingDataset'
+import BoundedVisionImage from '../../components/vision/BoundedVisionImage'
+import { maintenanceAudience, imageBudget } from '../../components/vision/maintenanceMedia'
 import { formatDate } from '../../utils/shared'
 import { EmptyState } from '../../components/ui'
 
@@ -40,7 +43,7 @@ function StatBar({ stats }) {
       ))}
       {stats.accuracy_pct != null && !isNaN(stats.accuracy_pct) && (
         <div className="ml-auto">
-          <span className="text-[var(--brand-text-muted)]">Accuracy:</span>{' '}
+          <span className="text-[var(--brand-text-muted)]">Confirmed review rate:</span>{' '}
           <span className="font-medium">{stats.accuracy_pct}%</span>
           <span className="text-[var(--brand-text-muted)] text-xs ml-1">({stats.total_reviewed} reviewed)</span>
         </div>
@@ -49,9 +52,9 @@ function StatBar({ stats }) {
   )
 }
 
-function FrameModal({ detection, onClose, onReview, onDismissAndResume }) {
-  const canReview = canDo('manage_printers')
-  const [imgEl, setImgEl] = useState(null)
+function FrameModal({ detection, audience, onClose, onReview, onLabel }) {
+  const canReview = canDo('printers.edit')
+  const [preview, setPreview] = useState(null)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={onClose}>
@@ -59,12 +62,7 @@ function FrameModal({ detection, onClose, onReview, onDismissAndResume }) {
         {/* Frame */}
         <div className="relative bg-black aspect-video">
           {detection.frame_path ? (
-            <img
-              ref={setImgEl}
-              src={`/api/vision/frames/${detection.frame_path}`}
-              alt="Detection frame"
-              className="w-full h-full object-contain"
-            />
+            <BoundedVisionImage path={detection.frame_path} audience={audience} selected alt="Detection frame" className="w-full h-full object-contain" onImage={setPreview} />
           ) : (
             <div className="flex items-center justify-center h-full text-[var(--brand-text-muted)]">
               <Camera size={48} />
@@ -72,7 +70,7 @@ function FrameModal({ detection, onClose, onReview, onDismissAndResume }) {
           )}
           {/* Bounding box overlay */}
           {detection.bbox_json && detection.frame_path && (
-            <BboxOverlay bbox={JSON.parse(detection.bbox_json)} imgEl={imgEl} />
+            <BboxOverlay bbox={(() => { try { return JSON.parse(detection.bbox_json) } catch { return null } })()} dimensions={preview} />
           )}
         </div>
 
@@ -118,41 +116,22 @@ function FrameModal({ detection, onClose, onReview, onDismissAndResume }) {
                 <X size={14} />
                 Dismiss
               </button>
-              {/* v1.8.8: one-click "false alarm, resume print" — only
-                  surfaced when the detection has a linked printer
-                  (auto-pause typically fires on a paused print). */}
-              {detection.printer_id && (
-                <button
-                  onClick={() => onDismissAndResume(detection.id)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600/80 hover:bg-green-500 rounded-md text-sm font-medium transition-colors"
-                  title="Dismiss the detection and resume the print in one click"
-                >
-                  <CheckCircle2 size={14} />
-                  False alarm — resume print
-                </button>
-              )}
+
             </div>
           )}
+          {canReview && detection.frame_path && <button onClick={() => onLabel(detection.id)} className="rounded border px-3 py-1.5">Label for training</button>}
         </div>
       </div>
     </div>
   )
 }
 
-function BboxOverlay({ bbox, imgEl }) {
+function BboxOverlay({ bbox, dimensions }) {
   const [dims, setDims] = useState(null)
 
-  useEffect(() => {
-    if (!imgEl) return
-    const update = () => {
-      if (imgEl.naturalWidth) setDims({ w: imgEl.naturalWidth, h: imgEl.naturalHeight })
-    }
-    if (imgEl.complete) update()
-    imgEl.addEventListener('load', update)
-    return () => imgEl.removeEventListener('load', update)
-  }, [imgEl])
+  useEffect(() => { setDims(dimensions ? { w: dimensions.width, h: dimensions.height } : null) }, [dimensions])
 
-  if (!bbox || bbox.length !== 4 || !dims) return null
+  if (!Array.isArray(bbox) || bbox.length !== 4 || bbox.some(value => typeof value !== 'number' || !Number.isFinite(value)) || !dims) return null
   const [x1, y1, x2, y2] = bbox
   const sw = Math.max(2, Math.round(dims.w / 200))
 
@@ -178,6 +157,11 @@ function BboxOverlay({ bbox, imgEl }) {
 
 export default function Detections() {
   const queryClient = useQueryClient()
+  const { data: principal } = useQuery<User | null>({ queryKey: ['auth', 'me'], queryFn: auth.me, enabled: false })
+  const audience = maintenanceAudience(principal)
+  const current = () => !!audience && maintenanceAudience(queryClient.getQueryData<User | null>(['auth', 'me'])) === audience
+  const [layout, setLayout] = useState('grid')
+  const [dataset, setDataset] = useState<{ audience: string; initialId?: number } | null>(null)
   const [typeFilter, setTypeFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [printerFilter, setPrinterFilter] = useState('')
@@ -186,7 +170,8 @@ export default function Detections() {
   const LIMIT = 30
 
   const { data: statsData } = useQuery({
-    queryKey: ['vision-stats'],
+    queryKey: ['vision-stats', audience],
+    enabled: !!audience,
     queryFn: () => vision.getStats(7),
     refetchInterval: 30000,
   })
@@ -197,13 +182,15 @@ export default function Detections() {
   if (printerFilter) params.printer_id = printerFilter
 
   const { data, isLoading } = useQuery({
-    queryKey: ['vision-detections', typeFilter, statusFilter, printerFilter, page],
+    enabled: !!audience,
+    queryKey: ['vision-detections', audience, typeFilter, statusFilter, printerFilter, page],
     queryFn: () => vision.getDetections(params),
     refetchInterval: 15000,
   })
 
   const { data: printersData } = useQuery({
-    queryKey: ['printers'],
+    queryKey: ['printers', 'vision-maintenance', audience],
+    enabled: !!audience,
     queryFn: () => printers.list(),
   })
 
@@ -212,13 +199,20 @@ export default function Detections() {
 
   const [selectedIds, setSelectedIds] = useState(new Set())
 
+  const selectionGeneration = useRef(0)
+  const openDetection = (row) => { selectionGeneration.current++; setSelectedDetection(row) }
+  const closeDetection = () => { selectionGeneration.current++; setSelectedDetection(null) }
   const handleReview = async (id, status) => {
+    const epoch = selectionGeneration.current
+    if (!current() || !canDo('printers.edit')) return
     try {
       await vision.reviewDetection(id, status)
+      if (!current() || epoch !== selectionGeneration.current) return
       queryClient.invalidateQueries({ queryKey: ['vision-detections'] })
       queryClient.invalidateQueries({ queryKey: ['vision-stats'] })
       setSelectedDetection(null)
     } catch (e) {
+      if (!current() || epoch !== selectionGeneration.current) return
       toast.error('Review failed: ' + (e.message || 'Unknown error'))
     }
   }
@@ -254,14 +248,17 @@ export default function Detections() {
   }
 
   const handleBulkReview = async (status) => {
+    if (!current() || !canDo('printers.edit')) return
     if (selectedIds.size === 0) return
     try {
       await Promise.all([...selectedIds].map(id => vision.reviewDetection(id, status)))
+      if (!current()) return
       queryClient.invalidateQueries({ queryKey: ['vision-detections'] })
       queryClient.invalidateQueries({ queryKey: ['vision-stats'] })
       setSelectedIds(new Set())
       toast.success(`${selectedIds.size} detection(s) ${status}`)
     } catch (e) {
+      if (!current()) return
       toast.error('Bulk review failed: ' + (e.message || 'Unknown error'))
     }
   }
@@ -276,6 +273,9 @@ export default function Detections() {
     })
   }
 
+  useEffect(() => { closeDetection(); setSelectedIds(new Set()); setPage(0); setDataset(null); return () => imageBudget.clear(audience) }, [audience])
+  if (!audience) return <div className="p-4">Historical Vision records require platform maintenance access. Captured tenant ownership is unavailable.</div>
+  if (dataset?.audience === audience) return <div className="p-4 space-y-3"><button onClick={() => setDataset(null)}>Back to detections</button><TrainingDataset key={audience} initialId={dataset.initialId} /></div>
   return (
     <div className="p-4 md:p-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
@@ -292,6 +292,8 @@ export default function Detections() {
         </div>
       </div>
 
+      <p>Historical owner unknown. These records are available only to platform maintenance.</p>
+      <div className="flex gap-2 my-3"><button aria-pressed={layout === 'grid'} onClick={() => setLayout('grid')}>Grid view</button><button aria-pressed={layout === 'list'} onClick={() => setLayout('list')}>List view</button><button onClick={() => { if (current()) setDataset({ audience }) }}>Training dataset</button></div>
       <StatBar stats={statsData} />
 
       {/* Filters */}
@@ -305,6 +307,7 @@ export default function Detections() {
           <option value="spaghetti">Spaghetti</option>
           <option value="first_layer">First Layer</option>
           <option value="detachment">Detachment</option>
+          <option value="build_plate_empty">Plate ready</option>
         </select>
 
         <select
@@ -351,7 +354,7 @@ export default function Detections() {
       )}
 
       {/* Bulk action bar */}
-      {selectedIds.size > 0 && canDo('manage_printers') && (
+      {selectedIds.size > 0 && canDo('printers.edit') && (
         <div className="flex items-center gap-3 mb-4 p-3 bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)]">
           <span className="text-sm text-[var(--brand-text-secondary)]">{selectedIds.size} selected</span>
           <button
@@ -377,22 +380,17 @@ export default function Detections() {
 
       {items.length > 0 && (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className={layout === 'grid' ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" : "flex flex-col gap-3"}>
             {items.map(det => (
               <div
                 key={det.id}
                 className={`bg-[var(--brand-content-bg)] rounded-md border overflow-hidden cursor-pointer hover:border-[var(--brand-text-muted)] transition-colors ${selectedIds.has(det.id) ? 'border-[var(--brand-primary)] ring-1 ring-[var(--brand-primary)]/30' : 'border-[var(--brand-card-border)]'}`}
-                onClick={() => setSelectedDetection(det)}
+                onClick={() => openDetection(det)}
               >
                 {/* Thumbnail */}
                 <div className="relative aspect-video bg-black">
                   {det.frame_path ? (
-                    <img
-                      src={`/api/vision/frames/${det.frame_path}`}
-                      alt="Detection thumbnail"
-                      className="w-full h-full object-cover"
-                      loading="lazy"
-                    />
+                    <BoundedVisionImage path={det.frame_path} audience={audience} alt="Detection thumbnail" className="w-full h-full object-cover" />
                   ) : (
                     <div className="flex items-center justify-center h-full text-[var(--brand-text-muted)]">
                       <Camera size={24} />
@@ -403,7 +401,7 @@ export default function Detections() {
                     {det.confidence != null ? (det.confidence * 100).toFixed(0) + '%' : '-'}
                   </div>
                   {/* Checkbox for bulk select */}
-                  {canDo('manage_printers') && (
+                  {canDo('printers.edit') && (
                     <div className="absolute top-2 left-2">
                       <input
                         type="checkbox"
@@ -437,7 +435,7 @@ export default function Detections() {
                     <span>{formatDate(det.created_at)}</span>
                   </div>
                   {/* Inline quick actions for pending items */}
-                  {det.status === 'pending' && canDo('manage_printers') && (
+                  {det.status === 'pending' && canDo('printers.edit') && (
                     <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-[var(--brand-card-border)]">
                       <button
                         onClick={(e) => { e.stopPropagation(); handleReview(det.id, 'confirmed') }}
@@ -486,10 +484,12 @@ export default function Detections() {
       {/* Detail modal */}
       {selectedDetection && (
         <FrameModal
+          key={audience}
+          audience={audience}
           detection={selectedDetection}
-          onClose={() => setSelectedDetection(null)}
+          onClose={closeDetection}
           onReview={handleReview}
-          onDismissAndResume={handleDismissAndResume}
+          onLabel={(id) => { if (current()) { setSelectedDetection(null); setDataset({ audience, initialId: id }) } }}
         />
       )}
     </div>

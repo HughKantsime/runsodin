@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
-from pydantic import BaseModel as PydanticBaseModel
+from pydantic import BaseModel as PydanticBaseModel, model_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -32,22 +32,17 @@ _IMAGE_TYPE_EXT = {
 
 
 def _detect_image_type(content: bytes) -> str | None:
-    """Detect image type from magic bytes. Returns type key or None if unrecognised."""
-    if content[:4] == b"\x89PNG":
-        return "png"
-    if content[:3] == b"\xff\xd8\xff":
-        return "jpeg"
-    if content[:4] == b"RIFF" and content[8:12] == b"WEBP":
-        return "webp"
-    # SVG: check for XML declaration or <svg tag in the first 512 bytes
-    head = content[:512]
+    from .branding_assets import validated_image_type
     try:
-        text_head = head.decode("utf-8", errors="ignore").lstrip()
-        if text_head.startswith("<svg") or text_head.startswith("<?xml"):
-            return "svg"
-    except Exception as e:
-        log.debug(f"Failed to detect SVG format: {e}")
-    return None
+        return validated_image_type(content)
+    except Exception:
+        return None
+
+
+def _branding_directory():
+    from pathlib import Path
+    from core.branding_storage import branding_directory
+    return branding_directory(Path(__file__).resolve().parents[2] / "static" / "branding")
 
 
 # ============== Branding ==============
@@ -59,6 +54,50 @@ async def get_branding(db: Session = Depends(get_db)):
 
 
 class BrandingUpdateRequest(PydanticBaseModel):
+    @model_validator(mode="before")
+    @classmethod
+    def validate_branding_fields(cls, data):
+        import re
+        from urllib.parse import urlsplit
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+        colors = set(UPDATABLE_FIELDS) - {"app_name", "app_subtitle", "font_display", "font_body", "font_mono", "footer_text", "support_url"}
+        for key, value in data.items():
+            if key not in UPDATABLE_FIELDS:
+                continue
+            if key == "support_url":
+                if value is None:
+                    continue
+                if not isinstance(value, str) or len(value) > 500 or any(ord(c) < 32 or ord(c) == 127 for c in value):
+                    raise ValueError("Invalid support URL")
+                value = value.strip()
+                if not value:
+                    data[key] = None
+                    continue
+                try:
+                    parsed = urlsplit(value)
+                    valid = parsed.scheme.lower() in {"http", "https"} and bool(parsed.hostname) and not any(c.isspace() for c in value)
+                    parsed.port
+                except ValueError:
+                    valid = False
+                if not valid:
+                    raise ValueError("Support URL must be an HTTP or HTTPS URL with a hostname")
+                data[key] = value
+                continue
+            if not isinstance(value, str):
+                raise ValueError("Branding text and colors cannot be null")
+            if key in colors:
+                if not re.fullmatch(r"#[0-9a-fA-F]{6}", value):
+                    raise ValueError("Branding colors require six hexadecimal digits")
+                continue
+            limit = 100 if key == "app_name" else 500 if key == "footer_text" else 200
+            if len(value) > limit or (key == "app_name" and not value.strip()):
+                raise ValueError("Invalid branding text length")
+            if key.startswith("font_") and (not value.strip() or not re.fullmatch(r"[a-zA-Z0-9 ,_'\"-]+", value)):
+                raise ValueError("Invalid font family list")
+        return data
+
     app_name: Optional[str] = None
     app_subtitle: Optional[str] = None
     primary_color: Optional[str] = None
@@ -84,7 +123,7 @@ class BrandingUpdateRequest(PydanticBaseModel):
 
 
 @router.put("/branding", tags=["Branding"])
-async def update_branding(data: BrandingUpdateRequest, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+async def update_branding(data: BrandingUpdateRequest, current_user: dict = Depends(require_superadmin(scope="write")), db: Session = Depends(get_db)):
     """Update branding config. Admin only."""
     branding = get_or_create_branding(db)
     for key, value in data.model_dump(exclude_unset=True).items():
@@ -97,21 +136,21 @@ async def update_branding(data: BrandingUpdateRequest, current_user: dict = Depe
 
 
 @router.post("/branding/logo", tags=["Branding"])
-async def upload_logo(file: UploadFile = File(...), current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+async def upload_logo(file: UploadFile = File(...), current_user: dict = Depends(require_superadmin(scope="write")), db: Session = Depends(get_db)):
     """Upload brand logo. Admin only."""
     import shutil
-    content = await file.read()
+    content = await file.read(_MAX_UPLOAD_BYTES + 1)
     detected_type = _detect_image_type(content)
     if detected_type is None:
         raise HTTPException(status_code=400, detail="File type not allowed. Upload PNG, JPEG, SVG, or WebP.")
     if len(content) > _MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=400, detail="File too large. Maximum size is 5 MB.")
     ext = _IMAGE_TYPE_EXT[detected_type]
-    upload_dir = os.path.join(os.path.dirname(__file__), "..", "static", "branding")
-    os.makedirs(upload_dir, exist_ok=True)
-    filename = f"logo.{ext}"
-    with open(os.path.join(upload_dir, filename), "wb") as f:
-        f.write(content)
+    from .branding_assets import store_asset
+    try:
+        filename = store_asset(_branding_directory(), "logo", ext, content)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid branding storage path")
     branding = get_or_create_branding(db)
     branding.logo_url = f"/static/branding/{filename}"
     db.commit()
@@ -119,20 +158,20 @@ async def upload_logo(file: UploadFile = File(...), current_user: dict = Depends
 
 
 @router.post("/branding/favicon", tags=["Branding"])
-async def upload_favicon(file: UploadFile = File(...), current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+async def upload_favicon(file: UploadFile = File(...), current_user: dict = Depends(require_superadmin(scope="write")), db: Session = Depends(get_db)):
     """Upload favicon. Admin only."""
-    content = await file.read()
+    content = await file.read(_MAX_UPLOAD_BYTES + 1)
     detected_type = _detect_image_type(content)
     if detected_type is None:
         raise HTTPException(status_code=400, detail="File type not allowed. Upload PNG, JPEG, SVG, or WebP.")
     if len(content) > _MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=400, detail="File too large. Maximum size is 5 MB.")
     ext = _IMAGE_TYPE_EXT[detected_type]
-    upload_dir = os.path.join(os.path.dirname(__file__), "..", "static", "branding")
-    os.makedirs(upload_dir, exist_ok=True)
-    filename = f"favicon.{ext}"
-    with open(os.path.join(upload_dir, filename), "wb") as f:
-        f.write(content)
+    from .branding_assets import store_asset
+    try:
+        filename = store_asset(_branding_directory(), "favicon", ext, content)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid branding storage path")
     branding = get_or_create_branding(db)
     branding.favicon_url = f"/static/branding/{filename}"
     db.commit()
@@ -140,16 +179,22 @@ async def upload_favicon(file: UploadFile = File(...), current_user: dict = Depe
 
 
 @router.delete("/branding/logo", tags=["Branding"])
-async def remove_logo(current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+async def remove_logo(current_user: dict = Depends(require_superadmin(scope="write")), db: Session = Depends(get_db)):
     """Remove brand logo. Admin only."""
     branding = get_or_create_branding(db)
-    if branding.logo_url:
-        filepath = os.path.join(os.path.dirname(__file__), "..", branding.logo_url.lstrip("/"))
-        if os.path.exists(filepath):
-            os.remove(filepath)
+    # Logical removal retains immutable bytes for concurrent readers and failed saves.
     branding.logo_url = None
     db.commit()
     return {"logo_url": None}
+
+
+@router.delete("/branding/favicon", tags=["Branding"])
+async def remove_favicon(current_user: dict = Depends(require_superadmin(scope="write")), db: Session = Depends(get_db)):
+    """Remove the active favicon while retaining immutable bytes for existing readers."""
+    branding = get_or_create_branding(db)
+    branding.favicon_url = None
+    db.commit()
+    return {"favicon_url": None}
 
 
 # ============== Education Mode ==============
@@ -191,7 +236,7 @@ async def set_language(request: Request, current_user: dict = Depends(require_su
     """Set interface language."""
     data = await request.json()
     lang = data.get("language", "en")
-    supported = ["en", "de", "ja", "es"]
+    supported = ["en", "de", "ja", "es", "it"]
     if lang not in supported:
         raise HTTPException(400, f"Unsupported language. Choose from: {', '.join(supported)}")
     db.execute(text(f"{sql.upsert_prefix()} system_config (key, value) VALUES ('language', :lang){sql.on_conflict_suffix('key', ['value'])}"), {"lang": lang})  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
