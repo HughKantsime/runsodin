@@ -122,7 +122,7 @@ def test_actual_process_death_after_move_and_fresh_process_recovery(prepared_sta
     import subprocess,sys,json
     from pathlib import Path
     plan,_,_=prepared_stage;repo=Path(__file__).resolve().parents[2]
-    command=[sys.executable,str(repo/'artifacts/application-certification/run_owned_timelapse_stage.py'),str(plan[0].url.database),str(plan[1]),str(plan[2])]
+    command=[sys.executable,str(repo/'tests/fixtures/certification/run_owned_timelapse_stage.py'),str(plan[0].url.database),str(plan[1]),str(plan[2])]
     environment=dict(os.environ,PYTHONPATH=str(repo/'backend')+':'+str(repo),BASE_URL='http://127.0.0.1:1')
     crashed=subprocess.run(command+[target],cwd=repo,env=environment,capture_output=True,text=True,timeout=30)
     assert crashed.returncode==73,{'returncode':crashed.returncode,'output':crashed.stdout}

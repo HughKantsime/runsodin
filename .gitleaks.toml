@@ -7,6 +7,9 @@ title = "O.D.I.N. Gitleaks Config"
     '''tests/test_features\.py''',
     '''\.env\.example''',
     '''\.env\.test''',
+    # SHA-256 source manifests: migration filenames such as *_idempotency_keys.sql trip generic-api-key.
+    '''tests/fixtures/certification/pre026-independent-history-oracle\.json''',
+    '''tests/fixtures/certification/prepriced027/catalogue\.json''',
   ]
   regexes = [
     '''odin-dev-secret-change-in-production''',

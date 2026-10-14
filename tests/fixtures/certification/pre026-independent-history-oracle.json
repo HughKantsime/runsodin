@@ -1,0 +1,281 @@
+{
+  "qualification": "exact source-pinned025/main_audit_20261012, independently enumerated migration source IDs/checksums; no stageDB ledger inference",
+  "sql_source_sha256": {
+    "core/migrations/001_initial.sql": "43e82ad07a87855aad78b583cf04a64fb9e8ab0c15bcaa51db44c66cd3d271eb",
+    "core/migrations/002_quiet_hours_digest_sends.sql": "01db7b15a96ebc8485e0c720da44359ecf8be8ae99c51584c0320eb9afa77cc1",
+    "core/migrations/003_quiet_hours_org_digest_sends.sql": "6cb56bddb984e3a1043924449068b6eed64dfd48549d2fa267164d0e50bc13ac",
+    "core/migrations/004_drop_setup_token_add_delivery_status.sql": "edb13c649e36350247f3232e006da03e9ccc4ecebafa0a89c925b5925723fcd7",
+    "core/migrations/005_idempotency_keys.sql": "d50f1e1accc3b91e4bc4cdfa195e733232f90844b2f2309a2ef25425656576ab",
+    "core/migrations/006_idempotency_keys_upgrade.sql": "497f48802efccdcb536cec9f81d72ac422c569765027ba11a165b90229378837",
+    "core/migrations/007_websocket_events.sql": "79a98de03ab550a17c1f11446c7d932dee323fdd66e87d3268cf216942782ea8",
+    "modules/archives/migrations/001_initial.sql": "19011172cfdbe42268e95f4303a16610588d8ebab652c58b29f1cc9ef3422b58",
+    "modules/inventory/migrations/001_initial.sql": "260dea18a426e3c6fbd38a034c64a6c321746b6d6df07b994c00c529d6963a6d",
+    "modules/jobs/migrations/001_initial.sql": "8584aca97bb1b8104cdd17f04c7b69935938a5be5792897e5ec8470a4298eb24",
+    "modules/jobs/migrations/002_exact_print_payload.sql": "096d3275acdf97f89731f8df264787a87920a8b489fdcd51a00cb8d354bfa5db",
+    "modules/models_library/migrations/001_initial.sql": "e20376d09c6314ddcb32845a39214bd99629991c1676c9a733ade3930491aaff",
+    "modules/notifications/migrations/001_initial.sql": "f95c2819213b3e342158c3f84d669d4491e15ea24a3426b3f0e7ebb80a248ea1",
+    "modules/orders/migrations/001_initial.sql": "8152ca1bb4d3ec7e031ecc2550a4f6385da2c005271ef597643195bffc6b68e7",
+    "modules/orders/migrations/002_add_org_id.sql": "91a25e5394ae981dd57fc547ba778a30ebb91c329a4d95815408b95fbb3c74c1",
+    "modules/organizations/migrations/001_initial.sql": "b35d61972fcb381f6ea3ce6b92193eed80f60817e8d9279e9f869b76a2dd2273",
+    "modules/organizations/migrations/002_oidc_provider_policy.sql": "19bfc273da6fe0923c142ec72c2ad73ea82d88230bccd91ec3cc24fdd8d240e3",
+    "modules/organizations/migrations/003_google_classroom.sql": "d67716a70d46074589dd893ecad143b25df81ec6b82382a62f0b18fc666faa9a",
+    "modules/organizations/migrations/004_mfa_enrollments.sql": "38a96c7f0ead37acfa545c5f17531512aef7bd591bbccbc2735a11ae9ad23017",
+    "modules/printers/migrations/001_initial.sql": "42684d365e7aebd960fe6f1f787c94494e48de0be0d71cc7834884040177edcc",
+    "modules/push/migrations/001_initial.sql": "95d0849549385486b4a6524e47de980f6cad4fb208abfd0677aa1be2169dca4c",
+    "modules/reporting/migrations/001_initial.sql": "d698a2eb65e35b2bb2d505962da55e0c8109e4e4dc8e49bc7f58a943593bd54a",
+    "modules/system/migrations/001_initial.sql": "304d941ff105d8fc49fcb60549d7a8e0b61eb129036d7d7674f913a039ae6a77",
+    "modules/vision/migrations/001_initial.sql": "8a1fb12c8600dbae6b74572e17407081adda6f9a30cad11cd30ebcafdc52fe78"
+  },
+  "expected_postgres_ledger": [
+    [
+      "core/migrations/001_initial.sql",
+      "43e82ad07a87855aad78b583cf04a64fb9e8ab0c15bcaa51db44c66cd3d271eb",
+      "postgresql"
+    ],
+    [
+      "core/migrations/002_quiet_hours_digest_sends.sql",
+      "01db7b15a96ebc8485e0c720da44359ecf8be8ae99c51584c0320eb9afa77cc1",
+      "postgresql"
+    ],
+    [
+      "core/migrations/003_quiet_hours_org_digest_sends.sql",
+      "6cb56bddb984e3a1043924449068b6eed64dfd48549d2fa267164d0e50bc13ac",
+      "postgresql"
+    ],
+    [
+      "core/migrations/004_drop_setup_token_add_delivery_status.sql",
+      "edb13c649e36350247f3232e006da03e9ccc4ecebafa0a89c925b5925723fcd7",
+      "postgresql"
+    ],
+    [
+      "core/migrations/005_idempotency_keys.sql",
+      "d50f1e1accc3b91e4bc4cdfa195e733232f90844b2f2309a2ef25425656576ab",
+      "postgresql"
+    ],
+    [
+      "core/migrations/006_idempotency_keys_upgrade.sql",
+      "497f48802efccdcb536cec9f81d72ac422c569765027ba11a165b90229378837",
+      "postgresql"
+    ],
+    [
+      "core/migrations/007_websocket_events.sql",
+      "79a98de03ab550a17c1f11446c7d932dee323fdd66e87d3268cf216942782ea8",
+      "postgresql"
+    ],
+    [
+      "modules/archives/migrations/001_initial.sql",
+      "19011172cfdbe42268e95f4303a16610588d8ebab652c58b29f1cc9ef3422b58",
+      "postgresql"
+    ],
+    [
+      "modules/inventory/migrations/001_initial.sql",
+      "260dea18a426e3c6fbd38a034c64a6c321746b6d6df07b994c00c529d6963a6d",
+      "postgresql"
+    ],
+    [
+      "modules/jobs/migrations/001_initial.sql",
+      "8584aca97bb1b8104cdd17f04c7b69935938a5be5792897e5ec8470a4298eb24",
+      "postgresql"
+    ],
+    [
+      "modules/jobs/migrations/002_exact_print_payload.sql",
+      "096d3275acdf97f89731f8df264787a87920a8b489fdcd51a00cb8d354bfa5db",
+      "postgresql"
+    ],
+    [
+      "modules/models_library/migrations/001_initial.sql",
+      "e20376d09c6314ddcb32845a39214bd99629991c1676c9a733ade3930491aaff",
+      "postgresql"
+    ],
+    [
+      "modules/notifications/migrations/001_initial.sql",
+      "f95c2819213b3e342158c3f84d669d4491e15ea24a3426b3f0e7ebb80a248ea1",
+      "postgresql"
+    ],
+    [
+      "modules/orders/migrations/001_initial.sql",
+      "8152ca1bb4d3ec7e031ecc2550a4f6385da2c005271ef597643195bffc6b68e7",
+      "postgresql"
+    ],
+    [
+      "modules/orders/migrations/002_add_org_id.sql",
+      "91a25e5394ae981dd57fc547ba778a30ebb91c329a4d95815408b95fbb3c74c1",
+      "postgresql"
+    ],
+    [
+      "modules/organizations/migrations/001_initial.sql",
+      "b35d61972fcb381f6ea3ce6b92193eed80f60817e8d9279e9f869b76a2dd2273",
+      "postgresql"
+    ],
+    [
+      "modules/organizations/migrations/002_oidc_provider_policy.sql",
+      "19bfc273da6fe0923c142ec72c2ad73ea82d88230bccd91ec3cc24fdd8d240e3",
+      "postgresql"
+    ],
+    [
+      "modules/organizations/migrations/003_google_classroom.sql",
+      "d67716a70d46074589dd893ecad143b25df81ec6b82382a62f0b18fc666faa9a",
+      "postgresql"
+    ],
+    [
+      "modules/organizations/migrations/004_mfa_enrollments.sql",
+      "38a96c7f0ead37acfa545c5f17531512aef7bd591bbccbc2735a11ae9ad23017",
+      "postgresql"
+    ],
+    [
+      "modules/printers/migrations/001_initial.sql",
+      "42684d365e7aebd960fe6f1f787c94494e48de0be0d71cc7834884040177edcc",
+      "postgresql"
+    ],
+    [
+      "modules/push/migrations/001_initial.sql",
+      "95d0849549385486b4a6524e47de980f6cad4fb208abfd0677aa1be2169dca4c",
+      "postgresql"
+    ],
+    [
+      "modules/reporting/migrations/001_initial.sql",
+      "d698a2eb65e35b2bb2d505962da55e0c8109e4e4dc8e49bc7f58a943593bd54a",
+      "postgresql"
+    ],
+    [
+      "modules/system/migrations/001_initial.sql",
+      "304d941ff105d8fc49fcb60549d7a8e0b61eb129036d7d7674f913a039ae6a77",
+      "postgresql"
+    ],
+    [
+      "modules/vision/migrations/001_initial.sql",
+      "8a1fb12c8600dbae6b74572e17407081adda6f9a30cad11cd30ebcafdc52fe78",
+      "postgresql"
+    ],
+    [
+      "orm-baseline:1",
+      "d472a100ceb6a1cb5b9e3787d8750d3425dc1802170b2868e27addb97827ba47",
+      "postgresql"
+    ],
+    [
+      "python:001-legacy-columns",
+      "5fd102e1eda891937c2f8ccfed7f86e543b0fba33166402eeb26431693f445b7",
+      "postgresql"
+    ],
+    [
+      "python:002-education-tenant-integrity",
+      "a14ec2f537fa368e63e1e0410557d2b2aab15a0dc9663c3f2dbc46ba026c4f68",
+      "postgresql"
+    ],
+    [
+      "python:003-education-monitor-claims",
+      "94ba22755ec4f2db07265ddbacef906657f7888858a30ae6a1fb7e1e597310dc",
+      "postgresql"
+    ],
+    [
+      "python:004-quiet-hours-scoped-claims",
+      "95916a7fd6779ca6cf833d7104594b520b2f5fd47aa6de261b01766b7e6a3898",
+      "postgresql"
+    ],
+    [
+      "python:005-order-production-snapshots",
+      "6a71c2db2cf228417a71b2f89217bce3c45a6464435badc29856f08c7e67e436",
+      "postgresql"
+    ],
+    [
+      "python:006-print-job-measurements",
+      "48db06956b91428a03957bc20d8781e71cafa65f4c715ab8e6af5d841721d602",
+      "postgresql"
+    ],
+    [
+      "python:007-attempt-accounting",
+      "4f52b13344960394b7592adbf3c3036b28b48f4cfa6a0646d475ec0466d81f50",
+      "postgresql"
+    ],
+    [
+      "python:008-profile-revisions",
+      "1488f6032eaa25c7be5c1a60e90f7b2b6613b41600b8dec88008088416758f75",
+      "postgresql"
+    ],
+    [
+      "python:009-cost-foundation",
+      "4b36223132ea967232726cdd8eeb7e7347809d92901ee2b7d13755daf5bc3a2c",
+      "postgresql"
+    ],
+    [
+      "python:010-h2d-nozzle-observations",
+      "4bafc0be72cef74afee482ecb57430bccacaf0fd6eaf0e89d3714bf3e991962d",
+      "postgresql"
+    ],
+    [
+      "python:011-dispatch-claims",
+      "da212f9fabcbc5d87251e941aa50bde9d0609b8e771981498f3c1af996fdf210",
+      "postgresql"
+    ],
+    [
+      "python:012-dispatch-receipts",
+      "afb0118948b0151fe057e0816b9a2cd59da07550946f8e279560c03ef535709f",
+      "postgresql"
+    ],
+    [
+      "python:013-observation-received-time",
+      "d0e000f177c7da4f449c81308a24acd2e805d2a0c2333bf7a20af7321f37eb93",
+      "postgresql"
+    ],
+    [
+      "python:014-dispatch-senders",
+      "3ad1e6c79204b686517c385dea867604674f0577e81966f77b68dbdc0833ee57",
+      "postgresql"
+    ],
+    [
+      "python:015-timelapse-retirements",
+      "a31f9b87ac68b1009178fdeba9c9043cccd780f00c08be3113c40822f261f68e",
+      "postgresql"
+    ],
+    [
+      "python:016-timelapse-ownership",
+      "3de94eaafc6706392a4f0166fb9cb82a75e97a53b183643869fd78a2c3671af1",
+      "postgresql"
+    ],
+    [
+      "python:017-timelapse-recovery",
+      "6e501c733473b89064a11d12363d853f23381156de90182cff4a0aefa9cc1346",
+      "postgresql"
+    ],
+    [
+      "python:018-timelapse-unlinks",
+      "5e3efdda949181dd9c6aaf306c2500d981251b9d47c37e10b92a7cdaeb2dcd14",
+      "postgresql"
+    ],
+    [
+      "python:019-timelapse-publications",
+      "6306af36c111d5b2439ced5c9c664e20cade2c71d562413c72ec654f46c9b871",
+      "postgresql"
+    ],
+    [
+      "python:020-ams-evidence",
+      "2bc2bafd788e39c0970720c2838ce7f83baab41cb6124935c669869479f2774b",
+      "postgresql"
+    ],
+    [
+      "python:021-economic-identity",
+      "9d4fd2fd10345ce229978709b7aaa0862e8a14f963621d70d7ac5a9f13b71218",
+      "postgresql"
+    ],
+    [
+      "python:022-economic-source-lifetimes",
+      "160a899edefd11773acb3cecf259c3c59a87b6fd5eec86eb8f67ed850e16a0e7",
+      "postgresql"
+    ],
+    [
+      "python:023-timelapse-retirement-membership",
+      "8c2e2e298886282196750711e7dee56bfcc03290cb6524ad9ccb5e4d46ff5d1c",
+      "postgresql"
+    ],
+    [
+      "python:024-audit-actor",
+      "8b99dc4b53563a231bf0d9cdd8acbc178dda31bcb0528441d5b58d57af20a31c",
+      "postgresql"
+    ],
+    [
+      "python:025-spool-purchase-evidence",
+      "1112a9b40342b8671bd6b7b86f984d002eaecf6cb779d83be4dfb7e308269429",
+      "postgresql"
+    ]
+  ]
+}

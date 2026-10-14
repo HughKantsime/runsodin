@@ -88,7 +88,7 @@ def test_fixed_ledger_independent_source_oracle_and_mismatch_refusal():
     import json
     from sqlalchemy import text
     from core.schema.pre026_restore_contract import EXPECTED_POSTGRES_LEDGER,SQL_SOURCE_PINS,validate_postgres_history
-    oracle=json.loads((Path(__file__).resolve().parents[2]/'artifacts/edu-workflow-check/pre026-independent-history-oracle.json').read_text())
+    oracle=json.loads((Path(__file__).resolve().parents[2]/'tests/fixtures/certification/pre026-independent-history-oracle.json').read_text())
     assert tuple(tuple(row) for row in oracle['expected_postgres_ledger'])==EXPECTED_POSTGRES_LEDGER
     assert oracle['sql_source_sha256']==SQL_SOURCE_PINS and len(SQL_SOURCE_PINS)==24 and len(EXPECTED_POSTGRES_LEDGER)==50
     engine=create_engine('sqlite://')

@@ -40,7 +40,8 @@ def test_exact_duplicate_walk_removed_but_each_fresh_snapshot_revalidates(edit,m
             dependencies.physical_partition(db,life,ops,scope=scope)
             assert set(calls)==first and len(calls)==len(first)
             assert new['operations']<old['operations'] and new['queries']<old['queries']
-        output=Path('artifacts/application-certification/timelapse-editor-retirement-graph-profile.json')
+        import tempfile
+        output=Path(tempfile.gettempdir())/'timelapse-editor-retirement-graph-profile.json'
         output.write_text(json.dumps({'scope':'Real SQLite same-snapshot query counts; before is exact duplicate-walk emulation, after includes current sharing checks. No PG timing inference.',
                                      'related_operations':len(ops),'before':old,'after':new,'fresh_snapshot_revalidates':True},indent=2)+'\n')
     finally:event.remove(engine,'before_cursor_execute',query)

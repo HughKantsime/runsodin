@@ -13,7 +13,7 @@ def test_exact_sql_objects_and_original_bytes():
     from modules.organizations import education_review_service as owner
     for name in ('_BASE_SELECT','_SUBMISSION_AUDIENCE','archive_audience_sql'):
         assert getattr(owner,name) is getattr(core,name)
-    original=Path('artifacts/application-certification/archive-provider-boundary/education-sql-before.py').read_text()
+    original=Path('tests/fixtures/certification/archive-provider-boundary/education-sql-before.py').read_text()
     namespace={};exec(compile(original,'trusted-original','exec'),namespace)
     assert core.archive_audience_sql()==namespace['archive_audience_sql']()
     current=Path(core.__file__).read_text()

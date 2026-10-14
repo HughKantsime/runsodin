@@ -8,7 +8,7 @@ from core.schema.migrator import MigrationError
 ROOT=Path(__file__).resolve().parents[2]/'backend'
 
 def test_actual_capture_oracle_and_positive_registered_footprint():
-    original=json.loads((ROOT.parent/'artifacts/application-certification/prepriced027/catalogue.json').read_text())
+    original=json.loads((ROOT.parent/'tests/fixtures/certification/prepriced027/catalogue.json').read_text())
     original['trigger_catalog']=[r for r in original['trigger_catalog'] if r[4] is False]
     contract.validate_snapshot(original)
     profile=contract.inventory()

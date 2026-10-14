@@ -11,7 +11,7 @@ from core.schema.migrator import MigrationError
 
 def test_immutable025_oracle_and_closed026_extension():
     root=Path(__file__).resolve().parents[2]
-    oracle=json.loads((root/'artifacts/edu-workflow-check/pre026-independent-history-oracle.json').read_text())
+    oracle=json.loads((root/'tests/fixtures/certification/pre026-independent-history-oracle.json').read_text())
     assert oracle['sql_source_sha256']==C.SQL_SOURCE_PINS
     assert tuple(map(tuple,oracle['expected_postgres_ledger']))==C.EXPECTED_POSTGRES_LEDGER
     assert len(C.SQL_SOURCE_PINS)==24 and len(C.EXPECTED_POSTGRES_LEDGER)==50

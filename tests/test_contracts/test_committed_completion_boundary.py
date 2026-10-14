@@ -21,7 +21,7 @@ def test_same_object_and_exact_pre_extraction_body():
     from core.committed_terminal_events import publish_committed_completion as core
     from modules.printers.committed_terminal_events import publish_committed_completion as old
     assert core is old
-    base=ROOT/'artifacts/application-certification/committed-completion-boundary'
+    base=ROOT/'tests/fixtures/certification/committed-completion-boundary'
     assert (ROOT/'backend/core/committed_terminal_events.py').read_bytes()==(base/'publisher-before.py').read_bytes()
     before=json.loads((base/'source-before.json').read_text())
     current=(ROOT/'backend/modules/notifications/job_events.py').read_text()

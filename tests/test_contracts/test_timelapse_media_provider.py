@@ -13,7 +13,7 @@ def test_same_exception_objects_and_exact_original_definitions():
     for module,name in [('timelapse_retirement','RetirementUnavailable'),('timelapse_edit','EditUnavailable'),('timelapse_lifetime_action','NoCompletedReceiptYet')]:
         owner=importlib.import_module('modules.archives.'+module)
         assert getattr(owner,name) is getattr(core,name)
-        before=Path('artifacts/application-certification/timelapse-media-provider/backend_modules_archives_'+module+'.py.before').read_text()
+        before=Path('tests/fixtures/certification/timelapse-media-provider/backend_modules_archives_'+module+'.py.before').read_text()
         old=next(n for n in ast.parse(before).body if isinstance(n,ast.ClassDef) and n.name==name)
         now=Path(core.__file__).read_text();new=next(n for n in ast.parse(now).body if isinstance(n,ast.ClassDef) and n.name==name)
         assert ast.get_source_segment(before,old)==ast.get_source_segment(now,new)

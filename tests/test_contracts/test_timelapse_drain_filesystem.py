@@ -185,7 +185,7 @@ def test_actual_process_death_after_unlink_or_sync_and_fresh_retry(staged_drain,
     with filesystem(plan) as fs:
         row=next(value for value in fs.plan if value['kind']==kind);pending(plan,fs,row)
         index=row['object_index'];file=destination(plan,row)
-    command=[sys.executable,str(repo/'artifacts/application-certification/run_owned_timelapse_unlink.py'),str(plan[0].url.database),str(plan[1]),str(plan[2]),str(index)]
+    command=[sys.executable,str(repo/'tests/fixtures/certification/run_owned_timelapse_unlink.py'),str(plan[0].url.database),str(plan[1]),str(plan[2]),str(index)]
     env=dict(os.environ,PYTHONPATH=str(repo/'backend')+':'+str(repo),BASE_URL='http://127.0.0.1:1')
     ended=subprocess.run(command+[crash],cwd=repo,env=env,capture_output=True,text=True,timeout=30)
     assert ended.returncode==(74 if crash=='unlink' else 75),{'returncode':ended.returncode,'output':ended.stdout}

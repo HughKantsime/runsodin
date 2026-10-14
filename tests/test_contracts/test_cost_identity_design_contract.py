@@ -7,7 +7,7 @@ import pytest
 def contract():
     conn=sqlite3.connect(':memory:')
     conn.execute('PRAGMA foreign_keys=ON')
-    conn.executescript((Path(__file__).parents[2]/'artifacts/application-certification/cost-identity-contract.sql').read_text())
+    conn.executescript((Path(__file__).parents[2]/'tests/fixtures/certification/cost-identity-contract.sql').read_text())
     for uid,kind,owner in [('order-a','order',1),('item-a','item',1),('schedule-a','schedule',1),
                            ('attempt-a','attempt',1),('job-a','job',1),('spool-a','spool',1),('order-b','order',2)]:
         conn.execute('INSERT INTO cost_identities VALUES(?,?,?,?,?)',(uid,kind,1,'org',owner))

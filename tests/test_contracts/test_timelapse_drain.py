@@ -153,7 +153,7 @@ def test_actual_service_process_death_and_fresh_progress_or_receipt_recovery(sta
     import subprocess,sys,json
     from pathlib import Path
     plan=staged_plan;op=saved(plan)['operation_id'];repo=Path(__file__).resolve().parents[2]
-    command=[sys.executable,str(repo/'artifacts/application-certification/run_owned_timelapse_drain.py'),str(plan[0].url.database),str(plan[1]),str(plan[2])]
+    command=[sys.executable,str(repo/'tests/fixtures/certification/run_owned_timelapse_drain.py'),str(plan[0].url.database),str(plan[1]),str(plan[2])]
     env=dict(os.environ,PYTHONPATH=str(repo/'backend')+':'+str(repo),BASE_URL='http://127.0.0.1:1')
     ended=subprocess.run(command+[target],cwd=repo,env=env,capture_output=True,text=True,timeout=30)
     assert ended.returncode==({'sync':75,'final_ack':76}.get(target,74)),{'returncode':ended.returncode,'output':ended.stdout}
