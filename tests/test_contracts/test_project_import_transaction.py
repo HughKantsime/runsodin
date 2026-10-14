@@ -5,7 +5,7 @@ from sqlalchemy import create_engine,event,text
 from sqlalchemy.orm import Session
 from core.project_import_transaction import project_import_transaction,execute
 from core.schema.migrator import MigrationError
-from test_project_import_029_storage import fresh_contract
+from .test_project_import_029_storage import fresh_contract
 
 @pytest.fixture
 def engine(tmp_path):
