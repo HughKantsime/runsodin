@@ -49,6 +49,7 @@ def record_error(
     source: str = "unknown",  # "bambu_hms", "moonraker", "prusalink", etc.
     severity: str = "warning",  # "info", "warning", "error", "critical"
     create_alert: bool = True,
+    history: bool = False,
 ):
     """
     Record an error from any printer type.
@@ -68,6 +69,14 @@ def record_error(
                 WHERE id = ?""",
                 (error_code, error_message, printer_id)
             )
+
+            # Monitors without their own HMS stream (PrusaLink, Klipper) keep
+            # error history here; Bambu writes hms_error_history itself.
+            if history:
+                cur.execute(
+                    "INSERT INTO hms_error_history (printer_id, code, message, severity, source) VALUES (?, ?, ?, ?, ?)",
+                    (printer_id, error_code, error_message, severity, source),
+                )
 
             # Get printer name for alert
             cur.execute("SELECT name, nickname FROM printers WHERE id = ?", (printer_id,))

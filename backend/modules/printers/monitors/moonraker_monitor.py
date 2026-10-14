@@ -375,6 +375,7 @@ class MoonrakerMonitor:
                         source="klipper",
                         severity="error",
                         create_alert=False,  # _job_ended already dispatches alert
+                        history=True,
                     )
 
             self._prev_state = internal_state

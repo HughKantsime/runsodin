@@ -160,15 +160,18 @@ class ElegooMonitorThread(threading.Thread):
         elif current_state == "FINISHED":
             odin_state = "FINISH"
         elif current_state in ("STOPPING",):
-            odin_state = "FINISH"
+            odin_state = "STOPPED"  # user/firmware abort, not a successful finish
         elif current_state in ("HEATING", "HOMING", "LEVELING"):
             odin_state = "RUNNING"  # Pre-print activity
         else:
             odin_state = "IDLE"
 
+        # A paused print is still the same print: resume is not a new start, and a
+        # finish, stop or drop to idle from pause still ends it.
+        active = ("PRINTING", "HEATING", "HOMING", "LEVELING", "PAUSED")
         # Only fire events on transitions
         if current_state != self._last_state:
-            if odin_state == "RUNNING" and self._last_state not in ("PRINTING", "HEATING", "HOMING", "LEVELING"):
+            if odin_state == "RUNNING" and self._last_state not in active:
                 # Print started
                 remaining_min = status.time_remaining // 60 if status.time_remaining else None
                 printer_events.on_print_start(
@@ -178,7 +181,7 @@ class ElegooMonitorThread(threading.Thread):
                     None,  # layer count from file
                     remaining_min,
                 )
-            elif odin_state == "FINISH" and self._last_state in ("PRINTING", "HEATING"):
+            elif odin_state == "FINISH" and self._last_state in active:
                 # Print completed
                 printer_events.on_print_complete(
                     self.printer_id,
@@ -186,7 +189,12 @@ class ElegooMonitorThread(threading.Thread):
                     status.current_ticks,
                     None,  # filament_used_g
                 )
-            elif odin_state == "IDLE" and self._last_state in ("PRINTING", "HEATING", "HOMING", "LEVELING"):
+            elif odin_state == "STOPPED" and self._last_state in active:
+                printer_events.on_print_cancelled(
+                    self.printer_id,
+                    status.filename or self._last_filename or "Unknown",
+                )
+            elif odin_state == "IDLE" and self._last_state in active:
                 # Went from active print to idle without FINISH — print failed
                 printer_events.on_print_failed(
                     self.printer_id,

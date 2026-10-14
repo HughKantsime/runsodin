@@ -1370,7 +1370,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 64,
+      "line": 65,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1378,7 +1378,15 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 73,
+      "line": 77,
+      "path": "backend/modules/notifications/error_handling.py",
+      "pattern": "qmark-parameter",
+      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
+      "source": "\"INSERT INTO hms_error_history (printer_id, code, message, severity, source) VALUES (?, ?, ?, ?, ?)\","
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 82,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1386,7 +1394,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 102,
+      "line": 111,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1394,7 +1402,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 176,
+      "line": 185,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1402,7 +1410,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 179,
+      "line": 188,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1410,7 +1418,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 214,
+      "line": 223,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1418,7 +1426,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 246,
+      "line": 255,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1426,7 +1434,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 258,
+      "line": 267,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1434,7 +1442,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 316,
+      "line": 325,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1442,7 +1450,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 334,
+      "line": 343,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1450,7 +1458,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 340,
+      "line": 349,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",

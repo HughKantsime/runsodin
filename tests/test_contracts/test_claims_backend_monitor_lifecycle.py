@@ -193,8 +193,6 @@ def test_prusalink_error_transition_fails_job_and_sets_printer_last_error(scenar
     assert s['printer_last_error'] == [['PRUSALINK_ERROR', 'Thermal runaway (synthetic)']]
 
 
-@pytest.mark.xfail(strict=True, reason='DEFECT: PrusaLink monitor calls record_error(), which only updates '
-                   'printers.last_error_* and never inserts into hms_error_history')
 def test_prusalink_error_transition_is_recorded_in_hms_error_history(scenarios):
     rows = scenarios['prusalink_error']['hms_error_history']
     assert any(r[0] == 'PRUSALINK_ERROR' and r[3] == 'prusalink' for r in rows)
@@ -213,16 +211,12 @@ def test_elegoo_printing_to_finished_is_completed(scenarios):
     assert [r[1] for r in scenarios['elegoo_printing_finished']['print_jobs']] == ['completed']
 
 
-@pytest.mark.xfail(strict=True, reason='DEFECT: elegoo_monitor maps STOPPING to FINISH, so an aborted print '
-                   'is recorded as a successful completion')
 def test_elegoo_stopped_print_is_not_recorded_as_success(scenarios):
     s = scenarios['elegoo_printing_stopping_idle']
     assert s['internal_states'] == ['IDLE', 'PRINTING', 'STOPPING', 'IDLE']
     assert [r[1] for r in s['print_jobs']] != ['completed']
 
 
-@pytest.mark.xfail(strict=True, reason='DEFECT: PAUSED->IDLE is not in the active-state set, so no terminal '
-                   'event fires and the print job stays running')
 def test_elegoo_print_ending_from_paused_reaches_terminal_state(scenarios):
     s = scenarios['elegoo_printing_paused_idle']
     assert [r[1] for r in s['print_jobs']] != ['running']

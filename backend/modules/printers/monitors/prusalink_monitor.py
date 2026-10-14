@@ -204,6 +204,7 @@ class PrusaLinkMonitorThread(threading.Thread):
                         error_message=error_msg,
                         source="prusalink",
                         severity="error",
+                        history=True,
                     )
                 except Exception as e:
                     log.debug(f"Failed to record PrusaLink error: {e}")
