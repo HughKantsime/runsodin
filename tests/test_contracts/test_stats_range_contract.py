@@ -96,3 +96,15 @@ def test_analytics_keeps_own_and_explicit_platform_failure_views(token_client, r
     row = next(row for row in response.json()['printer_stats'] if row['id']==9)
     assert row['failed_jobs']==(2 if platform else 1)
     assert row['success_rate']==0
+
+
+def test_selected_stats_range_applies_to_mqtt_jobs_in_mixed_timestamp_formats(analytics_client, review_db):
+    old = (datetime.now(timezone.utc) - timedelta(days=10)).replace(tzinfo=None).isoformat()
+    recent = (datetime.now(timezone.utc) - timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')
+    for status, ended in [('completed', old), ('completed', recent), ('failed', old)]:
+        review_db.execute(text("INSERT INTO print_jobs(printer_id,job_id,filename,status,started_at,ended_at) VALUES(9,:job,'synthetic.3mf',:status,:ended,:ended)"),
+                          {'job': f'synthetic-{status}-{ended}', 'status': status, 'ended': ended})
+    review_db.commit()
+    rows = {days: next(row for row in analytics_client.get(f'/stats?days={days}').json()['printer_stats'] if row['id'] == 9) for days in (7, 30)}
+    assert rows[30]['completed_jobs'] == rows[7]['completed_jobs'] + 1
+    assert rows[30]['failed_jobs'] == rows[7]['failed_jobs'] + 1

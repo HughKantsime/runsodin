@@ -4,7 +4,7 @@ from core.rbac import should_filter_org
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import and_, or_, text
 from typing import Optional
 from datetime import datetime, timedelta, timezone
 import logging
@@ -27,6 +27,15 @@ router = APIRouter(tags=["Analytics"])
 
 
 # ============== Stats ==============
+
+def _ended_in_range(ended_at, range_start):
+    from core.db_compat import as_utc_datetime
+    try:
+        ended = as_utc_datetime(ended_at)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    return ended is not None and ended.replace(tzinfo=None) >= range_start
+
 
 @router.get("/stats")
 async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer", scope="read:analytics")), days: int = Query(default=30, ge=1, le=365)):
@@ -100,27 +109,32 @@ async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(
     if should_filter_org(current_user, org):
         all_printers_q = all_printers_q.filter((Printer.org_id == org) | (Printer.org_id == None) | (Printer.shared == True))
     all_printers = all_printers_q.all()
+    # Per-printer job counts honour the selected range: a job belongs to the
+    # window when it ended inside it (or, with no recorded end, was created in it).
+    range_start = (datetime.now(timezone.utc) - timedelta(days=days)).replace(tzinfo=None)
+    in_range = or_(Job.actual_end >= range_start, and_(Job.actual_end.is_(None), Job.created_at >= range_start))
     for p in all_printers:
         # Count completed and failed jobs for this printer
         completed_jobs = job_query.filter(
             Job.printer_id == p.id,
-            Job.status == JobStatus.COMPLETED
+            Job.status == JobStatus.COMPLETED,
+            in_range,
         ).count()
-        # Also count MQTT-tracked completed jobs
-        mqtt_completed = db.execute(
-            text("SELECT COUNT(*) FROM print_jobs WHERE printer_id = :pid AND status = 'completed'"),
+        # Also count MQTT-tracked jobs. ended_at is stored in mixed text formats
+        # by different monitors, so compare parsed UTC values, not strings.
+        mqtt_terminal = db.execute(
+            text("SELECT status, ended_at FROM print_jobs WHERE printer_id = :pid AND status IN ('completed', 'failed')"),
             {"pid": p.id}
-        ).scalar() or 0
-        completed_jobs += mqtt_completed
+        ).fetchall()
+        mqtt_in_range = [row.status for row in mqtt_terminal if _ended_in_range(row.ended_at, range_start)]
+        completed_jobs += mqtt_in_range.count('completed')
 
         failed_jobs = job_query.filter(
             Job.printer_id == p.id,
-            Job.status == JobStatus.FAILED
+            Job.status == JobStatus.FAILED,
+            in_range,
         ).count()
-        mqtt_failed = db.execute(
-            text("SELECT COUNT(*) FROM print_jobs WHERE printer_id = :pid AND status = 'failed'"),
-            {"pid": p.id}
-        ).scalar() or 0
+        mqtt_failed = mqtt_in_range.count('failed')
         failed_jobs += mqtt_failed
 
         total_hours = round(p.total_print_hours or 0, 1)
