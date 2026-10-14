@@ -13,6 +13,11 @@ All notable changes to O.D.I.N. are documented here.
   legacy v1 packages are refused without side effects. Education-linked
   history is exported without bytes and cannot be imported as generic.
 - Projects page gains Import and Export ZIP controls.
+- Admin user deletion no longer fails on active sessions. Deleting a user now
+  revokes every session token and removes API tokens, MFA, reset, push and
+  native-app credentials in one transaction. Users with retained history are
+  refused with guidance to deactivate or erase. Tokens are bound to their
+  account's creation time, so a recreated username never inherits an old login.
 
 ## [1.9.24] - Protected Bambu transfer session reuse
 

@@ -5,6 +5,7 @@ Updated - see CHANGELOG for current version.
 ## Whole-app certification repairs (unreleased)
 
 - Project ZIP v2 export/import restores archives and files (F02-2.8-38).
+- Atomic admin user deletion with credential revocation (F11-11.3-05).
 - Remaining confirmed gaps tracked in the local claim ledger.
 
 ## Protected transfer session reuse (1.9.24 candidate)

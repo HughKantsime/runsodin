@@ -87,6 +87,28 @@ def _forget_last_seen(jti: str) -> None:
         _last_seen_cache.pop(jti, None)
 
 
+def token_predates_account(payload, row) -> bool:
+    """True when a JWT was issued before the account it names was created.
+
+    Usernames can be reused after a hard delete; a token minted for the old
+    account must never authorize the replacement. One second of grace covers
+    second-resolution created_at timestamps. Tokens without iat predate this
+    check and rely on jti revocation at deletion.
+    """
+    issued = payload.get("iat") if isinstance(payload, dict) else None
+    created = dict(row._mapping).get("created_at") if row is not None else None
+    if not isinstance(issued, (int, float)) or created is None:
+        return False
+    if isinstance(created, str):
+        try:
+            created = datetime.fromisoformat(created.replace("Z", "+00:00"))
+        except ValueError:
+            return False
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    return issued + 1 < created.timestamp()
+
+
 def _principal(
     row,
     auth_kind: str,
@@ -152,6 +174,8 @@ def validate_access_token(token: str, db: Session) -> Optional[dict]:
         text("SELECT * FROM users WHERE username = :username"),
         {"username": token_data.username},
     ).fetchone()
+    if token_predates_account(payload, user):
+        return None
     return _principal(user, "bearer_jwt")
 
 
@@ -206,7 +230,7 @@ async def get_current_user(
                                 text("SELECT * FROM users WHERE username = :username"),
                                 {"username": token_data.username},
                             ).fetchone()
-                            principal = _principal(user, "session_jwt")
+                            principal = None if token_predates_account(payload, user) else _principal(user, "session_jwt")
                             if principal:
                                 bind_verified_actor(db, principal)
                                 return principal
@@ -218,6 +242,7 @@ async def get_current_user(
         token_data = decode_token(token)
         if token_data:
             import jwt as _jwt
+            payload = None
             try:
                 payload = _jwt.decode(
                     token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM]
@@ -247,6 +272,8 @@ async def get_current_user(
                 text("SELECT * FROM users WHERE username = :username"),
                 {"username": token_data.username},
             ).fetchone()
+            if token_predates_account(payload, user):
+                return None
             principal = _principal(user, "bearer_jwt")
             if principal:
                 bind_verified_actor(db, principal)

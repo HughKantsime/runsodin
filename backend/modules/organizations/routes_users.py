@@ -24,7 +24,7 @@ from modules.organizations.education_policy import (
     assert_user_tenant_change_allowed,
 )
 from core.auth_helpers import _validate_password
-from core.auth import hash_password, UserCreate
+from core.auth import ACCESS_TOKEN_EXPIRE_HOURS, hash_password, UserCreate
 from core.models import SystemConfig
 from license_manager import require_feature, check_user_limit
 
@@ -298,14 +298,66 @@ async def delete_user(user_id: int, current_user: dict = Depends(require_role("a
         if admin_count <= 1:
             raise HTTPException(status_code=400, detail="Cannot delete the last admin account")
     assert_user_hard_delete_allowed(db, user_id)
-    username = target.role  # we need to fetch username for audit
+    retained = [label for label, sql in _USER_HISTORY_REFERENCES
+                if db.execute(text(sql), {"uid": user_id}).first() is not None]
+    if retained:
+        raise HTTPException(
+            status_code=409,
+            detail="User has retained history (" + ", ".join(retained) + "). "
+                   "Deactivate the account or use GDPR erase to anonymize it instead.",
+        )
     target_row = db.execute(text("SELECT username FROM users WHERE id = :id"), {"id": user_id}).fetchone()
-    db.execute(text("DELETE FROM users WHERE id = :id"), {"id": user_id})
-    log_audit(db, "user.deleted", "user", user_id,
-              {"deleted_username": target_row.username if target_row else str(user_id),
-               "actor_user_id": current_user["id"]})
-    db.commit()
+    try:
+        _revoke_user_credentials(db, user_id)
+        db.execute(text("DELETE FROM users WHERE id = :id"), {"id": user_id})
+        log_audit(db, "user.deleted", "user", user_id,
+                  {"deleted_username": target_row.username if target_row else str(user_id),
+                   "actor_user_id": current_user["id"]})
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     return {"status": "deleted"}
+
+
+# History that must keep its owner; hard delete is refused while any exists.
+_USER_HISTORY_REFERENCES = (
+    ("jobs", "SELECT 1 FROM jobs WHERE submitted_by = :uid LIMIT 1"),
+    ("print archives", "SELECT 1 FROM print_archives WHERE user_id = :uid LIMIT 1"),
+    ("projects", "SELECT 1 FROM projects WHERE created_by = :uid LIMIT 1"),
+    ("print files", "SELECT 1 FROM print_files WHERE created_by = :uid LIMIT 1"),
+    ("model revisions", "SELECT 1 FROM model_revisions WHERE uploaded_by = :uid LIMIT 1"),
+    ("owned groups", "SELECT 1 FROM groups WHERE owner_id = :uid LIMIT 1"),
+    ("report schedules", "SELECT 1 FROM report_schedules WHERE created_by = :uid LIMIT 1"),
+    ("printer profiles", "SELECT 1 FROM printer_profiles WHERE created_by = :uid LIMIT 1"),
+    ("printer profile revisions", "SELECT 1 FROM printer_profile_revisions WHERE created_by = :uid LIMIT 1"),
+    ("classroom connections", "SELECT 1 FROM classroom_connections WHERE created_by = :uid LIMIT 1"),
+)
+
+# Credentials and per-user state removed with the account (caller owns the transaction).
+_USER_CREDENTIAL_TABLES = (
+    ("api_tokens", "user_id"), ("mfa_enrollments", "user_id"),
+    ("password_reset_tokens", "user_id"), ("push_subscriptions", "user_id"),
+    ("push_devices", "user_id"), ("biometric_tokens", "user_id"),
+    ("alert_preferences", "user_id"), ("alerts", "user_id"),
+    ("idempotency_keys", "user_id"), ("quota_usage", "user_id"),
+    ("quiet_hours_digest_sends", "user_id"), ("classroom_roster_identities", "user_id"),
+    ("classroom_oauth_states", "admin_id"), ("active_sessions", "user_id"),
+)
+
+
+def _revoke_user_credentials(db, user_id):
+    """Blacklist every recorded session jti, then delete all credential rows."""
+    expires = datetime.now(timezone.utc) + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
+    jtis = [row.token_jti for row in db.execute(
+        text("SELECT token_jti FROM active_sessions WHERE user_id = :uid AND token_jti IS NOT NULL"),
+        {"uid": user_id})]
+    for jti in jtis:
+        db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) "
+                        f"VALUES (:jti, :expires){sql.on_conflict_ignore('jti')}"),
+                   {"jti": jti, "expires": expires})
+    for table, column in _USER_CREDENTIAL_TABLES:
+        db.execute(text(f"DELETE FROM {table} WHERE {column} = :uid"), {"uid": user_id})
 
 
 @router.post("/users/import", tags=["Users"], dependencies=[Depends(require_scope("admin"))])
