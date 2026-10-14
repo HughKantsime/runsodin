@@ -54,3 +54,18 @@ test('pending duplicate submission is suppressed and viewer has no editor', asyn
   await act(async () => { view.client.setQueryData(['auth','me'], { ...user, role: 'viewer' }) })
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 })
+test('modal range sliders are bounded by the recording and drive the trim request', async () => {
+  api.detail.mockResolvedValue({ row: { ...row, duration_seconds: 10 }, etag: '"source"' })
+  mount(); await waitFor(() => expect(screen.getByRole('button', { name: 'Confirm trim' })).toBeEnabled())
+  expect(screen.getByRole('dialog', { name: 'Edit recording' })).toHaveAttribute('aria-modal', 'true')
+  const startSlider = screen.getByRole('slider', { name: 'Trim start' }), endSlider = screen.getByRole('slider', { name: 'Trim end' })
+  expect(startSlider).toHaveAttribute('max', '10'); expect(endSlider).toHaveAttribute('max', '10')
+  fireEvent.change(startSlider, { target: { value: '2.5' } }); fireEvent.change(endSlider, { target: { value: '7' } })
+  expect(screen.getByLabelText('Start seconds')).toHaveValue(2.5); expect(screen.getByLabelText('End seconds (exclusive)')).toHaveValue(7)
+  // Dragging end below start keeps a valid, non-empty range.
+  fireEvent.change(endSlider, { target: { value: '2' } })
+  expect(Number((screen.getByLabelText('Start seconds') as HTMLInputElement).value)).toBeLessThan(2)
+  fireEvent.change(endSlider, { target: { value: '7' } }); fireEvent.change(startSlider, { target: { value: '2.5' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm trim' }))
+  await waitFor(() => expect(api.edit).toHaveBeenCalledWith(17, 'trim', { start_seconds: 2.5, end_seconds: 7 }, '"source"', expect.stringMatching(/^[0-9a-f]{32}$/), expect.any(AbortSignal)))
+})

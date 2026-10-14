@@ -16,14 +16,15 @@ export default function TimelapseEditor({ row, onClose, onComplete }: { row: Tim
   const epoch = useRef(0), abort = useRef<AbortController | null>(null), attempts = useRef(new Map<string, Attempt>()), busy = useRef(false)
   const [etag, setEtag] = useState(''), [pending, setPending] = useState(false), [error, setError] = useState(''), [needsReload, setNeedsReload] = useState(false)
   const [start, setStart] = useState('0'), [end, setEnd] = useState(''), [speed, setSpeed] = useState('1'), [receipt, setReceipt] = useState<TimelapseEditReceipt | null>(null)
+  const [duration, setDuration] = useState<number | null>(null)
   const permitted = !!user && ['admin', 'operator'].includes(user.role) && canDo('printers.edit')
   const current = (generation: number) => !!owner && liveKey.current === key && canDo('printers.edit') && audience(client.getQueryData<User | null>(['auth', 'me'])) === owner && generation === epoch.current
   useEffect(() => {
     epoch.current++; abort.current?.abort(); busy.current = false
-    setPending(false); setError(''); setEtag(''); setReceipt(null); setStart('0'); setEnd(''); setSpeed('1'); setNeedsReload(attempts.current.has(key))
+    setPending(false); setError(''); setEtag(''); setReceipt(null); setStart('0'); setEnd(''); setSpeed('1'); setDuration(null); setNeedsReload(attempts.current.has(key))
     if (!key || !row || !permitted) return
     const generation = epoch.current, controller = new AbortController(); abort.current = controller; busy.current = true; setPending(true)
-    timelapses.detail(row.id, controller.signal).then(detail => { if (current(generation)) { setEtag(detail.etag); if (detail.row.duration_seconds != null) setEnd(String(detail.row.duration_seconds)) } })
+    timelapses.detail(row.id, controller.signal).then(detail => { if (current(generation)) { setEtag(detail.etag); if (detail.row.duration_seconds != null) { setEnd(String(detail.row.duration_seconds)); if (Number.isFinite(detail.row.duration_seconds) && detail.row.duration_seconds > 0) setDuration(detail.row.duration_seconds) } } })
       .catch(err => { if (current(generation) && !controller.signal.aborted) setError(err.message || 'Unable to verify recording') })
       .finally(() => { if (current(generation)) { busy.current = false; setPending(false) } })
     return () => { epoch.current++; controller.abort() }
@@ -59,9 +60,13 @@ export default function TimelapseEditor({ row, onClose, onComplete }: { row: Tim
     finally { if (current(generation)) { busy.current = false; setPending(false) } }
   }
   if (!row || !owner || !permitted) return null
-  return <section role="dialog" aria-label="Edit recording" className="border rounded-lg p-4 space-y-3">
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"><section role="dialog" aria-modal="true" aria-label="Edit recording" className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-lg border bg-[var(--brand-card-bg)] p-4 space-y-3">
     <h2>Edit recording {row.id}</h2><button onClick={onClose}>Close editor</button><p>Trim publishes a new version and retains the original. Speed creates another recording. Verified CFR30 recordings only.</p>
     {etag && <video ref={video} controls onTimeUpdate={() => { if (video.current && previewEnd.current != null && video.current.currentTime >= previewEnd.current) { video.current.pause(); previewEnd.current = null } }} src={timelapses.streamUrl(row.id, etag)} onError={() => setError('Preview unavailable. Reload the recording.')} />}
+    {duration != null && <div className="space-y-1">
+      <label className="block">Trim start <input type="range" aria-label="Trim start" min="0" max={duration} step="0.1" value={Math.min(Number(start) || 0, duration)} disabled={pending} onChange={e => { const value = Number(e.target.value); setStart(e.target.value); if (Number(end) <= value) setEnd(String(Math.min(duration, value + 0.1))) }} /></label>
+      <label className="block">Trim end <input type="range" aria-label="Trim end" min="0" max={duration} step="0.1" value={Math.min(Number(end) || duration, duration)} disabled={pending} onChange={e => { const value = Number(e.target.value); setEnd(e.target.value); if (Number(start) >= value) setStart(String(Math.max(0, value - 0.1))) }} /></label>
+    </div>}
     <label>Start seconds <input type="number" min="0" step="any" value={start} disabled={pending} onChange={e => setStart(e.target.value)} /></label>
     <label>End seconds (exclusive) <input type="number" min="0" step="any" value={end} disabled={pending} onChange={e => setEnd(e.target.value)} /></label>
     <button disabled={pending || !etag} onClick={() => { if (video.current && Number.isFinite(Number(start)) && Number(end) > Number(start) && Number(start) >= 0) { video.current.currentTime = Number(start); previewEnd.current = Number(end); video.current.play().catch(() => setError('Preview playback unavailable')) } }}>Preview selected range</button>
@@ -71,5 +76,5 @@ export default function TimelapseEditor({ row, onClose, onComplete }: { row: Tim
     {pending && <p>Verifying and processing recording...</p>}{error && <p role="alert">{error}</p>}
     {needsReload && <><button disabled={pending} onClick={reload}>Reload and review</button><button disabled={pending} onClick={() => submit(attempts.current.get(key)?.kind || 'trim', true)}>Retry exact previous edit</button></>}
     {receipt && <div><p>Edit completed: {receipt.frame_count} frames, {receipt.duration_seconds} seconds.</p>{receipt.playback_available ? <><video controls src={timelapses.streamUrl(receipt.result_tid, `"${receipt.result_nonce}"`)} /><a href={timelapses.downloadUrl(receipt.result_tid, `"${receipt.result_nonce}"`)}>Download edited recording</a></> : <p>This version is no longer current. Refresh the list to open the current recording.</p>}</div>}
-  </section>
+  </section></div>
 }
