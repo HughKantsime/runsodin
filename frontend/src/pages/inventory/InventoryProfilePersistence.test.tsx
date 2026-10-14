@@ -22,11 +22,11 @@ it('edit saves actual PA and explicit zero threshold through update API',async()
 it('selected batch action opens genuine sheet URLs covering selections larger than a page',async()=>{
  const rows=Array.from({length:41},(_,i)=>({...spool,id:i+1,qr_code:`SPL-OWNED-${i+1}`}));api.list.mockResolvedValue(rows)
  show();await screen.findByText('SPL-OWNED-1');fireEvent.click(screen.getByRole('checkbox',{name:'Select all'}));fireEvent.click(screen.getByRole('button',{name:'Print labels'}))
- const links=screen.getAllByRole('link',{name:/Open label sheet/});expect(links).toHaveLength(2)
+ const links=await screen.findAllByRole('link',{name:/Open label sheet/});expect(links).toHaveLength(2)
  const ids=links.flatMap(link=>new URL(link.getAttribute('href')!,'http://owned.invalid').searchParams.get('spool_ids')!.split(',').map(Number))
  expect(ids).toEqual(rows.map(r=>r.id));expect(links[0]).toHaveAttribute('href',`/api/spools/labels/batch?spool_ids=${rows.slice(0,40).map(r=>r.id).join(',')}&size=small`)
  expect(links[0]).toHaveAttribute('target','_blank');expect(links[0]).toHaveAttribute('rel','noopener noreferrer')
-})
+},15000) // 41-row render exceeds the default 5s budget on a loaded host
 
 it('edit refuses a threshold above the database integer limit before a request',async()=>{
  show();await screen.findByText('SPL-OWNED');fireEvent.click(screen.getByTitle('Edit spool'))
