@@ -19,7 +19,8 @@ def test_chargeback_reports_measured_grams_without_inflating_job_counts(token_cl
     response = client.get('/reports/chargebacks', headers=issue(['read:analytics']), params={'start_date': '2026-10-12', 'end_date': '2026-10-12'})
     assert response.status_code == 200, response.text
     assert response.json() == [{'user_id': 1, 'username': 'student', 'job_count': 3, 'total_cost': 6.0, 'total_hours': 3.0,
-                                'total_grams': 95.5, 'unmeasured_prints': 1}]
+                                'total_grams': 95.5, 'unmeasured_prints': 1,
+                                'currency': None, 'cost_basis': 'job_estimate_current_currency'}]
 
 
 def test_scheduled_chargeback_summary_renders_grams(review_db):
@@ -32,3 +33,16 @@ def test_scheduled_chargeback_summary_renders_grams(review_db):
     review_db.commit()
     html = generate_chargeback_summary(review_db, {})
     assert 'GRAMS' in html and '>12g<' in html
+
+
+def test_chargeback_cost_is_labeled_in_org_currency(token_client, review_db):
+    from modules.reporting.routes import reports
+    from core.finance_currency import write_currency
+    client, issue = token_client
+    client.app.include_router(reports.router)
+    review_db.execute(text('UPDATE jobs SET charged_to_user_id=NULL'))
+    review_db.execute(text("INSERT INTO jobs(item_name,charged_to_user_id,charged_to_org_id,estimated_cost,duration_hours,created_at) VALUES('Priced',1,1,4.5,1,'2026-10-12 12:00:00')"))
+    write_currency(review_db, owner_scope='org', owner_key=1, currency='GBP')
+    review_db.commit()
+    row = client.get('/reports/chargebacks', headers=issue(['read:analytics'])).json()[0]
+    assert row['total_cost'] == 4.5 and row['currency'] == 'GBP' and row['cost_basis'] == 'job_estimate_current_currency'

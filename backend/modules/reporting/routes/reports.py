@@ -107,10 +107,14 @@ async def chargeback_report(
     query += " GROUP BY j.charged_to_user_id, u.username ORDER BY total_cost DESC"
 
     rows = db.execute(text(query), params).fetchall()
+    from modules.reporting.education_usage import report_currency
+    currency = None if platform else report_currency(db, current_user)
     return [{
         "user_id": r.user_id, "username": r.username or f"[user-{r.user_id}]",
         "job_count": r.job_count,
         "total_cost": round(r.total_cost or 0, 2),
+        "currency": currency,
+        "cost_basis": "job_estimate_current_currency",
         "total_hours": round(r.total_hours or 0, 1),
         "total_grams": round(r.total_grams or 0, 1),
         "unmeasured_prints": int(r.unmeasured_prints or 0),

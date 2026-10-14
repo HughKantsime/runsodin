@@ -28,7 +28,7 @@ def test_actual_hours_count_once_and_accuracy_mean_uses_unrounded_samples(review
     assert result['total_jobs']==2 and result['total_print_hours']==5
     assert result['estimated_print_hours']==5
     assert result['accuracy']==41.7 and result['accuracy_samples']==2
-    assert result['total_cost'] is None and result['currency'] is None
+    assert result['total_cost']==10.0 and result['currency'] is None and result['cost_basis']=='job_estimate_current_currency'
 
 
 def test_missing_intervals_are_unknown_and_never_perfect_accuracy(review_db):

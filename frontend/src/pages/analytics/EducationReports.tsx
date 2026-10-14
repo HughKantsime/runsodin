@@ -16,6 +16,14 @@ const metric = (value, suffix = '') => typeof value === 'number' && Number.isFin
 
 const knownMetric = (value, unknown, suffix) => typeof value !== 'number' || !Number.isFinite(value) ? 'Unknown' : unknown > 0 ? (value === 0 ? 'Unknown' : `${metric(value, suffix)} known (${unknown} unknown)`) : metric(value, suffix)
 
+// Job-estimate cost in the org's current currency; never a unitless amount.
+const estimatedCost = (row) => {
+  if (typeof row?.total_cost !== 'number' || !Number.isFinite(row.total_cost)) return 'Unknown'
+  if (typeof row.currency !== 'string' || !row.currency) return 'Unknown (currency not set)'
+  const amount = `Est. ${row.currency} ${row.total_cost.toFixed(row.currency === 'JPY' ? 0 : 2)}`
+  return row.unknown_cost_jobs > 0 ? `${amount} (${row.unknown_cost_jobs} unpriced)` : amount
+}
+
 const CHART_TOOLTIP = { backgroundColor: 'var(--chart-tooltip-bg)', border: 'none', borderRadius: '6px', boxShadow: 'var(--chart-tooltip-shadow)', color: 'var(--brand-text-primary)' }
 
 export default function EducationReports() {
@@ -79,7 +87,7 @@ export default function EducationReports() {
     if (!users.length) return
     const rows = [['Username', 'Email', 'Role', 'Jobs Submitted', 'Approved', 'Rejected', 'Completed', 'Failed', 'Actual Print Hours', 'Estimated Filament (g)', 'Time Accuracy %', 'Cost', 'Approval Rate %', 'Success Rate %', 'Last Activity', 'Unknown Actual Hours Jobs', 'Unknown Filament Estimate Jobs', 'Accuracy Samples', 'Unknown Accuracy Jobs', 'Hours Unavailable Reason', 'Filament Unavailable Reason']]
     users.forEach(u => {
-      rows.push([u.username, u.email, u.role, u.total_jobs_submitted, u.total_jobs_approved, u.total_jobs_rejected, u.total_jobs_completed, u.total_jobs_failed, u.total_print_hours ?? '', u.estimated_filament_grams ?? '', u.accuracy ?? '', 'Unavailable: currency not retained', u.approval_rate, u.success_rate, u.last_activity || '', u.unknown_actual_hours_jobs ?? '', u.unknown_filament_estimate_jobs ?? '', u.accuracy_samples ?? '', u.unknown_accuracy_jobs ?? '', u.total_print_hours_unavailable_reason || '', u.estimated_filament_grams_unavailable_reason || ''])
+      rows.push([u.username, u.email, u.role, u.total_jobs_submitted, u.total_jobs_approved, u.total_jobs_rejected, u.total_jobs_completed, u.total_jobs_failed, u.total_print_hours ?? '', u.estimated_filament_grams ?? '', u.accuracy ?? '', estimatedCost(u), u.approval_rate, u.success_rate, u.last_activity || '', u.unknown_actual_hours_jobs ?? '', u.unknown_filament_estimate_jobs ?? '', u.accuracy_samples ?? '', u.unknown_accuracy_jobs ?? '', u.total_print_hours_unavailable_reason || '', u.estimated_filament_grams_unavailable_reason || ''])
     })
     const cell = value => {
       let text = String(value ?? '')
@@ -126,7 +134,7 @@ export default function EducationReports() {
         </div>
       </div>
 
-      <p className="text-sm text-[var(--brand-text-muted)]">Hours show completed print time. Filament is estimated from model data. Time accuracy compares retained schedules with completed print time. Costs are unavailable because currency was not saved with older estimates.</p>
+      <p className="text-sm text-[var(--brand-text-muted)]">Hours show completed print time. Filament is estimated from model data. Time accuracy compares retained schedules with completed print time. Costs are job estimates shown in your organization's current currency.</p>
       {summary.unproven_history_jobs > 0 && <p className="text-sm text-[var(--brand-text-muted)]">Older records without proven ownership contribute activity counts only.</p>}
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-3">
@@ -211,10 +219,11 @@ export default function EducationReports() {
       {(['printer', 'model'] as const).map(kind => (
         <div key={kind} role="region" aria-label={`Usage by ${kind} table`} tabIndex={0} className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 overflow-x-auto">
           <h3 className="text-sm font-semibold mb-3">Usage by {kind === 'printer' ? 'Printer' : 'Model'}</h3>
-          <table className="w-full text-sm"><thead><tr><th className="text-left">{kind === 'printer' ? 'Printer' : 'Model'}</th><th>Jobs</th><th>Actual Hours</th><th>Time Accuracy</th></tr></thead>
+          <table className="w-full text-sm"><thead><tr><th className="text-left">{kind === 'printer' ? 'Printer' : 'Model'}</th><th>Jobs</th><th>Actual Hours</th><th>Time Accuracy</th><th>Cost</th></tr></thead>
             <tbody>{(data?.[`by_${kind}`] || []).map((group, index) => <tr key={group.id ?? `unavailable-${index}`}>
               <td>{group.available && group.name ? group.name : 'Unavailable resource'}</td><td className="text-center">{group.total_jobs_submitted}</td>
               <td className="text-center">{knownMetric(group.total_print_hours, group.unknown_actual_hours_jobs, 'h')}</td><td className="text-center">{metric(group.accuracy, '%')}</td>
+              <td className="text-center">{estimatedCost(group)}</td>
             </tr>)}</tbody></table>
         </div>
       ))}
@@ -262,7 +271,7 @@ export default function EducationReports() {
                   </span>
                 </td>
                 <td className="py-2 px-2 text-right">{metric(u.accuracy, '%')}</td>
-                <td className="py-2 px-2 text-right">Unavailable</td>
+                <td className="py-2 px-2 text-right">{estimatedCost(u)}</td>
                 <td className="py-2 px-2 text-right text-[var(--brand-text-muted)] text-xs hidden lg:table-cell">
                   {u.last_activity ? new Date(u.last_activity).toLocaleDateString() : 'Unknown'}
                 </td>

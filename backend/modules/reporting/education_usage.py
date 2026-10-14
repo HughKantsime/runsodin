@@ -33,7 +33,8 @@ def _bucket():
                 estimated_print_hours=0.0,estimated_filament_grams=0.0,
                 unknown_actual_hours_jobs=0,unknown_estimated_hours_jobs=0,
                 unknown_filament_estimate_jobs=0,accuracy_samples=0,
-                unknown_accuracy_jobs=0,unproven_history_jobs=0,_accuracy_sum=0.0)
+                unknown_accuracy_jobs=0,unproven_history_jobs=0,_accuracy_sum=0.0,
+                total_cost=0.0,unknown_cost_jobs=0,_cost_samples=0)
 
 
 def _accumulate(bucket,key,value):
@@ -55,6 +56,11 @@ def _add(bucket,row):
     if not row['owner_proved']:
         bucket['unproven_history_jobs']+=1
         return
+    if completed or row['status']==JobStatus.FAILED.value:
+        cost=_number(row['estimated_cost'])
+        if cost is None:bucket['unknown_cost_jobs']+=1
+        else:
+            _accumulate(bucket,'total_cost',cost);bucket['_cost_samples']+=1
     if not completed:return
     actual=_hours(row['actual_start'],row['actual_end'])
     estimate=_hours(row['scheduled_start'],row['scheduled_end'])
@@ -85,7 +91,7 @@ def _add(bucket,row):
     except (ValueError,TypeError,RecursionError,OverflowError):bucket['unknown_filament_estimate_jobs']+=1
 
 
-def _finish(bucket):
+def _finish(bucket,currency=None):
     result=dict(bucket)
     total=result['total_jobs_submitted']
     terminal=result['total_jobs_completed']+result['total_jobs_failed']
@@ -95,12 +101,21 @@ def _finish(bucket):
     result['accuracy']=round(result.pop('_accuracy_sum')/samples,1) if samples else None
     for key in ('total_print_hours','estimated_print_hours','estimated_filament_grams'):
         if result[key] is not None:result[key]=round(result[key],1)
-    # No retained currency exists for historical estimated_cost. Current settings
-    # cannot price these amounts, including an apparently homogeneous org cohort.
-    result.update(total_cost=None,currency=None,cost_basis='unbound_estimate_currency',
-                  accuracy_basis='retained_schedule_interval',filament_basis='model_estimate',
-                  unknown_cost_jobs=total)
+    if not result.pop('_cost_samples'):result['total_cost']=None
+    elif result['total_cost'] is not None:result['total_cost']=round(result['total_cost'],2)
+    # Job estimates labeled in the viewer org's current currency (historical
+    # estimates retain no currency of their own); None for cross-org views.
+    result.update(currency=currency,cost_basis='job_estimate_current_currency',
+                  accuracy_basis='retained_schedule_interval',filament_basis='model_estimate')
     return result
+
+
+def report_currency(db,current_user):
+    """Current finance currency of the viewer's org; None for platform/cross-org views."""
+    from core.finance_currency import read_currency
+    org=current_user.get('group_id')
+    if type(org) is not int or org<=0:return None
+    return read_currency(db,owner_scope='org',owner_key=org)
 
 
 def build_education_usage_report(days:int,db:Session,current_user:dict)->dict:
@@ -113,7 +128,7 @@ def build_education_usage_report(days:int,db:Session,current_user:dict)->dict:
         proof='('+proved_job_owner_sql()+') AND ('+proved_education_job_sql()+')'
         scope='' if platform else ' AND u.group_id=:org AND j.charged_to_org_id=:org AND ('+proof+')'
         rows=db.execute(text('''SELECT j.id,j.status,j.approved_by,j.rejected_reason,j.quantity,
-          j.duration_hours,j.actual_start,j.actual_end,j.scheduled_start,j.scheduled_end,
+          j.duration_hours,j.estimated_cost,j.actual_start,j.actual_end,j.scheduled_start,j.scheduled_end,
           j.created_at,j.submitted_by,j.printer_id,j.model_id,u.username,u.email,u.role,
           m.build_time_hours AS model_hours,m.color_requirements,m.name AS model_name,
           m.org_id AS model_org,p.name AS printer_name,p.org_id AS printer_org,p.shared AS printer_shared,
@@ -146,10 +161,11 @@ def build_education_usage_report(days:int,db:Session,current_user:dict)->dict:
             key=row[kind+'_id'] if visible else None
             group=groups.setdefault(key,dict(_bucket(),id=key,name=row[kind+'_name'] if visible else None,available=visible))
             _add(group,row)
-    result=_finish(summary)
+    currency=report_currency(db,current_user)
+    result=_finish(summary,currency)
     result.update(total_users_active=len(users),total_jobs=result['total_jobs_submitted'],
                   rejection_rate=round(result['total_jobs_rejected']/result['total_jobs_submitted']*100,1) if result['total_jobs_submitted'] else 0)
-    return dict(summary=result,users=[_finish(v) for v in sorted(users.values(),key=lambda v:(-v['total_jobs_submitted'],v['user_id']))],
-                daily_submissions=dict(sorted(daily.items())),by_printer=[_finish(v) for v in printers.values()],
-                by_model=[_finish(v) for v in models.values()],days=days,window_basis='submission_created_at',
+    return dict(summary=result,users=[_finish(v,currency) for v in sorted(users.values(),key=lambda v:(-v['total_jobs_submitted'],v['user_id']))],
+                daily_submissions=dict(sorted(daily.items())),by_printer=[_finish(v,currency) for v in printers.values()],
+                by_model=[_finish(v,currency) for v in models.values()],days=days,window_basis='submission_created_at',
                 as_of=as_of.isoformat(),history_basis='proved_retained_owner_or_platform_count_only')

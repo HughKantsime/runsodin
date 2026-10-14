@@ -24,6 +24,8 @@ All notable changes to O.D.I.N. are documented here.
   revenue-weighted estimate across orders with known costs.
 - Chargeback reports (screen and scheduled email) include measured filament
   grams per user, and disclose print attempts that reported no measurement.
+- Usage and chargeback reports price jobs as labeled estimates in the
+  organization's configured currency, per user and per printer and model.
 
 ## [1.9.24] - Protected Bambu transfer session reuse
 

@@ -8,7 +8,9 @@
       "total_cost": 7.25,
       "total_hours": 2.5,
       "total_grams": 0.0,
-      "unmeasured_prints": 0
+      "unmeasured_prints": 0,
+      "currency": null,
+      "cost_basis": "job_estimate_current_currency"
     }
   ]
 }

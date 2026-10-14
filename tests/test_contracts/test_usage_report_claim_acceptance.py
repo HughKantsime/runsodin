@@ -34,13 +34,33 @@ def test_usage_report_exposes_advertised_user_cost_and_accuracy(usage_client):
     assert response.status_code==200
     user=next(row for row in response.json()['users'] if row['user_id']==1)
     assert user['total_jobs_submitted']>=1 and user['total_print_hours']==2
-    assert user['total_cost'] is None and user['currency'] is None
-    assert user['cost_basis']=='unbound_estimate_currency'
+    assert user['total_cost']==5.0 and user['currency'] is None
+    assert user['cost_basis']=='job_estimate_current_currency'
     assert user['accuracy']==100 and user['accuracy_samples']==1
-    # Unknown currency is deliberately not full advertised priced-cost acceptance.
 
 
 def test_usage_report_aggregates_stats_by_printer_and_model(usage_client):
     response=usage_client.get('/education/usage-report')
     assert response.status_code==200
     assert 'by_printer' in response.json() and 'by_model' in response.json()
+
+
+def test_usage_report_prices_users_printers_and_models_in_org_currency(usage_client,review_db):
+    from core.finance_currency import write_currency
+    from datetime import datetime,timedelta,timezone
+    from core.economic_identity import _add_created
+    from core.base import JobStatus
+    from modules.jobs.models import Job
+    write_currency(review_db,owner_scope='org',owner_key=1,currency='EUR')
+    now=datetime.now(timezone.utc).replace(tzinfo=None)
+    _add_created(review_db,Job(item_name='Unpriced usage',status=JobStatus.FAILED,quantity=1,duration_hours=1,
+        estimated_cost=None,submitted_by=1,printer_id=9,charged_to_org_id=1,
+        actual_start=now-timedelta(hours=2),actual_end=now-timedelta(hours=1)),'job',owner_org_id=1)
+    review_db.commit()
+    body=usage_client.get('/education/usage-report').json()
+    user=next(row for row in body['users'] if row['user_id']==1)
+    assert user['total_cost']==5.0 and user['currency']=='EUR' and user['unknown_cost_jobs']==1
+    printer=next(row for row in body['by_printer'] if row['id']==9)
+    assert printer['total_cost']==5.0 and printer['currency']=='EUR' and printer['total_jobs_submitted']==2
+    assert body['summary']['total_cost']==5.0 and body['summary']['cost_basis']=='job_estimate_current_currency'
+    assert all('accuracy' in row and 'total_print_hours' in row for row in body['by_model'])

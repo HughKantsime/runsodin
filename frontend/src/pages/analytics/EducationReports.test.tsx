@@ -31,10 +31,11 @@ it('labels actual hours and estimated filament, shows accuracy and opaque resour
   const user=screen.getAllByText('Student').map(node=>node.closest('tr')).find(Boolean)!
   expect(within(user).getByText('10g')).toBeInTheDocument()
   expect(within(user).getByText('80%')).toBeInTheDocument()
-  expect(within(user).getByText('Unavailable')).toBeInTheDocument()
+  expect(within(user).getAllByText('Unknown', {selector: 'td'}).length).toBeGreaterThan(0)
+  expect(within(user).queryByText(/Est\. /)).not.toBeInTheDocument()
   expect(screen.getByText('Owned printer')).toBeInTheDocument()
   expect(screen.getByText('Unavailable resource')).toBeInTheDocument()
-  expect(screen.getByText(/currency was not saved/)).toBeInTheDocument()
+  expect(screen.getByText(/job estimates shown in your organization's current currency/)).toBeInTheDocument()
 })
 
 it('does not format missing or overflowing metrics as zero or infinity',async()=>{
@@ -77,4 +78,16 @@ it('exports escaped formula-safe cells and preserves incomplete metric qualifier
   expect(exported[0]).toContain('"Unknown Filament Estimate Jobs"')
   expect(exported[0]).toContain('"Accuracy Samples"')
   expect(exported[0]).toContain('"numeric_overflow"')
+})
+
+
+it('prices users and resource groups as labeled estimates in the org currency', async () => {
+  const body = data()
+  body.users[0] = { ...body.users[0], total_cost: 5, currency: 'EUR', unknown_cost_jobs: 1 }
+  body.by_printer = [{ id: 9, name: 'Synthetic printer', available: true, total_jobs_submitted: 2, total_print_hours: 2, accuracy: 100, total_cost: 5, currency: 'EUR', unknown_cost_jobs: 0 }]
+  body.by_model = [{ id: 3, name: 'Synthetic model', available: true, total_jobs_submitted: 1, total_print_hours: 2, accuracy: 100, total_cost: 3, currency: null, unknown_cost_jobs: 0 }]
+  api.get.mockResolvedValue(body); show()
+  expect(await screen.findByText('Est. EUR 5.00 (1 unpriced)')).toBeInTheDocument()
+  expect(within(screen.getByRole('region', { name: 'Usage by printer table' })).getByText('Est. EUR 5.00')).toBeInTheDocument()
+  expect(within(screen.getByRole('region', { name: 'Usage by model table' })).getByText('Unknown (currency not set)')).toBeInTheDocument()
 })
