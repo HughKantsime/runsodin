@@ -76,7 +76,5 @@ def test_perimeter_blocks_requests_without_any_key(bypass):
     assert bypass['no_headers']['status'] == 401
 
 
-@pytest.mark.xfail(strict=True, reason='DEFECT: GET /api/printers/{id}/unmatched-slots has no auth dependency and the '
-                   'perimeter forwards any odin_-prefixed key; a fabricated token reads any tenant printer slots')
 def test_fabricated_odin_token_cannot_read_printer_slots(bypass):
     assert bypass['bogus_odin_token']['status'] in (401, 403)

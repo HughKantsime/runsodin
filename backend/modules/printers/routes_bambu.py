@@ -10,7 +10,7 @@ from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.orm import Session
 
 from core.db import get_db
-from core.rbac import require_role
+from core.rbac import check_org_access, require_role
 from core.config import settings
 import core.crypto as crypto
 from modules.printers.models import Printer, FilamentSlot
@@ -74,6 +74,14 @@ class ManualSlotAssignment(PydanticBaseModel):
 # Bambu Integration
 # ====================================================================
 
+def _owned_printer(db, printer_id, current_user):
+    """Load a printer in the caller's org scope; 404 for missing or foreign printers."""
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer or not check_org_access(current_user, printer.org_id):
+        raise HTTPException(status_code=404, detail="Printer not found")
+    return printer
+
+
 @router.post("/bambu/test-connection", tags=["Bambu"])
 async def test_bambu_printer_connection(request: BambuConnectionTest, current_user: dict = Depends(require_role("operator"))):
     """Test connection to a Bambu Lab printer via local MQTT."""
@@ -97,9 +105,7 @@ async def sync_bambu_ams(printer_id: int, current_user: dict = Depends(require_r
     if not BAMBU_AVAILABLE:
         raise HTTPException(status_code=501, detail="Bambu integration not available")
 
-    printer = db.query(Printer).filter(Printer.id == printer_id).first()
-    if not printer:
-        raise HTTPException(status_code=404, detail="Printer not found")
+    printer = _owned_printer(db, printer_id, current_user)
 
     if printer.api_type != "bambu":
         raise HTTPException(status_code=400, detail=f"Printer is type '{printer.api_type}', not 'bambu'")
@@ -227,6 +233,7 @@ async def manual_slot_assignment(
     current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
 ):
     """Manually assign filament to a slot when auto-matching fails."""
+    _owned_printer(db, printer_id, current_user)
     slot = db.query(FilamentSlot).filter(
         FilamentSlot.printer_id == printer_id,
         FilamentSlot.slot_number == slot_number,
@@ -269,11 +276,10 @@ async def manual_slot_assignment(
 
 
 @router.get("/printers/{printer_id}/unmatched-slots", tags=["Bambu"])
-async def get_unmatched_slots(printer_id: int, db: Session = Depends(get_db)):
+async def get_unmatched_slots(printer_id: int, current_user: dict = Depends(require_role("viewer", scope="read")),
+                              db: Session = Depends(get_db)):
     """Get slots that need manual filament assignment."""
-    printer = db.query(Printer).filter(Printer.id == printer_id).first()
-    if not printer:
-        raise HTTPException(status_code=404, detail="Printer not found")
+    printer = _owned_printer(db, printer_id, current_user)
 
     unmatched = []
     for slot in printer.filament_slots:

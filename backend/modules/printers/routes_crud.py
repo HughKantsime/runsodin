@@ -363,11 +363,11 @@ def get_overlay_data(printer_id: int, db: Session = Depends(get_db)):
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
+    # Public endpoint: never expose a stored camera URL (it can embed credentials
+    # and may be stored encrypted); point at the proxied stream instead.
     camera_url = None
-    if printer.api_type == "bambu" and printer.api_host:
+    if (printer.api_type == "bambu" and printer.api_host) or printer.camera_url:
         camera_url = f"/api/cameras/{printer_id}/stream"
-    elif printer.camera_url:
-        camera_url = printer.camera_url
     job_row = db.execute(
         text(
             "SELECT job_name, progress_percent, current_layer, total_layers, remaining_minutes "

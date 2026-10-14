@@ -32,7 +32,7 @@ router = APIRouter(tags=["Alerts"])
 
 @router.get("/alerts/digest-status", tags=["Alerts"])
 def get_digest_status(
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_role("viewer")),
     db: Session = Depends(get_db),
 ):
     """Return the most recent quiet-hours digest delivery outcome for the
