@@ -96,9 +96,9 @@ async def upload_vision_model(
     content = await file.read(MAX_ONNX_BYTES + 1)
     if len(content) > MAX_ONNX_BYTES:
         raise HTTPException(status_code=413, detail="Model file exceeds 500 MB limit")
-    os.makedirs('/data/vision_models', exist_ok=True)
+    os.makedirs(VISION_MODELS_DIR, exist_ok=True)
     safe_name = uuid.uuid4().hex + '.onnx'
-    dest = os.path.join('/data/vision_models', safe_name)
+    dest = os.path.join(VISION_MODELS_DIR, safe_name)
     with open(dest, 'xb') as f:
         f.write(content)
         f.flush()
