@@ -222,10 +222,11 @@ def _resolve_user_id(request: Any, db: Session) -> Optional[int]:
             if not username:
                 return None
             row = db.execute(
-                text("SELECT id, is_active FROM users WHERE username = :u"),
+                text("SELECT id, is_active, created_at FROM users WHERE username = :u"),
                 {"u": username},
             ).fetchone()
-            if not row or not row.is_active:
+            from core.dependencies import token_predates_account
+            if not row or not row.is_active or token_predates_account(payload, row):
                 return None
             return int(row.id)
         except Exception:

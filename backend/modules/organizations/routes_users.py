@@ -286,7 +286,12 @@ async def update_user(user_id: int, body: UserUpdateRequest, current_user: dict 
 async def delete_user(user_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     if current_user["id"] == user_id:
         raise HTTPException(status_code=400, detail="Cannot delete yourself")
-    target = db.execute(text("SELECT role, group_id FROM users WHERE id = :id"), {"id": user_id}).fetchone()
+    # Lock the account first so a concurrent login cannot add a session mid-delete.
+    if db.get_bind().dialect.name == "sqlite":
+        db.execute(text("UPDATE users SET id = id WHERE id = :id"), {"id": user_id})
+    target = db.execute(text("SELECT role, group_id FROM users WHERE id = :id" +
+                             (" FOR UPDATE" if db.get_bind().dialect.name == "postgresql" else "")),
+                        {"id": user_id}).fetchone()
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
     # Org-scoped admin: verify target is in their group
@@ -322,7 +327,8 @@ async def delete_user(user_id: int, current_user: dict = Depends(require_role("a
 
 # History that must keep its owner; hard delete is refused while any exists.
 _USER_HISTORY_REFERENCES = (
-    ("jobs", "SELECT 1 FROM jobs WHERE submitted_by = :uid LIMIT 1"),
+    ("jobs", "SELECT 1 FROM jobs WHERE submitted_by = :uid OR charged_to_user_id = :uid OR approved_by = :uid LIMIT 1"),
+    ("vision reviews", "SELECT 1 FROM vision_detections WHERE reviewed_by = :uid LIMIT 1"),
     ("print archives", "SELECT 1 FROM print_archives WHERE user_id = :uid LIMIT 1"),
     ("projects", "SELECT 1 FROM projects WHERE created_by = :uid LIMIT 1"),
     ("print files", "SELECT 1 FROM print_files WHERE created_by = :uid LIMIT 1"),

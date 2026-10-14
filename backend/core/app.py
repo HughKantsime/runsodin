@@ -971,11 +971,23 @@ def create_app() -> FastAPI:
                     ):
                         with SessionLocal() as db:
                             row = db.execute(
-                                text("SELECT id, username, role, group_id FROM users WHERE username = :username AND is_active IS TRUE"),
+                                text("SELECT id, username, role, group_id, created_at FROM users WHERE username = :username AND is_active IS TRUE"),
                                 {"username": token_data.username},
                             ).fetchone()
+                            jti = payload.get("jti")
+                            revoked = bool(jti) and db.execute(
+                                text("SELECT 1 FROM token_blacklist WHERE jti = :jti"), {"jti": jti}
+                            ).first() is not None
+                        from core.dependencies import token_predates_account
+                        # A ws token names its account by id too; a recreated username
+                        # (new id, later created_at) must never inherit it.
+                        bound_id = payload.get("user_id")
+                        if row and (revoked or token_predates_account(payload, row)
+                                    or (bound_id is not None and bound_id != row.id)):
+                            row = None
                         if row:
                             principal = dict(row._mapping)
+                            principal.pop("created_at", None)
                             principal["_auth_kind"] = "websocket_token"
                             principal["_token_id"] = str(payload.get("jti") or "")
                             principal["_capability_snapshot_id"] = capability_snapshot_id
