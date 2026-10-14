@@ -98,14 +98,6 @@ def test_fresh_sqlite_bootstrap_succeeds(tmp_path):
     assert result.returncode == 0, result.stderr[-2000:]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "DEFECT: update.sh rollback text says 'docker pull ghcr.io/hughkantsime/odin:v<CURRENT> && "
-        "docker compose up -d', but compose runs ${ODIN_IMAGE} (installer writes :latest to .env), so the "
-        "pulled version tag is never used."
-    ),
-)
 def test_update_rollback_instruction_targets_the_image_compose_runs():
     src = UPDATE_SH.read_text(encoding="utf-8")
     rollback_lines = [line for line in src.splitlines() if "Rollback" in line or "docker compose up -d" in line]

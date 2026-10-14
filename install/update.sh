@@ -342,7 +342,7 @@ compose_cmd+=(up -d)
 compose_output=$("${compose_cmd[@]}" 2>&1) || {
     die "Failed to restart container" \
         "$compose_output" \
-        "Rollback: docker pull ghcr.io/hughkantsime/odin:v${CURRENT_VERSION} && docker compose up -d"
+        "Rollback: ODIN_IMAGE=ghcr.io/hughkantsime/odin:v${CURRENT_VERSION} docker compose up -d   (pins the previous version; set ODIN_IMAGE in .env to keep it)"
 }
 ok "Container restarted"
 
@@ -372,8 +372,10 @@ if [ $attempts -ge $max_attempts ]; then
     spin_stop
     err "Container did not become healthy within ${max_attempts}s"
     dim "Check logs: docker compose logs"
-    dim "Rollback:   docker pull ghcr.io/hughkantsime/odin:v${CURRENT_VERSION}"
-    dim "            docker compose up -d"
+    # .env pins ODIN_IMAGE to :latest, so a plain 'docker compose up' would relaunch
+    # the failed image; override it for the previous version explicitly.
+    dim "Rollback:   ODIN_IMAGE=ghcr.io/hughkantsime/odin:v${CURRENT_VERSION} docker compose up -d"
+    dim "            (set ODIN_IMAGE in .env to keep that version)"
     UPDATE_FAILED=1
     exit 1
 fi
@@ -382,8 +384,20 @@ fi
 
 phase 6 $TOTAL "Verifying update"
 
-NEW_VERSION=$(docker exec "$ODIN_CONTAINER_NAME" cat /app/VERSION 2>/dev/null || echo "$LATEST_VERSION")
+NEW_VERSION=$(docker exec "$ODIN_CONTAINER_NAME" cat /app/VERSION 2>/dev/null || echo "unknown")
 ok "Version: ${NEW_VERSION}"
+
+# Never report an update that did not happen: the pulled image tag can lag the
+# announced release (for example :latest still pointing at the previous version).
+if [ "$NEW_VERSION" = "$CURRENT_VERSION" ] && [ "$FORCE" = false ]; then
+    err "The running version is still ${CURRENT_VERSION}; ${LATEST_VERSION} was announced but the pulled image does not contain it yet."
+    dim "Nothing was changed. Try again later, or run with --force to reinstall ${CURRENT_VERSION}."
+    UPDATE_FAILED=1
+    exit 3
+fi
+if [ "$NEW_VERSION" != "$LATEST_VERSION" ]; then
+    warn "Running ${NEW_VERSION}, but ${LATEST_VERSION} is the announced release."
+fi
 
 # ── Success ───────────────────────────────────────────────────────────────────
 
