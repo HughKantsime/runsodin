@@ -9,7 +9,7 @@ from core.rbac import should_filter_org
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func as sa_func, case, text
+from sqlalchemy import func as sa_func, case, or_, text
 from typing import Optional
 from datetime import datetime, timedelta, timezone
 import json
@@ -109,8 +109,8 @@ async def list_vision_detections(
         count_query = count_query.filter(VisionDetection.status == status_filter)
     else:
         # Collected training samples are not detections; list them only on request.
-        query = query.filter(VisionDetection.status != 'training')
-        count_query = count_query.filter(VisionDetection.status != 'training')
+        query = query.filter(_not_training())
+        count_query = count_query.filter(_not_training())
 
     total = count_query.scalar()
     rows = (
@@ -308,6 +308,11 @@ async def update_global_vision_settings(
     return updates
 
 
+def _not_training():
+    # NULL status is a legacy detection, not a training sample; NULL != x is never true in SQL.
+    return or_(VisionDetection.status.is_(None), VisionDetection.status != 'training')
+
+
 # ============== Vigil AI: Frames ==============
 
 def _frame_response(current_user, printer_id, relative):
@@ -358,7 +363,7 @@ async def get_vision_stats(
     # By type
     type_rows = (
         db.query(VisionDetection.detection_type, sa_func.count(VisionDetection.id))
-        .filter(VisionDetection.created_at > cutoff, VisionDetection.status != 'training')
+        .filter(VisionDetection.created_at > cutoff, _not_training())
         .group_by(VisionDetection.detection_type)
         .all()
     )
@@ -367,7 +372,7 @@ async def get_vision_stats(
     # By status
     status_rows = (
         db.query(VisionDetection.status, sa_func.count(VisionDetection.id))
-        .filter(VisionDetection.created_at > cutoff, VisionDetection.status != 'training')
+        .filter(VisionDetection.created_at > cutoff, _not_training())
         .group_by(VisionDetection.status)
         .all()
     )
@@ -382,7 +387,7 @@ async def get_vision_stats(
             sa_func.count(VisionDetection.id).label("count"),
         )
         .outerjoin(Printer, Printer.id == VisionDetection.printer_id)
-        .filter(VisionDetection.created_at > cutoff, VisionDetection.status != 'training')
+        .filter(VisionDetection.created_at > cutoff, _not_training())
         .group_by(VisionDetection.printer_id)
         .order_by(sa_func.count(VisionDetection.id).desc())
         .limit(10)
