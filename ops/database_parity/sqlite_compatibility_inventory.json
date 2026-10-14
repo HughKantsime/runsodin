@@ -274,6 +274,14 @@
     },
     {
       "classification": "sqlite-provider-only",
+      "line": 124,
+      "path": "backend/core/database_config.py",
+      "pattern": "PRAGMA",
+      "reason": "SQLite engine branch; PostgreSQL engine creation does not receive SQLite connect args",
+      "source": "cursor.execute(\"PRAGMA foreign_keys=ON\")"
+    },
+    {
+      "classification": "sqlite-provider-only",
       "line": 44,
       "path": "backend/core/db.py",
       "pattern": "PRAGMA",

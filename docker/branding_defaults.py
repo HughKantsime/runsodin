@@ -13,7 +13,13 @@ def copy_defaults():
     target=None
     source=None
     try:
+        # A fresh /data volume hides the image's directories; create them owned by us.
+        for parent,name in ((data,'static'),):
+            try:os.mkdir(name,0o755,dir_fd=parent)
+            except FileExistsError:pass
         static=os.open('static',flags,dir_fd=data)
+        try:os.mkdir('branding',0o755,dir_fd=static)
+        except FileExistsError:pass
         target=os.open('branding',flags,dir_fd=static)
         source=os.open('/usr/local/share/odin/branding-defaults',flags)
         original=os.fstat(source)
@@ -21,7 +27,9 @@ def copy_defaults():
             raise ValueError('bundled defaults unavailable')
         for descriptor in (data,static,target):
             item=os.fstat(descriptor)
-            if item.st_uid!=10001 or item.st_mode&0o022:
+            # Root ownership is as trustworthy as ours: Docker Desktop bind mounts
+            # (macOS/Windows) ignore chown and report root. Shared write is never allowed.
+            if item.st_uid not in (0,10001) or item.st_mode&0o022:
                 raise ValueError('branding storage unavailable')
         entries=[]
         for name in os.listdir(source):

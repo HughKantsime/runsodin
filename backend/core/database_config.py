@@ -109,12 +109,22 @@ def create_database_engine(
     """Create a dialect-correct engine without persisting a resolved credential URL."""
     url = resolve_database_url(database_url, password_file=password_file)
     if url.get_backend_name() == "sqlite":
-        return create_engine(
+        sqlite_engine = create_engine(
             url,
             echo=echo,
             poolclass=NullPool,
             connect_args={"check_same_thread": False},
         )
+
+        @event.listens_for(sqlite_engine, "connect")
+        def _enforce_sqlite_foreign_keys(dbapi_connection, connection_record):
+            # Every role (api, bootstrap, workers) gets the same FK semantics;
+            # migrations such as 025 refuse to run without them.
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
+        return sqlite_engine
     restore_data_directory = os.getenv('ODIN_DATA_DIR', '/data')
     if role not in _RESTORE_LOCK_EXEMPT_ROLES:
         assert_postgres_restore_ready(restore_data_directory)
