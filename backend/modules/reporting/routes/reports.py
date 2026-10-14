@@ -49,6 +49,8 @@ def _validated_schedule_fields(body, *, partial=False):
 
 # ============== Chargeback Report ==============
 
+from modules.reporting.chargeback_sql import ARCHIVE_GRAMS_BY_JOB_SQL
+
 def _chargeback_date(value):
     if value is None:
         return None
@@ -78,11 +80,14 @@ async def chargeback_report(
         SELECT j.charged_to_user_id as user_id, u.username,
                COUNT(*) as job_count,
                SUM(j.estimated_cost) as total_cost,
-               SUM(j.duration_hours) as total_hours
+               SUM(j.duration_hours) as total_hours,
+               SUM(pa.grams) as total_grams,
+               SUM(COALESCE(pa.unmeasured, 0)) as unmeasured_prints
         FROM jobs j
         LEFT JOIN users u ON j.charged_to_user_id = u.id
+        LEFT JOIN ({_ARCHIVE_GRAMS_SQL}) pa ON pa.job_id = j.id
         WHERE j.charged_to_user_id IS NOT NULL
-    """
+    """.format(_ARCHIVE_GRAMS_SQL=ARCHIVE_GRAMS_BY_JOB_SQL)
     params = {}
     if not platform:
         query += " AND j.charged_to_org_id = :org"
@@ -107,6 +112,8 @@ async def chargeback_report(
         "job_count": r.job_count,
         "total_cost": round(r.total_cost or 0, 2),
         "total_hours": round(r.total_hours or 0, 1),
+        "total_grams": round(r.total_grams or 0, 1),
+        "unmeasured_prints": int(r.unmeasured_prints or 0),
     } for r in rows]
 
 

@@ -7,6 +7,7 @@ Updated - see CHANGELOG for current version.
 - Project ZIP v2 export/import restores archives and files (F02-2.8-38).
 - Atomic admin user deletion with credential revocation (F11-11.3-05).
 - Estimated per-order COGS/margin and revenue-weighted Average Margin (F09-9.3-02, F09-9.1-04).
+- Chargeback grams (F10-10.7-02).
 - Remaining confirmed gaps tracked in the local claim ledger.
 
 ## Protected transfer session reuse (1.9.24 candidate)

@@ -7,15 +7,24 @@ const api = vi.hoisted(() => ({ report: vi.fn() }))
 vi.mock('../../api', () => ({ chargebacks: { report: api.report } }))
 afterEach(() => { cleanup(); vi.clearAllMocks() })
 
-test('actual owned HTTP fields display the job count without inventing grams or currency', async () => {
+test('actual owned HTTP fields display jobs, hours and measured grams without inventing currency', async () => {
   api.report.mockResolvedValue(fixture.rows)
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(<QueryClientProvider client={client}><ChargebackReport /></QueryClientProvider>)
   const row = (await screen.findByText('student')).closest('tr')!
   expect(within(row).getByText('5')).toBeInTheDocument()
   expect(within(row).getByText('2.5')).toBeInTheDocument()
-  expect(within(row).getAllByText('Unknown')).toHaveLength(2)
+  expect(within(row).getByText('0g')).toBeInTheDocument()
+  expect(within(row).getAllByText('Unknown')).toHaveLength(1)
   expect(within(row).queryByText('$7.25')).not.toBeInTheDocument()
+})
+
+test('unmeasured print attempts are disclosed beside the measured grams', async () => {
+  api.report.mockResolvedValue([{ ...fixture.rows[0], total_grams: 95.5, unmeasured_prints: 1 }])
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><ChargebackReport /></QueryClientProvider>)
+  const row = (await screen.findByText('student')).closest('tr')!
+  expect(within(row).getByText('96g (+1 unmeasured)')).toBeInTheDocument()
 })
 
 

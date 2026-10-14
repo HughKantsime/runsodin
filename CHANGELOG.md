@@ -22,6 +22,8 @@ All notable changes to O.D.I.N. are documented here.
   estimated profit and estimated margin, labeled as estimates next to the
   still-unknown measured actuals. The Average Margin card is now a
   revenue-weighted estimate across orders with known costs.
+- Chargeback reports (screen and scheduled email) include measured filament
+  grams per user, and disclose print attempts that reported no measurement.
 
 ## [1.9.24] - Protected Bambu transfer session reuse
 

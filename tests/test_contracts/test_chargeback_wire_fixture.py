@@ -15,8 +15,8 @@ def test_capture_chargeback_wire_from_real_scoped_http(token_client, review_db):
     review_db.commit()
     response = client.get('/reports/chargebacks', headers=issue(['read:analytics']), params={'start_date':'2026-10-12','end_date':'2026-10-12'})
     assert response.status_code == 200
-    assert response.json() == [{'user_id':1,'username':'student','job_count':5,'total_cost':7.25,'total_hours':2.5}]
-    fixture = {'scope':'Owned genuine scoped HTTP response; unitless legacy money is not currency-qualified; no grams field is provided', 'rows':response.json()}
+    assert response.json() == [{'user_id':1,'username':'student','job_count':5,'total_cost':7.25,'total_hours':2.5,'total_grams':0.0,'unmeasured_prints':0}]
+    fixture = {'scope':'Owned genuine scoped HTTP response; unitless legacy money is not currency-qualified; grams are measured print-attempt filament (none printed here)', 'rows':response.json()}
     path = Path(__file__).resolve().parents[2] / 'frontend/src/test-fixtures/chargeback-wire-owned.json'
     if path.exists():
         assert json.loads(path.read_text()) == fixture, 'Producer contract changed; reconcile the consumer explicitly'

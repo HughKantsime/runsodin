@@ -10,6 +10,7 @@ import time
 import json
 from html import escape
 from modules.reporting.recipient_policy import normalize_recipients
+from modules.reporting.chargeback_sql import ARCHIVE_GRAMS_BY_JOB_SQL
 import logging
 import smtplib
 from datetime import datetime, timedelta, timezone
@@ -279,9 +280,11 @@ def generate_chargeback_summary(session, filters):
     rows = session.execute(text(f"""
         SELECT u.username, COUNT(j.id) as job_count,
                COALESCE(SUM(j.estimated_cost), 0) as total_cost,
-               COALESCE(SUM(j.duration_hours), 0) as total_hours
+               COALESCE(SUM(j.duration_hours), 0) as total_hours,
+               COALESCE(SUM(pa.grams), 0) as total_grams
         FROM jobs j
         LEFT JOIN users u ON j.charged_to_user_id = u.id
+        LEFT JOIN ({ARCHIVE_GRAMS_BY_JOB_SQL}) pa ON pa.job_id = j.id
         WHERE j.charged_to_user_id IS NOT NULL
           AND j.created_at >= {sql.now_offset('-30 days')}
         GROUP BY j.charged_to_user_id, u.username
@@ -296,6 +299,7 @@ def generate_chargeback_summary(session, filters):
             <td style="padding: 8px; font-size: 14px; text-align: right;">{r[1]}</td>
             <td style="padding: 8px; font-size: 14px; text-align: right;">${round(r[2], 2)}</td>
             <td style="padding: 8px; font-size: 14px; text-align: right;">{round(r[3], 1)}h</td>
+            <td style="padding: 8px; font-size: 14px; text-align: right;">{round(r[4])}g</td>
         </tr>"""
 
     content = f"""
@@ -306,8 +310,9 @@ def generate_chargeback_summary(session, filters):
             <th style="padding: 8px; text-align: right; color: #8a8679; font-size: 12px;">JOBS</th>
             <th style="padding: 8px; text-align: right; color: #8a8679; font-size: 12px;">COST</th>
             <th style="padding: 8px; text-align: right; color: #8a8679; font-size: 12px;">HOURS</th>
+            <th style="padding: 8px; text-align: right; color: #8a8679; font-size: 12px;">GRAMS</th>
         </tr></thead>
-        <tbody>{table_rows if table_rows else '<tr><td style="padding: 8px; color: #666;" colspan="4">No chargebacks</td></tr>'}</tbody>
+        <tbody>{table_rows if table_rows else '<tr><td style="padding: 8px; color: #666;" colspan="5">No chargebacks</td></tr>'}</tbody>
     </table>
     """
     return _wrap_report_html("Chargeback Summary Report", content)
