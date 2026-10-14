@@ -57,8 +57,11 @@ def test_legacy_foreign_assignment_does_not_disclose_archive(project_client,revi
     review_db.execute(text('UPDATE print_archives SET project_id=101'));review_db.commit()
     response=client.get('/projects/101'+('/export' if action=='export' else ''),headers=issue(['read:jobs']))
     assert response.status_code==200
-    data=json.loads(zipfile.ZipFile(io.BytesIO(response.content)).read('project.json')) if action=='export' else response.json()
-    assert [a['id'] for a in data['archives']]==[201]
+    if action=='export':
+        data=json.loads(zipfile.ZipFile(io.BytesIO(response.content)).read('project.json'))
+        assert [a['display']['print_name'] for a in data['archives']]==['Own archive']
+    else:
+        assert [a['id'] for a in response.json()['archives']]==[201]
 
 def test_owned_archive_assignment_persists(project_client,review_db):
     client,issue=project_client
@@ -163,23 +166,24 @@ def test_private_archive_ownership_survives_missing_or_global_printer(project_cl
     assert response.status_code==404
 
 def test_export_excludes_foreign_file_bytes_before_filesystem_access(project_client,review_db,tmp_path,monkeypatch):
-    from modules.archives.routes import projects
+    from modules.archives import project_zip_io
     client,issue=project_client
+    monkeypatch.setenv('PRINT_FILE_STORAGE_ROOT',str(tmp_path))
     own=tmp_path/'own.3mf';foreign=tmp_path/'foreign.3mf'
     own.write_bytes(b'synthetic own file');foreign.write_bytes(b'synthetic foreign file')
     for identifier,path in [(201,own),(202,foreign)]:
         review_db.execute(text('UPDATE print_archives SET project_id=101,file_path=:path WHERE id=:id'),{'path':str(path),'id':identifier})
     review_db.commit()
-    original_exists=projects.os.path.exists;checked=[]
-    def observed_exists(path):
-        checked.append(path)
-        assert path!=str(foreign), 'Foreign file consulted before authorization'
-        return original_exists(path)
-    monkeypatch.setattr(projects.os.path,'exists',observed_exists)
+    original_open=project_zip_io.os.open;checked=[]
+    def observed_open(path,*args,**kwargs):
+        checked.append(str(path))
+        assert str(path)!=str(foreign.resolve()), 'Foreign file consulted before authorization'
+        return original_open(path,*args,**kwargs)
+    monkeypatch.setattr(project_zip_io.os,'open',observed_open)
     response=client.get('/projects/101/export',headers=issue(['read:jobs']))
     assert response.status_code==200
     with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
-        assert set(archive.namelist())=={'project.json','files/own.3mf'}
-        assert archive.read('files/own.3mf')==b'synthetic own file'
-        assert [a['id'] for a in json.loads(archive.read('project.json'))['archives']]==[201]
-    assert str(own) in checked and str(foreign) not in checked
+        assert set(archive.namelist())=={'project.json','files/000.3mf'}
+        assert archive.read('files/000.3mf')==b'synthetic own file'
+        assert [a['file']['original_name'] for a in json.loads(archive.read('project.json'))['archives']]==['own.3mf']
+    assert str(own.resolve()) in checked and str(foreign.resolve()) not in checked

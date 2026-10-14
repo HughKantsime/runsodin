@@ -2,6 +2,18 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [Unreleased] - Whole-app certification repairs
+
+### Fixed
+
+- Project ZIP import now restores archives and print files. Export writes a
+  closed v2 package (manifest plus hash-bound files); import verifies every
+  member and recreates archive history and private file copies in a new
+  importer-owned project, atomically. Tampered, oversized, traversal and
+  legacy v1 packages are refused without side effects. Education-linked
+  history is exported without bytes and cannot be imported as generic.
+- Projects page gains Import and Export ZIP controls.
+
 ## [1.9.24] - Protected Bambu transfer session reuse
 
 ### Fixed

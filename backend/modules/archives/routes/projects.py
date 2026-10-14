@@ -14,7 +14,6 @@ import io
 import json
 import logging
 import os
-import zipfile
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -28,6 +27,14 @@ from core.db import get_db
 from core.db_compat import execute_insert_returning_id
 from core.dependencies import get_current_user
 from core.rbac import check_org_access, get_org_scope, require_role
+from core.interfaces.education_policy import generic_archive_audience_sql
+from modules.archives.project_zip_admission import MAX_COMPRESSED_BYTES, validate_project_zip
+from modules.archives.project_zip_io import (
+    ProjectZipExportError,
+    build_project_zip,
+    discard_import_dir,
+    stage_import_files,
+)
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -296,7 +303,7 @@ def export_project(
     user=Depends(require_role("operator", scope="read:jobs")),
     db: Session = Depends(get_db),
 ):
-    """Export project as ZIP containing metadata JSON and linked 3MF files."""
+    """Export project as a v2 ZIP: closed manifest plus hash-bound print files."""
     row = db.execute(
         text("SELECT * FROM projects WHERE id = :id"), {"id": project_id}
     ).fetchone()
@@ -307,70 +314,103 @@ def export_project(
     project = dict(row._mapping)
     archive_scope, archive_params = _archive_visibility(user)
     archives = db.execute(
-        text("SELECT a.* FROM print_archives a LEFT JOIN printers ap ON ap.id = a.printer_id "
+        text(f"SELECT a.*, CASE WHEN {generic_archive_audience_sql()} THEN 0 ELSE 1 END AS education_linked "
+             "FROM print_archives a LEFT JOIN printers ap ON ap.id = a.printer_id "
              f"WHERE a.project_id = :pid AND {archive_scope} ORDER BY a.id"),
         {"pid": project_id, **archive_params},
     ).fetchall()
 
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        project["archives"] = [dict(a._mapping) for a in archives]
-        # Serialize datetimes to strings
-        meta = json.dumps(project, default=str, indent=2)
-        zf.writestr("project.json", meta)
+    try:
+        payload = build_project_zip(project, [dict(a._mapping) for a in archives])
+    except ProjectZipExportError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
 
-        for a in archives:
-            ad = dict(a._mapping)
-            fp = ad.get("file_path")
-            if fp and os.path.exists(fp):
-                zf.write(fp, f"files/{os.path.basename(fp)}")
-
-    buf.seek(0)
-    safe_name = project["name"].replace(" ", "_")[:50]
+    safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in project["name"])[:50]
     return StreamingResponse(
-        buf,
+        io.BytesIO(payload),
         media_type="application/zip",
         headers={"Content-Disposition": f"attachment; filename=project_{safe_name}.zip"},
     )
 
 
 @router.post("/projects/import", tags=["Projects"])
-async def import_project(
+def import_project(
     file: UploadFile = File(...),
     user=Depends(require_role("operator", scope="write:jobs")),
     db: Session = Depends(get_db),
 ):
-    """Import a project from a ZIP export."""
-    if not file.filename or not file.filename.endswith(".zip"):
+    """Restore a v2 project ZIP as a new project owned by the importer."""
+    if not file.filename or not file.filename.lower().endswith(".zip"):
         raise HTTPException(status_code=400, detail="Upload must be a .zip file")
 
-    contents = await file.read()
+    # Sync handler: validation, hashing and fsync run in the threadpool, not the event loop.
+    contents = file.file.read(MAX_COMPRESSED_BYTES + 1)
     try:
-        zf = zipfile.ZipFile(io.BytesIO(contents))
-    except zipfile.BadZipFile:
-        raise HTTPException(status_code=400, detail="Invalid ZIP file")
+        validated = validate_project_zip(contents)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid, unsupported or oversized project ZIP") from None
+    manifest = validated.manifest
+    if any(a.protection != "generic" for a in manifest.archives):
+        raise HTTPException(status_code=400, detail="Education-protected history cannot be imported")
+    if any("," in tag for a in manifest.archives for tag in a.display.tags):
+        raise HTTPException(status_code=400, detail="Archive tags cannot contain commas")
 
-    if "project.json" not in zf.namelist():
-        raise HTTPException(status_code=400, detail="ZIP must contain project.json")
-
-    meta = json.loads(zf.read("project.json"))
     uid = user.get("id") if isinstance(user, dict) else getattr(user, "id", None)
     org_id = get_org_scope(user)
-
-    project_id = execute_insert_returning_id(
-        db,
-        """
-            INSERT INTO projects (name, description, color, expected_parts, created_by, status, org_id)
-            VALUES (:name, :desc, :color, :parts, :uid, 'active', :org)
-        """,
-        {
-            "name": meta.get("name", "Imported Project"),
-            "desc": meta.get("description"),
-            "color": meta.get("color", "#6366f1"),
-            "parts": meta.get("expected_parts"),
-            "uid": uid,
-            "org": org_id,
-        },
-    )
-    db.commit()
-    return {"id": project_id, "name": meta.get("name"), "status": "imported"}
+    import_dir, placed = None, {}
+    try:
+        import_dir, placed = stage_import_files(contents, manifest)
+        project_id = execute_insert_returning_id(
+            db,
+            """
+                INSERT INTO projects (name, description, color, expected_parts, created_by, status, org_id)
+                VALUES (:name, :desc, :color, :parts, :uid, 'active', :org)
+            """,
+            {
+                "name": manifest.project.name,
+                "desc": manifest.project.description,
+                "color": manifest.project.color,
+                "parts": manifest.project.expected_parts,
+                "uid": uid,
+                "org": org_id,
+            },
+        )
+        for archive in manifest.archives:
+            display = archive.display
+            path, digest = placed.get(archive.archive_key, (None, None))
+            completed = display.printed_at.replace("T", " ").rstrip("Z") if display.printed_at else None
+            db.execute(
+                text(
+                    "INSERT INTO print_archives (print_name, status, completed_at, actual_duration_seconds, "
+                    "filament_used_grams, notes, tags, file_path, file_hash, project_id, user_id, org_id, "
+                    "ownership_state, ownership_source, accounting_state, accounting_reason) "
+                    "VALUES (:name, :status, :completed, :seconds, :grams, :notes, :tags, :path, :hash, "
+                    ":project, :uid, :org, 'known', 'project_import', 'unresolved', 'project_import')"
+                ),
+                {
+                    "name": display.print_name,
+                    "status": display.status,
+                    "completed": completed,
+                    "seconds": int(display.actual_print_seconds) if display.actual_print_seconds is not None else None,
+                    "grams": display.filament_used_g,
+                    "notes": display.notes,
+                    "tags": ",".join(display.tags),
+                    "path": path,
+                    "hash": digest,
+                    "project": project_id,
+                    "uid": uid,
+                    "org": org_id,
+                },
+            )
+        db.commit()
+    except BaseException:
+        db.rollback()
+        discard_import_dir(import_dir)
+        raise
+    return {
+        "id": project_id,
+        "name": manifest.project.name,
+        "status": "imported",
+        "archives": len(manifest.archives),
+        "files": len(placed),
+    }

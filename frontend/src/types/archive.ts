@@ -76,6 +76,14 @@ export interface Project {
   [key: string]: unknown;
 }
 
+export interface ProjectImportResult {
+  id: number
+  name: string
+  status: 'imported'
+  archives: number
+  files: number
+}
+
 export interface ProjectCreate {
   name: string;
   description?: string;

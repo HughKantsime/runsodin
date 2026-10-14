@@ -52,7 +52,10 @@ export async function fetchAPI<T = unknown>(endpoint: string, options: RequestIn
 // Generic blob download helper (for exports)
 export const downloadBlob = async (endpoint: string, filename: string): Promise<void> => {
   const res = await fetch(`${API_BASE}${endpoint}`, { credentials: 'include' })
-  if (!res.ok) throw new Error('Export failed')
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Export failed')
+  }
   const blob = await res.blob()
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')

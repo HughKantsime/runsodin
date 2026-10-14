@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { projects } from '../../api'
 import { canDo } from '../../permissions'
-import { FolderKanban, Plus, X, Trash2, Archive, ChevronLeft } from 'lucide-react'
+import { FolderKanban, Plus, X, Trash2, Archive, ChevronLeft, Download, Upload } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { formatDate } from '../../utils/shared'
 
@@ -197,6 +197,18 @@ function ProjectDetail({ project, onClose, onDelete }) {
               )}
             </div>
 
+            {/* Export */}
+            {canDo('printers.edit') && (
+              <button
+                onClick={() => projects.exportZip(project.id, detail.name)
+                  .then(() => toast.success('Project exported'))
+                  .catch((err) => toast.error(err?.message || 'Export failed'))}
+                className="w-full mb-2 py-2 rounded-md text-sm bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] transition-colors flex items-center justify-center gap-2"
+              >
+                <Download size={14} /> Export ZIP
+              </button>
+            )}
+
             {/* Delete */}
             {canDo('printers.delete') && (
               <button
@@ -243,6 +255,17 @@ export default function ProjectsPage() {
     onError: () => toast.error('Failed to archive project'),
   })
 
+  const importInput = useRef<HTMLInputElement>(null)
+  const importMutation = useMutation({
+    mutationFn: (file: File) => projects.importZip(file),
+    onSuccess: (result) => {
+      if (!result) return // 401: fetchAPI already redirected to login
+      queryClient.invalidateQueries({ queryKey: ['projects'] })
+      toast.success(`Imported "${result.name}" with ${result.archives} archive${result.archives !== 1 ? 's' : ''}`)
+    },
+    onError: (err: Error) => toast.error(err?.message || 'Import failed'),
+  })
+
   const items = projectList || []
 
   return (
@@ -257,12 +280,33 @@ export default function ProjectsPage() {
           </div>
         </div>
         {canDo('printers.edit') && (
+          <div className="flex items-center gap-2">
+          <input
+            ref={importInput}
+            type="file"
+            accept=".zip,application/zip"
+            className="hidden"
+            aria-label="Import project ZIP"
+            onChange={e => {
+              const file = e.target.files?.[0]
+              if (file) importMutation.mutate(file)
+              e.target.value = ''
+            }}
+          />
+          <button
+            onClick={() => importInput.current?.click()}
+            disabled={importMutation.isPending}
+            className="flex items-center gap-1.5 px-3 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md text-sm transition-colors disabled:opacity-50"
+          >
+            <Upload size={16} /> {importMutation.isPending ? 'Importing…' : 'Import'}
+          </button>
           <button
             onClick={() => setShowCreate(true)}
             className="flex items-center gap-1.5 px-3 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary-hover)] rounded-md text-sm text-white transition-colors"
           >
             <Plus size={16} /> New
           </button>
+          </div>
         )}
       </div>
 
