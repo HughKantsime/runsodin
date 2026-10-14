@@ -26,7 +26,10 @@ def test_actual_capture_oracle_and_positive_registered_footprint():
     assert profile['functions']==json.loads(json.dumps(canonical_functions()))
     assert profile['triggers']==json.loads(json.dumps([[list(k),list(v)] for k,v in sorted(canonical_triggers().items())]))
     assert ledger['python:027-power-target-operations'][1]==hashlib.sha256((ROOT/'core/schema/migrations/027_power_target_operations.py').read_bytes()).hexdigest()
-    contract.check_sources()
+    # The frozen profile describes the accepted 027 source preserved in the bundle;
+    # live modules may evolve without changing it.
+    import core.schema.preserved027 as preserved
+    contract.check_sources(Path(preserved.__file__).parent/'bundle')
 
 @pytest.mark.parametrize('key',['schema','ledger','functions','triggers','constraints','indexes','enums','trigger_catalog','raw_tables','raw_columns'])
 def test_exact_catalogue_drift_refuses(key):

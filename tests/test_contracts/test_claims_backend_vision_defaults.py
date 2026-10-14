@@ -56,5 +56,10 @@ def test_empty_or_missing_default_directory_is_noop(tmp_path):
 def test_checkout_default_model_is_lfs_pointer_not_model_bytes():
     """Records what a non-LFS-hydrated build would copy (observation, not a pass/fail of the copy)."""
     source = ROOT / 'backend' / 'vision_models_default' / 'obico_spaghetti.onnx'
-    head = source.read_bytes()[:64]
-    assert head.startswith(b'version https://git-lfs.github.com/spec/v1')
+    data = source.read_bytes()
+    # Either an un-hydrated LFS pointer (plain checkout) or the hydrated model (git lfs pull).
+    if data.startswith(b'version https://git-lfs.github.com/spec/v1'):
+        assert b'oid sha256:0a6ebd8e30dbf6a450c50f9c0a5406f04ba7eb1c99fd5996e888c78bb383b9aa' in data
+    else:
+        import hashlib
+        assert hashlib.sha256(data).hexdigest() == '0a6ebd8e30dbf6a450c50f9c0a5406f04ba7eb1c99fd5996e888c78bb383b9aa'
