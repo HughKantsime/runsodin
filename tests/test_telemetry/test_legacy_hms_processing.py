@@ -7,7 +7,7 @@ from tests.test_telemetry.test_legacy_hms_capture import ERROR
 def processing(capture_store, monkeypatch):
     from modules.notifications import event_dispatcher
     calls=[]
-    def process(printer_id, errors, observed_filename=None):
+    def process(printer_id, errors, observed_filename=None, expected_print_job_id=None):
         calls.append((printer_id,errors,observed_filename))
     monkeypatch.setattr(event_dispatcher,'process_hms_errors',process)
     return capture_store,calls,event_dispatcher
@@ -33,13 +33,13 @@ def test_processing_same_error_on_new_filename(processing):
 
 def test_processing_raised_failure_does_not_suppress_identical_retry(processing,monkeypatch):
     (path,clock,send),calls,module=processing
-    def fail_once(printer_id,errors,observed_filename=None):
+    def fail_once(printer_id,errors,observed_filename=None,expected_print_job_id=None):
         calls.append((printer_id,errors,observed_filename))
         if len(calls)==1:
             raise RuntimeError('Synthetic processing failure')
     monkeypatch.setattr(module,'process_hms_errors',fail_once)
-    with pytest.raises(RuntimeError,match='Synthetic processing failure'):
-        send(hms=ERROR)
+    # The monitor contains processing failures and leaves the packet retryable.
+    send(hms=ERROR)
     clock[0]=1010
     send(hms=ERROR)
     assert len(calls)==2

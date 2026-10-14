@@ -547,7 +547,10 @@ class PrinterMonitor:
                 pending_hms = None
             resolved = True
             if pending_hms is not None:
-                resolved = (pending_hms['print_job_id'] is not None and
+                # Untracked prints (no job then, none now) retry under the same
+                # no-job identity; otherwise only a bound original job may resolve.
+                untracked = pending_hms['print_job_id'] is None and self._current_job_id is None
+                resolved = ((pending_hms['print_job_id'] is not None or untracked) and
                             process_hms(pending_hms['packet'], pending_hms['print_job_id']))
                 if resolved:
                     if self._current_job_id == pending_hms['print_job_id']:
