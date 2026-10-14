@@ -9,7 +9,7 @@ import stat
 import zipfile
 from PIL import Image
 from fastapi import HTTPException
-from sqlalchemy import update
+from sqlalchemy import or_, update
 from modules.vision.models import VisionDetection
 
 VISION_FRAMES_DIR='/data/vision_frames'
@@ -164,7 +164,10 @@ def label_frame(db,identity,body,user,*,expected_digest=None):
 
 
 def export_frames(db,user):
-    rows=[] if not maintenance(user) else db.query(VisionDetection).filter(VisionDetection.frame_path.isnot(None)).order_by(VisionDetection.id).limit(MAX_ROWS+1).all()
+    # Unlabeled collected samples carry no metadata and are never exported, so they
+    # must not count against the export bound.
+    exportable=or_(VisionDetection.status.is_(None),VisionDetection.status!='training',VisionDetection.metadata_json.isnot(None))
+    rows=[] if not maintenance(user) else db.query(VisionDetection).filter(VisionDetection.frame_path.isnot(None),exportable).order_by(VisionDetection.id).limit(MAX_ROWS+1).all()
     if len(rows)>MAX_ROWS:raise HTTPException(413,'Dataset exceeds bounded export limit')
     result=io.BytesIO();excluded=[];count=0;total=0
     with zipfile.ZipFile(result,'w',zipfile.ZIP_DEFLATED) as archive:
@@ -195,8 +198,12 @@ def list_frames(db,user,printer_id,labeled,limit,offset):
     if isinstance(limit,bool) or not isinstance(limit,int) or not 1<=limit<=200 or isinstance(offset,bool) or not isinstance(offset,int) or offset<0:raise HTTPException(400,'Invalid pagination')
     query=db.query(VisionDetection).filter(VisionDetection.frame_path.isnot(None))
     if printer_id is not None:query=query.filter(VisionDetection.printer_id==printer_id)
-    rows=query.order_by(VisionDetection.created_at.desc(),VisionDetection.id.desc()).limit(5001).all()
-    if len(rows)>5000:raise HTTPException(413,'Dataset exceeds bounded listing limit')
+    # Page in SQL: continuous training collection adds hundreds of rows per printer
+    # per hour, so the listing cannot load the whole dataset.
+    annotated=VisionDetection.metadata_json.like('%"training_annotation"%')
+    if labeled is True:query=query.filter(annotated)
+    elif labeled is False:query=query.filter(or_(VisionDetection.metadata_json.is_(None),~annotated))
+    rows=query.order_by(VisionDetection.created_at.desc(),VisionDetection.id.desc()).offset(offset).limit(limit).all()
     result=[]
     for row in rows:
         try:
@@ -205,4 +212,4 @@ def list_frames(db,user,printer_id,labeled,limit,offset):
         except (ValueError,TypeError):value=None;is_labeled=False
         if labeled is not None and is_labeled!=labeled:continue
         result.append({'id':row.id,'printer_id':row.printer_id,'detection_type':row.detection_type,'confidence':row.confidence,'status':row.status,'frame_path':row.frame_path,'bbox_json':row.bbox_json,'created_at':row.created_at.isoformat() if row.created_at else None,'annotation':value if is_labeled else None,'ownership':'unknown','maintenance_only':True})
-    return result[offset:offset+limit]
+    return result

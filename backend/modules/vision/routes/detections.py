@@ -164,6 +164,7 @@ async def review_vision_detection(
         raise HTTPException(400,"Status must be confirmed or dismissed")
     det=db.query(VisionDetection).filter(VisionDetection.id==detection_id).first()
     if det is None:raise HTTPException(404,"Detection not found")
+    if det.status=='training':raise HTTPException(409,"Training samples are labeled, not reviewed")
     statement=update(VisionDetection).where(VisionDetection.id==detection_id,
         VisionDetection.printer_id==det.printer_id,VisionDetection.print_job_id==det.print_job_id,
         VisionDetection.frame_path==det.frame_path,VisionDetection.status==det.status,

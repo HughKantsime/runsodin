@@ -72,7 +72,7 @@ commit_*.py
 update_to_*.py
 prepend_*.py
 qa_*.py
-test_v*.py
+/test_v*.py
 !tests/test_contracts/test_vision_decision_behavior.py
 odin_api_test.py
 generate_license.py
