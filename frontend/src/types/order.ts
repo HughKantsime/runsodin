@@ -200,10 +200,12 @@ export interface ChargebackRow {
   username: string;
   job_count: number;
   total_hours: number | null;
-  /** Measured filament from the jobs' print attempts. */
+  /** Recorded filament from the jobs' print attempts (measured, else file estimate). */
   total_grams?: number | null;
-  /** Print attempts with no measured filament; total_grams excludes them. */
-  unmeasured_prints?: number;
+  /** Jobs or attempts with no recorded filament; total_grams excludes them. */
+  grams_unknown?: number;
+  /** Jobs without a cost estimate; total_cost excludes them. */
+  unknown_cost_jobs?: number;
   total_cost: number | null;
   currency?: string | null;
 }

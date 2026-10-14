@@ -1,5 +1,5 @@
 {
-  "scope": "Owned genuine scoped HTTP response; unitless legacy money is not currency-qualified; grams are measured print-attempt filament (none printed here)",
+  "scope": "Owned genuine scoped HTTP response; unitless legacy money is not currency-qualified; grams are recorded print-attempt filament; none printed here, so unknown",
   "rows": [
     {
       "user_id": 1,
@@ -7,10 +7,12 @@
       "job_count": 5,
       "total_cost": 7.25,
       "total_hours": 2.5,
-      "total_grams": 0.0,
-      "unmeasured_prints": 0,
+      "total_grams": null,
       "currency": null,
-      "cost_basis": "job_estimate_current_currency"
+      "cost_basis": "job_estimate_current_currency",
+      "unknown_cost_jobs": 0,
+      "grams_unknown": 5,
+      "grams_basis": "recorded_measured_or_file_estimate"
     }
   ]
 }

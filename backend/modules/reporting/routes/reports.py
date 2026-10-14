@@ -80,13 +80,15 @@ async def chargeback_report(
         SELECT j.charged_to_user_id as user_id, u.username,
                COUNT(*) as job_count,
                SUM(j.estimated_cost) as total_cost,
+               SUM(CASE WHEN j.estimated_cost IS NULL THEN 1 ELSE 0 END) as unknown_cost_jobs,
                SUM(j.duration_hours) as total_hours,
                SUM(pa.grams) as total_grams,
-               SUM(COALESCE(pa.unmeasured, 0)) as unmeasured_prints
+               SUM(CASE WHEN pa.job_id IS NULL THEN 1 ELSE pa.unmeasured END) as grams_unknown
         FROM jobs j
         LEFT JOIN users u ON j.charged_to_user_id = u.id
         LEFT JOIN ({_ARCHIVE_GRAMS_SQL}) pa ON pa.job_id = j.id
         WHERE j.charged_to_user_id IS NOT NULL
+          AND j.status IN ('completed', 'failed')
     """.format(_ARCHIVE_GRAMS_SQL=ARCHIVE_GRAMS_BY_JOB_SQL)
     params = {}
     if not platform:
@@ -112,12 +114,17 @@ async def chargeback_report(
     return [{
         "user_id": r.user_id, "username": r.username or f"[user-{r.user_id}]",
         "job_count": r.job_count,
-        "total_cost": round(r.total_cost or 0, 2),
+        # Only completed and failed jobs consumed resources; unpriced jobs are counted.
+        "total_cost": round(r.total_cost, 2) if r.total_cost is not None else None,
+        "unknown_cost_jobs": int(r.unknown_cost_jobs or 0),
         "currency": currency,
         "cost_basis": "job_estimate_current_currency",
         "total_hours": round(r.total_hours or 0, 1),
-        "total_grams": round(r.total_grams or 0, 1),
-        "unmeasured_prints": int(r.unmeasured_prints or 0),
+        # Archive-recorded filament: measured by the printer when reported, else the
+        # sliced file's estimate. Jobs or attempts with neither are counted.
+        "total_grams": round(r.total_grams, 1) if r.total_grams is not None else None,
+        "grams_unknown": int(r.grams_unknown or 0),
+        "grams_basis": "recorded_measured_or_file_estimate",
     } for r in rows]
 
 

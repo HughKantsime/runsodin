@@ -54,7 +54,7 @@ with TestClient(app,client=('127.0.0.1',50001)) as client:
   with engine.begin() as c:
    c.execute(text('DELETE FROM jobs'))
    for timestamp,org,user in [(day+' 00:00:00',1,71),(day+' 23:59:59.999999',1,71),(nextday+' 00:00:00',1,71),(day+' 12:00:00',2,71),(day+' 12:00:00',None,71),(day+' 12:00:00',1,None)]:
-    c.execute(text("INSERT INTO jobs(item_name,charged_to_user_id,charged_to_org_id,created_at) VALUES('owned date',:user,:org,CAST(:time AS TIMESTAMP))"),{'user':user,'org':org,'time':timestamp})
+    c.execute(text("INSERT INTO jobs(item_name,status,charged_to_user_id,charged_to_org_id,created_at) VALUES('owned date','completed',:user,:org,CAST(:time AS TIMESTAMP))"),{'user':user,'org':org,'time':timestamp})
   for headers in (jwt,{'X-API-Key':key}):
    result=client.get('/reports/chargebacks',headers=headers,params={'start_date':day,'end_date':day})
    assert result.status_code==200 and len(result.json())==1 and result.json()[0]['job_count']==2
@@ -65,7 +65,7 @@ with TestClient(app,client=('127.0.0.1',50001)) as client:
  with engine.begin() as c:
   c.execute(text('DELETE FROM jobs'))
   for stamp in ['9999-12-31 00:00:00','9999-12-31 23:59:59.999999','10000-01-01 00:00:00','infinity']:
-   c.execute(text("INSERT INTO jobs(item_name,charged_to_user_id,charged_to_org_id,created_at) VALUES('owned max',71,1,CAST(:time AS TIMESTAMP))"),{'time':stamp})
+   c.execute(text("INSERT INTO jobs(item_name,status,charged_to_user_id,charged_to_org_id,created_at) VALUES('owned max','completed',71,1,CAST(:time AS TIMESTAMP))"),{'time':stamp})
  result=client.get('/reports/chargebacks',headers=jwt,params={'start_date':'9999-12-31','end_date':'9999-12-31'})
  assert result.status_code==200 and result.json()[0]['job_count']==2
  checks.append('date.max finiteinclusive excludes actualPG year10000/infinity')

@@ -15,6 +15,7 @@ def test_org_chargeback_does_not_adopt_unassigned_foreign_history(token_client, 
     before = client.get('/reports/chargebacks', headers=headers)
     assert before.status_code == 200
     review_db.execute(text("INSERT INTO jobs(item_name,charged_to_user_id,charged_to_org_id,estimated_cost,duration_hours) VALUES('Synthetic foreign unassigned history',5,NULL,123,17)"))
+    review_db.execute(text("UPDATE jobs SET status='completed' WHERE item_name LIKE 'Synthetic%'"))  # chargebacks cover consumed (terminal) jobs
     review_db.commit()
     after = client.get('/reports/chargebacks', headers=headers)
     assert after.status_code == 200
@@ -31,6 +32,7 @@ def test_chargeback_preserves_exact_org_and_platform_views(token_client, review_
     if platform:
         review_db.execute(text('UPDATE users SET group_id=NULL WHERE id=3'))
     review_db.execute(text("INSERT INTO jobs(item_name,charged_to_user_id,charged_to_org_id,estimated_cost,duration_hours) VALUES('Synthetic exact org',1,1,5,2),('Synthetic foreign unassigned',5,NULL,7,3),('Synthetic explicit foreign',5,2,11,4)"))
+    review_db.execute(text("UPDATE jobs SET status='completed' WHERE item_name LIKE 'Synthetic%'"))  # chargebacks cover consumed (terminal) jobs
     review_db.commit()
     headers = (issue(['read:analytics']) if carrier == 'api' else
                {'Authorization': 'Bearer ' + create_access_token(data={'sub': 'admin'})})

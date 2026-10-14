@@ -12,11 +12,12 @@ def test_capture_chargeback_wire_from_real_scoped_http(token_client, review_db):
     review_db.execute(text('UPDATE jobs SET charged_to_user_id=NULL'))
     for _ in range(5):
         review_db.execute(text("INSERT INTO jobs(item_name,charged_to_user_id,charged_to_org_id,estimated_cost,duration_hours,created_at) VALUES('Synthetic wire sample',1,1,1.45,0.5,'2026-10-12 12:00:00')"))
+    review_db.execute(text("UPDATE jobs SET status='completed' WHERE item_name='Synthetic wire sample'"))  # chargebacks cover consumed (terminal) jobs
     review_db.commit()
     response = client.get('/reports/chargebacks', headers=issue(['read:analytics']), params={'start_date':'2026-10-12','end_date':'2026-10-12'})
     assert response.status_code == 200
-    assert response.json() == [{'user_id':1,'username':'student','job_count':5,'total_cost':7.25,'total_hours':2.5,'total_grams':0.0,'unmeasured_prints':0,'currency':None,'cost_basis':'job_estimate_current_currency'}]
-    fixture = {'scope':'Owned genuine scoped HTTP response; unitless legacy money is not currency-qualified; grams are measured print-attempt filament (none printed here)', 'rows':response.json()}
+    assert response.json() == [{'user_id':1,'username':'student','job_count':5,'total_cost':7.25,'total_hours':2.5,'unknown_cost_jobs':0,'total_grams':None,'grams_unknown':5,'grams_basis':'recorded_measured_or_file_estimate','currency':None,'cost_basis':'job_estimate_current_currency'}]
+    fixture = {'scope':'Owned genuine scoped HTTP response; unitless legacy money is not currency-qualified; grams are recorded print-attempt filament; none printed here, so unknown', 'rows':response.json()}
     path = Path(__file__).resolve().parents[2] / 'frontend/src/test-fixtures/chargeback-wire-owned.json'
     if path.exists():
         assert json.loads(path.read_text()) == fixture, 'Producer contract changed; reconcile the consumer explicitly'

@@ -286,6 +286,7 @@ def generate_chargeback_summary(session, filters):
         LEFT JOIN users u ON j.charged_to_user_id = u.id
         LEFT JOIN ({ARCHIVE_GRAMS_BY_JOB_SQL}) pa ON pa.job_id = j.id
         WHERE j.charged_to_user_id IS NOT NULL
+          AND j.status IN ('completed', 'failed')
           AND j.created_at >= {sql.now_offset('-30 days')}
         GROUP BY j.charged_to_user_id, u.username
         ORDER BY total_cost DESC

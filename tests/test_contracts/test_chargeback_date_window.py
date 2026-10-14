@@ -10,6 +10,7 @@ def test_chargeback_end_day_includes_midnight_and_final_second(token_client, rev
     client.app.include_router(reports.router)
     review_db.execute(text('UPDATE jobs SET charged_to_user_id=NULL'))
     review_db.execute(text("INSERT INTO jobs(item_name,charged_to_user_id,charged_to_org_id,created_at) VALUES('Synthetic midnight',1,1,'2026-10-12 00:00:00'),('Synthetic final second',1,1,'2026-10-12 23:59:59.999999'),('Synthetic following midnight',1,1,'2026-10-13 00:00:00')"))
+    review_db.execute(text("UPDATE jobs SET status='completed' WHERE item_name LIKE 'Synthetic%'"))  # chargebacks cover consumed (terminal) jobs
     review_db.commit()
     result = client.get('/reports/chargebacks', headers=issue(['read:analytics']),
                         params={'start_date':'2026-10-12','end_date':'2026-10-12'})
@@ -45,6 +46,7 @@ def test_chargeback_maximum_day_keeps_finite_upper_bound(token_client, review_db
     client.app.include_router(reports.router)
     review_db.execute(text('UPDATE jobs SET charged_to_user_id=NULL'))
     review_db.execute(text("INSERT INTO jobs(item_name,charged_to_user_id,charged_to_org_id,created_at) VALUES('Synthetic finite max',1,1,'9999-12-31 23:59:59.999999')"))
+    review_db.execute(text("UPDATE jobs SET status='completed' WHERE item_name LIKE 'Synthetic%'"))  # chargebacks cover consumed (terminal) jobs
     review_db.commit()
     result = client.get('/reports/chargebacks', headers=issue(['read:analytics']), params={'start_date':'9999-12-31','end_date':'9999-12-31'})
     assert result.status_code == 200

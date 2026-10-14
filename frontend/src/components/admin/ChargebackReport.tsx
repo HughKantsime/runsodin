@@ -72,8 +72,8 @@ export default function ChargebackReport() {
                   <td className="py-2 px-3 text-[var(--brand-text-primary)]">{row.username || `User #${row.user_id}`}</td>
                   <td className="py-2 px-3 text-right text-[var(--brand-text-secondary)]">{known(row.job_count) && Number.isInteger(row.job_count) ? row.job_count : 'Unknown'}</td>
                   <td className="py-2 px-3 text-right text-[var(--brand-text-secondary)]">{known(row.total_hours) ? row.total_hours.toFixed(1) : 'Unknown'}</td>
-                  <td className="py-2 px-3 text-right text-[var(--brand-text-secondary)]">{known(row.total_grams) ? `${row.total_grams.toFixed(0)}g` : 'Unknown'}{Number.isInteger(row.unmeasured_prints) && row.unmeasured_prints > 0 ? ` (+${row.unmeasured_prints} unmeasured)` : ''}</td>
-                  <td className="py-2 px-3 text-right text-[var(--brand-text-primary)] font-medium">{cost(row.total_cost, row.currency)}</td>
+                  <td className="py-2 px-3 text-right text-[var(--brand-text-secondary)]">{known(row.total_grams) ? `${row.total_grams.toFixed(0)}g` : 'Unknown'}{known(row.total_grams) && Number.isInteger(row.grams_unknown) && row.grams_unknown > 0 ? ` (+${row.grams_unknown} unknown)` : ''}</td>
+                  <td className="py-2 px-3 text-right text-[var(--brand-text-primary)] font-medium">{cost(row.total_cost, row.currency)}{cost(row.total_cost, row.currency) !== 'Unknown' && Number.isInteger(row.unknown_cost_jobs) && row.unknown_cost_jobs > 0 ? ` (+${row.unknown_cost_jobs} unpriced)` : ''}</td>
                 </tr>
               ))}
             </tbody>
