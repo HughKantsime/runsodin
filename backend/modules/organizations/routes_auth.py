@@ -14,7 +14,7 @@ from core.audit_actor import bind_verified_actor
 from core.db import get_db
 from core.db_compat import sql
 from core.dependencies import get_current_user, log_audit
-from core.rbac import require_role, require_scope
+from core.rbac import require_role, require_scope, handler_enforces_token_scope
 from core.auth_helpers import (
     _validate_password, _check_rate_limit, _record_login_attempt, _is_locked_out
 )
@@ -356,7 +356,9 @@ async def set_require_mfa(body: RequireMFARequest, current_user: dict = Depends(
 
 # ============== Me / Theme / WS token ==============
 
-@router.get("/auth/me", tags=["Auth"])
+# Any valid credential may identify itself: a scoped token of any scope can read
+# its own principal (the response describes only the caller).
+@router.get("/auth/me", tags=["Auth"], dependencies=[Depends(handler_enforces_token_scope())])
 async def get_me(current_user: dict = Depends(get_current_user)):
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated")
