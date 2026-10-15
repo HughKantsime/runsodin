@@ -12,7 +12,7 @@ import ConfirmModal from '../../components/shared/ConfirmModal'
 import JobRow from '../../components/jobs/JobRow'
 import RecentlyCompleted from '../../components/jobs/RecentlyCompleted'
 import { CreateJobModal, EditJobModal, RejectModal } from '../../components/jobs/JobModals'
-import { statusOptions, statusOrder } from '../../components/jobs/jobUtils'
+import { statusOptions, statusOrder, queueCompare } from '../../components/jobs/jobUtils'
 import { useJobMutations } from '../../hooks/useJobMutations'
 import JobTableHeader from '../../components/jobs/JobTableHeader'
 import JobCorrectionModal from '../../components/jobs/JobCorrectionModal'
@@ -30,7 +30,7 @@ export default function Jobs() {
   const org = useOrg()
   const queryClient = useQueryClient()
   const {
-    createJob, updateJob, startJob, completeJob, cancelJob,
+    createJob, updateJob, startJob, completeJob, cancelJob, failJob,
     deleteJob, repeatJob, dispatchJob, approveJobMut, rejectJobMut, resubmitJobMut,
   } = useJobMutations()
 
@@ -45,7 +45,8 @@ export default function Jobs() {
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [statusFilter, _setStatusFilter] = useState(() => searchParams.get('status') || '')
   const [searchQuery, _setSearchQuery] = useState(() => searchParams.get('q') || '')
-  const [sortField, setSortField] = useState('priority')
+  // Default 'queue' order = server queue order (drag-and-drop position, then priority, then age).
+  const [sortField, setSortField] = useState('queue')
   const [sortDirection, setSortDirection] = useState('asc')
   const [jobTypeFilter, _setJobTypeFilter] = useState(() => searchParams.get('type') || 'all')
 
@@ -189,7 +190,8 @@ export default function Jobs() {
       case 'reject': setRejectingJobId(jobId); setShowRejectModal(true); break
       case 'resubmit': resubmitJobMut.mutate(jobId); break
       case 'markFailed':
-        cancelJob.mutate(jobId, {
+        // Mark the printing job failed (POST /jobs/{id}/fail), then log the reason.
+        failJob.mutate(jobId, {
           onSuccess: () => setFailureModal({ jobId, jobName })
         })
         break
@@ -242,6 +244,7 @@ export default function Jobs() {
       switch (sortField) {
         case 'status': return dir * ((statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99))
         case 'item_name': return dir * (a.item_name || '').localeCompare(b.item_name || '')
+        case 'queue': return dir * queueCompare(a, b)
         case 'priority': return dir * ((a.priority || 99) - (b.priority || 99))
         case 'printer': return dir * ((a.printer?.name || '').localeCompare(b.printer?.name || ''))
         case 'duration_hours': return dir * ((a.duration_hours || 0) - (b.duration_hours || 0))

@@ -48,6 +48,14 @@ export interface Job {
   model_revision_id: number | null;
   order_item_id: number | null;
   quantity_on_bed: number | null;
+  queue_position: number | null;
+  submitted_by: number | null;
+  approved_by: number | null;
+  approved_at: string | null;
+  rejected_reason: string | null;
+  charged_to_org_id: number | null;
+  fail_reason: string | null;
+  fail_notes: string | null;
   printer: PrinterSummary | null;
   model: ModelSummary | null;
 }
@@ -66,6 +74,7 @@ export interface JobCreate {
   required_tags?: string[];
   target_type?: string;
   target_filter?: string;
+  printer_id?: number | null;
   model_revision_id?: number;
 }
 

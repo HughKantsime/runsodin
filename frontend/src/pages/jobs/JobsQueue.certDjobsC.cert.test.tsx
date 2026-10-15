@@ -10,9 +10,9 @@ import Jobs from './Jobs'
 import { refreshPermissions } from '../../permissions'
 import wire from '../../test-fixtures/certD-jobsC-wire.json'
 
-const api = vi.hoisted(() => ({ list: vi.fn(), reorder: vi.fn(), update: vi.fn(), repeat: vi.fn(), cancel: vi.fn(), failure: vi.fn(), recent: vi.fn() }))
+const api = vi.hoisted(() => ({ list: vi.fn(), reorder: vi.fn(), update: vi.fn(), repeat: vi.fn(), cancel: vi.fn(), fail: vi.fn(), failure: vi.fn(), recent: vi.fn() }))
 vi.mock('../../api', () => ({
-  jobs: { list: api.list, recentTerminal: api.recent, reorder: api.reorder, update: api.update, repeat: api.repeat, cancel: api.cancel, create: vi.fn(), start: vi.fn(), complete: vi.fn(), delete: vi.fn(), dispatch: vi.fn(), get: vi.fn() },
+  jobs: { list: api.list, recentTerminal: api.recent, reorder: api.reorder, update: api.update, repeat: api.repeat, cancel: api.cancel, fail: api.fail, create: vi.fn(), start: vi.fn(), complete: vi.fn(), delete: vi.fn(), dispatch: vi.fn(), get: vi.fn() },
   models: { list: vi.fn().mockResolvedValue([]) }, modelRevisions: { list: vi.fn().mockResolvedValue([]) },
   printers: { list: vi.fn(async () => wire.printers) },
   presets: { list: vi.fn().mockResolvedValue([]), create: vi.fn(), schedule: vi.fn(), delete: vi.fn() },
@@ -51,6 +51,7 @@ beforeEach(() => {
   api.repeat.mockResolvedValue(wire.repeat_response)
   api.failure.mockResolvedValue(wire.failure_response)
   api.cancel.mockRejectedValue(new Error(wire.cancel_printing_response.detail))
+  api.fail.mockResolvedValue(wire.fail_printing_response)
 })
 afterEach(() => { cleanup(); clients.forEach(c => c.clear()); clients.length = 0; vi.useRealTimers(); vi.unstubAllGlobals(); vi.clearAllMocks() })
 
@@ -95,9 +96,8 @@ it('F04-4.3-01 viewer (captured RBAC) gets no drag handles and a synthetic drop 
   fireEvent.dragStart(row('CertC adhoc pending B'), { dataTransfer: transfer }); fireEvent.drop(row('CertC adhoc pending A'), { dataTransfer: transfer })
   expect(api.reorder).not.toHaveBeenCalled()
 })
-// DEFECT: backend/modules/jobs/routes/jobs_crud.py:359 lists by priority,created_at (queue_position not in JobResponse) and
-// frontend/src/pages/jobs/Jobs.tsx:48,245 sorts by priority, so the dropped order is never shown after the refetch.
-it.fails('F04-4.3-01 DEFECT after the drop the refetched queue shows B above A', async () => {
+// GET /jobs lists by queue_position (now serialized) and the Jobs page defaults to that queue order.
+it('F04-4.3-01 after the drop the refetched queue shows B above A', async () => {
   await mount()
   const transfer = { effectAllowed: '', dropEffect: '', setData: vi.fn() }
   fireEvent.dragStart(row('CertC adhoc pending B'), { dataTransfer: transfer }); fireEvent.drop(row('CertC adhoc pending A'), { dataTransfer: transfer })
@@ -130,10 +130,10 @@ it('F04-4.4-01 Print again on a failed row is one click and calls repeat for tha
   fireEvent.click(within(row('CertC failed clog')).getByRole('button', { name: 'Print again' }))
   await waitFor(() => expect(api.repeat).toHaveBeenCalledExactlyOnceWith(206))
 })
-// DEFECT: frontend/src/components/jobs/JobRow.tsx:156 renders "Print again" only for pending/scheduled/failed rows; completed jobs have no clone control.
-it.fails('F04-4.4-01 DEFECT Print again is offered on a completed row', async () => {
+it('F04-4.4-01 Print again is offered on a completed row and repeats that exact job', async () => {
   await mount()
-  expect(within(row('CertC completed overdue')).getByRole('button', { name: 'Print again' })).toBeInTheDocument()
+  fireEvent.click(within(row('CertC completed overdue')).getByRole('button', { name: 'Print again' }))
+  await waitFor(() => expect(api.repeat).toHaveBeenCalledExactlyOnceWith(205))
 })
 
 // ---- F04-4.5-01 failure logging ----
@@ -150,19 +150,25 @@ it('F04-4.5-01 failed-row failure dialog offers the backend reasons and submits 
   await waitFor(() => expect(api.failure).toHaveBeenCalledExactlyOnceWith(206, 'clog', 'Synthetic nozzle clog at layer 12'))
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 })
-// DEFECT: backend/modules/jobs/schemas.py:76 JobResponse has no fail_reason/fail_notes, so the refetched row never shows the saved reason.
-it.fails('F04-4.5-01 DEFECT saved failure reason and notes are shown on the queue row after refetch', async () => {
+// JobResponse serializes fail_reason/fail_notes, so the refetched row shows the saved reason.
+it('F04-4.5-01 saved failure reason and notes are shown on the queue row after refetch', async () => {
   current = wire.jobs_after
   await mount()
   expect(within(row('CertC failed clog')).getByText(/clog: Synthetic nozzle clog at layer 12/)).toBeInTheDocument()
 })
-// DEFECT: frontend/src/pages/jobs/Jobs.tsx:191 'markFailed' calls jobs.cancel for a printing job; the real route
-// (backend/modules/jobs/routes/jobs_agent.py:82) returns 400 for printing jobs, so the failure dialog never opens.
-it.fails('F04-4.5-01 DEFECT Mark job failed on a printing row opens the failure-reason dialog', async () => {
+// Mark job failed calls POST /jobs/{id}/fail (captured producer response) and then opens the reason dialog;
+// it never goes through /cancel, which the real route refuses for printing jobs.
+it('F04-4.5-01 Mark job failed on a printing row fails the job and opens the failure-reason dialog', async () => {
   await mount()
   fireEvent.click(within(row('CertC printing')).getByRole('button', { name: 'Mark job failed' }))
-  await waitFor(() => expect(api.cancel.mock.calls[0]?.[0]).toBe(204))
-  expect(await screen.findByRole('dialog', {}, { timeout: 500 })).toHaveTextContent('Print Failure')
+  await waitFor(() => expect(api.fail.mock.calls.map(c => c[0])).toEqual([204]))
+  expect(api.cancel).not.toHaveBeenCalled()
+  expect(wire.fail_printing_response.status).toBe('failed')
+  const dialog = await screen.findByRole('dialog', {}, { timeout: 500 })
+  expect(dialog).toHaveTextContent('Print Failure')
+  fireEvent.change(within(dialog).getByLabelText(/Failure Reason/), { target: { value: 'clog' } })
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Mark as Failed' }))
+  await waitFor(() => expect(api.failure).toHaveBeenCalledWith(204, 'clog', ''))
 })
 
 // ---- F04-4.7 time tracking ----

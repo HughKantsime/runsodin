@@ -99,17 +99,15 @@ describe('F04-4.6-04 Approve/Reject buttons', () => {
 })
 
 describe('F04-4.1-03 / F04-4.6-05 rejected job: student edits and resubmits (generic Jobs page)', () => {
-  // DEFECT: backend/modules/jobs/schemas.py:76-128 JobResponse omits submitted_by, rejected_reason and
-  // charged_to_org_id, so GET /api/jobs never carries them; frontend/src/components/jobs/JobRow.tsx:121 (Resubmit)
-  // and :147 (viewer Edit correction) gate on job.submitted_by / charged_to_org_id and :65 shows rejected_reason,
-  // so against the real producer the original submitter gets no Resubmit, no Edit and no rejection reason.
-  it.fails('original submitter sees Resubmit on own rejected job and it posts the recorded request', async () => {
+  // JobResponse now serializes submitted_by, rejected_reason and charged_to_org_id, which JobRow gates
+  // Resubmit / viewer Edit on and shows as the rejection reason.
+  it('original submitter sees Resubmit on own rejected job and it posts the recorded request', async () => {
     await show('student', [wire.jobs_viewer])
     fireEvent.click(within(row('Wire student rejected')).getByRole('button', { name: 'Resubmit job' }))
     await waitFor(() => expect(calls.some(c => c.method === 'POST' && c.url === '/api' + wire.resubmit.path)).toBe(true))
   })
 
-  it.fails('original submitter can open Edit on own rejected job and send the recorded correction', async () => {
+  it('original submitter can open Edit on own rejected job and send the recorded correction', async () => {
     await show('student', [wire.jobs_viewer])
     fireEvent.click(within(row('Wire student rejected')).getByRole('button', { name: 'Edit job' }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Notes' }), { target: { value: wire.correct.request.notes } })
@@ -117,7 +115,7 @@ describe('F04-4.1-03 / F04-4.6-05 rejected job: student edits and resubmits (gen
     await waitFor(() => expect(calls.find(c => c.method === 'PATCH' && c.url === '/api' + wire.correct.path)?.body).toEqual(wire.correct.request))
   })
 
-  it.fails('rejected row shows the rejection reason to the submitter', async () => {
+  it('rejected row shows the rejection reason to the submitter', async () => {
     await show('student', [wire.jobs_viewer])
     expect(within(row('Wire student rejected')).getByText('Wire reason: reduce infill')).toBeInTheDocument()
   })
