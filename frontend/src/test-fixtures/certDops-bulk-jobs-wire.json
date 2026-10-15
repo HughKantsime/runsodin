@@ -1,0 +1,128 @@
+{
+  "cancel": {
+    "request": {
+      "action": "cancel",
+      "job_ids": [
+        9201,
+        9202
+      ]
+    },
+    "response": {
+      "affected": 2,
+      "status": "ok"
+    }
+  },
+  "delete": {
+    "request": {
+      "action": "delete",
+      "job_ids": [
+        9201,
+        9202
+      ]
+    },
+    "response": {
+      "affected": 2,
+      "status": "ok"
+    }
+  },
+  "jobs": [
+    {
+      "actual_end": null,
+      "actual_start": null,
+      "colors_list": [],
+      "colors_required": null,
+      "created_at": "2026-10-15T00:49:48",
+      "due_date": null,
+      "duration_hours": null,
+      "effective_duration": 1.0,
+      "estimated_cost": null,
+      "filament_type": null,
+      "hold": false,
+      "id": 9201,
+      "is_locked": null,
+      "item_name": "Owned ordinary batch",
+      "match_score": null,
+      "model": null,
+      "model_id": null,
+      "model_revision_id": null,
+      "notes": null,
+      "order_item_id": null,
+      "printer": null,
+      "printer_id": null,
+      "priority": 3,
+      "quantity": 1,
+      "quantity_on_bed": null,
+      "required_tags": [],
+      "scheduled_end": null,
+      "scheduled_start": null,
+      "status": "pending",
+      "suggested_price": null,
+      "target_filter": null,
+      "target_type": null,
+      "updated_at": "2026-10-15T00:49:48"
+    },
+    {
+      "actual_end": null,
+      "actual_start": null,
+      "colors_list": [],
+      "colors_required": null,
+      "created_at": "2026-10-15T00:49:48",
+      "due_date": null,
+      "duration_hours": null,
+      "effective_duration": 1.0,
+      "estimated_cost": null,
+      "filament_type": null,
+      "hold": false,
+      "id": 9202,
+      "is_locked": null,
+      "item_name": "Owned ordinary batch",
+      "match_score": null,
+      "model": null,
+      "model_id": null,
+      "model_revision_id": null,
+      "notes": null,
+      "order_item_id": null,
+      "printer": null,
+      "printer_id": null,
+      "priority": 3,
+      "quantity": 1,
+      "quantity_on_bed": null,
+      "required_tags": [],
+      "scheduled_end": null,
+      "scheduled_start": null,
+      "status": "pending",
+      "suggested_price": null,
+      "target_filter": null,
+      "target_type": null,
+      "updated_at": "2026-10-15T00:49:48"
+    }
+  ],
+  "reschedule": {
+    "request": {
+      "action": "reschedule",
+      "job_ids": [
+        9201,
+        9202
+      ]
+    },
+    "response": {
+      "affected": 2,
+      "skipped": 0,
+      "status": "ok"
+    }
+  },
+  "set_priority": {
+    "request": {
+      "action": "set_priority",
+      "job_ids": [
+        9201,
+        9202
+      ],
+      "priority": 1
+    },
+    "response": {
+      "affected": 2,
+      "status": "ok"
+    }
+  }
+}

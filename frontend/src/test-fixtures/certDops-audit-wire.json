@@ -1,0 +1,258 @@
+{
+  "audit_page": {
+    "limit": 50,
+    "logs": [
+      {
+        "action": "bulk_cancel",
+        "auth_kind": "bearer_jwt",
+        "details": "1 jobs",
+        "entity_id": null,
+        "entity_type": "jobs",
+        "id": 1,
+        "ip_address": "198.51.100.7",
+        "timestamp": "2026-10-15T00:49:52",
+        "user_id": 3,
+        "username": "admin"
+      }
+    ],
+    "offset": 0,
+    "total": 1
+  },
+  "default_permissions": {
+    "action_access": {
+      "alerts.read": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "dashboard.actions": [
+        "admin",
+        "operator"
+      ],
+      "jobs.approve": [
+        "admin",
+        "operator"
+      ],
+      "jobs.cancel": [
+        "admin",
+        "operator"
+      ],
+      "jobs.complete": [
+        "admin",
+        "operator"
+      ],
+      "jobs.create": [
+        "admin",
+        "operator"
+      ],
+      "jobs.delete": [
+        "admin",
+        "operator"
+      ],
+      "jobs.edit": [
+        "admin",
+        "operator"
+      ],
+      "jobs.reject": [
+        "admin",
+        "operator"
+      ],
+      "jobs.resubmit": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "jobs.start": [
+        "admin",
+        "operator"
+      ],
+      "maintenance.log": [
+        "admin",
+        "operator"
+      ],
+      "maintenance.tasks": [
+        "admin"
+      ],
+      "models.create": [
+        "admin",
+        "operator"
+      ],
+      "models.delete": [
+        "admin"
+      ],
+      "models.edit": [
+        "admin",
+        "operator"
+      ],
+      "orders.create": [
+        "admin",
+        "operator"
+      ],
+      "orders.delete": [
+        "admin",
+        "operator"
+      ],
+      "orders.edit": [
+        "admin"
+      ],
+      "orders.ship": [
+        "admin",
+        "operator"
+      ],
+      "printers.add": [
+        "admin"
+      ],
+      "printers.delete": [
+        "admin"
+      ],
+      "printers.edit": [
+        "admin",
+        "operator"
+      ],
+      "printers.plug": [
+        "admin",
+        "operator"
+      ],
+      "printers.reorder": [
+        "admin",
+        "operator"
+      ],
+      "printers.slots": [
+        "admin",
+        "operator"
+      ],
+      "products.create": [
+        "admin",
+        "operator"
+      ],
+      "products.delete": [
+        "admin"
+      ],
+      "products.edit": [
+        "admin",
+        "operator"
+      ],
+      "settings.edit": [
+        "admin"
+      ],
+      "spools.delete": [
+        "admin"
+      ],
+      "spools.edit": [
+        "admin",
+        "operator"
+      ],
+      "timeline.move": [
+        "admin",
+        "operator"
+      ],
+      "upload.delete": [
+        "admin",
+        "operator"
+      ],
+      "upload.schedule": [
+        "admin",
+        "operator"
+      ],
+      "upload.upload": [
+        "admin",
+        "operator"
+      ]
+    },
+    "page_access": {
+      "admin": [
+        "admin"
+      ],
+      "alerts": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "analytics": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "branding": [
+        "admin"
+      ],
+      "calculator": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "cameras": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "dashboard": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "education": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "education_reports": [
+        "admin",
+        "operator"
+      ],
+      "jobs": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "maintenance": [
+        "admin",
+        "operator"
+      ],
+      "models": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "orders": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "printers": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "products": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "settings": [
+        "admin"
+      ],
+      "spools": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "timeline": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "upload": [
+        "admin",
+        "operator"
+      ]
+    }
+  },
+  "export_csv": "ID,Timestamp,Action,Entity Type,Entity ID,Details,IP Address,User ID,Username,Authentication\r\n1,2026-10-15T00:49:52,bulk_cancel,jobs,,1 jobs,198.51.100.7,3,admin,bearer_jwt\r\n",
+  "me": {
+    "group_id": null,
+    "id": 3,
+    "role": "admin",
+    "username": "admin"
+  }
+}

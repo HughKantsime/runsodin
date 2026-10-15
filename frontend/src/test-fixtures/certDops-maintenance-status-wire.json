@@ -1,0 +1,117 @@
+{
+  "complete_request": {
+    "cost": 0,
+    "downtime_minutes": 0,
+    "notes": null,
+    "performed_by": null,
+    "printer_id": 9,
+    "task_id": 101,
+    "task_name": "Synthetic service"
+  },
+  "complete_response": {
+    "id": 303,
+    "message": "Maintenance logged",
+    "print_hours_at_service": 118.0
+  },
+  "scope": "certDops owned actual GET /api/v1/maintenance/status (one printer, three task states)",
+  "status": [
+    {
+      "overall_status": "overdue",
+      "printer_id": 9,
+      "printer_model": "Bambu Lab P1S",
+      "printer_name": "P1S-09",
+      "tasks": [
+        {
+          "days_since_service": 0,
+          "description": null,
+          "hours_since_service": 28.0,
+          "interval_days": null,
+          "interval_print_hours": 10.0,
+          "last_by": null,
+          "last_serviced": "2026-10-15T00:49:55",
+          "progress_percent": 150,
+          "status": "overdue",
+          "task_id": 101,
+          "task_name": "Synthetic service"
+        },
+        {
+          "days_since_service": 8,
+          "description": null,
+          "hours_since_service": 0.0,
+          "interval_days": 10,
+          "interval_print_hours": null,
+          "last_by": null,
+          "last_serviced": "2026-10-07T00:48:55.246992",
+          "progress_percent": 80.0,
+          "status": "due_soon",
+          "task_id": 301,
+          "task_name": "certDops due soon"
+        },
+        {
+          "days_since_service": 1,
+          "description": null,
+          "hours_since_service": 0.0,
+          "interval_days": null,
+          "interval_print_hours": 1000.0,
+          "last_by": null,
+          "last_serviced": "2026-10-14T00:49:55.246992",
+          "progress_percent": 0.0,
+          "status": "ok",
+          "task_id": 302,
+          "task_name": "certDops fine"
+        }
+      ],
+      "total_print_hours": 118.0
+    }
+  ],
+  "status_after": [
+    {
+      "overall_status": "due_soon",
+      "printer_id": 9,
+      "printer_model": "Bambu Lab P1S",
+      "printer_name": "P1S-09",
+      "tasks": [
+        {
+          "days_since_service": 8,
+          "description": null,
+          "hours_since_service": 0.0,
+          "interval_days": 10,
+          "interval_print_hours": null,
+          "last_by": null,
+          "last_serviced": "2026-10-07T00:48:55.246992",
+          "progress_percent": 80.0,
+          "status": "due_soon",
+          "task_id": 301,
+          "task_name": "certDops due soon"
+        },
+        {
+          "days_since_service": 0,
+          "description": null,
+          "hours_since_service": 0.0,
+          "interval_days": null,
+          "interval_print_hours": 10.0,
+          "last_by": null,
+          "last_serviced": "2026-10-15T00:49:55",
+          "progress_percent": 0.0,
+          "status": "ok",
+          "task_id": 101,
+          "task_name": "Synthetic service"
+        },
+        {
+          "days_since_service": 1,
+          "description": null,
+          "hours_since_service": 0.0,
+          "interval_days": null,
+          "interval_print_hours": 1000.0,
+          "last_by": null,
+          "last_serviced": "2026-10-14T00:49:55.246992",
+          "progress_percent": 0.0,
+          "status": "ok",
+          "task_id": 302,
+          "task_name": "certDops fine"
+        }
+      ],
+      "total_print_hours": 118.0
+    }
+  ]
+}

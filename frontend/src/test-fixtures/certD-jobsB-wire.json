@@ -1,0 +1,80 @@
+{
+  "jobs_list_priority_due": [
+    {
+      "colors_list": [],
+      "due_date": "2026-10-13T00:00:00",
+      "hold": false,
+      "is_locked": false,
+      "item_name": "Synthetic urgent",
+      "priority": 1,
+      "quantity": 1,
+      "status": "pending"
+    },
+    {
+      "colors_list": [],
+      "due_date": null,
+      "hold": false,
+      "is_locked": false,
+      "item_name": "Synthetic normal",
+      "priority": 3,
+      "quantity": 1,
+      "status": "pending"
+    },
+    {
+      "colors_list": [],
+      "due_date": "2026-10-30T00:00:00",
+      "hold": false,
+      "is_locked": false,
+      "item_name": "Synthetic low",
+      "priority": 4,
+      "quantity": 1,
+      "status": "pending"
+    }
+  ],
+  "preset_schedule_response_keys": [
+    "id",
+    "item_name",
+    "status"
+  ],
+  "presets_list": [
+    {
+      "colors_required": "black, white",
+      "duration_hours": 1.5,
+      "filament_type": "PETG",
+      "id": 1,
+      "item_name": "Synthetic bracket",
+      "model_id": null,
+      "model_name": null,
+      "name": "Synthetic bracket x4",
+      "notes": "Synthetic preset notes",
+      "priority": 2,
+      "quantity": 4,
+      "required_tags": [
+        "Room A"
+      ]
+    }
+  ],
+  "quick_print_schedule": {
+    "has_job_id": true,
+    "model_id": 13,
+    "status": "pending"
+  },
+  "quick_print_upload": {
+    "duplicate": null,
+    "filaments": [
+      {
+        "color": "#000000",
+        "slot": 1,
+        "type": "PETG",
+        "used_grams": 0.29
+      }
+    ],
+    "filename": "Synthetic quick cube.3mf",
+    "is_sliced": true,
+    "layer_count": 10,
+    "model_id": 13,
+    "print_time_formatted": "9m",
+    "printer_model": "N2S",
+    "thumbnail_b64": null
+  }
+}
