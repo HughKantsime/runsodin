@@ -120,9 +120,6 @@ def test_filament_check_privacy_before_printer_access(api):
     assert check(client, printer_id=992, filament_type='PLA') == []
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "DEFECT: backend/modules/jobs/routes/jobs_crud.py:68 skips the material check whenever ANY slot is "
-    "'empty', so a printer with PETG + one empty AMS slot reports no warning for a PLA job"))
 def test_filament_check_still_flags_material_mismatch_when_one_slot_is_empty(api):
     client, _, db = api
     slots(db, 9, [('PETG', '#ffffff'), ('empty', None)])

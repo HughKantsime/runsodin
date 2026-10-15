@@ -64,9 +64,15 @@ def check_filament_compatibility(
     slots = db.query(FilamentSlot).filter(FilamentSlot.printer_id == printer_id).all()
 
     if filament_type and slots:
-        loaded_types = {s.filament_type.value.upper() if s.filament_type else '' for s in slots}
-        if filament_type.upper() not in loaded_types and 'EMPTY' not in loaded_types:
-            warnings.append(f"Job requires {filament_type} but printer has {', '.join(t for t in loaded_types if t)} loaded")
+        # Empty/unknown slots carry no material; judge only the loaded ones.
+        loaded_types = {
+            s.filament_type.value.upper() for s in slots
+            if s.filament_type and s.filament_type.value.upper() != 'EMPTY'
+        }
+        if not loaded_types:
+            warnings.append(f"Job requires {filament_type} but printer has no filament loaded")
+        elif filament_type.upper() not in loaded_types:
+            warnings.append(f"Job requires {filament_type} but printer has {', '.join(sorted(loaded_types))} loaded")
 
     if colors and slots:
         required = [c.strip().lower() for c in colors.split(',') if c.strip()]
