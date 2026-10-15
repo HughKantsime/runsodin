@@ -306,16 +306,19 @@ def schedule_from_preset(
         charged_to_org_id=current_user.get("group_id"),
     )
 
-    # Cost calculation from model if available
+    # Inherit build time and cost from the library model when one is bound.
+    # Model has no stored cost columns; cost is computed exactly as POST /jobs does.
     if preset.model_id:
+        from modules.jobs.education_guard import assert_generic_model_reference_allowed
+        from modules.models_library.services import calculate_job_cost
+        assert_generic_model_reference_allowed(db, preset.model_id)
         model = db.query(Model).filter(Model.id == preset.model_id).first()
         if model:
             if not job.duration_hours and model.build_time_hours:
                 job.duration_hours = model.build_time_hours
-            if model.estimated_cost:
-                job.estimated_cost = model.estimated_cost
-            if model.suggested_price:
-                job.suggested_price = model.suggested_price
+            estimated_cost, suggested_price, _ = calculate_job_cost(db, model_id=model.id)
+            job.estimated_cost = estimated_cost
+            job.suggested_price = suggested_price
 
     charge_job_quota(db, current_user)
     job.charged_to_user_id = current_user.get("id")

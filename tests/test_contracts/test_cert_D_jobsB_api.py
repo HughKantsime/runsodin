@@ -227,10 +227,6 @@ def test_preset_crud_and_quick_schedule_creates_configured_pending_job(api):
     assert all(p['id'] != preset_id for p in client.get('/api/presets').json())
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "DEFECT: backend/modules/jobs/routes/presets.py:315 reads model.estimated_cost, an attribute the Model "
-    "ORM (backend/modules/models_library/models.py) does not define, so POST /api/presets/{id}/schedule "
-    "raises AttributeError (HTTP 500) for every preset bound to an existing model"))
 def test_preset_from_model_inherits_build_time(api):
     client, _, db = api
     db.execute(text("INSERT INTO models(id,name,org_id,build_time_hours) VALUES(77,'Synthetic model',1,2.5)")); db.commit()
