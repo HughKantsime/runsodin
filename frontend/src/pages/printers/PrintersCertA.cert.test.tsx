@@ -255,6 +255,17 @@ it('smart plug saved from the printer settings panel goes through PUT /printers/
   expect(JSON.parse(patch[1].body)).not.toHaveProperty('plug')
 })
 
+it('printer card labels four-tray AMS units and AMS HT units separately', async () => {
+  const { default: PrinterCard } = await import('../../components/printers/PrinterCard')
+  const slot = (n: number) => ({ id: 1000 + n, slot_number: n, filament_type: 'PLA', color_hex: 'FFFFFF', color: null })
+  const props = { allFilaments: [], spools: [], onDelete: vi.fn(), onToggleActive: vi.fn(), onUpdateSlot: vi.fn(), onEdit: vi.fn(), onSyncAms: vi.fn() }
+  render(<PrinterCard printer={{ ...w.printers[0], machine_type: 'H2D', filament_slots: [1, 2, 3, 4, 5, 6, 7, 8, 17].map(slot) }} {...props} />)
+  expect(screen.getAllByTestId('ams-unit-label').map(e => e.textContent)).toEqual(['AMS Unit 0', 'AMS Unit 1', 'AMS HT 1'])
+  cleanup()
+  render(<PrinterCard printer={{ ...w.printers[0], filament_slots: [1, 2, 3, 4].map(slot) }} {...props} />)
+  expect(screen.queryAllByTestId('ams-unit-label')).toHaveLength(0)
+})
+
 it('no printer-card control reaches the AMS RFID re-read endpoint (claim says it is triggered from the UI)', async () => {
   const { default: PrinterCard } = await import('../../components/printers/PrinterCard')
   const urls: string[] = []

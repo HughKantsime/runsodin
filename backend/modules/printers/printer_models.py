@@ -19,7 +19,8 @@ from typing import Optional
 # Bambu Lab: the single source of truth for Bambu model identity.
 #
 # Keys are Bambu machine model ids: the `model_id` of Bambu Studio's machine
-# profiles (resources/profiles/BBL/machine/*.json), which is also what sliced
+# profiles (resources/profiles/BBL/machine/*.json; every model_id there as of
+# Bambu Studio 02.05.00.66), which is also what sliced
 # 3MF files carry as `printer_model_id` and what MQTT `printer_type` reports
 # when present. The captured A1 3MF fixture carries N2S. The captured A1/H2D
 # MQTT sessions carry no `printer_type` at all; their identity is the ota
@@ -41,7 +42,11 @@ BAMBU_MODEL_IDS = {
     "C12": "P1S",
     "N1": "A1 Mini",
     "N2S": "A1",
+    "N7": "P2S",
+    "O1C2": "H2C",
     "O1D": "H2D",
+    "O1E": "H2D Pro",
+    "O1S": "H2S",
 }
 
 # Product names reported in info.module[name=ota].product_name, without the
@@ -55,7 +60,9 @@ BAMBU_PRODUCT_NAMES = {
     "P1S": "P1S",
     "A1": "A1",
     "A1 MINI": "A1 Mini",
+    "P2S": "P2S",
     "H2D": "H2D",
+    "H2D PRO": "H2D Pro",
     "H2S": "H2S",
     "H2C": "H2C",
 }

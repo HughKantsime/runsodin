@@ -52,12 +52,15 @@ def test_resaving_masked_auto_camera_keeps_it_generated(printers_client, review_
     response = printers_client.patch("/printers/21", json={"camera_url": masked, "nickname": "Bay 1"})
     assert response.status_code == 200, response.text
     assert review_db.execute(text("SELECT camera_url FROM printers WHERE id=21")).scalar_one() is None
-    # Editing the host of the masked auto URL keeps the access code from the generated URL.
+    # Another host with the masked access code is refused (credentials only follow the same endpoint)...
     response = printers_client.patch("/printers/21", json={"camera_url": "rtsps://***@192.0.2.99:322/streaming/live/1"})
+    assert response.status_code == 400, response.text
+    # ...while a path change on the generated endpoint keeps the access code.
+    response = printers_client.patch("/printers/21", json={"camera_url": "rtsps://***@192.0.2.21:322/streaming/live/2"})
     assert response.status_code == 200, response.text
     from core import crypto
     stored = crypto.decrypt(review_db.execute(text("SELECT camera_url FROM printers WHERE id=21")).scalar_one())
-    assert stored.startswith("rtsps://bblp:") and stored.endswith("@192.0.2.99:322/streaming/live/1")
+    assert stored.startswith("rtsps://bblp:") and stored.endswith("@192.0.2.21:322/streaming/live/2")
 
 
 def test_filament_slot_reports_remaining_grams(printers_client, review_db):

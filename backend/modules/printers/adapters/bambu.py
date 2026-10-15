@@ -227,7 +227,14 @@ class BambuPrinter:
         self._publish(payload)
         # The model is only reported in the get_version reply
         # (info.module[name=ota].product_name), so ask for it as well.
-        self._publish({"info": {"sequence_id": "0", "command": "get_version"}})
+        # Fire-and-forget: this runs inside paho's on_connect callback, where
+        # _publish's wait_for_publish blocks the network loop (up to 5 s per
+        # call) and delays every command queued behind it.
+        try:
+            self._client.publish(self._topic_request,
+                                 json.dumps({"info": {"sequence_id": "0", "command": "get_version"}}))
+        except Exception:
+            pass
     
     def pause_print(self) -> bool:
         """Pause current print."""
@@ -511,13 +518,10 @@ class BambuPrinter:
             
             # Model identity: real printers report it only in the get_version
             # reply (info.module[name=ota].product_name), never in print.
-            info = payload.get("info")
-            if isinstance(info, dict) and isinstance(info.get("module"), list):
-                for module in info["module"]:
-                    if isinstance(module, dict) and module.get("name") == "ota":
-                        product = module.get("product_name")
-                        if isinstance(product, str) and product.strip():
-                            self._status.printer_type = product.strip()
+            from modules.printers.monitors.mqtt_telemetry import ota_product_name
+            product = ota_product_name(payload.get("info"))
+            if product:
+                self._status.printer_type = product
 
             # Get the print section if present
             print_data = payload.get("print", {})

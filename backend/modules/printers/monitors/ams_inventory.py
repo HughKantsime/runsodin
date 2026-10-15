@@ -134,4 +134,17 @@ def sync_ams_inventory(conn, printer_id, units):
                 conn.execute('UPDATE spools SET location_printer_id=?,location_slot=? WHERE id=?', (printer_id, number, spool_id))
             else:
                 conn.execute('UPDATE spools SET location_printer_id=?,location_slot=?,remaining_weight_g=? WHERE id=?', (printer_id, number, weight, spool_id))
+    # AMS HT units (slots 17+) exist only through this sync. An HT slot whose
+    # unit is absent from the reported AMS list was unplugged: clear it rather
+    # than keep showing the last spool. Slots 1-16 are left alone because
+    # they double as user-configured slots (slot_count) without an AMS.
+    from modules.printers.telemetry.bambu.ams_identity import AMS_HT_FIRST_SLOT
+    reported = {number for number, _ in identified}
+    for slot_id, (assigned, slot_printer, number) in before[0].items():
+        if slot_printer != printer_id or number < AMS_HT_FIRST_SLOT or number in reported:
+            continue
+        conn.execute('UPDATE filament_slots SET filament_type=?,color_hex=NULL,color=NULL,assigned_spool_id=NULL,spool_confirmed=? WHERE id=?',
+                     ('empty', False, slot_id))
+        if assigned is not None and (spools[assigned][2], spools[assigned][5]) == (printer_id, number):
+            conn.execute('UPDATE spools SET location_printer_id=NULL,location_slot=NULL WHERE id=?', (assigned,))
     return len(trays)

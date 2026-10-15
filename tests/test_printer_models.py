@@ -25,6 +25,16 @@ class TestBambuModels:
         assert normalize_model_name("bambu", "N2S") == "A1"
         assert normalize_model_name("bambu", "N1") == "A1 Mini"
         assert normalize_model_name("bambu", "O1D") == "H2D"
+        assert normalize_model_name("bambu", "O1E") == "H2D Pro"
+        assert normalize_model_name("bambu", "O1S") == "H2S"
+        assert normalize_model_name("bambu", "O1C2") == "H2C"
+        assert normalize_model_name("bambu", "N7") == "P2S"
+
+    def test_new_model_ids_resolve_to_canonical_machines(self):
+        from core.printer_identity import canonical_machine
+        assert [canonical_machine(c) for c in ("O1E", "O1S", "O1C2", "N7", "Bambu Lab H2D Pro", "Bambu Lab P2S")] == [
+            "h2d-pro", "h2s", "h2c", "p2s", "h2d-pro", "p2s"]
+        assert normalize_model_name("bambu", "Bambu Lab H2D Pro") == "H2D Pro"
 
     def test_ota_product_names(self):
         assert normalize_model_name("bambu", "Bambu Lab A1") == "A1"

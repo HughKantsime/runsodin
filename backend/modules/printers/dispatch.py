@@ -648,6 +648,8 @@ def _validated_print_options(job,creds,stored_path,payload_sha256):
                 except ValueError:
                     return None, "Stored AMS mapping is invalid; no command was sent"
             if mapping is not None:
+                # Bambu tray index 0-15 (four-tray units 0-3). AMS HT (tray
+                # id 128+) is not a dispatch target; see ams_identity.
                 if (not isinstance(mapping, list) or not mapping or len(mapping) > 16
                         or any(type(slot) is not int or not 0 <= slot < 16 for slot in mapping)
                         or len(set(mapping)) != len(mapping)):

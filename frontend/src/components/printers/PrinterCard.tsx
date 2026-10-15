@@ -11,7 +11,7 @@ import PrintProgress from './PrintProgress'
 import { printers, apiTokens } from '../../api'
 import { canDo, getCurrentUser } from '../../permissions'
 import { canControlPlug } from '../../utils/plugControl'
-import { isOnline, isActivePrintState } from '../../utils/shared'
+import { isOnline, isActivePrintState, amsSlotGroup } from '../../utils/shared'
 import { Button, SpoolRing } from '../ui'
 
 // TODO: type this properly — runtime printer shape has extra MQTT/telemetry fields
@@ -231,35 +231,35 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
             <span className="text-xs text-[var(--brand-text-muted)] ml-auto">(click to edit)</span>
           )}
         </div>
-        {printer.machine_type === 'H2D' && printer.filament_slots?.length > 4 && (
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-[10px] text-[var(--brand-text-muted)] font-medium">AMS Unit 0</span>
-          </div>
-        )}
-        <div className={clsx(
-          "grid gap-2",
-          printer.filament_slots?.length <= 4 ? "grid-cols-4" : "grid-cols-4"
-        )}>
-          {printer.filament_slots?.map((slot: any, idx: number) => {
-            const el = (
-              <FilamentSlotEditor
-                printerId={printer.id}
-                spools={spools}
-                key={slot.id}
-                slot={slot}
-                allFilaments={allFilaments}
-                onSave={(data) => onUpdateSlot(printer.id, slot.slot_number, data)}
-              />
-            )
-            if (printer.machine_type === 'H2D' && idx === 4) {
-              return [
-                <div key="ams1-label" className="col-span-4 text-[10px] text-[var(--brand-text-muted)] font-medium mt-1">AMS Unit 1</div>,
-                el,
-              ]
-            }
-            return el
-          })}
-        </div>
+        {(() => {
+          const slots = printer.filament_slots || []
+          // Group headers only when the printer reports more than one unit.
+          const labelled = new Set(slots.map((slot: any) => amsSlotGroup(slot.slot_number).key)).size > 1
+          let previous: string | null = null
+          return (
+            <div className="grid gap-2 grid-cols-4">
+              {slots.map((slot: any) => {
+                const group = amsSlotGroup(slot.slot_number)
+                const el = (
+                  <FilamentSlotEditor
+                    printerId={printer.id}
+                    spools={spools}
+                    key={slot.id}
+                    slot={slot}
+                    allFilaments={allFilaments}
+                    onSave={(data) => onUpdateSlot(printer.id, slot.slot_number, data)}
+                  />
+                )
+                const header = labelled && group.key !== previous
+                previous = group.key
+                return header ? [
+                  <div key={`label-${group.key}`} data-testid="ams-unit-label" className="col-span-4 text-[10px] text-[var(--brand-text-muted)] font-medium mt-1">{group.label}</div>,
+                  el,
+                ] : el
+              })}
+            </div>
+          )
+        })()}
         {/* H2D External Spools (Ext-L / Ext-R) */}
         {printer.machine_type === 'H2D' && printer.external_spools && (
           <div className="mt-2 pt-2 border-t border-[var(--brand-border)]">
