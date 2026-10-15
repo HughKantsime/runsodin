@@ -441,3 +441,28 @@ def test_token_check_runs_off_the_event_loop(overlay_client, monkeypatch):
     monkeypatch.setattr(dependencies, "resolve_user_api_token", checked)
     assert client.get("/overlay/9/camera", params={"token": tokens["camera"]}).status_code == 200
     assert calls and set(calls) == {"worker"}
+
+
+@pytest.mark.parametrize("param", ["api_key", "apikey", "usr", "access_code", "sig", "token"])
+def test_more_query_credential_parameters_are_protected(param):
+    from modules.printers.route_utils import camera_url_has_credentials, sanitize_camera_url
+    url = f"rtsp://192.0.2.5/live?{param}=S3cretValue9&res=hd"
+    assert camera_url_has_credentials(url)
+    assert sanitize_camera_url(url) == f"rtsp://192.0.2.5/live?{param}=***&res=hd"
+
+
+def test_unifi_protect_path_token_is_encrypted_masked_and_restored(printers_client, review_db):
+    from core import crypto
+    from modules.printers.route_utils import camera_url_has_credentials, sanitize_camera_url
+    token = "aB3dE5fG7hJ9kL1m"
+    for url in (f"rtsp://192.0.2.23:7447/{token}", f"rtsps://192.0.2.23:7441/{token}?enableSrtp"):
+        assert camera_url_has_credentials(url) and token not in sanitize_camera_url(url)
+    assert not camera_url_has_credentials("rtsp://192.0.2.23:554/stream1")
+    url = f"rtsp://192.0.2.23:7447/{token}"
+    assert printers_client.patch("/printers/23", json={"camera_url": url}).status_code == 200
+    stored = review_db.execute(text("SELECT camera_url FROM printers WHERE id=23")).scalar_one()
+    assert crypto.is_encrypted(stored) and crypto.decrypt(stored) == url
+    masked = printers_client.get("/printers/23").json()["camera_url"]
+    assert masked == "rtsp://192.0.2.23:7447/***"
+    assert printers_client.patch("/printers/23", json={"camera_url": masked}).status_code == 200  # unchanged resave
+    assert crypto.decrypt(review_db.execute(text("SELECT camera_url FROM printers WHERE id=23")).scalar_one()) == url

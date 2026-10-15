@@ -142,7 +142,11 @@ CAMERA_CREDENTIAL_MASK = '***'
 
 
 # Query parameters some cameras take credentials in (?user=..&password=..).
-_CREDENTIAL_QUERY_RE = re.compile(r'([?&](?:user|username|login|password|pass|passwd|pwd|token|auth|key|secret)=)([^&#]*)', re.IGNORECASE)
+_CREDENTIAL_QUERY_RE = re.compile(r'([?&](?:user|username|usr|login|password|pass|passwd|pwd|token|auth|key|secret|api_key|apikey|access_code|sig)=)([^&#]*)', re.IGNORECASE)
+# Vendors that put the credential in the path. UniFi Protect: rtsp://host:7447/<token>,
+# rtsps://host:7441/<token>[?enableSrtp]. Other path-token schemes are not recognised
+# and are stored as entered (documented limitation: use userinfo or query credentials).
+_PATH_TOKEN_RE = re.compile(r'^(rtsps?://[^/?#]+:(?:7441|7447)/)([A-Za-z0-9]{8,})(?=$|[?#])', re.IGNORECASE)
 _DEFAULT_PORTS = {'rtsp': 554, 'rtsps': 322, 'rtspx': 322, 'http': 80, 'https': 443}
 
 
@@ -150,7 +154,8 @@ def camera_url_has_credentials(url) -> bool:
     """Userinfo or a credential query parameter: the URL must be stored encrypted."""
     if not isinstance(url, str):
         return False
-    return bool(_URL_USERINFO_RE.match(url.strip())) or any(m.group(2) for m in _CREDENTIAL_QUERY_RE.finditer(url))
+    return (bool(_URL_USERINFO_RE.match(url.strip())) or any(m.group(2) for m in _CREDENTIAL_QUERY_RE.finditer(url))
+            or bool(_PATH_TOKEN_RE.match(url.strip())))
 
 
 def sanitize_camera_url(url: str) -> str:
@@ -158,6 +163,7 @@ def sanitize_camera_url(url: str) -> str:
     if not url:
         return url
     masked = _URL_USERINFO_RE.sub(lambda m: m.group(1) + CAMERA_CREDENTIAL_MASK + '@', url.strip(), count=1)
+    masked = _PATH_TOKEN_RE.sub(lambda m: m.group(1) + CAMERA_CREDENTIAL_MASK, masked, count=1)
     return _CREDENTIAL_QUERY_RE.sub(lambda m: m.group(1) + (CAMERA_CREDENTIAL_MASK if m.group(2) else ''), masked)
 
 
@@ -190,7 +196,8 @@ def camera_url_is_masked(url) -> bool:
         return False
     match = _URL_USERINFO_RE.match(url.strip())
     return bool(match and match.group(2) == CAMERA_CREDENTIAL_MASK) or any(
-        m.group(2) == CAMERA_CREDENTIAL_MASK for m in _CREDENTIAL_QUERY_RE.finditer(url))
+        m.group(2) == CAMERA_CREDENTIAL_MASK for m in _CREDENTIAL_QUERY_RE.finditer(url)) or bool(
+        re.match(r'^rtsps?://[^/?#]+:(?:7441|7447)/\*\*\*(?=$|[?#])', url.strip(), re.IGNORECASE))
 
 
 def resolve_masked_camera_url(incoming, stored):
@@ -224,6 +231,12 @@ def resolve_masked_camera_url(incoming, stored):
         if not stored_match:
             raise HTTPException(status_code=400, detail="Camera URL credentials are masked; enter the full URL")
         resolved = match.group(1).lower() + stored_match.group(2) + '@' + resolved[match.end():]
+    path_masked = re.match(r'^(rtsps?://[^/?#]+:(?:7441|7447)/)\*\*\*(?=$|[?#])', resolved, re.IGNORECASE)
+    if path_masked:
+        stored_path = _PATH_TOKEN_RE.match(plain)
+        if not stored_path:
+            raise HTTPException(status_code=400, detail="Camera URL credentials are masked; enter the full URL")
+        resolved = path_masked.group(1) + stored_path.group(2) + resolved[path_masked.end():]
     stored_values = {m.group(1)[1:].lower(): m.group(2) for m in _CREDENTIAL_QUERY_RE.finditer(plain)}
 
     def restore(m):
