@@ -175,10 +175,11 @@ def main():
         killed = []
         def killing_popen(argv, **kwargs):
             process = real_popen(argv, **kwargs)
-            before = {entry.name for entry in journal.iterdir()}
+            # The child journals into its own subdirectory: watch every journal file.
+            before = {str(entry) for entry in journal.rglob('*') if entry.is_file()}
             def watch():
                 while process.poll() is None:
-                    if {entry.name for entry in journal.iterdir()} - before:
+                    if {str(entry) for entry in journal.rglob('*') if entry.is_file()} - before:
                         os.killpg(process.pid, signal.SIGKILL); killed.append(True); return
                     __import__('time').sleep(.05)
             threading.Thread(target=watch, daemon=True).start()
