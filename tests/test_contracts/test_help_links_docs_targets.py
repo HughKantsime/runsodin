@@ -29,7 +29,7 @@ pytestmark = pytest.mark.skipif(
 
 def _entries() -> dict[str, str]:
     text = HELP_LINKS.read_text(encoding="utf-8")
-    entries = dict(re.findall(r"'(/[^']*)': \{ url: '([^']+)'", text))
+    entries = dict(re.findall(r"^  '(/[^']*)': \{ url: '([^']+)'", text, flags=re.M))
     # every entry in the map is parsed (guards against a format change hiding entries)
     assert len(entries) == text.count("{ url: '"), "unparsed helpLinks entries"
     return entries
@@ -77,11 +77,39 @@ def _anchors(md: Path) -> set[str]:
     return anchors
 
 
+def _sections(md: Path) -> dict[str, str]:
+    """anchor -> lowercased text of that section (heading + body up to the next heading of any level);
+    '' -> the page title, description and H1."""
+    text = re.sub(r"```.*?```", "", md.read_text(encoding="utf-8"), flags=re.S)
+    meta = _front_matter(md)
+    h1 = re.search(r"^# (.+)$", text, flags=re.M)
+    sections = {"": " ".join([meta.get("title", ""), meta.get("description", ""), h1.group(1) if h1 else ""]).lower()}
+    parts = re.split(r"^(#{2,6} .+?)\s*$", text, flags=re.M)
+    for heading, body in zip(parts[1::2], parts[2::2]):
+        title = heading.lstrip("#").strip()
+        explicit = re.search(r"\{#([\w\-]+)\}$", title)
+        sections[explicit.group(1) if explicit else _slug(title)] = (title + "\n" + body).lower()
+    return sections
+
+
+# What each in-app page is about: the linked page title/H1 (or the anchored section) must say so.
+TOPICS = {
+    "/": "quick start", "/printers": "printer", "/printers/:id": "control", "/jobs": "schedul",
+    "/upload": "upload", "/spools": "spool", "/cameras": "camera", "/orders": "order", "/analytics": "analytic",
+    "/detections": "detection", "/settings": "configuration", "/branding": "brand", "/models": "model",
+    "/profiles": "profile", "/products": "product", "/consumables": "consumable", "/maintenance": "maintenance",
+    "/utilization": "utilization", "/alerts": "alert", "/archives": "archive", "/calculator": "calculator",
+    "/audit": "audit log", "/tv": "tv dashboard",
+}
+
+
 ENTRIES = _entries() if HELP_LINKS.exists() else {}
 
 
 def test_help_links_cover_the_routes_the_app_shows():
-    assert len(ENTRIES) == 24 and "/settings" in ENTRIES
+    assert len(ENTRIES) == 23 and "/settings" in ENTRIES and "/printers/:id" in ENTRIES
+    assert "/settings/branding" not in ENTRIES  # the app's branding route is /branding
+    assert set(ENTRIES) == set(TOPICS)
 
 
 @pytest.mark.parametrize("route", sorted(ENTRIES))
@@ -89,13 +117,17 @@ def test_help_link_target_is_a_docs_page_and_heading(route):
     url = ENTRIES[route]
     assert url.startswith(BASE + "/"), url
     path, _, anchor = url[len(BASE):].partition("#")
+    key = path.rstrip("/") or "/"
     routes = _routes()
-    assert path.rstrip("/") in routes, f"{route} -> {url}: no docs page at {path}"
+    assert key in routes, f"{route} -> {url}: no docs page at {path}"
     if anchor:
-        assert anchor in _anchors(routes[path.rstrip("/")]), f"{route} -> {url}: no heading #{anchor}"
+        assert anchor in _anchors(routes[key]), f"{route} -> {url}: no heading #{anchor}"
+    # topic relevance: the anchored section, or the page title/description/H1, names the topic
+    section = _sections(routes[key])[anchor]
+    assert TOPICS[route] in section, f"{route} -> {url}: target does not cover '{TOPICS[route]}'"
     if BUILD:
         built = Path(BUILD) / path.strip("/")
-        html = built / "index.html" if (built / "index.html").exists() else built.with_suffix(".html")
+        html = built / "index.html" if (built / "index.html").exists() or key == "/" else built.with_suffix(".html")
         assert html.exists(), f"{route} -> {url}: not in the docs build"
         if anchor:
             assert f'id="{anchor}"' in html.read_text(encoding="utf-8"), f"{route} -> {url}: anchor not rendered"
@@ -106,3 +138,5 @@ def test_anchor_check_rejects_a_missing_heading():
     assert "products--bill-of-materials" in _anchors(md)
     assert "no-such-heading" not in _anchors(md)
     assert "/admin/settings" not in _routes()
+    # relevance check has teeth: the old Settings target page never mentions the Settings page's topics
+    assert "audit log" not in _sections(_routes()["/features/scheduler"])[""]

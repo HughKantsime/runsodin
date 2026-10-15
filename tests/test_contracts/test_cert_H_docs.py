@@ -138,7 +138,12 @@ def _status(url: str) -> int:
 
 def test_settings_documentation_link_resolves_to_a_docs_page(local_base):
     assert SETTINGS_HELP.startswith(LIVE)
-    path = SETTINGS_HELP[len(LIVE):]
-    assert (Path(BUILD) / path.strip("/") / "index.html").exists() or (Path(BUILD) / (path.strip("/") + ".html")).exists(), path
+    path, _, anchor = SETTINGS_HELP[len(LIVE):].partition("#")
+    page = Path(BUILD) / path.strip("/") / "index.html"
+    if not page.exists():
+        page = Path(BUILD) / (path.strip("/") + ".html")
+    assert page.exists(), path
+    if anchor:
+        assert f'id="{anchor}"' in page.read_text(encoding="utf-8"), anchor
     if NETWORK:
         assert _status(SETTINGS_HELP) == 200

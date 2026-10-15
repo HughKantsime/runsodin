@@ -73,8 +73,8 @@ test('F22-22.1-06 rejected completion does not enter dashboard as completed',asy
 test('F22-22.6-04 real Settings header exposes contextual documentation link',()=>{
  const client=new QueryClient({defaultOptions:{queries:{retry:false}}})
  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/settings']}><Settings/></MemoryRouter></QueryClientProvider>)
- const link=screen.getByTitle('Users & Access Control')
- expect(link).toHaveAttribute('href','https://docs.runsodin.com/configuration/users-and-rbac');expect(link).toHaveAttribute('target','_blank');expect(link).toHaveAttribute('rel','noopener noreferrer')
+ const link=screen.getByTitle('Configuration Guides')
+ expect(link).toHaveAttribute('href','https://docs.runsodin.com/#browse-the-docs');expect(link).toHaveAttribute('target','_blank');expect(link).toHaveAttribute('rel','noopener noreferrer')
 })
 
 test('completion saved but refresh null retries permissions without repeating completion POST',async()=>{
