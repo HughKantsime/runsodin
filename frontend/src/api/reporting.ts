@@ -69,7 +69,7 @@ export interface ReportScheduleUpdate {
 }
 
 export const analytics = {
-  get: (): Promise<AnalyticsData> => fetchAPI('/analytics'),
+  get: (days?: number): Promise<AnalyticsData> => fetchAPI('/analytics' + (days ? `?days=${days}` : '')),
   timeAccuracy: (days = 30): Promise<TimeAccuracyData> => fetchAPI(`/analytics/time-accuracy?days=${days}`),
   failures: (days = 30): Promise<FailureAnalyticsData> => fetchAPI(`/analytics/failures?days=${days}`),
 }

@@ -60,9 +60,8 @@ test('F10-10.1-01 wording: the first (hero) row is Revenue/Pipeline/Avg $/Hour/P
   expect([...rows[0].querySelectorAll('span.uppercase')].map(s => s.textContent)).toEqual(['Revenue', 'Pipeline', 'Avg $/Hour', 'Print Hours'])
   expect([...rows[1].querySelectorAll('span.uppercase')].map(s => s.textContent)).toEqual(['Total Cost', 'Net Margin', 'Projected Cost', 'Cost Tracked'])
 })
-// DEFECT: frontend/src/api/reporting.ts:72 analytics.get() drops the window Analytics.tsx:357 passes, and
-// backend/modules/reporting/routes/analytics.py:179 accepts none, so the page range selector never changes hero totals.
-test.fails('DEFECT F10-10.1-01 the real analytics client forwards the selected range to the backend', async () => {
+// Fixed (was: reporting.ts analytics.get() dropped the window and /analytics accepted none).
+test('F10-10.1-01 the real analytics client forwards the selected range to the backend', async () => {
   const real = await vi.importActual<typeof import('../../api/reporting')>('../../api/reporting')
   const fetchSpy = vi.fn().mockResolvedValue(new Response(JSON.stringify(analyticsWire), { status: 200, headers: { 'Content-Type': 'application/json' } }))
   vi.stubGlobal('fetch', fetchSpy)
@@ -71,9 +70,8 @@ test.fails('DEFECT F10-10.1-01 the real analytics client forwards the selected r
     expect(String(fetchSpy.mock.calls[0][0])).toContain('days=7')
   } finally { vi.unstubAllGlobals() }
 })
-// DEFECT: backend/modules/reporting/routes/analytics.py:340-349 jobs_by_date has no revenue/cost, so with real producer
-// data the Cost/revenue bar chart never renders bars.
-test.fails('DEFECT F10-10.1-02 cost/revenue time-series renders daily bars from the real producer response', async () => {
+// Fixed (was: jobs_by_date carried no revenue/cost, so the chart never rendered bars from real data).
+test('F10-10.1-02 cost/revenue time-series renders daily bars from the real producer response', async () => {
   show(<Analytics />); await screen.findByRole('heading', { name: 'Revenue vs Cost' })
   const chart = panel('Revenue vs Cost')
   expect(chart).not.toHaveTextContent('Daily revenue and cost are unavailable.')
@@ -115,9 +113,8 @@ test('F10-10.4-02 EnergyWidget in Analytics totals producer kWh and cost', async
   expect(within(widget).getByText('Total Cost').previousSibling).toHaveTextContent('$0.15')
   expect(within(widget).getByText('Jobs Tracked').previousSibling).toHaveTextContent('2')
 })
-// DEFECT: frontend/src/components/reporting/EnergyWidget.tsx:62 groups by j.completed_at, a field /print-jobs never returns
-// (print_jobs has ended_at), so every job lands in one 'Unknown' bucket and no consumption trend over days is shown.
-test.fails('DEFECT F10-10.4-02 EnergyWidget shows a per-day consumption trend from producer rows', async () => {
+// Fixed (was: EnergyWidget grouped by completed_at, a field /print-jobs never returns; it now uses ended_at).
+test('F10-10.4-02 EnergyWidget shows a per-day consumption trend from producer rows', async () => {
   show(<Analytics />); const widget = (await screen.findByRole('heading', { name: 'Energy Consumption' })).parentElement!.parentElement!.parentElement!
   await waitFor(() => expect(ticks(widget).filter(t => /^(Oct|Unknown)/.test(t ?? ''))).toEqual(['Oct 11', 'Oct 12']), { timeout: 500 })
 })
@@ -125,17 +122,17 @@ test.fails('DEFECT F10-10.4-02 EnergyWidget shows a per-day consumption trend fr
 // ---------- F10.3 Utilization ----------
 test('F10-10.3-01 fleet summary: average utilization, total print hours, busiest printer', async () => {
   show(<Utilization />); await screen.findByRole('cell', { name: 'P1S-09' })
-  expect(screen.getByText('Avg Utilization').previousSibling).toHaveTextContent('0.6%')
-  expect(screen.getByText('Total Print Hours').previousSibling).toHaveTextContent('9h')
+  expect(screen.getByText('Avg Utilization').previousSibling).toHaveTextContent('1.8%')
+  expect(screen.getByText('Total Print Hours').previousSibling).toHaveTextContent('6h')
   expect(screen.getByText('Jobs Completed').previousSibling).toHaveTextContent('3')
   const busiest = screen.getByText('Busiest Printer').parentElement!
-  expect(busiest).toHaveTextContent('P1S-09'); expect(busiest).toHaveTextContent('0.8% utilization in the selected window')
+  expect(busiest).toHaveTextContent('P1S-09'); expect(busiest).toHaveTextContent('2.4% utilization in the selected window')
 })
 test('F10-10.3-02/03 per-printer table and utilization chart from the producer response', async () => {
   show(<Utilization />); await screen.findByRole('cell', { name: 'P1S-09' })
   const cells = (name: string) => within(screen.getByRole('cell', { name }).closest('tr')!).getAllByRole('cell').map(c => c.textContent)
-  expect(cells('P1S-09')).toEqual(['P1S-09', '2', '6h', '0.8%', '100%', '3h'])
-  expect(cells('P1S-10')).toEqual(['P1S-10', '1', '3h', '0.4%', '50%', '3h'])
+  expect(cells('P1S-09')).toEqual(['P1S-09', '2', '4h', '2.4%', '100%', '2h'])
+  expect(cells('P1S-10')).toEqual(['P1S-10', '1', '2h', '1.2%', '50%', '2h'])
   const util = screen.getByRole('heading', { name: 'Utilization by Printer' }).parentElement!
   await waitFor(() => expect(util.querySelectorAll('.recharts-bar-rectangle').length).toBe(2))
   const daily = screen.getByRole('heading', { name: 'Completed and Failed Prints per Day' }).parentElement!
@@ -153,7 +150,7 @@ test('F10-10.3-04 CSV export downloads the per-printer rows', async () => {
   expect(click.mock.instances[0]).toHaveProperty('download', 'utilization-report-2026-10-13.csv')
   expect(blobs[0].type).toBe('text/csv')
   const textOf = await new Promise<string>((ok, bad) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.onerror = bad; r.readAsText(blobs[0]) })
-  expect(textOf).toBe('Printer,Jobs,Hours,Utilization %,Success Rate %,Failed,Avg Job (hrs)\nP1S-09,2,6,0.8,100,0,3\nP1S-10,1,3,0.4,50,1,3')
+  expect(textOf).toBe('Printer,Jobs,Hours,Utilization %,Success Rate %,Failed,Avg Job (hrs)\nP1S-09,2,4,2.4,100,0,2\nP1S-10,1,2,1.2,50,1,2')
 })
 
 // ---------- F10.2 Cost calculator ----------
@@ -176,20 +173,23 @@ test('F10-10.2-01 per-model breakdown matches backend /models/{id}/cost componen
 })
 test('F10-10.2-02 margin from saved config prices the unit and an edited margin is saved', async () => {
   await calculator()
-  expect(money('Recommended Price (per unit)')).toHaveTextContent('$55.75')
+  // Model 101 is a 2-up bed: bed subtotal $44.60 x 1.25 = $55.75 per bed, $27.88 per unit.
+  expect(money('Recommended Price (per unit)')).toHaveTextContent('$27.88')
   fireEvent.change(label('Margin'), { target: { value: '30' } })
-  expect(money('Recommended Price (per unit)')).toHaveTextContent('$57.98')
+  expect(money('Recommended Price (per unit)')).toHaveTextContent('$28.99')
   fireEvent.click(screen.getByRole('button', { name: 'Save Config' }))
   await waitFor(() => expect(api.save).toHaveBeenCalledWith(expect.objectContaining({ default_margin: 30 }), expect.anything()))
 })
 test('F10-10.2-03 bulk quantity multiplies the per-unit price', async () => {
   await calculator(); fireEvent.change(label('Quantity'), { target: { value: '3' } })
-  expect(money('Total for 3 units')).toHaveTextContent('$167.25')
+  expect(money('Total for 3 units')).toHaveTextContent('$83.63')
 })
-// DEFECT: frontend/src/pages/orders/Calculator.tsx:172-176 loads the model's per-bed grams/hours (backend
-// filament_per_item = total/units_per_bed) and sets Quantity=units_per_bed, while :73-75 prices the whole bed as ONE
-// unit, so a 2-up bed is priced at the full bed cost per unit and 'Total for 2 units' double-counts (111.50 vs 55.75).
-test.fails('DEFECT F10-10.2-03 per-unit price of a multi-unit bed divides the bed cost', async () => {
+// Fixed (was: Calculator priced a whole 2-up bed as one unit, so 'Total for 2 units' double-counted 111.50 vs 55.75).
+test('F10-10.2-03 per-unit price of a multi-unit bed divides the bed cost', async () => {
   await calculator()
+  expect(label('Units per Bed')).toHaveValue(2)
   expect(money('Total for 2 units')).toHaveTextContent('$55.75')
+  // A single-unit bed keeps the bed price as the unit price.
+  fireEvent.change(label('Units per Bed'), { target: { value: '1' } })
+  expect(money('Recommended Price (per unit)')).toHaveTextContent('$55.75')
 })

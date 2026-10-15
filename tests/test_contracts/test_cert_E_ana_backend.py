@@ -103,28 +103,34 @@ def test_analytics_known_values_and_wire_capture(ana):
     p = {row["id"]: row for row in body["printer_stats"]}
     assert p[9]["completed_jobs"] == 2 and p[9]["total_hours"] == 4.0
     assert p[10]["completed_jobs"] == 1 and p[10]["failed_jobs"] == 1 and p[10]["success_rate"] == 50.0
-    assert body["jobs_by_date"]["2026-10-11"] == {"created": 1, "completed": 1}
-    assert body["jobs_by_date"]["2026-10-12"] == {"created": 4, "completed": 2}
+    # Activity counts by creation day; revenue/cost of completed jobs by completion day.
+    assert body["jobs_by_date"]["2026-10-11"] == {"created": 1, "completed": 1, "revenue": 20, "cost": 8}
+    assert body["jobs_by_date"]["2026-10-12"] == {"created": 4, "completed": 2, "revenue": 11, "cost": 3}
     _wire("analytics", body)
 
 
-@pytest.mark.xfail(strict=True, reason="DEFECT: backend/modules/reporting/routes/analytics.py:340-349 jobs_by_date "
-                   "carries only created/completed counts, so the Cost/revenue time-series chart has no daily "
-                   "revenue/cost to plot (UI always shows 'Daily revenue and cost are unavailable.')")
 def test_daily_series_carries_revenue_and_cost(ana):
     client, _, _ = ana
     day = client.get("/analytics").json()["jobs_by_date"]["2026-10-11"]
     assert day["revenue"] == 20 and day["cost"] == 8
 
 
-@pytest.mark.xfail(strict=True, reason="DEFECT: backend/modules/reporting/routes/analytics.py:179 /analytics takes no days "
-                   "window (and frontend/src/api/reporting.ts:72 sends none), so hero totals are lifetime values whatever "
-                   "range the Analytics page selector shows")
 def test_analytics_hero_totals_honor_selected_window(ana):
     client, _, _ = ana
     # 1-day window from 2026-10-12 12:00Z keeps only 7003 (price 5, cost 1).
-    s = client.get("/analytics", params={"days": 1}).json()["summary"]
+    body = client.get("/analytics", params={"days": 1}).json()
+    s = body["summary"]
     assert s["total_revenue"] == 5 and s["total_cost"] == 1 and s["completed_jobs"] == 1
+    assert s["total_margin"] == 4 and s["margin_percent"] == 80.0 and s["total_print_hours"] == 2.0
+    # The pending pipeline is the current queue, never windowed.
+    assert s["projected_revenue"] == 7 and s["pending_jobs"] == 1
+    p = {row["id"]: row for row in body["printer_stats"]}
+    assert p[9]["completed_jobs"] == 0 and p[10]["completed_jobs"] == 1 and p[10]["failed_jobs"] == 1
+    assert set(body["jobs_by_date"]) == {"2026-10-12"}
+    assert body["jobs_by_date"]["2026-10-12"]["revenue"] == 5
+    # Without a window the totals stay lifetime (31); a 30-day window covers the same rows.
+    assert client.get("/analytics", params={"days": 30}).json()["summary"]["total_revenue"] == 31
+    assert client.get("/analytics", params={"days": 0}).status_code == 422
 
 
 # ---------------- F10.2 Cost calculator ----------------
@@ -196,9 +202,10 @@ def test_stats_per_printer_counts_follow_window_and_wire_capture(ana):
     body = client.get("/stats", params={"days": 7})
     assert body.status_code == 200, body.text
     stats = {p["id"]: p for p in body.json()["printer_stats"]}
-    assert stats[9]["completed_jobs"] == 2 and stats[9]["failed_jobs"] == 0 and stats[9]["total_hours"] == 6
+    # Hours are what the printer printed inside the window (7001: 3h + 7002: 1h), not the lifetime counter.
+    assert stats[9]["completed_jobs"] == 2 and stats[9]["failed_jobs"] == 0 and stats[9]["total_hours"] == 4
     assert stats[10]["completed_jobs"] == 1 and stats[10]["failed_jobs"] == 1 and stats[10]["success_rate"] == 50.0
-    assert stats[9]["utilization_pct"] == round(6 / 720 * 100, 1)
+    assert stats[9]["utilization_pct"] == round(4 / (7 * 24) * 100, 1)
     # 1-day window (from 2026-10-12 12:00Z): only 7003 (ended 13:00) and 7005 (failed 14:00) remain.
     one = {p["id"]: p for p in client.get("/stats", params={"days": 1}).json()["printer_stats"]}
     assert one[9]["completed_jobs"] == 0 and one[10]["completed_jobs"] == 1 and one[10]["failed_jobs"] == 1
@@ -206,10 +213,6 @@ def test_stats_per_printer_counts_follow_window_and_wire_capture(ana):
     _wire("stats-7", body.json())
 
 
-@pytest.mark.xfail(strict=True, reason="DEFECT: backend/modules/reporting/routes/analytics.py:140-146 /stats per-printer "
-                   "total_hours is the lifetime printers.total_print_hours counter and utilization_pct is that lifetime "
-                   "value / fixed 720h, ignoring the selected days window (a printer with 1440 lifetime hours shows 100% "
-                   "for a 7-day window in which it printed 2h; UI labels it 'utilization in the selected window')")
 def test_utilization_and_hours_reflect_selected_window(ana):
     client, _, db = ana
     db.execute(text("UPDATE printers SET total_print_hours=1440 WHERE id=10"))
@@ -295,3 +298,22 @@ def test_csv_exports_download_parseable_known_rows(ana):
                        "Suggested Price": "10.0", "Scheduled Start": "", "Actual Start": "",
                        "Actual End": "2026-10-11T12:00:00", "Created At": "2026-10-11T09:00:00"}
     _wire("export-jobs", {"content_type": resp.headers["content-type"], "body": resp.text})
+
+
+def test_stats_window_hours_use_measured_spans_and_unlinked_monitor_runs(ana):
+    """Regression (F10-10.3-01/02): measured start/end spans, failed-run time and printer-observed
+    runs not linked to a scheduled job count toward window hours; linked runs are not double counted."""
+    client, _, db = ana
+    db.execute(text("UPDATE jobs SET actual_start='2026-10-12 13:00:00', actual_end='2026-10-12 14:30:00' WHERE id=7005"))
+    db.execute(text("INSERT INTO print_jobs(id,printer_id,job_id,filename,status,started_at,ended_at) "
+                    "VALUES(8901,10,'cert-8901','loose.3mf','completed','2026-10-12 15:00:00','2026-10-12 18:00:00')"))
+    db.execute(text("INSERT INTO print_jobs(id,printer_id,job_id,filename,status,started_at,ended_at,scheduled_job_id) "
+                    "VALUES(8902,10,'cert-8902','linked.3mf','completed','2026-10-12 11:00:00','2026-10-12 13:00:00',7003)"))
+    # Outside the 1-day window: must not count.
+    db.execute(text("INSERT INTO print_jobs(id,printer_id,job_id,filename,status,started_at,ended_at) "
+                    "VALUES(8903,10,'cert-8903','old.3mf','completed','2026-10-01 00:00:00','2026-10-01 10:00:00')"))
+    db.commit()
+    p10 = next(p for p in client.get("/stats", params={"days": 1}).json()["printer_stats"] if p["id"] == 10)
+    # 7003 duration 2h + 7005 measured 1.5h + unlinked 8901 3h; linked 8902 and old 8903 excluded.
+    assert p10["total_hours"] == 6.5
+    assert p10["utilization_pct"] == round(6.5 / 24 * 100, 1)

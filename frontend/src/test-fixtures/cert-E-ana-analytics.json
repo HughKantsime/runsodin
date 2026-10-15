@@ -2,11 +2,15 @@
   "jobs_by_date": {
     "2026-10-11": {
       "completed": 1,
-      "created": 1
+      "cost": 8.0,
+      "created": 1,
+      "revenue": 20.0
     },
     "2026-10-12": {
       "completed": 2,
-      "created": 4
+      "cost": 3.0,
+      "created": 4,
+      "revenue": 11.0
     }
   },
   "printer_stats": [

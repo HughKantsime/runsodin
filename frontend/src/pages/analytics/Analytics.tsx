@@ -16,7 +16,7 @@ const COLORS = ['#3B82F6', '#22C55E', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4'
 
 const CHART_TOOLTIP = { backgroundColor: 'var(--chart-tooltip-bg)', border: 'none', borderRadius: '6px', boxShadow: 'var(--chart-tooltip-shadow)', color: 'var(--brand-text-primary)' }
 
-function JobsOverTimeChart({ data }) {
+function JobsOverTimeChart({ data, days = 30 }) {
   if (!data || Object.keys(data).length === 0) {
     return (
       <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
@@ -38,7 +38,7 @@ function JobsOverTimeChart({ data }) {
     <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)]">Job Activity</h3>
-        <span className="text-xs text-[var(--brand-text-muted)]">Last 30 days</span>
+        <span className="text-xs text-[var(--brand-text-muted)]">Last {days} days</span>
       </div>
       <ResponsiveContainer width="100%" height={220}>
         <AreaChart data={chartData}>
@@ -199,7 +199,7 @@ function FleetOverview({ summary }) {
 }
 
 
-function CostRevenueChart({ data }) {
+function CostRevenueChart({ data, days = 30 }) {
   const knownDailyMoney = (row: unknown): row is { revenue: number; cost: number } =>
     typeof row === 'object' && row !== null && 'revenue' in row && 'cost' in row
     && typeof row.revenue === 'number' && Number.isFinite(row.revenue)
@@ -224,7 +224,7 @@ function CostRevenueChart({ data }) {
     <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)]">Revenue vs Cost</h3>
-        <span className="text-xs text-[var(--brand-text-muted)]">Last 30 days</span>
+        <span className="text-xs text-[var(--brand-text-muted)]">Last {days} days</span>
       </div>
       {dailyMoneyUnavailable && chartData.length > 0 && <p>Some daily revenue and cost values are unavailable.</p>}
       {chartData.length > 0 ? (
@@ -479,8 +479,8 @@ export default function Analytics() {
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <JobsOverTimeChart data={jobs_by_date} />
-        <CostRevenueChart data={jobs_by_date} />
+        <JobsOverTimeChart data={jobs_by_date} days={days} />
+        <CostRevenueChart data={jobs_by_date} days={days} />
         <FleetOverview summary={summary} />
       </div>
 

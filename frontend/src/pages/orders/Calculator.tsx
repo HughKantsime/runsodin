@@ -53,12 +53,16 @@ function CostSection({ title, icon: Icon, cost, children }: { title: string; ico
   )
 }
 
-function PricingBreakdown({ costs, margin, quantity }: { costs: Record<'material' | 'labor' | 'electricity' | 'depreciation' | 'packaging' | 'failure' | 'overhead' | 'other' | 'failureRate', number>; margin: number; quantity: number }) {
+function PricingBreakdown({ costs, margin, quantity, unitsPerBed = 1 }: { costs: Record<'material' | 'labor' | 'electricity' | 'depreciation' | 'packaging' | 'failure' | 'overhead' | 'other' | 'failureRate', number>; margin: number; quantity: number; unitsPerBed?: number }) {
+  // The cost inputs (filament grams, print time, ...) describe one full bed; a bed
+  // yields `unitsPerBed` units, so per-unit values divide the bed values.
+  const units = Number.isFinite(unitsPerBed) && unitsPerBed >= 1 ? unitsPerBed : 1
   const subtotal = costs.material + costs.labor + costs.electricity
     + costs.depreciation + costs.packaging + costs.failure
     + costs.overhead + costs.other
   const withMargin = subtotal * (1 + margin / 100)
-  const perUnit = withMargin
+  const perUnit = withMargin / units
+  const costPerUnit = subtotal / units
   const total = perUnit * quantity
 
   return (
@@ -83,6 +87,10 @@ function PricingBreakdown({ costs, margin, quantity }: { costs: Record<'material
           <div className="text-2xl font-bold text-center py-2">{margin}%</div>
         </div>
 
+        {units > 1 && (
+          <div className="flex justify-between text-xs text-[var(--brand-muted)]"><span>Bed price ({units} units per bed):</span><span>${withMargin.toFixed(2)}</span></div>
+        )}
+
         <div className="bg-[var(--brand-primary)]/10 border border-[var(--brand-primary)]/30 rounded-md p-3 md:p-4 text-center">
           <div className="text-xs md:text-sm text-[var(--brand-muted)]">Recommended Price (per unit)</div>
           <div className="text-2xl md:text-3xl font-display font-bold text-[var(--brand-primary)] font-mono">${perUnit.toFixed(2)}</div>
@@ -96,8 +104,8 @@ function PricingBreakdown({ costs, margin, quantity }: { costs: Record<'material
         )}
 
         <div className="pt-2 space-y-1 text-xs text-[var(--brand-muted)]">
-          <div className="flex justify-between"><span>Cost per unit:</span><span>${subtotal.toFixed(2)}</span></div>
-          <div className="flex justify-between"><span>Profit per unit:</span><span className="text-green-400">${(withMargin - subtotal).toFixed(2)}</span></div>
+          <div className="flex justify-between"><span>Cost per unit:</span><span>${costPerUnit.toFixed(2)}</span></div>
+          <div className="flex justify-between"><span>Profit per unit:</span><span className="text-green-400">${(perUnit - costPerUnit).toFixed(2)}</span></div>
           <div className="flex justify-between"><span>Profit margin:</span><span className="text-green-400">{((withMargin - subtotal) / withMargin * 100).toFixed(1)}%</span></div>
         </div>
       </div>
@@ -128,6 +136,7 @@ export default function CalculatorPage() {
 
   const [selectedModel, setSelectedModel] = useState('')
   const [quantity, setQuantity] = useState(1)
+  const [unitsPerBed, setUnitsPerBed] = useState(1)
   const [hasChanges, setHasChanges] = useState(false)
   
   // Pricing config state
@@ -180,6 +189,8 @@ export default function CalculatorPage() {
       if (model) {
         if (model.total_filament_grams) setFilamentGrams(model.total_filament_grams)
         if (model.build_time_hours) setPrintTimeHours(model.build_time_hours)
+        // Model grams/hours are per bed; price per unit divides by the bed's unit count.
+        setUnitsPerBed(model.units_per_bed && model.units_per_bed > 0 ? model.units_per_bed : 1)
         if (model.units_per_bed) setQuantity(model.units_per_bed)
       }
     }
@@ -324,6 +335,7 @@ export default function CalculatorPage() {
                 </select>
               </div>
               <InputField label="Quantity" value={quantity} onChange={setQuantity} suffix="units" min={1} step={1} />
+              <InputField label="Units per Bed" value={unitsPerBed} onChange={setUnitsPerBed} suffix="units" min={1} step={1} />
             </div>
           </div>
 
@@ -384,7 +396,7 @@ export default function CalculatorPage() {
         </div>
 
         {/* Pricing breakdown */}
-        <PricingBreakdown costs={costs} margin={margin} quantity={quantity} />
+        <PricingBreakdown costs={costs} margin={margin} quantity={quantity} unitsPerBed={unitsPerBed} />
       </div>
     </div>
   )

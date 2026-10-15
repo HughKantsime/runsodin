@@ -57,19 +57,20 @@ it('F10-10.2-01 CLAIM GAP: subtotal includes monetary costs only, without adding
   await loadCalculator(); expect(moneyRow('Subtotal:')).toHaveTextContent('$44.60')
 })
 it('F10-10.2-02 edits and saves manufacturing margin and recomputes price with zero failure rate', async () => {
+  // The acceptance model is a 2-up bed: per-unit price is half the bed price ($51.25 / 2).
   api.config.mockResolvedValue({ ...config, failure_rate: 0 }); await loadCalculator(); change('Margin', 25)
-  expect(moneyRow('Recommended Price (per unit)')).toHaveTextContent('$51.25')
+  expect(moneyRow('Recommended Price (per unit)')).toHaveTextContent('$25.63')
   fireEvent.click(screen.getByRole('button', { name: 'Save Config' }))
   await waitFor(() => expect(api.save).toHaveBeenCalledWith(expect.objectContaining({ default_margin: 25, failure_rate: 0 }), expect.anything()))
 })
 it('F10-10.2-03 computes per-unit and bulk prices with zero failure rate', async () => {
   api.config.mockResolvedValue({ ...config, failure_rate: 0 }); await loadCalculator(); change('Quantity', 3)
-  expect(moneyRow('Recommended Price (per unit)')).toHaveTextContent('$61.50')
-  expect(moneyRow('Total for 3 units')).toHaveTextContent('$184.50')
+  expect(moneyRow('Recommended Price (per unit)')).toHaveTextContent('$30.75')
+  expect(moneyRow('Total for 3 units')).toHaveTextContent('$92.25')
 })
 it('F10-10.2-03 CLAIM GAP: nonzero failure buffer produces correct per-unit and bulk prices', async () => {
   await loadCalculator(); change('Quantity', 3)
-  expect([moneyRow('Recommended Price (per unit)').textContent, moneyRow('Total for 3 units').textContent]).toEqual(['Recommended Price (per unit)$66.90', 'Total for 3 units$200.70'])
+  expect([moneyRow('Recommended Price (per unit)').textContent, moneyRow('Total for 3 units').textContent]).toEqual(['Recommended Price (per unit)$33.45', 'Total for 3 units$100.35'])
 })
 it('F10-10.1-02 renders actual cost/revenue bars and chronological date ticks', async () => {
   show(<Analytics />); await screen.findByRole('heading', { name: 'Revenue vs Cost' })
