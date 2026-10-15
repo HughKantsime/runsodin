@@ -780,4 +780,6 @@ def main_loop():
 
 
 if __name__ == "__main__":
+    from core.log_redaction import install_log_redaction
+    install_log_redaction()
     main_loop()

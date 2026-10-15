@@ -913,6 +913,8 @@ MoonrakerMonitor.stop = MoonrakerMonitor.disconnect
 
 
 if __name__ == "__main__":
+    from core.log_redaction import install_log_redaction
+    install_log_redaction()
     import signal
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")

@@ -167,3 +167,106 @@ def test_odin_matching_targets_real_tokens_only():
     assert redact_text(f"key {token} ok") == "key [REDACTED] ok"
     for identifier in ("odin_api", "odin_contract-batch-ac", "odin.api", "odin_timelapse_42.mp4", "odin_schema_migrations"):
         assert redact_text(f"see {identifier} here") == f"see {identifier} here"
+
+
+def _emit(logger_name, *log_args, exc=False, **log_kw):
+    from core.log_redaction import install_log_redaction
+    install_log_redaction()
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)  # added after install
+    handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
+    logger = logging.getLogger(logger_name)
+    logger.propagate = False
+    logger.addHandler(handler)
+    try:
+        logger.warning(*log_args, **log_kw)
+    finally:
+        logger.removeHandler(handler)
+    return stream.getvalue()
+
+
+def test_placeholders_survive_redaction():
+    out = _emit("odin.t.placeholders", "printer %s camera %d of %s", "token=abc", 3, "x")
+    assert "printer token=abc camera 3 of x" in out  # nothing secret here: formatting intact
+    out = _emit("odin.t.placeholders2", "%(name)s=%(value)s", {"name": "token", "value": "plain"})
+    assert "token=plain" in out
+
+
+def test_non_str_args_are_redacted_after_formatting():
+    import httpx
+    token = _token()
+
+    class Lazy:
+        def __str__(self):
+            return f"/overlay/1/camera?token={token}"
+    out = _emit("odin.t.nonstr", "url=%s list=%s dict=%s lazy=%s",
+                httpx.URL(f"http://h/overlay/1/camera?token={token}"), [f"?token={token}"], {"next": f"?token={token}"}, Lazy())
+    assert token not in out and out.count("[REDACTED]") >= 4
+
+
+def test_header_dicts_and_userinfo_are_redacted():
+    secret = "Hv" + secrets.token_hex(10)
+    out = _emit("odin.t.headers", "headers %s", {"Authorization": f"Bearer {secret}", "X-API-Key": secret, "Accept": "*/*"})
+    assert secret not in out and "*/*" in out
+    out = _emit("odin.t.userinfo", "camera rtsp://admin:%s@192.0.2.1:554/s and http://u:%s@h/", secret, secret)
+    assert secret not in out and "rtsp://[REDACTED]@192.0.2.1:554/s" in out
+    for param in ("pwd", "passwd", "access_code"):
+        assert secret not in _emit("odin.t.params", "GET /x?%s=%s", param, secret)
+
+
+def test_structured_dict_messages_keep_their_shape():
+    from core.log_redaction import redact_record
+    token = _token()
+    record = logging.LogRecord("odin.t", logging.INFO, __file__, 1, {"event": "copy", "url": f"/o?token={token}",
+                               "headers": {"Authorization": "Basic Zm9vOmJhcg=="}}, None, None)
+    redact_record(record)
+    assert isinstance(record.msg, dict) and record.msg["event"] == "copy"
+    assert token not in json.dumps(record.msg) and record.msg["headers"]["Authorization"] == "[REDACTED]"
+
+
+def test_handle_error_never_prints_raw_arguments(capsys):
+    from core.log_redaction import install_log_redaction
+    install_log_redaction()
+    token = _token()
+
+    class Broken(logging.Handler):
+        def emit(self, record):  # the stdlib pattern: emit failures go to handleError
+            try:
+                raise RuntimeError("emit failed")
+            except Exception:
+                self.handleError(record)
+    logger = logging.getLogger("odin.t.broken")
+    logger.propagate = False
+    broken = Broken()
+    logger.addHandler(broken)
+    previous = logging.raiseExceptions
+    logging.raiseExceptions = True
+    try:
+        logger.error("bad %s", f"/overlay/1/camera?token={token}")
+    finally:
+        logging.raiseExceptions = previous
+        logger.removeHandler(broken)
+    err = capsys.readouterr().err
+    assert "Logging error" in err and token not in err
+
+
+DAEMONS = ["modules/archives/timelapse_capture.py", "modules/printers/monitors/elegoo_monitor.py",
+           "modules/printers/monitors/moonraker_monitor.py", "modules/printers/monitors/mqtt_monitor.py",
+           "modules/printers/monitors/prusalink_monitor.py", "modules/reporting/report_runner.py", "modules/vision/monitor.py"]
+
+
+def test_every_supervised_process_installs_redaction():
+    """Each process supervisord starts (docker/supervisord*.conf) installs redaction in its __main__ block."""
+    import ast, re
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[2]
+    commands = set()
+    for conf in (root / "docker").glob("supervisord*.conf"):
+        commands |= set(re.findall(r"python3 -m (modules\.[\w.]+)", conf.read_text()))
+    assert {c.replace(".", "/") + ".py" for c in commands} == set(DAEMONS)
+    for daemon in DAEMONS:
+        tree = ast.parse((root / "backend" / daemon).read_text())
+        main = [n for n in tree.body if isinstance(n, ast.If) and "__main__" in ast.unparse(n.test)]
+        assert main, daemon
+        first = "".join(ast.unparse(statement) for statement in main[0].body[:2])
+        assert "install_log_redaction()" in first, f"{daemon}: install redaction before anything logs"
