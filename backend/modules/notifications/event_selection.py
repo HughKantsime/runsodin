@@ -22,6 +22,33 @@ def parse_event_selection(value):
     return value
 
 
+# Event ids stored by older Settings UI builds (uppercase; HMS errors had their own id)
+# mapped to the dispatched AlertType values. Read-time only: no stored data is rewritten.
+LEGACY_EVENT_ALIASES = {"hms_error": "printer_error"}
+
+
+def canonical_event(event):
+    """Dispatched event id for a stored selection entry (case-insensitive, legacy aliases)."""
+    normalized = event.strip().lower()
+    return LEGACY_EVENT_ALIASES.get(normalized, normalized)
+
+
+def canonical_selection(value):
+    """Selection with every entry in canonical form (order kept, duplicates dropped); None stays None.
+
+    Raises ValueError like parse_event_selection for invalid stored configuration.
+    """
+    selection = parse_event_selection(value)
+    if selection is None:
+        return None
+    out = []
+    for item in selection:
+        canonical = canonical_event(item)
+        if canonical not in out:
+            out.append(canonical)
+    return out
+
+
 def selects_event(value, event):
     """Invalid configurations select no events; siblings continue independently."""
     try:
@@ -30,10 +57,10 @@ def selects_event(value, event):
         return False
     if selection is None:
         return True
-    # Event ids are matched case-insensitively: dispatched types are lowercase
-    # (AlertType values) and older Settings UI builds stored uppercase ids.
-    wanted = {item.strip().lower() for item in selection}
-    return "all" in wanted or (isinstance(event, str) and event.lower() in wanted)
+    # Event ids are matched in canonical form: dispatched types are lowercase
+    # AlertType values; older Settings UI builds stored uppercase/legacy ids.
+    wanted = {canonical_event(item) for item in selection}
+    return "all" in wanted or (isinstance(event, str) and canonical_event(event) in wanted)
 
 
 def serialize_event_selection(value):

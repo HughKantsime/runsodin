@@ -7,7 +7,7 @@ import json
 import logging
 import threading
 
-from modules.notifications.event_selection import selects_event, serialize_event_selection
+from modules.notifications.event_selection import canonical_selection, selects_event, serialize_event_selection
 
 import core.crypto as crypto
 from core.db import get_db
@@ -81,6 +81,12 @@ async def list_webhooks(
     for r in rows:
         wh = dict(r._mapping)
         wh["url"] = _decrypt_webhook_url(wh.get("url", ""))
+        # Present stored selections in canonical (dispatched) ids, e.g. HMS_ERROR -> printer_error.
+        try:
+            canonical = canonical_selection(wh.get("alert_types"))
+            wh["alert_types"] = None if canonical is None else json.dumps(canonical)
+        except ValueError:
+            pass  # invalid stored configuration is shown as stored (and selects nothing)
         results.append(wh)
     return results
 

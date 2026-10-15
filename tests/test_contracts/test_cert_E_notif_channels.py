@@ -531,3 +531,16 @@ def test_disabled_smtp_never_connects(admin_api, notif_env, smtp_peer):
     dispatch('daemon', 'print_failed', 'critical', 'Synthetic', 'Synthetic', notif_env)
     assert admin_api.post('/alerts/test-email').status_code == 400
     assert smtp_peer.messages == []
+
+
+def test_legacy_uppercase_ids_map_to_current_events_at_read_and_match(admin_api, notif_env, receiver, synthetic_dns):
+    """Review L2: rows saved by older UI builds (PRINT_FAILED, HMS_ERROR) select the current
+    dispatched ids and are listed in canonical form; nothing is rewritten in storage."""
+    insert_encrypted_hook(notif_env, 'generic', f'{synthetic_dns}/legacy', ['HMS_ERROR', 'PRINT_FAILED'])
+    listed = admin_api.get('/webhooks').json()
+    assert json.loads(listed[0]['alert_types']) == ['printer_error', 'print_failed']
+    stored = notif_env.execute(text("SELECT alert_types FROM webhooks")).scalar_one()
+    assert json.loads(stored) == ['HMS_ERROR', 'PRINT_FAILED']
+    dispatch('daemon', 'printer_error', 'critical', 'Synthetic HMS', 'x', notif_env)
+    request, = receiver.wait(1)
+    assert request['path'] == '/legacy' and json.loads(request['body'])['event'] == 'printer_error'
