@@ -66,8 +66,8 @@ def test_capture(tmp_path):
     wire = capture(tmp_path / "odin")
     # facts the UI tests depend on
     assert wire["roles"]["admin"]["permissions"]["page_access"]["settings"] == ["admin"]
-    # The real RBAC map has no "audit" page key, which the /audit RoleGate looks up (see UI defect test).
-    assert "audit" not in wire["roles"]["admin"]["permissions"]["page_access"]
+    # The /audit RoleGate looks up the "audit" page key (F12-12.1-06 fixed: the RBAC map now defines it).
+    assert wire["roles"]["admin"]["permissions"]["page_access"]["audit"] == ["admin"]
     assert wire["allowlist_put"]["body"]["cidrs"] == ["10.20.0.0/16", "127.0.0.1/32"]
     assert wire["allowlist_put_invalid"]["status"] == 400
     OUT.write_text(json.dumps(wire, indent=1, sort_keys=True))

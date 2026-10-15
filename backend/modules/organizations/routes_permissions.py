@@ -32,6 +32,8 @@ RBAC_DEFAULT_PAGE_ACCESS = {
     "maintenance": ["admin", "operator"],
     "settings": ["admin"],
     "admin": ["admin"],
+    # /audit (frontend RoleGate page="audit"); the audit-log API is superadmin-only.
+    "audit": ["admin"],
     "branding": ["admin"],
     "education_reports": ["admin", "operator"],
     "education": ["admin", "operator", "viewer"],
@@ -114,7 +116,7 @@ def update_permissions(data: RBACUpdateRequest, current_user: dict = Depends(req
         for r in roles:
             if r not in valid_roles:
                 raise HTTPException(400, f"Invalid role '{r}' in page_access.{key}")
-        if key in ("admin", "settings") and "admin" not in roles:
+        if key in ("admin", "settings", "audit") and "admin" not in roles:
             raise HTTPException(400, f"Cannot remove admin from '{key}' page")
 
     for key, roles in data.action_access.items():
