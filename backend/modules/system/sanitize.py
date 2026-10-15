@@ -5,10 +5,15 @@ _PATTERNS = [
     re.compile(r'eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+'),
     re.compile(r'odin_[A-Za-z0-9]+'),
     re.compile(r"(?i)[\"']?\b(?:authorization|proxy-authorization)[\"']?\s*[:=]\s*[\"']?(?:bearer|basic)?\s*[^\s,;\"']+"),
-    re.compile(r'''(?ix)["']?\b(?:password|passwd|access[_-]?code|api[_-]?key|token|secret|credential|cookie|serial(?:_number)?)\b["']?\s*[:=]\s*(?:"[^"\n]*"|'[^'\n]*'|[^\s,;}]+)'''),
+    # Secret labels, also with snake/kebab-case prefixes (smtp_password, mqtt-api-key).
+    re.compile(r'''(?ix)["']?\b(?:[a-z0-9]+[_-])*(?:password|passwd|access[_-]?code|api[_-]?key|token|secret|credential|cookie|serial(?:_number)?)\b["']?\s*[:=]\s*(?:"[^"\n]*"|'[^'\n]*'|[^\s,;}]+)'''),
     re.compile(r'(?i)\b(?:PASS|USER)\s+[^\s]+'),
     re.compile(r'(?i)(?:https?|rtsp|ftp)s?://[^\s/@]+:[^\s/@]+@'),
     re.compile(r'\b\d{1,3}(?:\.\d{1,3}){3}\b'),
+    # IPv6: full 8-group form or any "::"-compressed form (never hh:mm:ss times).
+    re.compile(r'(?<![0-9A-Za-z:.])(?:(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}'
+               r'|(?:[0-9A-Fa-f]{1,4}:){0,6}[0-9A-Fa-f]{0,4}::(?:[0-9A-Fa-f]{1,4}:){0,6}[0-9A-Fa-f]{0,4})'
+               r'(?:%[0-9A-Za-z]+)?(?![0-9A-Za-z:])'),
     re.compile(r'(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b'),
 ]
 
