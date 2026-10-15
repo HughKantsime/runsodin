@@ -114,6 +114,109 @@ function Test-IsAdmin {
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+# BEGIN ConvertTo-IanaTimeZone
+# The Linux container only understands IANA zone ids (America/New_York); Get-TimeZone on
+# Windows returns Windows ids (Eastern Standard Time), which tzdata silently treats as UTC.
+# Common zones use the CLDR windowsZones "001" mapping below with canonical tzdata names
+# (the image ships no legacy alias files such as Asia/Calcutta). Other zones use .NET 6+
+# (PowerShell 7) TimeZoneInfo.TryConvertWindowsIdToIanaId; Windows PowerShell 5.1 (.NET
+# Framework) has no converter. Anything left falls back to UTC with a warning.
+$WindowsToIanaZones = @{
+    'Dateline Standard Time' = 'Etc/GMT+12'
+    'UTC-11' = 'Etc/GMT+11'
+    'Hawaiian Standard Time' = 'Pacific/Honolulu'
+    'Alaskan Standard Time' = 'America/Anchorage'
+    'Pacific Standard Time (Mexico)' = 'America/Tijuana'
+    'Pacific Standard Time' = 'America/Los_Angeles'
+    'US Mountain Standard Time' = 'America/Phoenix'
+    'Mountain Standard Time (Mexico)' = 'America/Mazatlan'
+    'Mountain Standard Time' = 'America/Denver'
+    'Central America Standard Time' = 'America/Guatemala'
+    'Central Standard Time' = 'America/Chicago'
+    'Central Standard Time (Mexico)' = 'America/Mexico_City'
+    'Canada Central Standard Time' = 'America/Regina'
+    'SA Pacific Standard Time' = 'America/Bogota'
+    'Eastern Standard Time' = 'America/New_York'
+    'US Eastern Standard Time' = 'America/Indiana/Indianapolis'
+    'Atlantic Standard Time' = 'America/Halifax'
+    'Venezuela Standard Time' = 'America/Caracas'
+    'SA Western Standard Time' = 'America/La_Paz'
+    'Newfoundland Standard Time' = 'America/St_Johns'
+    'E. South America Standard Time' = 'America/Sao_Paulo'
+    'Argentina Standard Time' = 'America/Argentina/Buenos_Aires'
+    'SA Eastern Standard Time' = 'America/Cayenne'
+    'UTC' = 'Etc/UTC'
+    'GMT Standard Time' = 'Europe/London'
+    'Greenwich Standard Time' = 'Atlantic/Reykjavik'
+    'W. Europe Standard Time' = 'Europe/Berlin'
+    'Central Europe Standard Time' = 'Europe/Budapest'
+    'Romance Standard Time' = 'Europe/Paris'
+    'Central European Standard Time' = 'Europe/Warsaw'
+    'W. Central Africa Standard Time' = 'Africa/Lagos'
+    'GTB Standard Time' = 'Europe/Bucharest'
+    'FLE Standard Time' = 'Europe/Kyiv'
+    'Egypt Standard Time' = 'Africa/Cairo'
+    'South Africa Standard Time' = 'Africa/Johannesburg'
+    'Israel Standard Time' = 'Asia/Jerusalem'
+    'Turkey Standard Time' = 'Europe/Istanbul'
+    'Arab Standard Time' = 'Asia/Riyadh'
+    'Russian Standard Time' = 'Europe/Moscow'
+    'Arabian Standard Time' = 'Asia/Dubai'
+    'Iran Standard Time' = 'Asia/Tehran'
+    'Pakistan Standard Time' = 'Asia/Karachi'
+    'India Standard Time' = 'Asia/Kolkata'
+    'Nepal Standard Time' = 'Asia/Kathmandu'
+    'Bangladesh Standard Time' = 'Asia/Dhaka'
+    'SE Asia Standard Time' = 'Asia/Bangkok'
+    'China Standard Time' = 'Asia/Shanghai'
+    'Singapore Standard Time' = 'Asia/Singapore'
+    'Taipei Standard Time' = 'Asia/Taipei'
+    'W. Australia Standard Time' = 'Australia/Perth'
+    'Tokyo Standard Time' = 'Asia/Tokyo'
+    'Korea Standard Time' = 'Asia/Seoul'
+    'Cen. Australia Standard Time' = 'Australia/Adelaide'
+    'AUS Central Standard Time' = 'Australia/Darwin'
+    'E. Australia Standard Time' = 'Australia/Brisbane'
+    'AUS Eastern Standard Time' = 'Australia/Sydney'
+    'Tasmania Standard Time' = 'Australia/Hobart'
+    'New Zealand Standard Time' = 'Pacific/Auckland'
+}
+
+# Legacy CLDR/ICU aliases -> canonical tzdata names present in the container image
+$IanaLegacyAliases = @{
+    'Asia/Calcutta' = 'Asia/Kolkata'
+    'Asia/Katmandu' = 'Asia/Kathmandu'
+    'Asia/Rangoon' = 'Asia/Yangon'
+    'Asia/Saigon' = 'Asia/Ho_Chi_Minh'
+    'America/Buenos_Aires' = 'America/Argentina/Buenos_Aires'
+    'America/Indianapolis' = 'America/Indiana/Indianapolis'
+    'America/Godthab' = 'America/Nuuk'
+    'Europe/Kiev' = 'Europe/Kyiv'
+    'Pacific/Enderbury' = 'Pacific/Kanton'
+}
+
+function ConvertTo-IanaTimeZone {
+    param([string]$WindowsId, [switch]$NoDotNet)
+    if (-not $WindowsId) { $WindowsId = 'UTC' }
+    # Already an IANA id (PowerShell on Linux/macOS, or a user-supplied value)
+    if ($WindowsId -match '^[A-Za-z_]+(/[A-Za-z0-9_+\-]+)+$' -or $WindowsId -eq 'Etc/UTC') { return $WindowsId }
+    if ($WindowsToIanaZones.ContainsKey($WindowsId)) { return $WindowsToIanaZones[$WindowsId] }
+    if (-not $NoDotNet) {
+        $method = [System.TimeZoneInfo].GetMethod('TryConvertWindowsIdToIanaId', [type[]]@([string], [string].MakeByRefType()))
+        if ($method) {
+            $iana = $null
+            if ([System.TimeZoneInfo]::TryConvertWindowsIdToIanaId($WindowsId, [ref]$iana) -and $iana) {
+                if ($IanaLegacyAliases.ContainsKey($iana)) { return $IanaLegacyAliases[$iana] }
+                return $iana
+            }
+        }
+    }
+    Write-Warn "Unknown Windows time zone '$WindowsId' - no IANA equivalent found."
+    Write-Warn "O.D.I.N. will run in UTC. Set TZ=<Area/City> (e.g. America/New_York) in $InstallDir\.env and restart."
+    return 'UTC'
+}
+# END ConvertTo-IanaTimeZone
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 $StartTime = Get-Date
@@ -290,11 +393,17 @@ Write-Ok "Host IP: $HostIP"
 
 # Timezone
 try {
-    $tz = (Get-TimeZone).Id
+    $windowsTz = (Get-TimeZone).Id
 } catch {
-    $tz = "America/New_York"
+    $windowsTz = $null
+    Write-Warn "Could not read the Windows time zone."
 }
-Write-Ok "Timezone: $tz"
+$tz = ConvertTo-IanaTimeZone $windowsTz
+if ($windowsTz -and $windowsTz -ne $tz) {
+    Write-Ok "Timezone: $tz (from Windows zone '$windowsTz')"
+} else {
+    Write-Ok "Timezone: $tz"
+}
 
 # ── Phase 3: Install directory ───────────────────────────────────────────────
 
