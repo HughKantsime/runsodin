@@ -322,14 +322,11 @@ async def update_mqtt_republish_config(request: Request, current_user: dict = De
             str_val = crypto.encrypt(str(value))
         else:
             str_val = str(value).lower() if isinstance(value, bool) else str(value)
-        # system_config.value is a JSON column: bind as JSON so PostgreSQL
-        # accepts text such as "22:00" (stored as a JSON string on both dialects).
-        json_value = bindparam("v", type_=JSON)
         existing = db.execute(text("SELECT 1 FROM system_config WHERE key = :k"), {"k": db_key}).fetchone()
         if existing:
-            db.execute(text("UPDATE system_config SET value = :v WHERE key = :k").bindparams(json_value), {"v": str_val, "k": db_key})
+            db.execute(text("UPDATE system_config SET value = :v WHERE key = :k"), {"v": str_val, "k": db_key})
         else:
-            db.execute(text("INSERT INTO system_config (key, value) VALUES (:k, :v)").bindparams(json_value), {"k": db_key, "v": str_val})
+            db.execute(text("INSERT INTO system_config (key, value) VALUES (:k, :v)"), {"k": db_key, "v": str_val})
     db.commit()
     if mqtt_republish:
         mqtt_republish.invalidate_cache()
