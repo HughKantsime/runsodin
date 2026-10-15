@@ -469,8 +469,9 @@ def test_F02_2_8_02_overlay_camera_requires_a_camera_token(live):
     assert stream_head(f"/api/overlay/{pid}/camera?token={live.tokens['certb-viewer']}")[0] == 401  # session JWTs are not accepted
     s, b = live.json("POST", "/api/tokens", token=live.tokens["certb-operator"], json_body={"name": "CertB jobs", "scopes": ["read:jobs"]})
     assert s == 200 and stream_head(f"/api/overlay/{pid}/camera?token={b['token']}")[0] == 403
-    # read:cameras grants camera images only, never printer data.
-    assert live.request("GET", "/api/printers", headers={"X-API-Key": live.overlay_token})[0] == 403
+    # A camera-only token is not an API credential at all: refused on every other route.
+    assert live.request("GET", "/api/printers", headers={"X-API-Key": live.overlay_token})[0] == 401
+    assert live.request("GET", "/api/auth/me", headers={"X-API-Key": live.overlay_token})[0] == 401
     no_token = live.browser("overlay", id=pid)
     assert no_token["img"] is None and no_token["cameraPanel"] is None and RTSP in no_token["texts"]
     # Revoking the token in Settings > API Tokens stops the stream.
