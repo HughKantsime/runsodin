@@ -16,7 +16,19 @@ export interface NetworkConfig {
 export interface BackupEntry {
   filename: string;
   size: number;
+  size_bytes?: number;
   created_at: string;
+  /** A staged PostgreSQL restore the startup coordinator refused; the database was not changed. */
+  quarantined?: boolean;
+  reason?: string | null;
+  action?: string | null;
+}
+
+export interface StagedRestore {
+  status: string;
+  message: string;
+  restart_required: boolean;
+  candidate_sha256?: string;
 }
 
 export interface AdminLogEntry {
@@ -60,6 +72,7 @@ export const backups = {
   list: (): Promise<BackupEntry[]> => fetchAPI('/backups'),
   create: (): Promise<BackupEntry> => fetchAPI('/backups', { method: 'POST' }),
   remove: (filename: string): Promise<void> => fetchAPI(`/backups/${filename}`, { method: 'DELETE' }),
+  stage: (filename: string): Promise<StagedRestore> => fetchAPI(`/backups/${encodeURIComponent(filename)}/stage`, { method: 'POST' }),
   download: async (filename: string): Promise<void> => {
     const res = await fetch(`${API_BASE}/backups/${filename}`, { credentials: 'include' })
     if (!res.ok) throw new Error('Download failed')

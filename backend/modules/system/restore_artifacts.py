@@ -21,6 +21,8 @@ _NAME = re.compile(r"odin_validate_[0-9a-f]{20}")
 # Disposable working files and the preserved029 child work directories.
 _STALE_FILE = re.compile(r"\.odin-(?:canonical-schema|restore-list|trusted025|upgraded027|upgraded029)-[A-Za-z0-9_]+(?:\.dump)?")
 _STALE_DIR = re.compile(r"\.odin-preserved029-[0-9a-f]{20}")
+_QUARANTINED = re.compile(r"failed_restore_\d{8}_\d{6}_\d{6}\.(?:dump|json)")
+QUARANTINE_RETENTION_DAYS = 30
 
 
 def journal_dir(backups: Path) -> Path:
@@ -92,6 +94,12 @@ def sweep_stale(backups: Path, maintenance_url: str, maintenance_password_file: 
     for name in dropped:
         forget(backups, name)
     removed = []
+    # Retention for quarantined restores: kept QUARANTINE_RETENTION_DAYS for re-staging.
+    quarantine_cutoff = (time.time() if now is None else now) - QUARANTINE_RETENTION_DAYS * 86400
+    for entry in backups.iterdir():
+        facts = entry.lstat()
+        if _QUARANTINED.fullmatch(entry.name) and stat.S_ISREG(facts.st_mode) and facts.st_mtime < quarantine_cutoff:
+            entry.unlink(missing_ok=True); removed.append(entry.name)
     for entry in backups.iterdir():
         facts = entry.lstat()
         if facts.st_mtime >= cutoff:

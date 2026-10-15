@@ -1257,7 +1257,6 @@ def _notify_superadmins_of_quarantine(target_url, password_file, record) -> None
         engine.dispose()
 
 
-QUARANTINE_RETENTION_DAYS = 30
 _QUARANTINED = re.compile(r"failed_restore_\d{8}_\d{6}_\d{6}\.(dump|json)")
 
 
