@@ -310,3 +310,64 @@ def test_upload_response_reports_the_models_stored_quantity(library):
     assert client.patch(f"/models/{first['model_id']}", headers=issue(['write:models']), json={'quantity_per_bed': 6}).status_code == 200
     variant = _upload(client, issue(['write:models']), sliced_3mf(plates=1))
     assert (variant['is_new_model'], variant['quantity_per_bed']) == (False, 6)
+
+
+# ------------------------------------------- review MEDIUM-9: per-plate data for scheduling
+
+def per_plate_3mf():
+    """Three sliced plates with distinct objects, grams and print time (Bambu slice_info layout)."""
+    plates = [(1, 5430, [29.25, 12.12], PLATE_JSON['bbox_objects']),
+              (2, 1800, [20.0], [{'name': 'Cert hinge'}, {'name': 'Cert hinge'}]),
+              (3, 900, [6.0, 4.0], [{'name': 'Cert cap'}, {'name': 'wipe_tower'}])]
+    info = '<?xml version="1.0" encoding="UTF-8"?><config><header/>'
+    for number, seconds, grams, _ in plates:
+        info += f'<plate><metadata key="index" value="{number}"/><metadata key="prediction" value="{seconds}"/>'
+        info += f'<metadata key="weight" value="{sum(grams)}"/><metadata key="printer_model_id" value="N2S"/>'
+        for slot, used in enumerate(grams, 1):
+            info += f'<filament id="{slot}" type="PLA" color="#FF0000" used_m="1" used_g="{used}"/>'
+        info += '</plate>'
+    info += '</config>'
+    base = zipfile.ZipFile(io.BytesIO(sliced_3mf(plates=3)))
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as archive:
+        for item in base.infolist():
+            if item.filename == 'Metadata/slice_info.config':
+                archive.writestr(item.filename, info)
+            elif item.filename != 'Metadata/plate_1.json':
+                archive.writestr(item, base.read(item.filename))
+        for number, _, _, objects in plates:
+            archive.writestr(f'Metadata/plate_{number}.json', json.dumps({'bbox_objects': objects}))
+    return buffer.getvalue()
+
+
+def test_model_level_fields_describe_plate_1_and_schedule_options_list_each_plate(library, review_db):
+    client, issue = library
+    body = _upload(client, issue(['write:models']), per_plate_3mf())
+    assert sum(o['checked'] for o in body['objects']) == 3 and body['total_weight_grams'] == pytest.approx(41.37)
+    assert review_db.execute(text('SELECT quantity_per_bed FROM models WHERE id=:id'), {'id': body['model_id']}).scalar_one() == 3
+    options = client.get(f"/models/{body['model_id']}/plates", headers=issue(['write:jobs'])).json()
+    assert options['plate_indices'] == [0, 1, 2] and options['print_file_id'] == body['id']
+    assert 'plates' not in client.get(f"/models/{body['model_id']}/schedule-options", headers=issue(['write:jobs'])).json()
+    assert client.get(f"/models/{body['model_id']}/plates", headers=issue(['read:models'])).status_code == 403
+    assert [(p['plate_index'], p['sellable_pieces'], p['filament_grams'], p['print_time_seconds']) for p in options['plates']] == [
+        (0, 3, pytest.approx(41.37), 5430), (1, 2, pytest.approx(20.0), 1800), (2, 1, pytest.approx(10.0), 900)]
+
+
+def test_scheduling_a_plate_uses_that_plates_grams_and_time(library, review_db):
+    from modules.models_library.services import calculate_job_cost
+    client, issue = library
+    body = _upload(client, issue(['write:models']), per_plate_3mf())
+    model_id = body['model_id']
+    options = client.get(f'/models/{model_id}/schedule-options', headers=issue(['write:jobs'])).json()
+    jobs = {}
+    for plate in (0, 2):
+        scheduled = client.post(f'/models/{model_id}/schedule', headers=issue(['write:jobs']),
+                                json={'plate_index': plate, 'print_file_id': body['id'], 'payload_sha256': options['payload_sha256']})
+        assert scheduled.status_code == 200, scheduled.text
+        jobs[plate] = review_db.execute(text('SELECT estimated_cost,duration_hours,plate_index FROM jobs WHERE id=:id'), {'id': scheduled.json()['job_id']}).one()
+    review_db.expire_all()
+    plate_1 = calculate_job_cost(review_db, model_id=model_id)[0]
+    plate_3 = calculate_job_cost(review_db, model_id=model_id, filament_grams=10.0, print_hours=0.25)[0]
+    assert (jobs[0].estimated_cost, jobs[0].plate_index) == (pytest.approx(plate_1), 0)
+    assert (jobs[2].estimated_cost, jobs[2].duration_hours, jobs[2].plate_index) == (pytest.approx(plate_3), pytest.approx(0.25), 2)
+    assert plate_3 < plate_1

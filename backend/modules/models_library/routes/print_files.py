@@ -178,6 +178,8 @@ async def upload_3mf(
                 plate_count = len({name for name in zf.namelist()
                                    if re.fullmatch(r"Metadata/plate_[1-9][0-9]*\.gcode", name)}) or 1
             # Default sellable pieces = objects checked by default (wipe towers excluded).
+            # Model-level fields (objects, quantity_per_bed, grams, build time) describe plate 1;
+            # per-plate values come from GET /models/{id}/schedule-options 'plates'.
             default_quantity = sum(1 for obj in plate_objects if obj.get("checked")) or 1
 
             # Extract 3D mesh for viewer

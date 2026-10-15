@@ -3,6 +3,7 @@
 Extracts print metadata, filament info, and thumbnails.
 """
 
+import re
 import zipfile
 import json
 import base64
@@ -346,10 +347,10 @@ if __name__ == '__main__':
             print("Failed to parse file")
 
 
-def extract_objects_from_plate(zf: zipfile.ZipFile) -> list:
-    """Extract object names from plate_1.json for quantity counting."""
+def extract_objects_from_plate(zf: zipfile.ZipFile, plate_number: int = 1) -> list:
+    """Extract object names from plate_N.json (default plate 1) for quantity counting."""
     try:
-        with zf.open('Metadata/plate_1.json') as f:
+        with zf.open(f'Metadata/plate_{plate_number}.json') as f:
             data = json.load(f)
             objects = []
             
@@ -513,3 +514,46 @@ def extract_mesh_from_3mf(file_path: str) -> Optional[dict]:
     except Exception as e:
         print(f"Error extracting mesh: {e}")
         return None
+
+
+def plate_summaries(zf: zipfile.ZipFile) -> list:
+    """Per-plate sellable pieces, filament grams and print time for every sliced plate.
+
+    Model-level upload fields (objects, quantity_per_bed, filament grams, build time) describe
+    plate 1 only; scheduling a different plate uses that plate's entry from here.
+    Returns [{plate_index (0-based), sellable_pieces, filament_grams, print_time_seconds}] for each
+    Metadata/plate_N.gcode member; a value is None when the archive does not record it.
+    """
+    numbers = sorted({int(m.group(1)) for name in zf.namelist()
+                      if (m := re.fullmatch(r"Metadata/plate_([1-9][0-9]*)\.gcode", name))})
+    sliced = {}
+    try:
+        with zf.open('Metadata/slice_info.config') as f:
+            root = ET.parse(f).getroot()
+        for plate in root.findall('plate'):
+            meta = {m.get('key'): m.get('value') for m in plate.findall('metadata')}
+            try:
+                number = int(meta.get('index', ''))
+            except ValueError:
+                continue
+            grams = None
+            used = [fil.get('used_g') for fil in plate.findall('filament') if fil.get('used_g') is not None]
+            try:
+                grams = round(sum(float(value) for value in used), 2) if used else (float(meta['weight']) if meta.get('weight') else None)
+                seconds = int(float(meta['prediction'])) if meta.get('prediction') else None
+            except ValueError:
+                grams, seconds = None, None
+            sliced[number] = (grams, seconds)
+    except (KeyError, ValueError, ET.ParseError):
+        pass  # unsliced or foreign slicer: per-plate values stay None
+    summaries = []
+    for number in numbers:
+        objects = extract_objects_from_plate(zf, number) if f'Metadata/plate_{number}.json' in zf.namelist() else None
+        grams, seconds = sliced.get(number, (None, None))
+        summaries.append({
+            'plate_index': number - 1,
+            'sellable_pieces': sum(1 for obj in objects if obj.get('checked')) if objects is not None else None,
+            'filament_grams': grams,
+            'print_time_seconds': seconds,
+        })
+    return summaries

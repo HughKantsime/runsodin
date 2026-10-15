@@ -323,6 +323,40 @@ def model_schedule_options(model_id: int,
     return {"print_file_id": file.id, "payload_sha256": digest, "plate_indices": indices}
 
 
+@router.get("/{model_id}/plates")
+def model_plate_summaries(model_id: int,
+    current_user: dict = Depends(require_role("operator", scope="write:jobs")), db: Session = Depends(get_db)):
+    """Per-plate sellable pieces, filament grams and print time of the file scheduling would use.
+
+    Model-level fields describe plate 1. Kept apart from schedule-options, whose response is
+    echoed back as the schedule body (strict schema).
+    """
+    from core.print_payload_snapshot import stage_payload, PayloadUnavailable
+    options = model_schedule_options(model_id, current_user=current_user, db=db)
+    if options["print_file_id"] is None or not options["plate_indices"]:
+        return {**options, "plates": []}
+    model = db.query(Model).filter(Model.id == model_id).first()
+    file = _schedule_file(db, model, current_user)
+    if file is None or file.id != options["print_file_id"]:
+        raise HTTPException(409, "Selected print file changed; refresh scheduling options")
+    try:
+        with stage_payload(file.stored_path, options["payload_sha256"]) as snapshot:
+            plates = _plate_summaries(snapshot.path, options["plate_indices"])
+    except PayloadUnavailable as exc:
+        raise HTTPException(400, str(exc)) from None
+    return {**options, "plates": plates}
+
+
+def _plate_summaries(path, indices=None):
+    """Per-plate sellable pieces / grams / print time from the staged 3MF bytes (model-level
+    fields describe plate 1). Restricted to the validated plate indices when given."""
+    import zipfile
+    from modules.models_library.threemf_parser import plate_summaries
+    with zipfile.ZipFile(path) as archive:
+        summaries = plate_summaries(archive)
+    return [s for s in summaries if indices is None or s["plate_index"] in indices]
+
+
 @router.post("/{model_id}/schedule")
 def schedule_from_model(
     model_id: int,
@@ -358,6 +392,7 @@ def schedule_from_model(
     if opts.print_file_id is not None and (file is None or file.id != opts.print_file_id):
         raise HTTPException(409, "Selected print file changed; refresh scheduling options")
     file_id = payload_hash = plate_index = None
+    selected_plate = None  # per-plate grams/time when a plate other than plate 1 is scheduled
     if file is None:
         if opts.plate_index not in (None, 0):
             raise HTTPException(400, "Plate selection requires a concrete print file")
@@ -385,6 +420,8 @@ def schedule_from_model(
                 # Preserve the ordinary first-plate default, but validate actual bytes.
                 plate_index = opts.plate_index if opts.plate_index is not None else 0
                 validate_plate(snapshot.path, plate_index, api_type)
+                if plate_index > 0 and suffix == ".3mf":
+                    selected_plate = next((s for s in _plate_summaries(snapshot.path) if s["plate_index"] == plate_index), None)
             # Recheck source immediately before admission; snapshot proves validated bytes.
             if hash_regular_payload(path) != payload_hash:
                 raise PayloadUnavailable("Print payload changed during scheduling")
@@ -400,8 +437,12 @@ def schedule_from_model(
             if isinstance(slot, dict) and slot.get("color"):
                 colors.append(slot["color"])
 
-    # Calculate cost
-    estimated_cost, suggested_price, _ = calculate_job_cost(db, model_id=model.id)
+    # Calculate cost: model-level fields describe plate 1; another plate uses its own grams/time.
+    plate_grams = selected_plate.get("filament_grams") if selected_plate else None
+    plate_seconds = selected_plate.get("print_time_seconds") if selected_plate else None
+    plate_hours = round(plate_seconds / 3600.0, 2) if plate_seconds else None
+    estimated_cost, suggested_price, _ = calculate_job_cost(
+        db, model_id=model.id, filament_grams=plate_grams, print_hours=plate_hours)
 
     charge_job_quota(db, current_user)
 
@@ -410,7 +451,7 @@ def schedule_from_model(
         "due_date": as_utc_datetime(opts.due_date).replace(tzinfo=None) if opts.due_date else None,
         "notes": opts.notes, "print_file_id": file_id, "payload_sha256": payload_hash, "plate_index": plate_index,
         "item_name": model.name, "model_id": model.id,
-        "duration_hours": model.build_time_hours or 0, "colors_required": ','.join(colors),
+        "duration_hours": plate_hours if plate_hours is not None else (model.build_time_hours or 0), "colors_required": ','.join(colors),
         "printer_id": printer_id, "estimated_cost": estimated_cost, "suggested_price": suggested_price,
         "charged_to_user_id": current_user.get("id"), "charged_to_org_id": current_user.get("group_id"),
         "submitted_by": current_user.get("id"), "status": "pending", "hold": False, "is_locked": False,
