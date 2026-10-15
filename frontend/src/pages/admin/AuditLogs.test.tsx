@@ -7,6 +7,9 @@ import { MemoryRouter } from 'react-router-dom'
 const api = vi.hoisted(() => ({ list: vi.fn(), exportCsv: vi.fn(), error: vi.fn() }))
 vi.mock('../../api', () => ({ auditLogs: { list: api.list, exportCsv: api.exportCsv }, auth: { me: vi.fn() } }))
 vi.mock('react-hot-toast', () => ({ default: { error: api.error } }))
+// Audit CSV export is an Enterprise entitlement; the export tests run with an Enterprise license.
+const lic = vi.hoisted(() => ({ features: ['audit_export'] as string[] }))
+vi.mock('../../LicenseContext', () => ({ useLicense: () => ({ hasFeature: (f: string) => lic.features.includes(f) }) }))
 const row = { id: 1, timestamp: '2026-10-13T12:00:00', username: null, action: 'create', entity_type: 'job', entity_id: 0, details: null, ip_address: null }
 function show(principal = { id: 3, role: 'admin', group_id: null }) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
@@ -16,6 +19,7 @@ function show(principal = { id: 3, role: 'admin', group_id: null }) {
 }
 beforeEach(() => {
   vi.clearAllMocks()
+  lic.features = ['audit_export']
   api.list.mockResolvedValue({ logs: [row], total: 1, limit: 50, offset: 0 })
   api.exportCsv.mockResolvedValue('ID,Action\n1,create\n')
   class OwnedURL extends URL {
@@ -114,4 +118,16 @@ test.each([0, false])('preserves recorded scalar details %s and discloses the CS
   await screen.findByText('create')
   expect(screen.getByRole('button', { name: JSON.stringify(details) })).toBeVisible()
   expect(screen.getByText('CSV export includes up to 5,000 matching entries.')).toBeVisible()
+})
+
+test('below Enterprise the audit log is viewable but CSV export is locked and never requested', async () => {
+  lic.features = []
+  show()
+  await screen.findByText('create')
+  const locked = screen.getByRole('button', { name: 'Export CSV (Enterprise)' })
+  expect(locked).toBeDisabled()
+  expect(locked).toHaveAttribute('title', 'Audit log CSV export requires an Enterprise license')
+  expect(screen.queryByRole('button', { name: 'Export CSV' })).not.toBeInTheDocument()
+  fireEvent.click(locked)
+  expect(api.exportCsv).not.toHaveBeenCalled()
 })

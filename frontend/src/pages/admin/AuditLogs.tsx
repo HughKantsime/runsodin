@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { FileText, Download, ChevronLeft, ChevronRight } from 'lucide-react'
+import { FileText, Download, ChevronLeft, ChevronRight, Lock } from 'lucide-react'
 import { auditLogs, auth } from '../../api'
 import { PageHeader, SearchInput, Button, EmptyState, Select } from '../../components/ui'
 import toast from 'react-hot-toast'
 import type { User } from '../../types'
+import { useLicense } from '../../LicenseContext'
 
 const ACTION_COLORS = {
   create: 'text-green-400',
@@ -45,6 +46,8 @@ export default function AuditLogs() {
   const [expandedId, setExpandedId] = useState(null)
   const [searchText, setSearchText] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
+  // Audit export is an Enterprise entitlement (backend: GET /api/export/audit-logs -> 403 below Enterprise).
+  const canExport = useLicense().hasFeature('audit_export')
   const [exporting, setExporting] = useState(false)
   const exportPending = useRef(false)
   const mounted = useRef(true)
@@ -136,9 +139,15 @@ export default function AuditLogs() {
         <Select value={limit} onChange={e => { setLimit(Number(e.target.value)); resetPagination() }} className="w-auto">
           {PAGE_SIZES.map(s => <option key={s} value={s}>{s} / page</option>)}
         </Select>
-        <Button variant="secondary" size="md" icon={Download} onClick={exportCsv} disabled={!ready || exporting} className="ml-auto">
-          {exporting ? 'Exporting...' : 'Export CSV'}
-        </Button>
+        {canExport ? (
+          <Button variant="secondary" size="md" icon={Download} onClick={exportCsv} disabled={!ready || exporting} className="ml-auto">
+            {exporting ? 'Exporting...' : 'Export CSV'}
+          </Button>
+        ) : (
+          <Button variant="secondary" size="md" icon={Lock} disabled className="ml-auto" title="Audit log CSV export requires an Enterprise license">
+            Export CSV (Enterprise)
+          </Button>
+        )}
       </div>
 
       <p className="mb-3 text-xs text-[var(--brand-text-muted)]">CSV export includes up to 5,000 matching entries.</p>
