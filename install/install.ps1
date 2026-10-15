@@ -117,69 +117,155 @@ function Test-IsAdmin {
 # BEGIN ConvertTo-IanaTimeZone
 # The Linux container only understands IANA zone ids (America/New_York); Get-TimeZone on
 # Windows returns Windows ids (Eastern Standard Time), which tzdata silently treats as UTC.
-# Common zones use the CLDR windowsZones "001" mapping below with canonical tzdata names
-# (the image ships no legacy alias files such as Asia/Calcutta). Other zones use .NET 6+
-# (PowerShell 7) TimeZoneInfo.TryConvertWindowsIdToIanaId; Windows PowerShell 5.1 (.NET
-# Framework) has no converter. Anything left falls back to UTC with a warning.
+# The table below is the complete CLDR windowsZones territory "001" mapping (142 zones,
+# unicode-org/cldr common/supplemental/windowsZones.xml), with legacy names replaced by the
+# canonical tzdata names the image ships (the image has no alias files such as Asia/Calcutta).
+# It is the only converter on Windows PowerShell 5.1 (.NET Framework), which the irm|iex
+# one-liner uses. .NET 6+ TryConvertWindowsIdToIanaId (PowerShell 7) covers zones added to
+# Windows later. Anything left falls back to UTC with a warning.
 $WindowsToIanaZones = @{
-    'Dateline Standard Time' = 'Etc/GMT+12'
-    'UTC-11' = 'Etc/GMT+11'
-    'Hawaiian Standard Time' = 'Pacific/Honolulu'
+    'AUS Central Standard Time' = 'Australia/Darwin'
+    'AUS Eastern Standard Time' = 'Australia/Sydney'
+    'Afghanistan Standard Time' = 'Asia/Kabul'
     'Alaskan Standard Time' = 'America/Anchorage'
-    'Pacific Standard Time (Mexico)' = 'America/Tijuana'
-    'Pacific Standard Time' = 'America/Los_Angeles'
-    'US Mountain Standard Time' = 'America/Phoenix'
-    'Mountain Standard Time (Mexico)' = 'America/Mazatlan'
-    'Mountain Standard Time' = 'America/Denver'
+    'Alberta Standard Time' = 'America/Edmonton'
+    'Aleutian Standard Time' = 'America/Adak'
+    'Altai Standard Time' = 'Asia/Barnaul'
+    'Arab Standard Time' = 'Asia/Riyadh'
+    'Arabian Standard Time' = 'Asia/Dubai'
+    'Arabic Standard Time' = 'Asia/Baghdad'
+    'Argentina Standard Time' = 'America/Argentina/Buenos_Aires'
+    'Astrakhan Standard Time' = 'Europe/Astrakhan'
+    'Atlantic Standard Time' = 'America/Halifax'
+    'Aus Central W. Standard Time' = 'Australia/Eucla'
+    'Azerbaijan Standard Time' = 'Asia/Baku'
+    'Azores Standard Time' = 'Atlantic/Azores'
+    'Bahia Standard Time' = 'America/Bahia'
+    'Bangladesh Standard Time' = 'Asia/Dhaka'
+    'Belarus Standard Time' = 'Europe/Minsk'
+    'Bougainville Standard Time' = 'Pacific/Bougainville'
+    'British Columbia Standard Time' = 'America/Vancouver'
+    'Canada Central Standard Time' = 'America/Regina'
+    'Cape Verde Standard Time' = 'Atlantic/Cape_Verde'
+    'Caucasus Standard Time' = 'Asia/Yerevan'
+    'Cen. Australia Standard Time' = 'Australia/Adelaide'
     'Central America Standard Time' = 'America/Guatemala'
+    'Central Asia Standard Time' = 'Asia/Bishkek'
+    'Central Brazilian Standard Time' = 'America/Cuiaba'
+    'Central Europe Standard Time' = 'Europe/Budapest'
+    'Central European Standard Time' = 'Europe/Warsaw'
+    'Central Pacific Standard Time' = 'Pacific/Guadalcanal'
     'Central Standard Time' = 'America/Chicago'
     'Central Standard Time (Mexico)' = 'America/Mexico_City'
-    'Canada Central Standard Time' = 'America/Regina'
-    'SA Pacific Standard Time' = 'America/Bogota'
-    'Eastern Standard Time' = 'America/New_York'
-    'US Eastern Standard Time' = 'America/Indiana/Indianapolis'
-    'Atlantic Standard Time' = 'America/Halifax'
-    'Venezuela Standard Time' = 'America/Caracas'
-    'SA Western Standard Time' = 'America/La_Paz'
-    'Newfoundland Standard Time' = 'America/St_Johns'
-    'E. South America Standard Time' = 'America/Sao_Paulo'
-    'Argentina Standard Time' = 'America/Argentina/Buenos_Aires'
-    'SA Eastern Standard Time' = 'America/Cayenne'
-    'UTC' = 'Etc/UTC'
-    'GMT Standard Time' = 'Europe/London'
-    'Greenwich Standard Time' = 'Atlantic/Reykjavik'
-    'W. Europe Standard Time' = 'Europe/Berlin'
-    'Central Europe Standard Time' = 'Europe/Budapest'
-    'Romance Standard Time' = 'Europe/Paris'
-    'Central European Standard Time' = 'Europe/Warsaw'
-    'W. Central Africa Standard Time' = 'Africa/Lagos'
-    'GTB Standard Time' = 'Europe/Bucharest'
-    'FLE Standard Time' = 'Europe/Kyiv'
-    'Egypt Standard Time' = 'Africa/Cairo'
-    'South Africa Standard Time' = 'Africa/Johannesburg'
-    'Israel Standard Time' = 'Asia/Jerusalem'
-    'Turkey Standard Time' = 'Europe/Istanbul'
-    'Arab Standard Time' = 'Asia/Riyadh'
-    'Russian Standard Time' = 'Europe/Moscow'
-    'Arabian Standard Time' = 'Asia/Dubai'
-    'Iran Standard Time' = 'Asia/Tehran'
-    'Pakistan Standard Time' = 'Asia/Karachi'
-    'India Standard Time' = 'Asia/Kolkata'
-    'Nepal Standard Time' = 'Asia/Kathmandu'
-    'Bangladesh Standard Time' = 'Asia/Dhaka'
-    'SE Asia Standard Time' = 'Asia/Bangkok'
+    'Chatham Islands Standard Time' = 'Pacific/Chatham'
     'China Standard Time' = 'Asia/Shanghai'
-    'Singapore Standard Time' = 'Asia/Singapore'
-    'Taipei Standard Time' = 'Asia/Taipei'
-    'W. Australia Standard Time' = 'Australia/Perth'
-    'Tokyo Standard Time' = 'Asia/Tokyo'
-    'Korea Standard Time' = 'Asia/Seoul'
-    'Cen. Australia Standard Time' = 'Australia/Adelaide'
-    'AUS Central Standard Time' = 'Australia/Darwin'
+    'Cuba Standard Time' = 'America/Havana'
+    'Dateline Standard Time' = 'Etc/GMT+12'
+    'E. Africa Standard Time' = 'Africa/Nairobi'
     'E. Australia Standard Time' = 'Australia/Brisbane'
-    'AUS Eastern Standard Time' = 'Australia/Sydney'
-    'Tasmania Standard Time' = 'Australia/Hobart'
+    'E. Europe Standard Time' = 'Europe/Chisinau'
+    'E. South America Standard Time' = 'America/Sao_Paulo'
+    'Easter Island Standard Time' = 'Pacific/Easter'
+    'Eastern Standard Time' = 'America/New_York'
+    'Eastern Standard Time (Mexico)' = 'America/Cancun'
+    'Egypt Standard Time' = 'Africa/Cairo'
+    'Ekaterinburg Standard Time' = 'Asia/Yekaterinburg'
+    'FLE Standard Time' = 'Europe/Kyiv'
+    'Fiji Standard Time' = 'Pacific/Fiji'
+    'GMT Standard Time' = 'Europe/London'
+    'GTB Standard Time' = 'Europe/Bucharest'
+    'Georgian Standard Time' = 'Asia/Tbilisi'
+    'Greenland Standard Time' = 'America/Nuuk'
+    'Greenwich Standard Time' = 'Atlantic/Reykjavik'
+    'Haiti Standard Time' = 'America/Port-au-Prince'
+    'Hawaiian Standard Time' = 'Pacific/Honolulu'
+    'India Standard Time' = 'Asia/Kolkata'
+    'Iran Standard Time' = 'Asia/Tehran'
+    'Israel Standard Time' = 'Asia/Jerusalem'
+    'Jordan Standard Time' = 'Asia/Amman'
+    'Kaliningrad Standard Time' = 'Europe/Kaliningrad'
+    'Korea Standard Time' = 'Asia/Seoul'
+    'Libya Standard Time' = 'Africa/Tripoli'
+    'Line Islands Standard Time' = 'Pacific/Kiritimati'
+    'Lord Howe Standard Time' = 'Australia/Lord_Howe'
+    'Magadan Standard Time' = 'Asia/Magadan'
+    'Magallanes Standard Time' = 'America/Punta_Arenas'
+    'Manitoba Standard Time' = 'America/Winnipeg'
+    'Marquesas Standard Time' = 'Pacific/Marquesas'
+    'Mauritius Standard Time' = 'Indian/Mauritius'
+    'Middle East Standard Time' = 'Asia/Beirut'
+    'Montevideo Standard Time' = 'America/Montevideo'
+    'Morocco Standard Time' = 'Africa/Casablanca'
+    'Mountain Standard Time' = 'America/Denver'
+    'Mountain Standard Time (Mexico)' = 'America/Mazatlan'
+    'Myanmar Standard Time' = 'Asia/Yangon'
+    'N. Central Asia Standard Time' = 'Asia/Novosibirsk'
+    'Namibia Standard Time' = 'Africa/Windhoek'
+    'Nepal Standard Time' = 'Asia/Kathmandu'
     'New Zealand Standard Time' = 'Pacific/Auckland'
+    'Newfoundland Standard Time' = 'America/St_Johns'
+    'Norfolk Standard Time' = 'Pacific/Norfolk'
+    'North Asia East Standard Time' = 'Asia/Irkutsk'
+    'North Asia Standard Time' = 'Asia/Krasnoyarsk'
+    'North Korea Standard Time' = 'Asia/Pyongyang'
+    'Omsk Standard Time' = 'Asia/Omsk'
+    'Pacific SA Standard Time' = 'America/Santiago'
+    'Pacific Standard Time' = 'America/Los_Angeles'
+    'Pacific Standard Time (Mexico)' = 'America/Tijuana'
+    'Pakistan Standard Time' = 'Asia/Karachi'
+    'Paraguay Standard Time' = 'America/Asuncion'
+    'Qyzylorda Standard Time' = 'Asia/Qyzylorda'
+    'Romance Standard Time' = 'Europe/Paris'
+    'Russia Time Zone 10' = 'Asia/Srednekolymsk'
+    'Russia Time Zone 11' = 'Asia/Kamchatka'
+    'Russia Time Zone 3' = 'Europe/Samara'
+    'Russian Standard Time' = 'Europe/Moscow'
+    'SA Eastern Standard Time' = 'America/Cayenne'
+    'SA Pacific Standard Time' = 'America/Bogota'
+    'SA Western Standard Time' = 'America/La_Paz'
+    'SE Asia Standard Time' = 'Asia/Bangkok'
+    'Saint Pierre Standard Time' = 'America/Miquelon'
+    'Sakhalin Standard Time' = 'Asia/Sakhalin'
+    'Samoa Standard Time' = 'Pacific/Apia'
+    'Sao Tome Standard Time' = 'Africa/Sao_Tome'
+    'Saratov Standard Time' = 'Europe/Saratov'
+    'Singapore Standard Time' = 'Asia/Singapore'
+    'South Africa Standard Time' = 'Africa/Johannesburg'
+    'South Sudan Standard Time' = 'Africa/Juba'
+    'Sri Lanka Standard Time' = 'Asia/Colombo'
+    'Sudan Standard Time' = 'Africa/Khartoum'
+    'Syria Standard Time' = 'Asia/Damascus'
+    'Taipei Standard Time' = 'Asia/Taipei'
+    'Tasmania Standard Time' = 'Australia/Hobart'
+    'Tocantins Standard Time' = 'America/Araguaina'
+    'Tokyo Standard Time' = 'Asia/Tokyo'
+    'Tomsk Standard Time' = 'Asia/Tomsk'
+    'Tonga Standard Time' = 'Pacific/Tongatapu'
+    'Transbaikal Standard Time' = 'Asia/Chita'
+    'Turkey Standard Time' = 'Europe/Istanbul'
+    'Turks And Caicos Standard Time' = 'America/Grand_Turk'
+    'US Eastern Standard Time' = 'America/Indiana/Indianapolis'
+    'US Mountain Standard Time' = 'America/Phoenix'
+    'UTC' = 'Etc/UTC'
+    'UTC+12' = 'Etc/GMT-12'
+    'UTC+13' = 'Etc/GMT-13'
+    'UTC-02' = 'Etc/GMT+2'
+    'UTC-08' = 'Etc/GMT+8'
+    'UTC-09' = 'Etc/GMT+9'
+    'UTC-11' = 'Etc/GMT+11'
+    'Ulaanbaatar Standard Time' = 'Asia/Ulaanbaatar'
+    'Venezuela Standard Time' = 'America/Caracas'
+    'Vladivostok Standard Time' = 'Asia/Vladivostok'
+    'Volgograd Standard Time' = 'Europe/Volgograd'
+    'W. Australia Standard Time' = 'Australia/Perth'
+    'W. Central Africa Standard Time' = 'Africa/Lagos'
+    'W. Europe Standard Time' = 'Europe/Berlin'
+    'W. Mongolia Standard Time' = 'Asia/Hovd'
+    'West Asia Standard Time' = 'Asia/Tashkent'
+    'West Bank Standard Time' = 'Asia/Hebron'
+    'West Pacific Standard Time' = 'Pacific/Port_Moresby'
+    'Yakutsk Standard Time' = 'Asia/Yakutsk'
+    'Yukon Standard Time' = 'America/Whitehorse'
 }
 
 # Legacy CLDR/ICU aliases -> canonical tzdata names present in the container image
@@ -195,11 +281,29 @@ $IanaLegacyAliases = @{
     'Pacific/Enderbury' = 'Pacific/Kanton'
 }
 
+$script:TimeZoneFallback = $null
+
+function Write-TimeZoneFallback {
+    param([string]$Reason)
+    $lines = @(
+        "TIME ZONE NOT SET: $Reason",
+        "O.D.I.N. will run in UTC: schedules, quiet hours and log times use UTC.",
+        "Fix: set TZ=<Area/City> (e.g. TZ=America/New_York) in $InstallDir\.env, then: docker compose up -d"
+    )
+    Write-Host ""
+    foreach ($line in $lines) { Write-Host "  !! $line" -ForegroundColor Black -BackgroundColor Yellow }
+    Write-Host ""
+}
+
 function ConvertTo-IanaTimeZone {
     param([string]$WindowsId, [switch]$NoDotNet)
-    if (-not $WindowsId) { $WindowsId = 'UTC' }
+    if (-not $WindowsId) {
+        $script:TimeZoneFallback = "the Windows time zone could not be read"
+        Write-TimeZoneFallback $script:TimeZoneFallback
+        return 'UTC'
+    }
     # Already an IANA id (PowerShell on Linux/macOS, or a user-supplied value)
-    if ($WindowsId -match '^[A-Za-z_]+(/[A-Za-z0-9_+\-]+)+$' -or $WindowsId -eq 'Etc/UTC') { return $WindowsId }
+    if ($WindowsId -match '^[A-Za-z_]+(/[A-Za-z0-9_+\-]+)+$') { return $WindowsId }
     if ($WindowsToIanaZones.ContainsKey($WindowsId)) { return $WindowsToIanaZones[$WindowsId] }
     if (-not $NoDotNet) {
         $method = [System.TimeZoneInfo].GetMethod('TryConvertWindowsIdToIanaId', [type[]]@([string], [string].MakeByRefType()))
@@ -211,8 +315,8 @@ function ConvertTo-IanaTimeZone {
             }
         }
     }
-    Write-Warn "Unknown Windows time zone '$WindowsId' - no IANA equivalent found."
-    Write-Warn "O.D.I.N. will run in UTC. Set TZ=<Area/City> (e.g. America/New_York) in $InstallDir\.env and restart."
+    $script:TimeZoneFallback = "unknown Windows time zone '$WindowsId' (no IANA equivalent found)"
+    Write-TimeZoneFallback $script:TimeZoneFallback
     return 'UTC'
 }
 # END ConvertTo-IanaTimeZone
@@ -396,10 +500,12 @@ try {
     $windowsTz = (Get-TimeZone).Id
 } catch {
     $windowsTz = $null
-    Write-Warn "Could not read the Windows time zone."
+    Write-Warn "Could not read the Windows time zone: $($_.Exception.Message). Using UTC."
 }
 $tz = ConvertTo-IanaTimeZone $windowsTz
-if ($windowsTz -and $windowsTz -ne $tz) {
+if ($script:TimeZoneFallback) {
+    Write-Warn "Timezone: UTC (fallback - $($script:TimeZoneFallback))"
+} elseif ($windowsTz -ne $tz) {
     Write-Ok "Timezone: $tz (from Windows zone '$windowsTz')"
 } else {
     Write-Ok "Timezone: $tz"
@@ -545,6 +651,9 @@ Write-Host "  ╚═════════════════════
 
 Write-Host ""
 Write-Host "  Installed in $elapsed seconds." -ForegroundColor DarkGray
+
+# Repeat a time zone fallback so it is not lost in the scrollback
+if ($script:TimeZoneFallback) { Write-TimeZoneFallback $script:TimeZoneFallback }
 
 # Firewall reminder
 Write-Host ""

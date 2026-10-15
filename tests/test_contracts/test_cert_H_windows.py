@@ -69,33 +69,33 @@ def _ps1_block(begin: str, end: str) -> str:
     return src[src.index(begin):src.index(end) + len(end)]
 
 
-# Windows ids outside install.ps1's table: converted through .NET (PowerShell 7 path)
-EXTRA_WINDOWS_IDS = ("Myanmar Standard Time", "SE Asia Standard Time", "Sri Lanka Standard Time", "Azores Standard Time",
-                     "Cape Verde Standard Time", "Morocco Standard Time", "Jordan Standard Time", "Caucasus Standard Time",
-                     "West Asia Standard Time", "N. Central Asia Standard Time", "Yakutsk Standard Time",
-                     "Tonga Standard Time", "Fiji Standard Time", "Greenland Standard Time", "Paraguay Standard Time",
-                     "Montevideo Standard Time", "Cuba Standard Time", "Haiti Standard Time", "Line Islands Standard Time")
-
-
 def _run_converter() -> dict:
-    """Run install.ps1's own ConvertTo-IanaTimeZone (and Write-Warn) in real PowerShell 7 / .NET 8."""
+    """Run install.ps1's own conversion code (table, Write-Warn, fallback) in real PowerShell 7 / .NET 8."""
     warn = next(l for l in PS1.read_text(encoding="utf-8").splitlines() if l.startswith("function Write-Warn"))
-    extra = ",".join(f"'{w}'" for w in EXTRA_WINDOWS_IDS)
     script = "\n".join([
         "$ErrorActionPreference = 'Stop'", "$InstallDir = 'C:\\odin'", warn,
         _ps1_block("# BEGIN ConvertTo-IanaTimeZone", "# END ConvertTo-IanaTimeZone"),
-        "$out = [ordered]@{ table = [ordered]@{}; net = [ordered]@{}; extra = [ordered]@{} }",
-        "foreach ($k in ($WindowsToIanaZones.Keys | Sort-Object)) {",
-        "  $out.table[$k] = ConvertTo-IanaTimeZone $k",
+        # every Windows id .NET/ICU knows, via the reverse mapping of every IANA zone on this system
+        "$known = [System.Collections.Generic.SortedSet[string]]::new()",
+        "foreach ($z in [System.TimeZoneInfo]::GetSystemTimeZones()) { $w = $null",
+        "  if ([System.TimeZoneInfo]::TryConvertIanaIdToWindowsId($z.Id, [ref]$w) -and $w) { [void]$known.Add($w) } }",
+        "$out = [ordered]@{ table = [ordered]@{}; ps51 = [ordered]@{}; net = [ordered]@{}; known = @($known) }",
+        "foreach ($k in ($WindowsToIanaZones.Keys | Sort-Object)) { $out.table[$k] = $WindowsToIanaZones[$k] }",
+        "foreach ($k in $known) {",
+        "  $script:TimeZoneFallback = $null",
+        "  $out.ps51[$k] = ConvertTo-IanaTimeZone $k -NoDotNet 6>$null",
+        "  if ($script:TimeZoneFallback) { $out.ps51[$k] = 'FALLBACK' }",
         "  $n = $null; [void][System.TimeZoneInfo]::TryConvertWindowsIdToIanaId($k, [ref]$n)",
         "  if ($n -and $IanaLegacyAliases.ContainsKey($n)) { $n = $IanaLegacyAliases[$n] }",
         "  $out.net[$k] = $n }",
-        f"foreach ($k in @({extra})) {{ $out.extra[$k] = ConvertTo-IanaTimeZone $k 6>$null }}",
         "$out.passthrough = ConvertTo-IanaTimeZone 'America/Chicago'",
+        "$script:TimeZoneFallback = $null",
         "$out.unknown = ConvertTo-IanaTimeZone 'Mars Standard Time' 6>&1 | Out-String",
         "$out.unknown_value = ConvertTo-IanaTimeZone 'Mars Standard Time' 6>$null",
-        "$out.ps51_extra = ConvertTo-IanaTimeZone 'Myanmar Standard Time' -NoDotNet 6>$null",
-        "$out.ps51_eastern = ConvertTo-IanaTimeZone 'Eastern Standard Time' -NoDotNet",
+        "$out.unknown_reason = $script:TimeZoneFallback",
+        "$script:TimeZoneFallback = $null",
+        "$out.unreadable = ConvertTo-IanaTimeZone $null 6>&1 | Out-String",
+        "$out.unreadable_reason = $script:TimeZoneFallback",
         "$out | ConvertTo-Json -Depth 4",
     ])
     result = subprocess.run(["docker", "run", "--rm", "--network", "none", "-e", "TERM=dumb", PWSH_IMAGE, "pwsh",
@@ -120,24 +120,31 @@ def _offsets(zones: set[str]) -> dict[str, tuple[str, str, bool]]:
 @pytest.mark.skipif(not IMAGE or shutil.which("docker") is None, reason="CERT_H_IMAGE and docker required")
 def test_windows_timezone_value_written_by_installer_is_honoured_by_container():
     converted = _run_converter()
-    table, net, extra = converted["table"], converted["net"], converted["extra"]
-    assert len(table) >= 50 and set(table) == set(net)
-    assert table["Eastern Standard Time"] == converted["ps51_eastern"] == "America/New_York"
+    table, ps51, net, known = converted["table"], converted["ps51"], converted["net"], converted["known"]
+    # the full CLDR windowsZones territory-001 mapping ships, covering every Windows id .NET/ICU knows
+    assert len(table) >= 138 and len(known) >= 135, (len(table), len(known))
+    assert set(known) <= set(table), sorted(set(known) - set(table))
+    # Windows PowerShell 5.1 path (no .NET converter): no known zone falls back to UTC
+    assert not [k for k, v in ps51.items() if v in ("FALLBACK", "UTC")], [k for k, v in ps51.items() if v in ("FALLBACK", "UTC")]
+    assert ps51["Eastern Standard Time"] == "America/New_York" and ps51["Myanmar Standard Time"] == "Asia/Yangon"
     assert converted["passthrough"] == "America/Chicago"
-    assert converted["unknown_value"].strip() == "UTC" and converted["ps51_extra"].strip() == "UTC"
-    assert "Unknown Windows time zone 'Mars Standard Time'" in converted["unknown"]
-    assert "will run in UTC" in converted["unknown"]
-    offsets = _offsets(set(table.values()) | set(net.values()) | set(extra.values()) | {"UTC"})
-    for windows_id in table:
-        mapped, dotnet = table[windows_id], net[windows_id]
-        # every value install.ps1 can write is a zone the container's tzdata really has ...
+    # the fallback is loud and says UTC, for unknown ids and for an unreadable Windows zone
+    assert converted["unknown_value"].strip() == "UTC" and "Mars Standard Time" in converted["unknown_reason"]
+    for key in ("unknown", "unreadable"):
+        assert "!! TIME ZONE NOT SET" in converted[key] and "will run in UTC" in converted[key], converted[key]
+    assert "could not be read" in converted["unreadable"] and converted["unreadable_reason"]
+    offsets = _offsets(set(table.values()) | {v for v in net.values() if v} | {"UTC"})
+    for windows_id, mapped in table.items():
+        # every value install.ps1 can write is a zone the container's tzdata really has
         assert offsets[mapped][2], (windows_id, mapped)
-        # ... and the table agrees with .NET/ICU (CLDR) on the actual offsets
-        assert offsets[dotnet][2] and offsets[mapped][:2] == offsets[dotnet][:2], (windows_id, mapped, dotnet)
-        if windows_id not in ("UTC", "Greenwich Standard Time"):
-            assert offsets[mapped][:2] != offsets["UTC"][:2], windows_id  # not a silent UTC fallback
-    for windows_id, mapped in extra.items():
-        assert mapped != "UTC" and offsets[mapped][2], (windows_id, mapped)
+        if windows_id not in ("UTC", "Greenwich Standard Time", "GMT Standard Time", "Sao Tome Standard Time",
+                              "Morocco Standard Time"):
+            assert offsets[mapped][:2] != offsets["UTC"][:2], windows_id  # not effectively UTC
+    for windows_id in known:
+        # the table agrees with .NET/ICU (CLDR) on the actual offsets
+        dotnet = net[windows_id]
+        assert dotnet and offsets[dotnet][2], (windows_id, dotnet)
+        assert offsets[table[windows_id]][:2] == offsets[dotnet][:2], (windows_id, table[windows_id], dotnet)
     assert offsets["America/New_York"][:2] == ("-0500", "-0400")
     # the Windows id itself is what the old installer wrote; the container silently ran in UTC
     raw = subprocess.run(["docker", "run", "--rm", "--network", "none", "--entrypoint", "date", "-e",
@@ -147,6 +154,9 @@ def test_windows_timezone_value_written_by_installer_is_honoured_by_container():
     src = PS1.read_text(encoding="utf-8")
     # the value written to .env (TZ=$tz) is the converted one
     assert "$tz = ConvertTo-IanaTimeZone $windowsTz" in src and "\nTZ=$tz\n" in src
+    # Get-TimeZone failure says it uses UTC; the summary repeats any fallback
+    assert "Using UTC." in src
+    assert src.index("if ($script:TimeZoneFallback) { Write-TimeZoneFallback") > src.index('Write-Phase 9 $TOTAL "Complete!"')
     assert src.count("(Get-TimeZone).Id") == 1 and "$windowsTz = (Get-TimeZone).Id" in src
 
 
