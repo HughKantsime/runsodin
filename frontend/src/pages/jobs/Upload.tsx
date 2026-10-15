@@ -362,7 +362,8 @@ export default function Upload() {
     },
     onSuccess: (data) => {
       setUploadedFile(data)
-      if (data?.objects?.length) saveQuantity(data.model_id, data.objects)
+      const upload = data as { model_id?: number; objects?: { checked?: boolean }[] }
+      if (upload?.objects?.length) saveQuantity(upload.model_id, upload.objects)
       setUploadProgress(null)
       queryClient.invalidateQueries({ queryKey: ['print-files'] })
       queryClient.invalidateQueries({ queryKey: ['models'] })
