@@ -190,7 +190,10 @@ def test_p1_password_change_revokes_every_existing_session_and_is_audited(odin):
     odin.users[name] = (new_pw, uid)
 
 
-def test_p1_self_password_change_also_revokes_the_calling_session(odin):
+def test_p1_self_password_change_keeps_the_calling_session_and_revokes_the_rest(odin):
+    # Security review round-4: an admin changing their OWN password keeps the
+    # session making the request and revokes every other session (and biometric
+    # tokens). Round-3 revoked the caller too; the rule is now to keep it.
     ip = "203.0.113.44"
     admin_tok = odin.login(*odin.admin, **xff(ip)).json()["access_token"]
     h = {"Authorization": "Bearer " + admin_tok}
@@ -198,7 +201,7 @@ def test_p1_self_password_change_also_revokes_the_calling_session(odin):
     other = odin.login(*odin.admin, **xff(ip)).json()["access_token"]
     new_pw = strong_password()
     assert odin.patch(f"/api/users/{admin_id}", json={"password": new_pw}, headers=h).status_code == 200
-    assert odin.get("/api/auth/me", headers=h).status_code == 401  # caller's own session is revoked, not re-issued
+    assert odin.get("/api/auth/me", headers=h).status_code == 200  # caller's own session survives
     assert odin.get("/api/auth/me", headers={"Authorization": "Bearer " + other}).status_code == 401
     assert odin.get("/api/auth/me", headers=odin.cached_admin).status_code == 401
     odin.admin = (odin.admin[0], new_pw)
