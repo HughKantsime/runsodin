@@ -53,9 +53,8 @@ it('F04-4.8-02 horizontal axis: captured 02:00-05:00 and 06:00-09:00 intervals m
   expect(block(10, 'CertC order scheduled')).toHaveStyle({ left: '200px', width: '298px' })
 })
 
-// DEFECT: frontend/src/pages/jobs/Timeline.tsx:618 ScheduledJobDetail ("Job Details" drawer) shows only the scheduled
-// block interval; it never renders the job's actual_start/actual_end, so actual time is not visible on job detail.
-it.fails('F04-4.7-02 DEFECT job detail drawer for a completed job shows its actual print duration', async () => {
+// The "Job Details" drawer shows the slicer estimate alongside the job's actual start/end and actual duration.
+it('F04-4.7-02 job detail drawer for a completed job shows its actual print duration', async () => {
   api.timeline.mockResolvedValue(wire.timeline_two_day)
   const view = mount()
   // Move the window back one day so the captured 10-11 window is the one rendered.
@@ -64,4 +63,6 @@ it.fails('F04-4.7-02 DEFECT job detail drawer for a completed job shows its actu
   await waitFor(() => expect(api.get).toHaveBeenCalledWith(205))
   expect(await screen.findByText('Priority')).toBeInTheDocument()
   expect(screen.getByText(/2h 30m/)).toBeInTheDocument()
+  expect(screen.getByText('Actual duration').closest('div')).toHaveTextContent('Actual duration2h 30m')
+  expect(screen.getByText('Estimated').closest('div')).toHaveTextContent('Estimated2h') // wire duration_hours 2.0 kept
 })

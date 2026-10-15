@@ -652,6 +652,32 @@ function ScheduledJobDetail({ block }) {
         </div>
       </div>
 
+      {/* Print time: slicer estimate alongside the actual (monitor/operator) times */}
+      {(job.duration_hours != null || job.actual_start || job.actual_end) && (() => {
+        const actualMin = job.actual_start && job.actual_end
+          ? differenceInMinutes(parseUTC(job.actual_end), parseUTC(job.actual_start)) : null
+        const fmt = (m) => { const h = Math.floor(m / 60), r = m % 60; return h > 0 ? `${h}h ${r}m` : `${r}m` }
+        return (
+          <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
+            <h4 className="text-[var(--brand-text-secondary)] text-xs uppercase tracking-wide mb-2">Print Time</h4>
+            <div className="space-y-1.5 text-sm">
+              {job.duration_hours != null && (
+                <Row label="Estimated" value={fmt(Math.round(job.duration_hours * 60))} />
+              )}
+              {job.actual_start && (
+                <Row icon={<Clock size={14} />} label="Actual start" value={format(parseUTC(job.actual_start), 'MMM d, HH:mm')} />
+              )}
+              {job.actual_end && (
+                <Row icon={<Clock size={14} />} label="Actual end" value={format(parseUTC(job.actual_end), 'MMM d, HH:mm')} />
+              )}
+              {actualMin != null && actualMin >= 0 && (
+                <Row label="Actual duration" value={fmt(actualMin)} />
+              )}
+            </div>
+          </div>
+        )
+      })()}
+
       {/* Job details */}
       <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
         <h4 className="text-[var(--brand-text-secondary)] text-xs uppercase tracking-wide mb-2">Details</h4>
