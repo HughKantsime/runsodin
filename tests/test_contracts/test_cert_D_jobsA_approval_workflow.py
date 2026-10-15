@@ -252,11 +252,6 @@ def test_F04_4_6_02_viewer_submission_is_submitted_and_owned(cert, review_db):
     assert [j["status"] for j in listed_by_viewer if j["id"] == job] == ["submitted"]
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "DEFECT: frontend/src/pages/jobs/Upload.tsx:304,376 shows viewers 'Submit for Approval' and routes to "
-    "/models?schedule=<id>, whose producer backend/modules/models_library/routes/models_crud.py:333 requires operator "
-    "(viewer -> 403) and :418 hard-codes status 'pending'; the viewer upload->submit-for-approval path cannot create a "
-    "submitted job"))
 def test_F04_4_6_02_viewer_upload_submit_for_approval_path_creates_submitted_job(cert, review_db):
     from modules.models_library.routes import models_crud
     client, as_user, _ = cert
@@ -266,6 +261,15 @@ def test_F04_4_6_02_viewer_upload_submit_for_approval_path_creates_submitted_job
     response = client.post("/models/77/schedule", headers=as_user("student"))
     assert response.status_code in (200, 201), response.text
     assert response.json()["status"] == "submitted"
+    job_id = response.json()["job_id"]
+    assert _status(review_db, job_id) == "submitted"
+    assert review_db.execute(text("SELECT submitted_by FROM jobs WHERE id=:id"), {"id": job_id}).scalar_one() == 1
+    # The submission waits for an operator: it is in the approval queue and can be approved.
+    assert client.post(f"/jobs/{job_id}/approve", headers=as_user("operator1")).status_code == 200
+    assert _status(review_db, job_id) == "pending"
+    # Without approval mode a viewer still cannot queue from the library.
+    _set_approval(review_db, False)
+    assert client.post("/models/77/schedule", headers=as_user("student")).status_code == 403
 
 
 # ---------------------------------------------------------------- F04-4.6-04 approve/reject + notification dispatch
@@ -369,6 +373,19 @@ def test_capture_certD_jobsA_approval_wire(cert, review_db):
     wire["jobs_operator_reject_view"] = _scrub(client.get("/jobs", headers=op).json())
     rej = client.post(f"/jobs/{reject_target}/reject", json=reject_req, headers=op)
     wire["reject"] = {"method": "POST", "path": f"/jobs/{reject_target}/reject", "request": reject_req, "status": rej.status_code, "body": _scrub(rej.json())}
+    # Viewer submits a Model Library model for approval (Models page "Submit for approval").
+    from modules.models_library.routes import models_crud
+    client.app.include_router(models_crud.router)
+    review_db.execute(text("INSERT INTO models(id,name,build_time_hours,org_id) VALUES(78,'Wire library model',1.0,1)"))
+    review_db.commit()
+    wire["library_model"] = _scrub(client.get("/models/78", headers=stu).json())
+    options = client.get("/models/78/schedule-options", headers=stu)
+    wire["library_schedule_options"] = {"status": options.status_code, "body": options.json()}
+    lib = client.post("/models/78/schedule", headers=stu)
+    wire["library_submit"] = {"method": "POST", "path": "/models/78/schedule", "status": lib.status_code, "body": lib.json()}
+    assert options.status_code == 200, options.text
+    assert lib.status_code == 200 and lib.json()["status"] == "submitted"
+    assert _status(review_db, lib.json()["job_id"]) == "submitted"
     put_req = {"enabled": False}
     put = client.put("/config/require-job-approval", json=put_req, headers=adm)
     wire["approval_put"] = {"method": "PUT", "path": "/config/require-job-approval", "request": put_req, "status": put.status_code, "body": put.json()}
@@ -378,8 +395,10 @@ def test_capture_certD_jobsA_approval_wire(cert, review_db):
     mine = {pending, submitted, to_reject, foreign}
     statuses = {j["id"]: j["status"] for j in wire["jobs_operator"] if j["id"] in mine}
     assert statuses == {pending: "pending", submitted: "submitted", to_reject: "rejected", foreign: "rejected"}
-    # Producer contract: list rows carry no submitter / rejection / org fields.
+    # Producer contract: list rows carry the submitter, rejection reason and org the
+    # Jobs page needs to offer Edit/Resubmit to the original submitter.
     row = next(j for j in wire["jobs_operator"] if j["id"] == to_reject)
-    assert not {"submitted_by", "rejected_reason", "charged_to_org_id"} & set(row)
+    assert row["submitted_by"] == USERS["student"][0]
+    assert row["rejected_reason"] and row["charged_to_org_id"] is not None
     path = Path(__file__).resolve().parents[2] / "frontend/src/test-fixtures/certD-jobsA-approval-wire.json"
     path.write_text(json.dumps(wire, indent=2, sort_keys=True) + "\n")

@@ -143,11 +143,13 @@ def test_capture_jobs_queue_timeline_recent_and_failure_wire(wire_client):
     wire['failure_analytics'] = ok(client.get('/analytics/failures', params={'days': 365}))
     wire['analytics'] = ok(client.get('/analytics', params={'days': 365}))
     wire['time_accuracy'] = ok(client.get('/analytics/time-accuracy', params={'days': 365}))
-    # Jobs.tsx 'markFailed' on a printing row calls jobs.cancel first.
+    # Cancel refuses a printing job; Jobs.tsx 'markFailed' uses POST /jobs/{id}/fail instead.
     cancel = client.post('/jobs/204/cancel')
     assert cancel.status_code == 400
     wire['cancel_printing_status'] = cancel.status_code
     wire['cancel_printing_response'] = cancel.json()
+    wire['fail_printing_response'] = ok(client.post('/jobs/204/fail'))
+    assert wire['fail_printing_response']['status'] == 'failed'
     wire['repeat_response'] = ok(client.post('/jobs/206/repeat'))
     assert wire['repeat_response']['original_job_id'] == 206
     FIXTURE.parent.mkdir(parents=True, exist_ok=True)
@@ -192,9 +194,6 @@ def test_reorder_order_drives_next_auto_dispatch_selection(wire_client, monkeypa
     assert _get_next_scheduled_job(9)['id'] == 202
 
 
-@pytest.mark.xfail(strict=True, reason='DEFECT: backend/modules/jobs/routes/jobs_crud.py:359 GET /jobs orders by priority,created_at and '
-                   'JobResponse (backend/modules/jobs/schemas.py:76) omits queue_position, so a persisted drag reorder is never '
-                   'reflected in the queue the SPA lists (B dragged above A still lists A first)')
 def test_reordered_queue_is_listed_in_reordered_order(wire_client):
     client, identity, db = wire_client
     ok(client.patch('/jobs/reorder', json={'job_ids': [202, 201, 203]}))
@@ -202,8 +201,6 @@ def test_reordered_queue_is_listed_in_reordered_order(wire_client):
     assert listed == [202, 201, 203]
 
 
-@pytest.mark.xfail(strict=True, reason='DEFECT: backend/modules/jobs/scheduler.py:477 Scheduler orders pending jobs by priority,created_at '
-                   'and ignores queue_position, so an operator drag reorder of pending jobs does not change which job is scheduled first')
 def test_scheduler_honours_reordered_pending_queue(wire_client):
     from datetime import datetime, timezone
     from modules.jobs.scheduler import Scheduler
@@ -287,18 +284,16 @@ def test_failure_info_only_on_failed_jobs_and_operator_only(wire_client):
 
 
 def test_printing_job_cannot_be_cancelled_into_failure_flow(wire_client):
-    """Jobs.tsx 'markFailed' calls POST /jobs/{id}/cancel for a printing job; the real route refuses it."""
+    """Cancel refuses a printing job; the dedicated fail route (used by Jobs.tsx 'markFailed') works."""
     client, identity, db = wire_client
     response = client.post('/jobs/204/cancel')
     assert response.status_code == 400, response.text
     db.expire_all()
     assert db.execute(text('SELECT status FROM jobs WHERE id=204')).scalar_one() == 'printing'
-    # The dedicated fail route does work (no SPA caller uses it).
+    # The dedicated fail route works; Jobs.tsx 'Mark job failed' calls it.
     assert ok(client.post('/jobs/204/fail'))['status'] == 'failed'
 
 
-@pytest.mark.xfail(strict=True, reason='DEFECT: backend/modules/jobs/schemas.py:76 JobResponse omits fail_reason/fail_notes, so GET /jobs '
-                   'never returns the reason saved by PATCH /jobs/{id}/failure and JobRow cannot show or edit it')
 def test_saved_failure_reason_is_returned_by_queue_list(wire_client):
     client, identity, db = wire_client
     ok(client.patch('/jobs/206/failure', json={'fail_reason': 'clog', 'fail_notes': 'n'}))
