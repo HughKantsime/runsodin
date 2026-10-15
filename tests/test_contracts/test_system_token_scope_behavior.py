@@ -73,11 +73,13 @@ def test_admin_scope_does_not_bypass_superadmin_tenant_floor(system_client,revie
     assert calls==[]
     assert dummy.exists()
 
-def test_parameterless_superadmin_keeps_existing_semantics(system_client):
+def test_parameterless_superadmin_needs_the_generic_method_scope(system_client):
+    # F11-11.6-01/02: a superadmin route that names no scope needs the method's generic
+    # scope ("read" for GET); a token scoped to an unrelated resource is refused.
     from fastapi import Depends
     from core.rbac import require_superadmin
     client,issue,_,_=system_client
     @client.app.get('/legacy-superadmin')
     def legacy(current_user=Depends(require_superadmin())):return {'accepted':True}
-    response=client.get('/legacy-superadmin',headers=issue(['read:printers']))
-    assert response.status_code==200
+    assert client.get('/legacy-superadmin',headers=issue(['read:printers'])).status_code==403
+    assert client.get('/legacy-superadmin',headers=issue(['read'])).status_code==200

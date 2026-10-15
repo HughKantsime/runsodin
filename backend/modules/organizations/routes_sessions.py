@@ -1,6 +1,6 @@
 """Organizations sessions routes — session management, API tokens, quotas, and GDPR."""
 
-from core.rbac import require_scope
+from core.rbac import require_scope, handler_enforces_token_scope
 
 import json
 import logging
@@ -256,7 +256,9 @@ async def create_api_token(request: Request, body: dict, current_user: dict = De
     }
 
 
-@router.get("/tokens", tags=["API Tokens"])
+# Lists only the caller's own token metadata (never the secrets), so any
+# valid scoped token may list its owner's tokens.
+@router.get("/tokens", tags=["API Tokens"], dependencies=[Depends(handler_enforces_token_scope())])
 async def list_api_tokens(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """List all API tokens for the current user."""
     rows = db.execute(text(

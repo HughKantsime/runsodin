@@ -128,10 +128,14 @@ def enforce_route_token_scope(request: Optional[Request], current_user: Optional
     if not is_scoped_token(current_user):
         return
     route = request.scope.get("route") if request is not None else None
-    if route is not None and route_declares_token_scope(route):
+    if route is None:
+        # Not dispatched by the router (a programmatic get_current_user call):
+        # the calling code applies its own scope dependency. Every HTTP
+        # request that reaches a route has scope["route"] set by FastAPI.
         return
-    method = request.method if request is not None else "POST"
-    _check_token_scope(current_user, method_token_scope(method))
+    if route_declares_token_scope(route):
+        return
+    _check_token_scope(current_user, method_token_scope(request.method))
 
 
 def _get_org_filter(current_user: dict, request_org_id: int = None) -> Optional[int]:
