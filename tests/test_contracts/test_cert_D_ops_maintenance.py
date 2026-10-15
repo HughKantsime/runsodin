@@ -53,10 +53,6 @@ def test_completing_recurring_task_resets_its_counter_without_creating_next_inst
     assert _status_task(client, 9, 101)[1]['status'] == 'overdue'
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    'DEFECT: backend/modules/system/routes_maintenance.py:193 create_maintenance_log never calls '
-    'reset_maintenance_counters (backend/modules/notifications/printer_health.py:213, no caller); '
-    'completing maintenance leaves printers.prints_since_maintenance/hours_since_maintenance growing forever'))
 def test_completing_maintenance_resets_printer_prints_since_maintenance(maintenance_client, review_db):
     client, _ = maintenance_client
     review_db.execute(text('UPDATE printers SET prints_since_maintenance=7, hours_since_maintenance=12.5 WHERE id=9'))
@@ -92,7 +88,7 @@ def test_successful_print_completion_increments_care_counters(review_db, monkeyp
 def test_capture_maintenance_status_wire_for_dashboard_widget(maintenance_client, review_db):
     client, _ = maintenance_client
     now = datetime.now(timezone.utc).replace(tzinfo=None)  # canonical naive UTC like server_default
-    review_db.execute(text("UPDATE printers SET total_print_hours=118 WHERE id=9"))
+    review_db.execute(text("UPDATE printers SET total_print_hours=118, total_print_count=40, prints_since_maintenance=7, hours_since_maintenance=28 WHERE id=9"))
     review_db.execute(text("INSERT INTO maintenance_tasks(id,name,interval_print_hours,interval_days,is_active) VALUES(301,'certDops due soon',None,10,1)".replace('None', 'NULL')))
     review_db.execute(text("INSERT INTO maintenance_tasks(id,name,interval_print_hours,interval_days,is_active) VALUES(302,'certDops fine',1000,NULL,1)"))
     review_db.execute(text("INSERT INTO maintenance_logs(id,printer_id,task_id,task_name,performed_at,print_hours_at_service) VALUES(301,9,301,'x',:t,118)"), {'t': now - timedelta(days=8, minutes=1)})
@@ -106,6 +102,10 @@ def test_capture_maintenance_status_wire_for_dashboard_widget(maintenance_client
     assert by_id[301]['status'] == 'due_soon' and by_id[301]['progress_percent'] == 80
     assert by_id[302]['status'] == 'ok' and by_id[302]['progress_percent'] == 0
     assert printer['total_print_hours'] == 118 and printer['overall_status'] == 'overdue'
+    assert (printer['total_print_count'], printer['prints_since_maintenance'], printer['hours_since_maintenance']) == (40, 7, 28)
+    # Next-due handling: hour interval measured from the last service (90h) and day interval from performed_at.
+    assert (by_id[101]['next_due_print_hours'], by_id[101]['hours_until_due']) == (100, -18)
+    assert by_id[301]['next_due_date'].startswith((now - timedelta(days=8, minutes=1) + timedelta(days=10)).isoformat()[:16])
     printer['tasks'] = [t for t in printer['tasks'] if t['task_id'] in (101, 301, 302)]
     # Exact body Maintenance.tsx LogMaintenanceModal sends for "Log Service" on task 101.
     ui_body = {'printer_id': 9, 'task_id': 101, 'task_name': 'Synthetic service', 'performed_by': None,
@@ -115,6 +115,8 @@ def test_capture_maintenance_status_wire_for_dashboard_widget(maintenance_client
     after = next(p for p in client.get('/api/v1/maintenance/status').json() if p['printer_id'] == 9)
     after_task = next(t for t in after['tasks'] if t['task_id'] == 101)
     assert (after_task['status'], after_task['hours_since_service']) == ('ok', 0)
+    assert (after_task['next_due_print_hours'], after_task['hours_until_due']) == (128, 10)
+    assert (after['prints_since_maintenance'], after['hours_since_maintenance'], after['total_print_count']) == (0, 0, 40)
     after['tasks'] = [t for t in after['tasks'] if t['task_id'] in (101, 301, 302)]
     fixture = {'scope': 'certDops owned actual GET /api/v1/maintenance/status (one printer, three task states)',
                'status': [printer], 'complete_request': ui_body,

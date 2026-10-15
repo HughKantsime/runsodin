@@ -1,7 +1,7 @@
 """System maintenance routes — maintenance task templates, logs, status, and seed defaults."""
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -243,6 +243,11 @@ def create_maintenance_log(
         print_hours_at_service=total_hours,
     )
     db.add(log_entry)
+    # Completing maintenance resets the printer's care counters in the same
+    # transaction as the log (the task's own next-due point is recomputed from
+    # this log's print_hours_at_service / performed_at by the status endpoint).
+    printer.hours_since_maintenance = 0
+    printer.prints_since_maintenance = 0
     db.commit()
     db.refresh(log_entry)
     return {
@@ -304,11 +309,13 @@ def get_maintenance_status(db: Session = Depends(get_db), current_user: dict = D
 
             last_log = log_map.get((printer.id, task.id))
 
+            service_anchor = None
             if last_log and last_log.performed_at:
                 hours_since = max(0.0, total_hours - (last_log.print_hours_at_service or 0))
                 performed_at = last_log.performed_at
                 if performed_at.tzinfo is None:
                     performed_at = performed_at.replace(tzinfo=timezone.utc)
+                service_anchor = performed_at
                 days_since = (now - performed_at).days
                 last_serviced = last_log.performed_at.isoformat()
                 last_by = last_log.performed_by
@@ -318,8 +325,18 @@ def get_maintenance_status(db: Session = Depends(get_db), current_user: dict = D
                 if created and created.tzinfo is None:
                     created = created.replace(tzinfo=timezone.utc)
                 days_since = (now - created).days if created else 0
+                service_anchor = created
                 last_serviced = None
                 last_by = None
+
+            # Next due point: the interval measured from the last service (or
+            # from the printer's start when never serviced).
+            next_due_hours = hours_until_due = next_due_date = None
+            if task.interval_print_hours and task.interval_print_hours > 0:
+                next_due_hours = round(total_hours - hours_since + task.interval_print_hours, 1)
+                hours_until_due = round(task.interval_print_hours - hours_since, 1)
+            if task.interval_days and task.interval_days > 0 and service_anchor:
+                next_due_date = (service_anchor + timedelta(days=task.interval_days)).isoformat()
 
             task_status = "ok"
             progress = 0.0
@@ -358,6 +375,9 @@ def get_maintenance_status(db: Session = Depends(get_db), current_user: dict = D
                 "last_by": last_by,
                 "status": task_status,
                 "progress_percent": round(min(progress, 150), 1),
+                "next_due_print_hours": next_due_hours,
+                "hours_until_due": hours_until_due,
+                "next_due_date": next_due_date,
             })
 
         result.append({
@@ -365,6 +385,11 @@ def get_maintenance_status(db: Session = Depends(get_db), current_user: dict = D
             "printer_name": printer.name,
             "printer_model": printer.model,
             "total_print_hours": round(total_hours, 1),
+            # Care counters: lifetime prints plus prints/hours since the last
+            # logged maintenance (reset by POST /maintenance/logs).
+            "total_print_count": printer.total_print_count or 0,
+            "prints_since_maintenance": printer.prints_since_maintenance or 0,
+            "hours_since_maintenance": round(float(printer.hours_since_maintenance or 0), 1),
             "tasks": sorted(printer_tasks, key=lambda t: {"overdue": 0, "due_soon": 1, "ok": 2}.get(t["status"], 3)),
             "overall_status": worst_status,
         })
