@@ -79,11 +79,15 @@ def _validate_camera_url(url: str) -> str:
         return url
 
     import urllib.parse
-    lower = url.strip().lower()
+    stripped = url.strip()
+    lower = stripped.lower()
     if not (lower.startswith("rtsp://") or lower.startswith("rtsps://")):
         raise HTTPException(status_code=400, detail="Camera URL must use rtsp:// or rtsps:// scheme")
+    # Store the scheme lower-case so every later check sees one spelling.
+    scheme_end = stripped.index("://")
+    stripped = stripped[:scheme_end].lower() + stripped[scheme_end:]
 
-    sanitized = _CAMERA_SHELL_METACHAR_RE.sub('', url.strip())
+    sanitized = _CAMERA_SHELL_METACHAR_RE.sub('', stripped)
 
     try:
         parsed = urllib.parse.urlparse(sanitized)
@@ -122,15 +126,16 @@ def get_camera_url(printer):
     return None
 
 
+# Userinfo of any URL scheme, case-insensitive (RTSP://, rtsps://, http://, ...).
+_URL_USERINFO_RE = re.compile(r'^([a-z][a-z0-9+.\-]*://)([^@/?#]*)@', re.IGNORECASE)
+CAMERA_CREDENTIAL_MASK = '***'
+
+
 def sanitize_camera_url(url: str) -> str:
-    """Strip credentials from RTSP URLs for API responses."""
+    """Mask URL credentials for API responses, for any scheme and any case."""
     if not url:
         return url
-    return re.sub(r'(rtsps?://)([^@]+)@', r'\1***@', url)
-
-
-_CAMERA_USERINFO_RE = re.compile(r'^(rtsps?://)([^@/]+)@', re.IGNORECASE)
-CAMERA_CREDENTIAL_MASK = '***'
+    return _URL_USERINFO_RE.sub(lambda m: m.group(1) + CAMERA_CREDENTIAL_MASK + '@', url.strip(), count=1)
 
 
 def masked_camera_url(stored):
@@ -146,24 +151,38 @@ def masked_camera_url(stored):
     return sanitize_camera_url(plain)
 
 
+def _url_endpoint(url):
+    import urllib.parse
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        return (parsed.scheme.lower(), (parsed.hostname or '').lower(), parsed.port)
+    except ValueError:
+        return None
+
+
 def resolve_masked_camera_url(incoming, stored):
     """Restore credentials when a client sends back a masked camera URL.
 
     Returns the plaintext URL to save, or None when the client sent back
-    exactly the masked form of the stored URL (nothing changed). A masked
-    value with an edited host/path keeps the stored credentials, so resaving
-    settings never overwrites or rejects a credentialed URL. Raises 400 when
-    the value is masked but no stored credentials exist.
+    exactly the masked form of the stored URL (nothing changed). Stored
+    credentials are carried over only to the same scheme, host and port
+    (a path change is allowed); pointing a masked URL at another endpoint,
+    or sending a masked URL with no stored credentials, is a 400 that
+    requires the full credentialed URL.
     """
-    match = _CAMERA_USERINFO_RE.match(incoming.strip()) if isinstance(incoming, str) else None
+    match = _URL_USERINFO_RE.match(incoming.strip()) if isinstance(incoming, str) else None
     if not match or match.group(2) != CAMERA_CREDENTIAL_MASK:
         return incoming
     plain = crypto.decrypt(stored) if stored and crypto.is_encrypted(stored) else stored
-    stored_match = _CAMERA_USERINFO_RE.match(plain or '')
+    stored_match = _URL_USERINFO_RE.match((plain or '').strip())
     if not stored_match or crypto.is_encrypted(plain or ''):
         raise HTTPException(status_code=400, detail="Camera URL credentials are masked; enter the full URL")
-    resolved = match.group(1) + stored_match.group(2) + '@' + incoming.strip()[match.end():]
-    return None if resolved == plain else resolved
+    target = _url_endpoint(incoming.strip())
+    if target is None or target != _url_endpoint(plain.strip()):
+        raise HTTPException(status_code=400,
+                            detail="Camera URL endpoint changed; enter the full URL including credentials")
+    resolved = match.group(1).lower() + stored_match.group(2) + '@' + incoming.strip()[match.end():]
+    return None if resolved == plain.strip() else resolved
 
 
 def _get_lan_ip():
