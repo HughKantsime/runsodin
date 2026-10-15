@@ -135,7 +135,6 @@ NAMED_PRIORITY_DEFECT = (
     "and aborts the whole scheduler run")
 
 
-@pytest.mark.xfail(strict=True, reason=NAMED_PRIORITY_DEFECT)
 @pytest.mark.parametrize('label,stored', [('urgent', 1), ('high', 2), ('normal', 3), ('low', 4)])
 def test_named_priority_levels_persist_as_scheduler_ranks(api, label, stored):
     client, _, db = api
@@ -188,7 +187,6 @@ def test_numeric_priority_rank_orders_scheduler_assignment(api):
     _rank_run(api, 4, 1)
 
 
-@pytest.mark.xfail(strict=True, reason=NAMED_PRIORITY_DEFECT)
 def test_named_priority_rank_orders_scheduler_assignment(api):
     _rank_run(api, 'low', 'urgent')
 

@@ -11,11 +11,20 @@ from core.base import JobStatus, FilamentType
 
 # ============== Job Schemas ==============
 
+# Named priority levels accepted on input -> stored integer rank.
+PRIORITY_LEVELS = {
+    'urgent': 1, 'highest': 1, 'high': 2, 'normal': 3, 'medium': 3,
+    'low': 4, 'lowest': 5,
+}
+
 class JobBase(BaseModel):
     item_name: str = Field(..., min_length=1, max_length=200)
     model_id: Optional[int] = None
     quantity: int = Field(default=1, ge=1, le=10000)
-    priority: Union[int, str] = Field(default=3)
+    # Stored as an integer rank (1 = highest ... 5 = lowest). Named levels
+    # (urgent/high/normal/low) are accepted on input and normalized here so the
+    # scheduler never sees TEXT priorities.
+    priority: int = Field(default=3)
     duration_hours: Optional[float] = None
     colors_required: Optional[str] = None  # Comma-separated
     filament_type: Optional[FilamentType] = None
@@ -37,8 +46,20 @@ class JobBase(BaseModel):
     @field_validator('priority', mode='before')
     @classmethod
     def validate_priority_range(cls, v):
-        """Clamp integer priorities to 0–10; leave strings for normalize_priority."""
-        if isinstance(v, int) and not isinstance(v, bool):
+        """Normalize named levels to ranks and keep integer ranks within 0–10."""
+        if isinstance(v, bool):
+            raise ValueError('priority must be an integer rank or a named level')
+        if isinstance(v, str):
+            label = v.strip().lower()
+            if label in PRIORITY_LEVELS:
+                return PRIORITY_LEVELS[label]
+            if label.isdigit():
+                v = int(label)
+            else:
+                raise ValueError(
+                    'priority must be an integer rank or one of: ' + ', '.join(PRIORITY_LEVELS)
+                )
+        if isinstance(v, int):
             if v < 0 or v > 10:
                 raise ValueError('priority must be between 0 and 10')
         return v
@@ -86,16 +107,15 @@ class JobResponse(JobBase):
 
     @field_validator('priority', mode='before')
     @classmethod
-    def normalize_priority(cls, v):
-        """Coerce string priorities to int for response serialization."""
-        if isinstance(v, int):
+    def validate_priority_range(cls, v):
+        """Read path: coerce legacy TEXT priorities to ranks, never fail a row."""
+        if isinstance(v, int) and not isinstance(v, bool):
             return v
-        priority_map = {
-            'urgent': 1, 'high': 2, 'normal': 3,
-            'medium': 3, 'low': 4, 'lowest': 5,
-        }
         if isinstance(v, str):
-            return priority_map.get(v.lower(), 3)
+            label = v.strip().lower()
+            if label.isdigit():
+                return int(label)
+            return PRIORITY_LEVELS.get(label, 3)
         return 3
 
     id: int
@@ -155,16 +175,15 @@ class JobSummary(BaseModel):
 
     @field_validator('priority', mode='before')
     @classmethod
-    def normalize_priority(cls, v):
-        """Coerce string priorities to int for response serialization."""
-        if isinstance(v, int):
+    def validate_priority_range(cls, v):
+        """Read path: coerce legacy TEXT priorities to ranks, never fail a row."""
+        if isinstance(v, int) and not isinstance(v, bool):
             return v
-        priority_map = {
-            'urgent': 1, 'high': 2, 'normal': 3,
-            'medium': 3, 'low': 4, 'lowest': 5,
-        }
         if isinstance(v, str):
-            return priority_map.get(v.lower(), 3)
+            label = v.strip().lower()
+            if label.isdigit():
+                return int(label)
+            return PRIORITY_LEVELS.get(label, 3)
         return 3
 
     id: int
