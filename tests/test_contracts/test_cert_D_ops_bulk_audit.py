@@ -114,6 +114,8 @@ def test_capture_default_permissions_and_authenticated_audit_history(actor_clien
     _merge(AUDIT, 'export_csv', exported.text)
     permissions = client.get('/permissions')
     assert permissions.status_code == 200
+    # The /audit viewer's RoleGate key is in the default map, admin-only.
+    assert permissions.json()['page_access']['audit'] == ['admin']
     _merge(AUDIT, 'audit_page', page)
     _merge(AUDIT, 'default_permissions', permissions.json())
     _merge(AUDIT, 'me', {'id': 3, 'username': 'admin', 'role': 'admin', 'group_id': None})

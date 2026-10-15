@@ -40,14 +40,19 @@ beforeEach(() => { vi.clearAllMocks(); vi.stubGlobal('fetch', transport) })
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
 describe('F19-19.1-02 audit log viewer is reachable by admins', () => {
-  // DEFECT: backend/modules/organizations/routes_permissions.py:21 RBAC_DEFAULT_PAGE_ACCESS has no
-  // "audit" key, and frontend/src/App.tsx:189 gates /audit with RoleGate page="audit"
-  // (also Sidebar.tsx:284). With default permissions every admin, including the platform
-  // superadmin, is redirected to "/" and the Settings > System "View full audit log" link dead-ends.
-  it.fails('platform admin opens /audit with the default permission map', async () => {
+  // RBAC_DEFAULT_PAGE_ACCESS now carries "audit": ["admin"], the key App.tsx/Sidebar RoleGate use.
+  it('platform admin opens /audit with the default permission map', async () => {
     serve(wire.me, wire.default_permissions)
     await openAudit(wire.me)
     expect(await screen.findByRole('heading', { name: 'Audit Log' })).toBeInTheDocument()
+  })
+
+  it('operators are still redirected away from /audit with the default permission map', async () => {
+    const operator = { ...wire.me, id: 6, username: 'operator1', role: 'operator', group_id: 1 }
+    serve(operator, wire.default_permissions)
+    await openAudit(operator)
+    expect(await screen.findByText('Dashboard home')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Audit Log' })).not.toBeInTheDocument()
   })
 
   it('when the audit page is granted to admins, the platform admin sees timestamp, user, action and IP', async () => {

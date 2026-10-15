@@ -10,7 +10,7 @@
         "entity_type": "jobs",
         "id": 1,
         "ip_address": "198.51.100.7",
-        "timestamp": "2026-10-15T00:49:52",
+        "timestamp": "2026-10-15T03:59:11",
         "user_id": 3,
         "username": "admin"
       }
@@ -173,6 +173,9 @@
         "operator",
         "viewer"
       ],
+      "audit": [
+        "admin"
+      ],
       "branding": [
         "admin"
       ],
@@ -248,7 +251,7 @@
       ]
     }
   },
-  "export_csv": "ID,Timestamp,Action,Entity Type,Entity ID,Details,IP Address,User ID,Username,Authentication\r\n1,2026-10-15T00:49:52,bulk_cancel,jobs,,1 jobs,198.51.100.7,3,admin,bearer_jwt\r\n",
+  "export_csv": "ID,Timestamp,Action,Entity Type,Entity ID,Details,IP Address,User ID,Username,Authentication\r\n1,2026-10-15T03:59:11,bulk_cancel,jobs,,1 jobs,198.51.100.7,3,admin,bearer_jwt\r\n",
   "me": {
     "group_id": null,
     "id": 3,
