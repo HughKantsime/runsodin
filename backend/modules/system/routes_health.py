@@ -268,6 +268,25 @@ def get_license_installation_id(current_user: dict = Depends(require_role("admin
     return {"installation_id": get_installation_id()}
 
 
+def _install_portal_license(license_content):
+    """Verify a portal-issued license and install it only if it is valid.
+
+    The candidate is checked with the same runtime rules as an installed file
+    (signature, binding, expiry, payload) BEFORE it touches LICENSE_DIR, so an
+    invalid portal response can never replace or delete the installed license.
+    """
+    if not isinstance(license_content, str):
+        raise HTTPException(status_code=502, detail="License server returned an invalid license file")
+    candidate = verify_license_text(license_content.strip())
+    if not candidate.valid or candidate.error:
+        raise HTTPException(status_code=400, detail=candidate.error or "License server returned an invalid license")
+    try:
+        save_license_file(license_content)
+    except OSError:
+        raise HTTPException(status_code=503, detail="License installation could not be confirmed; check current license status")
+    return get_license()
+
+
 class LicenseActivateRequest(PydanticBaseModel):
     key: str
 
@@ -357,15 +376,7 @@ async def activate_license(
     if not license_content:
         raise HTTPException(status_code=502, detail="License server returned no license file")
 
-    path = save_license_file(license_content)
-    import license_manager
-    license_manager._cached_license = None
-    license_manager._cached_mtime = 0
-    license_info = get_license()
-
-    if license_info.error:
-        os.remove(path)
-        raise HTTPException(status_code=400, detail=license_info.error)
+    license_info = _install_portal_license(license_content)
 
     return {
         "status": "activated", "tier": license_info.tier,
@@ -401,6 +412,9 @@ def build_activation_request(
     import socket
     from starlette.responses import Response as _Response
 
+    if not body.key.strip() or not body.nonce.strip():
+        raise HTTPException(status_code=400, detail="A license key and a challenge nonce from the licensing server are required.")
+    body = OfflineActivationRequestBody(key=body.key.strip(), nonce=body.nonce.strip())
     installation_id = get_installation_id()
     _priv, device_pubkey = get_device_keypair()
     bootstrap_signature = sign_license_challenge(
@@ -538,15 +552,7 @@ async def reactivate_license(
     if not license_content:
         raise HTTPException(status_code=502, detail="License server returned no license file")
 
-    path = save_license_file(license_content)
-    import license_manager
-    license_manager._cached_license = None
-    license_manager._cached_mtime = 0
-    license_info = get_license()
-
-    if license_info.error:
-        os.remove(path)
-        raise HTTPException(status_code=400, detail=license_info.error)
+    license_info = _install_portal_license(license_content)
 
     log_audit(db, "license.reactivated", "system", details={"tier": license_info.tier, "licensee": license_info.licensee})
     db.commit()
@@ -558,22 +564,42 @@ async def reactivate_license(
     }
 
 
-@router.get("/license/unactivation-request", tags=["License"])
-def get_unactivation_request(current_user: dict = Depends(require_superadmin())):
-    """Generate a downloadable unactivation request file for offline unactivation. Admin only."""
+class OfflineUnactivationRequestBody(PydanticBaseModel):
+    nonce: str  # issued by GET /api/v1/challenge on the licensing server
+
+
+@router.post("/license/unactivation-request", tags=["License"])
+def get_unactivation_request(
+    body: OfflineUnactivationRequestBody,
+    current_user: dict = Depends(require_superadmin(scope="write")),
+):
+    """Generate a signed unactivation request file for offline unactivation. Admin only.
+
+    The licensing server frees a grant only with proof of possession of this
+    device's key (api/v1/offline.js requires ``nonce`` + ``signature`` over
+    ``odin-license-v1\nunactivate\n{key}\n{installation_id}\n{nonce}``), so
+    the admin supplies the challenge nonce issued by the licensing server for
+    this installation ID and the file carries the device signature over it.
+    """
     import socket
     from starlette.responses import Response as _Response
 
     current_license = get_license()
     if not current_license.key:
         raise HTTPException(status_code=400, detail="Current license has no key. Cannot generate unactivation request.")
+    nonce = body.nonce.strip()
+    if not nonce:
+        raise HTTPException(status_code=400, detail="A challenge nonce from the licensing server is required.")
 
+    installation_id = get_installation_id()
     payload = {
-        "installation_id": get_installation_id(),
+        "installation_id": installation_id,
         "hostname": socket.gethostname(),
         "key": current_license.key,
         "odin_version": __version__,
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "nonce": nonce,
+        "signature": sign_license_challenge("unactivate", current_license.key, installation_id, nonce),
     }
     content = json.dumps(payload, indent=2)
     return _Response(

@@ -102,20 +102,48 @@ export default function LicenseTab() {
     }
   }
 
+  const [challengeCode, setChallengeCode] = useState('')
+  const [exporting, setExporting] = useState<'activation' | 'unactivation' | null>(null)
+
+  const saveJson = (data: unknown, filename: string) => {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
   const handleExportActivationRequest = async () => {
+    if (!licenseKey.trim() || !challengeCode.trim()) return
+    setExporting('activation')
+    setMessage(null)
     try {
-      const data = await licenseApi.getActivationRequest()
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = 'odin-activation-request.json'
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
+      const data = await licenseApi.getActivationRequest(licenseKey.trim(), challengeCode.trim())
+      saveJson(data, 'odin-activation-request.json')
+      setMessage({ type: 'success', text: 'Activation request downloaded. Upload it on the license portal offline activation page.' })
     } catch (err) {
-      setMessage({ type: 'error', text: 'Failed to export activation request' })
+      setMessage({ type: 'error', text: 'Failed to export activation request: ' + (err instanceof Error ? err.message : 'Unknown error') })
+    } finally {
+      setExporting(null)
+    }
+  }
+
+  const handleExportUnactivationRequest = async () => {
+    if (!challengeCode.trim()) return
+    setExporting('unactivation')
+    setMessage(null)
+    try {
+      const data = await licenseApi.getUnactivationRequest(challengeCode.trim())
+      saveJson(data, 'odin-unactivation-request.json')
+      setMessage({ type: 'success', text: 'Unactivation request downloaded. Upload it on the license portal to free the grant.' })
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Failed to export unactivation request: ' + (err instanceof Error ? err.message : 'Unknown error') })
+    } finally {
+      setExporting(null)
     }
   }
 
@@ -227,14 +255,45 @@ export default function LicenseTab() {
           </Button>
         </div>
 
-        <div className="mt-4 flex items-center gap-3">
-          <button
-            onClick={handleExportActivationRequest}
-            className="text-xs text-[var(--brand-text-secondary)] hover:text-[var(--brand-primary)] transition-colors flex items-center gap-1"
-          >
-            <Download size={14} />
-            Export activation request (offline)
-          </button>
+        <div className="mt-4 rounded-md border border-[var(--brand-card-border)] p-3">
+          <h4 className="text-sm font-medium text-[var(--brand-text-primary)] mb-1">Offline (air-gapped) activation</h4>
+          <p className="text-xs text-[var(--brand-text-secondary)] mb-3">
+            On a machine with internet access, open the license portal offline activation page (runsodin.com/portal/activate),
+            enter this installation ID and get a challenge code. Enter the challenge code here with your license key above to
+            download a signed activation request, or the challenge code alone to download a signed unactivation request.
+          </p>
+          <div className="flex flex-wrap gap-2 items-center">
+            <Input
+              type="text"
+              aria-label="Challenge code"
+              value={challengeCode}
+              onChange={e => setChallengeCode(e.target.value)}
+              placeholder="Challenge code from the license portal"
+              className="flex-1 min-w-[12rem] bg-[var(--brand-card-bg)]"
+              spellCheck={false}
+              autoComplete="off"
+            />
+            <Button
+              variant="secondary"
+              icon={Download}
+              loading={exporting === 'activation'}
+              disabled={!licenseKey.trim() || !challengeCode.trim() || exporting !== null}
+              onClick={handleExportActivationRequest}
+            >
+              Download activation request
+            </Button>
+            {licenseInfo?.valid === true && (
+              <Button
+                variant="secondary"
+                icon={Download}
+                loading={exporting === 'unactivation'}
+                disabled={!challengeCode.trim() || exporting !== null}
+                onClick={handleExportUnactivationRequest}
+              >
+                Download unactivation request
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className="relative my-5">
