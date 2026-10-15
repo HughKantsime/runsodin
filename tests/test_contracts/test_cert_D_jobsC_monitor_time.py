@@ -35,7 +35,7 @@ from modules.printers.monitors import mqtt_job_lifecycle
 with engine.begin() as c:
     c.execute(text("INSERT INTO printers(id,name,api_type,slot_count,is_active,tags,timelapse_enabled,shared) VALUES(77,'certC-bambu','bambu',1,1,'[]',0,0)"))
     c.execute(text("INSERT INTO jobs(id,item_name,status,printer_id,duration_hours,quantity,hold,priority,actual_start,scheduled_start,scheduled_end) "
-                   "VALUES(770,'certC timed','printing',77,2.0,1,0,3,'2026-10-14 08:00:00','2026-10-14 08:00:00','2026-10-14 10:00:00')"))
+                   "VALUES(770,'certC timed',:s,77,2.0,1,0,3,'2026-10-14 08:00:00','2026-10-14 08:00:00','2026-10-14 10:00:00')"), {'s': os.environ.get('CERTC_JOB_STATUS', 'printing')})
     c.execute(text("INSERT INTO print_jobs(id,printer_id,filename,job_name,started_at,status,scheduled_job_id) "
                    "VALUES(7700,77,'certc.3mf','certC timed','2026-10-14 08:00:00','running',770)"))
 linked = mqtt_job_lifecycle.record_job_ended(77, 'certC-bambu', 7700, 770, 'completed', {'subtask_name': 'certC timed'}, {}, lambda **kw: None)
@@ -51,15 +51,26 @@ engine.dispose()
 '''
 
 
-@pytest.fixture(scope='module')
-def ended(tmp_path_factory):
+def _run(tmp_path_factory, job_status='printing'):
     directory = tmp_path_factory.mktemp('certD-jobsC-monitor')
-    env = dict(os.environ, DATABASE_URL='sqlite:///' + str(directory / 'app.db'), LICENSE_DIR=str(directory),
+    env = dict(os.environ, CERTC_JOB_STATUS=job_status, DATABASE_URL='sqlite:///' + str(directory / 'app.db'), LICENSE_DIR=str(directory),
                API_KEY='', ODIN_ITAR_MODE='0', ODIN_TELEMETRY_V2='0', PYTHONPATH=f"{ROOT / 'backend'}:{ROOT}")
     result = subprocess.run([sys.executable, '-c', SCENARIO], cwd=ROOT, env=env, capture_output=True, text=True, timeout=300)
     assert result.returncode == 0, result.stderr[-3000:]
     line = [l for l in result.stdout.splitlines() if l.startswith('SCENARIO_JSON=')][-1]
     return json.loads(line[len('SCENARIO_JSON='):])
+
+
+@pytest.fixture(scope='module')
+def ended(tmp_path_factory):
+    return _run(tmp_path_factory)
+
+
+def test_print_end_never_overwrites_an_operator_terminal_status(tmp_path_factory):
+    """Operator pressed Mark failed while printing; the later FINISH must not flip the job to completed."""
+    result = _run(tmp_path_factory, 'failed')
+    assert result['job']['status'] == 'failed'
+    assert result['print_job']['status'] == 'completed'  # the physical print outcome is still recorded
 
 
 def test_monitor_end_records_actual_end_and_print_duration(ended):

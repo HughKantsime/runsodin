@@ -542,15 +542,17 @@ class MoonrakerMonitor:
                 if row and row[0]:
                     sched_status = end_status if end_status in ('completed','failed','cancelled') else 'failed'
                     duration_hours = round(duration_seconds / 3600, 4) if duration_seconds else None
-                    conn.execute(text("""
+                    # Never overwrite an operator's terminal decision for the job.
+                    ended = conn.execute(text("""
                         UPDATE jobs SET status = :status, actual_end = :ended,
-                               duration_hours = COALESCE(duration_hours, :dur)
-                        WHERE id = :jid
+                               duration_hours = COALESCE(duration_hours, :dur), queue_position = NULL
+                        WHERE id = :jid AND status NOT IN ('completed','failed','cancelled')
                     """), {"status": sched_status, "ended": now_utc, "dur": duration_hours, "jid": row[0]})
-                    log.info(f"[{self.name}] Scheduled job #{row[0]} marked {sched_status}")
+                    log.info(f"[{self.name}] Scheduled job #{row[0]} "
+                             + (f"marked {sched_status}" if ended.rowcount else "already terminal; kept operator status"))
 
                     # Auto-deduct filament if completed
-                    if end_status == "completed":
+                    if end_status == "completed" and ended.rowcount:
                         self._auto_deduct_filament(conn, row[0], observed_grams=filament_used_g)
                 reconcile_job_write(conn, production_orders)
             committed_completion = end_status == 'completed'

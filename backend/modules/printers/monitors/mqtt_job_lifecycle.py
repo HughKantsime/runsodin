@@ -454,10 +454,16 @@ def record_job_ended(
                 # Keep the slicer estimate in duration_hours; the actual duration
                 # is actual_end - actual_start. Only fill duration_hours when the
                 # job carried no estimate at all.
-                cur.execute("UPDATE jobs SET status = ?, actual_end = ?, actual_start = COALESCE(actual_start, ?),"
-                            " duration_hours = COALESCE(duration_hours, ?) WHERE id = ?",
+                # An operator's terminal decision (e.g. Mark failed while the
+                # print was still running) is never overwritten by the print end.
+                ended = cur.execute("UPDATE jobs SET status = ?, actual_end = ?, actual_start = COALESCE(actual_start, ?),"
+                            " duration_hours = COALESCE(duration_hours, ?), queue_position = NULL"
+                            " WHERE id = ? AND status NOT IN ('completed','failed','cancelled')",
                             (job_status, now_utc, pj_row[0] if pj_row else None, duration_hours, linked_job_id))
-                log.info(f"[{printer_name}] Updated linked job {linked_job_id} to '{job_status}' (duration={duration_hours}h)")
+                if ended.rowcount:
+                    log.info(f"[{printer_name}] Updated linked job {linked_job_id} to '{job_status}' (duration={duration_hours}h)")
+                else:
+                    log.info(f"[{printer_name}] Linked job {linked_job_id} already terminal; kept operator status")
             else:
                 # Create a jobs record for metrics tracking
                 actual_start = pj_row[0] if pj_row else now_utc
