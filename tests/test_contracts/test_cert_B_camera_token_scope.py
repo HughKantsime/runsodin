@@ -8,6 +8,8 @@ import os
 import subprocess
 import sys
 import textwrap
+
+import pytest
 from pathlib import Path
 
 from tests.test_contracts.test_route_auth_census import PUBLIC
@@ -26,8 +28,8 @@ raw = 'odin_' + secrets.token_urlsafe(32)
 with engine.begin() as c:
     # Worst case: the token belongs to a superadmin.
     c.execute(text("INSERT INTO users(id,username,email,password_hash,role,is_active) VALUES(1,'admin','a@example.test','x','admin',1)"))
-    c.execute(text("INSERT INTO api_tokens(user_id,name,token_hash,token_prefix,scopes) VALUES(1,'OBS',:h,:p,'[\\"read:cameras\\"]')"),
-              {'h': hash_password(raw), 'p': raw[:10]})
+    c.execute(text("INSERT INTO api_tokens(user_id,name,token_hash,token_prefix,scopes) VALUES(1,'OBS',:h,:p,:s)"),
+              {'h': hash_password(raw), 'p': raw[:10], 's': sys.argv[2]})
     c.execute(text("INSERT INTO printers(id,name,is_active,camera_enabled,camera_url,slot_count) VALUES(1,'P',1,1,'rtsp://192.0.2.1/cam',1)"))
 from core.app import create_app
 from fastapi.routing import APIRoute
@@ -55,7 +57,7 @@ def test_camera_only_token_is_refused_on_every_route_but_the_relay(tmp_path):
     env = {**os.environ, "DATABASE_URL": f"sqlite:///{tmp_path}/scope.db", "JWT_SECRET_KEY": "scope-test-key-only",
            "PYTHONPATH": str(ROOT / "backend"), "ODIN_DISABLE_BACKGROUND": "1"}
     env.pop("API_KEY", None)
-    result = subprocess.run([sys.executable, "-c", PROBE, json.dumps(sorted(PUBLIC | {RELAY}))], cwd=ROOT / "backend",
+    result = subprocess.run([sys.executable, "-c", PROBE, json.dumps(sorted(PUBLIC | {RELAY})), json.dumps(["read:cameras"])], cwd=ROOT / "backend",
                             env=env, capture_output=True, text=True, timeout=600)
     assert result.returncode == 0, result.stderr[-3000:]
     statuses = json.loads(next(l for l in result.stdout.splitlines() if l.startswith("CERTB="))[6:])
@@ -86,3 +88,52 @@ def test_camera_token_is_refused_by_get_current_user_and_expires_by_default(toke
     assert abs(expires - (datetime.now(timezone.utc) + timedelta(days=365))) < timedelta(minutes=5)
     other = client.post("/tokens", headers=session, json={"name": "CI", "scopes": ["read:printers"]})
     assert other.status_code == 200 and other.json()["expires_at"] is None
+
+
+def _probe(tmp_path, scopes):
+    env = {**os.environ, "DATABASE_URL": f"sqlite:///{tmp_path}/scope.db", "JWT_SECRET_KEY": "scope-test-key-only",
+           "PYTHONPATH": str(ROOT / "backend")}
+    env.pop("API_KEY", None)
+    result = subprocess.run([sys.executable, "-c", PROBE, json.dumps(sorted(PUBLIC | {RELAY})), json.dumps(scopes)],
+                            cwd=ROOT / "backend", env=env, capture_output=True, text=True, timeout=600)
+    assert result.returncode == 0, result.stderr[-3000:]
+    return json.loads(next(l for l in result.stdout.splitlines() if l.startswith("CERTB=")))
+
+
+# Routes whose declared scope a read:analytics token legitimately satisfies.
+ANALYTICS_ROUTES = ("/api/analytics", "/api/reports", "/api/stats", "/api/chargeback", "/api/education/usage",
+                    "/api/v1/analytics", "/api/v1/reports", "/api/v1/stats", "/api/v1/chargeback")
+
+
+@pytest.mark.xfail(strict=True, reason="needs cert-fix-F generic scope gate")
+def test_narrow_scoped_token_authenticates_only_routes_within_its_scope(tmp_path):
+    """Systemic (pre-existing): a scoped token passes get_current_user on routes that declare
+    no scope. With a generic read/write gate, a read:analytics token reaches nothing else."""
+    statuses = _probe(tmp_path, ["read:analytics"])
+    accepted = {route: codes for route, codes in statuses.items()
+                if codes[0] not in (401, 403) and codes[0] != codes[1]
+                and not route.split(" ")[-1].startswith(ANALYTICS_ROUTES)}
+    assert accepted == {}, f"{len(accepted)} routes accept a read:analytics token: {sorted(accepted)[:30]}"
+
+
+@pytest.mark.parametrize("scopes,status", [(["read:cameras"], 200), (["read:cameras", "read"], 200),
+                                           (["read:cameras", "admin"], 200), (["read:cameras", "write"], 200),
+                                           (["read:cameras", "read:printers"], 400), (["read:cameras", "write:jobs"], 400),
+                                           (["read:cameras", "agent:read"], 400)])
+def test_camera_scope_combines_only_with_broad_scopes(token_client, scopes, status):
+    client, issue = token_client
+    response = client.post("/tokens", headers=issue(["admin"]), json={"name": "combo", "scopes": scopes})
+    assert response.status_code == status, response.text
+    if status == 200:
+        assert response.json()["expires_at"] is not None  # read:cameras always gets an expiry
+
+
+def test_camera_scope_with_other_scopes_still_gets_the_default_expiry(token_client):
+    from datetime import datetime, timedelta, timezone
+    client, issue = token_client
+    minted = client.post("/tokens", headers=issue(["admin"]), json={"name": "OBS+", "scopes": ["read:cameras", "read"]})
+    expires = datetime.fromisoformat(minted.json()["expires_at"])
+    assert abs(expires - (datetime.now(timezone.utc) + timedelta(days=365))) < timedelta(minutes=5)
+    # An explicit expiry is kept, but never beyond the default.
+    longer = client.post("/tokens", headers=issue(["admin"]), json={"name": "OBS long", "scopes": ["read:cameras"], "expires_days": 3650})
+    assert datetime.fromisoformat(longer.json()["expires_at"]) - datetime.now(timezone.utc) < timedelta(days=366)

@@ -46,5 +46,20 @@ CAMERA_ONLY_SCOPES = frozenset({"read:cameras"})
 CAMERA_TOKEN_DEFAULT_DAYS = 365  # default lifetime of a camera-only token
 
 
+# read:cameras may only be combined with broad scopes; a mix such as
+# read:cameras+read:printers would be a printer-data token hiding in an OBS URL.
+CAMERA_COMBINABLE_SCOPES = frozenset({"read", "write", "admin"})
+
+
+def camera_scope_combination_error(scopes):
+    """Mint-time rule; returns an error message or None."""
+    if "read:cameras" not in scopes:
+        return None
+    extra = set(scopes) - CAMERA_ONLY_SCOPES - CAMERA_COMBINABLE_SCOPES
+    if extra:
+        return "read:cameras can be combined only with read, write or admin (not " + ", ".join(sorted(extra)) + ")"
+    return None
+
+
 def is_camera_only(scopes) -> bool:
     return bool(scopes) and set(scopes) <= CAMERA_ONLY_SCOPES
