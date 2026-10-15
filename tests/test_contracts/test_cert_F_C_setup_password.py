@@ -165,14 +165,6 @@ def test_claimed_install_refuses_unauthenticated_setup_admin_and_probe(odin):
     assert odin.sql("SELECT COUNT(*) FROM users WHERE username='late_owner'")[0][0] == 0
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "DEFECT: backend/modules/system/routes_setup.py:357-386 POST /api/setup/printer only requires any "
-    "authenticated user (get_current_user) and setup_complete!='true'; it ignores the claimed-install lock "
-    "(_validate_setup_phase). Scenario: an admin finishes /setup/admin but never reaches /setup/complete "
-    "(wizard abandoned; /setup/status then reports needs_setup=false so the wizard never returns). Any "
-    "viewer/student account then POSTs /api/setup/printer {name, api_type, api_host} and creates a printer "
-    "with an arbitrary api_host the monitors will contact, bypassing the operator/admin role required by "
-    "/api/printers."))
 def test_viewer_cannot_create_printer_through_setup_on_claimed_install(odin):
     vh = bearer(odin, *odin.viewer)
     assert odin.post("/api/printers", json={"name": "Viewer printer", "model": "X1C"}, headers=vh).status_code == 403
@@ -181,10 +173,6 @@ def test_viewer_cannot_create_printer_through_setup_on_claimed_install(odin):
     assert r.status_code == 403, r.text
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "DEFECT: backend/modules/system/routes_setup.py:389-408 POST /api/setup/complete accepts any authenticated "
-    "user. Scenario: on a claimed install whose wizard was not finished, a viewer POSTs /api/setup/complete "
-    "and flips the install-wide setup_complete flag (a system configuration change reserved to admins)."))
 def test_viewer_cannot_mark_setup_complete(tmp_path_factory):
     with LiveOdin(tmp_path_factory.mktemp("odin_setup_viewer")) as o:
         o.setup_admin()
@@ -193,28 +181,16 @@ def test_viewer_cannot_mark_setup_complete(tmp_path_factory):
         assert r.status_code == 403, r.text
 
 
-COMPLETE_DEFECT = (
-    "DEFECT: backend/modules/system/routes_setup.py:405 records completion with SystemConfig(value=\"true\") on a "
-    "JSON column, so SQLite stores the text '\"true\"'; _setup_is_complete (routes_setup.py:109-112) compares the raw "
-    "value to 'true' and the install is never read as complete (only a second POST /setup/complete takes the raw "
-    "UPDATE path at :403 and stores 'true'). Scenario: the Setup wizard (frontend/src/pages/auth/Setup.tsx:256) calls "
-    "/api/setup/complete once; afterwards /api/setup/status reports is_complete=false, any authenticated viewer can "
-    "still POST /api/setup/printer to create printers with arbitrary api_host (and a repeated name returns 500), "
-    "and admins can still rewrite host_ip via /api/setup/network. SQLite (default) verified; PostgreSQL not probed.")
-
-
 def test_admin_completes_setup_via_wizard_endpoint(odin):
     r = odin.post("/api/setup/complete", headers=odin.h)
     assert r.status_code == 200 and r.json() == {"status": "complete"}
 
 
-@pytest.mark.xfail(strict=True, reason=COMPLETE_DEFECT)
 def test_single_wizard_completion_is_reported_complete(odin):
     st = odin.get("/api/setup/status").json()
     assert st == {"needs_setup": False, "has_users": True, "is_complete": True}
 
 
-@pytest.mark.xfail(strict=True, reason=COMPLETE_DEFECT)
 def test_after_single_wizard_completion_setup_printer_is_locked_and_never_500(odin):
     vh = bearer(odin, *odin.viewer)
     codes = [odin.post("/api/setup/printer", json={"name": "Post-completion printer", "model": "X1C"}, headers=vh).status_code
@@ -222,9 +198,8 @@ def test_after_single_wizard_completion_setup_printer_is_locked_and_never_500(od
     assert codes == [403, 403], codes
 
 
-def test_second_completion_call_records_flag_that_locks(odin):
-    # The only real API path that stores the raw 'true' the lock reads (see COMPLETE_DEFECT).
-    assert odin.post("/api/setup/complete", headers=odin.h).status_code == 200
+def test_second_completion_call_is_refused_and_flag_stays_recorded(odin):
+    assert odin.post("/api/setup/complete", headers=odin.h).status_code == 403
     assert odin.sql("SELECT value FROM system_config WHERE key='setup_complete'") == [("true",)]
     assert odin.get("/api/setup/status").json() == {"needs_setup": False, "has_users": True, "is_complete": True}
 
@@ -269,8 +244,7 @@ def test_recorded_completion_stays_locked_after_restart(odin):
 def test_recorded_completion_stays_locked_even_if_all_users_are_removed(tmp_path_factory):
     with LiveOdin(tmp_path_factory.mktemp("odin_setup_empty")) as o:
         o.setup_admin()
-        for _ in range(2):  # second call stores the raw flag the lock reads (COMPLETE_DEFECT)
-            assert o.post("/api/setup/complete", headers={"Authorization": "Bearer " + o.admin_token}).status_code == 200
+        assert o.post("/api/setup/complete", headers={"Authorization": "Bearer " + o.admin_token}).status_code == 200
         execute(o, "DELETE FROM users")
         r = o.post("/api/setup/admin", json={"username": "hijack", "email": "h@example.test", "password": strong_password()})
         assert r.status_code == 403
@@ -279,12 +253,6 @@ def test_recorded_completion_stays_locked_even_if_all_users_are_removed(tmp_path
 
 # --------------------------------------------------------------------------------- revocation gap
 
-@pytest.mark.xfail(strict=True, reason=(
-    "DEFECT: backend/modules/system/routes_setup.py:168 issues the first admin's JWT without recording an "
-    "active_sessions row, and backend/modules/organizations/routes_users.py:276-281 revokes only jtis found in "
-    "active_sessions. Scenario: whoever captured the token returned by POST /api/setup/admin (wizard browser, "
-    "proxy log, shared lab machine) keeps full admin API access for its 24 h lifetime after the admin changes "
-    "the password specifically to cut them off."))
 def test_setup_issued_admin_token_is_revoked_by_password_change(odin):
     setup_token = {"Authorization": "Bearer " + odin.admin_token}
     assert odin.get("/api/auth/me", headers=setup_token).status_code == 200

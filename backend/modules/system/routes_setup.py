@@ -1,5 +1,6 @@
 """System setup routes — onboarding wizard (admin creation, printer add, network config, complete)."""
 
+import json
 import logging
 import os
 import re
@@ -13,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.dependencies import get_current_user
-from core.rbac import require_role
+from core.rbac import require_role, require_superadmin
 from core.auth_helpers import _validate_password
 from core.base import FilamentType
 from modules.printers.models import Printer, FilamentSlot
@@ -106,11 +107,21 @@ def _setup_users_exist(db: Session) -> bool:
     return result > 0
 
 
+def _config_flag_is_true(value) -> bool:
+    """system_config.value is a JSON column: true may arrive as True, 'true' or '"true"'."""
+    if isinstance(value, (bytes, bytearray)):
+        value = value.decode("utf-8", "replace")
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return value.strip().lower() == "true"
+    return value is True or (isinstance(value, str) and value.strip().lower() == "true")
+
+
 def _setup_is_complete(db: Session) -> bool:
     row = db.execute(text("SELECT value FROM system_config WHERE key = 'setup_complete'")).fetchone()
-    if row:
-        return row[0] == "true"
-    return False
+    return bool(row) and _config_flag_is_true(row[0])
 
 
 def _setup_is_locked(db: Session) -> bool:
@@ -144,7 +155,7 @@ def setup_status(db: Session = Depends(get_db)):
 
 
 @router.post("/setup/admin", tags=["Setup"])
-def setup_create_admin(request: SetupAdminRequest, db: Session = Depends(get_db)):
+def setup_create_admin(request: SetupAdminRequest, http_request: Request, db: Session = Depends(get_db)):
     """Create the first admin only while setup is incomplete and has no users."""
     _validate_setup_phase(db)
 
@@ -160,12 +171,23 @@ def setup_create_admin(request: SetupAdminRequest, db: Session = Depends(get_db)
             "username": request.username, "email": request.email,
             "password_hash": password_hash_val, "role": "admin"
         })
-        db.commit()
+        user_id = db.execute(text("SELECT id FROM users WHERE username = :u"),
+                             {"u": request.username}).scalar_one()
     except Exception as e:
+        db.rollback()
         log.error(f"Failed to create admin user during setup: {e}")
         raise HTTPException(status_code=400, detail="Failed to create user. The username may already be taken.")
 
+    # The wizard's token is a real session, committed with the account:
+    # listed in Active Sessions and revoked by "sign out everywhere" and by
+    # password changes like any login.
+    from core.session_tracking import stage_session
     access_token = create_access_token(data={"sub": request.username, "role": "admin"})
+    client_ip = http_request.client.host if http_request.client else "unknown"
+    if stage_session(db, user_id, access_token, client_ip, http_request.headers.get("user-agent", "")) is not True:
+        db.rollback()
+        raise HTTPException(status_code=503, detail="Setup temporarily unavailable. Try again later.")
+    db.commit()
     return {"access_token": access_token, "token_type": "bearer"}
 
 
@@ -357,12 +379,10 @@ def setup_test_printer(
 @router.post("/setup/printer", tags=["Setup"])
 def setup_create_printer(
     request: SetupPrinterRequest,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_superadmin()),
     db: Session = Depends(get_db),
 ):
-    """Create a printer during setup. Requires JWT from admin creation step."""
-    if not current_user:
-        raise HTTPException(status_code=401, detail="Authentication required")
+    """Create a printer during setup. Only the install's admin, only until setup completes."""
     if _setup_is_complete(db):
         raise HTTPException(status_code=403, detail="Setup already completed")
     encrypted_api_key = None
@@ -387,23 +407,15 @@ def setup_create_printer(
 
 
 @router.post("/setup/complete", tags=["Setup"])
-def setup_mark_complete(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Mark setup as complete. Prevents wizard from showing again.
-
-    R4: deletes the setup token file once setup is locked. The token's
-    only purpose was to authorize the printer-probe endpoint during the
-    initial wizard, and that endpoint is now closed by _setup_is_locked().
-    """
-    if not current_user:
-        raise HTTPException(status_code=401, detail="Authentication required")
+def setup_mark_complete(current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+    """Mark setup as complete (install admin only). Closes every setup mutation."""
     if _setup_is_complete(db):
         raise HTTPException(status_code=403, detail="Setup already completed")
-    existing = db.execute(text("SELECT key FROM system_config WHERE key = 'setup_complete'")).fetchone()
-    if existing:
-        db.execute(text("UPDATE system_config SET value = 'true' WHERE key = 'setup_complete'"))
+    config = db.query(SystemConfig).filter(SystemConfig.key == "setup_complete").first()
+    if config:
+        config.value = True
     else:
-        config = SystemConfig(key="setup_complete", value="true")
-        db.add(config)
+        db.add(SystemConfig(key="setup_complete", value=True))
     db.commit()
     return {"status": "complete"}
 
@@ -414,8 +426,12 @@ async def setup_network_info(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Return auto-detected host IP for network configuration."""
-    if _setup_is_complete(db) and not current_user:
+    """Return auto-detected host IP for network configuration.
+
+    Open only on an unclaimed install; once an admin exists (or setup is
+    complete) the caller must be authenticated.
+    """
+    if _setup_is_locked(db) and not current_user:
         return JSONResponse(status_code=401, content={"detail": "Authentication required"})
     detected_ip = ""
     host_header = request.headers.get("host", "")

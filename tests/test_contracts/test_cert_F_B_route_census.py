@@ -33,8 +33,6 @@ RECEIPTS = ROOT / "artifacts" / "application-certification" / "cert-F"
 # Public by design beyond the census allowlist: logout only clears the caller's own cookie and
 # blacklists the presented token (if any); with no credential it has nothing to act on.
 EXTRA_PUBLIC = {"POST /api/auth/logout"}
-# Pinned separately as a strict xfail defect (test_setup_network_requires_auth_after_setup_completes).
-KNOWN_DEFECT = {"GET /api/setup/network"}
 
 SNAPSHOT = r"""
 import json, os, secrets, sys
@@ -138,7 +136,7 @@ def requests_for(method, path, spec):
 
 
 def protected(pairs):
-    public = PUBLIC | EXTRA_PUBLIC | KNOWN_DEFECT
+    public = PUBLIC | EXTRA_PUBLIC
     return [(m, p) for m, p in pairs if f"{m} {canonical(p)}" not in public]
 
 
@@ -212,13 +210,6 @@ def test_every_non_public_route_refuses_anonymous_and_fabricated_odin_tokens(liv
     assert valid_not_auth == [], valid_not_auth[:20]
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "DEFECT: backend/modules/system/routes_setup.py:110 + :405 — setup_mark_complete stores SystemConfig.value "
-    "(JSON column) as the JSON text '\"true\"' while _setup_is_complete compares the raw SQL text to 'true', so on "
-    "SQLite setup never reads as complete. GET /api/setup/network (routes_setup.py:418) therefore stays "
-    "unauthenticated forever: any anonymous network caller (with or without a fabricated odin_ key, API_KEY set or "
-    "not) receives the host's detected LAN IP and configured ODIN_HOST_IP after the admin finished the wizard; "
-    "POST /api/setup/complete also keeps answering 200 instead of 403."))
 def test_setup_network_requires_auth_after_setup_completes(live):
     mode, o = live
     for path in ("/api/setup/network", "/api/v1/setup/network"):

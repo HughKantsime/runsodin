@@ -55,18 +55,12 @@ def test_cookie_session_also_carries_tracked_jti(odin):
     odin.cookie = cookie
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "DEFECT: backend/modules/system/routes_setup.py:168 — POST /api/setup/admin issues a 24-hour admin JWT (with jti) "
-    "but never records it in active_sessions, so it is invisible in Active Sessions and 'Sign out everywhere else' "
-    "(DELETE /api/sessions, backend/modules/organizations/routes_sessions.py:103-118) cannot revoke it. Scenario: the "
-    "first-run wizard is completed on a shared/kiosk browser; the admin later revokes all other sessions from their own "
-    "device, but the wizard's admin token keeps full admin access until it expires."))
 def test_setup_admin_token_is_tracked_and_revocable(odin):
     jti = claims(odin.admin_token)["jti"]
     assert odin.get("/api/users", headers=bearer(odin.admin_token)).status_code == 200
+    tracked = odin.one("SELECT 1 FROM active_sessions WHERE token_jti=:j", j=jti) is not None
     assert odin.delete("/api/sessions", headers=odin.admin_bearer).status_code == 200
     still_valid = odin.get("/api/users", headers=bearer(odin.admin_token)).status_code
-    tracked = odin.one("SELECT 1 FROM active_sessions WHERE token_jti=:j", j=jti) is not None
     assert tracked and still_valid == 401, {"setup_token_status_after_revoke_all": still_valid, "tracked": tracked}
 
 
