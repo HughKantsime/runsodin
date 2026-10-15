@@ -259,7 +259,7 @@ def test_printer_observed_completion_pushes_consumption_to_spoolman(archive_case
     assert [r for r in spoolman.requests if r[1].endswith("/use")] == [("PUT", "/api/v1/spool/42/use", {"use_weight": 40})]
     assert spoolman.spools[42]["remaining_weight"] == pytest.approx(760.0)
     # A later delivery run never resends a delivered row.
-    assert archive.deliver_filament_outbox() == {"sent": 0, "failed": 0, "pending": 0, "outcome_unknown": 0}
+    assert archive.deliver_filament_outbox() == {"sent": 0, "failed": 0, "pending": 0, "outcome_unknown": 0, "skipped": 0}
     assert len([r for r in spoolman.requests if r[1].endswith("/use")]) == 1
 
 
@@ -327,8 +327,9 @@ def test_interrupted_in_flight_delivery_is_recorded_unknown_not_resent(archive_c
     with engine.begin() as conn:
         conn.execute(text("UPDATE spools SET spoolman_spool_id=42 WHERE id=7099"))
     assert archive.create_print_archive(7099, 9, True) is not None
-    with engine.begin() as conn:
-        conn.execute(text("UPDATE filament_delivery_outbox SET state='in_flight'"))
+    with engine.begin() as conn:  # claimed 20 minutes ago by a process that stopped
+        conn.execute(text("UPDATE filament_delivery_outbox SET state='in_flight', outcome_reason='claim:dead', "
+                          "attempt_started_at=datetime('now','-20 minutes')"))
     assert archive.recover_stale_outbox_claims() == 1
     monkeypatch.setattr(archive, "_sync_spoolman_consumption", REAL_ARCHIVE_SYNC)
     assert archive.deliver_filament_outbox()["sent"] == 0
@@ -394,3 +395,35 @@ def test_unreachable_spoolman_is_logged_and_appended_to_job_notes(odin, review_d
     assert "127.0.0.1" not in notes
     errors = [r.getMessage() for r in caplog.records if "Spoolman push error on job 101" in r.getMessage()]
     assert len(errors) == 1 and "spool=42" in errors[0]
+
+
+def test_startup_recovery_does_not_steal_a_live_sibling_claim(archive_case, spoolman, monkeypatch):  # noqa: F811
+    """Review M4: a worker starting while a sibling is delivering must not turn the sibling's
+    fresh in-flight claim into outcome_unknown (the sibling then records the real outcome)."""
+    archive, engine = archive_case
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE spools SET spoolman_spool_id=42 WHERE id=7099"))
+    assert archive.create_print_archive(7099, 9, True) is not None
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE filament_delivery_outbox SET state='in_flight', outcome_reason='claim:sibling', "
+                          "attempt_started_at=datetime('now','-1 minutes')"))
+    assert archive.recover_stale_outbox_claims() == 0
+    with engine.connect() as conn:
+        assert tuple(conn.execute(text("SELECT state,outcome_reason FROM filament_delivery_outbox")).one()) == (
+            "in_flight", "claim:sibling")
+
+
+def test_unconfigured_spoolman_leaves_rows_unclaimed(archive_case, monkeypatch):  # noqa: F811
+    """Review M4: without a configured Spoolman the deliverer does not claim (and re-claim) rows."""
+    from core.config import settings
+    archive, engine = archive_case
+    monkeypatch.setattr(archive, "_sync_spoolman_consumption", REAL_ARCHIVE_SYNC)
+    monkeypatch.setattr(settings, "spoolman_url", "")
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE spools SET spoolman_spool_id=42 WHERE id=7099"))
+    assert archive.create_print_archive(7099, 9, True) is not None
+    for _ in range(2):
+        assert archive.deliver_filament_outbox()["skipped"] == 1
+    with engine.connect() as conn:
+        row = conn.execute(text("SELECT state,attempt_started_at,outcome_reason FROM filament_delivery_outbox")).one()
+    assert tuple(row) == ("pending", None, None)

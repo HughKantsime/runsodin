@@ -152,6 +152,12 @@ def _sync_spoolman_consumption(spoolman_spool_id: int, grams_used: float):
 
 
 _OUTBOX_STATES = ("sent", "failed", "pending", "outcome_unknown")
+# Per-process claim token, recorded on rows this process holds in flight.
+import uuid as _uuid  # noqa: E402
+_PROCESS_CLAIM = "claim:" + _uuid.uuid4().hex
+# A delivery attempt takes at most a few seconds (5 s HTTP timeout); an in-flight
+# claim older than this belongs to a process that stopped mid-delivery.
+STALE_CLAIM_MINUTES = 15
 
 
 def deliver_filament_outbox(limit: int = 100) -> dict:
@@ -164,6 +170,15 @@ def deliver_filament_outbox(limit: int = 100) -> dict:
     and are not resent.
     """
     counts = {state: 0 for state in _OUTBOX_STATES}
+    counts["skipped"] = 0
+    from core.config import settings
+    if not (settings.spoolman_url or "").strip():
+        # Integration not configured: leave rows pending, untouched, until it is.
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM filament_delivery_outbox WHERE state='pending'")
+            counts["skipped"] = cur.fetchone()[0]
+        return counts
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute("SELECT id, spoolman_spool_id, grams_used, print_job_id FROM filament_delivery_outbox "
@@ -173,7 +188,8 @@ def deliver_filament_outbox(limit: int = 100) -> dict:
         with get_db() as conn:
             cur = conn.cursor()
             cur.execute("UPDATE filament_delivery_outbox SET state='in_flight', attempt_started_at=CURRENT_TIMESTAMP, "
-                        "updated_at=CURRENT_TIMESTAMP WHERE id=? AND state='pending'", (outbox_id,))
+                        "outcome_reason=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND state='pending'",
+                        (_PROCESS_CLAIM, outbox_id))
             claimed = cur.rowcount == 1
             conn.commit()
         if not claimed:
@@ -187,7 +203,7 @@ def deliver_filament_outbox(limit: int = 100) -> dict:
         with get_db() as conn:
             cur = conn.cursor()
             cur.execute("UPDATE filament_delivery_outbox SET state=?, outcome_reason=?, updated_at=CURRENT_TIMESTAMP "
-                        "WHERE id=? AND state='in_flight'", (state, reason, outbox_id))
+                        "WHERE id=? AND state='in_flight' AND outcome_reason=?", (state, reason, outbox_id, _PROCESS_CLAIM))
             conn.commit()
         counts[state] += 1
         if state == "sent":
@@ -209,13 +225,21 @@ def _deliver_outbox_in_background():
     threading.Thread(target=run, daemon=True, name="spoolman-outbox").start()
 
 
-def recover_stale_outbox_claims() -> int:
-    """At startup, a row left 'in_flight' by a stopped process may or may not have
-    reached Spoolman: record it as 'outcome_unknown' (visible, never resent)."""
+def recover_stale_outbox_claims(max_age_minutes: int = STALE_CLAIM_MINUTES) -> int:
+    """A row left 'in_flight' by a stopped process may or may not have reached
+    Spoolman: record it as 'outcome_unknown' (visible, never resent).
+
+    Only claims older than ``max_age_minutes`` (or without a start time) and not
+    held by this process are touched, so a starting worker never steals the live
+    claim of a sibling process that is delivering right now.
+    """
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute("UPDATE filament_delivery_outbox SET state='outcome_unknown', "
-                    "outcome_reason='interrupted_in_flight', updated_at=CURRENT_TIMESTAMP WHERE state='in_flight'")
+                    "outcome_reason='interrupted_in_flight', updated_at=CURRENT_TIMESTAMP "
+                    "WHERE state='in_flight' AND (outcome_reason IS NULL OR outcome_reason<>?) "
+                    f"AND (attempt_started_at IS NULL OR attempt_started_at < {sql.now_offset(f'-{int(max_age_minutes)} minutes')})",
+                    (_PROCESS_CLAIM,))
         count = cur.rowcount or 0
         conn.commit()
     if count:
