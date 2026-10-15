@@ -46,6 +46,21 @@ FAILURE_REASONS = [
 ]
 
 
+# Lifecycle guard: completed/failed are only reachable from the live queue
+# (pending/scheduled/printing/paused) or as an operator correction between the
+# two terminal outcomes (completed <-> failed after inspection). Cancelled jobs,
+# unapproved submissions and rejected submissions can never be marked
+# completed or failed (that would bypass the approval gate and deduct filament
+# for a print that never ran).
+_TERMINAL_REFUSED_FROM = (JobStatus.CANCELLED, JobStatus.SUBMITTED, JobStatus.REJECTED)
+_COMPLETE_REFUSED_FROM = _TERMINAL_REFUSED_FROM
+_FAIL_REFUSED_FROM = _TERMINAL_REFUSED_FROM
+
+
+def _status_value(value):
+    return value.value if hasattr(value, "value") else value
+
+
 class MoveJobRequest(PydanticBaseModel):
     printer_id: int
     scheduled_start: datetime
@@ -117,6 +132,12 @@ def complete_job(job_id: int, current_user: dict = Depends(require_role("operato
     if not job or not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
 
+    if _status_value(job.status) in {s.value for s in _COMPLETE_REFUSED_FROM}:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot complete a job in {_status_value(job.status)} status",
+        )
+
     # R5: atomic state transition. The DB — not Python — enforces
     # single-winner semantics. The UPDATE's WHERE clause is the lock.
     #
@@ -131,7 +152,10 @@ def complete_job(job_id: int, current_user: dict = Depends(require_role("operato
         update(Job)
         .where(
             Job.id == job_id,
-            or_(Job.status != JobStatus.COMPLETED, Job.status.is_(None)),
+            or_(
+                Job.status.notin_((JobStatus.COMPLETED,) + _COMPLETE_REFUSED_FROM),
+                Job.status.is_(None),
+            ),
         )
         .values(
             status=JobStatus.COMPLETED,
@@ -141,6 +165,15 @@ def complete_job(job_id: int, current_user: dict = Depends(require_role("operato
     )
 
     if result.rowcount == 0:
+        current = db.execute(
+            text("SELECT status FROM jobs WHERE id = :id"), {"id": job_id}
+        ).scalar()
+        if _status_value(current) in {s.value for s in _COMPLETE_REFUSED_FROM}:
+            db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail=f"Cannot complete a job in {_status_value(current)} status",
+            )
         # Already completed by another request (retry, concurrent operator,
         # or whatever). Return the job as-is with no side effects.
         reconcile_job_write(db, production_orders)
@@ -323,6 +356,11 @@ def fail_job(job_id: int, notes: Optional[str] = None, current_user: dict = Depe
     job = db.query(Job).filter(Job.id == job_id).populate_existing().first()
     if not job or not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
+    if _status_value(job.status) in {s.value for s in _FAIL_REFUSED_FROM}:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot fail a job in {_status_value(job.status)} status",
+        )
 
     job.status = JobStatus.FAILED
     job.actual_end = datetime.now(timezone.utc)

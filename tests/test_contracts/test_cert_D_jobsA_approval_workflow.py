@@ -131,11 +131,6 @@ def test_F04_4_1_01_generic_lifecycle_pending_printing_completed_or_failed(cert,
     assert _status(review_db, c) == "pending"
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "DEFECT: backend/modules/jobs/routes/jobs_lifecycle.py:134 (/complete conditional UPDATE only excludes "
-    "status=completed) and :327 (/fail sets FAILED with no source-state guard): a cancelled job, or a submitted/rejected job "
-    "that was never approved, is moved to completed/failed (with filament deduction on complete), bypassing "
-    "Pending->Printing and the approval gate"))
 @pytest.mark.parametrize("source,action", [("cancelled", "complete"), ("submitted", "complete"),
                                            ("submitted", "fail"), ("rejected", "complete")])
 def test_F04_4_1_terminal_transition_requires_a_printing_lifecycle(cert, review_db, source, action):
