@@ -234,6 +234,12 @@ def complete_job(job_id: int, current_user: dict = Depends(require_role("operato
         )
         job.notes = f"{job.notes or ''}\nFilament deducted: {deduct_summary}".strip()
 
+    # Charge the print's material and time to its owner's grams/hours quota
+    # (same transaction as the completion).
+    from core.quota import record_print_consumption, sqlalchemy_runner
+    db.flush()
+    record_print_consumption(sqlalchemy_runner(db), job.id, grams=sum(slot_grams.values()))
+
     log_audit(db, "job.completed", "job", job.id, {"printer_id": job.printer_id, "deductions": len(deductions)})
     reconcile_job_write(db, production_orders)
     db.commit()

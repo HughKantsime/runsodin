@@ -144,10 +144,8 @@ def test_period_keys_follow_calendar_windows():
     assert len(set(week)) == 1 and k("weekly", 2026, 3, 16) != week[0]
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "DEFECT: backend/core/quota.py:20 weekly key uses strftime('%Y-W%W'), which restarts at week 00 on 1 January. "
-    "Scenario: the Monday 2025-12-29 .. Sunday 2026-01-04 week is split into 2025-W52 and 2026-W00, so a student "
-    "with a 5-jobs/week quota can submit 5 jobs on 31 Dec and 5 more on 1 Jan in the same calendar week."))
+# Regression for F11-11.8-02 (fixed): the weekly key used strftime('%Y-W%W'), which restarts at W00 on 1 January
+# and split the 2025-12-29..2026-01-04 week in two; it is now the ISO week (%G-W%V).
 def test_weekly_window_is_one_calendar_week_across_new_year():
     utc = timezone.utc
     keys = {_get_period_key("weekly", now=datetime(2025, 12, 29, tzinfo=utc) + timedelta(days=d)) for d in range(7)}
@@ -164,8 +162,8 @@ def test_unlisted_period_value_is_silently_treated_as_monthly(odin):
 
 # ----------------------------------------------------------------- grams / hours limits
 
-GRAMS_HOURS_DEFECT = (
-    "DEFECT: no production code ever writes quota_usage.grams_used or hours_used (only charge_job_quota at "
+GRAMS_HOURS_DEFECT = (  # historical defect text (fixed); kept for the receipts
+    "DEFECT (fixed): no production code ever writes quota_usage.grams_used or hours_used (only charge_job_quota at "
     "backend/core/quota.py:47-84 increments jobs_used; grams/hours are compared against recorded usage that stays 0; "
     "job completion at backend/modules/jobs/routes/jobs_lifecycle.py:85 does not charge them). Scenario: an admin "
     "gives a student a 50 g / 1 h quota; the student prints a 100 g, 5 h model, completes it, and keeps creating "
@@ -179,8 +177,8 @@ def _model(o, h, grams, hours):
     return r.json()["id"]
 
 
+# Regression for F11-11.8-01/03 (fixed): completion now charges grams/hours (core.quota.record_print_consumption).
 @pytest.mark.parametrize("field,limit", [("quota_grams", 50), ("quota_hours", 1)])
-@pytest.mark.xfail(strict=True, reason=GRAMS_HOURS_DEFECT)
 def test_completed_print_consumes_grams_or_hours_and_blocks_next_job(odin, field, limit):
     uid, h = make_user(odin, f"q_{field}")
     set_quota(odin, uid, **{field: limit, "quota_period": "monthly"})
@@ -197,7 +195,7 @@ def test_completed_print_consumes_grams_or_hours_and_blocks_next_job(odin, field
 
 @pytest.mark.parametrize("field,col,used", [("quota_grams", "grams_used", 60), ("quota_hours", "hours_used", 2)])
 def test_recorded_grams_or_hours_exhaustion_blocks_creation(odin, field, col, used):
-    """Only reachable when usage is recorded by something other than ODIN (see GRAMS_HOURS_DEFECT)."""
+    """Recorded usage at or over the limit blocks creation."""
     uid, h = make_user(odin, f"q_rec_{col}")
     set_quota(odin, uid, **{field: 50 if col == "grams_used" else 1, "quota_period": "monthly"})
     execute(odin, f"INSERT INTO quota_usage (user_id, period_key, {col}) VALUES (:u, :p, :v)", u=uid,

@@ -176,6 +176,21 @@ def job_completed(
                     "UPDATE jobs SET status = ?, actual_end = ? WHERE id = ?",
                     (status, ended_at, scheduled_job_id)
                 )
+                if success:
+                    # Charge the print's material and measured time to the
+                    # owner's grams/hours quota in the completion transaction.
+                    from core.quota import record_print_consumption, qmark_runner
+                    cur.execute("SAVEPOINT quota_consumption")
+                    try:
+                        record_print_consumption(
+                            qmark_runner(cur), scheduled_job_id,
+                            measured_hours=(duration_seconds / 3600.0) if duration_seconds else None)
+                        cur.execute("RELEASE SAVEPOINT quota_consumption")
+                    except Exception:
+                        # Never drop an observed completion over accounting;
+                        # the failure is logged loudly for reconciliation.
+                        cur.execute("ROLLBACK TO SAVEPOINT quota_consumption")
+                        log.exception("Quota consumption for job %s could not be recorded", scheduled_job_id)
 
             reconcile_job_write(conn, production_orders)
             conn.commit()
