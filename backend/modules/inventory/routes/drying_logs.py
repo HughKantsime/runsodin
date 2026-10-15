@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.rbac import require_role
-from modules.inventory.models import FilamentLibrary
+from modules.inventory.models import FilamentLibrary, Spool
 from ._helpers import FilamentCreateRequest, FilamentUpdateRequest
 
 log = logging.getLogger("odin.api")
@@ -169,5 +169,9 @@ def delete_filament(filament_id: str, current_user: dict = Depends(require_role(
     filament = db.query(FilamentLibrary).filter(FilamentLibrary.id == fid).first()
     if not filament:
         raise HTTPException(status_code=404, detail="Filament not found")
+    # Spools reference their library filament (spools.filament_id NOT NULL FK).
+    # The library is shared across organizations, so the answer names no count.
+    if db.query(Spool.id).filter(Spool.filament_id == fid).first() is not None:
+        raise HTTPException(status_code=409, detail="Filament is in use by spools and cannot be deleted.")
     db.delete(filament)
     db.commit()
