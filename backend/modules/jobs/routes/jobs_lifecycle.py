@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
-from sqlalchemy import text, update, or_
+from sqlalchemy import text, update, or_, and_
 from typing import Optional
 from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel as PydanticBaseModel
@@ -153,7 +153,8 @@ def complete_job(job_id: int, current_user: dict = Depends(require_role("operato
         .where(
             Job.id == job_id,
             or_(
-                Job.status.notin_((JobStatus.COMPLETED,) + _COMPLETE_REFUSED_FROM),
+                and_(Job.status != JobStatus.COMPLETED,
+                     Job.status.notin_(_COMPLETE_REFUSED_FROM)),
                 Job.status.is_(None),
             ),
         )
