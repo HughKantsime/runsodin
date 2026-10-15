@@ -15,6 +15,7 @@ from core.db_compat import execute_insert_returning_id, sql
 from core.dependencies import log_audit
 from core.rbac import require_superadmin, require_scope
 from core.license_manager import require_feature, get_license
+from core.redaction import redact_urls
 from core.webhook_utils import _validate_webhook_url, resolve_and_check_webhook_url, safe_post, trusted_post, WebhookSSRFError
 
 log = logging.getLogger("odin.api")
@@ -207,7 +208,7 @@ async def test_webhook(
             try:
                 target_url = resolve_and_check_webhook_url(webhook["url"])
             except WebhookSSRFError as e:
-                return {"success": False, "message": f"Webhook refused: {e}"}
+                return {"success": False, "message": f"Webhook refused: {redact_urls(e)}"}
             payload = {
                 "embeds": [{
                     "title": "\U0001f5a8\ufe0f O.D.I.N. Test",
@@ -222,7 +223,7 @@ async def test_webhook(
             try:
                 target_url = resolve_and_check_webhook_url(webhook["url"])
             except WebhookSSRFError as e:
-                return {"success": False, "message": f"Webhook refused: {e}"}
+                return {"success": False, "message": f"Webhook refused: {redact_urls(e)}"}
             payload = {
                 "blocks": [
                     {"type": "header", "text": {"type": "plain_text", "text": "\U0001f5a8\ufe0f O.D.I.N. Test"}},
@@ -236,7 +237,7 @@ async def test_webhook(
             try:
                 target_url = resolve_and_check_webhook_url(webhook["url"])
             except WebhookSSRFError as e:
-                return {"success": False, "message": f"Webhook refused: {e}"}
+                return {"success": False, "message": f"Webhook refused: {redact_urls(e)}"}
             resp = safe_post(
                 target_url,
                 content="Webhook connection successful!",

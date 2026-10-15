@@ -255,7 +255,8 @@ def send_webhook(alert_type: str, title: str, message: str, severity: str = "inf
                 log.debug(f"Webhook sent to {wtype}")
 
             except Exception as e:
-                log.error(f"Webhook dispatch failed ({wtype}): {e}")
+                from core.redaction import redact_urls
+                log.error(f"Webhook dispatch failed ({wtype}): {redact_urls(e)}")
 
         threading.Thread(target=_send, daemon=True).start()
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 
 from core.config import settings
+from core.redaction import redact_urls
 from core.webhook_utils import _pin_dns, WebhookSSRFError
 
 log = logging.getLogger("odin.api")
@@ -115,11 +116,11 @@ def push_consumption_to_spoolman(deductions: list) -> list:
                 )
         except WebhookSSRFError as e:
             errors.append(
-                f"Spoolman URL blocked by SSRF check (spool={spoolman_id}): {e}"
+                f"Spoolman URL blocked by SSRF check (spool={spoolman_id}): {redact_urls(e)}"
             )
         except Exception as e:
             errors.append(
-                f"Spoolman push failed (spool={spoolman_id} job={d.get('job_id')}): {e}"
+                f"Spoolman push failed (spool={spoolman_id} job={d.get('job_id')}): {redact_urls(e)}"
             )
 
     return errors
@@ -141,7 +142,7 @@ def deliver_spoolman_usage(spoolman_spool_id: int, grams: float):
     try:
         resp = _post_spoolman_usage(base, spoolman_spool_id, grams)
     except (ValueError, WebhookSSRFError) as exc:
-        return "failed", f"refused: {exc}"[:500]
+        return "failed", f"refused: {redact_urls(exc)}"[:500]
     except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
         return "pending", f"connect_failed: {type(exc).__name__}"
     except Exception as exc:

@@ -583,9 +583,11 @@ def _send_org_webhook(url: str, wtype: str, alert_type_value: str,
                     "message": message or "", "severity": severity
                 }, timeout=10)
         except WebhookSSRFError as e:
-            logger.warning(f"Org webhook SSRF-blocked ({wtype}): {e}")
+            from core.redaction import redact_urls
+            logger.warning(f"Org webhook SSRF-blocked ({wtype}): {redact_urls(e)}")
         except Exception as e:
-            logger.error(f"Org webhook dispatch failed ({wtype}): {e}")
+            from core.redaction import redact_urls
+            logger.error(f"Org webhook dispatch failed ({wtype}): {redact_urls(e)}")
 
     thread = threading.Thread(target=_send, daemon=True)
     thread.start()

@@ -12,6 +12,7 @@ WhatsApp) go through trusted_post, exactly as the real-time channels do.
 import logging
 from typing import Optional
 
+from core.redaction import redact_urls
 from core.webhook_utils import WebhookSSRFError, safe_post, trusted_post
 
 log = logging.getLogger("odin.notifications")
@@ -86,7 +87,7 @@ def post_typed_webhook(url: str, wtype: Optional[str], *, event: str, title: str
                 "event": event, "title": title, "message": message or "", "severity": severity}
             response = safe_post(url, json=body, timeout=10)
     except WebhookSSRFError as exc:
-        log.error(f"Webhook SSRF-blocked ({wtype}): {exc}")
+        log.error(f"Webhook SSRF-blocked ({wtype}): {redact_urls(exc)}")
         return False
     except Exception as exc:
         log.error(f"Webhook delivery failed ({wtype}): {type(exc).__name__}")
