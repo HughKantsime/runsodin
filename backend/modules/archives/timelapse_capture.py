@@ -41,13 +41,16 @@ SessionLocal = sessionmaker(bind=engine)
 
 def get_active_printers(session) -> list:
     """Get printers that have timelapse enabled and are currently printing."""
-    rows = session.execute(text("""
+    from core.printer_utils import PRINTING_STATES
+    # Protocol-neutral: Bambu reports RUNNING, Moonraker/PrusaLink/Elegoo PRINTING.
+    placeholders = ",".join(f":state{i}" for i in range(len(PRINTING_STATES)))
+    rows = session.execute(text(f"""
         SELECT p.id, p.name
         FROM printers p
         WHERE p.timelapse_enabled IS TRUE
           AND p.is_active IS TRUE
-          AND p.gcode_state = 'RUNNING'
-    """)).fetchall()
+          AND UPPER(p.gcode_state) IN ({placeholders})
+    """), {f"state{i}": state for i, state in enumerate(PRINTING_STATES)}).fetchall()
     return [{"id": r[0], "name": r[1]} for r in rows]
 
 
@@ -107,6 +110,11 @@ def get_or_create_timelapse(session, printer_id: int, job_id: int, *, return_tic
         if type(value) is bool:shared = value
         elif type(value) is int and value in (0,1):shared = value == 1
         else:raise RuntimeError("Capture visibility unavailable")
+        # capture_printer_shared records the printer's install-wide audience at
+        # capture time: shared, or org-less on an install without organizations
+        # (single-tenant: the install owns it). Multi-org installs are unchanged.
+        from core.tenancy_mode import printer_visible_install_wide
+        shared = printer_visible_install_wide(session.connection(), printer[0], shared)
         org = source.get('org_id')
         state = 'unresolved'
         if source.get('state') == 'known':

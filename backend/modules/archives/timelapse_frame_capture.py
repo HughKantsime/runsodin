@@ -87,8 +87,12 @@ def _camera_authority(db,nonce,printer_id,job_id):
         if type(value) is int and value in (0,1):return value==1
         raise ValueError('Capture visibility unavailable')
     current=capture_content_owner(db.connection(),job_id)
+    from core.tenancy_mode import printer_visible_install_wide
+    # Same audience rule as capture creation; an organization created mid-print
+    # changes it and stops capture (fail-closed).
+    audience=printer_visible_install_wide(db.connection(),printer['org_id'],truth(printer['shared']))
     if (not truth(printer['is_active']) or not truth(printer['timelapse_enabled'])
-        or printer['org_id']!=owner['capture_printer_org_id'] or truth(printer['shared'])!=bool(owner['capture_printer_shared'])
+        or printer['org_id']!=owner['capture_printer_org_id'] or audience!=bool(owner['capture_printer_shared'])
         or current['state']!='known' or current['org_id']!=owner['owner_org_id']
         or current['print_file_id']!=owner['print_file_id'] or current['education_submission_id']!=owner['education_submission_id']):
         raise ValueError('Capture authority changed')
