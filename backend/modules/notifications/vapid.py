@@ -94,14 +94,15 @@ def keys_from_stored_value(value) -> Optional[dict]:
         keys = decode_config_value(value)
     except (TypeError, ValueError):
         return None
-    if not (isinstance(keys, dict) and isinstance(keys.get("public_key"), str) and keys["public_key"]
-            and isinstance(keys.get("private_key"), str) and keys["private_key"]):
+    if not (isinstance(keys, dict) and isinstance(keys.get("private_key"), str) and keys["private_key"]):
         return None
     private = _decrypt_private(keys["private_key"])
     if not private:
         log.error("Stored VAPID private key cannot be decrypted with the configured ENCRYPTION_KEY")
         return None
-    return {"public_key": keys["public_key"], "private_key": private, "source": "stored"}
+    public = keys.get("public_key") if isinstance(keys.get("public_key"), str) and keys.get("public_key") else None
+    # A legacy row without its public half can still sign; serving needs the public key.
+    return {"public_key": public or _public_from_private(private), "private_key": private, "source": "stored"}
 
 
 def read_vapid_keys(executor) -> Optional[dict]:

@@ -158,11 +158,15 @@ def test_postgres_vapid_key_endpoint_reads_stored_keys(pg_engine):
         assert client.get('/push/vapid-key').json() == {'public_key': 'BSyntheticPublicKey', 'enabled': True}
 
 
-def test_postgres_fresh_vapid_key_generation_persists_native_json(pg_engine):
+def test_postgres_fresh_vapid_key_generation_persists_native_json(pg_engine, monkeypatch):
     """F13-13.1-01 on PostgreSQL: the first /push/vapid-key request generates and stores a pair
     in the JSON column; the stored value is native JSON and the served key is stable."""
+    import core.crypto as crypto
+    from cryptography.fernet import Fernet
     from core.db import get_db
     from modules.notifications.routes import providers
+    monkeypatch.setenv('ENCRYPTION_KEY', Fernet.generate_key().decode())
+    monkeypatch.delenv('VAPID_PRIVATE_KEY', raising=False)
     with pg_engine.begin() as c:
         c.execute(text("DELETE FROM system_config WHERE key='vapid_keys'"))
     app = FastAPI()
@@ -179,6 +183,7 @@ def test_postgres_fresh_vapid_key_generation_persists_native_json(pg_engine):
     with pg_engine.connect() as c:
         stored = c.execute(text("SELECT value FROM system_config WHERE key='vapid_keys'")).scalar_one()
     assert isinstance(stored, dict) and stored['public_key'] == first['public_key']
+    assert crypto.is_encrypted(stored['private_key'])  # review H1: never plaintext at rest
 
 
 def test_postgres_quiet_hours_config_put_round_trips(pg_engine):
@@ -271,15 +276,23 @@ def test_postgres_migration_032_deferred_deliveries_table_and_outbox_logic(pg_en
             c.execute(text("INSERT INTO quiet_hours_deferred_deliveries(id,user_id,scope_key,channel,alert_type,severity,title) "
                            "VALUES('bad',1,'tenant-1','email','print_failed','info','t')"))
     with pg_engine.begin() as c:
-        assert dd.record_suppressed(c, org_id=1, recipients={1: {'email', 'push'}}, alert_type='print_failed',
-                                    severity='critical', title='PG deferred', message='m', printer_id=None) == 2
+        assert dd.record_suppressed(c, org_id=1, scope='system', recipients={1: {'email', 'push'}}, alert_type='print_failed',
+                                    severity='critical', title='PG deferred', message='m', printer_id=None) == 3
+    with pytest.raises(IntegrityError):
+        with pg_engine.begin() as c:  # a recipient row needs a user; a webhook row must not have one
+            c.execute(text("INSERT INTO quiet_hours_deferred_deliveries(id,user_id,scope_key,channel,alert_type,severity,title) "
+                           "VALUES('bad2',1,'system','webhook','print_failed','info','t')"))
     now = datetime.now(timezone.utc)
+    window = (now - timedelta(minutes=5), now + timedelta(minutes=5))
     with pg_engine.begin() as c:
-        rows = dd.pending_for_window(c, 1, now - timedelta(minutes=5), now + timedelta(minutes=5))
-        assert sorted(r['channel'] for r in rows) == ['email', 'push'] and {r['title'] for r in rows} == {'PG deferred'}
-        assert dd.pending_for_window(c, None, now - timedelta(minutes=5), now + timedelta(minutes=5)) == []
-        assert dd.mark(c, [r['id'] for r in rows], 'sent') == 2
-        assert dd.mark(c, [r['id'] for r in rows], 'sent') == 0  # idempotent
+        rows = dd.pending_for_window(c, 'system', *window)
+        assert sorted(r['channel'] for r in rows) == ['email', 'push'] and {r['org_id'] for r in rows} == {1}
+        hooks = dd.pending_for_window(c, 'system', *window, channels=('webhook',))
+        assert [(r['user_id'], r['title']) for r in hooks] == [(None, 'PG deferred')]
+        assert dd.pending_for_window(c, 'org:1', *window) == []
+        ids = [r['id'] for r in rows + hooks]
+        assert dd.mark(c, ids, 'sent') == 3
+        assert dd.mark(c, ids, 'sent') == 0  # idempotent
     with pg_engine.begin() as c:
-        assert dd.purge(c, now=now + timedelta(days=8)) == 2
+        assert dd.purge(c, now=now + timedelta(days=8)) == 3
         assert c.execute(text('SELECT COUNT(*) FROM quiet_hours_deferred_deliveries')).scalar_one() == 0
