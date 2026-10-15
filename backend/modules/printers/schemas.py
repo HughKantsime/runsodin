@@ -129,11 +129,13 @@ class PrinterResponse(PrinterBase):
     @field_validator('camera_url', mode='before')
     @classmethod
     def _sanitize_camera_url(cls, v):
-        """Strip credentials from RTSP camera URLs before returning to clients."""
-        import re
-        if not v:
-            return v
-        return re.sub(r'(rtsps?://)([^@]+)@', r'\1***@', v)
+        """Strip credentials from RTSP camera URLs before returning to clients.
+
+        Credentialed URLs are stored Fernet-encrypted; decrypt first so the
+        client gets ``rtsp://***@host/...`` rather than ciphertext.
+        """
+        from modules.printers.route_utils import masked_camera_url
+        return masked_camera_url(v)
 
 
 class PrinterSummary(BaseModel):
