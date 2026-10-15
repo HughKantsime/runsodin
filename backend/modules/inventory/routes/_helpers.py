@@ -19,6 +19,9 @@ log = logging.getLogger("odin.api")
 # Inline Pydantic models
 # ====================================================================
 
+MAX_SPOOLMAN_ID = 2_147_483_647  # spools.spoolman_spool_id is a 32-bit INTEGER
+
+
 class SpoolCreate(PydanticBaseModel):
     purchase_evidence: Optional[PurchaseInput] = None
     pa_profile: Optional[str] = Field(default=None, max_length=50)
@@ -32,7 +35,7 @@ class SpoolCreate(PydanticBaseModel):
     lot_number: Optional[str] = None
     storage_location: Optional[str] = None
     notes: Optional[str] = None
-    spoolman_spool_id: Optional[int] = Field(default=None, strict=True, ge=1)  # Spoolman link (usage push)
+    spoolman_spool_id: Optional[int] = Field(default=None, strict=True, ge=1, le=MAX_SPOOLMAN_ID)  # Spoolman link (usage push)
 
 
 class SpoolUpdate(PydanticBaseModel):
@@ -56,7 +59,7 @@ class SpoolUpdate(PydanticBaseModel):
     price: Optional[float] = None
     vendor: Optional[str] = None
     lot_number: Optional[str] = None
-    spoolman_spool_id: Optional[int] = Field(default=None, strict=True, ge=1)  # null unlinks
+    spoolman_spool_id: Optional[int] = Field(default=None, strict=True, ge=1, le=MAX_SPOOLMAN_ID)  # null unlinks
 
 
 class SpoolResponse(PydanticBaseModel):

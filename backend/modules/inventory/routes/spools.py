@@ -130,6 +130,29 @@ def list_spools(
     return result
 
 
+def _refuse_taken_spoolman_link(db: Session, spoolman_spool_id, own_id=None) -> None:
+    """A Spoolman spool links to at most one ODIN spool install-wide (one Spoolman per install).
+    Backed by the ux_spools_spoolman_spool_id partial unique index (migration 030)."""
+    if spoolman_spool_id is None:
+        return
+    query = db.query(Spool.id).filter(Spool.spoolman_spool_id == spoolman_spool_id)
+    if own_id is not None:
+        query = query.filter(Spool.id != own_id)
+    if query.first() is not None:
+        raise HTTPException(status_code=409, detail="That Spoolman spool is already linked to another spool")
+
+
+def _commit_spoolman_link(db: Session) -> None:
+    from sqlalchemy.exc import IntegrityError
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        if "spoolman_spool_id" in str(exc.orig) or "ux_spools_spoolman_spool_id" in str(exc.orig):
+            raise HTTPException(status_code=409, detail="That Spoolman spool is already linked to another spool") from None
+        raise
+
+
 @router.post("", tags=["Spools"])
 def create_spool(spool: SpoolCreate, current_user: dict = Depends(require_role("operator", scope="write:spools")), db: Session = Depends(get_db)):
     """Create a new spool."""
@@ -138,6 +161,8 @@ def create_spool(spool: SpoolCreate, current_user: dict = Depends(require_role("
     filament = db.query(FilamentLibrary).filter(FilamentLibrary.id == spool.filament_id).first()
     if not filament:
         raise HTTPException(status_code=404, detail="Filament not found")
+
+    _refuse_taken_spoolman_link(db, spool.spoolman_spool_id)
 
     # Generate QR code
     import uuid
@@ -189,7 +214,7 @@ def create_spool(spool: SpoolCreate, current_user: dict = Depends(require_role("
         db_spool.spoolman_spool_id = spool.spoolman_spool_id
 
     log_audit(db, "create", "spool", db_spool.id, {"filament_id": spool.filament_id, "qr_code": db_spool.qr_code})
-    db.commit()
+    _commit_spoolman_link(db)
     return {
         "id": db_spool.id,
         "qr_code": db_spool.qr_code,
@@ -278,11 +303,13 @@ def update_spool(spool_id: int, updates: SpoolUpdate, current_user: dict = Depen
 
     if "status" in update_data:
         update_data["status"] = SpoolStatus(update_data["status"])
+    if "spoolman_spool_id" in update_data:
+        _refuse_taken_spoolman_link(db, update_data["spoolman_spool_id"], spool.id)
 
     for field, value in update_data.items():
         setattr(spool, field, value)
 
-    db.commit()
+    _commit_spoolman_link(db)
     db.refresh(spool)
 
     return {"success": True, "id": spool.id}

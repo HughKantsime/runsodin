@@ -324,3 +324,98 @@ def test_filament_rate_rejects_non_finite_and_out_of_range(review_db, raw):
         patch = client.patch(f'/api/filaments/{identity}', content='{"cost_per_gram":%s}' % raw, headers={'Content-Type': 'application/json'})
         assert patch.status_code == 422
         assert client.get(f'/api/filaments/{identity}').json()['cost_per_gram'] == 100
+
+
+# ------------------------------------------- review MEDIUM-5 / item 10: Spoolman link uniqueness
+
+def test_spoolman_spool_links_to_one_odin_spool_install_wide(inventory_client, review_db):
+    first = _create(inventory_client, spoolman_spool_id=42)
+    duplicate = inventory_client.post('/api/spools', json={'filament_id': 990, 'spoolman_spool_id': 42})
+    assert duplicate.status_code == 409
+    second = _create(inventory_client)
+    assert inventory_client.patch(f'/api/spools/{second}', json={'spoolman_spool_id': 42}).status_code == 409
+    assert inventory_client.patch(f'/api/spools/{first}', json={'spoolman_spool_id': 42, 'notes': 'same link'}).status_code == 200
+    assert inventory_client.patch(f'/api/spools/{first}', json={'spoolman_spool_id': None}).status_code == 200
+    assert inventory_client.patch(f'/api/spools/{second}', json={'spoolman_spool_id': 42}).status_code == 200
+    # Install-wide: a spool of another org cannot take the link either.
+    inventory_client.app.dependency_overrides[get_current_user] = lambda: {'id': 5, 'role': 'operator', 'group_id': 2}
+    third = _create(inventory_client)
+    assert inventory_client.patch(f'/api/spools/{third}', json={'spoolman_spool_id': 42}).status_code == 409
+    assert inventory_client.post('/api/spools', json={'filament_id': 990, 'spoolman_spool_id': 42}).status_code == 409
+
+
+def test_spoolman_link_race_is_mapped_to_409_by_the_unique_index(inventory_client, review_db):
+    """With migration 030's index in place, a writer that passes the pre-check still gets 409."""
+    with review_db.get_bind().begin() as connection:
+        _migration().apply(connection)
+    first, second = _create(inventory_client, spoolman_spool_id=42), _create(inventory_client)
+    from modules.inventory.routes import spools as spool_routes
+    original = spool_routes._refuse_taken_spoolman_link
+    spool_routes._refuse_taken_spoolman_link = lambda *args, **kwargs: None
+    try:
+        assert inventory_client.patch(f'/api/spools/{second}', json={'spoolman_spool_id': 42}).status_code == 409
+    finally:
+        spool_routes._refuse_taken_spoolman_link = original
+    assert inventory_client.get(f'/api/spools/{second}').json()['spoolman_spool_id'] is None
+
+
+@pytest.mark.parametrize('value', [2_147_483_648, 10**12])
+def test_spoolman_link_is_bounded_to_int32(inventory_client, value):
+    sid = _create(inventory_client)
+    assert inventory_client.patch(f'/api/spools/{sid}', json={'spoolman_spool_id': value}).status_code == 422
+    assert inventory_client.post('/api/spools', json={'filament_id': 990, 'spoolman_spool_id': value}).status_code == 422
+    assert inventory_client.patch(f'/api/spools/{sid}', json={'spoolman_spool_id': 2_147_483_647}).status_code == 200
+
+
+def _migration():
+    import importlib
+    return importlib.import_module('core.schema.migrations.030_spoolman_link_uniqueness')
+
+
+def test_migration_030_is_additive_idempotent_and_unregistered(tmp_path):
+    from sqlalchemy import create_engine
+    from core.schema import bootstrap_database
+    from core.schema.migrator import _ALLOWED_PYTHON_MIGRATIONS
+    assert 'core.schema.migrations.030_spoolman_link_uniqueness' not in _ALLOWED_PYTHON_MIGRATIONS
+    engine = create_engine('sqlite:///' + str(tmp_path / 'spoolman-link.db'))
+    try:
+        assert _migration().MIGRATION_ID not in bootstrap_database(engine)['applied']
+        with engine.begin() as connection:
+            _migration().apply(connection)
+            _migration().apply(connection)
+            _migration().validate(connection)
+            connection.execute(text("INSERT INTO filament_library(id,brand,name,material) VALUES(1,'Cert','Dup','PLA')"))
+            connection.execute(text("INSERT INTO spools(id,filament_id,spoolman_spool_id,status) VALUES(1,1,NULL,'active'),(2,1,NULL,'active'),(3,1,9,'active')"))
+        from sqlalchemy.exc import IntegrityError
+        with pytest.raises(IntegrityError):
+            with engine.begin() as connection:
+                connection.execute(text("INSERT INTO spools(id,filament_id,spoolman_spool_id,status) VALUES(4,1,9,'active')"))
+    finally:
+        engine.dispose()
+
+
+def test_migration_030_refuses_existing_duplicates_and_wrong_shape(tmp_path):
+    from sqlalchemy import create_engine
+    from core.schema import bootstrap_database
+    from core.schema.migrator import MigrationError
+    engine = create_engine('sqlite:///' + str(tmp_path / 'spoolman-dupes.db'))
+    try:
+        bootstrap_database(engine)
+        migration = _migration()
+        with engine.begin() as connection:
+            connection.execute(text("INSERT INTO filament_library(id,brand,name,material) VALUES(1,'Cert','Dup','PLA')"))
+            connection.execute(text("INSERT INTO spools(id,filament_id,spoolman_spool_id,status) VALUES(1,1,7,'active'),(2,1,7,'active'),(3,1,NULL,'active'),(4,1,NULL,'active')"))
+        with engine.connect() as connection:
+            with pytest.raises(MigrationError, match='unlink all but one.*7'):
+                migration.apply(connection)
+            connection.rollback()
+        with engine.begin() as connection:
+            connection.execute(text('UPDATE spools SET spoolman_spool_id=NULL WHERE id=2'))
+            connection.execute(text(f'CREATE UNIQUE INDEX {migration.INDEX} ON spools (spoolman_spool_id)'))
+            with pytest.raises(MigrationError, match='shape mismatch'):
+                migration.validate(connection)
+            connection.execute(text(f'DROP INDEX {migration.INDEX}'))
+            migration.apply(connection)
+            migration.validate(connection)
+    finally:
+        engine.dispose()
