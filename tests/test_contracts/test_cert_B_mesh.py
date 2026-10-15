@@ -145,26 +145,23 @@ def test_non_finite_geometry_never_reaches_mesh_data(tmp_path, vertex, transform
         json.dumps(mesh, allow_nan=False)
 
 
-def test_upload_extracts_mesh_off_the_event_loop_with_a_deadline(monkeypatch):
-    import asyncio, threading, time
-    from modules.models_library import threemf_parser
+def test_upload_extracts_mesh_in_a_worker_without_blocking_the_loop(tmp_path, monkeypatch):
+    import asyncio
     from modules.models_library.routes import print_files
-    seen = {}
-
-    def slow(path):
-        seen["thread"] = threading.current_thread()
-        time.sleep(0.3)
-        return {"vertices": [0.0], "triangles": []}
-    monkeypatch.setattr(threemf_parser, "extract_mesh_from_3mf", slow)
+    path = tmp_path / "plain.3mf"
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("3D/3dmodel.model", f'<model xmlns="{CORE}"><resources><object id="1" type="model">{_mesh()}</object></resources>'
+                                       '<build><item objectid="1"/></build></model>')
+    monkeypatch.setenv("ODIN_MESH_WORKER_TEST_SLEEP", "0.3")
 
     async def run():
         ticks = 0
-        task = asyncio.create_task(print_files._extract_preview_mesh("x.3mf"))
+        task = asyncio.create_task(print_files._extract_preview_mesh(str(path)))
         while not task.done():  # the loop keeps serving other work meanwhile
             ticks += 1
             await asyncio.sleep(0.01)
         return await task, ticks
-    result, ticks = asyncio.run(run())
-    assert result == {"vertices": [0.0], "triangles": []} and seen["thread"] is not threading.main_thread() and ticks > 5
+    mesh, ticks = asyncio.run(run())
+    assert mesh["triangle_count"] == 12 and ticks > 10
     monkeypatch.setattr(print_files, "MESH_EXTRACTION_TIMEOUT_SECONDS", 0.05)
-    assert asyncio.run(print_files._extract_preview_mesh("x.3mf")) is None
+    assert asyncio.run(print_files._extract_preview_mesh(str(path))) is None

@@ -372,9 +372,12 @@ _IDENTITY = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0)
 _MAX_COMPONENT_DEPTH = 16
 # Budgets for one preview. Components multiply: a few hundred bytes can describe
 # billions of instances, so emission is bounded globally, not per level.
-_MAX_EMITTED_VERTICES = 2_000_000
+_MAX_EMITTED_VERTICES = 1_000_000
+_MAX_EMITTED_TRIANGLES = 2_000_000
 _MAX_MESH_INSTANCES = 10_000
 _MAX_COMPONENT_VISITS = 100_000
+# Decompressed size of one .model part (zip members are tiny when repetitive).
+_MAX_MODEL_PART_BYTES = 64 * 2**20
 
 
 class MeshBudgetExceeded(Exception):
@@ -466,7 +469,11 @@ def _collect_mesh_geometry(zf: zipfile.ZipFile):
     def objects_of(path):
         if path not in documents:
             try:
-                tree = ET.fromstring(zf.read(path))
+                with zf.open(path) as member:
+                    data = member.read(_MAX_MODEL_PART_BYTES + 1)
+                if len(data) > _MAX_MODEL_PART_BYTES:
+                    raise MeshBudgetExceeded("model part too large")
+                tree = ET.fromstring(data)
             except (KeyError, ET.ParseError):
                 documents[path] = ({}, None)
                 return documents[path]
@@ -484,7 +491,9 @@ def _collect_mesh_geometry(zf: zipfile.ZipFile):
             return
         budget['instances'] += 1
         source = _children(verts_elem, 'vertex')
-        if budget['instances'] > _MAX_MESH_INSTANCES or len(vertices) // 3 + len(source) > _MAX_EMITTED_VERTICES:
+        faces = _children(tris_elem, 'triangle')
+        if (budget['instances'] > _MAX_MESH_INSTANCES or len(vertices) // 3 + len(source) > _MAX_EMITTED_VERTICES
+                or len(triangles) // 3 + len(faces) > _MAX_EMITTED_TRIANGLES):
             raise MeshBudgetExceeded("mesh budget exceeded")
         offset = len(vertices) // 3
         m = transform
@@ -498,7 +507,7 @@ def _collect_mesh_geometry(zf: zipfile.ZipFile):
                 raise MeshBudgetExceeded("non-finite geometry")
             vertices.extend(point)
             count += 1
-        for t in _children(tris_elem, 'triangle'):
+        for t in faces:
             ids = [int(t.get(k, 0)) for k in ('v1', 'v2', 'v3')]
             if all(0 <= i < count for i in ids):
                 triangles.extend(i + offset for i in ids)
