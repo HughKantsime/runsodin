@@ -225,6 +225,9 @@ class BambuPrinter:
             }
         }
         self._publish(payload)
+        # The model is only reported in the get_version reply
+        # (info.module[name=ota].product_name), so ask for it as well.
+        self._publish({"info": {"sequence_id": "0", "command": "get_version"}})
     
     def pause_print(self) -> bool:
         """Pause current print."""
@@ -506,6 +509,16 @@ class BambuPrinter:
             self._status.raw_data = payload
             self._status.mqtt_retained = mqtt_retained if type(mqtt_retained) is bool else None
             
+            # Model identity: real printers report it only in the get_version
+            # reply (info.module[name=ota].product_name), never in print.
+            info = payload.get("info")
+            if isinstance(info, dict) and isinstance(info.get("module"), list):
+                for module in info["module"]:
+                    if isinstance(module, dict) and module.get("name") == "ota":
+                        product = module.get("product_name")
+                        if isinstance(product, str) and product.strip():
+                            self._status.printer_type = product.strip()
+
             # Get the print section if present
             print_data = payload.get("print", {})
             

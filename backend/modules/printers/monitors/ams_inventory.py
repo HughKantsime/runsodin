@@ -52,8 +52,11 @@ def sync_ams_inventory(conn, printer_id, units):
     adopted. Arbitrary writers inserting new associations remain a separate
     concurrency acceptance requirement.
     """
-    from modules.printers.telemetry.bambu.ams_identity import ams_trays_by_slot
+    from modules.printers.telemetry.bambu.ams_identity import ams_trays_by_slot, is_rfid_tag
     identified = ams_trays_by_slot(units, strict=True)
+    # The all-zero tag_uid of a non-RFID spool is not an identity.
+    identified = [(number, tray if is_rfid_tag(tray.get('tag_uid')) else {k: v for k, v in tray.items() if k != 'tag_uid'})
+                  for number, tray in identified]
     trays = [tray for _, tray in identified]
     if not trays:
         return 0

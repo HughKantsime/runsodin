@@ -52,7 +52,7 @@ def _codes(result):
 
 
 def test_known_x1c_alias_is_compatible():
-    result = evaluate_education_compatibility(_file(), _printer(machine_type="O1D"))
+    result = evaluate_education_compatibility(_file(), _printer(machine_type="BL-P001"))
     assert result == {
         "compatible": True,
         "engine_version": ENGINE_VERSION,
@@ -63,7 +63,7 @@ def test_known_x1c_alias_is_compatible():
 
 def test_known_p1s_alias_is_compatible():
     result = evaluate_education_compatibility(
-        _file(machine=_fact("BL-P001", "printer_model")),
+        _file(machine=_fact("C12", "printer_model")),
         _printer(machine_type="P1S"),
     )
     assert result["compatible"] is True

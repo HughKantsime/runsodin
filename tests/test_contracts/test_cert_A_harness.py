@@ -109,10 +109,11 @@ class FakeBrokerSocket:
 
 
 def commands(sockets=None):
-    """All (topic, payload) pairs published except the automatic pushall."""
+    """All (topic, payload) pairs published except the automatic pushall/get_version."""
     sockets = FakeBrokerSocket.instances if sockets is None else sockets
     return [(topic, body) for sock in sockets for topic, body in sock.published
-            if body.get("pushing", {}).get("command") != "pushall"]
+            if body.get("pushing", {}).get("command") != "pushall"
+            and body.get("info", {}).get("command") != "get_version"]
 
 
 @pytest.fixture

@@ -118,7 +118,7 @@ def test_h2d_parser_rejects_invalid_measurements_without_inventing_zero(invalid)
         'nozzle_0':{'temp':None,'target':None},'nozzle_1':{'temp':0,'target':None}}
 
 
-@pytest.mark.parametrize('reported_type',['BL-P003','H2D'])
+@pytest.mark.parametrize('reported_type',['O1D','Bambu Lab H2D','H2D'])
 def test_h2d_autodetection_persists_capability_before_authenticated_readback(v2_offline_monitor,offline_store,token_client,reported_type):
     from modules.printers import routes_status
     monitor,_,_=v2_offline_monitor
