@@ -210,6 +210,7 @@ class LicenseInfo:
         self.binding_present = False
         self.binding_matches_current = False
         self.license_sha256 = ""
+        self.expiry_deadline: Optional[datetime] = None  # set for valid licenses
 
     def has_feature(self, feature: str) -> bool:
         """Check if the current license includes a feature.
@@ -474,6 +475,7 @@ def verify_license_text(raw: str, installation_id_reader=None) -> LicenseInfo:
         info.email = payload.get("email", "")
         info.issued_at = payload.get("issued_at", "")
         info.expires_at = payload["expires_at"]
+        info.expiry_deadline = expires
         max_printers = payload.get("max_printers")
         info.max_printers = tier_def["max_printers"] if max_printers is None else max_printers
         # The activation service uses null for an unspecified tier-default cap.
@@ -586,7 +588,14 @@ def get_license() -> LicenseInfo:
     license_path = _find_license_file()
     current_mtime = os.path.getmtime(license_path) if license_path else 0
 
-    if _cached_license is None or current_mtime != _cached_mtime:
+    # A valid license that reaches its expiry instant while cached is re-read
+    # (and so reverts to Community) without waiting for a file change or restart.
+    expired_in_cache = (
+        _cached_license is not None and _cached_license.valid
+        and _cached_license.expiry_deadline is not None
+        and datetime.now(timezone.utc) >= _cached_license.expiry_deadline
+    )
+    if _cached_license is None or current_mtime != _cached_mtime or expired_in_cache:
         _cached_license = load_license()
         _cached_mtime = current_mtime
 
