@@ -23,7 +23,7 @@ from modules.system.schemas import HealthCheck
 from core.config import settings
 from license_manager import (
     get_license, save_license_file, verify_license_text, normalize_license_upload, get_installation_id,
-    get_device_keypair, sign_license_challenge, require_license_mutation_enabled,
+    get_device_keypair, sign_license_challenge, require_license_mutation_enabled, install_portal_license,
 )
 
 log = logging.getLogger("odin.api")
@@ -268,25 +268,6 @@ def get_license_installation_id(current_user: dict = Depends(require_role("admin
     return {"installation_id": get_installation_id()}
 
 
-def _install_portal_license(license_content):
-    """Verify a portal-issued license and install it only if it is valid.
-
-    The candidate is checked with the same runtime rules as an installed file
-    (signature, binding, expiry, payload) BEFORE it touches LICENSE_DIR, so an
-    invalid portal response can never replace or delete the installed license.
-    """
-    if not isinstance(license_content, str):
-        raise HTTPException(status_code=502, detail="License server returned an invalid license file")
-    candidate = verify_license_text(license_content.strip())
-    if not candidate.valid or candidate.error:
-        raise HTTPException(status_code=400, detail=candidate.error or "License server returned an invalid license")
-    try:
-        save_license_file(license_content)
-    except OSError:
-        raise HTTPException(status_code=503, detail="License installation could not be confirmed; check current license status")
-    return get_license()
-
-
 class LicenseActivateRequest(PydanticBaseModel):
     key: str
 
@@ -376,7 +357,7 @@ async def activate_license(
     if not license_content:
         raise HTTPException(status_code=502, detail="License server returned no license file")
 
-    license_info = _install_portal_license(license_content)
+    license_info = install_portal_license(license_content)
 
     return {
         "status": "activated", "tier": license_info.tier,
@@ -552,7 +533,7 @@ async def reactivate_license(
     if not license_content:
         raise HTTPException(status_code=502, detail="License server returned no license file")
 
-    license_info = _install_portal_license(license_content)
+    license_info = install_portal_license(license_content)
 
     log_audit(db, "license.reactivated", "system", details={"tier": license_info.tier, "licensee": license_info.licensee})
     db.commit()
@@ -573,14 +554,7 @@ def get_unactivation_request(
     body: OfflineUnactivationRequestBody,
     current_user: dict = Depends(require_superadmin(scope="write")),
 ):
-    """Generate a signed unactivation request file for offline unactivation. Admin only.
-
-    The licensing server frees a grant only with proof of possession of this
-    device's key (api/v1/offline.js requires ``nonce`` + ``signature`` over
-    ``odin-license-v1\nunactivate\n{key}\n{installation_id}\n{nonce}``), so
-    the admin supplies the challenge nonce issued by the licensing server for
-    this installation ID and the file carries the device signature over it.
-    """
+    """Signed offline unactivation request over a portal challenge nonce (proof of possession). Admin only."""
     import socket
     from starlette.responses import Response as _Response
 

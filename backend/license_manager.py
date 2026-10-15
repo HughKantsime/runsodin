@@ -532,6 +532,26 @@ def save_license_file(content: str, directory: str = None) -> str:
     return path
 
 
+def install_portal_license(license_content) -> "LicenseInfo":
+    """Verify a portal-issued license and install it only if it is valid.
+
+    The candidate is checked with the runtime rules (signature, binding,
+    expiry, payload) BEFORE it touches LICENSE_DIR, so an invalid portal
+    response can never replace or delete the installed license.
+    """
+    from fastapi import HTTPException
+    if not isinstance(license_content, str):
+        raise HTTPException(status_code=502, detail="License server returned an invalid license file")
+    candidate = verify_license_text(license_content.strip())
+    if not candidate.valid or candidate.error:
+        raise HTTPException(status_code=400, detail=candidate.error or "License server returned an invalid license")
+    try:
+        save_license_file(license_content)
+    except OSError:
+        raise HTTPException(status_code=503, detail="License installation could not be confirmed; check current license status")
+    return get_license()
+
+
 # ── Cached license (reloaded when file changes) ──
 _cached_license: Optional[LicenseInfo] = None
 _cached_mtime: float = 0
