@@ -197,7 +197,7 @@ def record_print_consumption(run, job_id, *, grams=None, measured_hours=None, at
         return
     marker = QUOTA_ATTEMPT_PREFIX + (attempt_key or f"job:{int(job_id)}:{job[3]}")
     if run(f"{_insert_ignore()} system_config (key, value) VALUES (:k, :v){_on_conflict_ignore()}",
-           {"k": marker, "v": True}).rowcount != 1:
+           {"k": marker, "v": "true"}).rowcount != 1:
         return
     user_id = job[0]
     user = run("SELECT quota_period FROM users WHERE id = :uid", {"uid": user_id}).fetchone()

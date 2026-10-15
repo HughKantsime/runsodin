@@ -139,9 +139,20 @@ with raw_db() as conn:
     record_print_consumption(qmark_runner(cur), jid, grams=10.0, measured_hours=1.5)
     conn.commit()
 grams2, hours2 = one('SELECT grams_used, hours_used FROM quota_usage WHERE user_id=3 AND period_key=:k', k=key)
-# Once per job (security review MED 4): the monitor-path charge after a manual completion is a no-op.
+# Once per print attempt (MED-D): a second charge for the same completion (same
+# actual_end, no attempt_key) is a no-op, and the marker is keyed on the attempt.
 assert (grams2, hours2) == (grams, hours), (grams2, hours2, grams, hours)
-assert one("SELECT COUNT(*) FROM system_config WHERE key=:k", k=f'quota_charged:job:{jid}')[0] == 1
+assert one("SELECT COUNT(*) FROM system_config WHERE key LIKE :k", k=f'quota_attempt:job:{jid}:%')[0] == 1
+# A reset-and-reprint is a new attempt and charges again.
+assert client.post(f'/jobs/{jid}/reset').status_code == 200
+assert one("SELECT COUNT(*) FROM system_config WHERE key LIKE :k", k=f'quota_attempt:job:{jid}:%')[0] == 0
+assert client.post(f'/jobs/{jid}/start').status_code == 200
+assert client.post(f'/jobs/{jid}/complete').status_code == 200
+grams3, _ = one('SELECT grams_used, hours_used FROM quota_usage WHERE user_id=3 AND period_key=:k', k=key)
+assert abs(grams3 - grams - 42.5) < 1e-6, (grams3, grams)
+# Delete clears the attempt marker so a reused id cannot inherit it.
+assert client.delete(f'/jobs/{jid}').status_code == 204
+assert one("SELECT COUNT(*) FROM system_config WHERE key LIKE :k", k=f'quota_attempt:job:{jid}:%')[0] == 0
 print('postgres-quota-charging-pass', flush=True)
 
 # 3. GDPR erasure scrubs audit details (JSON) and login attempts.
@@ -171,7 +182,7 @@ with engine.connect() as c:
     assert [r[0] for r in c.execute(text("SELECT username FROM login_attempts"))] == ['[deleted-3]']
 assert one('SELECT username FROM users WHERE id=3')[0] == '[deleted-3]'
 assert {i: one('SELECT CAST(details AS TEXT) FROM audit_logs WHERE id=:i', i=i)[0] for i in bystander_ids} == bystanders_before
-assert abs(one('SELECT grams_used FROM quota_usage WHERE user_id=3 AND period_key=:k', k=key)[0] - 42.5) < 1e-9
+assert abs(one('SELECT grams_used FROM quota_usage WHERE user_id=3 AND period_key=:k', k=key)[0] - grams3) < 1e-6  # erase preserves analytics totals
 print('postgres-gdpr-scrub-pass', flush=True)
 print('certf-fixes-native-pass', flush=True)
 engine.dispose()

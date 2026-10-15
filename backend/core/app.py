@@ -670,7 +670,7 @@ def _revoke_legacy_biometric_tokens(engine) -> None:
         connection.execute(
             text(f"{sql.insert_or_ignore_prefix()} system_config (key, value) "
                  f"VALUES (:k, :v){sql.on_conflict_ignore('key')}"),
-            {"k": marker, "v": True},
+            {"k": marker, "v": "true"},
         )
         if deleted:
             log.warning("Revoked %d pre-2.0 biometric refresh token(s); affected devices must re-enrol.", deleted)
