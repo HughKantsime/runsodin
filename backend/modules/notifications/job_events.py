@@ -188,7 +188,8 @@ def job_completed(
                     try:
                         record_print_consumption(
                             qmark_runner(cur), scheduled_job_id,
-                            measured_hours=(duration_seconds / 3600.0) if duration_seconds else None)
+                            measured_hours=(duration_seconds / 3600.0) if duration_seconds else None,
+                            attempt_key=f"print:{int(print_job_id)}")
                         cur.execute("RELEASE SAVEPOINT quota_consumption")
                     except Exception:
                         # Never drop an observed completion over accounting;

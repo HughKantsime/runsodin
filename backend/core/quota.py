@@ -166,24 +166,38 @@ def _as_datetime(value):
     return value if isinstance(value, datetime) else None
 
 
-def record_print_consumption(run, job_id, *, grams=None, measured_hours=None, now=None) -> None:
-    """Charge a completed job's material and print time to its owner's quota usage.
+# Idempotency markers live in system_config under this prefix, keyed by the
+# print ATTEMPT (not jobs.id): the monitor path keys on the print_jobs row,
+# the manual path on the job's completion timestamp. So a reset-and-reprint is
+# a new attempt and charges again, while a manual completion followed by the
+# monitor's observation of the same print charges once. reset_job/delete_job
+# clear a job's markers, so a reused SQLite id never inherits a stale one. The
+# prefix is excluded from the diagnostics dump.
+QUOTA_ATTEMPT_PREFIX = "quota_attempt:"
+
+
+def clear_print_consumption_markers(run, job_id) -> None:
+    run("DELETE FROM system_config WHERE key LIKE :pat",
+        {"pat": f"{QUOTA_ATTEMPT_PREFIX}job:{int(job_id)}:%"})
+
+
+def record_print_consumption(run, job_id, *, grams=None, measured_hours=None, attempt_key=None, now=None) -> None:
+    """Charge a completed print's material and time to its owner's quota usage.
 
     The owner is the user the job is charged to (else its submitter). Hours are
     the measured print duration when known (monitor duration, or actual start
-    to completion), otherwise the job's planned duration. Runs inside the
-    caller's transaction; the caller commits.
+    to completion), otherwise the job's planned duration. Charged once per print
+    attempt: ``attempt_key`` identifies the observed print (the monitor passes
+    the print_jobs id); without one the key is the job's completion timestamp,
+    so a later reprint charges again. Runs inside the caller's transaction.
     """
     job = run("SELECT COALESCE(charged_to_user_id, submitted_by), duration_hours, actual_start, actual_end "
               "FROM jobs WHERE id = :jid", {"jid": job_id}).fetchone()
     if not job or job[0] is None:
         return
-    # At most once per job, like the filament deduction: a failed->completed
-    # correction, a reset and reprint, or a manual completion followed by the
-    # monitor's must not charge the same job twice. The marker's primary key
-    # makes the claim atomic on SQLite and PostgreSQL.
+    marker = QUOTA_ATTEMPT_PREFIX + (attempt_key or f"job:{int(job_id)}:{job[3]}")
     if run(f"{_insert_ignore()} system_config (key, value) VALUES (:k, :v){_on_conflict_ignore()}",
-           {"k": f"quota_charged:job:{int(job_id)}", "v": "true"}).rowcount != 1:
+           {"k": marker, "v": True}).rowcount != 1:
         return
     user_id = job[0]
     user = run("SELECT quota_period FROM users WHERE id = :uid", {"uid": user_id}).fetchone()

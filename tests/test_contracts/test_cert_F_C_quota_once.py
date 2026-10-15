@@ -128,18 +128,21 @@ def test_failed_then_completed_charges_once(farm):
     assert usage()[0] == 40
 
 
-def test_completed_reset_completed_charges_once(farm):
+def test_reprint_after_reset_is_a_new_print_and_charges_again(farm):
+    # Security review MED-D: a reset-and-reprint is a new print attempt. Idempotency
+    # is keyed on the attempt, so the second completion charges again.
     client, new_job, monitor_completes, usage, status = farm
     jid = new_job()
     assert client.post(f"/jobs/{jid}/start").status_code == 200
     assert client.post(f"/jobs/{jid}/complete").status_code == 200
     first = usage()
+    assert first[0] == 40
     assert client.post(f"/jobs/{jid}/reset").status_code == 200
     assert status(jid) == "pending"
     assert client.post(f"/jobs/{jid}/start").status_code == 200
     monitor_completes(jid, success=True)
     assert status(jid) == "completed"
-    assert usage() == first
+    assert usage()[0] == 80  # charged a second time for the reprint
 
 
 def test_monitor_only_completion_charges_once(farm):
@@ -150,3 +153,17 @@ def test_monitor_only_completion_charges_once(farm):
     assert status(jid) == "completed" and usage() == (40.0, 1.5)
     monitor_completes(jid, success=True, seconds=5400)
     assert usage() == (40.0, 1.5)
+
+
+def test_delete_clears_the_attempt_marker_so_a_reused_id_charges(farm):
+    # Security review MED-D: the marker must not survive job delete (SQLite reuses ids).
+    client, new_job, monitor_completes, usage, status = farm
+    jid = new_job()
+    assert client.post(f"/jobs/{jid}/start").status_code == 200
+    assert client.post(f"/jobs/{jid}/complete").status_code == 200
+    assert usage()[0] == 40
+    assert client.delete(f"/jobs/{jid}").status_code == 204
+    jid2 = new_job()
+    assert client.post(f"/jobs/{jid2}/start").status_code == 200
+    assert client.post(f"/jobs/{jid2}/complete").status_code == 200
+    assert usage()[0] == 80  # the reused id does not inherit the deleted job's marker

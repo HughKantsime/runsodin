@@ -625,6 +625,8 @@ def delete_job(job_id: int, current_user: dict = Depends(require_role("operator"
     if not job or not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
 
+    from core.quota import clear_print_consumption_markers, sqlalchemy_runner as _sar
+    clear_print_consumption_markers(_sar(db), job_id)
     log_audit(db, "job.deleted", "job", job.id, {"item_name": job.item_name})
     db.delete(job)
     reconcile_job_write(db, production_orders)
