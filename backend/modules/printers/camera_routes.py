@@ -437,7 +437,8 @@ async def overlay_camera_stream(printer_id: int, token: Optional[str] = Query(No
     """MJPEG camera stream for the OBS overlay <img> (multipart/x-mixed-replace)."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     overlay_camera_principal(db, token, printer)
-    stream_name = f"printer_{printer_id}"
+    from modules.printers.route_utils import mjpeg_stream_name
+    stream_name = mjpeg_stream_name(printer_id)
     try:
         async with httpx.AsyncClient() as probe:
             listed = await probe.get(f"{GO2RTC_API}/api/streams", timeout=2.0)

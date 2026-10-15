@@ -25,6 +25,7 @@ interface PrinterLike {
   api_host: string | null
   has_api_key: boolean
   camera_url: string | null
+  camera_enabled?: boolean
   bed_temp: number | null
   bed_target_temp: number | null
   nozzle_temp: number | null
@@ -189,7 +190,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
           {canDo('printers.edit') && <Button variant="ghost" size="icon" icon={Settings} onClick={() => onEdit(printer)} aria-label="Edit printer settings" />}
           {canDo('printers.edit') && <Button variant="ghost" size="icon" icon={printer.is_active ? Power : PowerOff} onClick={() => onToggleActive(printer.id, !printer.is_active)} className={clsx(printer.is_active ? 'text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10' : 'text-[var(--brand-text-muted)] hover:bg-[var(--brand-input-bg)]')} aria-label={printer.is_active ? 'Deactivate printer' : 'Activate printer'} />}
           {hasCamera && <Button variant="ghost" size="icon" icon={Video} onClick={() => onCameraClick?.(printer)} aria-label="View camera" />}
-          <Button variant="ghost" size="icon" icon={ExternalLink} onClick={() => copyOverlayUrl(printer, hasCamera)} aria-label="Copy OBS overlay URL" title="Copy OBS overlay URL" />
+          <Button variant="ghost" size="icon" icon={ExternalLink} onClick={() => copyOverlayUrl(printer, !!hasCamera || (!!printer.camera_url && printer.camera_enabled !== false))} aria-label="Copy OBS overlay URL" title="Copy OBS overlay URL" />
           {printer.plug_type && onPlugToggle && canControlPlug(printer) && (
             <Button
               variant="ghost"

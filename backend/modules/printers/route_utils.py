@@ -179,6 +179,11 @@ def _get_lan_ip():
         return None
 
 
+def mjpeg_stream_name(printer_id: int) -> str:
+    """go2rtc stream that serves a printer camera as MJPEG."""
+    return f"printer_{printer_id}_mjpeg"
+
+
 def _build_go2rtc_config(db: Session) -> dict:
     """Build go2rtc config dict from current printer state."""
     from modules.printers.models import Printer
@@ -193,8 +198,13 @@ def _build_go2rtc_config(db: Session) -> dict:
                 url = url.split("?enableSrtp")[0].split("&enableSrtp")[0]
             if url.startswith(("http://", "https://")):
                 streams[f"printer_{p.id}"] = f"ffmpeg:{url}#video=h264"
+                # MJPEG for <img> consumers (OBS overlay): the webcam's own stream.
+                streams[mjpeg_stream_name(p.id)] = url
             else:
                 streams[f"printer_{p.id}"] = url
+                # go2rtc does not transcode H.264 for stream.mjpeg; an on-demand
+                # ffmpeg variant (runs only while a consumer is attached) does.
+                streams[mjpeg_stream_name(p.id)] = f"ffmpeg:printer_{p.id}#video=mjpeg"
     db.commit()
     webrtc_config = {"listen": "0.0.0.0:8555"}
     lan_ip = os.environ.get("ODIN_HOST_IP")

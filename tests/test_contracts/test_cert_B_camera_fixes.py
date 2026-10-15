@@ -93,7 +93,7 @@ def overlay_client(reprint_client, review_db, monkeypatch):
     def go2rtc(request):
         upstream.append(str(request.url))
         if request.url.path == "/api/streams":
-            return httpx.Response(200, json={"printer_9": {}, "printer_11": {}})
+            return httpx.Response(200, json={"printer_9": {}, "printer_9_mjpeg": {}, "printer_11": {}, "printer_11_mjpeg": {}})
         assert request.url.path == "/api/stream.mjpeg"
         return httpx.Response(200, headers={"content-type": "multipart/x-mixed-replace; boundary=frame"}, stream=httpx.ByteStream(MJPEG))
     real_client = httpx.AsyncClient
@@ -114,7 +114,7 @@ def test_overlay_points_at_token_guarded_mjpeg_relay(overlay_client):
     response = client.get("/overlay/9/camera", params={"token": tokens["camera"]})
     assert response.status_code == 200 and response.headers["content-type"].startswith("multipart/x-mixed-replace")
     assert response.headers["cache-control"] == "no-store" and response.content == MJPEG
-    assert any(u.endswith("/api/stream.mjpeg?src=printer_9") for u in upstream)
+    assert any(u.endswith("/api/stream.mjpeg?src=printer_9_mjpeg") for u in upstream)
 
 
 def test_overlay_camera_refuses_missing_wrong_scope_and_foreign_tokens(overlay_client, review_db):
@@ -137,3 +137,15 @@ def test_read_cameras_token_grants_no_other_read():
     assert not token_scope_granted(["read:cameras"], "read:printers")
     assert not token_scope_granted(["read:cameras"], "read:jobs")
     assert token_scope_granted(["read"], "read:cameras")
+
+
+def test_go2rtc_config_has_on_demand_mjpeg_variant_per_camera(printers_client, review_db):
+    """go2rtc 1.9 cannot serve H.264 as stream.mjpeg; each camera gets an ffmpeg MJPEG variant."""
+    review_db.execute(text("UPDATE printers SET camera_url='http://192.0.2.24:8080/webcam/?action=stream',camera_enabled=1 WHERE id=23"))
+    review_db.commit()
+    from modules.printers.route_utils import _build_go2rtc_config
+    streams = _build_go2rtc_config(review_db)["streams"]
+    assert streams["printer_21_mjpeg"] == "ffmpeg:printer_21#video=mjpeg"  # RTSPS X1C: transcode on demand
+    assert streams["printer_23"] == "ffmpeg:http://192.0.2.24:8080/webcam/?action=stream#video=h264"
+    assert streams["printer_23_mjpeg"] == "http://192.0.2.24:8080/webcam/?action=stream"  # MJPEG webcam as is
+    assert "printer_22" not in streams and "printer_22_mjpeg" not in streams
