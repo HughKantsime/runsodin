@@ -72,7 +72,7 @@ describe('F16-16.2-01 sidebar navigation', () => {
     show(<Sidebar mobileOpen={false} onMobileClose={vi.fn()} />)
     const nav = screen.getByRole('navigation', { name: 'Main navigation' })
     await within(nav).findByRole('link', { name: 'Orders' })
-    for (const [label, path] of [['Dashboard','/'],['Printers','/printers'],['Cameras','/cameras'],['Archives','/archives'],['Alerts','/alerts'],['Detections','/detections'],['Jobs','/jobs'],['Timeline','/timeline'],['Upload','/upload'],['Models','/models'],['Profiles','/profiles'],['Spools','/spools'],['Calculator','/calculator'],['Settings','/settings'],['Audit Log','/audit'],['Orders','/orders'],['Products','/products'],['Consumables','/consumables'],['Maintenance','/maintenance'],['Analytics','/analytics'],['Utilization','/utilization'],['Usage Reports','/education-reports']]) {
+    for (const [label, path] of [['Dashboard','/'],['Printers','/printers'],['Cameras','/cameras'],['Archives','/archives'],['Projects','/projects'],['Print Log','/print-log'],['Alerts','/alerts'],['Detections','/detections'],['Jobs','/jobs'],['Timeline','/timeline'],['Upload','/upload'],['Models','/models'],['Profiles','/profiles'],['Spools','/spools'],['Calculator','/calculator'],['Settings','/settings'],['Audit Log','/audit'],['Orders','/orders'],['Products','/products'],['Consumables','/consumables'],['Maintenance','/maintenance'],['Analytics','/analytics'],['Utilization','/utilization'],['Usage Reports','/education-reports']]) {
       expect(within(nav).getByRole('link', { name: label })).toHaveAttribute('href', path)
     }
     fireEvent.click(within(nav).getByRole('link', { name: 'Jobs' }))
