@@ -86,6 +86,12 @@ def plug_server():
 @pytest.fixture
 def plugs(cert_app, review_db, plug_server, monkeypatch):
     import modules.printers.smart_plug as smart_plug
+    import modules.printers.route_utils as route_utils
+    # The plug device of this test is a real HTTP server on loopback, which the
+    # config-time SSRF policy rejects in production. Exempt exactly that host.
+    real_check = route_utils._check_ssrf_blocklist
+    monkeypatch.setattr(route_utils, "_check_ssrf_blocklist",
+                        lambda host: None if host in ("127.0.0.1", plug_server.host) else real_check(host))
     bind_engine(monkeypatch, review_db.get_bind())
     monkeypatch.setattr(smart_plug, "engine", review_db.get_bind())
     monkeypatch.setattr(smart_plug, "_cooldown_timers", {})
@@ -259,3 +265,43 @@ def test_per_job_energy_kwh_and_cost_from_plug_counter(plugs):
     archive = plugs.db.execute(text("SELECT energy_kwh,energy_cost FROM print_archives WHERE print_job_id=7301")).one()
     assert archive[0] == pytest.approx(0.8) and archive[1] == pytest.approx(0.2)
     assert stored(plugs, "plug_energy_kwh")["plug_energy_kwh"] == pytest.approx(0.8)
+
+
+@pytest.mark.parametrize("body", [
+    {"type": "tasmota", "host": "127.0.0.1:8080"}, {"type": "tasmota", "host": "169.254.169.254"},
+    {"type": "tasmota", "host": "localhost"}, {"type": "homeassistant", "host": "http://169.254.169.254:8123"},
+    {"type": "homeassistant", "host": "file:///etc/passwd"}, {"type": "tasmota", "host": "http://192.0.2.60/x"},
+])
+def test_plug_put_rejects_blocked_or_malformed_hosts(cert_app, review_db, body):
+    response = cert_app.put("/printers/301/plug", headers=cert_app.roles["operator"], json=body)
+    assert response.status_code == 400
+    review_db.expire_all()
+    assert review_db.execute(text("SELECT plug_type FROM printers WHERE id=301")).scalar_one() is None
+
+
+@pytest.mark.parametrize("value", [-1, 1441, 2.5, "5", True, None])
+def test_plug_put_rejects_invalid_cooldown(plugs, value):
+    response = plugs.client.put("/printers/301/plug", headers=plugs.client.roles["operator"],
+                                json={"type": "tasmota", "host": plugs.device.host, "cooldown_minutes": value})
+    assert response.status_code == 422
+
+
+def test_plug_put_merges_partial_updates(plugs):
+    configure(plugs, {"type": "tasmota", "host": plugs.device.host, "auto_on": True, "auto_off": True, "cooldown_minutes": 7})
+    configure(plugs, {"auto_off": False})
+    row = stored(plugs, "plug_type,plug_host,plug_auto_on,plug_auto_off,plug_cooldown_minutes")
+    assert row["plug_type"] == "tasmota" and row["plug_host"] == plugs.device.host
+    assert bool(row["plug_auto_on"]) is True and bool(row["plug_auto_off"]) is False and row["plug_cooldown_minutes"] == 7
+    assert plugs.client.put("/printers/301/plug", headers=plugs.client.roles["operator"], json={"type": None}).status_code == 400
+    assert stored(plugs, "plug_type")["plug_type"] == "tasmota"
+
+
+def test_plug_token_kept_only_for_same_type_and_host(plugs):
+    import core.crypto as crypto
+    token = secrets.token_urlsafe(24)  # generated per run, not a real credential
+    ha = f"http://{plugs.device.host}"
+    configure(plugs, {"type": "homeassistant", "host": ha, "entity_id": "switch.cert_plug", "auth_token": token})
+    configure(plugs, {"type": "homeassistant", "host": ha, "entity_id": "switch.other"})
+    assert crypto.decrypt(stored(plugs, "plug_auth_token")["plug_auth_token"]) == token
+    configure(plugs, {"host": "http://192.0.2.61:8123"})
+    assert stored(plugs, "plug_auth_token")["plug_auth_token"] is None
