@@ -435,32 +435,49 @@ def overlay_camera_principal(db: Session, token: Optional[str], printer: Optiona
 # A stream re-checks its token, user and camera this often, and ends on refusal.
 OVERLAY_REVALIDATE_SECONDS = 30
 OVERLAY_MAX_STREAMS_PER_TOKEN = 3
-OVERLAY_MAX_STREAMS_PER_PRINTER = 8
-_overlay_streams = {"token": {}, "printer": {}}
+OVERLAY_MAX_STREAMS_PER_USER_PRINTER = 3   # one user's share of a printer's camera
+OVERLAY_MAX_STREAMS_PER_PRINTER = 8        # small global ceiling per printer (per API worker)
+_overlay_streams = []  # open stream entries (dicts), oldest first
 
 
-def _overlay_check(bind, token, printer_id) -> int:
-    """Blocking authorization (bcrypt, DB); returns the token id. Own session."""
+def overlay_stream_count() -> int:
+    return len(_overlay_streams)
+
+
+def _overlay_check(bind, token, printer_id) -> dict:
+    """Blocking authorization (bcrypt, DB) in its own session. Returns who is watching
+    and whether they may change the printer (owner/org operators and admins)."""
     with Session(bind=bind) as db:
         printer = db.query(Printer).filter(Printer.id == printer_id).first()
         principal = overlay_camera_principal(db, token, printer)
-        return principal.get("_token_id")
+        privileged = (principal.get("role") in ("admin", "operator")
+                      and check_org_access(principal, printer.org_id))
+        return {"token_id": principal.get("_token_id"), "user_id": principal.get("id"), "privileged": bool(privileged)}
 
 
-def _overlay_claim(token_id, printer_id) -> bool:
-    tokens, printers = _overlay_streams["token"], _overlay_streams["printer"]
-    if tokens.get(token_id, 0) >= OVERLAY_MAX_STREAMS_PER_TOKEN or printers.get(printer_id, 0) >= OVERLAY_MAX_STREAMS_PER_PRINTER:
-        return False
-    tokens[token_id] = tokens.get(token_id, 0) + 1
-    printers[printer_id] = printers.get(printer_id, 0) + 1
-    return True
+def _overlay_claim(viewer, printer_id):
+    """Admit a stream or raise 429. Privileged viewers evict the oldest unprivileged one."""
+    import asyncio
+    same_token = [e for e in _overlay_streams if e["token_id"] == viewer["token_id"]]
+    same_user = [e for e in _overlay_streams if e["printer_id"] == printer_id and e["user_id"] == viewer["user_id"]]
+    on_printer = [e for e in _overlay_streams if e["printer_id"] == printer_id]
+    if len(same_token) >= OVERLAY_MAX_STREAMS_PER_TOKEN or len(same_user) >= OVERLAY_MAX_STREAMS_PER_USER_PRINTER:
+        raise HTTPException(status_code=429, detail="Too many open overlay camera streams")
+    if len(on_printer) >= OVERLAY_MAX_STREAMS_PER_PRINTER:
+        victims = [e for e in on_printer if not e["privileged"]] if viewer["privileged"] else []
+        if not victims:
+            raise HTTPException(status_code=429, detail="Too many open overlay camera streams")
+        victim = victims[0]  # oldest
+        victim["evicted"].set()
+        _overlay_release(victim)
+    entry = {**viewer, "printer_id": printer_id, "evicted": asyncio.Event()}
+    _overlay_streams.append(entry)
+    return entry
 
 
-def _overlay_release(token_id, printer_id):
-    for table, key in ((_overlay_streams["token"], token_id), (_overlay_streams["printer"], printer_id)):
-        table[key] = table.get(key, 1) - 1
-        if table[key] <= 0:
-            table.pop(key, None)
+def _overlay_release(entry):
+    if entry in _overlay_streams:
+        _overlay_streams.remove(entry)
 
 
 @router.get("/overlay/{printer_id}/camera", tags=["Overlay"])
@@ -470,17 +487,20 @@ async def overlay_camera_stream(printer_id: int, token: Optional[str] = Query(No
     Authorization (bcrypt token check, DB) and go2rtc config sync run in worker
     threads, never on the event loop. The stream re-validates every
     OVERLAY_REVALIDATE_SECONDS and ends when the token is revoked or expired, the
-    user deactivated, the camera disabled or printer access lost.
+    user deactivated, the camera disabled or printer access lost, or when a viewer
+    with rights on the printer needs the slot.
     """
+    import asyncio
+    import weakref
     from fastapi.concurrency import run_in_threadpool
     from modules.printers.route_utils import mjpeg_stream_name
     import time as _time
     bind = db.get_bind()
     db.close()  # never hold a request session for the life of a stream
-    token_id = await run_in_threadpool(_overlay_check, bind, token, printer_id)
-    if not _overlay_claim(token_id, printer_id):
-        raise HTTPException(status_code=429, detail="Too many open overlay camera streams")
+    viewer = await run_in_threadpool(_overlay_check, bind, token, printer_id)
+    entry = _overlay_claim(viewer, printer_id)
     stream_name = mjpeg_stream_name(printer_id)
+    client = upstream = None
     try:
         # Same rule as the WebRTC route: sync only when go2rtc answers and lacks the
         # stream; an unreachable go2rtc is reported, never "fixed" by a restart.
@@ -499,28 +519,35 @@ async def overlay_camera_stream(printer_id: int, token: Optional[str] = Query(No
         try:
             upstream = await client.send(client.build_request("GET", f"{GO2RTC_API}/api/stream.mjpeg", params={"src": stream_name}), stream=True)
         except httpx.HTTPError:
-            await client.aclose()
             raise HTTPException(status_code=502, detail="go2rtc is not reachable")
         content_type = upstream.headers.get("content-type", "")
         if upstream.status_code != 200 or not content_type.startswith("multipart/"):
-            await upstream.aclose()
-            await client.aclose()
             raise HTTPException(status_code=502, detail="Camera stream unavailable")
     except BaseException:
-        _overlay_release(token_id, printer_id)
+        _overlay_release(entry)
+        if upstream is not None:
+            await upstream.aclose()
+        if client is not None:
+            await client.aclose()
         raise
 
-    released = []
+    closed = []
 
-    def release_once():
-        if not released:
-            released.append(True)
-            _overlay_release(token_id, printer_id)
+    async def close_once():
+        if closed:
+            return
+        closed.append(True)
+        _overlay_release(entry)
+        await upstream.aclose()
+        await client.aclose()
 
     async def relay():
         next_check = _time.monotonic() + OVERLAY_REVALIDATE_SECONDS
         try:
             async for chunk in upstream.aiter_raw():
+                if entry["evicted"].is_set():
+                    log.info("Overlay camera stream for printer %s ended: slot given to a printer operator", printer_id)
+                    return
                 if _time.monotonic() >= next_check:
                     try:
                         await run_in_threadpool(_overlay_check, bind, token, printer_id)
@@ -532,13 +559,17 @@ async def overlay_camera_stream(printer_id: int, token: Optional[str] = Query(No
         except httpx.HTTPError:
             return
         finally:
-            release_once()
-            await upstream.aclose()
-            await client.aclose()
+            await close_once()
 
     body = relay()
-    # A response that is never iterated (client gone before the body) still frees its slot.
-    import weakref
-    weakref.finalize(body, release_once)
+    loop = asyncio.get_running_loop()
+
+    def never_iterated():
+        # The body was dropped without running (client gone before the body):
+        # free the slot and close the upstream response and client on the loop.
+        _overlay_release(entry)
+        if not closed and not loop.is_closed():
+            loop.call_soon_threadsafe(lambda: loop.create_task(close_once()))
+    weakref.finalize(body, never_iterated)
     return StreamingResponse(body, media_type=content_type,
                              headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})

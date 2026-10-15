@@ -307,7 +307,7 @@ def test_revocation_or_lost_access_ends_a_running_stream(overlay_client, review_
     monkeypatch.setattr(camera_routes, "OVERLAY_REVALIDATE_SECONDS", 0.2)
     camera = _endless_go2rtc(monkeypatch)
     assert _consume(review_db, tokens["camera"], 3, _execute(review_db, statement)), f"stream kept running ({camera.sent} frames)"
-    assert camera_routes._overlay_streams == {"token": {}, "printer": {}}
+    assert camera_routes.overlay_stream_count() == 0
 
 
 def test_unchanged_authorization_keeps_streaming(overlay_client, review_db, monkeypatch):
@@ -318,33 +318,110 @@ def test_unchanged_authorization_keeps_streaming(overlay_client, review_db, monk
     assert _consume(review_db, tokens["camera"], 3, lambda: None, seconds=1.5) is False  # still live after revalidations
 
 
-def test_concurrent_streams_are_capped_per_token_and_per_printer(overlay_client, review_db, monkeypatch):
+def _mint(review_db, user_id, name):
+    from core.auth import hash_password
+    raw = "odin_" + secrets.token_urlsafe(32)
+    review_db.execute(text("INSERT INTO api_tokens(user_id,name,token_hash,token_prefix,scopes) VALUES(:u,:n,:h,:p,'[\"read:cameras\"]')"),
+                      {"u": user_id, "n": name, "h": hash_password(raw), "p": raw[:10]})
+    review_db.commit()
+    return raw
+
+
+def _closed(review_db, upstreams):
+    return all(u.closed for u in upstreams)
+
+
+def test_viewer_caps_per_token_and_per_user(overlay_client, review_db, monkeypatch):
     import asyncio
     from fastapi import HTTPException
     from modules.printers import camera_routes
     _, tokens, _ = overlay_client
     _endless_go2rtc(monkeypatch)
+    second_token = _mint(review_db, 1, "camera-2")
+    monkeypatch.setattr(camera_routes, "OVERLAY_MAX_STREAMS_PER_TOKEN", 1)
+    monkeypatch.setattr(camera_routes, "OVERLAY_MAX_STREAMS_PER_USER_PRINTER", 2)
 
-    async def run(limit_name):
-        monkeypatch.setattr(camera_routes, limit_name, 1)
+    async def run():
         first = await _open_stream(review_db, tokens["camera"])
         await first.body_iterator.__anext__()
+        with pytest.raises(HTTPException) as refused:
+            await _open_stream(review_db, tokens["camera"])  # same token
+        assert refused.value.status_code == 429
+        other = await _open_stream(review_db, second_token)  # same user, another token: 2nd slot
+        await other.body_iterator.__anext__()
+        third = _mint(review_db, 1, "camera-3")
+        with pytest.raises(HTTPException) as refused:
+            await _open_stream(review_db, third)  # the user's per-printer share is used up
+        assert refused.value.status_code == 429
+        await first.body_iterator.aclose()
+        await other.body_iterator.aclose()
+        assert camera_routes.overlay_stream_count() == 0
+    asyncio.run(run())
+
+
+def test_one_user_cannot_lock_out_the_printer_owner(overlay_client, review_db, monkeypatch):
+    import asyncio
+    from fastapi import HTTPException
+    from modules.printers import camera_routes
+    _, tokens, _ = overlay_client
+    _endless_go2rtc(monkeypatch)
+    monkeypatch.setattr(camera_routes, "OVERLAY_MAX_STREAMS_PER_PRINTER", 2)
+    monkeypatch.setattr(camera_routes, "OVERLAY_MAX_STREAMS_PER_USER_PRINTER", 2)
+    viewer_two = _mint(review_db, 1, "camera-2")
+    owner = _mint(review_db, 3, "owner-camera")  # user 3: admin of org 1 (mutate rights on printer 9)
+
+    async def run():
+        oldest = await _open_stream(review_db, tokens["camera"])
+        await oldest.body_iterator.__anext__()
+        newer = await _open_stream(review_db, viewer_two)
+        await newer.body_iterator.__anext__()
+        stranger = _mint(review_db, 4, "outsider")  # another viewer of org 1: ceiling reached
+        with pytest.raises(HTTPException) as refused:
+            await _open_stream(review_db, stranger)
+        assert refused.value.status_code == 429
+        admitted = await _open_stream(review_db, owner)  # the owner always gets a slot...
+        await admitted.body_iterator.__anext__()
+        # ...by evicting the oldest viewer, whose stream ends.
+        ended = False
         try:
-            with pytest.raises(HTTPException) as refused:
-                await _open_stream(review_db, tokens["camera"])
-            assert refused.value.status_code == 429
-        finally:
-            await first.body_iterator.aclose()
-        # The slot is released when the viewer goes away.
-        assert camera_routes._overlay_streams == {"token": {}, "printer": {}}
-        second = await _open_stream(review_db, tokens["camera"])
-        del second  # never iterated: the slot is still freed
-        import gc
+            for _ in range(200):
+                await asyncio.wait_for(oldest.body_iterator.__anext__(), 1)
+        except StopAsyncIteration:
+            ended = True
+        assert ended
+        await asyncio.wait_for(newer.body_iterator.__anext__(), 1)  # the newer viewer keeps watching
+        for response in (newer, admitted):
+            await response.body_iterator.aclose()
+        assert camera_routes.overlay_stream_count() == 0
+    asyncio.run(run())
+
+
+def test_never_iterated_body_closes_upstream_and_frees_its_slot(overlay_client, review_db, monkeypatch):
+    import asyncio, gc
+    from modules.printers import camera_routes
+    _, tokens, _ = overlay_client
+    opened = []
+    real = _REAL_ASYNC_CLIENT
+
+    class Tracking(real):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **{**k, "transport": httpx.MockTransport(lambda r: httpx.Response(200, json={"printer_9_mjpeg": {}})
+                if r.url.path == "/api/streams" else httpx.Response(200, headers={"content-type": "multipart/x-mixed-replace; boundary=frame"}, stream=_Endless()))})
+            opened.append(self)
+    monkeypatch.setattr(camera_routes.httpx, "AsyncClient", Tracking)
+
+    async def run():
+        response = await _open_stream(review_db, tokens["camera"])
+        assert camera_routes.overlay_stream_count() == 1
+        del response
         gc.collect()
-        assert camera_routes._overlay_streams == {"token": {}, "printer": {}}
-        monkeypatch.setattr(camera_routes, limit_name, 3 if limit_name.endswith("TOKEN") else 8)
-    asyncio.run(run("OVERLAY_MAX_STREAMS_PER_TOKEN"))
-    asyncio.run(run("OVERLAY_MAX_STREAMS_PER_PRINTER"))
+        for _ in range(20):
+            await asyncio.sleep(0.05)
+            if all(c.is_closed for c in opened):
+                break
+    asyncio.run(run())
+    assert opened and all(c.is_closed for c in opened)
+    assert camera_routes.overlay_stream_count() == 0
 
 
 def test_token_check_runs_off_the_event_loop(overlay_client, monkeypatch):
