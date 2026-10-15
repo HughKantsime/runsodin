@@ -92,12 +92,15 @@ def test_create_rejects_invalid_fields_without_writing(admin_client, review_db, 
         assert fresh.execute(text('SELECT COUNT(*) FROM report_schedules')).scalar_one() == before
 
 
-@pytest.mark.xfail(strict=True, reason="DEFECT: backend/modules/reporting/routes/reports.py:205 PATCH /report-schedules/{id} silently ignores report_type (only name/frequency/is_active/recipients are written) yet returns 200 {'status':'ok'}; schedule type cannot be updated")
 def test_patch_updates_report_type(admin_client):
     client, headers = admin_client
     identifier = _create(client, headers, report_type='job_summary')
     response = client.patch(f'/report-schedules/{identifier}', headers=headers, json={'report_type': 'chargeback_summary'})
     assert response.status_code == 200
+    assert _row(client, headers, identifier)['report_type'] == 'chargeback_summary'
+    # An invalid type is refused (never a silent 200) and the stored type is unchanged.
+    refused = client.patch(f'/report-schedules/{identifier}', headers=headers, json={'report_type': 'revenue_forecast'})
+    assert refused.status_code == 400
     assert _row(client, headers, identifier)['report_type'] == 'chargeback_summary'
 
 
@@ -134,7 +137,6 @@ def test_each_type_generates_and_delivers_html_over_smtp(admin_client, review_db
         assert 'Cert nozzle clog' in html
 
 
-@pytest.mark.xfail(strict=True, reason="DEFECT: backend/modules/reporting/report_runner.py:301 scheduled chargeback_summary email hard-codes '$' on every cost (and report_runner.py:282 COALESCEs unpriced jobs to 0) although the platform-wide report has no currency; the on-screen report renders such costs as Unknown / '(+N unpriced)'")
 def test_scheduled_chargeback_summary_does_not_presume_usd(review_db):
     from core.finance_currency import write_currency
     from modules.reporting.report_runner import generate_chargeback_summary
@@ -145,6 +147,11 @@ def test_scheduled_chargeback_summary_does_not_presume_usd(review_db):
     review_db.commit()
     html = generate_chargeback_summary(review_db, {})
     assert '$' not in html, 'Cost is labeled USD although no USD currency is configured'
+    # The org's configured currency labels the cost; the unpriced job is counted, not valued as 0.
+    assert 'EUR 4.50 (+1 unpriced)' in html
+    review_db.execute(text("UPDATE jobs SET estimated_cost=NULL WHERE item_name='Cert priced'"))
+    review_db.commit()
+    assert '>Unknown<' in generate_chargeback_summary(review_db, {})
 
 
 # ---------------- F10-10.9-03 toggle + recipients ----------------
