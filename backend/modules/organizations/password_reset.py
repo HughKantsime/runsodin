@@ -11,7 +11,7 @@ from sqlalchemy import text
 from core.db_compat import execute_insert_returning_id
 from core.dependencies import log_audit
 from core.models import SystemConfig
-from core.application_url import configured_base_url, validate_base_url  # noqa: F401  (re-exported)
+from core.application_url import configured_base_url, validate_base_url, base_url_health_warning  # noqa: F401  (re-exported)
 
 
 def reset_token_digest(raw):
@@ -24,9 +24,20 @@ def reset_mail_base_url(db):
     if smtp.get('enabled') is not True or not isinstance(smtp.get('host'),str) or not smtp['host'].strip():
         raise HTTPException(status_code=503,detail='Password reset requires SMTP to be configured.')
     try:
-        return validate_base_url(configured_base_url(db))
+        return validate_base_url(configured_base_url(db), enforce_https=False)
     except ValueError:
         raise HTTPException(status_code=503,detail='Password reset requires a valid application base URL.') from None
+
+
+def invalidate_recovery_credentials(db, user_id):
+    """Void outstanding reset links and biometric refresh tokens for a user.
+
+    Called when the recovery email changes, so a link or long-lived token
+    issued against the old address can no longer be redeemed.
+    """
+    db.execute(text('UPDATE password_reset_tokens SET used=1 WHERE user_id=:uid AND used=0'),
+               {'uid': user_id})
+    db.execute(text('DELETE FROM biometric_tokens WHERE user_id=:uid'), {'uid': user_id})
 
 
 def send_reset_link(db,user_id,username,email,send,*,base_url,actor_user_id=None):

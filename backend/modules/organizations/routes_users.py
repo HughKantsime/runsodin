@@ -246,10 +246,15 @@ async def update_user(user_id: int, body: UserUpdateRequest, current_user: dict 
     if "group_id" in updates and updates["group_id"] != target.group_id:
         assert_user_tenant_change_allowed(db, user_id)
 
+    # Email and username are account-recovery material (a forgot-password link
+    # goes to the stored email; the username names the account), so changing
+    # either is credential material: interactive session only.
+    changes_recovery = (("email" in updates and updates["email"] is not None)
+                        or ("username" in updates and updates["username"] is not None))
+    if (changes_recovery or ('password' in updates and updates['password'])) and not is_interactive_session(current_user):
+        raise HTTPException(status_code=403, detail=CREDENTIAL_ROUTE_DETAIL)
+
     if 'password' in updates and updates['password']:
-        # A password is authentication material: never set through an API token.
-        if not is_interactive_session(current_user):
-            raise HTTPException(status_code=403, detail=CREDENTIAL_ROUTE_DETAIL)
         pw_valid, pw_msg = _validate_password(updates['password'])
         if not pw_valid:
             raise HTTPException(status_code=400, detail=pw_msg)
@@ -260,6 +265,8 @@ async def update_user(user_id: int, body: UserUpdateRequest, current_user: dict 
     ALLOWED_USER_FIELDS = {"username", "email", "role", "is_active", "password_hash", "group_id"}
     updates = {k: v for k, v in updates.items() if k in ALLOWED_USER_FIELDS}
 
+    existing_email = db.execute(text("SELECT email FROM users WHERE id = :id"), {"id": user_id}).scalar()
+    email_changed = 'email' in updates and updates['email'] != existing_email
     password_changed = 'password_hash' in updates
     role_changed = 'role' in updates
     if updates:
@@ -270,6 +277,11 @@ async def update_user(user_id: int, body: UserUpdateRequest, current_user: dict 
     if role_changed:
         log_audit(db, "user.role_changed", "user", user_id,
                   {"new_role": updates.get("role"), "actor_user_id": current_user["id"]})
+    if email_changed:
+        # The recovery address moved: void outstanding reset links and the
+        # 30-day biometric tokens bound to the old identity.
+        from modules.organizations.password_reset import invalidate_recovery_credentials
+        invalidate_recovery_credentials(db, user_id)
     if password_changed:
         from core.mfa_login import cancel_pending_enrollments
         cancel_pending_enrollments(db, user_id)

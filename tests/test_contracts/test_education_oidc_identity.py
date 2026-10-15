@@ -577,3 +577,26 @@ def test_provider_neutral_userinfo_uses_discovery_endpoint_and_allowlist(
         "email": "student@example.test",
         "email_verified": True,
     }
+
+
+@pytest.mark.parametrize("col,val", [("password_hash", "$2b$12$abcdefghijklmnopqrstuv"), ("mfa_enabled", 1)])
+def test_verified_email_will_not_adopt_a_credentialed_local_account(oidc_db: Session, col, val) -> None:
+    # Security review HIGH-A: an unbound placeholder may be adopted, but never an
+    # account that already holds its own password or MFA.
+    from modules.organizations.routes_oidc import _provider_identity, _resolve_oidc_user
+    from modules.organizations.routes_oidc import OIDCIdentityError
+
+    oidc_db.execute(text(
+        f"INSERT INTO users (username, email, password_hash, role, is_active, group_id, mfa_enabled) "
+        f"VALUES ('teacher', 'teacher@example.test', '', 'operator', 1, 1, 0)"))
+    oidc_db.execute(text(f"UPDATE users SET {col} = :v WHERE email='teacher@example.test'"), {"v": val})
+    oidc_db.commit()
+    config = _config(provider_type="google", allowed_domains="example.test")
+    claims = {"iss": "https://accounts.google.com", "sub": "g-teacher",
+              "email": "teacher@example.test", "email_verified": True, "hd": "example.test"}
+    email, verified = _provider_identity(config, claims, {"sub": "g-teacher"})
+    with pytest.raises(OIDCIdentityError) as exc:
+        _resolve_oidc_user(oidc_db, config, {**claims, "email": email}, {}, verified_email=verified)
+    assert "conflict" in str(exc.value)
+    row = oidc_db.execute(text("SELECT oidc_subject FROM users WHERE email='teacher@example.test'")).scalar()
+    assert row is None  # not linked

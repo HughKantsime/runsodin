@@ -168,11 +168,20 @@ def _resolve_oidc_user(
                 raise OIDCIdentityError("oidc_email_ambiguous")
             row = matches[0]
             mapping = row._mapping
+            # A verified IdP email may adopt an unbound, passwordless, MFA-free
+            # placeholder account in the same tenant. It must never silently take
+            # over an account that already holds its own credentials (a local
+            # password or MFA): that account's owner authenticates directly, and
+            # auto-link would hand it to whoever controls the matching IdP email.
+            has_local_password = bool((mapping.get("password_hash") or "").strip())
+            has_mfa = bool(mapping.get("mfa_enabled"))
             if (
                 mapping.get("group_id") != group_id
                 or not bool(mapping.get("is_active"))
                 or mapping.get("oidc_issuer") is not None
                 or mapping.get("oidc_subject") is not None
+                or has_local_password
+                or has_mfa
             ):
                 raise OIDCIdentityError("oidc_email_conflict")
             try:
