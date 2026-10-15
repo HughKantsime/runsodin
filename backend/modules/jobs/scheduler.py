@@ -21,28 +21,30 @@ from modules.printers.services import evaluate_submission_compatibility
 from modules.jobs.models import Job, SchedulerRun
 
 
-def _same_printer_model(printer_identities, required_model: str) -> bool:
+def _printer_identity(printer) -> str:
+    """The printer's model identity: auto-detected machine_type wins over the
+    (possibly stale, user-entered) model; model only when machine_type is empty."""
+    machine_type = (getattr(printer, 'machine_type', None) or '').strip()
+    return machine_type or (getattr(printer, 'model', None) or '').strip()
+
+
+def _same_printer_model(printer_identity: str, required_model: str) -> bool:
     """True only when the file's sliced-for model and the printer are the same machine.
 
     Both sides resolve through the single Bambu model table
     (core.printer_identity.canonical_machine over printer_models.BAMBU_MODEL_IDS).
-    Fails closed: an unknown or unrecognised identifier on either side never
-    matches a different model; only an identical raw identifier matches.
+    Fails closed: when either side is unknown to the table it never matches a
+    different model; only a byte-identical identifier (case-insensitive) counts.
     """
     from core.printer_identity import canonical_machine
-    required = canonical_machine(required_model)
-    required_raw = str(required_model or '').strip().casefold()
-    for identity in printer_identities:
-        raw = str(identity or '').strip()
-        if not raw:
-            continue
-        installed = canonical_machine(raw)
-        if required is not None and installed is not None:
-            if installed == required:
-                return True
-        elif raw.casefold() == required_raw:
-            return True
-    return False
+    installed_raw = str(printer_identity or '').strip()
+    required_raw = str(required_model or '').strip()
+    installed, required = canonical_machine(installed_raw), canonical_machine(required_raw)
+    if installed is not None and required is not None:
+        return installed == required
+    if installed is not None or required is not None:
+        return False
+    return bool(installed_raw) and installed_raw.casefold() == required_raw.casefold()
 
 
 @dataclass
@@ -765,9 +767,8 @@ class Scheduler:
             # Slicer files carry raw Bambu codes (N2S) while MQTT auto-detect
             # stores friendly names (A1): compare canonical identities.
             if required_printer_model:
-                identities = [v for v in ((state.printer.model or '').strip(),
-                                          (getattr(state.printer, 'machine_type', None) or '').strip()) if v]
-                if identities and not _same_printer_model(identities, required_printer_model):
+                identity = _printer_identity(state.printer)
+                if identity and not _same_printer_model(identity, required_printer_model):
                     continue
 
             # Tag constraint: skip printers missing required tags

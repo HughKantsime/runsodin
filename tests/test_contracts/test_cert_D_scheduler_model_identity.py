@@ -64,3 +64,18 @@ def test_product_name_and_code_resolve_to_the_same_model(fleet):
     job = _job_for_file(fleet, 'C12')
     run(fleet)
     assert rows(fleet, [job])[job][:2] == ('scheduled', 35)
+
+
+def test_auto_detected_machine_type_wins_over_a_stale_user_model(fleet):
+    fleet.execute(text('UPDATE printers SET is_active=0')); fleet.commit()
+    # User once typed "P1S" into model; MQTT auto-detect reports the machine is an X1C.
+    fleet.execute(text("INSERT INTO printers(id,name,model,machine_type,is_active,api_type,org_id) "
+                       "VALUES(41,'Relabelled','P1S','X1C',1,'bambu',1),(42,'Model only','P1S','',1,'bambu',1)"))
+    fleet.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(41,1,'PLA'),(42,1,'PLA')"))
+    fleet.commit()
+    p1s = _job_for_file(fleet, 'C12', job_id=950, model_id=950)
+    x1c = _job_for_file(fleet, 'BL-P001', job_id=951, model_id=951)
+    run(fleet)
+    got = rows(fleet, [p1s, x1c])
+    assert got[p1s][:2] == ('scheduled', 42)   # empty machine_type -> model 'P1S' used
+    assert got[x1c][:2] == ('scheduled', 41)   # machine_type X1C wins over stale model 'P1S'
