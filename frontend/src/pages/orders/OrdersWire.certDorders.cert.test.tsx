@@ -76,12 +76,10 @@ describe('certD orders wire contract', () => {
     // (40 + 31.5) / (60 + 40) over the two non-cancelled orders with known estimates
     expect(value('Average Margin')).toBe('71.5%')
     expect(card('Average Margin')).toHaveTextContent('2 of 2 orders')
-    expect(value('Revenue')).toBe('$200.00')   // includes the cancelled order (see defect test below)
   })
 
-  // DEFECT: frontend/src/pages/orders/Orders.tsx:31-32 Revenue card sums revenue of every order including
-  // cancelled ones (WIRE-WHL-3, $100 cancelled) while Average Margin excludes them; expected $100.00.
-  it.fails('F09-9.1-04 revenue card excludes cancelled orders', async () => {
+  // Revenue card sums non-cancelled orders only (WIRE-WHL-3, $100 cancelled, is excluded), like Average Margin.
+  it('F09-9.1-04 revenue card excludes cancelled orders', async () => {
     await mount()
     expect(value('Revenue')).toBe('$100.00')
   })
