@@ -649,6 +649,14 @@ def process_quiet_hours_digest(session):
         log.error(f"Cannot import quiet_hours helpers: {e}")
         return
 
+    from modules.notifications.channels import mark_deferred, pending_for_window, purge_deferred
+    try:
+        if purge_deferred(session):
+            session.commit()
+    except Exception as e:
+        session.rollback()
+        log.error(f"Deferred delivery retention purge failed: {type(e).__name__}")
+
     targets = iter_orgs_with_digest_enabled()
     if not targets:
         return
@@ -667,7 +675,14 @@ def process_quiet_hours_digest(session):
 
         window_start, _ = compute_window_bounds(config, window_end)
         alerts = get_suppressed_alerts_for_window(window_start, window_end, org_id=org_id)
-        if not alerts:
+        # External deliveries deferred for recipients without an in-app row (032).
+        try:
+            deferred = pending_for_window(session, org_id, window_start, window_end)
+        except Exception as e:
+            session.rollback()
+            log.error(f"Deferred delivery read failed: {type(e).__name__}")
+            deferred = []
+        if not alerts and not deferred:
             continue
 
         # Per-user fan-out (email + push)
@@ -675,6 +690,10 @@ def process_quiet_hours_digest(session):
         # sends. Two workers can both pass a check-then-act guard and both
         # deliver before either records the send. Atomic claim closes that.
         by_user = group_suppressed_by_user(alerts)
+        deferred_by_user = {}
+        for row in deferred:
+            deferred_by_user.setdefault(int(row["user_id"]), []).append(row)
+            by_user.setdefault(int(row["user_id"]), [])
         for user_id, user_alerts in by_user.items():
             if not _claim_digest_send(session, user_id, org_id, window_end):
                 continue  # another worker won the race; they own delivery
@@ -683,7 +702,16 @@ def process_quiet_hours_digest(session):
             active = session.execute(text("SELECT 1 FROM users WHERE id=:id AND is_active IS TRUE"),
                                      {"id": user_id}).first()
             authorized = []
+            authorized_deferred = []
             if active:
+                for alert in deferred_by_user.get(user_id, []):
+                    try:
+                        eligible, owner = resolve_alert_scope(session, printer_id=alert.get("printer_id"),
+                            job_id=alert.get("job_id"), spool_id=alert.get("spool_id"))
+                    except ValueError:
+                        continue
+                    if user_id in eligible and owner == org_id:
+                        authorized_deferred.append(alert)
                 for alert in user_alerts:
                     try:
                         eligible, owner = resolve_alert_scope(session, printer_id=alert.get("printer_id"),
@@ -698,7 +726,11 @@ def process_quiet_hours_digest(session):
             prefs = {row["alert_type"]: row for row in preferences}
             email_alerts = [a for a in authorized if prefs.get(a.get("alert_type"),{}).get("email")]
             push_alerts = [a for a in authorized if prefs.get(a.get("alert_type"),{}).get("browser_push")]
+            # Deferred rows already name their channel (the preference at suppression time).
+            email_alerts += [a for a in authorized_deferred if a["channel"] == "email"]
+            push_alerts += [a for a in authorized_deferred if a["channel"] == "push"]
             email_on,push_on = bool(email_alerts),bool(push_alerts)
+            email_ok = push_ok = None
 
             # Delivery is best-effort post-claim. A failure here logs ERROR
             # but does NOT undo the claim — undoing would re-open the
@@ -714,7 +746,8 @@ def process_quiet_hours_digest(session):
                 failure_reasons.append("email:unconfigured")
             if email_on and smtp_config:
                 try:
-                    if _deliver_digest_email(session, smtp_config, user_id, email_alerts, window_end) is not True:
+                    email_ok = _deliver_digest_email(session, smtp_config, user_id, email_alerts, window_end) is True
+                    if not email_ok:
                         delivery_ok = False
                         failure_reasons.append("email:rejected")
                 except Exception as e:
@@ -723,7 +756,8 @@ def process_quiet_hours_digest(session):
                     failure_reasons.append(f"email:{type(e).__name__}")
             if push_on:
                 try:
-                    if _deliver_digest_push(session, user_id, push_alerts, window_end) is not True:
+                    push_ok = _deliver_digest_push(session, user_id, push_alerts, window_end) is True
+                    if not push_ok:
                         delivery_ok = False
                         failure_reasons.append("push:rejected")
                 except Exception as e:
@@ -732,6 +766,22 @@ def process_quiet_hours_digest(session):
                     failure_reasons.append(f"push:{type(e).__name__}")
             status = "sent" if delivery_ok else f"failed:{','.join(failure_reasons)}"
             _update_digest_status(session, user_id, window_end, status, org_id=org_id)
+            # Record each deferred row's outcome; this claim owns them, so a later
+            # poll never re-sends them.
+            try:
+                outcome = {"email": email_ok, "push": push_ok}
+                authorized_ids = {a["id"] for a in authorized_deferred}
+                for row in deferred_by_user.get(user_id, []):
+                    if row["id"] not in authorized_ids:
+                        mark_deferred(session, [row["id"]], "failed", "recipient_not_authorized")
+                    elif outcome[row["channel"]] is True:
+                        mark_deferred(session, [row["id"]], "sent")
+                    else:
+                        mark_deferred(session, [row["id"]], "failed", f"{row['channel']}:not_delivered")
+                session.commit()
+            except Exception as e:
+                session.rollback()
+                log.error(f"Deferred delivery outcome update failed for user {user_id}: {type(e).__name__}")
 
         # Per-org webhook (one combined digest per org).
         # Codex pass 4 (2026-04-14): the org webhook had NO idempotency

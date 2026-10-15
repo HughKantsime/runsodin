@@ -251,3 +251,35 @@ def test_postgres_mqtt_republish_config_put_round_trips(pg_engine, monkeypatch):
     config = mqtt_republish._get_config()
     assert config == {'host': 'other.example.test', 'port': 8883, 'username': 'odin', 'password': 'synthetic-mqtt-secret',
                       'topic_prefix': 'odin/plant', 'use_tls': True}
+
+
+def test_postgres_migration_032_deferred_deliveries_table_and_outbox_logic(pg_engine):
+    """Native probe for the unregistered migration 032: additive, idempotent, constraint-enforced,
+    and the record -> window read -> mark -> purge cycle on PostgreSQL types (timestamptz)."""
+    import importlib
+    from datetime import timedelta
+    from modules.notifications import deferred_deliveries as dd
+    migration = importlib.import_module('core.schema.migrations.032_quiet_hours_deferred_deliveries')
+    with pg_engine.begin() as c:
+        assert dd.available(c) is False
+        migration.apply(c)
+    with pg_engine.begin() as c:
+        migration.apply(c)  # idempotent
+        migration.validate(c)
+    with pytest.raises(IntegrityError):
+        with pg_engine.begin() as c:
+            c.execute(text("INSERT INTO quiet_hours_deferred_deliveries(id,user_id,scope_key,channel,alert_type,severity,title) "
+                           "VALUES('bad',1,'tenant-1','email','print_failed','info','t')"))
+    with pg_engine.begin() as c:
+        assert dd.record_suppressed(c, org_id=1, recipients={1: {'email', 'push'}}, alert_type='print_failed',
+                                    severity='critical', title='PG deferred', message='m', printer_id=None) == 2
+    now = datetime.now(timezone.utc)
+    with pg_engine.begin() as c:
+        rows = dd.pending_for_window(c, 1, now - timedelta(minutes=5), now + timedelta(minutes=5))
+        assert sorted(r['channel'] for r in rows) == ['email', 'push'] and {r['title'] for r in rows} == {'PG deferred'}
+        assert dd.pending_for_window(c, None, now - timedelta(minutes=5), now + timedelta(minutes=5)) == []
+        assert dd.mark(c, [r['id'] for r in rows], 'sent') == 2
+        assert dd.mark(c, [r['id'] for r in rows], 'sent') == 0  # idempotent
+    with pg_engine.begin() as c:
+        assert dd.purge(c, now=now + timedelta(days=8)) == 2
+        assert c.execute(text('SELECT COUNT(*) FROM quiet_hours_deferred_deliveries')).scalar_one() == 0

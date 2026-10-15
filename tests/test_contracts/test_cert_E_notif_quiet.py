@@ -254,10 +254,11 @@ def test_org_digest_webhook_http_error_recorded_as_failed(org_api, notif_env, re
 
 
 @pytest.mark.xfail(strict=True, reason=(
-    'DEFECT: backend/modules/notifications/alert_dispatcher.py:406 (and alert_dispatch.py:61) record an in-app alert '
-    'only for users whose preference has in_app enabled, and the digest (quiet_hours.py:285 '
-    'get_suppressed_alerts_for_window) reads only the alerts table; an email/push-only user loses every alert '
-    'suppressed during quiet hours'))
+    'pending post-027 migration registration: migration 032 (quiet_hours_deferred_deliveries, '
+    'core/schema/migrations/032_quiet_hours_deferred_deliveries.py) records deliveries suppressed for '
+    'email/push-only users, but it is not registered (.claude/specs/post027-migrations.md), so a '
+    'bootstrapped database has no table and the suppressed alert is still lost. Behaviour with the '
+    'table present: tests/test_contracts/test_cert_E_notif_deferred.py'))
 @pytest.mark.parametrize('path', ['orm', 'daemon'])
 def test_email_only_user_receives_digest_of_suppressed_alert(
         org_api, admin_api, notif_env, smtp_peer, monkeypatch, path):
