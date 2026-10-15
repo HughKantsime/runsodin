@@ -24,7 +24,7 @@ from modules.organizations.education_policy import (
     assert_user_tenant_change_allowed,
 )
 from core.auth_helpers import _validate_password
-from core.auth import ACCESS_TOKEN_EXPIRE_HOURS, hash_password, UserCreate
+from core.auth import ACCESS_TOKEN_EXPIRE_HOURS, hash_password, UserCreate, UserRole
 from core.models import SystemConfig
 from license_manager import require_feature, check_user_limit
 
@@ -221,7 +221,7 @@ async def reset_password_email(user_id: int, current_user: dict = Depends(requir
 class UserUpdateRequest(PydanticBaseModel):
     username: Optional[str] = None
     email: Optional[str] = None
-    role: Optional[str] = None
+    role: Optional[UserRole] = None
     is_active: Optional[bool] = None
     password: Optional[str] = None
     group_id: Optional[int] = None

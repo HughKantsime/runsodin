@@ -44,11 +44,6 @@ def test_rbac_policy_knows_exactly_three_roles(odin):
         assert odin.one("SELECT role FROM users WHERE role=:r", r=role) is not None
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "DEFECT: backend/core/auth.py:43 (UserCreate.role: str) + backend/modules/organizations/routes_users.py:122/224 — "
-    "POST/PATCH /api/users accept any role string. Scenario: an admin (or CSV import) creates 'Admin' or 'superuser'; "
-    "the account is stored with a fourth, unknown role that has_permission() ranks below viewer, so the user exists "
-    "but every route refuses them and the UI/permission map cannot represent the role. Only admin/operator/viewer should be accepted."))
 def test_user_api_rejects_roles_outside_the_three(odin):
     r = odin.post("/api/users", json={"username": "role_bogus", "email": "role_bogus@example.test",
                                       "password": strong_password(), "role": "superuser"}, headers=odin.admin_bearer)
