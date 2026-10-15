@@ -73,18 +73,39 @@ def main():
         assert staged.returncode == 0, staged.stderr[-3000:]
         print('post027-coordinator-secrets-10001-0400-app-user-staged-real-025-archive-pass', flush=True)
 
-        # Previous entrypoint: coordinator as root. It cannot use the preserved029 stage with
-        # odin-owned secrets; the boot-loop guard moves the restore aside and startup continues.
+        # Previous entrypoint: coordinator as root. The restore gate refuses odin-owned state:
+        # an environment error, so the staged restore is kept and startup fails as before.
         old = subprocess.run([sys.executable, '-m', 'modules.system.restore_coordinator'], env={**env, 'ODIN_POSTGRES_RESTORE_ACKNOWLEDGEMENT': digest},
                              capture_output=True, text=True, timeout=3600)
-        assert old.returncode == 0, old.stderr[-3000:]
-        outcome = json.loads([line for line in old.stdout.splitlines() if line.startswith('{"')][-1])
-        assert outcome['status'] == 'restore_failed_target_untouched', outcome
+        assert old.returncode != 0 and 'staged restore is kept' in old.stderr, old.stdout + old.stderr[-3000:]
+        assert marker() == 'coord-target' and (data / 'restore-pending-postgres.json').exists() and (data / 'restore-pending.dump').exists()
+        assert not list((data / 'backups').glob('failed_restore_*'))
+        print('post027-coordinator-root-run-environment-error-keeps-staged-restore-and-fails-pass', flush=True)
+
+        # Missing acknowledgement: an operator error, kept and failing, never quarantined.
+        missing = subprocess.run(['/usr/sbin/runuser', '-u', 'odin', '--', sys.executable, '-m', 'modules.system.restore_coordinator'], env=env,
+                                 capture_output=True, text=True, timeout=600)
+        assert missing.returncode != 0 and 'RestoreAcknowledgementRequired' in missing.stderr, missing.stderr[-2000:]
+        assert (data / 'restore-pending-postgres.json').exists() and not list((data / 'backups').glob('failed_restore_*'))
+        print('post027-coordinator-missing-acknowledgement-keeps-staged-restore-pass', flush=True)
+
+        # Deterministic archive refusal: the staged file no longer matches its manifest.
+        good = (data / 'restore-pending.dump').read_bytes()
+        pending = data / 'restore-pending.dump'
+        pending.write_bytes(Path(facts['26']['archive']).read_bytes()); owned(pending, 0o600)
+        refused = subprocess.run(['/usr/sbin/runuser', '-u', 'odin', '--', sys.executable, '-m', 'modules.system.restore_coordinator'],
+                                 env={**env, 'ODIN_POSTGRES_RESTORE_ACKNOWLEDGEMENT': digest}, capture_output=True, text=True, timeout=3600)
+        assert refused.returncode == 0, refused.stderr[-3000:]
+        outcome = json.loads([line for line in refused.stdout.splitlines() if line.startswith('{"')][-1])
+        assert outcome['status'] == 'restore_failed_target_untouched' and 'does not match its manifest' in outcome['reason'], outcome
         assert marker() == 'coord-target' and not (data / 'restore-pending-postgres.json').exists()
-        assert list((data / 'backups').glob('failed_restore_*.json'))
-        again = subprocess.run([sys.executable, '-m', 'modules.system.restore_coordinator'], env=env, capture_output=True, text=True, timeout=600)
-        assert again.returncode == 0 and 'restore' not in again.stdout, again.stdout + again.stderr[-2000:]
-        print('post027-coordinator-root-run-quarantined-reason-' + outcome['error_type'] + '-next-boot-starts-on-untouched-target-pass', flush=True)
+        listed = as_odin("import json;from modules.system.postgres_backup_service import quarantined_restores;print(json.dumps(quarantined_restores()))")
+        assert listed.returncode == 0 and json.loads(listed.stdout.strip().splitlines()[-1])[0]['archive'], listed.stderr[-2000:]
+        again = subprocess.run(['/usr/sbin/runuser', '-u', 'odin', '--', sys.executable, '-m', 'modules.system.restore_coordinator'], env=env,
+                               capture_output=True, text=True, timeout=600)
+        assert again.returncode == 0 and '"status"' not in again.stdout, again.stdout + again.stderr[-2000:]
+        print('post027-coordinator-changed-staged-archive-quarantined-listed-next-boot-starts-on-untouched-target-pass', flush=True)
+        del good
 
         # Current entrypoint: runuser -u odin. The staged historical restore applies.
         staged = as_odin(stage)

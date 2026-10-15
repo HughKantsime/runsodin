@@ -35,7 +35,8 @@ def main():
         from modules.system.postgres_canonical_executables import validate_executables
         admin = create_engine(raw, isolation_level='AUTOCOMMIT', hide_parameters=True)
         post_ids = [migration_id for migration_id, _ in POST027_MIGRATIONS]
-        index = 'ux_spools_spoolman_spool_id'
+        from core.quiet_hours_deferral_schema import TABLE as DEFERRED, EXPECTED_COLUMNS
+        from core.quiet_hours_deferral_schema import validate as validate_032
 
         def fresh(name):
             with admin.connect() as c:
@@ -43,17 +44,19 @@ def main():
             return create_database_engine(server + '/' + name, role='restore', password_file=str(credential))
 
         def has_index(engine):
+            # Migration 032's table, exactly shaped (name kept from the 030 proof's helper).
             with engine.connect() as c:
-                return c.execute(text("SELECT indexdef FROM pg_indexes WHERE schemaname='public' AND indexname=:n"), {'n': index}).scalar()
+                validate_032(c)
+                return {r[0] for r in c.execute(text("SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=:t"), {'t': DEFERRED})} == EXPECTED_COLUMNS
 
         # 1. Fresh PostgreSQL boot, twice.
         boot = fresh('post027_fresh')
         first = bootstrap_database(boot); second = bootstrap_database(boot)
         assert first['applied'][-2:] == post_ids[-1:] + ['orm-baseline:1'] and second['applied'] == []
-        assert second['schema_fingerprint'] == first['schema_fingerprint'] and 'WHERE (spoolman_spool_id IS NOT NULL)' in has_index(boot)
+        assert second['schema_fingerprint'] == first['schema_fingerprint'] and has_index(boot)
         with boot.connect() as c:validate_executables(c)
         boot.dispose()
-        print('post027-native-fresh-boot-twice-030-applied-once-fingerprint-stable-pass', flush=True)
+        print('post027-native-fresh-boot-twice-032-applied-once-fingerprint-stable-pass', flush=True)
 
         # 2. Archives of each era from the preserved sources.
         archives = root / 'archives'; archives.mkdir()
@@ -102,7 +105,7 @@ def main():
                 validate_executables(c)
             assert has_index(engine) and leftover() == 0
             assert not list(b.postgres_paths(root).backups.glob('.odin-upgraded029-*'))
-            print(f'post027-native-era{era}-archive-preserved029-stage-live-upgrade-validated-staged-applied-data-ledger-030-sslmode-query-pass', flush=True)
+            print(f'post027-native-era{era}-archive-preserved029-stage-live-upgrade-validated-staged-applied-data-ledger-032-sslmode-query-pass', flush=True)
 
         # 4. Refusals: a changed 027-era ledger and an extra table are refused, target untouched.
         before = marker()
@@ -116,17 +119,24 @@ def main():
             assert marker() == before and leftover() == 0
         print('post027-native-tampered-checksum-and-extra-table-refused-target-untouched-no-stage-left-pass', flush=True)
 
-        # 5. Current-schema backup -> restore round trip keeps data and the 030 index.
-        with engine.begin() as c:c.execute(text("UPDATE system_config SET value='\"current-backup\"' WHERE key='historical_marker'"))
+        # 5. Current-schema backup -> restore round trip keeps data, including a 032 row.
+        with engine.begin() as c:
+            c.execute(text("UPDATE system_config SET value='\"current-backup\"' WHERE key='historical_marker'"))
+            c.execute(text("INSERT INTO " + DEFERRED + "(id,user_id,org_id,scope_key,channel,alert_type,severity,title,state) "
+                           "VALUES('roundtrip032',3,1,'org:1','email','print_failed','critical','kept','pending')"))
         backup, backup_metadata = b.create_postgres_backup(target, maintenance_url=maintenance, **args)
-        with engine.begin() as c:c.execute(text("UPDATE system_config SET value='\"after-backup\"' WHERE key='historical_marker'"))
+        with engine.begin() as c:
+            c.execute(text("UPDATE system_config SET value='\"after-backup\"' WHERE key='historical_marker'"))
+            c.execute(text("DELETE FROM " + DEFERRED))
         current = b.validate_postgres_restore(backup, target, maintenance, **args)
         assert 'source_schema_version' not in current and current['restore_validated']
         b.stage_postgres_restore(backup, target, maintenance, **args); engine.dispose()
         result = b.apply_pending_postgres_restore(target, maintenance, acknowledgement=backup_metadata['sha256'], **args)
         assert result['status'] == 'restored' and marker() == 'current-backup' and has_index(engine)
-        with engine.connect() as c:validate_executables(c)
-        print('post027-native-current-backup-restore-roundtrip-data-and-030-index-pass', flush=True)
+        with engine.connect() as c:
+            validate_executables(c)
+            assert c.execute(text("SELECT id,title FROM " + DEFERRED)).all() == [('roundtrip032', 'kept')]
+        print('post027-native-current-backup-restore-roundtrip-data-and-032-row-pass', flush=True)
 
         engine.dispose()
 
@@ -156,42 +166,6 @@ def main():
             validate_executables(c)
         assert has_index(released); released.dispose()
         print('post027-native-published-v1.9.24-database-upgraded-reordered-' + '-'.join(reordered) + '-backup-validated-restored-pass', flush=True)
-
-        # 7. Duplicate Spoolman links (possible on 1.9.x) defer 030 instead of failing boot;
-        #    backup/restore works while deferred, and a later boot creates the index.
-        from sqlalchemy.orm import Session
-        from core.economic_source_creation import _create_spool
-        from modules.system.schema_warnings import deferred_migrations
-        dupes_url = server + '/post027_dupes'
-        dupes = fresh('post027_dupes'); bootstrap_database(dupes)
-        with dupes.begin() as c:
-            c.exec_driver_sql('DROP INDEX ' + index)
-            c.execute(text('DELETE FROM odin_schema_migrations WHERE migration_id=:id'), {'id': post_ids[0]})
-            c.execute(text("INSERT INTO system_config(key,value) VALUES('historical_marker','\"dupes\"')"))
-            c.execute(text("INSERT INTO filament_library(id,brand,name,material) VALUES(80,'Owned','Dupes','PLA')"))
-        with Session(dupes) as db, db.begin():
-            created = [_create_spool(db, {'filament_id': 80, 'org_id': 1, 'status': 'active'}, owner_org_id=1) for _ in range(2)]
-            spool_ids = sorted(source.id for source in created)
-            # 1.9.x had no constraint: two spools linked to the same Spoolman spool.
-            db.execute(text('UPDATE spools SET spoolman_spool_id=77 WHERE id IN (:a,:b)'), {'a': spool_ids[0], 'b': spool_ids[1]})
-        deferred_boot = bootstrap_database(dupes)
-        assert deferred_boot['deferred'] == [post_ids[0]] and not has_index(dupes)
-        with dupes.connect() as c:
-            warning = deferred_migrations(c, detail=True)[0]
-        assert warning['migration'] == post_ids[0] and warning['detail']['spool_ids'] == spool_ids and warning['detail']['spoolman_spool_ids'] == [77]
-        backup, backup_metadata = b.create_postgres_backup(dupes_url, maintenance_url=maintenance, **args)
-        b.stage_postgres_restore(backup, dupes_url, maintenance, **args); dupes.dispose()
-        result = b.apply_pending_postgres_restore(dupes_url, maintenance, acknowledgement=backup_metadata['sha256'], **args)
-        assert result['status'] == 'restored' and not has_index(dupes)
-        with dupes.connect() as c:
-            assert c.execute(text('SELECT count(*) FROM spools WHERE spoolman_spool_id=77')).scalar_one() == 2
-        with dupes.begin() as c:c.execute(text('UPDATE spools SET spoolman_spool_id=NULL WHERE id=:id'), {'id': spool_ids[1]})
-        retried = bootstrap_database(dupes)
-        assert retried['applied'] == [post_ids[0]] and retried['deferred'] == [] and has_index(dupes)
-        with dupes.connect() as c:
-            assert deferred_migrations(c, detail=False) == []
-        dupes.dispose()
-        print('post027-native-duplicate-spoolman-links-defer-030-boot-continues-backup-restore-while-deferred-retry-creates-index-pass', flush=True)
 
         # 8. A preserved029 child killed mid-run leaves no validation database or working file.
         import signal, threading
@@ -223,7 +197,7 @@ def main():
         preserved029.integrity.check_package()
         with admin.connect() as c:
             assert c.execute(text("SELECT count(*) FROM pg_database WHERE datname LIKE 'odin_validate_%'")).scalar_one() == 0
-            for name in ('post027_target', 'post027_fresh', 'post027_released', 'post027_dupes'):c.exec_driver_sql('DROP DATABASE IF EXISTS ' + name + ' WITH (FORCE)')
+            for name in ('post027_target', 'post027_fresh', 'post027_released'):c.exec_driver_sql('DROP DATABASE IF EXISTS ' + name + ' WITH (FORCE)')
         admin.dispose()
     print('post027-native-pass', flush=True)
 
