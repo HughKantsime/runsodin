@@ -31,7 +31,9 @@ _API_KEY_HEADER = re.compile(r"(?i)(\bx-api-key\b" + _QUOTE + r"\s*[:=]\s*" + _Q
 _API_TOKEN = re.compile(r"\bodin_[A-Za-z0-9_-]{40,}")
 # JWTs; possessive quantifiers keep matching linear on hostile input.
 _JWT = re.compile(r"\beyJ[A-Za-z0-9_-]++\.eyJ[A-Za-z0-9_-]++\.[A-Za-z0-9_-]++")
-_SECRET_KEYS = re.compile(r"(?i)^(authorization|proxy-authorization|x-api-key|cookie|set-cookie|password|token|api_key|secret)$")
+_SECRET_KEY_NAMES = ("authorization", "proxy-authorization", "x-api-key", "cookie", "set-cookie", "password", "token",
+                     "api_key", "secret")
+_SECRET_KEYS = re.compile(r"(?i)^(" + "|".join(re.escape(name) for name in _SECRET_KEY_NAMES) + ")$")
 
 
 def redact_text(value: str) -> str:
