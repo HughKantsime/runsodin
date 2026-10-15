@@ -258,7 +258,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 632,
+      "line": 633,
       "path": "backend/core/app.py",
       "pattern": "PRAGMA",
       "reason": "Runtime SQL executes through the dialect-aware shared DBAPI compatibility adapter",
@@ -1514,7 +1514,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 307,
+      "line": 308,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1522,7 +1522,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 313,
+      "line": 314,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1530,7 +1530,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 321,
+      "line": 322,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1538,7 +1538,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 331,
+      "line": 332,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1546,7 +1546,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 337,
+      "line": 338,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1554,7 +1554,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 390,
+      "line": 391,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1562,7 +1562,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 393,
+      "line": 394,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1570,7 +1570,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 396,
+      "line": 397,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1578,7 +1578,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 408,
+      "line": 409,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -2234,7 +2234,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 226,
+      "line": 232,
       "path": "backend/modules/system/routes_admin.py",
       "pattern": "PRAGMA",
       "reason": "SQLite integrity-check branch; PostgreSQL uses provider-specific health checks",
