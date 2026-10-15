@@ -87,6 +87,44 @@ def _is_quiet_time_for_config(config: Dict, now: datetime = None) -> bool:
         return False
 
 
+def _org_quiet_hours_enabled(conn, org_id) -> bool:
+    row = conn.execute(text("SELECT settings_json FROM groups WHERE id = :oid"), {"oid": org_id}).mappings().fetchone()
+    if not row or not row["settings_json"]:
+        return False
+    raw = row["settings_json"]
+    try:
+        settings = json.loads(raw) if isinstance(raw, str) else raw
+    except ValueError:
+        return False
+    return bool(isinstance(settings, dict) and settings.get("quiet_hours_enabled"))
+
+
+def governing_scope(org_id=None, conn=None) -> str:
+    """Digest scope whose quiet hours govern a resource owned by ``org_id``:
+    'org:<id>' when that org has its own quiet hours enabled, else 'system'
+    (the same precedence should_suppress_notification applies)."""
+    if not org_id:
+        return "system"
+    try:
+        if conn is not None:
+            return f"org:{int(org_id)}" if _org_quiet_hours_enabled(conn, org_id) else "system"
+        with engine.connect() as own:
+            return f"org:{int(org_id)}" if _org_quiet_hours_enabled(own, org_id) else "system"
+    except Exception as e:
+        log.debug(f"Error resolving quiet-hours scope: {e}")
+        return "system"
+
+
+def governed_by(owner, digest_org_id, conn=None) -> bool:
+    """Whether an alert owned by ``owner`` belongs to the digest of ``digest_org_id``
+    (None = system digest). Org digests exist only for orgs with their own quiet
+    hours, so they take their own alerts; the system digest takes unscoped alerts
+    and alerts of orgs without their own quiet hours."""
+    if digest_org_id is not None:
+        return owner == digest_org_id
+    return owner is None or governing_scope(owner, conn) == "system"
+
+
 def should_suppress_notification(org_id: int = None) -> bool:
     """Returns True if real-time notifications should be suppressed.
     Checks org-level quiet hours first (if org_id given), then system-level."""
@@ -317,7 +355,10 @@ def get_suppressed_alerts_for_window(
                         job_id=row['job_id'], spool_id=row['spool_id'])
                 except ValueError:
                     continue
-                if owner == org_id and row['user_id'] in eligible:
+                # The alert belongs to this digest when this scope's quiet hours
+                # governed it: its own org's, or the system's for unscoped alerts
+                # and for orgs without their own quiet hours.
+                if row['user_id'] in eligible and governed_by(owner, org_id, conn):
                     result.append(dict(row))
             return result
     except Exception:

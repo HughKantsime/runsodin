@@ -417,9 +417,10 @@ def stage_alert(
         if pref.email:
             email_users.append(pref.user_id)
     deferred_recorded = 0
-    if _suppress_external:
-        # Quiet hours: recipients without an in-app row would otherwise lose this
-        # alert; defer their external channels to the digest (same transaction).
+    if _suppress_external and not (bool(preferences) and deduplicated == len(preferences)):
+        # Quiet hours: record what was suppressed so the digest of the scope that
+        # caused it delivers it once (same transaction): external channels of
+        # recipients without an in-app row, and one webhook row per alert.
         deferred = {}
         for uid in email_users:
             if uid not in in_app_users:
@@ -427,12 +428,14 @@ def stage_alert(
         for uid in push_users:
             if uid not in in_app_users:
                 deferred.setdefault(uid, set()).add("push")
-        if deferred:
-            from modules.notifications.deferred_deliveries import record_suppressed
-            deferred_recorded = record_suppressed(db, org_id=_printer_org_id, recipients=deferred,
-                              alert_type=alert_type.value if hasattr(alert_type, "value") else alert_type,
-                              severity=severity.value if hasattr(severity, "value") else severity,
-                              title=title, message=message, printer_id=printer_id, job_id=job_id, spool_id=spool_id)
+        from modules.notifications.deferred_deliveries import record_suppressed, webhook_destination_exists
+        from modules.notifications.quiet_hours import governing_scope
+        atype = alert_type.value if hasattr(alert_type, "value") else alert_type
+        deferred_recorded = record_suppressed(
+            db, org_id=_printer_org_id, scope=governing_scope(_printer_org_id, db), recipients=deferred,
+            webhook=webhook_destination_exists(db, _printer_org_id, atype),
+            alert_type=atype, severity=severity.value if hasattr(severity, "value") else severity,
+            title=title, message=message, printer_id=printer_id, job_id=job_id, spool_id=spool_id)
     return StagedAlert(alerts_created, seeded_preferences or alerts_created > 0 or deferred_recorded > 0 or
                        (job_id is not None and alert_type in (AlertType.QUEUE_SKIPPED, AlertType.QUEUE_FAILED_START)), alert_type, severity, title, message,
                        printer_id, job_id, spool_id, _printer_org_id,

@@ -31,11 +31,11 @@ def deferral_table(notif_env):
     return engine
 
 
-def _rows(engine):
+def _rows(engine, channels=("email", "push")):
     with engine.connect() as conn:
         return [dict(r) for r in conn.execute(text(
             "SELECT user_id,org_id,scope_key,channel,alert_type,state,outcome_reason FROM quiet_hours_deferred_deliveries "
-            "ORDER BY user_id,channel")).mappings()]
+            "ORDER BY user_id,channel")).mappings() if r["channel"] in channels]
 
 
 def test_migration_032_is_additive_and_idempotent(notif_env):
@@ -154,6 +154,69 @@ def test_without_table_recording_is_a_noop(notif_env):
     from modules.notifications import deferred_deliveries
     with notif_env.get_bind().begin() as conn:
         assert deferred_deliveries.available(conn) is False
-        assert deferred_deliveries.record_suppressed(conn, org_id=1, recipients={1: {"email"}}, alert_type="print_failed",
-                                                     severity="critical", title="t") == 0
-        assert deferred_deliveries.pending_for_window(conn, 1, None, None) == []
+        assert deferred_deliveries.record_suppressed(conn, org_id=1, scope="org:1", recipients={1: {"email"}},
+                                                     alert_type="print_failed", severity="critical", title="t") == 0
+        assert deferred_deliveries.pending_for_window(conn, "org:1", None, None) == []
+
+
+def system_quiet_hours(db, start, end):
+    from modules.notifications import quiet_hours
+    for key, value in [('quiet_hours_enabled', 'true'), ('quiet_hours_start', start), ('quiet_hours_end', end)]:
+        db.execute(text('DELETE FROM system_config WHERE key=:k'), {'k': key})
+        db.execute(text('INSERT INTO system_config(key,value) VALUES(:k,:v)'), {'k': key, 'v': value})
+    db.commit()
+    quiet_hours.invalidate_cache()
+
+
+@pytest.mark.parametrize("path", ["orm", "daemon"])
+def test_org_alert_suppressed_by_system_quiet_hours_is_digested_by_the_system_digest(
+        admin_api, notif_env, deferral_table, smtp_peer, monkeypatch, path):
+    """Review M1: org 1 has no quiet hours of its own, so system quiet hours suppress its printer's
+    alert. The deferral records scope 'system' and the system digest delivers it exactly once;
+    the in-app recipient's digest (inherited gap) is delivered by the same system digest."""
+    from modules.notifications import quiet_hours
+    base, start, end = window()
+    system_quiet_hours(notif_env, start, end)
+    configure_smtp(admin_api, smtp_peer)
+    prefs(notif_env, 1, "print_failed", in_app=False, email=True)   # email-only -> deferred row
+    prefs(notif_env, 3, "print_failed", in_app=True, email=True)    # in-app row -> alerts table
+    dispatch_printer(path, 9, notif_env)
+    assert smtp_peer.messages == []
+    rows = _rows(deferral_table)
+    assert [(r["user_id"], r["org_id"], r["scope_key"]) for r in rows] == [(1, 1, "system")]
+    move_quiet_clock(monkeypatch, base + timedelta(minutes=35))
+    quiet_hours.invalidate_cache()
+    run_digest(notif_env)
+    messages = smtp_peer.wait(2)
+    assert sorted(m["To"] for m in messages) == ["admin@example.test", "student@example.test"]
+    assert _rows(deferral_table)[0]["state"] == "sent"
+    run_digest(notif_env)
+    assert len(smtp_peer.messages) == 2
+
+
+def test_webhook_digest_lists_each_alert_once_including_alerts_without_in_app_rows(
+        org_api, notif_env, deferral_table, receiver, synthetic_dns, monkeypatch):
+    """Review M2: two in-app recipients of one alert, plus a second alert nobody receives in-app:
+    the org webhook digest carries each alert exactly once."""
+    base, start, end = window()
+    receiver.status = 204
+    put_org(org_api, 1, quiet_hours_enabled=True, quiet_hours_start=start, quiet_hours_end=end,
+            webhook_url=f"{synthetic_dns}/digest", webhook_type="generic")
+    prefs(notif_env, 1, "print_failed", in_app=True)
+    prefs(notif_env, 3, "print_failed", in_app=True)
+    prefs(notif_env, 1, "print_complete", in_app=False)
+    from core.base import AlertSeverity, AlertType
+    from modules.notifications import alert_dispatch
+    alert_dispatch.dispatch_alert("print_failed", "critical", "Shared failure", "x", printer_id=9)
+    alert_dispatch.dispatch_alert("print_complete", "info", "Nobody in-app", "x", printer_id=9)
+    with notif_env.get_bind().connect() as conn:
+        assert conn.execute(text("SELECT COUNT(*) FROM alerts WHERE title='Nobody in-app'")).scalar_one() == 0
+    move_quiet_clock(monkeypatch, base + timedelta(minutes=35))
+    run_digest(notif_env)
+    request, = receiver.wait(1)
+    body = json.loads(request["body"])
+    assert body["alert_count"] == 2
+    assert sorted(a["title"] for a in body["alerts"]) == ["Nobody in-app", "Shared failure"]
+    assert {r["state"] for r in _rows(deferral_table, channels=("webhook",))} == {"sent"}
+    run_digest(notif_env)
+    assert len(receiver.requests) == 1

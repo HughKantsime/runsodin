@@ -1,9 +1,13 @@
 """Deferred quiet-hours deliveries (migration 032) — table model and shape validation.
 
-One row per (alert, recipient, external channel) that quiet hours suppressed for a
-recipient who has no in-app alert row (in-app alerts are already digested from the
-alerts table). Rows are org-scoped (scope_key 'system' | 'org:<id>'), delivered by
-the quiet-hours digest exactly once, then purged after a retention period.
+Rows record deliveries that quiet hours suppressed, for the digest to deliver once:
+- channel 'email' / 'push': one row per (alert, recipient) for a recipient who has no
+  in-app alert row (in-app alerts are already digested from the alerts table);
+- channel 'webhook': one row per suppressed alert (user_id NULL), so webhook digests
+  carry every alert exactly once, including alerts with no in-app recipients.
+org_id is the alert's owning org (None = unscoped); scope_key is the quiet-hours
+scope that caused the suppression ('system' | 'org:<id>'), which is the digest that
+delivers the row. Sent rows are purged after a retention period.
 
 The table lives on its own MetaData, not core.base.Base: until migration 032 is
 registered (see .claude/specs/post027-migrations.md) the pinned ORM manifest and
@@ -14,14 +18,14 @@ from sqlalchemy import (CheckConstraint, Column, DateTime, Index, Integer, MetaD
                         inspect, text)
 
 TABLE = "quiet_hours_deferred_deliveries"
-CHANNELS = ("email", "push")
+CHANNELS = ("email", "push", "webhook")
 STATES = ("pending", "sent", "failed")
 
 metadata = MetaData()
 deferred_deliveries = Table(
     TABLE, metadata,
     Column("id", String(32), primary_key=True),
-    Column("user_id", Integer, nullable=False),
+    Column("user_id", Integer),
     Column("org_id", Integer),
     Column("scope_key", String(40), nullable=False),
     Column("channel", String(10), nullable=False),
@@ -36,7 +40,8 @@ deferred_deliveries = Table(
     Column("outcome_reason", Text),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")),
     Column("delivered_at", DateTime(timezone=True)),
-    CheckConstraint("channel IN ('email','push')", name="ck_qhdd_channel"),
+    CheckConstraint("channel IN ('email','push','webhook')", name="ck_qhdd_channel"),
+    CheckConstraint("(channel = 'webhook') = (user_id IS NULL)", name="ck_qhdd_recipient"),
     CheckConstraint("state IN ('pending','sent','failed')", name="ck_qhdd_state"),
     CheckConstraint("scope_key = 'system' OR scope_key LIKE 'org:%'", name="ck_qhdd_scope"),
 )
@@ -47,7 +52,7 @@ Index("idx_qhdd_user", deferred_deliveries.c.user_id)
 EXPECTED_COLUMNS = {c.name for c in deferred_deliveries.columns}
 EXPECTED_INDEXES = {"idx_qhdd_scope_state_created": ("scope_key", "state", "created_at"),
                     "idx_qhdd_user": ("user_id",)}
-EXPECTED_CHECKS = {"ck_qhdd_channel", "ck_qhdd_state", "ck_qhdd_scope"}
+EXPECTED_CHECKS = {"ck_qhdd_channel", "ck_qhdd_state", "ck_qhdd_scope", "ck_qhdd_recipient"}
 
 
 def table_present(connection) -> bool:
@@ -66,7 +71,7 @@ def validate(connection) -> None:
     columns = {item["name"]: item for item in inspector.get_columns(TABLE)}
     if set(columns) != EXPECTED_COLUMNS:
         raise MigrationError("Deferred delivery column shape mismatch")
-    for name in ("id", "user_id", "scope_key", "channel", "alert_type", "severity", "title", "state", "created_at"):
+    for name in ("id", "scope_key", "channel", "alert_type", "severity", "title", "state", "created_at"):
         if columns[name]["nullable"]:
             raise MigrationError(f"Deferred delivery column must be NOT NULL: {name}")
     if inspector.get_pk_constraint(TABLE).get("constrained_columns") != ["id"]:

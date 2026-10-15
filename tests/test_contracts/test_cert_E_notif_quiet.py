@@ -204,7 +204,8 @@ def test_org_digest_webhook_combined_payload_with_plaintext_url(org_api, notif_e
     request, = receiver.wait(1)
     body = json.loads(request['body'])
     assert body['event'] == 'quiet_hours_digest' and body['org'] == 'school'
-    assert body['alert_count'] == 2 and body['truncated'] is False  # one combined dispatch for both users' alerts
+    # One combined dispatch; the alert appears once although two users hold an in-app row for it (review M2).
+    assert body['alert_count'] == 1 and body['truncated'] is False
     assert {a['title'] for a in body['alerts']} == {'Synthetic failure on 9'}
     assert len(receiver.requests) == 1
     with notif_env.get_bind().connect() as conn:

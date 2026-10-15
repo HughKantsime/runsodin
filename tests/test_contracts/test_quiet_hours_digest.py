@@ -196,7 +196,10 @@ class TestDigestDriver:
         poll re-sent the same digest webhook for the duration of the
         next quiet period."""
         src = REPORT_RUNNER.read_text()
+        # The driver delegates webhook routing to _deliver_webhook_digests.
         fn = _get_function_source(src, "process_quiet_hours_digest")
+        assert "_deliver_webhook_digests(" in fn
+        fn = _get_function_source(src, "_deliver_webhook_digests")
         assert "_claim_org_webhook_send" in fn, (
             "Org webhook digest must go through _claim_org_webhook_send() "
             "for idempotency. Without it, every 60s poll re-fires the "

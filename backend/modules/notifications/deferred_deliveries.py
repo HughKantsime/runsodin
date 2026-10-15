@@ -23,10 +23,6 @@ SENT_RETENTION_DAYS = 7
 UNSENT_RETENTION_DAYS = 30
 
 
-def scope_key(org_id):
-    return "system" if org_id is None else f"org:{int(org_id)}"
-
-
 def _bind(executor):
     return executor.get_bind() if hasattr(executor, "get_bind") else executor
 
@@ -39,39 +35,67 @@ def available(executor) -> bool:
         return False
 
 
-def record_suppressed(executor, *, org_id, recipients, alert_type, severity, title, message=None,
-                      printer_id=None, job_id=None, spool_id=None) -> int:
-    """Record one row per (user, channel) in ``recipients`` ({user_id: {'email','push'}})."""
-    if not recipients or not available(executor):
+def webhook_destination_exists(executor, org_id, alert_type) -> bool:
+    """Whether a suppressed alert would have reached any webhook in real time:
+    its org's settings webhook (org-owned) or a selecting global webhook (unscoped)."""
+    import json
+    if org_id is not None:
+        raw = executor.execute(text("SELECT settings_json FROM groups WHERE id=:id"), {"id": org_id}).scalar()
+        try:
+            settings = json.loads(raw) if isinstance(raw, str) else (raw or {})
+        except ValueError:
+            return False
+        return bool(isinstance(settings, dict) and settings.get("webhook_url"))
+    from modules.notifications.event_selection import selects_event
+    hooks = executor.execute(text("SELECT alert_types FROM webhooks WHERE is_enabled IS TRUE")).scalars().all()
+    return any(selects_event(selection, str(alert_type).lower()) for selection in hooks)
+
+
+def record_suppressed(executor, *, org_id, scope, recipients, alert_type, severity, title, message=None,
+                      printer_id=None, job_id=None, spool_id=None, webhook=True) -> int:
+    """Record suppressed deliveries of one alert.
+
+    ``scope`` is the quiet-hours scope that caused the suppression ('system' or
+    'org:<id>', see quiet_hours.governing_scope); the matching digest delivers the
+    rows. ``recipients`` maps user_id -> {'email','push'} for recipients without an
+    in-app row; ``webhook`` adds the one per-alert webhook row.
+    """
+    if not available(executor):
         return 0
+    base = {"org_id": org_id, "scope": scope, "atype": str(alert_type).lower(), "sev": str(severity).lower(),
+            "title": title, "msg": message, "pid": printer_id, "jid": job_id, "sid": spool_id}
     rows = []
-    for user_id, channels in sorted(recipients.items()):
-        for channel in sorted(set(channels) & set(CHANNELS)):
-            rows.append({"id": uuid.uuid4().hex, "user_id": int(user_id), "org_id": org_id,
-                         "scope": scope_key(org_id), "channel": channel, "atype": str(alert_type).lower(),
-                         "sev": str(severity).lower(), "title": title, "msg": message,
-                         "pid": printer_id, "jid": job_id, "sid": spool_id})
+    for user_id, channels in sorted((recipients or {}).items()):
+        for channel in sorted(set(channels) & {"email", "push"}):
+            rows.append({**base, "id": uuid.uuid4().hex, "user_id": int(user_id), "channel": channel})
+    if webhook:
+        rows.append({**base, "id": uuid.uuid4().hex, "user_id": None, "channel": "webhook"})
     for row in rows:
         executor.execute(text(
             f"INSERT INTO {TABLE}(id,user_id,org_id,scope_key,channel,alert_type,severity,title,message,"
             "printer_id,job_id,spool_id,state) VALUES(:id,:user_id,:org_id,:scope,:channel,:atype,:sev,:title,"
             ":msg,:pid,:jid,:sid,'pending')"), row)
     if rows:
-        log.info("Quiet hours deferred %s external deliveries for later digest", len(rows))
+        log.info("Quiet hours deferred %s deliveries (%s) for the digest", len(rows), scope)
     return len(rows)
 
 
-def pending_for_window(executor, org_id, window_start, window_end) -> list:
-    """Pending rows of one scope created inside the window, as alert-shaped dicts."""
+def pending_for_window(executor, scope, window_start, window_end, channels=("email", "push")) -> list:
+    """Pending rows recorded under ``scope`` inside the window, as alert-shaped dicts."""
     if not available(executor):
         return []
     dialect = _bind(executor).dialect.name
     predicate = ("datetime(created_at)>=datetime(:start) AND datetime(created_at)<datetime(:end)"
                  if dialect == "sqlite" else "created_at>=:start AND created_at<:end")
+    wanted = [c for c in channels if c in CHANNELS]
+    if not wanted:
+        return []
+    channel_list = ",".join(f"'{c}'" for c in wanted)  # literals from the fixed CHANNELS tuple
     rows = executor.execute(text(
-        f"SELECT id,user_id,channel,alert_type,severity,title,message,printer_id,job_id,spool_id,created_at "
-        f"FROM {TABLE} WHERE scope_key=:scope AND state='pending' AND {predicate} ORDER BY created_at, id"),
-        {"scope": scope_key(org_id), "start": _sqlite_stamp(window_start, dialect),
+        f"SELECT id,user_id,org_id,channel,alert_type,severity,title,message,printer_id,job_id,spool_id,created_at "
+        f"FROM {TABLE} WHERE scope_key=:scope AND state='pending' AND channel IN ({channel_list}) AND {predicate} "
+        "ORDER BY created_at, id"),
+        {"scope": scope, "start": _sqlite_stamp(window_start, dialect),
          "end": _sqlite_stamp(window_end, dialect)}).mappings().all()
     return [dict(row) for row in rows]
 
