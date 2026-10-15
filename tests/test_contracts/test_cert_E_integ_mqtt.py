@@ -128,8 +128,8 @@ def test_printer_status_and_print_lifecycle_reach_external_broker_from_real_capt
     replay(sock, clock, load_frames("bambu-a1-happy-path"))
     messages = sub.flush(module)
     status = [p for t, p, _ in messages if t == f"{PREFIX}/cert_bambu/status"]
-    # Lifecycle events carry no printer_name, so the handler falls back to printer_<id>.
-    jobs = [p for t, p, _ in messages if t == f"{PREFIX}/printer_301/job"]
+    # Lifecycle is published under the printer's own topic name, like its status.
+    jobs = [p for t, p, _ in messages if t == f"{PREFIX}/cert_bambu/job"]
     assert status, _topics(messages)[:20]
     assert all(p["printer_id"] == 301 and p["name"] == "Cert Bambu" for p in status)
     assert {"bed_temp", "nozzle_temp", "state", "progress"} <= set(status[-1])
@@ -144,12 +144,6 @@ def test_printer_status_and_print_lifecycle_reach_external_broker_from_real_capt
     assert review_db.execute(text("SELECT status FROM print_jobs WHERE printer_id=301")).scalars().all() == ["completed"]
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "DEFECT: backend/modules/notifications/mqtt_republish.py:404 _on_job_event derives the topic from "
-    "event.data['printer_name'], which no production JOB_STARTED/JOB_COMPLETED publisher sets "
-    "(core/dispatch_observations.py:180, core/committed_terminal_events.py:12); a real Bambu "
-    "print publishes status on {prefix}/cert_bambu/status but lifecycle on {prefix}/printer_301/job, so a "
-    "consumer subscribed to {prefix}/<printer>/# never sees that printer's print lifecycle"))
 def test_print_lifecycle_uses_the_same_printer_topic_as_status(bridged_monitor, review_db):
     monitor, sock, clock, module, sub = bridged_monitor
     replay(sock, clock, load_frames("bambu-a1-happy-path"))

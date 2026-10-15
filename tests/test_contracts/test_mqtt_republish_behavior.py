@@ -57,8 +57,10 @@ def test_configuration_invalidation_stops_and_disconnects_previous_client(config
 
 @pytest.mark.parametrize('event,suffix',[
     ('printer.state_changed','printer_9/status'),('printer.connected','printer_9/status'),
-    ('printer.disconnected','printer_9/status'),('job.started','printer_9/job'),
-    ('job.completed','printer_9/job'),('job.failed','printer_9/job'),
+    # Job events carry no printer_name; the topic uses printers.name (P1S-09), the name
+    # monitors publish status under (F14-14.1-02), not a printer_<id> fallback.
+    ('printer.disconnected','printer_9/status'),('job.started','p1s-09/job'),
+    ('job.completed','p1s-09/job'),('job.failed','p1s-09/job'),
     ('notifications.alert_dispatched','alerts'),
 ])
 def test_registered_production_event_bus_handlers_publish_once(configured,monkeypatch,event,suffix):
