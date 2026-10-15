@@ -362,7 +362,9 @@ class TestValidLicense:
         assert info.valid is True
         assert info.tier == "enterprise"
         assert "audit_export" in info.features
-        assert "opcua" in info.features
+        assert "mqtt_republish" in info.features
+        # Unimplemented, never-advertised flag names are not entitlements (2026-10-15 decision).
+        assert not {"opcua", "sqlcipher"} & set(info.features)
 
     def test_custom_limits_override_tier(self, tmp_path, keypair):
         license_str, pub_pem = self._make_valid(

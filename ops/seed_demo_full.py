@@ -87,8 +87,8 @@ def generate_license():
             "quiet_hours", "energy_tracking", "utilization_report",
             "maintenance", "ntfy", "telegram", "email_notifications",
             "push_notifications", "job_approval", "class_sections",
-            "print_quotas", "usage_reports", "opcua", "audit_export",
-            "sqlcipher", "custom_integration",
+            "print_quotas", "usage_reports", "audit_export",
+            "custom_integration",
         ],
     }
 

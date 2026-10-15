@@ -83,7 +83,7 @@ TIERS = {
             "maintenance", "care_counters",
             "job_approval", "user_groups", "print_quotas", "usage_reports",
             "education_workflows",
-            "opcua", "mqtt_republish", "audit_export", "sqlcipher",
+            "mqtt_republish", "audit_export",
         ],
     },
 }

@@ -204,7 +204,7 @@ def test_portal_null_feature_list_means_tier_default(owned_import, tier):
     assert info.has_feature('usage_reports')
 
 
-@pytest.mark.parametrize('features', ['opcua', {'opcua': True}, [1, 2], ['opcua', None]])
+@pytest.mark.parametrize('features', ['audit_export', {'audit_export': True}, [1, 2], ['audit_export', None]])
 def test_malformed_feature_list_is_rejected_and_installed_license_kept(owned_import, features):
     upload,path,signed,audit,db,lm,sign=owned_import
     with pytest.raises(HTTPException) as exc:
