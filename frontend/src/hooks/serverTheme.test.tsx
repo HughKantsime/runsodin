@@ -63,3 +63,22 @@ it('a toggle is saved to the account, keeping the other stored preferences', asy
   expect(JSON.parse(init.body)).toEqual({ accent_color: '#0ea5e9', sidebar_style: 'light', background: 'default', mode: 'light' })
   expect(document.documentElement.classList.contains('light')).toBe(true)
 })
+
+it('a toggle made while the account theme is still loading is not overridden by it', async () => {
+  serverTheme = { accent_color: '#6366f1', sidebar_style: 'dark', background: 'default', mode: 'dark' }
+  let release: () => void = () => {}
+  const gate = new Promise<void>(r => { release = r })
+  const inner = transport.getMockImplementation()!
+  transport.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (!init?.method || init.method === 'GET') await gate
+    return inner(url, init)
+  })
+  render(<ThemeToggle />)
+  fireEvent.click(screen.getByRole('button', { name: 'Switch to light mode' }))
+  expect(document.documentElement.classList.contains('light')).toBe(true)
+  release()
+  await waitFor(() => expect(transport.mock.calls.some(([, i]) => i?.method === 'PUT')).toBe(true))
+  await new Promise(r => setTimeout(r, 20))
+  expect(document.documentElement.classList.contains('light')).toBe(true)
+  expect(localStorage.getItem('odin-theme')).toBe('light')
+})

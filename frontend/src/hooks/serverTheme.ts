@@ -26,6 +26,8 @@ const HEX = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
 
 let current: ServerTheme | null = null
 let loading: Promise<ServerTheme | null> | null = null
+// A choice made on this device while the account copy is still loading wins.
+let localChoiceMade = false
 
 export function applyUserAccent(theme: ServerTheme | null) {
   const root = document.documentElement
@@ -53,7 +55,7 @@ export function loadServerTheme(): Promise<ServerTheme | null> {
         if (!theme || typeof theme !== 'object') return null
         current = theme
         applyUserAccent(theme)
-        applyMode(theme.mode)
+        if (!localChoiceMade) applyMode(theme.mode)
         return theme
       })
       .catch(() => { loading = null; return null })
@@ -63,6 +65,7 @@ export function loadServerTheme(): Promise<ServerTheme | null> {
 
 /** Persist a light/dark choice to the account, keeping the other preferences. */
 export async function saveServerMode(mode: ThemeMode): Promise<void> {
+  localChoiceMade = true
   const base = (await loadServerTheme()) ?? current ?? {}
   const next: ServerTheme = { ...base, mode }
   try {
@@ -73,4 +76,4 @@ export async function saveServerMode(mode: ThemeMode): Promise<void> {
 }
 
 /** Test seam: forget the per-page-load cache. */
-export function resetServerThemeForTests() { current = null; loading = null }
+export function resetServerThemeForTests() { current = null; loading = null; localChoiceMade = false }
