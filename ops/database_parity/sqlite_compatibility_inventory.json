@@ -2234,11 +2234,19 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 9,
+      "line": 16,
       "path": "backend/modules/system/sanitize.py",
       "pattern": "qmark-parameter",
       "reason": "Secret-filter regular expressions contain question marks; this utility executes no SQL",
-      "source": "re.compile(r'''(?ix)[\"']?\\b(?:[a-z0-9]+[_-])*(?:password|passwd|access[_-]?code|api[_-]?key|token|secret|credential|cookie|serial(?:_number)?)\\b[\"']?\\s*[:=]\\s*(?:\"[^\"\\n]*\"|'[^'\\n]*'|[^\\s,;}]+)'''),"
+      "source": "re.compile(r\"\"\"(?ix)[\"']?(?<![A-Za-z0-9])"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 27,
+      "path": "backend/modules/system/sanitize.py",
+      "pattern": "qmark-parameter",
+      "reason": "Secret-filter regular expressions contain question marks; this utility executes no SQL",
+      "source": "r'|(?=[0-9A-Fa-f:]*[0-9A-Fa-f]{3})(?:' + _HEX4 + r':){0,6}(?:' + _HEX4 + r')?::(?:' + _HEX4 + r':){0,6}(?:' + _HEX4 + r')?)'"
     },
     {
       "classification": "sqlite-provider-only",

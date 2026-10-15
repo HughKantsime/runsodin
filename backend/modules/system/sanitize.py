@@ -1,18 +1,30 @@
 """Bounded log filtering. Users must still review arbitrary free-form text."""
 import re
 
+_HEX4 = r'[0-9A-Fa-f]{1,4}'
 _PATTERNS = [
     re.compile(r'eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+'),
     re.compile(r'odin_[A-Za-z0-9]+'),
     re.compile(r"(?i)[\"']?\b(?:authorization|proxy-authorization)[\"']?\s*[:=]\s*[\"']?(?:bearer|basic)?\s*[^\s,;\"']+"),
-    # Secret labels, also with snake/kebab-case prefixes (smtp_password, mqtt-api-key).
-    re.compile(r'''(?ix)["']?\b(?:[a-z0-9]+[_-])*(?:password|passwd|access[_-]?code|api[_-]?key|token|secret|credential|cookie|serial(?:_number)?)\b["']?\s*[:=]\s*(?:"[^"\n]*"|'[^'\n]*'|[^\s,;}]+)'''),
+    # Bearer tokens anywhere in a line, not only after an Authorization label.
+    re.compile(r'(?i)\bbearer\s+[A-Za-z0-9._~+/=-]+'),
+    # Credentials in any scheme://user:pass@ URL (postgresql, mysql+driver, mqtt(s), redis, amqp, http, rtsp, ...).
+    re.compile(r'(?i)\b[a-z][a-z0-9+.-]*://[^\s/@:]*:[^\s/@]+@'),
+    # Secret labels and env-style assignments: anything containing secret/password/passwd/token,
+    # *_KEY (api_key, AWS_SECRET_ACCESS_KEY, ENCRYPTION_KEY), *_PASS / PASS, pw / pwd, access codes,
+    # credentials, cookies and serials; snake/kebab-case prefixes included (smtp_password).
+    re.compile(r"""(?ix)["']?(?<![A-Za-z0-9])
+        (?:[A-Za-z0-9_-]*(?:secret|password|passwd|token|credential)[A-Za-z0-9_-]*
+          |(?:[A-Za-z0-9]+[_-])+key|api[_-]?key
+          |(?:[A-Za-z0-9]+[_-])*pass|pw|pwd
+          |(?:[A-Za-z0-9]+[_-])*(?:access[_-]?code|cookie|serial(?:_number)?))
+        (?![A-Za-z0-9])["']?\s*[:=]\s*(?:"[^"\n]*"|'[^'\n]*'|[^\s,;}]+)"""),
     re.compile(r'(?i)\b(?:PASS|USER)\s+[^\s]+'),
-    re.compile(r'(?i)(?:https?|rtsp|ftp)s?://[^\s/@]+:[^\s/@]+@'),
     re.compile(r'\b\d{1,3}(?:\.\d{1,3}){3}\b'),
-    # IPv6: full 8-group form or any "::"-compressed form (never hh:mm:ss times).
-    re.compile(r'(?<![0-9A-Za-z:.])(?:(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}'
-               r'|(?:[0-9A-Fa-f]{1,4}:){0,6}[0-9A-Fa-f]{0,4}::(?:[0-9A-Fa-f]{1,4}:){0,6}[0-9A-Fa-f]{0,4})'
+    # IPv6: full 8-group form, or a ::-compressed form that carries at least one
+    # 3-4 digit group (fe80::1, fd00:abcd:12::41) -- never a::b, 1:: or hh:mm:ss.
+    re.compile(r'(?<![0-9A-Za-z:.])(?:(?:' + _HEX4 + r':){7}' + _HEX4 +
+               r'|(?=[0-9A-Fa-f:]*[0-9A-Fa-f]{3})(?:' + _HEX4 + r':){0,6}(?:' + _HEX4 + r')?::(?:' + _HEX4 + r':){0,6}(?:' + _HEX4 + r')?)'
                r'(?:%[0-9A-Za-z]+)?(?![0-9A-Za-z:])'),
     re.compile(r'(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b'),
 ]
