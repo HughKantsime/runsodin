@@ -167,3 +167,31 @@ def test_delete_clears_the_attempt_marker_so_a_reused_id_charges(farm):
     assert client.post(f"/jobs/{jid2}/start").status_code == 200
     assert client.post(f"/jobs/{jid2}/complete").status_code == 200
     assert usage()[0] == 80  # the reused id does not inherit the deleted job's marker
+
+
+def test_complete_fail_complete_correction_charges_once(farm):
+    # Security review round-4 MED: a status correction (complete -> fail -> complete)
+    # is the SAME physical print attempt, not a reprint, so it charges exactly once.
+    client, new_job, monitor_completes, usage, status = farm
+    jid = new_job()
+    assert client.post(f"/jobs/{jid}/start").status_code == 200
+    assert client.post(f"/jobs/{jid}/complete").status_code == 200
+    assert usage()[0] == 40
+    assert client.post(f"/jobs/{jid}/fail").status_code == 200
+    assert client.post(f"/jobs/{jid}/complete").status_code == 200
+    assert status(jid) == "completed"
+    assert usage()[0] == 40  # correction, still one charge for the one attempt
+
+
+def test_correction_then_reset_reprint_charges_twice_total(farm):
+    client, new_job, monitor_completes, usage, status = farm
+    jid = new_job()
+    assert client.post(f"/jobs/{jid}/start").status_code == 200
+    assert client.post(f"/jobs/{jid}/complete").status_code == 200
+    assert client.post(f"/jobs/{jid}/fail").status_code == 200
+    assert client.post(f"/jobs/{jid}/complete").status_code == 200
+    assert usage()[0] == 40                       # one attempt, one charge
+    assert client.post(f"/jobs/{jid}/reset").status_code == 200
+    assert client.post(f"/jobs/{jid}/start").status_code == 200
+    assert client.post(f"/jobs/{jid}/complete").status_code == 200
+    assert usage()[0] == 80                        # reset = new attempt = second charge

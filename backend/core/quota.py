@@ -176,9 +176,42 @@ def _as_datetime(value):
 QUOTA_ATTEMPT_PREFIX = "quota_attempt:"
 
 
+def _attempt_seq(run, job_id):
+    """The job's print-attempt counter (0 unless a reset has bumped it)."""
+    row = run("SELECT value FROM system_config WHERE key = :k",
+              {"k": f"{QUOTA_ATTEMPT_PREFIX}seq:{int(job_id)}"}).fetchone()
+    if not row:
+        return 0
+    value = row[0]
+    if isinstance(value, (bytes, bytearray)):
+        value = value.decode("utf-8", "replace")
+    try:
+        return int(str(value).strip().strip('"'))
+    except (TypeError, ValueError):
+        return 0
+
+
+def bump_print_attempt(run, job_id) -> None:
+    """A reset starts a new physical print attempt, so the next completion charges again."""
+    seq = _attempt_seq(run, job_id) + 1
+    key = f"{QUOTA_ATTEMPT_PREFIX}seq:{int(job_id)}"
+    run("DELETE FROM system_config WHERE key = :k", {"k": key})
+    run("INSERT INTO system_config (key, value) VALUES (:k, :v)", {"k": key, "v": str(seq)})
+
+
 def clear_print_consumption_markers(run, job_id) -> None:
-    run("DELETE FROM system_config WHERE key LIKE :pat",
-        {"pat": f"{QUOTA_ATTEMPT_PREFIX}job:{int(job_id)}:%"})
+    """Drop a job's attempt counter and its manual charge markers (on delete/reset).
+
+    Also drop the monitor charge markers for the job's observed prints, so a
+    deleted job leaves nothing behind and SQLite id reuse is safe.
+    """
+    run("DELETE FROM system_config WHERE key LIKE :a OR key = :b",
+        {"a": f"{QUOTA_ATTEMPT_PREFIX}job:{int(job_id)}:%",
+         "b": f"{QUOTA_ATTEMPT_PREFIX}seq:{int(job_id)}"})
+    rows = run("SELECT id FROM print_jobs WHERE scheduled_job_id = :jid", {"jid": job_id}).fetchall()
+    for r in rows:
+        run("DELETE FROM system_config WHERE key = :k",
+            {"k": f"{QUOTA_ATTEMPT_PREFIX}print:{int(r[0])}"})
 
 
 def record_print_consumption(run, job_id, *, grams=None, measured_hours=None, attempt_key=None, now=None) -> None:
@@ -195,7 +228,7 @@ def record_print_consumption(run, job_id, *, grams=None, measured_hours=None, at
               "FROM jobs WHERE id = :jid", {"jid": job_id}).fetchone()
     if not job or job[0] is None:
         return
-    marker = QUOTA_ATTEMPT_PREFIX + (attempt_key or f"job:{int(job_id)}:{job[3]}")
+    marker = QUOTA_ATTEMPT_PREFIX + (attempt_key or f"job:{int(job_id)}:{_attempt_seq(run, job_id)}")
     if run(f"{_insert_ignore()} system_config (key, value) VALUES (:k, :v){_on_conflict_ignore()}",
            {"k": marker, "v": "true"}).rowcount != 1:
         return
