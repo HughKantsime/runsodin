@@ -8,7 +8,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel as PydanticBaseModel
+from pydantic import BaseModel as PydanticBaseModel, field_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -81,6 +81,18 @@ class SetupAdminRequest(PydanticBaseModel):
     email: str
     password: str
     role: str = "admin"
+    # Farm name from the wizard; saved as the branding app name (GET /api/branding).
+    site_name: Optional[str] = None
+
+    @field_validator("site_name")
+    @classmethod
+    def _validate_site_name(cls, value):
+        if value is None:
+            return None
+        value = value.strip()
+        if len(value) > 100 or any(ord(c) < 32 or ord(c) == 127 for c in value):
+            raise ValueError("Farm name must be at most 100 printable characters")
+        return value or None
 
 
 class SetupPrinterRequest(PydanticBaseModel):
@@ -187,6 +199,14 @@ def setup_create_admin(request: SetupAdminRequest, http_request: Request, db: Se
     if stage_session(db, user_id, access_token, client_ip, http_request.headers.get("user-agent", "")) is not True:
         db.rollback()
         raise HTTPException(status_code=503, detail="Setup temporarily unavailable. Try again later.")
+    if request.site_name:
+        # Same transaction as the account: the farm name becomes the branding app name.
+        from modules.organizations.branding import Branding
+        branding = db.query(Branding).filter(Branding.id == 1).first()
+        if branding is None:
+            branding = Branding(id=1)
+            db.add(branding)
+        branding.app_name = request.site_name
     db.commit()
     return {"access_token": access_token, "token_type": "bearer"}
 
