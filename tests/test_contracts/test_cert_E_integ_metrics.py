@@ -73,23 +73,32 @@ def test_live_bambu_temperatures_and_fleet_state_are_exposed(wire_monitor, scrap
     assert _samples(families, "odin_printer_print_count_total", 301)
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "DEFECT: backend/modules/system/routes_config.py:436 reads printers.print_progress, a column the "
-    "printers table does not have (progress lives on print_jobs.progress_percent); a printer RUNNING at "
-    ">=10% per its live report never emits odin_printer_progress, although HELP/TYPE advertise it"))
 def test_live_print_progress_is_exposed(wire_monitor, scrape, review_db):
     monitor, sock, clock, _ = wire_monitor
     frames, expected = _frames_running()
-    replay(sock, clock, frames)
+    # The monitor persists progress at most every 5 s; the printer's next periodic
+    # report (same state, 6 s later) lands it, as on real hardware.
+    last_ts = frames[-1][0]
+    replay(sock, clock, frames + [(last_ts + 6, {"print": {"command": "push_status", "msg": 1, "sequence_id": "cert-e"}})])
     _, families = scrape()
     progress = _samples(families, "odin_printer_progress", 301)
     assert [s.value for s in progress] == [expected]
 
 
-def test_printers_table_has_no_print_progress_column(review_db):
-    """Supports the DEFECT above with the real bootstrapped schema."""
+def test_print_progress_comes_from_the_running_print_job(review_db, scrape):
+    """printers has no progress column; the gauge reads the running print_jobs row and
+    disappears once the job is no longer running."""
     cols = {r[1] for r in review_db.execute(text("PRAGMA table_info(printers)"))}
-    assert "print_progress" not in cols and {"nozzle_temp", "bed_temp"} <= cols
+    assert "print_progress" not in cols
+    review_db.execute(text("INSERT INTO print_jobs(id,printer_id,job_id,filename,status,started_at,progress_percent) "
+                           "VALUES(9101,9,'cert-9101','p.3mf','running','2026-10-12 10:00:00',42.5)"))
+    review_db.commit()
+    _, families = scrape()
+    assert [s.value for s in _samples(families, "odin_printer_progress", 9)] == [42.5]
+    review_db.execute(text("UPDATE print_jobs SET status='completed' WHERE id=9101"))
+    review_db.commit()
+    _, families = scrape()
+    assert _samples(families, "odin_printer_progress", 9) == []
 
 
 EXPECTED_FAMILIES = {
@@ -98,11 +107,12 @@ EXPECTED_FAMILIES = {
     "odin_printer_progress", "odin_printer_print_hours", "odin_printer_print_count",
     "odin_jobs_by_status", "odin_queue_depth", "odin_spools_total", "odin_spools_low",
     "odin_orders_by_status", "odin_alerts_unread",
+    "odin_database_up", "odin_build_info", "odin_process_uptime_seconds",
 }
 
 
-def test_exposition_family_inventory_has_no_system_health_metrics(scrape, review_db):
-    """'System health' is not exposed: no process/DB/monitor/uptime/version family exists."""
+def test_exposition_family_inventory_includes_system_health_metrics(scrape, review_db):
+    """System health families: database reachability, running build, process uptime."""
     review_db.execute(text("INSERT INTO jobs(item_name,status) VALUES('Synthetic metrics job','pending')"))
     review_db.commit()
     _, families = scrape()
@@ -110,8 +120,10 @@ def test_exposition_family_inventory_has_no_system_health_metrics(scrape, review
     expected = {n.removesuffix("_total") for n in EXPECTED_FAMILIES}
     assert names == expected, names ^ expected
     assert _samples(families, "odin_jobs_by_status")
-    health_words = ("up", "health", "uptime", "database", "db_", "process", "monitor", "version", "build_info")
-    assert not [n for n in names if any(w in n.removeprefix("odin_") for w in health_words)]
+    assert [s.value for s in _samples(families, "odin_database_up")] == [1]
+    build, = _samples(families, "odin_build_info")
+    assert build.value == 1 and build.labels["version"] == (ROOT / "VERSION").read_text().strip()
+    assert _samples(families, "odin_process_uptime_seconds")[0].value >= 0
 
 
 PROBE = textwrap.dedent('''
