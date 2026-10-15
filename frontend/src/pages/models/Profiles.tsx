@@ -6,6 +6,7 @@ import { SlidersHorizontal, Upload, Plus, Download, Play, Trash2, Pencil, Loader
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import ProfileHistory from './ProfileHistory'
 import { canDo, getCurrentUser } from '../../permissions'
+import { DialogSurface } from '../../components/ui'
 
 const SLICER_TABS = [
   { key: '', label: 'All' },
@@ -297,19 +298,19 @@ export default function Profiles({ filterPrinterId, filterSlicer } = {}) {
 
       {historyProfile && <ProfileHistory key={historyProfile.id} profile={historyProfile} canEdit={!!canManageProfiles && (currentUser?.role === 'admin' || historyProfile.created_by === currentUser?.id)} onClose={() => setHistoryProfile(null)} />}
 
-      {tagProfile && <div role="dialog" aria-modal="true" aria-label={`Edit tags for ${tagProfile.name}`} className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+      {tagProfile && <DialogSurface role="dialog" aria-modal="true" aria-label={`Edit tags for ${tagProfile.name}`} className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
         <form onSubmit={e => { e.preventDefault(); tagsMutation.mutate({ id: tagProfile.id, tags }) }} className="bg-[var(--brand-card-bg)] rounded-xl p-6 max-w-md w-full">
           <h3 className="text-lg mb-4">Edit profile tags</h3>
           <label className="block">Tags<input value={tags} onChange={e => setTags(e.target.value)} className="block w-full bg-[var(--brand-input-bg)] border rounded-md p-2 mt-2" /></label>
           <p className="text-xs mt-2">Separate tags with commas. Clear the field to remove all tags.</p>
           <div className="flex justify-end gap-2 mt-4"><button type="button" disabled={tagsMutation.isPending} onClick={() => setTagProfile(null)}>Cancel</button><button type="submit" disabled={tagsMutation.isPending}>{tagsMutation.isPending ? 'Saving...' : 'Save tags'}</button></div>
         </form>
-      </div>}
+      </DialogSurface>}
 
       {/* Apply modal */}
       {applyProfile && (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setApplyProfile(null)}>
-          <div role="dialog" aria-modal="true" aria-labelledby="apply-profile-modal-title" className="bg-[var(--brand-card-bg)] rounded-xl border border-[var(--brand-card-border)] p-6 max-w-md w-full" onClick={e => e.stopPropagation()}>
+          <DialogSurface role="dialog" aria-modal="true" aria-labelledby="apply-profile-modal-title" className="bg-[var(--brand-card-bg)] rounded-xl border border-[var(--brand-card-border)] p-6 max-w-md w-full" onClick={e => e.stopPropagation()}>
             <h3 id="apply-profile-modal-title" className="text-lg font-medium mb-4">Apply "{applyProfile.name}"</h3>
             <p className="text-sm text-[var(--brand-muted)] mb-4">Select a Klipper printer. This sends GCode immediately.</p>
             <select
@@ -333,7 +334,7 @@ export default function Profiles({ filterPrinterId, filterSlicer } = {}) {
                 {applyMutation.isPending ? 'Applying...' : 'Apply'}
               </button>
             </div>
-          </div>
+          </DialogSurface>
         </div>
       )}
 

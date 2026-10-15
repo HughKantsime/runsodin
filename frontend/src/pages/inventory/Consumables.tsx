@@ -7,6 +7,7 @@ import { consumables } from '../../api'
 import { canDo } from '../../permissions'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import { EmptyState } from '../../components/ui'
+import { DialogSurface } from '../../components/ui'
 
 const UNIT_OPTIONS = ['piece', 'gram', 'ml', 'meter', 'pack', 'box', 'sheet']
 
@@ -250,7 +251,7 @@ export default function Consumables() {
       {/* Create/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div role="dialog" aria-modal="true" aria-labelledby="consumable-modal-title" className="rounded-md p-6 w-full max-w-md border border-[var(--brand-card-border)]" style={{ background: 'var(--brand-content-bg)' }}>
+          <DialogSurface role="dialog" aria-modal="true" aria-labelledby="consumable-modal-title" className="rounded-md p-6 w-full max-w-md border border-[var(--brand-card-border)]" style={{ background: 'var(--brand-content-bg)' }}>
             <div className="flex items-center justify-between mb-4">
               <h3 id="consumable-modal-title" className="text-lg font-semibold">
                 {editingItem ? 'Edit Consumable' : 'Add Consumable'}
@@ -311,14 +312,14 @@ export default function Consumables() {
                 </button>
               </div>
             </form>
-          </div>
+          </DialogSurface>
         </div>
       )}
 
       {/* Stock Adjustment Modal */}
       {showAdjustModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div role="dialog" aria-modal="true" aria-labelledby="adjust-stock-modal-title" className="rounded-md p-6 w-full max-w-sm border border-[var(--brand-card-border)]" style={{ background: 'var(--brand-content-bg)' }}>
+          <DialogSurface role="dialog" aria-modal="true" aria-labelledby="adjust-stock-modal-title" className="rounded-md p-6 w-full max-w-sm border border-[var(--brand-card-border)]" style={{ background: 'var(--brand-content-bg)' }}>
             <div className="flex items-center justify-between mb-4">
               <h3 id="adjust-stock-modal-title" className="text-lg font-semibold">Adjust Stock</h3>
               <button onClick={() => { setShowAdjustModal(null); setConfirmLargeAdjust(false) }} aria-label="Close adjust stock dialog" className="text-[var(--brand-text-muted)] hover:text-[var(--brand-text-secondary)]"><X size={20} aria-hidden="true" /></button>
@@ -357,7 +358,7 @@ export default function Consumables() {
                 <button type="submit" disabled={adjustMutation.isPending} className="px-4 py-2 bg-[var(--brand-primary)] text-white rounded-md text-sm hover:opacity-90 disabled:opacity-50">Adjust</button>
               </div>
             </form>
-          </div>
+          </DialogSurface>
         </div>
       )}
 

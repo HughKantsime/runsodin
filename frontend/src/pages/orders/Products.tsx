@@ -5,6 +5,7 @@ import { canDo } from '../../permissions'
 import toast from 'react-hot-toast'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import { EmptyState } from '../../components/ui'
+import { DialogSurface } from '../../components/ui'
 
 export default function Products() {
   const [productList, setProductList] = useState([])
@@ -443,7 +444,7 @@ export default function Products() {
       {/* Create/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={closeModal}>
-          <div role="dialog" aria-modal="true" aria-labelledby="product-modal-title" className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <DialogSurface role="dialog" aria-modal="true" aria-labelledby="product-modal-title" className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="p-4 border-b border-[var(--brand-card-border)] flex justify-between items-center">
               <h2 id="product-modal-title" className="text-lg font-semibold text-[var(--brand-text)]">
                 {editingProduct ? 'Edit Product' : 'New Product'}
@@ -561,7 +562,7 @@ export default function Products() {
                 </button>
               </div>
             </form>
-          </div>
+          </DialogSurface>
         </div>
       )}
 

@@ -1,4 +1,5 @@
-import { useEffect, useId, type ReactNode } from 'react'
+import { useEffect, useId, useRef, type ReactNode } from 'react'
+import { useDialogFocus } from '../ui/useDialogFocus'
 import { X } from 'lucide-react'
 
 interface DetailDrawerProps {
@@ -10,14 +11,17 @@ interface DetailDrawerProps {
 
 export default function DetailDrawer({ open, onClose, title, children }: DetailDrawerProps) {
   const titleId = useId()
+  const panelRef = useRef<HTMLDivElement>(null)
+  // Focus moves in on open, is trapped, Escape closes, focus returns on close.
+  useDialogFocus(panelRef, open, onClose)
+  // A closed drawer stays mounted off-screen: inert removes it from the tab
+  // order and the accessibility tree (React 18 has no inert prop).
   useEffect(() => {
-    if (!open) return
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [open, onClose])
+    const panel = panelRef.current
+    if (!panel) return
+    if (open) panel.removeAttribute('inert')
+    else panel.setAttribute('inert', '')
+  }, [open])
 
   return (
     <>
@@ -30,6 +34,7 @@ export default function DetailDrawer({ open, onClose, title, children }: DetailD
 
       {/* Panel */}
       <div
+        ref={panelRef}
         role={open ? 'dialog' : undefined}
         aria-modal={open ? true : undefined}
         aria-labelledby={open ? titleId : undefined}

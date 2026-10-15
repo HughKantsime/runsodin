@@ -9,6 +9,7 @@ import toast from 'react-hot-toast'
 import { maintenance } from '../../api'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import { PageHeader, Button, EmptyState, ProgressBar as SharedProgressBar, TabBar } from '../../components/ui'
+import { DialogSurface } from '../../components/ui'
 
 const STATUS_COLORS = {
   ok: { bg: 'bg-green-500/10', border: 'border-green-500/30', text: 'text-green-400', dot: 'bg-green-400' },
@@ -59,7 +60,7 @@ function LogMaintenanceModal({ printer, task, onClose, onSave, saving }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div role="dialog" aria-modal="true" aria-labelledby="log-maintenance-modal-title" className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md p-6 w-full max-w-md">
+      <DialogSurface role="dialog" aria-modal="true" aria-labelledby="log-maintenance-modal-title" className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md p-6 w-full max-w-md">
         <div className="flex justify-between items-center mb-4">
           <h3 id="log-maintenance-modal-title" className="text-lg font-display font-bold text-[var(--brand-text-primary)]">Log Maintenance</h3>
           <button onClick={onClose} aria-label="Close log maintenance dialog" className="text-[var(--brand-text-secondary)] hover:text-[var(--brand-text-primary)]"><X size={20} aria-hidden="true" /></button>
@@ -105,7 +106,7 @@ function LogMaintenanceModal({ printer, task, onClose, onSave, saving }) {
             {saving ? 'Saving...' : 'Log Service'}
           </button>
         </div>
-      </div>
+      </DialogSurface>
     </div>
   )
 }

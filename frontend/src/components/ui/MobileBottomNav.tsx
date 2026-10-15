@@ -20,6 +20,7 @@ import {
   Eye,
 } from 'lucide-react'
 import clsx from 'clsx'
+import DialogSurface from './DialogSurface'
 
 const PRIMARY_TABS = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -55,7 +56,8 @@ export default function MobileBottomNav() {
       {moreOpen && (
         <div className="fixed inset-0 z-40 md:hidden" onClick={() => setMoreOpen(false)}>
           <div className="absolute inset-0 bg-black/50" />
-          <div
+          <DialogSurface
+            onEscape={() => setMoreOpen(false)}
             role="dialog"
             aria-modal="true"
             aria-label="More navigation"
@@ -87,7 +89,7 @@ export default function MobileBottomNav() {
                 </NavLink>
               ))}
             </div>
-          </div>
+          </DialogSurface>
         </div>
       )}
 

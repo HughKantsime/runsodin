@@ -11,6 +11,7 @@ import BoundedVisionImage from '../../components/vision/BoundedVisionImage'
 import { maintenanceAudience, imageBudget } from '../../components/vision/maintenanceMedia'
 import { formatDate } from '../../utils/shared'
 import { EmptyState } from '../../components/ui'
+import { DialogSurface } from '../../components/ui'
 
 const TYPE_META = {
   spaghetti: { label: 'Spaghetti', color: 'text-red-400', bg: 'bg-red-500/20' },
@@ -58,7 +59,7 @@ function FrameModal({ detection, audience, onClose, onReview, onLabel }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-label={`Detection details: ${TYPE_META[detection.detection_type]?.label || detection.detection_type}`} className="bg-[var(--brand-content-bg)] rounded-xl border border-[var(--brand-card-border)] max-w-3xl w-full mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
+      <DialogSurface role="dialog" aria-modal="true" aria-label={`Detection details: ${TYPE_META[detection.detection_type]?.label || detection.detection_type}`} className="bg-[var(--brand-content-bg)] rounded-xl border border-[var(--brand-card-border)] max-w-3xl w-full mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
         {/* Frame */}
         <div className="relative bg-black aspect-video">
           {detection.frame_path ? (
@@ -121,7 +122,7 @@ function FrameModal({ detection, audience, onClose, onReview, onLabel }) {
           )}
           {canReview && detection.frame_path && <button onClick={() => onLabel(detection.id)} className="rounded border px-3 py-1.5">Label for training</button>}
         </div>
-      </div>
+      </DialogSurface>
     </div>
   )
 }

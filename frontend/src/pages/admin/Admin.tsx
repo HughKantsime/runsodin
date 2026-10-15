@@ -8,6 +8,7 @@ import toast from 'react-hot-toast'
 import type { UserCreateResult } from '../../types'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import UpgradeModal from '../../components/shared/UpgradeModal'
+import { DialogSurface } from '../../components/ui'
 
 const API_BASE = '/api'
 
@@ -41,7 +42,7 @@ function UserModal({ user, groupsList, hasGroups, onClose, onSave }: { user: any
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div role="dialog" aria-modal="true" aria-labelledby="admin-user-modal-title" className="bg-[var(--brand-card-bg)] rounded-t-xl sm:rounded border border-[var(--brand-card-border)] w-full max-w-md p-4 sm:p-6 max-h-[90vh] overflow-y-auto">
+      <DialogSurface role="dialog" aria-modal="true" aria-labelledby="admin-user-modal-title" className="bg-[var(--brand-card-bg)] rounded-t-xl sm:rounded border border-[var(--brand-card-border)] w-full max-w-md p-4 sm:p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-4 md:mb-6">
           <h2 id="admin-user-modal-title" className="text-lg md:text-xl font-display font-bold">{user ? 'Edit User' : 'New User'}</h2>
           <button onClick={onClose} aria-label={user ? 'Close edit user dialog' : 'Close new user dialog'} className="text-[var(--brand-text-muted)] hover:text-white"><X size={20} aria-hidden="true" /></button>
@@ -99,7 +100,7 @@ function UserModal({ user, groupsList, hasGroups, onClose, onSave }: { user: any
             <button type="submit" className="flex-1 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)] text-[var(--brand-on-primary)] rounded-md font-medium transition-colors text-sm">{user ? 'Save Changes' : 'Create User'}</button>
           </div>
         </form>
-      </div>
+      </DialogSurface>
     </div>
   )
 }
@@ -161,7 +162,7 @@ function ImportUsersModal({ onClose, onImported }: { onClose: () => void; onImpo
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div role="dialog" aria-modal="true" aria-labelledby="admin-import-modal-title" className="bg-[var(--brand-card-bg)] rounded-t-xl sm:rounded border border-[var(--brand-card-border)] w-full max-w-lg p-4 sm:p-6 max-h-[90vh] overflow-y-auto">
+      <DialogSurface role="dialog" aria-modal="true" aria-labelledby="admin-import-modal-title" className="bg-[var(--brand-card-bg)] rounded-t-xl sm:rounded border border-[var(--brand-card-border)] w-full max-w-lg p-4 sm:p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-4">
           <h2 id="admin-import-modal-title" className="text-lg font-display font-bold flex items-center gap-2">
             <Upload size={18} className="text-[var(--brand-primary)]" />
@@ -267,7 +268,7 @@ function ImportUsersModal({ onClose, onImported }: { onClose: () => void; onImpo
             </button>
           )}
         </div>
-      </div>
+      </DialogSurface>
     </div>
   )
 }
