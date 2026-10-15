@@ -141,9 +141,12 @@ def prepared_archive(archive,target_url,maintenance_url,password_file,maintenanc
     original_sha=b._sha256(archive);original_size=archive.stat().st_size
     name='odin_validate_'+uuid.uuid4().hex[:20]
     _,cli=b._maintenance_urls(maintenance_url,target_url,name)
+    from modules.system import restore_artifacts as artifacts
+    artifacts.sweep_stale(directory,maintenance_url,maintenance_password_file)
     maintenance=create_database_engine(maintenance_url,role='restore',password_file=maintenance_password_file).execution_options(isolation_level='AUTOCOMMIT')
     engine=None;created=False;temporary=[]
     try:
+        artifacts.record(directory,name)
         with maintenance.connect() as c:c.exec_driver_sql('CREATE DATABASE "'+name+'"');created=True
         url=make_url(maintenance_url).set(database=name).render_as_string(hide_password=True)
         engine=create_database_engine(url,role='restore',password_file=maintenance_password_file)
@@ -151,7 +154,9 @@ def prepared_archive(archive,target_url,maintenance_url,password_file,maintenanc
         try:
             era=preserved029.restore_into_stage(engine,name,archive=archive,archive_sha256=original_sha,target_url=target_url,
                 password_file=password_file,maintenance_url=maintenance_url,maintenance_password_file=maintenance_password_file,
-                directory=directory,deadline=monotonic()+STAGE_SECONDS)
+                directory=directory,journal=artifacts.journal_dir(directory),
+                drop=lambda names:artifacts.drop_databases(maintenance_url,maintenance_password_file,names),
+                deadline=monotonic()+STAGE_SECONDS)
         except preserved029.Preserved029Refused as refusal:
             if refusal.kind in ('BackupValidationError','MigrationError') and refusal.detail:raise b.BackupValidationError(refusal.detail) from None
             raise b.BackupValidationError('Historical PostgreSQL archive refused by the preserved029 stage ('+refusal.kind+')') from None
@@ -173,8 +178,8 @@ def prepared_archive(archive,target_url,maintenance_url,password_file,maintenanc
     finally:
         if engine is not None:engine.dispose()
         try:
-            if created:
-                with maintenance.connect() as c:c.exec_driver_sql('DROP DATABASE IF EXISTS "'+name+'" WITH (FORCE)')
+            with maintenance.connect() as c:c.exec_driver_sql('DROP DATABASE IF EXISTS "'+name+'" WITH (FORCE)')
+            artifacts.forget(directory,name)
         finally:
             maintenance.dispose()
             for path in temporary:path.unlink(missing_ok=True)

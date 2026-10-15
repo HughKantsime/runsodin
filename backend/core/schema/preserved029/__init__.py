@@ -10,12 +10,14 @@ import os
 from pathlib import Path
 import re
 import selectors
+import shutil
 import signal
 import stat
 import subprocess
 import sys
 import tempfile
 from time import monotonic
+import uuid
 from sqlalchemy import inspect,text
 from sqlalchemy.engine import Engine,URL
 from .integrity import check_package,Preserved029Error
@@ -116,10 +118,38 @@ def _private_file(path,label):
         raise Preserved029Error('Preserved029 '+label+' is unsafe')
 
 
-def restore_into_stage(engine,name,*,archive,archive_sha256,target_url,password_file,maintenance_url,maintenance_password_file,directory,deadline):
+def _journal_names(journal):
+    return {entry.name for entry in Path(journal).iterdir() if re.fullmatch('odin_validate_[0-9a-f]{20}',entry.name)}
+
+
+def _supervised(data,deadline,*,journal,work,keep,drop):
+    """Run the child; whatever happens, drop the databases it journaled and remove its files.
+
+    ``journal`` is the persistent stage journal: the child adds an entry before each
+    CREATE DATABASE. ``work`` is the child's private working directory. ``drop`` receives
+    the new journaled names (never ``keep``) and returns those it dropped.
+    """
+    before=_journal_names(journal)
+    try:
+        with tempfile.TemporaryDirectory(prefix='preserved029-parent-') as folder:
+            control=Path(folder)/'control.json'
+            descriptor=os.open(control,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+            with os.fdopen(descriptor,'wb') as file:
+                file.write(json.dumps(data,separators=(',',':')).encode());file.flush();os.fsync(file.fileno())
+            return _bounded_child(control,deadline)
+    finally:
+        created=_journal_names(journal)-before-set(keep)
+        try:
+            for name in drop(created):(Path(journal)/name).unlink(missing_ok=True)
+        finally:
+            shutil.rmtree(work,ignore_errors=True)
+
+
+def restore_into_stage(engine,name,*,archive,archive_sha256,target_url,password_file,maintenance_url,maintenance_password_file,directory,journal,drop,deadline):
     """Fixed action on an exact fresh owned DB. Returns the archive's schema era (25/26/27).
 
-    The caller owns and discards the stage on any failure.
+    The caller owns and discards the stage on any failure; the child's own validation
+    databases and working files are removed here, including after a kill.
     """
     check_package()
     _deadline(deadline)
@@ -134,17 +164,14 @@ def restore_into_stage(engine,name,*,archive,archive_sha256,target_url,password_
     url=credentialless(engine.url)
     from sqlalchemy.engine import make_url
     for value in (target_url,maintenance_url):refuse_credential_query(make_url(value))
-    with tempfile.TemporaryDirectory(prefix='preserved029-parent-') as folder:
-        control=Path(folder)/'control.json'
-        data={'action':'restore029','archive':str(Path(archive).resolve()),'archive_sha256':archive_sha256,
-              'target_url':target_url,'password_file':str(Path(password_file).resolve()),
-              'maintenance_url':maintenance_url,'maintenance_password_file':str(Path(maintenance_password_file).resolve()),
-              'directory':str(Path(directory).resolve()),'database':name,'oid':identity[1],'owner':identity[2],
-              'stage_url':url.render_as_string(hide_password=True),'deadline':deadline}
-        descriptor=os.open(control,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
-        with os.fdopen(descriptor,'wb') as file:
-            file.write(json.dumps(data,separators=(',',':')).encode());file.flush();os.fsync(file.fileno())
-        era=_bounded_child(control,deadline)
+    work=Path(directory).resolve()/('.odin-preserved029-'+uuid.uuid4().hex[:20])
+    (work/'backups').mkdir(mode=0o700,parents=True)
+    data={'action':'restore029','archive':str(Path(archive).resolve()),'archive_sha256':archive_sha256,
+          'target_url':target_url,'password_file':str(Path(password_file).resolve()),
+          'maintenance_url':maintenance_url,'maintenance_password_file':str(Path(maintenance_password_file).resolve()),
+          'directory':str(work/'backups'),'journal':str(Path(journal).resolve()),'database':name,'oid':identity[1],'owner':identity[2],
+          'stage_url':url.render_as_string(hide_password=True),'deadline':deadline}
+    era=_supervised(data,deadline,journal=journal,work=work,keep={name},drop=drop)
     # Child stdout is insufficient: re-check package and the same owned DB identity.
     check_package()
     with engine.connect() as c:

@@ -645,6 +645,8 @@ def _validate_current_postgres_restore(
     ).execution_options(isolation_level="AUTOCOMMIT")
     created = False
     canonical_archive: Path | None = None
+    from modules.system import restore_artifacts
+    restore_artifacts.record(paths.backups, validation_database)
     try:
         with maintenance_engine.connect() as connection:
             connection.exec_driver_sql(f'CREATE DATABASE "{validation_database}"')
@@ -763,11 +765,11 @@ def _validate_current_postgres_restore(
     finally:
         if canonical_archive is not None:
             canonical_archive.unlink(missing_ok=True)
-        if created:
-            with maintenance_engine.connect() as connection:
-                connection.exec_driver_sql(
-                    f'DROP DATABASE IF EXISTS "{validation_database}" WITH (FORCE)'
-                )
+        with maintenance_engine.connect() as connection:
+            connection.exec_driver_sql(
+                f'DROP DATABASE IF EXISTS "{validation_database}" WITH (FORCE)'
+            )
+        restore_artifacts.forget(paths.backups, validation_database)
         maintenance_engine.dispose()
     return {
         **metadata,
@@ -795,7 +797,9 @@ def validate_postgres_restore(archive,target_url,maintenance_url,*,password_file
 
 def _validate_postgres_restore(archive,target_url,maintenance_url,*,password_file=None,maintenance_password_file=None,base_dir=None):
     from modules.system.pre026_restore_stage import identify_contract,prepared_archive,archive_metadata,current_schema_version
+    from modules.system import restore_artifacts
     directory=postgres_paths(base_dir).backups
+    restore_artifacts.sweep_stale(directory,maintenance_url,maintenance_password_file)
     contract=identify_contract(archive,target_url,password_file,directory)
     if contract is None:
         return _validate_current_postgres_restore(archive,target_url,maintenance_url,password_file=password_file,maintenance_password_file=maintenance_password_file,base_dir=base_dir)

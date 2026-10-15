@@ -86,7 +86,7 @@ def _pairs(pairs):
     return result
 
 
-_REQUIRED={'action','archive','archive_sha256','target_url','password_file','maintenance_url','maintenance_password_file','directory','database','oid','owner','stage_url','deadline'}
+_REQUIRED={'action','archive','archive_sha256','target_url','password_file','maintenance_url','maintenance_password_file','directory','journal','database','oid','owner','stage_url','deadline'}
 
 
 def _private_file(path,label):
@@ -129,6 +129,32 @@ def admit_url(url,label):
     return url
 
 
+_CREATE=re.compile(r'\s*CREATE DATABASE "?(odin_validate_[0-9a-f]{20})"?\s*')
+
+
+def _private_directory(path,label):
+    facts=Path(path).lstat()
+    if not stat.S_ISDIR(facts.st_mode) or facts.st_uid!=os.getuid() or stat.S_IMODE(facts.st_mode)&0o077:
+        raise Preserved029Error('Preserved029 '+label+' is unsafe')
+
+
+def journal_created_databases(journal):
+    """Journal every validation database before CREATE DATABASE runs, so a killed child's
+    parent can drop it. The preserved sources create them with exec_driver_sql."""
+    from sqlalchemy import event
+    from sqlalchemy.engine import Engine
+    def before(conn,cursor,statement,parameters,context,executemany):
+        match=_CREATE.fullmatch(statement)
+        if match:
+            descriptor=os.open(Path(journal)/match.group(1),os.O_WRONLY|os.O_CREAT|os.O_TRUNC|os.O_NOFOLLOW,0o600)
+            try:os.fsync(descriptor)
+            finally:os.close(descriptor)
+            folder=os.open(journal,os.O_RDONLY)
+            try:os.fsync(folder)
+            finally:os.close(folder)
+    event.listen(Engine,'before_cursor_execute',before)
+
+
 def _sha256(path):
     digest=hashlib.sha256()
     with open(path,'rb') as file:
@@ -142,6 +168,7 @@ def main():
     bundle,manifest=prepare_sources()
     control=read_control(sys.argv[1])
     for label in ('password_file','maintenance_password_file'):_private_file(control[label],label)
+    for label in ('journal','directory'):_private_directory(control[label],label)
     archive=Path(control['archive'])
     if not stat.S_ISREG(archive.lstat().st_mode) or _sha256(archive)!=control['archive_sha256']:raise Preserved029Error('Preserved029 archive identity differs')
     from sqlalchemy.engine import make_url
@@ -165,6 +192,7 @@ def main():
         from modules.system.postgres_canonical_executables import validate_executables
         from core.schema.pre026_restore_contract import schema_version
         directory=Path(control['directory'])
+        journal_created_databases(control['journal'])
         identity=(control['database'],control['oid'],control['owner'])
         engine=create_database_engine(control['stage_url'],role='restore',password_file=control['maintenance_password_file'])
         def verify(pristine=False):

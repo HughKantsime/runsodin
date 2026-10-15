@@ -129,7 +129,7 @@ def test_unknown_action_control_refuses_without_connecting(tmp_path):
 def _control(**overrides):
     data = {"action": "restore029", "archive": "/x.dump", "archive_sha256": "a" * 64, "target_url": "postgresql+psycopg://odin@pg/odin",
             "password_file": "/p", "maintenance_url": "postgresql+psycopg://odin@pg/postgres", "maintenance_password_file": "/m",
-            "directory": "/d", "database": "odin_validate_" + "a" * 20, "oid": 1, "owner": 2,
+            "directory": "/d", "journal": "/j", "database": "odin_validate_" + "a" * 20, "oid": 1, "owner": 2,
             "stage_url": "postgresql+psycopg://odin@pg/odin_validate_" + "a" * 20, "deadline": monotonic() + 30}
     data.update(overrides)
     return data
@@ -226,7 +226,8 @@ def test_forged_or_unowned_stage_refuses_before_child(tmp_path):
     secret = tmp_path / "s"; secret.write_text("x"); secret.chmod(0o600)
     with pytest.raises(p.Preserved029Error):
         p.restore_into_stage(engine, "odin_validate_" + "a" * 20, archive=tmp_path / "a", archive_sha256="a" * 64, target_url="", password_file=secret,
-                             maintenance_url="", maintenance_password_file=secret, directory=tmp_path, deadline=monotonic() + 10)
+                             maintenance_url="", maintenance_password_file=secret, directory=tmp_path, journal=tmp_path, drop=lambda names: [],
+                             deadline=monotonic() + 10)
     engine.dispose()
 
 
@@ -370,3 +371,49 @@ def test_restore_wraps_migration_refusals_as_validation_errors(tmp_path, monkeyp
     monkeypatch.setattr(b, "_validate_current_postgres_restore", refuse)
     with pytest.raises(b.BackupValidationError, match="cannot be upgraded.*history mismatch"):
         b.validate_postgres_restore(archive, "postgresql://o@pg/odin", "postgresql://o@pg/postgres", base_dir=tmp_path)
+
+
+# --- Killed children and stale artifacts. -----------------------------------------------------------------
+
+def test_killed_child_leaves_no_stage_databases_or_working_files(tmp_path, monkeypatch):
+    from modules.system import restore_artifacts
+    backups = tmp_path / "backups"; backups.mkdir()
+    journal = restore_artifacts.journal_dir(backups)
+    work = backups / (".odin-preserved029-" + "b" * 20); (work / "backups").mkdir(parents=True)
+    leaked = "odin_validate_" + "c" * 20
+    stage = "odin_validate_" + "d" * 20
+    restore_artifacts.record(backups, stage)
+    child = tmp_path / "child.py"
+    child.write_text("import os,time,sys\n"
+                     f"open(os.path.join({str(journal)!r},{leaked!r}),'w').close()\n"
+                     f"open(os.path.join({str(work / 'backups')!r},'.odin-canonical-schema-x.dump'),'w').write('x')\n"
+                     "time.sleep(30)\n")
+    actual_popen = subprocess.Popen
+    monkeypatch.setattr(p.subprocess, "Popen", lambda argv, **kw: actual_popen([sys.executable, "-I", str(child)], **kw))
+    dropped = []
+    with pytest.raises(p.Preserved029Error, match="deadline"):
+        p._supervised({"action": "restore029"}, monotonic() + 2, journal=journal, work=work, keep={stage},
+                      drop=lambda names: dropped.extend(sorted(names)) or sorted(names))
+    assert dropped == [leaked]
+    assert not work.exists()
+    assert set(restore_artifacts.journal_entries(backups)) == {stage}  # the parent's own stage is the caller's to drop
+
+
+def test_startup_sweep_drops_only_stale_journaled_databases_and_files(tmp_path):
+    from modules.system import restore_artifacts
+    backups = tmp_path / "backups"; backups.mkdir()
+    old, fresh = "odin_validate_" + "1" * 20, "odin_validate_" + "2" * 20
+    restore_artifacts.record(backups, old); restore_artifacts.record(backups, fresh)
+    now = __import__("time").time()
+    os.utime(restore_artifacts.journal_dir(backups) / old, (now - 7 * 3600, now - 7 * 3600))
+    stale_dump = backups / ".odin-upgraded029-abc.dump"; stale_dump.write_text("x")
+    stale_dir = backups / (".odin-preserved029-" + "e" * 20); stale_dir.mkdir()
+    keep_dump = backups / ".odin-canonical-schema-new.dump"; keep_dump.write_text("x")
+    real_backup = backups / "odin_backup_20261015_000000_000000.dump"; real_backup.write_text("x")
+    for path in (stale_dump, stale_dir, real_backup):
+        os.utime(path, (now - 7 * 3600, now - 7 * 3600))
+    asked = []
+    result = restore_artifacts.sweep_stale(backups, "unused", None, drop=lambda names: asked.extend(names) or list(names))
+    assert asked == [old] and result["databases"] == [old]
+    assert set(restore_artifacts.journal_entries(backups)) == {fresh}
+    assert not stale_dump.exists() and not stale_dir.exists() and keep_dump.exists() and real_backup.exists()
