@@ -239,19 +239,41 @@ def _ledger_sql(ids):
             + rows + ("\n" if rows else "") + "\\.\n\n")
 
 
+FAKE_PG_RESTORE = """#!{python}
+import os, sys
+if "--list" in sys.argv:
+    sys.stdout.write("1; 2615 2200 SCHEMA - public owner\\n2; 1259 1 TABLE public orders owner\\n")
+    raise SystemExit(0)
+with open(os.environ["FAKE_LEDGER_FILE"], "rb") as source:
+    repeat = int(os.environ.get("FAKE_LEDGER_REPEAT", "1"))
+    head, _, tail = source.read().partition(b"\\\\.\\n")
+    out = sys.stdout.buffer
+    out.write(head)
+    for i in range(repeat - 1):
+        out.write(("python:9%07d-padding\\t" % i).encode() + b"0" * 64 + b"\\tpostgresql\\t2026-10-15 10:00:00+00\\n")
+    out.write(b"\\\\.\\n" + tail)
+"""
+
+
 @pytest.fixture
 def routed(tmp_path, monkeypatch):
-    from modules.system import postgres_backup_service as b
+    """Real subprocess plumbing with a fake pg_restore on PATH."""
     archive = tmp_path / "archive.dump"; archive.write_bytes(b"x" * 200)
-    state = {}
+    tools = tmp_path / "bin"; tools.mkdir()
+    fake = tools / "pg_restore"; fake.write_text(FAKE_PG_RESTORE.format(python=sys.executable)); fake.chmod(0o755)
+    secret = tmp_path / "secret"; secret.write_text("owned-test-only"); secret.chmod(0o600)
+    ledger = tmp_path / "ledger.sql"
+    monkeypatch.setenv("PATH", str(tools) + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("DATABASE_PASSWORD_FILE", str(secret))
+    monkeypatch.setenv("FAKE_LEDGER_FILE", str(ledger))
 
-    def fake(command, *args):
-        if "--list" in command:
-            return "1; 2615 2200 SCHEMA - public owner\n2; 1259 1 TABLE public orders owner\n"
-        return state["ledger"]
+    class State(dict):
+        def __setitem__(self, key, value):
+            if key == "ledger":
+                ledger.write_text(value)
+            super().__setitem__(key, value)
 
-    monkeypatch.setattr(b, "_run_pg_tool", fake)
-    return archive, state
+    return archive, State()
 
 
 def test_current_archive_takes_the_ordinary_path(routed):
@@ -286,6 +308,18 @@ def test_unknown_or_malformed_ledger_refuses(routed, case):
     state["ledger"] = sql
     with pytest.raises(BackupValidationError):
         identify_contract(archive, "postgresql://o@pg/odin", None, archive.parent)
+
+
+def test_ledger_probe_streams_with_a_byte_cap_and_stops_the_tool(routed, monkeypatch):
+    from modules.system import pre026_restore_stage as stage
+    from modules.system.backup_service import BackupValidationError
+    archive, state = routed
+    state["ledger"] = _ledger_sql(sorted(p.ledger_ids()))
+    monkeypatch.setenv("FAKE_LEDGER_REPEAT", str(200000))  # ~25 MB of well-formed rows
+    started = monotonic()
+    with pytest.raises(BackupValidationError, match="exceeds"):
+        stage.archive_ledger_ids(archive, "postgresql://o@pg/odin", None, archive.parent)
+    assert monotonic() - started < 20
 
 
 def test_intermediate_post027_archive_refuses_loudly(routed, monkeypatch):

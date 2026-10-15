@@ -30,20 +30,52 @@ def current_schema_version():
     return int(ids[-1].split(':')[1][:3]) if ids else 27
 
 
-def archive_ledger_ids(archive,url,password_file,directory):
-    """Recorded migration ids from the archive's ledger data; strict COPY parse, never executed."""
+LEDGER_BYTE_CAP=4*1024*1024
+
+
+def _pg_restore_lines(arguments,url,password_file,directory,*,limit):
+    """Stream one pg_restore's stdout line by line; kill it past ``limit`` bytes."""
+    import shutil,subprocess
     from modules.system import postgres_backup_service as b
-    sql=b._run_pg_tool(['pg_restore','--data-only','--table=odin_schema_migrations','--file','-',str(archive)],url,password_file,directory)
-    lines=sql.splitlines()
-    starts=[i for i,line in enumerate(lines) if line.startswith('COPY ')]
-    if len(starts)!=1 or lines[starts[0]]!=_LEDGER_COPY:raise b.BackupValidationError('PostgreSQL archive migration ledger is missing or malformed')
-    ids=set()
-    for line in lines[starts[0]+1:]:
-        if line=='\\.':return frozenset(ids)
-        match=_LEDGER_ROW.fullmatch(line)
-        if not match or match.group(1) in ids:raise b.BackupValidationError('PostgreSQL archive migration ledger is missing or malformed')
-        ids.add(match.group(1))
-    raise b.BackupValidationError('PostgreSQL archive migration ledger is missing or malformed')
+    executable=shutil.which('pg_restore')
+    if not executable:raise b.BackupValidationError('Required PostgreSQL client is unavailable: pg_restore')
+    environment=os.environ.copy();environment.pop('PGPASSFILE',None)
+    environment['PGPASSWORD']=b._postgres_password(password_file)
+    process=subprocess.Popen([executable,*arguments],env=environment,cwd=directory,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+    total=0;complete=False
+    try:
+        for raw in process.stdout:
+            total+=len(raw)
+            if total>limit:raise b.BackupValidationError('PostgreSQL archive migration ledger exceeds the supported size')
+            yield raw.decode('utf-8','strict').rstrip('\n')
+        complete=True
+    finally:
+        if not complete and process.poll() is None:process.kill()
+        process.stdout.close()
+        try:returncode=process.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            process.kill();returncode=process.wait()
+    if returncode:raise b.BackupValidationError('PostgreSQL client operation failed: pg_restore')
+
+
+def archive_ledger_ids(archive,url,password_file,directory):
+    """Recorded migration ids from the archive's ledger data; strict streamed COPY parse, never executed."""
+    from modules.system import postgres_backup_service as b
+    malformed=b.BackupValidationError('PostgreSQL archive migration ledger is missing or malformed')
+    ids=set();state='before'
+    for line in _pg_restore_lines(['--data-only','--table=odin_schema_migrations','--file','-',str(archive)],url,password_file,directory,limit=LEDGER_BYTE_CAP):
+        if state=='before':
+            if line.startswith('COPY '):
+                if line!=_LEDGER_COPY:raise malformed
+                state='rows'
+        elif state=='rows':
+            if line=='\\.':state='after';continue
+            match=_LEDGER_ROW.fullmatch(line)
+            if not match or match.group(1) in ids:raise malformed
+            ids.add(match.group(1))
+        elif line.startswith('COPY '):raise malformed
+    if state!='after':raise malformed
+    return frozenset(ids)
 
 
 def identify_contract(archive,url,password_file,directory):
