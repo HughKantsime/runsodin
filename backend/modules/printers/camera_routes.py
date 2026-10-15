@@ -432,44 +432,113 @@ def overlay_camera_principal(db: Session, token: Optional[str], printer: Optiona
     return principal
 
 
+# A stream re-checks its token, user and camera this often, and ends on refusal.
+OVERLAY_REVALIDATE_SECONDS = 30
+OVERLAY_MAX_STREAMS_PER_TOKEN = 3
+OVERLAY_MAX_STREAMS_PER_PRINTER = 8
+_overlay_streams = {"token": {}, "printer": {}}
+
+
+def _overlay_check(bind, token, printer_id) -> int:
+    """Blocking authorization (bcrypt, DB); returns the token id. Own session."""
+    with Session(bind=bind) as db:
+        printer = db.query(Printer).filter(Printer.id == printer_id).first()
+        principal = overlay_camera_principal(db, token, printer)
+        return principal.get("_token_id")
+
+
+def _overlay_claim(token_id, printer_id) -> bool:
+    tokens, printers = _overlay_streams["token"], _overlay_streams["printer"]
+    if tokens.get(token_id, 0) >= OVERLAY_MAX_STREAMS_PER_TOKEN or printers.get(printer_id, 0) >= OVERLAY_MAX_STREAMS_PER_PRINTER:
+        return False
+    tokens[token_id] = tokens.get(token_id, 0) + 1
+    printers[printer_id] = printers.get(printer_id, 0) + 1
+    return True
+
+
+def _overlay_release(token_id, printer_id):
+    for table, key in ((_overlay_streams["token"], token_id), (_overlay_streams["printer"], printer_id)):
+        table[key] = table.get(key, 1) - 1
+        if table[key] <= 0:
+            table.pop(key, None)
+
+
 @router.get("/overlay/{printer_id}/camera", tags=["Overlay"])
 async def overlay_camera_stream(printer_id: int, token: Optional[str] = Query(None), db: Session = Depends(get_db)):
-    """MJPEG camera stream for the OBS overlay <img> (multipart/x-mixed-replace)."""
-    printer = db.query(Printer).filter(Printer.id == printer_id).first()
-    overlay_camera_principal(db, token, printer)
+    """MJPEG camera stream for the OBS overlay <img> (multipart/x-mixed-replace).
+
+    Authorization (bcrypt token check, DB) and go2rtc config sync run in worker
+    threads, never on the event loop. The stream re-validates every
+    OVERLAY_REVALIDATE_SECONDS and ends when the token is revoked or expired, the
+    user deactivated, the camera disabled or printer access lost.
+    """
+    from fastapi.concurrency import run_in_threadpool
     from modules.printers.route_utils import mjpeg_stream_name
+    import time as _time
+    bind = db.get_bind()
+    db.close()  # never hold a request session for the life of a stream
+    token_id = await run_in_threadpool(_overlay_check, bind, token, printer_id)
+    if not _overlay_claim(token_id, printer_id):
+        raise HTTPException(status_code=429, detail="Too many open overlay camera streams")
     stream_name = mjpeg_stream_name(printer_id)
     try:
-        async with httpx.AsyncClient() as probe:
-            listed = await probe.get(f"{GO2RTC_API}/api/streams", timeout=2.0)
-        if listed.status_code == 200 and stream_name not in listed.json():
-            sync_go2rtc_config(db)
-    except (httpx.HTTPError, ValueError):
-        sync_go2rtc_config(db)
-    # Never hold a database connection for the life of a video stream.
-    db.close()
+        # Same rule as the WebRTC route: sync only when go2rtc answers and lacks the
+        # stream; an unreachable go2rtc is reported, never "fixed" by a restart.
+        try:
+            async with httpx.AsyncClient() as probe:
+                listed = await probe.get(f"{GO2RTC_API}/api/streams", timeout=2.0)
+            known = listed.json() if listed.status_code == 200 else None
+        except (httpx.HTTPError, ValueError):
+            raise HTTPException(status_code=502, detail="go2rtc is not reachable")
+        if isinstance(known, dict) and stream_name not in known:
+            def _sync():
+                with Session(bind=bind) as session:
+                    sync_go2rtc_config(session)
+            await run_in_threadpool(_sync)
+        client = httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=30.0))
+        try:
+            upstream = await client.send(client.build_request("GET", f"{GO2RTC_API}/api/stream.mjpeg", params={"src": stream_name}), stream=True)
+        except httpx.HTTPError:
+            await client.aclose()
+            raise HTTPException(status_code=502, detail="go2rtc is not reachable")
+        content_type = upstream.headers.get("content-type", "")
+        if upstream.status_code != 200 or not content_type.startswith("multipart/"):
+            await upstream.aclose()
+            await client.aclose()
+            raise HTTPException(status_code=502, detail="Camera stream unavailable")
+    except BaseException:
+        _overlay_release(token_id, printer_id)
+        raise
 
-    client = httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=30.0))
-    try:
-        upstream = await client.send(client.build_request("GET", f"{GO2RTC_API}/api/stream.mjpeg", params={"src": stream_name}), stream=True)
-    except httpx.HTTPError:
-        await client.aclose()
-        raise HTTPException(status_code=502, detail="go2rtc is not reachable")
-    content_type = upstream.headers.get("content-type", "")
-    if upstream.status_code != 200 or not content_type.startswith("multipart/"):
-        await upstream.aclose()
-        await client.aclose()
-        raise HTTPException(status_code=502, detail="Camera stream unavailable")
+    released = []
+
+    def release_once():
+        if not released:
+            released.append(True)
+            _overlay_release(token_id, printer_id)
 
     async def relay():
+        next_check = _time.monotonic() + OVERLAY_REVALIDATE_SECONDS
         try:
             async for chunk in upstream.aiter_raw():
+                if _time.monotonic() >= next_check:
+                    try:
+                        await run_in_threadpool(_overlay_check, bind, token, printer_id)
+                    except HTTPException:
+                        log.info("Overlay camera stream for printer %s ended: authorization withdrawn", printer_id)
+                        return
+                    next_check = _time.monotonic() + OVERLAY_REVALIDATE_SECONDS
                 yield chunk
         except httpx.HTTPError:
             return
         finally:
+            release_once()
             await upstream.aclose()
             await client.aclose()
 
-    return StreamingResponse(relay(), media_type=content_type,
+    body = relay()
+    # A response that is never iterated (client gone before the body) still frees its slot.
+    import weakref
+    weakref.finalize(body, release_once)
+    return StreamingResponse(body, media_type=content_type,
                              headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})

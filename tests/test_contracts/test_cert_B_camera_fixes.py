@@ -179,3 +179,161 @@ def test_raw_and_orm_go2rtc_config_builders_are_identical(printers_client, revie
     orm = route_utils._build_go2rtc_config(review_db)
     assert written == [orm]
     assert {"printer_21_mjpeg", "printer_23_mjpeg", "printer_9_mjpeg"} <= set(orm["streams"])
+
+
+class _Endless(httpx.AsyncByteStream):
+    """An MJPEG camera that never stops."""
+    def __init__(self):
+        self.sent = 0
+
+    async def __aiter__(self):
+        import asyncio
+        while True:
+            self.sent += 1
+            yield MJPEG
+            await asyncio.sleep(0.02)
+
+
+_REAL_ASYNC_CLIENT = httpx.AsyncClient  # before any fixture patches the module attribute
+
+
+def _go2rtc(monkeypatch, handler):
+    from modules.printers import camera_routes
+    monkeypatch.setattr(camera_routes.httpx, "AsyncClient",
+                        lambda *a, **k: _REAL_ASYNC_CLIENT(*a, **{**k, "transport": httpx.MockTransport(handler)}))
+
+
+def _endless_go2rtc(monkeypatch):
+    camera = _Endless()
+
+    def handler(request):
+        if request.url.path == "/api/streams":
+            return httpx.Response(200, json={"printer_9_mjpeg": {}})
+        return httpx.Response(200, headers={"content-type": "multipart/x-mixed-replace; boundary=frame"}, stream=camera)
+    _go2rtc(monkeypatch, handler)
+    return camera
+
+
+def test_unreachable_go2rtc_is_reported_never_synced_or_restarted(overlay_client, monkeypatch):
+    from modules.printers import camera_routes
+    client, tokens, _ = overlay_client
+    synced = []
+    monkeypatch.setattr(camera_routes, "sync_go2rtc_config", lambda db: synced.append(1))
+
+    def down(request):
+        raise httpx.ConnectError("connection refused", request=request)
+    _go2rtc(monkeypatch, down)
+    assert client.get("/overlay/9/camera", params={"token": tokens["camera"]}).status_code == 502
+    assert synced == []
+
+
+def _open_stream(review_db, token):
+    """Call the real endpoint in an event loop (TestClient buffers whole responses,
+    so an endless MJPEG stream must be consumed directly)."""
+    from sqlalchemy.orm import Session
+    from modules.printers import camera_routes
+    return camera_routes.overlay_camera_stream(printer_id=9, token=token, db=Session(review_db.get_bind()))
+
+
+def _consume(review_db, token, after_frames, mutate, seconds=8):
+    """Read the stream; run `mutate` after some frames; True if the server ended it."""
+    import asyncio
+
+    async def run():
+        response = await _open_stream(review_db, token)
+        frames = 0
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + seconds
+        iterator = response.body_iterator.__aiter__()
+        try:
+            while loop.time() < deadline:
+                try:
+                    await asyncio.wait_for(iterator.__anext__(), timeout=max(0.01, deadline - loop.time()))
+                except StopAsyncIteration:
+                    return True
+                except asyncio.TimeoutError:
+                    return False
+                frames += 1
+                if frames == after_frames:
+                    await loop.run_in_executor(None, mutate)
+            return False
+        finally:
+            await iterator.aclose()
+    return asyncio.run(run())
+
+
+def _execute(review_db, statement):
+    def run():
+        review_db.execute(text(statement))
+        review_db.commit()
+    return run
+
+
+@pytest.mark.parametrize("statement", ["DELETE FROM api_tokens WHERE name='camera'",
+                                       "UPDATE api_tokens SET expires_at='2000-01-01T00:00:00+00:00' WHERE name='camera'",
+                                       "UPDATE printers SET camera_enabled=0 WHERE id=9",
+                                       "UPDATE users SET is_active=0 WHERE id=1",
+                                       "UPDATE api_tokens SET user_id=5 WHERE name='camera'"])  # owner now in another org
+def test_revocation_or_lost_access_ends_a_running_stream(overlay_client, review_db, monkeypatch, statement):
+    from modules.printers import camera_routes
+    _, tokens, _ = overlay_client
+    monkeypatch.setattr(camera_routes, "OVERLAY_REVALIDATE_SECONDS", 0.2)
+    camera = _endless_go2rtc(monkeypatch)
+    assert _consume(review_db, tokens["camera"], 3, _execute(review_db, statement)), f"stream kept running ({camera.sent} frames)"
+    assert camera_routes._overlay_streams == {"token": {}, "printer": {}}
+
+
+def test_unchanged_authorization_keeps_streaming(overlay_client, review_db, monkeypatch):
+    from modules.printers import camera_routes
+    _, tokens, _ = overlay_client
+    monkeypatch.setattr(camera_routes, "OVERLAY_REVALIDATE_SECONDS", 0.2)
+    _endless_go2rtc(monkeypatch)
+    assert _consume(review_db, tokens["camera"], 3, lambda: None, seconds=1.5) is False  # still live after revalidations
+
+
+def test_concurrent_streams_are_capped_per_token_and_per_printer(overlay_client, review_db, monkeypatch):
+    import asyncio
+    from fastapi import HTTPException
+    from modules.printers import camera_routes
+    _, tokens, _ = overlay_client
+    _endless_go2rtc(monkeypatch)
+
+    async def run(limit_name):
+        monkeypatch.setattr(camera_routes, limit_name, 1)
+        first = await _open_stream(review_db, tokens["camera"])
+        await first.body_iterator.__anext__()
+        try:
+            with pytest.raises(HTTPException) as refused:
+                await _open_stream(review_db, tokens["camera"])
+            assert refused.value.status_code == 429
+        finally:
+            await first.body_iterator.aclose()
+        # The slot is released when the viewer goes away.
+        assert camera_routes._overlay_streams == {"token": {}, "printer": {}}
+        second = await _open_stream(review_db, tokens["camera"])
+        del second  # never iterated: the slot is still freed
+        import gc
+        gc.collect()
+        assert camera_routes._overlay_streams == {"token": {}, "printer": {}}
+        monkeypatch.setattr(camera_routes, limit_name, 3 if limit_name.endswith("TOKEN") else 8)
+    asyncio.run(run("OVERLAY_MAX_STREAMS_PER_TOKEN"))
+    asyncio.run(run("OVERLAY_MAX_STREAMS_PER_PRINTER"))
+
+
+def test_token_check_runs_off_the_event_loop(overlay_client, monkeypatch):
+    import asyncio
+    from core import dependencies
+    client, tokens, _ = overlay_client
+    real = dependencies.resolve_user_api_token
+    calls = []
+
+    def checked(raw, db):
+        try:
+            asyncio.get_running_loop()
+            calls.append("on-loop")
+        except RuntimeError:
+            calls.append("worker")
+        return real(raw, db)
+    monkeypatch.setattr(dependencies, "resolve_user_api_token", checked)
+    assert client.get("/overlay/9/camera", params={"token": tokens["camera"]}).status_code == 200
+    assert calls and set(calls) == {"worker"}
