@@ -55,7 +55,7 @@ class MoveJobRequest(PydanticBaseModel):
 
 
 @router.post("/{job_id}/start", response_model=JobResponse, tags=["Jobs"])
-def start_job(job_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def start_job(job_id: int, current_user: dict = Depends(require_role("operator", scope="write:jobs")), db: Session = Depends(get_db)):
     """Mark a job as started (printing)."""
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
@@ -83,7 +83,7 @@ def start_job(job_id: int, current_user: dict = Depends(require_role("operator")
 
 
 @router.post("/{job_id}/complete", response_model=JobResponse, tags=["Jobs"])
-def complete_job(job_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def complete_job(job_id: int, current_user: dict = Depends(require_role("operator", scope="write:jobs")), db: Session = Depends(get_db)):
     """Mark a job as completed and auto-deduct filament from loaded spools.
 
     Race-safe idempotency (R5 from 2026-04-12 adversarial review,
@@ -311,7 +311,7 @@ def complete_job(job_id: int, current_user: dict = Depends(require_role("operato
 
 
 @router.post("/{job_id}/fail", response_model=JobResponse, tags=["Jobs"])
-def fail_job(job_id: int, notes: Optional[str] = None, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def fail_job(job_id: int, notes: Optional[str] = None, current_user: dict = Depends(require_role("operator", scope="write:jobs")), db: Session = Depends(get_db)):
     """Mark a job as failed."""
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
@@ -341,7 +341,7 @@ def fail_job(job_id: int, notes: Optional[str] = None, current_user: dict = Depe
 
 
 @router.post("/{job_id}/reset", response_model=JobResponse, tags=["Jobs"])
-def reset_job(job_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def reset_job(job_id: int, current_user: dict = Depends(require_role("operator", scope="write:jobs")), db: Session = Depends(get_db)):
     """Reset a job back to pending status."""
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
@@ -373,7 +373,7 @@ def reset_job(job_id: int, current_user: dict = Depends(require_role("operator")
 @router.post("/{job_id}/dispatch", tags=["Jobs"])
 def dispatch_job_to_printer(
     job_id: int,
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_role("operator", scope="write:jobs")),
     db: Session = Depends(get_db),
 ):
     """Dispatch a scheduled Bambu job: upload .3mf via FTPS then start print via MQTT.
@@ -459,7 +459,7 @@ def resubmit_job(job_id: int, db: Session = Depends(get_db), current_user: dict 
 
 
 @router.post("/{job_id}/link-print", tags=["Jobs"])
-def link_job_to_print(job_id: int, print_job_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def link_job_to_print(job_id: int, print_job_id: int, current_user: dict = Depends(require_role("operator", scope="write:jobs")), db: Session = Depends(get_db)):
     """Link a scheduled job to an MQTT-detected print."""
     # Check job exists and caller has org access
     job_row = db.execute(text("SELECT id, printer_id, charged_to_org_id FROM jobs WHERE id = :id"), {"id": job_id}).fetchone()
@@ -523,7 +523,7 @@ def link_job_to_print(job_id: int, print_job_id: int, current_user: dict = Depen
 def move_job(
     job_id: int,
     request: MoveJobRequest,
-    current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
+    current_user: dict = Depends(require_role("operator", scope="write:jobs")), db: Session = Depends(get_db)
 ):
     """Move a job to a different printer and/or time slot."""
     job = db.query(Job).filter(Job.id == job_id).first()
@@ -590,7 +590,7 @@ def move_job(
 async def update_job_failure(
     job_id: int,
     request: Request,
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_role("operator", scope="write:jobs")),
     db: Session = Depends(get_db)
 ):
     """Add or update failure reason and notes on a failed job."""

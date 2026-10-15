@@ -374,6 +374,11 @@ async def get_current_user(
                 )
                 if principal:
                     principal["_token_expires_at"] = candidate.expires_at
+                    # Scoped tokens never reach a route without a scope check:
+                    # routes that declare no scope need the method's generic
+                    # read/write scope (see core.rbac).
+                    from core.rbac import enforce_route_token_scope
+                    enforce_route_token_scope(request, principal)
                     bind_verified_actor(db, principal)
                     return principal
 

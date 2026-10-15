@@ -492,7 +492,7 @@ async def prometheus_metrics(db: Session = Depends(get_db), current_user: dict =
 # ============== HMS Code Lookup ==============
 
 @router.get("/hms-codes/{code}", tags=["Monitoring"])
-async def lookup_hms(code: str, current_user: dict = Depends(require_role("viewer"))):
+async def lookup_hms(code: str, current_user: dict = Depends(require_role("viewer", scope="read:printers"))):
     """Look up human-readable description for a Bambu HMS error code."""
     try:
         from modules.printers.hms_codes import lookup_hms_code, get_code_count

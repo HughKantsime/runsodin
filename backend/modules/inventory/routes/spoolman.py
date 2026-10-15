@@ -23,7 +23,7 @@ router = APIRouter(prefix="/spoolman", tags=["Spoolman"])
 
 
 @router.post("/sync", response_model=SpoolmanSyncResult, tags=["Spoolman"])
-async def sync_spoolman(current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+async def sync_spoolman(current_user: dict = Depends(require_role("operator", scope="write:spools")), db: Session = Depends(get_db)):
     """Sync filament data from Spoolman."""
     if not settings.spoolman_url:
         raise HTTPException(status_code=400, detail="Spoolman URL not configured")
@@ -54,7 +54,7 @@ async def sync_spoolman(current_user: dict = Depends(require_role("operator")), 
 
 
 @router.get("/spools", response_model=List[SpoolmanSpool], tags=["Spoolman"])
-async def list_spoolman_spools(current_user: dict = Depends(require_role("viewer"))):
+async def list_spoolman_spools(current_user: dict = Depends(require_role("viewer", scope="read:spools"))):
     """List available spools from Spoolman."""
     if not settings.spoolman_url:
         raise HTTPException(status_code=400, detail="Spoolman URL not configured")
@@ -90,7 +90,7 @@ async def list_spoolman_spools(current_user: dict = Depends(require_role("viewer
 
 
 @router.get("/filaments", tags=["Spoolman"])
-async def get_spoolman_filaments(current_user: dict = Depends(require_role("viewer"))):
+async def get_spoolman_filaments(current_user: dict = Depends(require_role("viewer", scope="read:spools"))):
     """Fetch all filament types from Spoolman."""
     try:
         from core.itar import pin_for_request, ItarOutboundBlocked, should_trust_env

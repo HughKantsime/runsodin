@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.dependencies import get_current_user, log_audit, validate_access_token
-from core.rbac import require_role, check_org_access, has_permission, token_scope_granted
+from core.rbac import require_role, check_org_access, has_permission, token_scope_granted, handler_enforces_token_scope
 from modules.printers.models import Printer
 from modules.archives.models import Timelapse
 from core.timelapse_access import assert_timelapse_access,timelapse_visibility,visible_printer_name,inherit_timelapse_owner
@@ -155,7 +155,7 @@ def _read_lifetime(request,db,principal,tid,*,query_allowed=False,attachment=Fal
         return provider.admitted_response(engine,TIMELAPSE_ROOT,tid,evidence,range_header=request.headers.get('range'),head=request.method=='HEAD',filename=f'odin_timelapse_{tid}.mp4' if attachment else None,expected_nonce=expected)
     except (RetirementUnavailable,MediaGuardUnavailable) as error:raise HTTPException(503,detail='Timelapse admission refused: '+getattr(error,'reason','writer_active')) from None
 
-@router.api_route("/timelapses/{timelapse_id}/video",methods=['GET','HEAD'],tags=['Timelapses'])
+@router.api_route("/timelapses/{timelapse_id}/video",methods=['GET','HEAD'],tags=['Timelapses'],dependencies=[Depends(handler_enforces_token_scope('read:printers'))])
 def get_timelapse_video(timelapse_id:int,request:Request,token:Optional[str]=None,db:Session=Depends(get_db),current_user:dict=Depends(get_current_user)):
     return _read_lifetime(request,db,current_user,timelapse_id,query_allowed=True,attachment=True)
 
@@ -205,11 +205,11 @@ def _get_timelapse_path(t: Timelapse) -> Path:
     return video_path
 
 
-@router.api_route("/timelapses/{timelapse_id}/stream",methods=['GET','HEAD'],tags=['Timelapses'])
+@router.api_route("/timelapses/{timelapse_id}/stream",methods=['GET','HEAD'],tags=['Timelapses'],dependencies=[Depends(handler_enforces_token_scope('read:printers'))])
 def stream_timelapse(timelapse_id:int,request:Request,token:Optional[str]=None,db:Session=Depends(get_db),current_user:dict=Depends(get_current_user)):
     return _read_lifetime(request,db,current_user,timelapse_id,query_allowed=True)
 
-@router.api_route("/timelapses/{timelapse_id}/download",methods=['GET','HEAD'],tags=['Timelapses'])
+@router.api_route("/timelapses/{timelapse_id}/download",methods=['GET','HEAD'],tags=['Timelapses'],dependencies=[Depends(handler_enforces_token_scope('read:printers'))])
 def download_timelapse(timelapse_id:int,request:Request,db:Session=Depends(get_db),current_user:dict=Depends(get_current_user)):
     return _read_lifetime(request,db,current_user,timelapse_id,attachment=True)
 

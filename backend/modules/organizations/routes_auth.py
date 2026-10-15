@@ -392,7 +392,9 @@ async def set_theme(request: Request, current_user: dict = Depends(get_current_u
     return body
 
 
-@router.post("/auth/ws-token", tags=["Auth"])
+# A WebSocket token streams fleet telemetry, so scoped API tokens need the
+# generic read scope to mint one.
+@router.post("/auth/ws-token", tags=["Auth"], dependencies=[Depends(require_scope("read"))])
 @limiter.limit("10/minute")
 async def get_ws_token(
     request: Request,

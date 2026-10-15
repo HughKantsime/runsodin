@@ -49,7 +49,7 @@ def client(review_db,monkeypatch):
     def bearer(username):return {'Authorization':'Bearer '+create_access_token({'sub':username,'role':'admin'})}
     def token():
         raw='odin_'+secrets.token_urlsafe(32)
-        review_db.execute(text("INSERT INTO api_tokens(user_id,name,token_hash,token_prefix,scopes) VALUES(3,'owned',:h,:p,:s)"),{'h':hash_password(raw),'p':raw[:10],'s':json.dumps(['read'])});review_db.commit()
+        review_db.execute(text("INSERT INTO api_tokens(user_id,name,token_hash,token_prefix,scopes) VALUES(3,'owned',:h,:p,:s)"),{'h':hash_password(raw),'p':raw[:10],'s':json.dumps(['read','write'])});review_db.commit()  # POST /stage needs the generic write scope
         return {'X-API-Key':raw}
     return TestClient(app,client=('198.51.100.7',50000)),bearer,token,sessions
 

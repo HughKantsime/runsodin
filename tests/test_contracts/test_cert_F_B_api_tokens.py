@@ -121,17 +121,9 @@ def test_token_cannot_exceed_owner_role(odin):
 
 
 # ---------------------------------------------------------------- scope bypass defects (security)
-SCOPE_DEFECT = ("DEFECT (security): backend/core/rbac.py:89-101 — require_role(...) without a scope argument performs no token-scope "
-                "check, and ~50 mutating routes (e.g. backend/modules/notifications/routes/alerts.py:433 PUT /api/smtp-config, "
-                "backend/modules/organizations/routes_oidc.py:463 PUT /api/admin/oidc, backend/modules/organizations/routes_sessions.py:449 "
-                "DELETE /api/users/{id}/erase, backend/modules/jobs/routes/jobs_lifecycle.py:57 POST /api/jobs/{id}/start, PUT /api/config/require-mfa, "
-                "PUT /api/config/ip-allowlist, POST /api/admin/retention/cleanup) declare no scope. Scenario: an admin mints a read-only "
-                "token (scopes ['read']) for a dashboard; whoever holds it sends PUT /api/smtp-config with host=attacker and no password "
-                "(the stored SMTP password is retained), so the server authenticates to the attacker's SMTP host and delivers every "
-                "password-reset link there; the same token rewrites SSO (PUT /api/admin/oidc), disables required MFA, or GDPR-erases users.")
+# Scoped tokens: routes without a declared scope need the generic read/write scope (core/rbac.py).
 
 
-@pytest.mark.xfail(strict=True, reason=SCOPE_DEFECT)
 def test_read_only_admin_token_cannot_reconfigure_smtp(odin):
     ro = odin.mint(odin.admin_bearer, ["read"])["token"]
     r = odin.put("/api/smtp-config", json={"enabled": True, "host": "smtp.attacker.example.test", "port": 25, "username": "x",
@@ -140,7 +132,6 @@ def test_read_only_admin_token_cannot_reconfigure_smtp(odin):
     assert r.status_code == 403 and (stored is None or "attacker" not in stored.value)
 
 
-@pytest.mark.xfail(strict=True, reason=SCOPE_DEFECT)
 def test_read_only_admin_token_cannot_rewrite_sso(odin):
     ro = odin.mint(odin.admin_bearer, ["read"])["token"]
     r = odin.put("/api/admin/oidc", json={"provider_type": "generic", "client_id": "attacker", "is_enabled": True,
@@ -149,7 +140,6 @@ def test_read_only_admin_token_cannot_rewrite_sso(odin):
     assert r.status_code == 403 and (row is None or row.client_id != "attacker")
 
 
-@pytest.mark.xfail(strict=True, reason=SCOPE_DEFECT)
 def test_read_only_admin_token_cannot_gdpr_erase_users(odin):
     ro = odin.mint(odin.admin_bearer, ["read"])["token"]
     r = odin.delete(f"/api/users/{odin.victim['id']}/erase", headers=key(ro))
@@ -157,7 +147,6 @@ def test_read_only_admin_token_cannot_gdpr_erase_users(odin):
     assert odin.one("SELECT username FROM users WHERE id=:i", i=odin.victim["id"]).username == "tok_victim"
 
 
-@pytest.mark.xfail(strict=True, reason=SCOPE_DEFECT)
 def test_read_printers_token_cannot_start_jobs(odin):
     ro = odin.mint(odin.operator["headers"], ["read:printers"])["token"]
     r = odin.post(f"/api/jobs/{odin.job_id}/start", headers=key(ro))
@@ -165,18 +154,18 @@ def test_read_printers_token_cannot_start_jobs(odin):
     assert odin.one("SELECT status FROM jobs WHERE id=:i", i=odin.job_id).status == "pending"
 
 
-@pytest.mark.xfail(strict=True, reason=SCOPE_DEFECT + " Read side: a token scoped only to read:education reads GET /api/users, "
-                   "/api/admin/oidc, /api/smtp-config, /api/admin/logs and /api/admin/support-bundle.")
 def test_unrelated_scope_cannot_read_admin_data(odin):
     edu = odin.mint(odin.admin_bearer, ["read:education"])["token"]
     statuses = {p: odin.get(p, headers=key(edu)).status_code for p in ("/api/users", "/api/admin/oidc", "/api/smtp-config", "/api/admin/logs")}
     assert set(statuses.values()) == {403}, statuses
 
 
+# Non-GET routes whose declared scope is a read scope (a read token may reach them).
+READ_SCOPED_POSTS = {"POST /api/cameras/{printer_id}/webrtc"}  # WebRTC signaling to view a camera (read:printers)
+
 SKIP_SIDE_EFFECTS = ("restore", "restart", "shutdown", "license", "logout", "/tokens", "/sessions")
 
 
-@pytest.mark.xfail(strict=True, reason=SCOPE_DEFECT + " Census: every mutating /api route probed with an admin-held ['read'] token.")
 def test_census_every_mutating_route_refuses_read_only_token(odin, tmp_path_factory):
     import subprocess, sys, os
     from tests.test_contracts.test_cert_F_B_route_census import SNAPSHOT
@@ -191,7 +180,7 @@ def test_census_every_mutating_route_refuses_read_only_token(odin, tmp_path_fact
     for m, p in pairs:
         if m == "GET" or not p.startswith("/api/") or p.startswith(("/api/v1/", "/api/auth/", "/api/setup")):
             continue
-        if f"{m} {p}" in PUBLIC or any(x in p for x in SKIP_SIDE_EFFECTS):
+        if f"{m} {p}" in PUBLIC or f"{m} {p}" in READ_SCOPED_POSTS or any(x in p for x in SKIP_SIDE_EFFECTS):
             continue
         url = re.sub(r"\{[^}]+\}", "99999", p).replace(":path", "")
         rows.append([m, p, requests.request(m, odin.url + url, json={}, headers=key(ro), timeout=30).status_code])

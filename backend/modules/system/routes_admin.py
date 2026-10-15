@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.db_compat import sql
-from core.rbac import require_role, require_superadmin, get_org_scope
+from core.rbac import require_role, require_superadmin, get_org_scope, HANDLER_SCOPE
 from modules.models_library.models import Model
 from modules.jobs.models import Job
 from modules.inventory.models import Spool, FilamentLibrary
@@ -262,7 +262,7 @@ def download_support_bundle(user=Depends(require_superadmin()), db: Session = De
 # ============== Global Search ==============
 
 @router.get("/search", tags=["Search"])
-def global_search(q: str = "", db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
+def global_search(q: str = "", db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer", scope=HANDLER_SCOPE))):
     """Search tenant-visible resources within each category's read grants."""
     from core.api_token_policy import token_scope_granted
     from modules.orders.models import Order, Product

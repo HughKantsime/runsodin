@@ -47,7 +47,7 @@ def _audit_csv_text(value):
 @router.get("/export/jobs")
 def export_jobs_csv(
     status: Optional[str] = None,
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_role("operator", scope="read:jobs")),
     db: Session = Depends(get_db)
 ):
     """Export jobs as CSV."""
@@ -97,7 +97,7 @@ def export_jobs_csv(
 
 
 @router.get("/export/spools")
-def export_spools_csv(current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def export_spools_csv(current_user: dict = Depends(require_role("operator", scope="read:spools")), db: Session = Depends(get_db)):
     """Export spools as CSV."""
     org = get_org_scope(current_user)
     sq = db.query(Spool)
@@ -143,7 +143,7 @@ def export_spools_csv(current_user: dict = Depends(require_role("operator")), db
 
 
 @router.get("/export/filament-usage")
-def export_filament_usage_csv(current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def export_filament_usage_csv(current_user: dict = Depends(require_role("operator", scope="read:spools")), db: Session = Depends(get_db)):
     """Export filament usage history as CSV."""
     org = get_org_scope(current_user)
     uq = db.query(SpoolUsage)
@@ -181,7 +181,7 @@ def export_filament_usage_csv(current_user: dict = Depends(require_role("operato
 
 
 @router.get("/export/models")
-def export_models_csv(current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def export_models_csv(current_user: dict = Depends(require_role("operator", scope="read:models")), db: Session = Depends(get_db)):
     """Export models as CSV."""
     org = get_org_scope(current_user)
     mq = db.query(Model)

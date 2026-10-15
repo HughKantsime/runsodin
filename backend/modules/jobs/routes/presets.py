@@ -46,7 +46,7 @@ FAILURE_REASONS = [
 # ──────────────────────────────────────────────
 
 @router.get("/failure-reasons", tags=["Jobs"])
-async def get_failure_reasons(current_user: dict = Depends(require_role("viewer"))):
+async def get_failure_reasons(current_user: dict = Depends(require_role("viewer", scope="read:jobs"))):
     """List available failure reason categories."""
     return FAILURE_REASONS
 
@@ -56,7 +56,7 @@ async def get_failure_reasons(current_user: dict = Depends(require_role("viewer"
 # ──────────────────────────────────────────────
 
 @router.get("/config/require-job-approval", tags=["Config"])
-def get_approval_setting(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+def get_approval_setting(current_user: dict = Depends(require_role("viewer", scope="read:jobs")), db: Session = Depends(get_db)):
     """Get the current job approval requirement setting."""
     config = db.query(SystemConfig).filter(SystemConfig.key == "require_job_approval").first()
     enabled = False
@@ -90,7 +90,7 @@ def get_print_jobs(
     status: Optional[str] = None,
     limit: int = 50,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("viewer")),
+    current_user: dict = Depends(require_role("viewer", scope="read:jobs")),
 ):
     """Get print job history from MQTT tracking."""
     org = get_org_scope(current_user)
@@ -140,7 +140,7 @@ def get_print_jobs(
 
 
 @router.get("/print-jobs/stats", tags=["Print Jobs"])
-def get_print_job_stats(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
+def get_print_job_stats(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer", scope="read:jobs"))):
     """Get aggregated print job statistics."""
     org = get_org_scope(current_user)
     org_filter = ""
@@ -178,7 +178,7 @@ def get_print_job_stats(db: Session = Depends(get_db), current_user: dict = Depe
 
 
 @router.get("/print-jobs/unlinked", tags=["Print Jobs"])
-def get_unlinked_print_jobs(printer_id: int = None, db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
+def get_unlinked_print_jobs(printer_id: int = None, db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer", scope="read:jobs"))):
     """Get recent print jobs not linked to scheduled jobs."""
     org = get_org_scope(current_user)
     sql = """
@@ -207,7 +207,7 @@ def get_unlinked_print_jobs(printer_id: int = None, db: Session = Depends(get_db
 # ──────────────────────────────────────────────
 
 @router.get("/presets", tags=["Presets"])
-def list_presets(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
+def list_presets(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer", scope="read:jobs"))):
     """List all print presets."""
     presets = db.query(PrintPreset).order_by(PrintPreset.name).all()
     return [

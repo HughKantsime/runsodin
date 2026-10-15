@@ -20,7 +20,7 @@ def assign_spool_to_slot(
     printer_id: int,
     slot_number: int,
     spool_id: int,
-    current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
+    current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)
 ):
     """Assign a spool to a printer slot."""
     slot = db.query(FilamentSlot).filter(
@@ -52,7 +52,7 @@ def assign_spool_to_slot(
 def confirm_slot_assignment(
     printer_id: int,
     slot_number: int,
-    current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
+    current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)
 ):
     """Confirm the spool assignment for a slot."""
     slot = db.query(FilamentSlot).filter(
@@ -72,7 +72,7 @@ def confirm_slot_assignment(
 
 
 @router.get("/{printer_id}/slots/needs-attention", tags=["Spools"])
-def get_slots_needing_attention(printer_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+def get_slots_needing_attention(printer_id: int, current_user: dict = Depends(require_role("viewer", scope="read:printers")), db: Session = Depends(get_db)):
     """Get slots that need spool confirmation or have mismatches."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:

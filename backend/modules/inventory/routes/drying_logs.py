@@ -19,7 +19,7 @@ router = APIRouter(prefix="/filaments", tags=["Filaments"])
 def list_filaments(
     brand: Optional[str] = None,
     material: Optional[str] = None,
-    current_user: dict = Depends(require_role("viewer")),
+    current_user: dict = Depends(require_role("viewer", scope="read:spools")),
     db: Session = Depends(get_db)
 ):
     """Get filaments from library."""
@@ -45,7 +45,7 @@ def list_filaments(
 
 
 @router.post("", tags=["Filaments"])
-def add_custom_filament(data: FilamentCreateRequest, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def add_custom_filament(data: FilamentCreateRequest, current_user: dict = Depends(require_role("operator", scope="write:spools")), db: Session = Depends(get_db)):
     """Add a custom filament to the library."""
     filament = FilamentLibrary(
         brand=data.brand,
@@ -60,7 +60,7 @@ def add_custom_filament(data: FilamentCreateRequest, current_user: dict = Depend
 
 
 @router.get("/combined", tags=["Filaments"])
-async def get_combined_filaments(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+async def get_combined_filaments(current_user: dict = Depends(require_role("viewer", scope="read:spools")), db: Session = Depends(get_db)):
     """Get filaments from both Spoolman (if available) and local library."""
     import httpx
     from core.config import settings
@@ -106,7 +106,7 @@ async def get_combined_filaments(current_user: dict = Depends(require_role("view
 
 
 @router.get("/{filament_id}", tags=["Filaments"])
-def get_filament(filament_id: str, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+def get_filament(filament_id: str, current_user: dict = Depends(require_role("viewer", scope="read:spools")), db: Session = Depends(get_db)):
     """Get a specific filament from the library."""
     fid_str = filament_id.replace("lib_", "")
     try:
@@ -130,7 +130,7 @@ def get_filament(filament_id: str, current_user: dict = Depends(require_role("vi
 
 
 @router.patch("/{filament_id}", tags=["Filaments"])
-def update_filament(filament_id: str, updates: FilamentUpdateRequest, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def update_filament(filament_id: str, updates: FilamentUpdateRequest, current_user: dict = Depends(require_role("operator", scope="write:spools")), db: Session = Depends(get_db)):
     """Update a filament in the library."""
     fid_str = filament_id.replace("lib_", "")
     try:
@@ -158,7 +158,7 @@ def update_filament(filament_id: str, updates: FilamentUpdateRequest, current_us
 
 
 @router.delete("/{filament_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Filaments"])
-def delete_filament(filament_id: str, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def delete_filament(filament_id: str, current_user: dict = Depends(require_role("operator", scope="write:spools")), db: Session = Depends(get_db)):
     """Delete a filament from the library."""
     fid_str = filament_id.replace("lib_", "")
     try:
