@@ -1,5 +1,9 @@
 title = "O.D.I.N. Gitleaks Config"
 
+# Without this the config defines no rules and gitleaks detects nothing.
+[extend]
+useDefault = true
+
 [allowlist]
   description = "Known false positives — test credentials and dev defaults"
   paths = [
@@ -18,4 +22,9 @@ title = "O.D.I.N. Gitleaks Config"
     '''AdminTestPass1''',
     '''test_(viewer|operator|admin)_rbac''',
     '''OdinAdmin1''',
+    '''[0-9]{3}_[a-z_]*keys[a-z_]*\.sql['"]\s*[:,]\s*['"][0-9a-f]{64}['"]''',
   ]
+  # SHA-256 source digests keyed by migration filenames (e.g. *_idempotency_keys.sql)
+  # trip generic-api-key; the line shape is a 64-hex digest after a .sql path.
+  regexTarget = "line"
+
