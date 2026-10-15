@@ -113,6 +113,19 @@ def _studio_print_notes(note: Optional[str], profile_metadata: Optional[dict]) -
 # Print Files (3MF upload & management)
 # ──────────────────────────────────────────────
 
+MESH_EXTRACTION_TIMEOUT_SECONDS = 30
+
+
+async def _extract_preview_mesh(path):
+    """Mesh preview or None. Runs in a worker thread; a slow package gets no preview."""
+    import asyncio
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(extract_mesh_from_3mf, path), MESH_EXTRACTION_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        log.warning("3MF mesh preview skipped: extraction exceeded %ss", MESH_EXTRACTION_TIMEOUT_SECONDS)
+        return None
+
+
 @router.post("/print-files/upload")
 @limiter.limit("30/minute")
 async def upload_3mf(
@@ -180,9 +193,10 @@ async def upload_3mf(
             # Default sellable pieces = objects checked by default (wipe towers excluded).
             default_quantity = sum(1 for obj in plate_objects if obj.get("checked")) or 1
 
-            # Extract 3D mesh for viewer
-            mesh_data = extract_mesh_from_3mf(tmp_path)
-            mesh_json = json.dumps(mesh_data) if mesh_data else None
+            # Extract 3D mesh for viewer: CPU-bound and attacker-shaped, so it runs off the
+            # event loop with a deadline (the parser also enforces an expansion budget).
+            mesh_data = await _extract_preview_mesh(tmp_path)
+            mesh_json = json.dumps(mesh_data, allow_nan=False) if mesh_data else None
 
             current_user = await _fresh_upload_actor(db, current_user)
             duplicate_info = _visible_upload_duplicate(db, file_hash, current_user)

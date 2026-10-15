@@ -3,6 +3,7 @@
 Extracts print metadata, filament info, and thumbnails.
 """
 
+import math
 import zipfile
 import json
 import base64
@@ -369,6 +370,15 @@ _CORE_NS = 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02'
 _PROD_NS = 'http://schemas.microsoft.com/3dmanufacturing/production/2015/06'
 _IDENTITY = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0)
 _MAX_COMPONENT_DEPTH = 16
+# Budgets for one preview. Components multiply: a few hundred bytes can describe
+# billions of instances, so emission is bounded globally, not per level.
+_MAX_EMITTED_VERTICES = 2_000_000
+_MAX_MESH_INSTANCES = 10_000
+_MAX_COMPONENT_VISITS = 100_000
+
+
+class MeshBudgetExceeded(Exception):
+    """The package describes more geometry than a preview may expand (or a cycle)."""
 
 
 def _local(tag: str) -> str:
@@ -384,15 +394,24 @@ def _child(elem, name: str):
     return found[0] if found else None
 
 
+def _finite(value) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        raise MeshBudgetExceeded("non-finite geometry")
+    return number
+
+
 def _matrix(value):
     """3MF transform 'm00 m01 m02 m10 m11 m12 m20 m21 m22 m30 m31 m32' (row vectors)."""
     if not value:
         return _IDENTITY
     try:
-        parts = tuple(float(v) for v in value.split())
+        parts = tuple(_finite(v) for v in value.split())
     except ValueError:
-        return _IDENTITY
-    return parts if len(parts) == 12 else _IDENTITY
+        raise MeshBudgetExceeded("invalid transform") from None
+    if len(parts) != 12:
+        raise MeshBudgetExceeded("invalid transform")
+    return parts
 
 
 def _compose(inner, outer):
@@ -457,30 +476,42 @@ def _collect_mesh_geometry(zf: zipfile.ZipFile):
         return documents[path]
 
     vertices, triangles = [], []
+    budget = {'instances': 0, 'visits': 0}
 
     def emit_mesh(mesh, transform):
         verts_elem, tris_elem = _child(mesh, 'vertices'), _child(mesh, 'triangles')
         if verts_elem is None or tris_elem is None:
             return
+        budget['instances'] += 1
+        source = _children(verts_elem, 'vertex')
+        if budget['instances'] > _MAX_MESH_INSTANCES or len(vertices) // 3 + len(source) > _MAX_EMITTED_VERTICES:
+            raise MeshBudgetExceeded("mesh budget exceeded")
         offset = len(vertices) // 3
         m = transform
         count = 0
-        for v in _children(verts_elem, 'vertex'):
-            x, y, z = float(v.get('x', 0)), float(v.get('y', 0)), float(v.get('z', 0))
-            vertices.extend([
-                x * m[0] + y * m[3] + z * m[6] + m[9],
-                x * m[1] + y * m[4] + z * m[7] + m[10],
-                x * m[2] + y * m[5] + z * m[8] + m[11],
-            ])
+        for v in source:
+            x, y, z = _finite(v.get('x', 0)), _finite(v.get('y', 0)), _finite(v.get('z', 0))
+            point = (x * m[0] + y * m[3] + z * m[6] + m[9],
+                     x * m[1] + y * m[4] + z * m[7] + m[10],
+                     x * m[2] + y * m[5] + z * m[8] + m[11])
+            if not all(math.isfinite(c) for c in point):
+                raise MeshBudgetExceeded("non-finite geometry")
+            vertices.extend(point)
             count += 1
         for t in _children(tris_elem, 'triangle'):
             ids = [int(t.get(k, 0)) for k in ('v1', 'v2', 'v3')]
             if all(0 <= i < count for i in ids):
                 triangles.extend(i + offset for i in ids)
 
-    def emit_object(path, object_id, transform, depth):
-        if depth > _MAX_COMPONENT_DEPTH:
-            return
+    def emit_object(path, object_id, transform, stack):
+        key = (path, object_id)
+        if key in stack:
+            raise MeshBudgetExceeded("component cycle")
+        if len(stack) >= _MAX_COMPONENT_DEPTH:
+            raise MeshBudgetExceeded("components nested too deep")
+        budget['visits'] += 1
+        if budget['visits'] > _MAX_COMPONENT_VISITS:
+            raise MeshBudgetExceeded("too many components")
         objects, _ = objects_of(path)
         obj = objects.get(object_id)
         if obj is None:
@@ -496,18 +527,18 @@ def _collect_mesh_geometry(zf: zipfile.ZipFile):
                 target = lower.get(ref.lstrip('/').lower())
                 if target is None:
                     continue
-            emit_object(target, comp.get('objectid'), _compose(_matrix(comp.get('transform')), transform), depth + 1)
+            emit_object(target, comp.get('objectid'), _compose(_matrix(comp.get('transform')), transform), stack | {key})
 
     objects, tree = objects_of(root_path)
     build = _child(tree, 'build') if tree is not None else None
     items = _children(build, 'item') if build is not None else []
     if items:
         for item in items:
-            emit_object(root_path, item.get('objectid'), _matrix(item.get('transform')), 0)
+            emit_object(root_path, item.get('objectid'), _matrix(item.get('transform')), frozenset())
     else:
         # No build section: every object of the root part.
         for object_id in objects:
-            emit_object(root_path, object_id, _IDENTITY, 0)
+            emit_object(root_path, object_id, _IDENTITY, frozenset())
     return vertices, triangles
 
 
@@ -520,7 +551,12 @@ def extract_mesh_from_3mf(file_path: str) -> Optional[dict]:
     """
     try:
         with zipfile.ZipFile(file_path, 'r') as zf:
-            all_vertices, all_triangles = _collect_mesh_geometry(zf)
+            try:
+                all_vertices, all_triangles = _collect_mesh_geometry(zf)
+            except MeshBudgetExceeded as refused:
+                # No preview rather than an unbounded or invalid one.
+                print(f"Mesh preview refused: {refused}")
+                return None
             
             if not all_vertices or not all_triangles:
                 return None
