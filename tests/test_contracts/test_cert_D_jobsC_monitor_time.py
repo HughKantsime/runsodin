@@ -69,8 +69,5 @@ def test_monitor_end_records_actual_end_and_print_duration(ended):
     assert ended['print_job']['status'] == 'completed' and ended['print_job']['print_duration_seconds'] > 0
 
 
-@pytest.mark.xfail(strict=True, reason='DEFECT: backend/modules/printers/monitors/mqtt_job_lifecycle.py:448 (and moonraker_monitor.py:540) '
-                   'overwrite jobs.duration_hours (the slicer estimate) with the measured duration on print end, so the estimate '
-                   'is no longer tracked alongside the actual duration for monitor-completed jobs')
 def test_monitor_end_keeps_slicer_estimate_alongside_actual(ended):
     assert ended['job']['duration_hours'] == 2.0

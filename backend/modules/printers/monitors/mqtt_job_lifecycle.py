@@ -249,6 +249,12 @@ def record_job_started(
                           linked_job_id,printer_id)).fetchone()
                     if changed is None:
                         linked_job_id = None
+                    else:
+                        # Persist the match so the print's end completes this
+                        # job instead of auto-creating a duplicate one.
+                        cur.execute(
+                            "UPDATE print_jobs SET scheduled_job_id = ? WHERE id = ? AND scheduled_job_id IS NULL",
+                            (linked_job_id, new_job_id))
 
                 # ---- Ad-hoc print: bump displaced scheduled jobs ----
                 if not linked_job_id and candidates:
@@ -445,8 +451,12 @@ def record_job_ended(
             job_status = status.lower()
 
             if linked_job_id:
-                cur.execute("UPDATE jobs SET status = ?, actual_end = ?, duration_hours = COALESCE(?, duration_hours) WHERE id = ?",
-                            (job_status, now_utc, duration_hours, linked_job_id))
+                # Keep the slicer estimate in duration_hours; the actual duration
+                # is actual_end - actual_start. Only fill duration_hours when the
+                # job carried no estimate at all.
+                cur.execute("UPDATE jobs SET status = ?, actual_end = ?, actual_start = COALESCE(actual_start, ?),"
+                            " duration_hours = COALESCE(duration_hours, ?) WHERE id = ?",
+                            (job_status, now_utc, pj_row[0] if pj_row else None, duration_hours, linked_job_id))
                 log.info(f"[{printer_name}] Updated linked job {linked_job_id} to '{job_status}' (duration={duration_hours}h)")
             else:
                 # Create a jobs record for metrics tracking

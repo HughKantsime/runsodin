@@ -537,7 +537,7 @@ class MoonrakerMonitor:
                     duration_hours = round(duration_seconds / 3600, 4) if duration_seconds else None
                     conn.execute(text("""
                         UPDATE jobs SET status = :status, actual_end = :ended,
-                               duration_hours = COALESCE(:dur, duration_hours)
+                               duration_hours = COALESCE(duration_hours, :dur)
                         WHERE id = :jid
                     """), {"status": sched_status, "ended": now_utc, "dur": duration_hours, "jid": row[0]})
                     log.info(f"[{self.name}] Scheduled job #{row[0]} marked {sched_status}")

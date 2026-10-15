@@ -121,7 +121,6 @@ def test_window_only_considers_jobs_scheduled_on_the_reporting_printer(lifecycle
     assert status(db, [801])[801] == ('scheduled', 10)
 
 
-@pytest.mark.xfail(strict=True, reason=MATCHED_DEFECT)
 def test_window_matched_job_is_completed_by_its_print_end(lifecycle):
     """Window match must survive to the real job-end handler for the same print attempt."""
     from modules.printers.monitors import mqtt_job_lifecycle
@@ -341,7 +340,6 @@ def test_unmatched_bambu_finish_auto_creates_completed_job_linked_to_print(bambu
     assert (job['quantity'], job['quantity_on_bed'], job['hold'], job['is_locked']) == (1, 1, 0, 0)
 
 
-@pytest.mark.xfail(strict=True, reason=MATCHED_DEFECT)
 def test_matched_bambu_finish_completes_existing_job_without_duplicate(bambu_completion):
     s = bambu_completion['linked']
     assert [(j['id'], j['item_name'], j['status']) for j in s['jobs']] == [(950, 'Linked Gear', 'completed')]
