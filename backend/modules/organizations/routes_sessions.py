@@ -537,27 +537,16 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
     # retaining the operational alert and job reference.
     from core.identity_scrub import like_patterns, scrub_text, scrub_json_text
 
-    def _candidate_ids(table, where):
+    like = "ILIKE" if db.get_bind().dialect.name == "postgresql" else "LIKE"
+
+    def _candidate_ids(table, column_expr):
+        # Case-insensitive on both dialects (PostgreSQL LIKE is case-sensitive).
         ids = set()
         for identifier in identifiers:
             for pattern in like_patterns(identifier):
                 ids.update(r.id for r in db.execute(
-                    text(f"SELECT id FROM {table} WHERE {where}"), {"p": pattern}))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — table/where are module constants, no user input
+                    text(f"SELECT id FROM {table} WHERE {column_expr} {like} :p"), {"p": pattern}))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — table/column are module constants, no user input
         return sorted(ids)
-
-    # Chunk the candidate rows so a large table is not rewritten in one
-    # statement that holds the write lock for many seconds; log progress.
-    CHUNK = 500
-    alert_ids = _candidate_ids("alerts", "title LIKE :p OR message LIKE :p")
-    for start in range(0, len(alert_ids), CHUNK):
-        for alert_id in alert_ids[start:start + CHUNK]:
-            row = db.execute(text("SELECT title, message FROM alerts WHERE id = :id"), {"id": alert_id}).one()
-            title, message = scrub_text(row.title, identifiers), scrub_text(row.message, identifiers)
-            if (title, message) != (row.title, row.message):
-                db.execute(text("UPDATE alerts SET title = :t, message = :m WHERE id = :id"),
-                           {"t": title, "m": message, "id": alert_id})
-        if alert_ids:
-            log.info("GDPR erase: scrubbed alerts %d/%d", min(start + CHUNK, len(alert_ids)), len(alert_ids))
 
     # Remove direct Classroom identity data and any unconsumed OAuth state.
     # Operational course mappings and cost centers remain, while grants are
@@ -596,11 +585,36 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
         {"details": json.dumps({"anonymized_user_id": user_id}), "uid": user_id},
     )
 
+    erasure_details = {"anonymized_user_id": user_id}
+    if not actor_is_erased(db, current_user["id"]):
+        erasure_details["actor_user_id"] = current_user["id"]
+    log_audit(db, "gdpr_erasure", "user", user_id, erasure_details)
+    db.commit()
+
+    # Account anonymization is committed. Scrub the user's identifiers from the
+    # free-text audit and alert tables in committed chunks: each chunk holds the
+    # write lock only briefly, and a re-run after an interruption resumes from
+    # whatever rows still match (idempotent).
+    # Chunk the candidate rows so a large table is not rewritten in one
+    # statement that holds the write lock for many seconds; log progress.
+    CHUNK = 500
+    alert_ids = _candidate_ids("alerts", "COALESCE(title,'') || ' ' || COALESCE(message,'')")
+    for start in range(0, len(alert_ids), CHUNK):
+        for alert_id in alert_ids[start:start + CHUNK]:
+            row = db.execute(text("SELECT title, message FROM alerts WHERE id = :id"), {"id": alert_id}).one()
+            title, message = scrub_text(row.title, identifiers), scrub_text(row.message, identifiers)
+            if (title, message) != (row.title, row.message):
+                db.execute(text("UPDATE alerts SET title = :t, message = :m WHERE id = :id"),
+                           {"t": title, "m": message, "id": alert_id})
+        db.commit()  # commit per chunk: bounded lock, idempotent and resumable
+        if alert_ids:
+            log.info("GDPR erase: scrubbed alerts %d/%d", min(start + CHUNK, len(alert_ids)), len(alert_ids))
+
     # Any other audit row can still name the user in its details (failed
     # logins have no entity id; actions the user performed carry their name).
     # Decode each candidate's JSON text (read as text on both dialects) and
     # scrub it structurally; rows that do not name the user stay byte-identical.
-    audit_ids = _candidate_ids("audit_logs", "CAST(details AS TEXT) LIKE :p")
+    audit_ids = _candidate_ids("audit_logs", "CAST(details AS TEXT)")
     for start in range(0, len(audit_ids), CHUNK):
         for audit_id in audit_ids[start:start + CHUNK]:
             raw = db.execute(text("SELECT CAST(details AS TEXT) FROM audit_logs WHERE id = :id"), {"id": audit_id}).scalar()
@@ -608,12 +622,8 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
             if scrubbed is not None:
                 db.execute(text("UPDATE audit_logs SET details = :details WHERE id = :id"),
                            {"details": scrubbed, "id": audit_id})
+        db.commit()  # commit per chunk: bounded lock, idempotent and resumable
         if audit_ids:
             log.info("GDPR erase: scrubbed audit_logs %d/%d", min(start + CHUNK, len(audit_ids)), len(audit_ids))
 
-    erasure_details = {"anonymized_user_id": user_id}
-    if not actor_is_erased(db, current_user["id"]):
-        erasure_details["actor_user_id"] = current_user["id"]
-    log_audit(db, "gdpr_erasure", "user", user_id, erasure_details)
-    db.commit()
     return {"status": "ok", "message": "User data erased"}

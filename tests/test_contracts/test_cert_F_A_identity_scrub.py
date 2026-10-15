@@ -1,6 +1,7 @@
-"""Security review MED/LOW-E: the GDPR identity scrub matches on token boundaries,
-is case-insensitive for email, handles @mentions and punctuation, scrubs values only
-in identifier-bearing keys, leaves role-like keys and bystanders intact."""
+"""Security review round-4 LOW/MEDIUM: the GDPR identity scrub matches on identifier
+edges (word chars and . + - @ do not split an identifier), is case-insensitive for
+email, scans every non-protected string value, renames identifier keys, and never
+rewrites enum-like values (role/new_role/status)."""
 import json
 import pytest
 from core.identity_scrub import scrub_text, scrub_json_text
@@ -10,34 +11,48 @@ IDS = ["bob", "Bob@Example.Test"]
 
 @pytest.mark.parametrize("text_in,expected", [
     ("bob logged in", "[deleted-user] logged in"),
-    ("@bob mentioned you", "@[deleted-user] mentioned you"),
-    ("from bob.", "from [deleted-user]."),
     ("(bob)", "([deleted-user])"),
-    ("bobby stayed", "bobby stayed"),            # longer token not matched
-    ("robob", "robob"),                          # substring not matched
+    ("bob, alice signed in", "[deleted-user], alice signed in"),
+    ("a@x.com, Bob@Example.Test here", "a@x.com, [deleted-user] here"),   # email list
+    # Identifier edges: . + - @ and word chars never split an identifier.
+    ("bob-smith stayed", "bob-smith stayed"),
+    ("alice-bob stayed", "alice-bob stayed"),
+    ("bob+test stayed", "bob+test stayed"),
+    ("bob@x.com.au stayed", "bob@x.com.au stayed"),
+    ("@bob stayed", "@bob stayed"),
+    ("from bob.smith", "from bob.smith"),
+    ("bobby stayed", "bobby stayed"),
+    ("robob", "robob"),
     ("mail BOB@example.test now", "mail [deleted-user] now"),  # email case-insensitive
 ])
-def test_bounded_and_caseinsensitive_text(text_in, expected):
+def test_identifier_edges_and_caseinsensitive_text(text_in, expected):
     assert scrub_text(text_in, IDS) == expected
 
 
-def test_json_identifier_keys_exact_only_text_keys_bounded_protected_untouched():
+def test_json_scans_all_values_renames_id_keys_and_keeps_enum_values():
     raw = json.dumps({
-        "username": "bob",                 # identifier key, exact -> scrubbed
-        "new_role": "bob",                 # protected key -> kept even though it equals an id
+        "username": "bob",                   # value scrubbed
+        "new_role": "bob",                   # protected -> kept even though it equals an id
         "role": "admin",
-        "message": "bob approved the job",  # free text -> bounded scrub
-        "note": "see bobby instead",        # bystander name -> untouched
-        "actor": "Bob@Example.Test",        # identifier key, email case-insensitive
+        "status": "bob",                     # protected -> kept
+        "message": "bob approved the job",   # free text -> bounded scrub
+        "note": "see bobby instead",         # bystander -> untouched
+        "actor": "Bob@Example.Test",         # email, case-insensitive
+        "owner": "bob-smith",                # edge-protected -> kept
+        "bob": "did it",                     # key is an identifier -> key renamed
         "count": 3,
     })
     out = json.loads(scrub_json_text(raw, IDS))
     assert out["username"] == "[deleted-user]"
     assert out["new_role"] == "bob"
     assert out["role"] == "admin"
+    assert out["status"] == "bob"
     assert out["message"] == "[deleted-user] approved the job"
     assert out["note"] == "see bobby instead"
     assert out["actor"] == "[deleted-user]"
+    assert out["owner"] == "bob-smith"
+    assert out["[deleted-user]"] == "did it" and "bob" not in out
+    assert out["count"] == 3
     assert out["count"] == 3
 
 
