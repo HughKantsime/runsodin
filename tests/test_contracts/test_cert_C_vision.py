@@ -444,3 +444,104 @@ def test_global_vision_settings_write_requires_superadmin(vision_http, review_db
     principal.update(group_id=None)
     assert client.get('/api/vision/settings').json()['enabled'] is True
     assert client.patch('/api/vision/settings', json={'enabled': False}).status_code == 200
+
+
+# ------------------------------------------- review MEDIUM-6/7, item 11: monitor lifecycle
+
+def test_zero_threshold_reaches_running_thread_unchanged(daemon, camera_printers, vision_http):
+    instance, _ = daemon
+    client, _ = vision_http
+    assert client.patch('/api/printers/9/vision', json={'spaghetti_threshold': 0.0, 'build_plate_empty_threshold': 0}).status_code == 200
+    instance._scan_printers()
+    assert instance._threads[9].settings['spaghetti_threshold'] == 0.0
+    assert instance._threads[9].settings['build_plate_empty_threshold'] == 0
+
+
+@pytest.mark.parametrize('value', [0, -5, 0.5, 'fast', True, 86401])
+def test_capture_interval_must_be_bounded_positive_int(vision_http, value):
+    client, _ = vision_http
+    assert client.patch('/api/printers/9/vision', json={'capture_interval_sec': value}).status_code == 422
+    assert client.patch('/api/printers/9/vision', json={'capture_interval_sec': 30}).status_code == 200
+
+
+def test_running_thread_picks_up_shorter_capture_interval(daemon, camera_printers, vision_http):
+    instance, calls = daemon
+    client, _ = vision_http
+    assert client.patch('/api/printers/9/vision', json={'capture_interval_sec': 3600}).status_code == 200
+    instance._scan_printers()
+    url = 'http://127.0.0.1:1984/api/frame.jpeg?src=printer_9'
+    assert _wait(lambda: calls.count(url) >= 1)
+    time.sleep(0.3)
+    assert calls.count(url) == 1  # sleeping for an hour
+    assert client.patch('/api/printers/9/vision', json={'capture_interval_sec': 1}).status_code == 200
+    instance._scan_printers()
+    assert _wait(lambda: calls.count(url) >= 3, seconds=5)
+
+
+def test_sleep_error_does_not_kill_thread_and_dead_threads_are_restarted(daemon, camera_printers, monkeypatch):
+    instance, _ = daemon
+    instance._scan_printers()
+    thread = instance._threads[9]
+    failures = []
+    original = thread._wake.wait
+
+    def flaky(timeout=None):
+        if not failures:
+            failures.append(timeout)
+            raise OSError('cert: sleep interrupted')
+        return original(timeout)
+    monkeypatch.setattr(thread._wake, 'wait', flaky)
+    assert _wait(lambda: failures)
+    time.sleep(0.2)
+    assert thread.is_alive()
+    # A thread that died anyway is detected on the next scan and replaced.
+    dead = instance._threads[10]
+    dead.stop()
+    dead.join(timeout=3)
+    assert not dead.is_alive()
+    instance._scan_printers()
+    assert instance._threads[10] is not dead and instance._threads[10].is_alive()
+
+
+def test_disable_joins_thread_and_reenable_never_duplicates_a_live_one(daemon, camera_printers, vision_http, monkeypatch):
+    import threading
+    from modules.vision import monitor
+    instance, _ = daemon
+    client, _ = vision_http
+    instance._scan_printers()
+    old = instance._threads[9]
+    assert client.patch('/api/printers/9/vision', json={'enabled': 0}).status_code == 200
+    instance._scan_printers()
+    assert not old.is_alive()  # joined, not merely signalled
+    # A thread stuck in a long capture outlives the join timeout: re-enable must wait for it.
+    assert client.patch('/api/printers/9/vision', json={'enabled': 1}).status_code == 200
+    instance._scan_printers()
+    stuck = instance._threads[9]
+    release, entered = threading.Event(), threading.Event()
+
+    def blocking_capture():
+        entered.set()
+        release.wait(10)
+    monkeypatch.setattr(stuck, '_capture_and_analyze', blocking_capture)
+    stuck._wake.set()
+    assert entered.wait(5)
+    monkeypatch.setattr(monitor, 'THREAD_JOIN_TIMEOUT', 0.2)
+    client.patch('/api/printers/9/vision', json={'enabled': 0})
+    instance._scan_printers()
+    assert stuck.is_alive() and 9 not in instance._threads
+    client.patch('/api/printers/9/vision', json={'enabled': 1})
+    instance._scan_printers()
+    assert 9 not in instance._threads
+    alive = [t for t in threading.enumerate() if getattr(t, 'printer_id', None) == 9 and t.is_alive()]
+    assert alive == [stuck]
+    release.set()
+    stuck.join(timeout=5)
+    instance._scan_printers()
+    assert instance._threads[9] is not stuck and instance._threads[9].is_alive()
+
+
+def test_api_and_thread_share_the_capture_interval_bound(vision_http):
+    from modules.vision.detection_thread import MAX_CAPTURE_INTERVAL, capture_interval
+    client, _ = vision_http
+    assert client.patch('/api/printers/9/vision', json={'capture_interval_sec': MAX_CAPTURE_INTERVAL}).status_code == 200
+    assert capture_interval(MAX_CAPTURE_INTERVAL) == MAX_CAPTURE_INTERVAL and capture_interval(MAX_CAPTURE_INTERVAL + 1) == 10

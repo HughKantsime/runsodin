@@ -260,6 +260,11 @@ async def update_printer_vision_settings(
             isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 1
         ):
             raise HTTPException(status_code=422, detail=f"{key} must be a number between 0 and 1")
+    if "capture_interval_sec" in updates:
+        MAX_CAPTURE_INTERVAL = 86400  # mirrors detection_thread.MAX_CAPTURE_INTERVAL (no cv2 import here)
+        interval = updates["capture_interval_sec"]
+        if type(interval) is not int or not 1 <= interval <= MAX_CAPTURE_INTERVAL:
+            raise HTTPException(status_code=422, detail=f"capture_interval_sec must be a whole number from 1 to {MAX_CAPTURE_INTERVAL}")
 
     row = db.query(VisionSettings).filter(VisionSettings.printer_id == printer_id).first()
     if row:

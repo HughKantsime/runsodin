@@ -35,6 +35,15 @@ DETECTION_TYPES = ['spaghetti', 'first_layer', 'detachment', 'build_plate_empty'
 # Collected training frames are stored as status='training' rows, never as detections.
 TRAINING_SAMPLE = 'training_sample'
 TRAINING_STATUS = 'training'
+DEFAULT_CAPTURE_INTERVAL = 10
+MAX_CAPTURE_INTERVAL = 86400  # same bound as PATCH /api/printers/{id}/vision
+
+
+def capture_interval(value) -> int:
+    """A valid capture interval in seconds (1..86400), else the default."""
+    if type(value) is int and 1 <= value <= MAX_CAPTURE_INTERVAL:
+        return value
+    return DEFAULT_CAPTURE_INTERVAL
 
 
 class PrinterVisionThread(threading.Thread):
@@ -59,6 +68,8 @@ class PrinterVisionThread(threading.Thread):
         self.print_job_id = print_job_id
         self.gcode_state = gcode_state
         self._running = True
+        # Interruptible sleep: stop() and interval changes wake the thread immediately.
+        self._wake = threading.Event()
 
         # Confirmation buffers: track consecutive detections
         self._history: Dict[str, List[bool]] = {
@@ -72,6 +83,14 @@ class PrinterVisionThread(threading.Thread):
 
     def stop(self):
         self._running = False
+        self._wake.set()
+
+    def update_settings(self, settings: dict):
+        """Apply persisted settings to the running thread; a new interval takes effect now."""
+        previous = capture_interval(self.settings.get('capture_interval_sec'))
+        self.settings = settings
+        if capture_interval(settings.get('capture_interval_sec')) != previous:
+            self._wake.set()
 
     def update_layer(self, layer: Optional[int], job_id: Optional[int], gcode_state: Optional[str] = None):
         self.current_layer = layer
@@ -83,13 +102,25 @@ class PrinterVisionThread(threading.Thread):
 
     def run(self):
         log.info(f"[{self.printer_name}] Vision thread started")
-        interval = self.settings.get('capture_interval_sec', 10)
-        while self._running:
-            try:
-                self._capture_and_analyze()
-            except Exception as e:
-                log.error(f"[{self.printer_name}] Vision error: {e}")
-            time.sleep(interval)
+        try:
+            while self._running:
+                try:
+                    self._capture_and_analyze()
+                except Exception as e:
+                    log.error(f"[{self.printer_name}] Vision error: {e}")
+                if not self._running:
+                    break
+                # Re-read the interval every loop so a changed setting applies to this print.
+                interval = capture_interval(self.settings.get('capture_interval_sec'))
+                try:
+                    self._wake.clear()
+                    self._wake.wait(interval)
+                except Exception as e:
+                    log.error(f"[{self.printer_name}] Vision sleep error: {e}")
+                    time.sleep(1)
+        except BaseException:
+            log.exception(f"[{self.printer_name}] Vision thread died")
+            raise
         log.info(f"[{self.printer_name}] Vision thread stopped")
 
     def _capture_and_analyze(self):
