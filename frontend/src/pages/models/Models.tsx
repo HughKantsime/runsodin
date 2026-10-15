@@ -22,7 +22,7 @@ import ConfirmModal from '../../components/shared/ConfirmModal'
 import { PageHeader, SearchInput, StatCard, TabBar, Button, EmptyState, Modal } from '../../components/ui'
 
 import { models, filaments, printers, getApprovalSetting } from '../../api'
-import { canDo, getCurrentUser } from '../../permissions'
+import { canDo } from '../../permissions'
 import { useOrg } from '../../contexts/OrgContext'
 
 function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onView3D, onRevisions, submitForApproval = false }) {
@@ -623,9 +623,10 @@ export default function Models() {
   const { data: modelsData, isLoading } = useQuery({ queryKey: ['models', categoryFilter, org.orgId], queryFn: () => models.listWithPricing(categoryFilter || null, org.orgId) })
   // Viewers (students) submit library models for approval when the approval workflow is on;
   // the backend creates the job as 'submitted' for an operator/admin to approve.
-  const isViewer = getCurrentUser()?.role === 'viewer'
-  const { data: approvalSetting } = useQuery({ queryKey: ['approval-setting'], queryFn: getApprovalSetting, enabled: isViewer })
-  const submitForApproval = isViewer && !!approvalSetting?.require_job_approval
+  // Roles that cannot schedule directly (viewers by default RBAC) get the approval path.
+  const mayScheduleDirectly = canDo('models.create')
+  const { data: approvalSetting } = useQuery({ queryKey: ['approval-setting'], queryFn: () => getApprovalSetting(), enabled: !mayScheduleDirectly })
+  const submitForApproval = !mayScheduleDirectly && !!approvalSetting?.require_job_approval
 
   // Auto-open schedule modal if ?schedule=modelId is present
   useEffect(() => {
