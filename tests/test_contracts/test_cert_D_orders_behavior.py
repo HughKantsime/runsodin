@@ -207,12 +207,21 @@ def test_viewer_and_foreign_org_cannot_mark_shipped(bom_client, review_db):
     assert dict(row) == {'status': 'fulfilled', 'tracking_number': None}
 
 
-@pytest.mark.xfail(strict=True, reason="DEFECT: backend/modules/orders/routes/orders_crud.py:559 ship_order sets status=shipped without checking current status; PATCH /orders/{id}/ship on a cancelled order returns 200 and turns it into shipped (UI only offers Mark Shipped for fulfilled orders)")
 def test_cancelled_order_cannot_be_marked_shipped(bom_client, review_db):
     identifier = _order_with_status(review_db, 'cancelled')
     response = bom_client.patch(f'/orders/{identifier}/ship', json={'tracking_number': 'TRACK-CANCELLED'})
     assert response.status_code == 409, response.text
     assert _fresh(review_db, 'SELECT status FROM orders WHERE id=:id', id=identifier)[0]['status'] == 'cancelled'
+
+
+@pytest.mark.parametrize('status,allowed', [('pending', False), ('shipped', False), ('in_progress', True), ('fulfilled', True)])
+def test_ship_is_only_reachable_from_the_production_lifecycle(bom_client, review_db, status, allowed):
+    identifier = _order_with_status(review_db, status)
+    response = bom_client.patch(f'/orders/{identifier}/ship', json={'tracking_number': 'TRACK-' + status})
+    assert response.status_code == (200 if allowed else 409), response.text
+    row = _fresh(review_db, 'SELECT status,tracking_number FROM orders WHERE id=:id', id=identifier)[0]
+    assert row['status'] == ('shipped' if allowed else status)
+    assert (row['tracking_number'] == 'TRACK-' + status) is allowed
 
 
 # ---------------------------------------------------------------- F09-9.1-03 edit modal backend contract
