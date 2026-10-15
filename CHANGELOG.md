@@ -4,6 +4,25 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased] - Whole-app certification repairs
 
+### Changed (API behavior)
+
+- `GET /api/alerts` no longer returns dismissed alerts by default (they are
+  filtered before paging). Pass `include_dismissed=true` to get every alert, or
+  `is_dismissed=true|false` to filter explicitly. `GET /api/alerts/unread-count`
+  and `/api/alerts/summary` also exclude dismissed alerts. The web Alerts page
+  has a Dismissed tab.
+- `GET /api/analytics` accepts `days` (1-365) and windows revenue, cost,
+  margin, completed counts, print hours, per-printer stats and the daily series.
+  Totals are `null` (unknown) when a counted job has no price or cost, with
+  `jobs_unpriced`/`jobs_uncosted` counts; pending values describe the current
+  queue (`pending_scope: "current_queue"`). Daily rows carry `revenue`/`cost`.
+- `GET /api/models/{id}/cost` prices one sellable item: material, electricity
+  and machine depreciation are divided by `units_per_bed`.
+- `POST /api/push/vapid-key/rotate` (superadmin) rotates the Web Push keys and
+  invalidates existing subscriptions. `VAPID_PRIVATE_KEY` in the environment
+  overrides the stored pair.
+- Spoolman consumption is sent with `PUT /api/v1/spool/{id}/use`.
+
 ### Fixed
 
 - Project ZIP import now restores archives and print files. Export writes a
