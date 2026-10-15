@@ -3,6 +3,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from core.rbac import get_org_scope, should_filter_org
 from core.registry import registry
+from core.tenancy_mode import NO_ORGANIZATIONS_SQL
 from core.interfaces.education_policy import generic_archive_audience_sql
 
 
@@ -14,7 +15,11 @@ def archive_visibility(principal):
     audience = getattr(provider, "archive_audience_sql", None)
     # Older or absent authorities cannot authorize Education-marked history.
     education = audience() if callable(audience) else generic_archive_audience_sql()
-    return ("(a.ownership_state='known' AND (a.org_id=:_arc_org OR a.org_id IS NULL) "
+    # Unresolved ownership (e.g. a print started at the printer, with no ODIN
+    # job) resolves to the install while the install has no organizations;
+    # with organizations it stays platform-admin only (fail-closed).
+    return ("(((a.ownership_state='known' AND (a.org_id=:_arc_org OR a.org_id IS NULL)) "
+            "OR (a.ownership_state='unresolved' AND a.org_id IS NULL AND " + NO_ORGANIZATIONS_SQL + ")) "
             "AND (" + education + "))", {
                 "_arc_org": org, "_arc_user": principal.get("id"),
                 "_arc_admin": 1 if principal.get("role") == "admin" else 0,
