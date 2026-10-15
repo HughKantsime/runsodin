@@ -652,6 +652,9 @@ def create_app() -> FastAPI:
 
     Returns the fully configured app object. Uvicorn finds it via main:app.
     """
+    # Credential-bearing URLs (?token=...) must never reach access or error logs.
+    from core.log_redaction import install_log_redaction
+    install_log_redaction()
     from core.config import settings
     from core.db import engine, Base, get_db
     from core.auth import decode_token

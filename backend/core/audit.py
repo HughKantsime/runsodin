@@ -27,11 +27,12 @@ def log_audit(
         log_audit(db, "action", ...)
         db.commit()
     """
+    from core.log_redaction import redact_structure
     entry = AuditLog(
         action=action,
         entity_type=entity_type,
         entity_id=entity_id,
-        details=details,
+        details=redact_structure(details),  # never persist a credential-bearing URL or token
         ip_address=ip,
     )
     stage_actor(db, entry, ip)

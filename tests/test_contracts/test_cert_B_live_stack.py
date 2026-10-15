@@ -478,6 +478,11 @@ def test_F02_2_8_02_overlay_camera_requires_a_camera_token(live):
     victim = next(t for t in tokens if t["name"] == "CertB jobs")
     assert live.json("DELETE", f"/api/tokens/{victim['id']}", token=live.tokens["certb-operator"])[0] == 200
     assert stream_head(f"/api/overlay/{pid}/camera?token={b['token']}")[0] == 401
+    # The real uvicorn access/error logs record the camera requests without their tokens.
+    log = live.sh("cat /data/backend.log")
+    assert f"/api/overlay/{pid}/camera?token=[REDACTED]" in log
+    assert live.overlay_token not in log and b["token"] not in log and live.tokens["certb-viewer"] not in log
+    assert not re.search(r"[?&]token=(?!\[REDACTED\])", log), re.findall(r"[?&]token=[^ \"]{0,12}", log)[:5]
 
 
 def test_F02_2_8_05_overlay_query_params(live):
