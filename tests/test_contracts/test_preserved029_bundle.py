@@ -274,6 +274,8 @@ with open(os.environ["FAKE_LEDGER_FILE"], "rb") as source:
     head, _, tail = source.read().partition(b"\\\\.\\n")
     out = sys.stdout.buffer
     out.write(head)
+    if os.environ.get("FAKE_LEDGER_HANG"):
+        out.flush(); __import__("time").sleep(60)
     for i in range(repeat - 1):
         out.write(("python:9%07d-padding\\t" % i).encode() + b"0" * 64 + b"\\tpostgresql\\t2026-10-15 10:00:00+00\\n")
     out.write(b"\\\\.\\n" + tail)
@@ -345,6 +347,29 @@ def test_ledger_probe_streams_with_a_byte_cap_and_stops_the_tool(routed, monkeyp
     with pytest.raises(BackupValidationError, match="exceeds"):
         stage.archive_ledger_ids(archive, "postgresql://o@pg/odin", None, archive.parent)
     assert monotonic() - started < 20
+
+
+def test_ledger_probe_has_a_timeout(routed, monkeypatch):
+    from modules.system import pre026_restore_stage as stage
+    from modules.system.backup_service import BackupValidationError
+    archive, state = routed
+    state["ledger"] = "COPY public.odin_schema_migrations (migration_id, checksum, dialect, applied_at) FROM stdin;\n"
+    monkeypatch.setenv("FAKE_LEDGER_HANG", "1")
+    monkeypatch.setattr(stage, "LEDGER_SECONDS", 1)
+    started = monotonic()
+    with pytest.raises(BackupValidationError, match="timed out"):
+        stage.archive_ledger_ids(archive, "postgresql://o@pg/odin", None, archive.parent)
+    assert monotonic() - started < 10
+
+
+def test_undecodable_ledger_is_a_validation_error(routed):
+    from modules.system import pre026_restore_stage as stage
+    from modules.system.backup_service import BackupValidationError
+    archive, state = routed
+    state["ledger"] = _ledger_sql(sorted(p.ledger_ids()))
+    Path(os.environ["FAKE_LEDGER_FILE"]).write_bytes(Path(os.environ["FAKE_LEDGER_FILE"]).read_bytes().replace(b"python:001", b"python:\xff01", 1))
+    with pytest.raises(BackupValidationError, match="malformed"):
+        stage.archive_ledger_ids(archive, "postgresql://o@pg/odin", None, archive.parent)
 
 
 def test_intermediate_post027_archive_refuses_loudly(routed, monkeypatch):

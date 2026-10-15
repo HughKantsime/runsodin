@@ -31,31 +31,42 @@ def current_schema_version():
 
 
 LEDGER_BYTE_CAP=4*1024*1024
+LEDGER_SECONDS=300
 
 
 def _pg_restore_lines(arguments,url,password_file,directory,*,limit):
-    """Stream one pg_restore's stdout line by line; kill it past ``limit`` bytes."""
-    import shutil,subprocess
+    """Stream one pg_restore's stdout line by line; kill it past ``limit`` bytes or LEDGER_SECONDS."""
+    import shutil,subprocess,threading
     from modules.system import postgres_backup_service as b
     executable=shutil.which('pg_restore')
-    if not executable:raise b.BackupValidationError('Required PostgreSQL client is unavailable: pg_restore')
+    if not executable:raise b.RestoreEnvironmentError('Required PostgreSQL client is unavailable: pg_restore')
     environment=os.environ.copy();environment.pop('PGPASSFILE',None)
     environment['PGPASSWORD']=b._postgres_password(password_file)
     process=subprocess.Popen([executable,*arguments],env=environment,cwd=directory,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+    expired=threading.Event()
+    def expire():
+        expired.set()
+        try:process.kill()
+        except OSError:pass
+    timer=threading.Timer(LEDGER_SECONDS,expire);timer.daemon=True;timer.start()
     total=0;complete=False
     try:
         for raw in process.stdout:
             total+=len(raw)
             if total>limit:raise b.BackupValidationError('PostgreSQL archive migration ledger exceeds the supported size')
-            yield raw.decode('utf-8','strict').rstrip('\n')
+            try:yield raw.decode('utf-8','strict').rstrip('\n')
+            except UnicodeDecodeError:raise b.BackupValidationError('PostgreSQL archive migration ledger is missing or malformed') from None
         complete=True
     finally:
+        timer.cancel()
         if not complete and process.poll() is None:process.kill()
         process.stdout.close()
         try:returncode=process.wait(timeout=30)
         except subprocess.TimeoutExpired:
             process.kill();returncode=process.wait()
-    if returncode:raise b.BackupValidationError('PostgreSQL client operation failed: pg_restore')
+    # A timeout is not a judgement of the archive: classify it as retryable.
+    if expired.is_set():raise b.PostgreSQLClientFailed('PostgreSQL client operation timed out: pg_restore',connects=True)
+    if returncode:raise b.PostgreSQLClientFailed('PostgreSQL client operation failed: pg_restore',connects=False)
 
 
 def archive_ledger_ids(archive,url,password_file,directory):
