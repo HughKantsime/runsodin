@@ -50,7 +50,8 @@ def test_org_admin_cannot_disable_foreign_org_mfa(admin_mfa_client,review_db):
 
 
 @pytest.mark.parametrize('scope',['read','write','admin'])
-def test_delegated_scope_controls_mfa_recovery(admin_mfa_client,review_db,scope):
+def test_no_api_token_recovers_mfa(admin_mfa_client,review_db,scope):
+    # Security review HIGH 1: MFA recovery is credential material; no token, admin included, may do it.
     import secrets,json
     from core.auth import hash_password
     raw='odin_'+secrets.token_urlsafe(32)
@@ -58,9 +59,10 @@ def test_delegated_scope_controls_mfa_recovery(admin_mfa_client,review_db,scope)
                       {'hash':hash_password(raw),'prefix':raw[:10],'scopes':json.dumps([scope])})
     review_db.commit()
     response=admin_mfa_client.delete('/admin/users/1/mfa',headers={'X-API-Key':raw})
-    assert response.status_code==(200 if scope=='admin' else 403)
+    assert response.status_code==403
+    assert response.json()['detail']=="API tokens cannot create or change credentials; sign in with a password session"
     with Session(review_db.get_bind()) as fresh:
-        assert fresh.execute(text('SELECT mfa_enabled FROM users WHERE id=1')).scalar_one()==(0 if scope=='admin' else 1)
+        assert fresh.execute(text('SELECT mfa_enabled FROM users WHERE id=1')).scalar_one()==1
 
 
 def test_global_admin_retains_foreign_recovery(admin_mfa_client,review_db):

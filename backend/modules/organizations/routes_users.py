@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from core.db import get_db
 from core.db_compat import execute_insert_returning_id, sql
 from core.dependencies import log_audit
-from core.rbac import require_scope, require_role, require_superadmin
+from core.rbac import require_scope, require_role, require_superadmin, require_interactive_session, is_interactive_session, CREDENTIAL_ROUTE_DETAIL
 from modules.organizations.education_policy import (
     assert_org_hard_delete_allowed,
     assert_user_hard_delete_allowed,
@@ -118,7 +118,7 @@ async def list_users(current_user: dict = Depends(require_role("admin")), db: Se
     return [{**dict(u._mapping), "mfa_enabled": bool(u.mfa_enabled)} for u in users]
 
 
-@router.post("/users", tags=["Users"], dependencies=[Depends(require_scope("admin"))])
+@router.post("/users", tags=["Users"], dependencies=[Depends(require_interactive_session())])
 async def create_user(user: UserCreate, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     # Org-scoped admin: enforce group assignment
     if not _is_superadmin(current_user):
@@ -196,7 +196,7 @@ async def create_user(user: UserCreate, current_user: dict = Depends(require_rol
     return {"status": "created"}
 
 
-@router.post("/users/{user_id}/reset-password-email", tags=["Users"], dependencies=[Depends(require_scope("admin"))])
+@router.post("/users/{user_id}/reset-password-email", tags=["Users"], dependencies=[Depends(require_interactive_session())])
 async def reset_password_email(user_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Admin action: email a reset link without changing the user's password."""
     from modules.organizations.password_reset import reset_mail_base_url, send_reset_link
@@ -247,6 +247,9 @@ async def update_user(user_id: int, body: UserUpdateRequest, current_user: dict 
         assert_user_tenant_change_allowed(db, user_id)
 
     if 'password' in updates and updates['password']:
+        # A password is authentication material: never set through an API token.
+        if not is_interactive_session(current_user):
+            raise HTTPException(status_code=403, detail=CREDENTIAL_ROUTE_DETAIL)
         pw_valid, pw_msg = _validate_password(updates['password'])
         if not pw_valid:
             raise HTTPException(status_code=400, detail=pw_msg)
@@ -366,7 +369,7 @@ def _revoke_user_credentials(db, user_id):
         db.execute(text(f"DELETE FROM {table} WHERE {column} = :uid"), {"uid": user_id})
 
 
-@router.post("/users/import", tags=["Users"], dependencies=[Depends(require_scope("admin"))])
+@router.post("/users/import", tags=["Users"], dependencies=[Depends(require_interactive_session())])
 async def import_users_csv(
     file: UploadFile = File(...),
     current_user: dict = Depends(require_role("admin")),

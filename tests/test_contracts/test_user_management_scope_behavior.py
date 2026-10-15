@@ -72,6 +72,17 @@ def test_authorized_account_mutations_remain_usable(reset_client,review_db,signe
     client,_,_=reset_client
     headers=admin_headers() if credential=='interactive' else scoped_headers(review_db,['admin'])
     response=mutate(client,headers,operation)
+    # Account creation mints a login (password), so it is credential material: an
+    # interactive session only (security review HIGH 1). Role change and delete
+    # alter an existing account's authorization, not its credentials, so an
+    # admin-scoped token keeps doing them.
+    if credential=='admin_token' and operation in ('create','import'):
+        assert response.status_code==403
+        assert response.json()['detail']=="API tokens cannot create or change credentials; sign in with a password session"
+        with Session(review_db.get_bind()) as fresh:
+            name='Synthetic managed user' if operation=='create' else 'Synthetic imported user'
+            assert fresh.execute(text('SELECT COUNT(*) FROM users WHERE username=:n'),{'n':name}).scalar_one()==0
+        return
     assert response.status_code==200
     with Session(review_db.get_bind()) as fresh:
         if operation in ('create','import'):

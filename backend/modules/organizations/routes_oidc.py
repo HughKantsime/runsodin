@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from core.db import get_db
 from core.db_compat import execute_insert_returning_id, sql
 from core.dependencies import get_current_user, log_audit
-from core.rbac import require_role, require_superadmin
+from core.rbac import require_role, require_superadmin, require_interactive_session
 import core.auth as auth_module
 from core.auth import create_access_token
 from core.config import settings as _settings
@@ -460,7 +460,7 @@ async def get_oidc_config(current_user: dict = Depends(require_superadmin()), db
     return config
 
 
-@router.put("/admin/oidc", tags=["Admin"])
+@router.put("/admin/oidc", tags=["Admin"], dependencies=[Depends(require_interactive_session())])
 async def update_oidc_config(request: Request, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Update OIDC configuration. Superadmin only."""
     data = await request.json()

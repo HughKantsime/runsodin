@@ -201,6 +201,45 @@ def check_org_access(current_user: dict, resource_org_id: Optional[int]) -> bool
     return group_id is not None and group_id == resource_org_id
 
 
+# ---------------------------------------------------------------------------
+# Credential routes: interactive sessions only
+# ---------------------------------------------------------------------------
+#
+# No API credential (per-user odin_ token of any scope, admin included, or the
+# global API key) may create or change authentication material: biometric
+# refresh tokens, MFA, passwords, reset links, sessions, API tokens, SSO,
+# MFA policy and the mail transport that carries reset links. Otherwise a
+# scoped token could mint itself a full session.
+# The non-interactive credentials: a per-user odin_ token (any scope) and the
+# global API key. A session (session_jwt / bearer_jwt) is interactive; so is a
+# principal with no provenance (never produced by token auth — only by a
+# direct login session or an in-test injection).
+NONINTERACTIVE_AUTH_KINDS = frozenset({"user_api_token", "legacy_global_api_key"})
+CREDENTIAL_ROUTE_DETAIL = "API tokens cannot create or change credentials; sign in with a password session"
+
+
+def is_interactive_session(current_user: Optional[dict]) -> bool:
+    if not current_user:
+        return False
+    if current_user.get("_auth_kind") in NONINTERACTIVE_AUTH_KINDS:
+        return False
+    # A scoped token always carries its scopes, even if its kind is unset.
+    return not current_user.get("_token_scopes")
+
+
+def require_interactive_session():
+    """Route dependency for credential routes (see INTERACTIVE_AUTH_KINDS)."""
+    from core.dependencies import get_current_user
+
+    async def interactive_checker(current_user: dict = Depends(get_current_user)):
+        if not current_user:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        if not is_interactive_session(current_user):
+            raise HTTPException(status_code=403, detail=CREDENTIAL_ROUTE_DETAIL)
+        return current_user
+    return mark_token_scope_checker(interactive_checker, "interactive")
+
+
 def require_role(required_role: str, scope: str = None):
     """FastAPI dependency that checks the user has at least the given role.
 

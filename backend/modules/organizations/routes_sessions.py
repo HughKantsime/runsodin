@@ -1,6 +1,6 @@
 """Organizations sessions routes — session management, API tokens, quotas, and GDPR."""
 
-from core.rbac import require_scope, handler_enforces_token_scope
+from core.rbac import require_scope, handler_enforces_token_scope, require_interactive_session
 
 import json
 import logging
@@ -62,7 +62,7 @@ async def list_sessions(request: Request, current_user: dict = Depends(require_r
     } for r in rows]
 
 
-@router.delete("/sessions/{session_id}", tags=["Sessions"], dependencies=[Depends(require_scope("admin"))])
+@router.delete("/sessions/{session_id}", tags=["Sessions"], dependencies=[Depends(require_interactive_session())])
 async def revoke_session(session_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Revoke a specific session."""
     row = db.execute(text("SELECT * FROM active_sessions WHERE id = :id AND user_id = :uid"),
@@ -84,7 +84,7 @@ async def revoke_session(session_id: int, current_user: dict = Depends(require_r
     return {"status": "ok"}
 
 
-@router.delete("/sessions", tags=["Sessions"], dependencies=[Depends(require_scope("admin"))])
+@router.delete("/sessions", tags=["Sessions"], dependencies=[Depends(require_interactive_session())])
 async def revoke_all_sessions(request: Request, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Revoke all sessions except the current one."""
     from core.mfa_login import cancel_pending_enrollments
@@ -145,7 +145,7 @@ async def admin_list_sessions(current_user: dict = Depends(require_role("admin")
     } for r in rows]
 
 
-@router.delete("/admin/sessions/{session_id}", tags=["Sessions"], dependencies=[Depends(require_scope("admin"))])
+@router.delete("/admin/sessions/{session_id}", tags=["Sessions"], dependencies=[Depends(require_interactive_session())])
 async def admin_revoke_session(session_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Admin: force-revoke any session."""
     row = db.execute(text("SELECT * FROM active_sessions WHERE id = :id"), {"id": session_id}).fetchone()
@@ -178,13 +178,11 @@ async def admin_revoke_session(session_id: int, current_user: dict = Depends(req
 from core.api_token_policy import VALID_SCOPES, parse_token_scopes
 
 
-@router.post("/tokens", tags=["API Tokens"])
+@router.post("/tokens", tags=["API Tokens"], dependencies=[Depends(require_interactive_session())])
 @limiter.limit("10/minute")
 async def create_api_token(request: Request, body: dict, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Create a new scoped API token for the current user."""
     import secrets
-    if current_user.get("_auth_kind") == "user_api_token" and "admin" not in current_user.get("_token_scopes", []):
-        raise HTTPException(status_code=403, detail="Use an interactive session or an admin-scoped token to create credentials")
     raw_name = body.get("name", "")
     if not isinstance(raw_name, str):
         raise HTTPException(status_code=400, detail="Token name must be text")
@@ -272,7 +270,7 @@ async def list_api_tokens(current_user: dict = Depends(require_role("viewer")), 
     } for r in rows]
 
 
-@router.delete("/tokens/{token_id}", tags=["API Tokens"], dependencies=[Depends(require_scope("admin"))])
+@router.delete("/tokens/{token_id}", tags=["API Tokens"], dependencies=[Depends(require_interactive_session())])
 async def revoke_api_token(token_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Revoke (delete) an API token."""
     row = db.execute(text("SELECT * FROM api_tokens WHERE id = :id AND user_id = :uid"),
@@ -537,17 +535,18 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
     # only alerts owned by this user would leave their former username or
     # email in other users' inboxes. Scrub the known account identifiers while
     # retaining the operational alert and job reference.
+    from core.identity_scrub import like_patterns, scrub_text
+    alert_ids = set()
     for identifier in identifiers:
-        db.execute(
-            text(
-                "UPDATE alerts SET "
-                "title = REPLACE(title, :identifier, '[deleted-user]'), "
-                "message = CASE WHEN message IS NULL THEN NULL "
-                "ELSE REPLACE(message, :identifier, '[deleted-user]') END "
-                "WHERE title LIKE :pattern OR message LIKE :pattern"
-            ),
-            {"identifier": identifier, "pattern": f"%{identifier}%"},
-        )
+        for pattern in like_patterns(identifier):
+            alert_ids.update(r.id for r in db.execute(
+                text("SELECT id FROM alerts WHERE title LIKE :p OR message LIKE :p"), {"p": pattern}))
+    for alert_id in sorted(alert_ids):
+        row = db.execute(text("SELECT title, message FROM alerts WHERE id = :id"), {"id": alert_id}).one()
+        title, message = scrub_text(row.title, identifiers), scrub_text(row.message, identifiers)
+        if (title, message) != (row.title, row.message):
+            db.execute(text("UPDATE alerts SET title = :t, message = :m WHERE id = :id"),
+                       {"t": title, "m": message, "id": alert_id})
 
     # Remove direct Classroom identity data and any unconsumed OAuth state.
     # Operational course mappings and cost centers remain, while grants are
@@ -586,19 +585,22 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
         {"details": json.dumps({"anonymized_user_id": user_id}), "uid": user_id},
     )
 
-    # Any other audit row can still name the user in its free-text details
-    # (failed logins have no entity id; actions the user performed carry
-    # their username). Scrub the identifiers, keep the event.
+    # Any other audit row can still name the user in its details (failed
+    # logins have no entity id; actions the user performed carry their name).
+    # Decode each candidate's JSON text (read as text on both dialects) and
+    # scrub it structurally; rows that do not name the user stay byte-identical.
+    from core.identity_scrub import scrub_json_text
+    audit_ids = set()
     for identifier in identifiers:
-        # Read the stored JSON text on both dialects: PostgreSQL decodes a JSON
-        # string value to a bare Python str, which is not valid JSON to write back.
-        rows = db.execute(
-            text("SELECT id, CAST(details AS TEXT) AS details FROM audit_logs WHERE CAST(details AS TEXT) LIKE :pattern"),
-            {"pattern": f"%{identifier}%"},
-        ).fetchall()
-        for row in rows:
+        for pattern in like_patterns(identifier):
+            audit_ids.update(r.id for r in db.execute(
+                text("SELECT id FROM audit_logs WHERE CAST(details AS TEXT) LIKE :p"), {"p": pattern}))
+    for audit_id in sorted(audit_ids):
+        raw = db.execute(text("SELECT CAST(details AS TEXT) FROM audit_logs WHERE id = :id"), {"id": audit_id}).scalar()
+        scrubbed = scrub_json_text(raw, identifiers)
+        if scrubbed is not None:
             db.execute(text("UPDATE audit_logs SET details = :details WHERE id = :id"),
-                       {"details": row.details.replace(identifier, "[deleted-user]"), "id": row.id})
+                       {"details": scrubbed, "id": audit_id})
 
     erasure_details = {"anonymized_user_id": user_id}
     if not actor_is_erased(db, current_user["id"]):

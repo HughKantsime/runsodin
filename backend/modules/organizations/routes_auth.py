@@ -14,7 +14,7 @@ from core.audit_actor import bind_verified_actor
 from core.db import get_db
 from core.db_compat import sql
 from core.dependencies import get_current_user, log_audit
-from core.rbac import require_role, require_scope, handler_enforces_token_scope
+from core.rbac import require_role, require_scope, handler_enforces_token_scope, require_interactive_session
 from core.auth_helpers import (
     _validate_password, _check_rate_limit, _record_login_attempt, _is_locked_out
 )
@@ -211,7 +211,7 @@ async def mfa_verify(request: Request, body: dict, db: Session = Depends(get_db)
     return resp
 
 
-@router.post("/auth/mfa/setup", tags=["Auth"])
+@router.post("/auth/mfa/setup", tags=["Auth"], dependencies=[Depends(require_interactive_session())])
 async def mfa_setup(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Generate TOTP secret and provisioning URI for MFA setup."""
     import pyotp, qrcode, io, base64
@@ -239,7 +239,7 @@ async def mfa_setup(current_user: dict = Depends(require_role("viewer")), db: Se
     return {"secret": secret, "provisioning_uri": provisioning_uri, "qr_code": f"data:image/png;base64,{qr_b64}"}
 
 
-@router.post("/auth/mfa/confirm", tags=["Auth"])
+@router.post("/auth/mfa/confirm", tags=["Auth"], dependencies=[Depends(require_interactive_session())])
 async def mfa_confirm(body: dict, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Confirm MFA setup by verifying a TOTP code. Enables MFA on the account."""
     import pyotp
@@ -266,7 +266,7 @@ async def mfa_confirm(body: dict, current_user: dict = Depends(require_role("vie
     return {"status": "ok", "message": "MFA enabled successfully"}
 
 
-@router.delete("/auth/mfa", tags=["Auth"])
+@router.delete("/auth/mfa", tags=["Auth"], dependencies=[Depends(require_interactive_session())])
 async def mfa_disable(body: dict = None, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Disable MFA. Requires current TOTP code or admin role."""
     import pyotp
@@ -291,7 +291,7 @@ async def mfa_disable(body: dict = None, current_user: dict = Depends(require_ro
     return {"status": "ok", "message": "MFA disabled"}
 
 
-@router.delete("/admin/users/{user_id}/mfa", tags=["Auth"], dependencies=[Depends(require_scope("admin"))])
+@router.delete("/admin/users/{user_id}/mfa", tags=["Auth"], dependencies=[Depends(require_interactive_session())])
 async def admin_mfa_disable(user_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Admin: force-disable MFA for a user (no TOTP required)."""
     user = db.execute(text("SELECT * FROM users WHERE id = :id"), {"id": user_id}).fetchone()
@@ -344,7 +344,7 @@ class RequireMFARequest(PydanticBaseModel):
     require_mfa: bool = False
 
 
-@router.put("/config/require-mfa", tags=["Config"])
+@router.put("/config/require-mfa", tags=["Config"], dependencies=[Depends(require_interactive_session())])
 async def set_require_mfa(body: RequireMFARequest, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Set whether MFA is required for all users."""
     require = body.require_mfa

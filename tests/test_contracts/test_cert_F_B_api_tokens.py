@@ -161,9 +161,23 @@ def test_unrelated_scope_cannot_read_admin_data(odin):
 
 
 # Non-GET routes whose declared scope is a read scope (a read token may reach them).
-READ_SCOPED_POSTS = {"POST /api/cameras/{printer_id}/webrtc"}  # WebRTC signaling to view a camera (read:printers)
-
-SKIP_SIDE_EFFECTS = ("restore", "restart", "shutdown", "license", "logout", "/tokens", "/sessions")
+READ_SCOPED_POSTS = {
+    "POST /api/cameras/{printer_id}/webrtc",  # WebRTC signaling to view a camera (read:printers)
+    "POST /api/auth/ws-token",                # short-lived telemetry socket token (read)
+}
+# Destructive or process-level routes not probed live (their scope checks are census-covered elsewhere).
+SKIP_SIDE_EFFECTS = ("restore", "restart", "shutdown", "license", "logout")
+CREDENTIAL_DETAIL = "API tokens cannot create or change credentials; sign in with a password session"
+# Routes that create or change authentication material: interactive password sessions only.
+CREDENTIAL_ROUTES = [
+    ("POST", "/api/auth/biometric-token?device_id=cert-device"), ("DELETE", "/api/auth/biometric-token?device_id=cert-device"),
+    ("POST", "/api/auth/mfa/setup"), ("POST", "/api/auth/mfa/confirm"), ("DELETE", "/api/auth/mfa"),
+    ("DELETE", "/api/admin/users/{victim}/mfa"), ("PUT", "/api/config/require-mfa"),
+    ("POST", "/api/tokens"), ("DELETE", "/api/tokens/{token}"),
+    ("DELETE", "/api/sessions"), ("DELETE", "/api/sessions/99999"), ("DELETE", "/api/admin/sessions/99999"),
+    ("POST", "/api/users"), ("POST", "/api/users/import"), ("POST", "/api/users/{victim}/reset-password-email"),
+    ("PUT", "/api/admin/oidc"), ("PUT", "/api/smtp-config"),
+]
 
 
 def test_census_every_mutating_route_refuses_read_only_token(odin, tmp_path_factory):
@@ -178,9 +192,10 @@ def test_census_every_mutating_route_refuses_read_only_token(odin, tmp_path_fact
     ro = odin.mint(odin.admin_bearer, ["read"])["token"]
     rows = []
     for m, p in pairs:
-        if m == "GET" or not p.startswith("/api/") or p.startswith(("/api/v1/", "/api/auth/", "/api/setup")):
+        if m == "GET" or not p.startswith("/api/"):
             continue
-        if f"{m} {p}" in PUBLIC or f"{m} {p}" in READ_SCOPED_POSTS or any(x in p for x in SKIP_SIDE_EFFECTS):
+        canonical = re.sub(r"^/api/v1/", "/api/", p)
+        if f"{m} {canonical}" in PUBLIC or f"{m} {canonical}" in READ_SCOPED_POSTS or any(x in p for x in SKIP_SIDE_EFFECTS):
             continue
         url = re.sub(r"\{[^}]+\}", "99999", p).replace(":path", "")
         rows.append([m, p, requests.request(m, odin.url + url, json={}, headers=key(ro), timeout=30).status_code])
@@ -188,3 +203,40 @@ def test_census_every_mutating_route_refuses_read_only_token(odin, tmp_path_fact
     (RECEIPTS / "B-token-scope-census.json").write_text(json.dumps({
         "probed": len(rows), "histogram": dict(Counter(str(r[2]) for r in rows)), "not_refused_by_scope": unscoped}, indent=1))
     assert unscoped == []
+
+
+def _credential_calls(odin, headers):
+    other = odin.mint(odin.admin_bearer, ["read"])["id"]
+    for method, path in CREDENTIAL_ROUTES:
+        url = path.replace("{victim}", str(odin.victim["id"])).replace("{token}", str(other))
+        body = {"name": "escalate", "scopes": ["admin"]} if path == "/api/tokens" else {}
+        yield method, path, requests.request(method, odin.url + url, json=body, headers=headers, timeout=30)
+
+
+@pytest.mark.parametrize("scopes", [["write"], ["admin"], ["read", "write", "admin"]])
+def test_no_api_token_can_create_or_change_credentials(odin, scopes):
+    """Security review HIGH 1: a ['write'] token minted a 30-day biometric refresh token (-> admin JWT)."""
+    token = odin.mint(odin.admin_bearer, scopes)["token"]
+    before = {t: odin.one(f"SELECT COUNT(*) AS n FROM {t}").n for t in ("api_tokens", "biometric_tokens", "users")}
+    results = {(m, p): r for m, p, r in _credential_calls(odin, key(token))}
+    wrong = {k: (r.status_code, r.text[:120]) for k, r in results.items()
+             if r.status_code != 403 or r.json().get("detail") != CREDENTIAL_DETAIL}
+    assert wrong == {}, wrong
+    after = {t: odin.one(f"SELECT COUNT(*) AS n FROM {t}").n for t in ("api_tokens", "biometric_tokens", "users")}
+    assert after == {**before, "api_tokens": before["api_tokens"] + 1}  # only the probe's own revocation target
+    hash_before = odin.one("SELECT password_hash FROM users WHERE id=:i", i=odin.victim["id"]).password_hash
+    patch = odin.patch(f"/api/users/{odin.victim['id']}", json={"password": "Escalated12345"}, headers=key(token))
+    assert patch.status_code == 403  # admin-scope floor first, then the credential rule for admin tokens
+    if "admin" in scopes:
+        assert patch.json()["detail"] == CREDENTIAL_DETAIL
+    assert odin.one("SELECT password_hash FROM users WHERE id=:i", i=odin.victim["id"]).password_hash == hash_before
+
+
+def test_biometric_escalation_chain_is_closed_but_sessions_still_work(odin):
+    token = odin.mint(odin.admin_bearer, ["write"])["token"]
+    r = odin.post("/api/auth/biometric-token?device_id=cert-escalation", headers=key(token))
+    assert r.status_code == 403
+    assert odin.one("SELECT COUNT(*) AS n FROM biometric_tokens").n == 0
+    ok = odin.post("/api/auth/biometric-token?device_id=cert-session", headers=odin.admin_bearer)
+    assert ok.status_code == 200, ok.text
+    odin.delete("/api/auth/biometric-token?device_id=cert-session", headers=odin.admin_bearer)
