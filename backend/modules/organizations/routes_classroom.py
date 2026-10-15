@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from core.db import get_db
 from core.db_compat import execute_insert_returning_id
 from core.dependencies import log_audit
+from core.rbac import require_interactive_session
 from core.errors import ErrorCode, OdinError
 from modules.organizations.classroom_service import (
     ClassroomError,
@@ -379,7 +380,7 @@ def _mapped_or_new_center(db: Session, org_id: int, principal: dict, body: Class
     return center_id, True
 
 
-@router.post("/courses/{course_id}/import")
+@router.post("/courses/{course_id}/import", dependencies=[Depends(require_interactive_session())])
 async def import_classroom_course(
     course_id: str,
     body: ClassroomImportInput,

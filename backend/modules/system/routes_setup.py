@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.dependencies import get_current_user
-from core.rbac import require_role, require_superadmin
+from core.rbac import require_role, require_superadmin, require_interactive_session
 from core.auth_helpers import _validate_password
 from core.base import FilamentType
 from modules.printers.models import Printer, FilamentSlot
@@ -441,7 +441,7 @@ def setup_create_printer(
     return {"id": db_printer.id, "name": db_printer.name, "status": "created"}
 
 
-@router.post("/setup/complete", tags=["Setup"])
+@router.post("/setup/complete", tags=["Setup"], dependencies=[Depends(require_interactive_session())])
 def setup_mark_complete(current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Mark setup as complete (install admin only). Closes every setup mutation."""
     if _setup_is_complete(db):

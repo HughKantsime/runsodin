@@ -372,7 +372,7 @@ async def admin_set_quota(user_id: int, body: QuotaUpdateRequest, current_user: 
 
 # ============== GDPR Data Export & Erasure ==============
 
-@router.get("/users/{user_id}/export", tags=["GDPR"])
+@router.get("/users/{user_id}/export", tags=["GDPR"], dependencies=[Depends(require_interactive_session())])
 async def export_user_data(user_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Export all personal data for a user (GDPR Article 20)."""
     if current_user["id"] != user_id and current_user["role"] != "admin":
@@ -474,7 +474,7 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
     return export
 
 
-@router.delete("/users/{user_id}/erase", tags=["GDPR"])
+@router.delete("/users/{user_id}/erase", tags=["GDPR"], dependencies=[Depends(require_interactive_session())])
 async def erase_user_data(user_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Anonymize user data (GDPR Article 17). Admin only. Preserves job records for analytics."""
     user = db.execute(text("SELECT * FROM users WHERE id = :id"), {"id": user_id}).fetchone()
