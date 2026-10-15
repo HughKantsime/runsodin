@@ -134,3 +134,18 @@ def test_admin_maintenance_mutations_leave_no_audit_history(maintenance_client, 
     assert client.delete('/api/v1/maintenance/tasks/101').status_code == 204
     assert client.delete('/api/v1/maintenance/logs/101').status_code == 204
     assert review_db.execute(text('SELECT COUNT(*) FROM audit_logs')).scalar_one() == 0
+
+
+
+def test_dry_run_describes_the_counter_reset_and_writes_nothing(maintenance_client, review_db):
+    client, _ = maintenance_client
+    review_db.execute(text('UPDATE printers SET prints_since_maintenance=5, hours_since_maintenance=3 WHERE id=9'))
+    review_db.commit()
+    before = review_db.execute(text('SELECT COUNT(*) FROM maintenance_logs')).scalar_one()
+    preview = client.post('/api/v1/maintenance/logs', headers={'X-Dry-Run': 'true'},
+                          json={'printer_id': 9, 'task_id': 101, 'task_name': 'Synthetic service'})
+    assert preview.status_code == 200, preview.text
+    assert 'reset' in str(preview.json()).lower() and 'care counters' in str(preview.json())
+    review_db.expire_all()
+    assert review_db.execute(text('SELECT COUNT(*) FROM maintenance_logs')).scalar_one() == before
+    assert tuple(review_db.execute(text('SELECT prints_since_maintenance,hours_since_maintenance FROM printers WHERE id=9')).one()) == (5, 3)

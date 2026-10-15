@@ -229,7 +229,8 @@ def create_maintenance_log(
                     "verify task no longer overdue",
                 ),
             ],
-            notes="Would insert a MaintenanceLog row; no other side effects.",
+            notes=("Would insert a MaintenanceLog row and reset the printer's care counters "
+                   "(prints/hours since maintenance) to 0; nothing is written on dry-run."),
         )
 
     log_entry = MaintenanceLog(
