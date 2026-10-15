@@ -95,3 +95,14 @@ def test_fleet_report_counts_printing_printers_of_every_protocol(fleet):
     html = re.sub(r"<[^>]+>", " ", generate_fleet_utilization(fleet, {}))
     html = re.sub(r"\s+", " ", html).upper()
     assert "CURRENTLY PRINTING 4" in html, html
+
+
+@pytest.mark.parametrize("raw,printing", [(" printing ", True), ("Printing", True), ("  RUNNING", True),
+                                          ("RUNNING\n", False), ("PAUSED ", False)])
+def test_sql_and_python_state_rules_agree_on_whitespace_and_case(fleet, raw, printing):
+    from core.printer_utils import PRINTING_STATES, is_printing_state, state_sql_in
+    fleet.execute(text("UPDATE printers SET gcode_state=:s WHERE id=201"), {"s": raw})
+    fleet.commit()
+    clause, params = state_sql_in("gcode_state", PRINTING_STATES, "s")
+    selected = fleet.execute(text(f"SELECT COUNT(*) FROM printers WHERE id=201 AND {clause}"), params).scalar_one()
+    assert bool(selected) is is_printing_state(raw) is printing
