@@ -28,7 +28,7 @@ FROZEN = {
 PRESERVED027_TREE = ("1ecbc53957108027428c17cb845da4ca8a7f4795030355fe42d146c226f82cfe", 121)
 # The whole preserved029 package: parent bridge, runner, integrity, manifest and bundle.
 # The manifest pin only covers the bundle; this covers the wrapper files too.
-PRESERVED029_TREE = ("99acc46d0b337f1709b7b3a15b5a2bf076e48b88c602b7f6f1318abae7cbdfbe", 123)
+PRESERVED029_TREE = ("431a5cfdd7e0d7e5d72e91bcaea8d15aca581cc7af75e316e601998d7cd09ad2", 123)
 
 
 def _sha(path):
