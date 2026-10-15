@@ -520,9 +520,9 @@ def get_order_invoice(
         raise HTTPException(status_code=404, detail="Order not found")
 
     try:
-        from modules.organizations.branding import get_or_create_branding, branding_to_dict
+        from modules.organizations.branding import effective_branding
         enriched = _enrich_order_response(order, db)
-        branding = branding_to_dict(get_or_create_branding(db))
+        branding = effective_branding(db)
 
         gen = InvoiceGenerator(branding, enriched.model_dump())
         pdf_bytes = bytes(gen.generate())

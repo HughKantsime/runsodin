@@ -14,7 +14,7 @@ from core.db import get_db
 from core.db_compat import sql
 from core.dependencies import log_audit
 from core.rbac import require_role, require_superadmin
-from modules.organizations.branding import get_or_create_branding, branding_to_dict, UPDATABLE_FIELDS
+from modules.organizations.branding import get_or_create_branding, branding_to_dict, effective_branding, UPDATABLE_FIELDS
 from license_manager import feature_gate
 
 log = logging.getLogger("odin.api")
@@ -50,8 +50,8 @@ def _branding_directory():
 
 @router.get("/branding", tags=["Branding"])
 async def get_branding(db: Session = Depends(get_db)):
-    """Get branding config. PUBLIC - no auth required."""
-    return branding_to_dict(get_or_create_branding(db))
+    """Get the effective branding. PUBLIC - no auth required (stock branding without the Pro entitlement)."""
+    return effective_branding(db)
 
 
 class BrandingUpdateRequest(PydanticBaseModel):

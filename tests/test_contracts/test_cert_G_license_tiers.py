@@ -338,6 +338,16 @@ R["product_get"] = a.get(f"/api/products/{p}").status_code
 R["products_list"] = sorted(x["id"] for x in a.get("/api/products").json())
 R["maint_list"] = [x["id"] for x in a.get("/api/maintenance/tasks").json()]
 R["branding_app_name"] = client().get("/api/branding").json().get("app_name")
+R["branding_logo"] = client().get("/api/branding").json().get("logo_url")
+# Server-rendered surface: the invoice PDF is rendered with the effective branding (spy on the real generator).
+import modules.orders.invoice_generator as IG
+SEEN = []
+_orig_init = IG.InvoiceGenerator.__init__
+def _spy(self, branding, order): SEEN.append(dict(branding)); _orig_init(self, branding, order)
+IG.InvoiceGenerator.__init__ = _spy
+R["invoice_status"] = a.get(f"/api/orders/{o}/invoice.pdf").status_code
+R["invoice_app_name"] = SEEN[-1]["app_name"] if SEEN else None
+R["stored_app_name"] = sql("SELECT app_name FROM branding WHERE id=1")[0][0]
 R["order_patch"] = a.patch(f"/api/orders/{o}", json={"notes": "x"}).status_code
 R["product_patch"] = a.patch(f"/api/products/{p}", json={"name": "renamed"}).status_code
 R["maint_patch"] = a.patch(f"/api/maintenance/tasks/{m}", json={"name": "renamed"}).status_code
@@ -347,6 +357,11 @@ R["order_delete"] = a.delete(f"/api/orders/{o2}").status_code
 R["product_delete"] = a.delete(f"/api/products/{p2}").status_code
 R["maint_delete"] = a.delete(f"/api/maintenance/tasks/{m}").status_code
 R["counts"] = {"orders": sql("SELECT COUNT(*) FROM orders")[0][0], "products": sql("SELECT COUNT(*) FROM products")[0][0]}
+# Re-license: the stored branding comes back unchanged.
+install_license("pro")
+OUT["relicensed_app_name"] = client().get("/api/branding").json().get("app_name")
+SEEN.clear(); a.get(f"/api/orders/{o}/invoice.pdf")
+OUT["relicensed_invoice_app_name"] = SEEN[-1]["app_name"] if SEEN else None
 OUT["ids"] = {"order": o, "product": p}
 '''
 
@@ -364,7 +379,13 @@ def test_downgraded_install_keeps_reading_and_deleting_its_records(downgraded):
     assert r["order_get"] == 200 and ids["order"] in r["orders_list"]
     assert r["product_get"] == 200 and ids["product"] in r["products_list"]
     assert len(r["maint_list"]) == 1
-    assert r["branding_app_name"] == "CertG Downgrade Farm"
+    # Branding is a Pro feature (decision 2026-10-15): without it the UI, login page and server-rendered
+    # invoice show the default branding, while the stored values are kept for a re-license.
+    assert r["branding_app_name"] == "O.D.I.N." and r["branding_logo"] is None
+    assert r["invoice_status"] == 200 and r["invoice_app_name"] == "O.D.I.N."
+    assert r["stored_app_name"] == "CertG Downgrade Farm"
+    assert downgraded["relicensed_app_name"] == "CertG Downgrade Farm"
+    assert downgraded["relicensed_invoice_app_name"] == "CertG Downgrade Farm"
     assert (r["order_delete"], r["product_delete"], r["maint_delete"]) == (204, 204, 204)
     assert r["counts"] == {"orders": 1, "products": 1}
 
