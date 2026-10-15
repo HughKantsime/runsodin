@@ -15,6 +15,7 @@ import uuid
 
 IMAGE = 'postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea'
 RUNTIME_REF = 'ghcr.io/hughkantsime/odin@sha256:f4ecb5d6dd0b8b8216fb29c680a887624714f79c0e7236e6ec20b22e2ca2899e'
+RELEASED_IMAGE = 'ghcr.io/hughkantsime/odin:v1.9.24'
 STAGING = Path('/Users/ollama/Documents/Claude/odin/artifacts/application-certification/migrations')
 
 
@@ -37,7 +38,7 @@ def main():
                'runtime_provenance': 'Published v1.9.24 AMD64 runtime (python + pg clients); current source mounted read-only'}
     output = STAGING / 'post027-restore-native.json'
     try:
-        files = [line for line in run('git', 'ls-files', '--cached', '--others', '--exclude-standard', 'backend', 'ops').splitlines()
+        files = [line for line in run('git', 'ls-files', '--cached', '--others', '--exclude-standard', 'backend', 'ops', 'docker').splitlines()
                  if not line.startswith(('backend/vision_models_default/', 'backend/static/'))]
         for relative in files:
             target = source / relative
@@ -54,6 +55,17 @@ def main():
             if time.monotonic() > deadline:
                 raise RuntimeError('Owned database not ready')
             time.sleep(.5)
+        # The published v1.9.24 image's own bootstrap writes the released PostgreSQL database.
+        run('docker', 'exec', database, 'psql', '-U', 'postgres', '-c', 'CREATE DATABASE post027_released')
+        receipt['released_image'] = run('docker', 'image', 'inspect', '--format', '{{.Id}}', RELEASED_IMAGE).strip()
+        released = subprocess.run(['docker', 'run', '--rm', '--name', name + '_released', '--network', name, '--entrypoint', '/bin/sh', RELEASED_IMAGE, '-c',
+            'umask 077; head -c 24 /dev/urandom | base64 > /tmp/pw; cd /app/backend && DATABASE_URL=postgresql://postgres@pg/post027_released '
+            'DATABASE_PASSWORD_FILE=/tmp/pw ODIN_DB_ROLE=bootstrap JWT_SECRET_KEY=$(head -c 32 /dev/urandom | base64) python3 -m scripts.bootstrap_database'],
+            text=True, capture_output=True, timeout=1800)
+        assert released.returncode == 0, released.stdout[-2000:] + released.stderr[-4000:]
+        receipt['released_bootstrap'] = json.loads(released.stdout.strip().splitlines()[-1])
+        run('docker', 'exec', database, 'psql', '-U', 'postgres', '-d', 'post027_released', '-c',
+            "INSERT INTO system_config(key,value) VALUES('historical_marker','\"released1924\"')")
         result = subprocess.run(['docker', 'run', '--rm', '--name', runtime, '--platform', 'linux/amd64', '--network', name,
             '--user', '0', '--entrypoint', '/bin/sh', '-v', str(source) + ':/source:ro', '-e', 'PYTHONPATH=/source/backend',
             '-e', 'PYTHONPYCACHEPREFIX=/tmp/odin-post027-bytecode', '-e', 'BASE_URL=http://127.0.0.1:9', '-e', 'ODIN_CONTAINER_EXEC=/usr/bin/false',
@@ -65,9 +77,20 @@ def main():
         receipt['native_returncode'] = result.returncode
         receipt['native_facts'] = [line for line in result.stdout.splitlines() if line.startswith('post027-native-')]
         assert result.returncode == 0 and 'post027-native-pass' in result.stdout, result.stdout[-3000:] + result.stderr[-5000:]
+        # Enterprise-compose ownership: root shell like the entrypoint, secrets owned by odin (10001), 0400.
+        coordinator = subprocess.run(['docker', 'run', '--rm', '--name', runtime + '_coord', '--platform', 'linux/amd64', '--network', name,
+            '--user', '0', '--entrypoint', '/bin/sh', '-v', str(source) + ':/source:ro', '-e', 'PYTHONPATH=/source/backend',
+            '-e', 'PYTHONPYCACHEPREFIX=/tmp/odin-post027-bytecode', '-e', 'BASE_URL=http://127.0.0.1:9', '-e', 'ODIN_CONTAINER_EXEC=/usr/bin/false',
+            '-e', 'DEBUG=false', '-e', 'COOKIE_SECURE=false', '-e', 'POST027_NATIVE_URL=postgresql+psycopg://postgres@pg/postgres', '-w', '/source/backend',
+            receipt['runtime_image'], '-c', 'exec python /source/ops/database_parity/post027_coordinator_native.py'],
+            text=True, capture_output=True, timeout=5400)
+        (STAGING / 'post027-coordinator-native-stdout.log').write_text(coordinator.stdout + '\n--- stderr ---\n' + coordinator.stderr[-20000:])
+        receipt['coordinator_facts'] = [line for line in coordinator.stdout.splitlines() if line.startswith('post027-coordinator-')]
+        assert coordinator.returncode == 0 and 'post027-coordinator-pass' in coordinator.stdout, coordinator.stdout[-3000:] + coordinator.stderr[-5000:]
         receipt['passed'] = True
     finally:
-        subprocess.run(['docker', 'rm', '-f', runtime], capture_output=True, timeout=30)
+        for container in (runtime, runtime + '_coord', name + '_released'):
+            subprocess.run(['docker', 'rm', '-f', container], capture_output=True, timeout=30)
         receipt['owned_database_removed'] = subprocess.run(['docker', 'rm', '-f', database], capture_output=True, timeout=30).returncode == 0
         receipt['owned_network_removed'] = subprocess.run(['docker', 'network', 'rm', name], capture_output=True, timeout=30).returncode == 0
         shutil.rmtree(source, ignore_errors=True)

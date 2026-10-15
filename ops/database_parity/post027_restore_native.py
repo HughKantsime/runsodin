@@ -75,6 +75,8 @@ def main():
             with engine.connect() as c:return c.execute(text("SELECT value FROM system_config WHERE key='historical_marker'")).scalar_one()
 
         args = {'password_file': str(credential), 'maintenance_password_file': str(maintenance_credential), 'base_dir': root}
+        # A non-credential libpq parameter on the maintenance URL must not break historical restores.
+        maintenance = maintenance + '?sslmode=disable'
         b.postgres_paths(root).backups.mkdir(parents=True, exist_ok=True)
 
         def leftover():
@@ -100,7 +102,7 @@ def main():
                 validate_executables(c)
             assert has_index(engine) and leftover() == 0
             assert not list(b.postgres_paths(root).backups.glob('.odin-upgraded029-*'))
-            print(f'post027-native-era{era}-archive-preserved029-stage-live-upgrade-validated-staged-applied-data-ledger-030-pass', flush=True)
+            print(f'post027-native-era{era}-archive-preserved029-stage-live-upgrade-validated-staged-applied-data-ledger-030-sslmode-query-pass', flush=True)
 
         # 4. Refusals: a changed 027-era ledger and an extra table are refused, target untouched.
         before = marker()
@@ -126,10 +128,102 @@ def main():
         with engine.connect() as c:validate_executables(c)
         print('post027-native-current-backup-restore-roundtrip-data-and-030-index-pass', flush=True)
 
-        engine.dispose(); preserved029.integrity.check_package()
+        engine.dispose()
+
+        # 6. A database written by the published v1.9.24 image's own bootstrap (run by the
+        #    host runner) upgrades in place, then backs up and restores with this source.
+        released = create_database_engine(server + '/post027_released', role='restore', password_file=str(credential))
+        with released.connect() as c:
+            assert c.execute(text("SELECT checksum FROM odin_schema_migrations WHERE migration_id='orm-baseline:1'")).scalar_one().startswith('36d66151')
+        upgraded = bootstrap_database(released); again = bootstrap_database(released)
+        assert post_ids[-1] in upgraded['applied'] and again['applied'] == [] and again['schema_fingerprint'] == upgraded['schema_fingerprint']
+        fresh_boot = create_database_engine(server + '/post027_fresh', role='restore', password_file=str(credential))
+        def order(engine, table):
+            with engine.connect() as c:
+                return [r[0] for r in c.execute(text("SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=:t ORDER BY ordinal_position"), {'t': table})]
+        reordered = [t for t in ('jobs', 'printers') if order(released, t) != order(fresh_boot, t) and sorted(order(released, t)) == sorted(order(fresh_boot, t))]
+        assert reordered, 'v1.9.24 upgrade did not reproduce the column-order difference'
+        fresh_boot.dispose()
+        released_url = server + '/post027_released'
+        b.validate_live_postgres_objects(released_url, password_file=str(credential))
+        with released.begin() as c:c.execute(text("UPDATE system_config SET value='\"released-backup\"' WHERE key='historical_marker'"))
+        backup, backup_metadata = b.create_postgres_backup(released_url, maintenance_url=maintenance, **args)
+        with released.begin() as c:c.execute(text("UPDATE system_config SET value='\"after\"' WHERE key='historical_marker'"))
+        b.stage_postgres_restore(backup, released_url, maintenance, **args); released.dispose()
+        result = b.apply_pending_postgres_restore(released_url, maintenance, acknowledgement=backup_metadata['sha256'], **args)
+        with released.connect() as c:
+            assert result['status'] == 'restored' and c.execute(text("SELECT value FROM system_config WHERE key='historical_marker'")).scalar_one() == 'released-backup'
+            validate_executables(c)
+        assert has_index(released); released.dispose()
+        print('post027-native-published-v1.9.24-database-upgraded-reordered-' + '-'.join(reordered) + '-backup-validated-restored-pass', flush=True)
+
+        # 7. Duplicate Spoolman links (possible on 1.9.x) defer 030 instead of failing boot;
+        #    backup/restore works while deferred, and a later boot creates the index.
+        from sqlalchemy.orm import Session
+        from core.economic_source_creation import _create_spool
+        from modules.system.schema_warnings import deferred_migrations
+        dupes_url = server + '/post027_dupes'
+        dupes = fresh('post027_dupes'); bootstrap_database(dupes)
+        with dupes.begin() as c:
+            c.exec_driver_sql('DROP INDEX ' + index)
+            c.execute(text('DELETE FROM odin_schema_migrations WHERE migration_id=:id'), {'id': post_ids[0]})
+            c.execute(text("INSERT INTO system_config(key,value) VALUES('historical_marker','\"dupes\"')"))
+            c.execute(text("INSERT INTO filament_library(id,brand,name,material) VALUES(80,'Owned','Dupes','PLA')"))
+        with Session(dupes) as db, db.begin():
+            created = [_create_spool(db, {'filament_id': 80, 'org_id': 1, 'status': 'active'}, owner_org_id=1) for _ in range(2)]
+            spool_ids = sorted(source.id for source in created)
+            # 1.9.x had no constraint: two spools linked to the same Spoolman spool.
+            db.execute(text('UPDATE spools SET spoolman_spool_id=77 WHERE id IN (:a,:b)'), {'a': spool_ids[0], 'b': spool_ids[1]})
+        deferred_boot = bootstrap_database(dupes)
+        assert deferred_boot['deferred'] == [post_ids[0]] and not has_index(dupes)
+        with dupes.connect() as c:
+            warning = deferred_migrations(c, detail=True)[0]
+        assert warning['migration'] == post_ids[0] and warning['detail']['spool_ids'] == spool_ids and warning['detail']['spoolman_spool_ids'] == [77]
+        backup, backup_metadata = b.create_postgres_backup(dupes_url, maintenance_url=maintenance, **args)
+        b.stage_postgres_restore(backup, dupes_url, maintenance, **args); dupes.dispose()
+        result = b.apply_pending_postgres_restore(dupes_url, maintenance, acknowledgement=backup_metadata['sha256'], **args)
+        assert result['status'] == 'restored' and not has_index(dupes)
+        with dupes.connect() as c:
+            assert c.execute(text('SELECT count(*) FROM spools WHERE spoolman_spool_id=77')).scalar_one() == 2
+        with dupes.begin() as c:c.execute(text('UPDATE spools SET spoolman_spool_id=NULL WHERE id=:id'), {'id': spool_ids[1]})
+        retried = bootstrap_database(dupes)
+        assert retried['applied'] == [post_ids[0]] and retried['deferred'] == [] and has_index(dupes)
+        with dupes.connect() as c:
+            assert deferred_migrations(c, detail=False) == []
+        dupes.dispose()
+        print('post027-native-duplicate-spoolman-links-defer-030-boot-continues-backup-restore-while-deferred-retry-creates-index-pass', flush=True)
+
+        # 8. A preserved029 child killed mid-run leaves no validation database or working file.
+        import signal, threading
+        from modules.system import restore_artifacts
+        journal = restore_artifacts.journal_dir(b.postgres_paths(root).backups)
+        real_popen = preserved029.subprocess.Popen
+        killed = []
+        def killing_popen(argv, **kwargs):
+            process = real_popen(argv, **kwargs)
+            before = {entry.name for entry in journal.iterdir()}
+            def watch():
+                while process.poll() is None:
+                    if {entry.name for entry in journal.iterdir()} - before:
+                        os.killpg(process.pid, signal.SIGKILL); killed.append(True); return
+                    __import__('time').sleep(.05)
+            threading.Thread(target=watch, daemon=True).start()
+            return process
+        preserved029.subprocess.Popen = killing_popen
+        try:
+            try:b.validate_postgres_restore(Path(facts[26]['archive']), target, maintenance, **args)
+            except BackupValidationError as error:assert 'did not validate' in str(error) or 'refused' in str(error), str(error)
+            else:raise AssertionError('Killed child admitted')
+        finally:
+            preserved029.subprocess.Popen = real_popen
+        assert killed and leftover() == 0 and not restore_artifacts.journal_entries(b.postgres_paths(root).backups)
+        assert not list(b.postgres_paths(root).backups.glob('.odin-preserved029-*')) and not list(b.postgres_paths(root).backups.glob('.odin-*.dump'))
+        print('post027-native-killed-child-no-stage-or-validation-database-or-dump-left-pass', flush=True)
+
+        preserved029.integrity.check_package()
         with admin.connect() as c:
             assert c.execute(text("SELECT count(*) FROM pg_database WHERE datname LIKE 'odin_validate_%'")).scalar_one() == 0
-            for name in ('post027_target', 'post027_fresh'):c.exec_driver_sql('DROP DATABASE IF EXISTS ' + name + ' WITH (FORCE)')
+            for name in ('post027_target', 'post027_fresh', 'post027_released', 'post027_dupes'):c.exec_driver_sql('DROP DATABASE IF EXISTS ' + name + ' WITH (FORCE)')
         admin.dispose()
     print('post027-native-pass', flush=True)
 

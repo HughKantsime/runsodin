@@ -160,8 +160,9 @@ def prepared_archive(archive,target_url,maintenance_url,password_file,maintenanc
         except preserved029.Preserved029Refused as refusal:
             if refusal.kind in ('BackupValidationError','MigrationError') and refusal.detail:raise b.BackupValidationError(refusal.detail) from None
             raise b.BackupValidationError('Historical PostgreSQL archive refused by the preserved029 stage ('+refusal.kind+')') from None
-        except preserved029.Preserved029Error:
-            raise b.BackupValidationError('Historical PostgreSQL archive stage did not validate') from None
+        except preserved029.Preserved029Error as error:
+            # Parent-side refusals are source-authored text (never driver output).
+            raise b.BackupValidationError('Historical PostgreSQL archive stage did not validate: '+str(error)[:200]) from None
         with engine.connect() as c:
             if tuple(c.execute(text('SELECT oid,datdba FROM pg_database WHERE datname=current_database()')).one())!=identity:raise b.BackupValidationError('Historical stage identity differs')
         bootstrap_database(engine) # Live sources: 027-era stage -> current schema.
