@@ -279,3 +279,86 @@ def test_specific_printer_set_by_patch_is_honoured_by_scheduler(fleet, signed_li
     assert rows(fleet, [901])[901][:2] == ('pending', 12)
     run(fleet)
     assert rows(fleet, [901])[901][:2] == ('scheduled', 12)
+
+
+# ---------------- F04-4.2-02 pin lives in the job's target (specific + printer id), not printer_id ----------------
+
+def _pin_client(fleet, signed_license, monkeypatch):
+    from modules.jobs.routes import jobs_lifecycle
+    client = specific_client(fleet, signed_license, monkeypatch)
+    client.app.include_router(jobs_lifecycle.router, prefix='/api/v1')
+    return client
+
+
+def _pin(db, job_id):
+    from modules.jobs.pinning import pinned_printer_id
+    db.expire_all()
+    return pinned_printer_id(*db.execute(text('SELECT target_type,target_filter FROM jobs WHERE id=:id'), {'id': job_id}).one())
+
+
+def test_pin_survives_reset_bulk_reschedule_and_stale_cleanup(fleet, signed_license, monkeypatch):
+    client = _pin_client(fleet, signed_license, monkeypatch)
+    job = client.post('/api/v1/jobs', json={'item_name': 'Synthetic pinned', 'duration_hours': 1, 'printer_id': 12}).json()['id']
+    assert _pin(fleet, job) == 12
+    run(fleet)
+    assert rows(fleet, [job])[job][:2] == ('scheduled', 12)
+    # 1. explicit reset to pending
+    assert client.post(f'/api/v1/jobs/{job}/reset').status_code == 200
+    assert rows(fleet, [job])[job][:2] == ('pending', None) and _pin(fleet, job) == 12
+    run(fleet)
+    assert rows(fleet, [job])[job][:2] == ('scheduled', 12)
+    # 2. bulk reschedule
+    assert client.post('/api/v1/jobs/bulk-update', json={'job_ids': [job], 'action': 'reschedule'}).status_code == 200
+    assert rows(fleet, [job])[job][:2] == ('pending', None) and _pin(fleet, job) == 12
+    run(fleet)
+    assert rows(fleet, [job])[job][:2] == ('scheduled', 12)
+    # 3. scheduler stale cleanup (scheduled start long past)
+    fleet.execute(text("UPDATE jobs SET scheduled_start='2026-10-01 00:00:00', scheduled_end='2026-10-01 01:00:00' WHERE id=:id"), {'id': job})
+    fleet.commit()
+    run(fleet)
+    assert rows(fleet, [job])[job][:2] == ('scheduled', 12) and _pin(fleet, job) == 12
+
+
+@pytest.mark.parametrize('state', ['inactive', 'missing'])
+def test_pinned_printer_unavailable_keeps_job_pending_with_visible_reason(fleet, signed_license, monkeypatch, state):
+    client = _pin_client(fleet, signed_license, monkeypatch)
+    job = client.post('/api/v1/jobs', json={'item_name': 'Synthetic pinned blocked', 'duration_hours': 1, 'printer_id': 12}).json()['id']
+    if state == 'inactive':
+        fleet.execute(text('UPDATE printers SET is_active=0 WHERE id=12'))
+    else:
+        fleet.execute(text('DELETE FROM filament_slots WHERE printer_id=12'))
+        fleet.execute(text('DELETE FROM printers WHERE id=12'))
+    fleet.commit()
+    result = run(fleet)
+    assert rows(fleet, [job])[job][:2] == ('pending', None) and _pin(fleet, job) == 12
+    assert any('pinned printer 12 is unavailable' in e for e in result.errors)
+    body = client.get(f'/api/v1/jobs/{job}').json()
+    assert body['pinned_printer_id'] == 12
+    assert body['pinned_printer_issue'] == ('pinned_printer_inactive' if state == 'inactive' else 'pinned_printer_missing')
+    fleet.expire_all()
+    alert = fleet.execute(text("SELECT metadata_json FROM alerts WHERE job_id=:id AND alert_type='queue_skipped'"), {'id': job}).scalar()
+    assert alert is not None and 'pinned_printer_unavailable' in str(alert)
+
+
+def test_only_an_explicit_choice_pins(fleet, signed_license, monkeypatch):
+    client = _pin_client(fleet, signed_license, monkeypatch)
+    # No printer chosen: default target_type 'specific' does not pin.
+    free = client.post('/api/v1/jobs', json={'item_name': 'Synthetic free', 'duration_hours': 1}).json()['id']
+    assert _pin(fleet, free) is None
+    run(fleet)
+    status, printer, *_ = rows(fleet, [free])[free]
+    assert status == 'scheduled'
+    # Re-sending the scheduler's own assignment via PATCH is not a pin.
+    assert client.patch(f'/api/v1/jobs/{free}', json={'printer_id': printer, 'notes': 'edit'}).status_code == 200
+    assert _pin(fleet, free) is None
+    # Repeat keeps the assignment hint but never invents a pin.
+    from modules.jobs.routes import jobs_crud  # noqa: F401
+    repeated = client.post(f'/api/v1/jobs/{free}/repeat').json()['new_job_id']
+    assert _pin(fleet, repeated) is None
+    # Clearing an explicit pin.
+    assert client.patch(f'/api/v1/jobs/{free}', json={'pinned_printer_id': 12}).status_code == 200
+    assert _pin(fleet, free) == 12
+    assert client.patch(f'/api/v1/jobs/{free}', json={'pinned_printer_id': None}).status_code == 200
+    assert _pin(fleet, free) is None
+    # Foreign/unknown printers cannot be pinned.
+    assert client.patch(f'/api/v1/jobs/{free}', json={'pinned_printer_id': 9999}).status_code == 404

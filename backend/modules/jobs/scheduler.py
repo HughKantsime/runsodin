@@ -372,6 +372,7 @@ class Scheduler:
             "compatibility_denied": "The approved printer no longer meets the submission requirements. Review compatibility and approval.",
             "revision_changed": "The approval changed during scheduling. Review its current state before scheduling again.",
             "current_state_changed": "The job changed during scheduling. Review its current state before scheduling again.",
+            "pinned_printer_unavailable": "The printer this job is pinned to is inactive or no longer exists. Re-activate it or change the job's printer; the job remains queued.",
         }
         for job_id, reason in sorted(skipped, key=lambda item: item[0]):
             if not lock_queue_alert(db, job_id, AlertType.QUEUE_SKIPPED):
@@ -594,13 +595,19 @@ class Scheduler:
                     )
                     continue
 
-            # Generic specific-printer target: a pending job that carries a
-            # printer_id with target_type 'specific' is pinned to that printer
-            # (set at creation or via PATCH). Ownership/compatibility gates
-            # in _find_best_fit still apply; no fit leaves it pending.
-            if (education_context is None and job.printer_id is not None
-                    and (job.target_type or 'specific') == 'specific'):
-                approved_printer_id = int(job.printer_id)
+            # Generic specific-printer pin, chosen explicitly by a user and kept
+            # across resets. A missing/inactive pinned printer leaves the job
+            # pending with a visible reason (never placed elsewhere).
+            from modules.jobs.pinning import job_pin, pin_issue
+            pin = job_pin(job) if education_context is None else None
+            if pin is not None:
+                approved_printer_id = pin
+                if pin_issue(db, pin) is not None:
+                    result.skipped_count += 1
+                    skipped.append((job.id, "pinned_printer_unavailable"))
+                    result.errors.append(
+                        f"Could not schedule job {job.id}: pinned printer {approved_printer_id} is unavailable")
+                    continue
 
             payload_snapshot = None
             if education_context is None:

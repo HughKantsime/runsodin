@@ -313,7 +313,7 @@ export function EditJobModal({ isOpen, onClose, onSubmit, job, printersData, mod
         filament_type: job.filament_type || '',
         notes: job.notes || '',
         due_date: job.due_date ? job.due_date.split('T')[0] : '',
-        printer_id: job.printer_id || '',
+        printer_id: job.pinned_printer_id ?? job.printer_id ?? '',
       })
     }
   }, [job])

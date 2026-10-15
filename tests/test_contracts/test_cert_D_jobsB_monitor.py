@@ -355,3 +355,14 @@ def test_auto_created_job_is_listed_and_repeatable_for_reprint(bambu_completion)
     assert bambu_completion['repeat_body']['original_job_id'] == created
     assert bambu_completion['repeat_job'] == {'item_name': 'Reprint Bracket v2', 'status': 'pending', 'printer_id': 601,
                                               'quantity': 1, 'notes': f'Repeat of job #{created}'}
+
+
+@pytest.mark.parametrize('offset', [timedelta(hours=3), timedelta(hours=-3)], ids=['adhoc_bump', 'stale_sweep'])
+def test_monitor_bump_and_stale_sweep_keep_the_explicit_pin(lifecycle, offset):
+    """mqtt_job_lifecycle resets printer_id on bumped/stale jobs; the explicit pin (target) must survive."""
+    db, start, alerts, reschedules = lifecycle
+    scheduled(db, 801, 9, NOW + offset)
+    db.execute(text("UPDATE jobs SET target_type='specific', target_filter='9' WHERE id=801")); db.commit()
+    start()
+    assert status(db, [801])[801] == ('pending', None)
+    assert tuple(db.execute(text('SELECT target_type,target_filter FROM jobs WHERE id=801')).one()) == ('specific', '9')

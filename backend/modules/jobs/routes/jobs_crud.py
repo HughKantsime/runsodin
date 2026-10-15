@@ -44,14 +44,31 @@ router = APIRouter(prefix="/jobs", tags=["Jobs"])
 
 from modules.jobs.queue_creation import _stage_prospective_queue_job, _stage_prospective_queue_values, _stage_queue_entries, _deliver_queue_entries, JobBatchRequest, JobReorderRequest
 
-def _target_printer_id(db, current_user, printer_id, target_type):
-    """Validate a specific-printer target; return the id to pin (or None)."""
-    if printer_id is None or (target_type or "specific") != "specific":
+def _target_printer_id(db, current_user, printer_id, target_type, target_filter=None):
+    """Validate an explicit specific-printer choice; return the id to pin (or None).
+
+    The choice is printer_id (what the Jobs UI sends) or, for API callers, a
+    numeric target_filter with target_type 'specific'.
+    """
+    if (target_type or "specific") != "specific":
+        return None
+    if printer_id is None and target_filter not in (None, ""):
+        if not str(target_filter).strip().isdigit():
+            raise HTTPException(status_code=422, detail="A specific target_filter must be a printer id")
+        printer_id = int(str(target_filter).strip())
+    if printer_id is None:
         return None
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
         raise HTTPException(status_code=404, detail="Printer not found")
     return printer.id
+
+
+def _target_columns(job, pinned):
+    from modules.jobs.pinning import pin_columns
+    if (job.target_type or "specific") == "specific":
+        return pin_columns(pinned)
+    return {"target_type": job.target_type, "target_filter": job.target_filter}
 
 
 @router.get("/filament-check", tags=["Jobs"])
@@ -111,7 +128,7 @@ def create_jobs_bulk(jobs: List[JobCreate], current_user: dict = Depends(require
     pinned = []
     for job in jobs:
         assert_generic_model_reference_allowed(db, job.model_id)
-        pinned.append(_target_printer_id(db, current_user, job.printer_id, job.target_type))
+        pinned.append(_target_printer_id(db, current_user, job.printer_id, job.target_type, job.target_filter))
     charge_job_quota(db, current_user, len(jobs))
     db_jobs = []
     for job, pinned_printer_id in zip(jobs, pinned):
@@ -144,9 +161,7 @@ def create_jobs_bulk(jobs: List[JobCreate], current_user: dict = Depends(require
             charged_to_org_id=current_user.get("group_id") if current_user else None,
             due_date=job.due_date,
             required_tags=job.required_tags or [],
-            target_type=job.target_type or "specific",
-            target_filter=job.target_filter,
-            printer_id=pinned_printer_id,
+            **_target_columns(job, pinned_printer_id),
         )
         _stage_prospective_queue_job(db, db_job, current_user)
         db_jobs.append(db_job)
@@ -410,7 +425,7 @@ def create_job(
     from modules.models_library.services import calculate_job_cost
 
     assert_generic_model_reference_allowed(db, job.model_id)
-    pinned_printer_id = _target_printer_id(db, current_user, job.printer_id, job.target_type)
+    pinned_printer_id = _target_printer_id(db, current_user, job.printer_id, job.target_type, job.target_filter)
     # Calculate cost if model is linked
     estimated_cost, suggested_price, _ = (None, None, None)
     if job.model_id:
@@ -508,9 +523,7 @@ def create_job(
         charged_to_user_id=current_user["id"] if current_user else None,
         charged_to_org_id=current_user.get("group_id") if current_user else None,
         required_tags=job.required_tags or [],
-        target_type=job.target_type or "specific",
-        target_filter=job.target_filter,
-        printer_id=pinned_printer_id,
+        **_target_columns(job, pinned_printer_id),
     )
     charge_job_quota(db, current_user)
     _stage_prospective_queue_job(db, db_job, current_user)
@@ -640,11 +653,21 @@ async def update_job(job_id: int, updates: JobUpdate, request: Request, current_
             and updates.model_id != job.model_id):
         raise HTTPException(409, "Archived payload jobs cannot change their source model")
     assert_generic_model_reference_allowed(db, updates.model_id)
-    if updates.printer_id is not None:
-        printer = db.query(Printer).filter(Printer.id == updates.printer_id).first()
-        if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
-            raise HTTPException(status_code=404, detail="Printer not found")
-    for field, value in updates.model_dump(exclude_unset=True).items():
+    for candidate in (updates.printer_id, updates.pinned_printer_id):
+        if candidate is not None:
+            printer = db.query(Printer).filter(Printer.id == candidate).first()
+            if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
+                raise HTTPException(status_code=404, detail="Printer not found")
+    changes = updates.model_dump(exclude_unset=True)
+    # A user choosing a different printer is an explicit specific-printer pin
+    # (None clears it). Re-sending the current assignment is not a choice.
+    if ("printer_id" in changes and "pinned_printer_id" not in changes
+            and changes["printer_id"] != job.printer_id):
+        changes["pinned_printer_id"] = changes["printer_id"]
+    if "pinned_printer_id" in changes:
+        from modules.jobs.pinning import pin_columns
+        changes.update(pin_columns(changes.pop("pinned_printer_id")))
+    for field, value in changes.items():
         setattr(job, field, value)
 
     reconcile_job_write(db, production_orders)
@@ -715,7 +738,10 @@ async def repeat_job(job_id: int, current_user: dict = Depends(require_role("ope
         quantity=original.quantity,
         status="pending",
         priority=original.priority,
-        printer_id=original.printer_id,  # Same printer preference
+        printer_id=original.printer_id,  # Same printer preference (not a pin)
+        # Same target (an explicit pin, model or protocol target) as the original.
+        target_type=original.target_type,
+        target_filter=original.target_filter,
         duration_hours=original.duration_hours,
         colors_required=original.colors_required,
         filament_type=original.filament_type,

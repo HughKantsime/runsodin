@@ -375,7 +375,7 @@ export default function Jobs() {
                 </td></tr>
               ) : (
                 filteredJobs.map(job => (
-                  <JobRow key={job.id} job={job} correctionPrincipal={recentPrincipal} onAction={handleAction} isSelected={selectedJobs.has(job.id)} onToggleSelect={toggleJobSelect} isDispatching={dispatchJob.isPending && dispatchJob.variables === job.id}
+                  <JobRow key={job.id} job={job} pinnedPrinterName={job.pinned_printer_id != null ? (printersData || []).find(p => p.id === job.pinned_printer_id)?.name : undefined} correctionPrincipal={recentPrincipal} onAction={handleAction} isSelected={selectedJobs.has(job.id)} onToggleSelect={toggleJobSelect} isDispatching={dispatchJob.isPending && dispatchJob.variables === job.id}
                     dragProps={canDo('jobs.edit') && (job.status === 'pending' || job.status === 'scheduled') ? {
                       draggable: true,
                       onDragStart: (e) => handleDragStart(e, job.id),

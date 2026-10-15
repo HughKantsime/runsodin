@@ -105,6 +105,8 @@
   "model_revision_id": null,
   "notes": "Synthetic edited notes",
   "order_item_id": null,
+  "pinned_printer_id": 9,
+  "pinned_printer_issue": null,
   "printer": {
    "id": 9,
    "is_active": true,
@@ -124,12 +126,12 @@
   "status": "pending",
   "submitted_by": null,
   "suggested_price": null,
-  "target_filter": null,
-  "target_type": null,
-  "updated_at": "2026-10-15T04:53:27"
+  "target_filter": "9",
+  "target_type": "specific",
+  "updated_at": "2026-10-15T08:58:02"
  },
  "fail_printing_response": {
-  "actual_end": "2026-10-15T04:53:28.016601",
+  "actual_end": "2026-10-15T08:58:02.888502",
   "actual_start": "2026-10-12T06:00:00",
   "approved_at": null,
   "approved_by": null,
@@ -157,6 +159,8 @@
   "model_revision_id": null,
   "notes": null,
   "order_item_id": null,
+  "pinned_printer_id": null,
+  "pinned_printer_issue": null,
   "printer": {
    "id": 9,
    "is_active": true,
@@ -178,7 +182,7 @@
   "suggested_price": null,
   "target_filter": null,
   "target_type": null,
-  "updated_at": "2026-10-15T04:53:28"
+  "updated_at": "2026-10-15T08:58:02"
  },
  "failure_analytics": {
   "by_filament": [
@@ -325,6 +329,8 @@
   "model_revision_id": null,
   "notes": null,
   "order_item_id": 901,
+  "pinned_printer_id": null,
+  "pinned_printer_issue": null,
   "printer": {
    "id": 10,
    "is_active": true,
@@ -377,6 +383,8 @@
   "model_revision_id": null,
   "notes": null,
   "order_item_id": null,
+  "pinned_printer_id": null,
+  "pinned_printer_issue": null,
   "printer": {
    "id": 9,
    "is_active": true,
@@ -429,6 +437,8 @@
   "model_revision_id": null,
   "notes": null,
   "order_item_id": null,
+  "pinned_printer_id": null,
+  "pinned_printer_issue": null,
   "printer": {
    "id": 9,
    "is_active": true,
@@ -482,6 +492,8 @@
    "model_revision_id": null,
    "notes": "Synthetic edited notes",
    "order_item_id": null,
+   "pinned_printer_id": 9,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -501,8 +513,8 @@
    "status": "pending",
    "submitted_by": null,
    "suggested_price": null,
-   "target_filter": null,
-   "target_type": null,
+   "target_filter": "9",
+   "target_type": "specific",
    "updated_at": "2026-10-01T08:00:00"
   },
   {
@@ -534,6 +546,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": null,
    "printer_id": null,
    "priority": 3,
@@ -580,6 +594,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": 901,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 10,
     "is_active": true,
@@ -632,6 +648,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": null,
    "printer_id": null,
    "priority": 3,
@@ -678,6 +696,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -730,6 +750,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -782,6 +804,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -834,6 +858,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 10,
     "is_active": true,
@@ -886,6 +912,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -938,6 +966,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -990,6 +1020,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -1042,6 +1074,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -1094,6 +1128,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -1146,6 +1182,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -1198,6 +1236,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -1250,6 +1290,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -1304,6 +1346,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": null,
    "printer_id": null,
    "priority": 3,
@@ -1350,6 +1394,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": null,
    "printer_id": null,
    "priority": 3,
@@ -1396,6 +1442,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": 901,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 10,
     "is_active": true,
@@ -1448,6 +1496,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": null,
    "printer_id": null,
    "priority": 3,
@@ -1494,6 +1544,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -1546,6 +1598,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -1598,6 +1652,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -1650,6 +1706,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 10,
     "is_active": true,
@@ -1702,6 +1760,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -1754,6 +1814,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -1806,6 +1868,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -1858,6 +1922,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -1910,6 +1976,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -1962,6 +2030,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -2014,6 +2084,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -2066,6 +2138,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -2120,6 +2194,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": null,
    "printer_id": null,
    "priority": 3,
@@ -2166,6 +2242,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -2218,6 +2296,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": null,
    "printer_id": null,
    "priority": 3,
@@ -2264,6 +2344,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": null,
    "printer_id": null,
    "priority": 3,
@@ -2310,6 +2392,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": 901,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 10,
     "is_active": true,
@@ -2362,6 +2446,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -2414,6 +2500,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -2466,6 +2554,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 10,
     "is_active": true,
@@ -2518,6 +2608,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -2570,6 +2662,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -2622,6 +2716,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -2674,6 +2770,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -2726,6 +2824,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -2778,6 +2878,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -2830,6 +2932,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -2882,6 +2986,8 @@
    "model_revision_id": null,
    "notes": null,
    "order_item_id": null,
+   "pinned_printer_id": null,
+   "pinned_printer_issue": null,
    "printer": {
     "id": 9,
     "is_active": true,
@@ -3151,6 +3257,51 @@
    ]
   }
  },
+ "pinned_blocked_job": {
+  "actual_end": null,
+  "actual_start": null,
+  "approved_at": null,
+  "approved_by": null,
+  "charged_to_org_id": 1,
+  "colors_list": [],
+  "colors_required": null,
+  "created_at": "2026-10-15T08:58:02",
+  "due_date": null,
+  "duration_hours": 1.0,
+  "effective_duration": 1.0,
+  "estimated_cost": null,
+  "fail_notes": null,
+  "fail_reason": null,
+  "filament_type": null,
+  "hold": false,
+  "id": 219,
+  "is_locked": false,
+  "item_name": "CertC pinned blocked",
+  "match_score": null,
+  "model": null,
+  "model_id": null,
+  "model_revision_id": null,
+  "notes": null,
+  "order_item_id": null,
+  "pinned_printer_id": 10,
+  "pinned_printer_issue": "pinned_printer_inactive",
+  "printer": null,
+  "printer_id": null,
+  "priority": 3,
+  "quantity": 1,
+  "quantity_on_bed": 1,
+  "queue_position": null,
+  "rejected_reason": null,
+  "required_tags": [],
+  "scheduled_end": null,
+  "scheduled_start": null,
+  "status": "pending",
+  "submitted_by": null,
+  "suggested_price": null,
+  "target_filter": "10",
+  "target_type": "specific",
+  "updated_at": "2026-10-15T08:58:02"
+ },
  "printers": [
   {
    "api_host": "127.0.0.1",
@@ -3161,7 +3312,7 @@
    "bed_y_mm": 256.0,
    "camera_discovered": null,
    "camera_url": null,
-   "created_at": "2026-10-15T04:53:27",
+   "created_at": "2026-10-15T08:58:02",
    "fan_speed": null,
    "filament_slots": [
     {
@@ -3170,7 +3321,7 @@
      "color_hex": null,
      "filament_type": "PLA",
      "id": 1,
-     "loaded_at": "2026-10-15T04:53:27",
+     "loaded_at": "2026-10-15T08:58:02",
      "material_type": "PLA",
      "printer_id": 9,
      "remaining": null,
@@ -3208,7 +3359,7 @@
    "timelapse_enabled": false,
    "total_print_count": null,
    "total_print_hours": null,
-   "updated_at": "2026-10-15T04:53:27"
+   "updated_at": "2026-10-15T08:58:02"
   },
   {
    "api_host": null,
@@ -3219,7 +3370,7 @@
    "bed_y_mm": 256.0,
    "camera_discovered": null,
    "camera_url": null,
-   "created_at": "2026-10-15T04:53:27",
+   "created_at": "2026-10-15T08:58:02",
    "fan_speed": null,
    "filament_slots": [
     {
@@ -3228,7 +3379,7 @@
      "color_hex": null,
      "filament_type": "PLA",
      "id": 2,
-     "loaded_at": "2026-10-15T04:53:27",
+     "loaded_at": "2026-10-15T08:58:02",
      "material_type": "PLA",
      "printer_id": 10,
      "remaining": null,
@@ -3266,7 +3417,7 @@
    "timelapse_enabled": false,
    "total_print_count": null,
    "total_print_hours": null,
-   "updated_at": "2026-10-15T04:53:27"
+   "updated_at": "2026-10-15T08:58:02"
   }
  ],
  "recent_terminal": [

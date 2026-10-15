@@ -4,7 +4,7 @@ modules/jobs/schemas.py — Pydantic schemas for the jobs domain.
 
 from datetime import datetime
 from typing import Optional, List, Union, Any
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 
 from core.base import JobStatus, FilamentType
 
@@ -90,6 +90,9 @@ class JobUpdate(BaseModel):
     hold: Optional[bool] = None
     is_locked: Optional[bool] = None
     due_date: Optional[datetime] = None
+    # Explicit specific-printer pin (None clears). Changing printer_id to a
+    # different printer also sets the pin.
+    pinned_printer_id: Optional[int] = Field(default=None, ge=1)
 
     @field_validator('quantity', 'hold', 'is_locked', mode='before')
     @classmethod
@@ -97,6 +100,18 @@ class JobUpdate(BaseModel):
         if value is None:
             raise ValueError('Choose an explicit quantity, hold or lock value')
         return value
+
+
+class _PinView:
+    """Attribute view of a Job ORM row that adds the computed pin fields."""
+
+    def __init__(self, job, pin, issue):
+        self._job = job
+        self.pinned_printer_id = pin
+        self.pinned_printer_issue = issue
+
+    def __getattr__(self, name):
+        return getattr(self._job, name)
 
 
 class JobResponse(JobBase):
@@ -150,6 +165,22 @@ class JobResponse(JobBase):
 
     # Queue order set by drag-and-drop reorder (None = not manually placed)
     queue_position: Optional[int] = None
+
+    # Explicit specific-printer pin (target_type 'specific' + target_filter
+    # printer id) and, when it blocks scheduling, why
+    # ('pinned_printer_missing' | 'pinned_printer_inactive').
+    pinned_printer_id: Optional[int] = None
+    pinned_printer_issue: Optional[str] = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def _expose_pin(cls, data):
+        if isinstance(data, dict) or not hasattr(data, '__table__'):
+            return data
+        from sqlalchemy.orm import object_session
+        from modules.jobs.pinning import job_pin, pin_issue
+        pin = job_pin(data)
+        return _PinView(data, pin, pin_issue(object_session(data), pin))
 
     # Approval workflow. These describe the job row itself and are only
     # served on org-scoped job routes (same visibility as the job).

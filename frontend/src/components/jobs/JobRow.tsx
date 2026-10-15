@@ -31,7 +31,7 @@ function DueDateBadge({ dueDate }: { dueDate: string | null }) {
   )
 }
 
-export default function JobRow({ job, onAction, dragProps, isSelected, onToggleSelect, isDispatching, correctionPrincipal }: { job: any; onAction: (...args: any[]) => void; dragProps?: any; isSelected: boolean; onToggleSelect: (id: number) => void; isDispatching?: boolean; correctionPrincipal?: any }) {
+export default function JobRow({ job, onAction, dragProps, isSelected, onToggleSelect, isDispatching, correctionPrincipal, pinnedPrinterName }: { job: any; onAction: (...args: any[]) => void; dragProps?: any; isSelected: boolean; onToggleSelect: (id: number) => void; isDispatching?: boolean; correctionPrincipal?: any; pinnedPrinterName?: string }) {
   return (
     <tr className={clsx(
           'border-b border-[var(--brand-card-border)] hover:bg-[var(--brand-input-bg)]/50 even:bg-[var(--brand-content-bg)]/40',
@@ -89,7 +89,19 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
           P{job.priority}
         </span>
       </td>
-      <td className="px-3 md:px-4 py-3 text-sm">{job.printer?.name || '—'}</td>
+      <td className="px-3 md:px-4 py-3 text-sm">
+        {job.printer?.name || '—'}
+        {job.pinned_printer_id != null && (
+          <div className="text-xs text-[var(--brand-text-muted)]" title="Only scheduled on this printer">
+            Pinned: {pinnedPrinterName || `printer #${job.pinned_printer_id}`}
+          </div>
+        )}
+        {job.pinned_printer_issue && (
+          <div className="text-xs text-red-400" role="status">
+            {job.pinned_printer_issue === 'pinned_printer_missing' ? 'Pinned printer no longer exists' : 'Pinned printer is inactive'} — job stays queued
+          </div>
+        )}
+      </td>
       <td className="px-3 md:px-4 py-3 hidden lg:table-cell">
         {job.colors_list?.length > 0 ? (
           <div className="flex gap-1 flex-wrap">

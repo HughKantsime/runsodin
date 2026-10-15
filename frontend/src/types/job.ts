@@ -49,6 +49,8 @@ export interface Job {
   order_item_id: number | null;
   quantity_on_bed: number | null;
   queue_position: number | null;
+  pinned_printer_id: number | null;
+  pinned_printer_issue: 'pinned_printer_missing' | 'pinned_printer_inactive' | null;
   submitted_by: number | null;
   approved_by: number | null;
   approved_at: string | null;

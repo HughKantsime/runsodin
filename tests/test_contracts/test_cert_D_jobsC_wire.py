@@ -152,6 +152,12 @@ def test_capture_jobs_queue_timeline_recent_and_failure_wire(wire_client):
     assert wire['fail_printing_response']['status'] == 'failed'
     wire['repeat_response'] = ok(client.post('/jobs/206/repeat'))
     assert wire['repeat_response']['original_job_id'] == 206
+    # A job pinned to printer 10, then that printer deactivated: pending with a visible reason.
+    pinned = ok(client.post('/jobs', json={'item_name': 'CertC pinned blocked', 'duration_hours': 1, 'printer_id': 10}), 201)
+    db.execute(text('UPDATE printers SET is_active=0 WHERE id=10')); db.commit()
+    wire['pinned_blocked_job'] = ok(client.get(f"/jobs/{pinned['id']}"))
+    assert (wire['pinned_blocked_job']['pinned_printer_id'], wire['pinned_blocked_job']['pinned_printer_issue']) == (10, 'pinned_printer_inactive')
+    db.execute(text('UPDATE printers SET is_active=1 WHERE id=10')); db.commit()
     FIXTURE.parent.mkdir(parents=True, exist_ok=True)
     FIXTURE.write_text(json.dumps(wire, indent=1, sort_keys=True) + '\n')
 

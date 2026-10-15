@@ -195,3 +195,14 @@ it('F04-4.9-01 Recently Completed grid shows the newest 8 terminal outcomes with
   expect(cards[1].querySelector('time')).toHaveAttribute('dateTime', '2026-10-11T12:30:00Z')
   expect(within(section).queryByText('CertC history 0')).not.toBeInTheDocument() // 9th..11th oldest excluded
 })
+
+// ---- F04-4.2-02 pinned printer shown, and a blocked pin is visible (not silent) ----
+it('F04-4.2-02 a job pinned to an inactive printer shows the pin and why it stays queued', async () => {
+  current = [...wire.jobs_before, wire.pinned_blocked_job]
+  await mount()
+  const r = row('CertC pinned blocked')
+  const printer = wire.printers.find((p: any) => p.id === wire.pinned_blocked_job.pinned_printer_id)
+  expect(within(r).getByTitle('Only scheduled on this printer')).toHaveTextContent(`Pinned: ${printer.name}`)
+  expect(within(r).getByRole('status')).toHaveTextContent('Pinned printer is inactive — job stays queued')
+  expect(within(row('CertC adhoc pending A')).queryByTitle('Only scheduled on this printer')).not.toBeInTheDocument()
+})
