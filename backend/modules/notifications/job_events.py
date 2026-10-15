@@ -172,11 +172,15 @@ def job_completed(
 
             # Update scheduled job status if linked
             if scheduled_job_id:
+                # Only an active job takes the observed outcome: a job an
+                # operator already completed, failed or cancelled keeps that
+                # outcome and is not charged again.
                 cur.execute(
-                    "UPDATE jobs SET status = ?, actual_end = ? WHERE id = ?",
+                    "UPDATE jobs SET status = ?, actual_end = ? WHERE id = ? "
+                    "AND status IN ('pending','scheduled','printing','paused')",
                     (status, ended_at, scheduled_job_id)
                 )
-                if success:
+                if success and cur.rowcount == 1:
                     # Charge the print's material and measured time to the
                     # owner's grams/hours quota in the completion transaction.
                     from core.quota import record_print_consumption, qmark_runner

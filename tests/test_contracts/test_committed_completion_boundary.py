@@ -18,6 +18,10 @@ ROOT=Path(__file__).resolve().parents[2]
 QUOTA_CHARGE_BLOCK='                if success:\n                    # Charge the print\'s material and measured time to the\n                    # owner\'s grams/hours quota in the completion transaction.\n                    from core.quota import record_print_consumption, qmark_runner\n                    cur.execute("SAVEPOINT quota_consumption")\n                    try:\n                        record_print_consumption(\n                            qmark_runner(cur), scheduled_job_id,\n                            measured_hours=(duration_seconds / 3600.0) if duration_seconds else None)\n                        cur.execute("RELEASE SAVEPOINT quota_consumption")\n                    except Exception:\n                        # Never drop an observed completion over accounting;\n                        # the failure is logged loudly for reconciliation.\n                        cur.execute("ROLLBACK TO SAVEPOINT quota_consumption")\n                        log.exception("Quota consumption for job %s could not be recorded", scheduled_job_id)\n'
 
 
+TRANSITION_GUARD_NEW='            if scheduled_job_id:\n                # Only an active job takes the observed outcome: a job an\n                # operator already completed, failed or cancelled keeps that\n                # outcome and is not charged again.\n                cur.execute(\n                    "UPDATE jobs SET status = ?, actual_end = ? WHERE id = ? "\n                    "AND status IN (\'pending\',\'scheduled\',\'printing\',\'paused\')",\n                    (status, ended_at, scheduled_job_id)\n                )\n                if success and cur.rowcount == 1:\n'
+TRANSITION_GUARD_BASE='            if scheduled_job_id:\n                cur.execute(\n                    "UPDATE jobs SET status = ?, actual_end = ? WHERE id = ?",\n                    (status, ended_at, scheduled_job_id)\n                )\n                if success:\n'
+
+
 def test_same_object_and_exact_pre_extraction_body():
     from core.committed_terminal_events import publish_committed_completion as core
     from modules.printers.committed_terminal_events import publish_committed_completion as old
@@ -29,8 +33,13 @@ def test_same_object_and_exact_pre_extraction_body():
     new='from core.committed_terminal_events import publish_committed_completion'
     old='from modules.printers.committed_terminal_events import publish_committed_completion'
     assert current.count(new)==1
-    # The only later change to job_completed: quota charging inside the completion
-    # transaction (F11-11.8-01/03). Everything else stays byte-identical.
+    # Two later changes to job_completed, normalized back to the pre-extraction
+    # shape before hashing: the monitor only overwrites an active job and charges
+    # it only when it actually transitioned (security review MED 4), and quota
+    # charging runs inside the completion transaction (F11-11.8-01/03). Everything
+    # else stays byte-identical.
+    assert current.count(TRANSITION_GUARD_NEW)==1
+    current=current.replace(TRANSITION_GUARD_NEW,TRANSITION_GUARD_BASE)
     assert current.count(QUOTA_CHARGE_BLOCK)==1
     current=current.replace(QUOTA_CHARGE_BLOCK,'')
     # Byte hash is interpreter-independent; ast.dump schemas differ3.11/3.14.

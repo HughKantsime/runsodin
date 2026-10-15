@@ -95,6 +95,16 @@ def charge_job_quota(db, actor, count=1):
 # Print consumption (grams / hours) charged when a job completes
 # ---------------------------------------------------------------------------
 
+def _insert_ignore():
+    from core.db_compat import sql
+    return sql.insert_or_ignore_prefix()
+
+
+def _on_conflict_ignore():
+    from core.db_compat import sql
+    return sql.on_conflict_ignore("key")
+
+
 def sqlalchemy_runner(db):
     """Adapt a SQLAlchemy session to the ``run(sql, params)`` shape used below."""
     return lambda statement, params: db.execute(text(statement), params)
@@ -167,6 +177,13 @@ def record_print_consumption(run, job_id, *, grams=None, measured_hours=None, no
     job = run("SELECT COALESCE(charged_to_user_id, submitted_by), duration_hours, actual_start, actual_end "
               "FROM jobs WHERE id = :jid", {"jid": job_id}).fetchone()
     if not job or job[0] is None:
+        return
+    # At most once per job, like the filament deduction: a failed->completed
+    # correction, a reset and reprint, or a manual completion followed by the
+    # monitor's must not charge the same job twice. The marker's primary key
+    # makes the claim atomic on SQLite and PostgreSQL.
+    if run(f"{_insert_ignore()} system_config (key, value) VALUES (:k, :v){_on_conflict_ignore()}",
+           {"k": f"quota_charged:job:{int(job_id)}", "v": "true"}).rowcount != 1:
         return
     user_id = job[0]
     user = run("SELECT quota_period FROM users WHERE id = :uid", {"uid": user_id}).fetchone()
