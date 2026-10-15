@@ -25,11 +25,27 @@ export function usePushNotifications() {
     }
   }, []);
 
-  // Check current subscription status
+  // Check current subscription status. A subscription bound to an older VAPID
+  // key (the server rotated its pair) is replaced transparently while
+  // notification permission is still granted.
   const checkSubscription = async () => {
     try {
       const registration = await navigator.serviceWorker.ready;
       const subscription = await registration.pushManager.getSubscription();
+      if (subscription) {
+        const serverKey = await fetchServerKey();
+        const currentKey = subscriptionKey(subscription);
+        if (serverKey && currentKey && currentKey !== serverKey) {
+          await subscription.unsubscribe();
+          if (Notification.permission === 'granted') {
+            await subscribeWithKey(registration, serverKey);
+            setIsSubscribed(true);
+          } else {
+            setIsSubscribed(false);
+          }
+          return;
+        }
+      }
       setIsSubscribed(!!subscription);
     } catch (err) {
       console.error('Error checking subscription:', err);
@@ -67,42 +83,14 @@ export function usePushNotifications() {
       }
 
       // Get VAPID public key from server
-      ;
-      const headers = { 'Content-Type': 'application/json' };
-      ;
-
-      const vapidRes = await fetch(`${API_BASE}/push/vapid-key`, { headers });
-      const vapidData = await vapidRes.json();
-      
-      if (!vapidData.public_key) {
+      const publicKey = await fetchServerKey();
+      if (!publicKey) {
         setError('Push notifications not configured on server');
         setLoading(false);
         return false;
       }
 
-      // Convert VAPID key to Uint8Array
-      const applicationServerKey = urlBase64ToUint8Array(vapidData.public_key);
-
-      // Subscribe to push
-      const subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey
-      });
-
-      // Send subscription to server in the PushSubscriptionCreate contract
-      const json = subscription.toJSON();
-      if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) {
-        throw new Error('Browser returned an incomplete push subscription');
-      }
-      const subRes = await fetch(`${API_BASE}/push/subscribe`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ endpoint: json.endpoint, p256dh_key: json.keys.p256dh, auth_key: json.keys.auth })
-      });
-
-      if (!subRes.ok) {
-        throw new Error('Failed to save subscription');
-      }
+      await subscribeWithKey(registration, publicKey);
 
       setIsSubscribed(true);
       setLoading(false);
@@ -162,6 +150,50 @@ export function usePushNotifications() {
     subscribe,
     unsubscribe
   };
+}
+
+const KEY_CACHE = 'odin.push.vapidPublicKey';
+const JSON_HEADERS = { 'Content-Type': 'application/json' };
+
+async function fetchServerKey(): Promise<string | null> {
+  const res = await fetch(`${API_BASE}/push/vapid-key`, { headers: JSON_HEADERS });
+  const data = await res.json();
+  return data?.enabled && data.public_key ? data.public_key : null;
+}
+
+function bytesToBase64Url(buffer: ArrayBuffer): string {
+  let binary = '';
+  new Uint8Array(buffer).forEach(byte => { binary += String.fromCharCode(byte); });
+  return window.btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+// The applicationServerKey a subscription was created with: from the browser when
+// it exposes it, else the key cached when this browser subscribed.
+function subscriptionKey(subscription: any): string | null {
+  const key = subscription?.options?.applicationServerKey;
+  if (key && key.byteLength) return bytesToBase64Url(key);
+  try { return window.localStorage.getItem(KEY_CACHE); } catch { return null; }
+}
+
+async function subscribeWithKey(registration: any, publicKey: string) {
+  const subscription = await registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToUint8Array(publicKey),
+  });
+  // Send subscription to server in the PushSubscriptionCreate contract
+  const json = subscription.toJSON();
+  if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) {
+    throw new Error('Browser returned an incomplete push subscription');
+  }
+  const subRes = await fetch(`${API_BASE}/push/subscribe`, {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ endpoint: json.endpoint, p256dh_key: json.keys.p256dh, auth_key: json.keys.auth })
+  });
+  if (!subRes.ok) {
+    throw new Error('Failed to save subscription');
+  }
+  try { window.localStorage.setItem(KEY_CACHE, publicKey); } catch { /* storage unavailable */ }
 }
 
 // Helper: Convert URL-safe base64 to Uint8Array

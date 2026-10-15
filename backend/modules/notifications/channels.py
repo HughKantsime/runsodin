@@ -40,15 +40,16 @@ def send_push_notification(user_id: int, alert_type: str, title: str, message: s
             if not subscriptions:
                 return False
 
-            # Get VAPID keys (JSON column: text on SQLite, decoded on PostgreSQL)
-            cur.execute("SELECT value FROM system_config WHERE key = 'vapid_keys'")
-            vapid_row = cur.fetchone()
-            if not vapid_row:
+            # Effective VAPID pair: env override, else the stored (encrypted) pair.
+            from modules.notifications.vapid import env_override, keys_from_stored_value
+            vapid_keys = env_override()
+            if vapid_keys is None:
+                cur.execute("SELECT value FROM system_config WHERE key = 'vapid_keys'")
+                vapid_row = cur.fetchone()
+                vapid_keys = keys_from_stored_value(vapid_row[0]) if vapid_row else None
+            if not vapid_keys:
                 log.warning("VAPID keys not configured, skipping push")
                 return False
-
-            from modules.notifications.vapid import decode_config_value
-            vapid_keys = decode_config_value(vapid_row[0])
 
             # Build notification payload
             payload = json.dumps({

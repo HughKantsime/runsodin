@@ -51,3 +51,9 @@ export const pushNotifications = {
   }),
   unsubscribe: (): Promise<void> => fetchAPI('/push/subscribe', { method: 'DELETE' }),
 };
+
+export const pushKeys = {
+  /** Superadmin: replace the VAPID pair; every browser subscription must re-register. */
+  rotate: (): Promise<{ status: string; public_key: string; subscriptions_invalidated: number }> =>
+    fetchAPI('/push/vapid-key/rotate', { method: 'POST' }),
+};

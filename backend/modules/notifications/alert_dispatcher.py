@@ -181,12 +181,11 @@ def _deliver_browser_push(db, user_id, title, message, severity):
         return
 
     import os
-    # Sign with the stored pair whose public half /push/vapid-key served to the
-    # browser; the VAPID_PRIVATE_KEY environment variable is only a legacy
-    # fallback for installs without a stored pair.
+    # Sign with the effective pair whose public half /push/vapid-key serves:
+    # the VAPID_PRIVATE_KEY environment override when set, else the stored pair.
     from modules.notifications.vapid import read_vapid_keys
-    stored = read_vapid_keys(db)
-    vapid_private_key = stored["private_key"] if stored else os.environ.get("VAPID_PRIVATE_KEY")
+    effective = read_vapid_keys(db)
+    vapid_private_key = effective["private_key"] if effective else None
     vapid_email = os.environ.get("VAPID_EMAIL", "mailto:admin@example.com")
 
     # Avoid serializing a cold burst of job notifications behind pywebpush's

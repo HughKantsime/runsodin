@@ -7,7 +7,8 @@ import json
 import logging
 
 from core.db import get_db
-from core.dependencies import get_current_user
+from core.dependencies import get_current_user, log_audit
+from core.rbac import require_superadmin
 from modules.notifications.models import PushSubscription
 from modules.notifications.schemas import PushSubscriptionCreate
 
@@ -32,7 +33,30 @@ async def get_vapid_key(db: Session = Depends(get_db)):
         db.rollback()
         log.error(f"VAPID keys unavailable: {type(exc).__name__}")
         return {"public_key": None, "enabled": False}
+    if not keys.get("public_key"):
+        log.error("VAPID_PRIVATE_KEY override set but no public key derivable; set VAPID_PUBLIC_KEY")
+        return {"public_key": None, "enabled": False}
     return {"public_key": keys["public_key"], "enabled": True}
+
+
+@router.post("/push/vapid-key/rotate")
+async def rotate_vapid_key(current_user: dict = Depends(require_superadmin(scope="admin")),
+                           db: Session = Depends(get_db)):
+    """Generate a new VAPID pair and invalidate every push subscription. Superadmin only.
+
+    Refused (409) while the VAPID_PRIVATE_KEY environment override is set.
+    Browsers resubscribe automatically when they see the new public key.
+    """
+    from modules.notifications.vapid import VapidOverrideActive, rotate_vapid_keys
+    try:
+        result = rotate_vapid_keys(db)
+    except VapidOverrideActive as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+    log_audit(db, "push.vapid_rotated", "system_config", None,
+              {"subscriptions_invalidated": result["subscriptions_invalidated"]})
+    db.commit()
+    return {"status": "ok", **result}
 
 
 @router.post("/push/subscribe")
