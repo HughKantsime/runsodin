@@ -228,7 +228,7 @@ class UserUpdateRequest(PydanticBaseModel):
 
 
 @router.patch("/users/{user_id}", tags=["Users"], dependencies=[Depends(require_scope("admin"))])
-async def update_user(user_id: int, body: UserUpdateRequest, request: Request, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+async def update_user(user_id: int, body: UserUpdateRequest, current_user: dict = Depends(require_role("admin")), request: Request = None, db: Session = Depends(get_db)):
     updates = body.model_dump(exclude_unset=True)
     target = db.execute(
         text("SELECT group_id FROM users WHERE id = :id"), {"id": user_id}
