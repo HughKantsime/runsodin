@@ -8,6 +8,7 @@ export function EditSpoolModal({ spool, onClose, onSave }: { spool: any; onClose
     low_stock_threshold_g: spool?.low_stock_threshold_g ?? 50,
     notes: spool?.notes || '',
     storage_location: spool?.storage_location || '',
+    spoolman_spool_id: spool?.spoolman_spool_id ?? '',
   });
 
   const [error, setError] = useState('');
@@ -19,8 +20,15 @@ export function EditSpoolModal({ spool, onClose, onSave }: { spool: any; onClose
       setError('Low-stock threshold must be a whole number from 0 to 2147483647.');
       return;
     }
+    const spoolmanText = String(form.spoolman_spool_id).trim();
+    const spoolmanId = spoolmanText === '' ? null : Number(spoolmanText);
+    if (spoolmanId !== null && (!Number.isSafeInteger(spoolmanId) || spoolmanId < 1)) {
+      setError('Spoolman spool ID must be a positive whole number, or blank to unlink.');
+      return;
+    }
     onSave({
       id: spool.id,
+      spoolman_spool_id: spoolmanId,
       pa_profile: form.pa_profile || null,
       low_stock_threshold_g: threshold,
       remaining_weight_g: parseFloat(form.remaining_weight_g),
@@ -57,6 +65,13 @@ export function EditSpoolModal({ spool, onClose, onSave }: { spool: any; onClose
           <label htmlFor="spool-pa-profile" className="block text-sm text-[var(--brand-text-muted)] mb-1">PA Profile</label>
           <input id="spool-pa-profile" type="text" maxLength={50} value={form.pa_profile}
             onChange={e => setForm({ ...form, pa_profile: e.target.value })}
+            className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]" />
+        </div>
+        <div>
+          <label htmlFor="spool-spoolman-id" className="block text-sm text-[var(--brand-text-muted)] mb-1">Spoolman spool ID</label>
+          <input id="spool-spoolman-id" type="number" min="1" step="1" value={form.spoolman_spool_id}
+            onChange={e => setForm({ ...form, spoolman_spool_id: e.target.value })}
+            placeholder="Blank = not linked"
             className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]" />
         </div>
         <div>
@@ -129,12 +144,14 @@ export function EditFilamentModal({ filament, onClose, onSave }: { filament: any
     name: filament?.name || '',
     material: filament?.material || 'PLA',
     color_hex: filament?.color_hex || '',
-    cost_per_gram: filament?.cost_per_gram || ''
+    cost_per_gram: filament?.cost_per_gram ?? ''
   })
 
   const handleSubmit = (e) => {
     e.preventDefault()
-    onSave({ id: filament?.id, ...form })
+    // The API takes a number or null (blank = use the global default rate).
+    const cost = form.cost_per_gram === '' ? null : Number(form.cost_per_gram)
+    onSave({ id: filament?.id, ...form, cost_per_gram: cost })
   }
 
   return (

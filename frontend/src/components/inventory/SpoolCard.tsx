@@ -22,7 +22,7 @@ interface SpoolCardProps {
 }
 export default function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, onEdit, onDry, printers }: SpoolCardProps) {
   const percentRemaining = spool.percent_remaining || 0
-  const isLow = percentRemaining < 20
+  const isLow = spool.is_low_stock === true || percentRemaining < 20
   const isEmpty = spool.status === 'empty'
   const isArchived = spool.status === 'archived'
 

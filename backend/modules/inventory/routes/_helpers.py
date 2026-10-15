@@ -32,6 +32,7 @@ class SpoolCreate(PydanticBaseModel):
     lot_number: Optional[str] = None
     storage_location: Optional[str] = None
     notes: Optional[str] = None
+    spoolman_spool_id: Optional[int] = Field(default=None, strict=True, ge=1)  # Spoolman link (usage push)
 
 
 class SpoolUpdate(PydanticBaseModel):
@@ -55,6 +56,7 @@ class SpoolUpdate(PydanticBaseModel):
     price: Optional[float] = None
     vendor: Optional[str] = None
     lot_number: Optional[str] = None
+    spoolman_spool_id: Optional[int] = Field(default=None, strict=True, ge=1)  # null unlinks
 
 
 class SpoolResponse(PydanticBaseModel):
@@ -118,6 +120,7 @@ class FilamentCreateRequest(PydanticBaseModel):
     name: str
     material: str = "PLA"
     color_hex: Optional[str] = None
+    cost_per_gram: Optional[float] = Field(default=None, ge=0)  # Per-material rate ($/g); null = global default
 
 
 class FilamentUpdateRequest(PydanticBaseModel):
@@ -125,6 +128,7 @@ class FilamentUpdateRequest(PydanticBaseModel):
     name: Optional[str] = None
     material: Optional[str] = None
     color_hex: Optional[str] = None
+    cost_per_gram: Optional[float] = Field(default=None, ge=0)  # null clears the per-material rate
 
 
 class ScanAssignRequest(PydanticBaseModel):

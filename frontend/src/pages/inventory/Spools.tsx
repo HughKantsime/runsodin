@@ -189,7 +189,8 @@ export default function Spools() {
 
   // Summary stats
   const activeSpools = allSpools?.filter(s => s.status === 'active') || []
-  const lowSpools = activeSpools.filter(s => s.percent_remaining < 20)
+  // Low = below the spool's server-side threshold (is_low_stock) or under 20% remaining.
+  const lowSpools = activeSpools.filter(s => s.is_low_stock === true || s.percent_remaining < 20)
   const loadedSpools = activeSpools.filter(s => s.location_printer_id)
 
   return (

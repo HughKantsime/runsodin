@@ -39,6 +39,7 @@ def list_filaments(
             "name": f.name,
             "material": f.material,
             "color_hex": f.color_hex,
+            "cost_per_gram": f.cost_per_gram,
             "display_name": f"{f.brand} {f.name} ({f.material})",
         })
     return result
@@ -52,11 +53,13 @@ def add_custom_filament(data: FilamentCreateRequest, current_user: dict = Depend
         name=data.name,
         material=data.material,
         color_hex=data.color_hex,
+        cost_per_gram=data.cost_per_gram,
         is_custom=True,
     )
     db.add(filament)
     db.commit()
-    return {"id": filament.id, "brand": filament.brand, "name": filament.name, "message": "Filament added"}
+    return {"id": filament.id, "brand": filament.brand, "name": filament.name,
+            "cost_per_gram": filament.cost_per_gram, "message": "Filament added"}
 
 
 @router.get("/combined", tags=["Filaments"])
@@ -99,6 +102,7 @@ async def get_combined_filaments(current_user: dict = Depends(require_role("view
             "name": f.name,
             "material": f.material,
             "color_hex": f.color_hex,
+            "cost_per_gram": f.cost_per_gram,
             "display_name": f"{f.brand} {f.name} ({f.material})",
         })
 
@@ -124,6 +128,7 @@ def get_filament(filament_id: str, current_user: dict = Depends(require_role("vi
         "name": filament.name,
         "material": filament.material,
         "color_hex": filament.color_hex,
+        "cost_per_gram": filament.cost_per_gram,
         "is_custom": getattr(filament, 'is_custom', False),
         "display_name": f"{filament.brand} {filament.name} ({filament.material})",
     }
@@ -153,6 +158,7 @@ def update_filament(filament_id: str, updates: FilamentUpdateRequest, current_us
         "name": filament.name,
         "material": filament.material,
         "color_hex": filament.color_hex,
+        "cost_per_gram": filament.cost_per_gram,
         "message": "Filament updated",
     }
 

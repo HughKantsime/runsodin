@@ -42,6 +42,8 @@ export interface Spool {
   created_at: string;
   updated_at: string;
   percent_remaining: number;
+  /** Server flag: remaining_weight_g below this spool's low_stock_threshold_g. */
+  is_low_stock?: boolean | null;
   filament_name: string | null;
   filament_material: string | null;
   filament_brand: string | null;

@@ -122,6 +122,7 @@ def list_spools(
             "filament_color_hex": s.color_hex or (s.filament.color_hex if s.filament else None),
             "pa_profile": s.pa_profile,
             "low_stock_threshold_g": s.low_stock_threshold_g,
+            "spoolman_spool_id": s.spoolman_spool_id,
             "is_low_stock": (s.remaining_weight_g or 0) < (s.low_stock_threshold_g if s.low_stock_threshold_g is not None else 50),
         }
         result.append(spool_dict)
@@ -183,6 +184,9 @@ def create_spool(spool: SpoolCreate, current_user: dict = Depends(require_role("
     db_spool = db.get(Spool, created.id)
     if db_spool is None:
         raise RuntimeError("Fresh spool could not be loaded")
+    if spool.spoolman_spool_id is not None:
+        # Not an economic birth field; linked after the factory INSERT in the same transaction.
+        db_spool.spoolman_spool_id = spool.spoolman_spool_id
 
     log_audit(db, "create", "spool", db_spool.id, {"filament_id": spool.filament_id, "qr_code": db_spool.qr_code})
     db.commit()
@@ -229,6 +233,7 @@ def get_spool(spool_id: int, current_user: dict = Depends(require_role("viewer",
         "notes": spool.notes,
         "pa_profile": spool.pa_profile,
         "low_stock_threshold_g": spool.low_stock_threshold_g,
+        "spoolman_spool_id": spool.spoolman_spool_id,
         "is_low_stock": (spool.remaining_weight_g or 0) < (spool.low_stock_threshold_g if spool.low_stock_threshold_g is not None else 50),
         "created_at": spool.created_at,
         "updated_at": spool.updated_at,
