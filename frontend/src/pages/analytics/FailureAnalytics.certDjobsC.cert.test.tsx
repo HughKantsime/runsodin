@@ -39,9 +39,8 @@ it('F04-4.5-02 failure analytics shows per-printer success/failure bars, fleet s
   expect(view.container).toBeTruthy()
 })
 
-// DEFECT: frontend/src/pages/analytics/Analytics.tsx:496-500 renders only by_printer and top_failure_reasons; the
-// producer's by_model (which model fails), by_filament and mtbf_hours are never displayed.
-it.fails('F04-4.5-02 DEFECT failure analytics shows which model fails most', async () => {
+// The producer's by_model, by_filament and per-printer MTBF are rendered as ranked failure breakdowns.
+it('F04-4.5-02 failure analytics shows which model, filament and printer fail most', async () => {
   mount()
   await screen.findByText('Success / Failure by Printer')
   const model = wire.failure_analytics.by_model[0]
@@ -50,4 +49,12 @@ it.fails('F04-4.5-02 DEFECT failure analytics shows which model fails most', asy
   const section = heading.closest('div.rounded-md') as HTMLElement
   expect(section).toHaveTextContent(model.name)
   expect(section).toHaveTextContent(String(model.failed))
+  const filament = card('Failures by Filament')
+  const filamentRows = Array.from(filament.querySelectorAll('tbody tr')).map(r => r.querySelector('td')?.textContent)
+  const worstFilament = [...wire.failure_analytics.by_filament].sort((a: any, b: any) => b.failed - a.failed)[0]
+  expect(filamentRows[0]).toBe(worstFilament.type)
+  const printers = card('Printers by Failures')
+  const printerRows = Array.from(printers.querySelectorAll('tbody tr')).map(r => Array.from(r.querySelectorAll('td')).map(td => td.textContent))
+  const worstPrinter = [...wire.failure_analytics.by_printer].sort((a: any, b: any) => b.failed - a.failed)[0]
+  expect(printerRows[0]).toEqual([worstPrinter.name, String(worstPrinter.failed), `${worstPrinter.success_rate}%`, `${worstPrinter.mtbf_hours}h`])
 })
