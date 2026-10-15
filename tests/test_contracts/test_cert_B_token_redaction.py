@@ -113,3 +113,57 @@ def test_log_viewer_sanitizer_removes_whole_urlsafe_token():
     token = _token()
     assert token[5:] not in sanitize_log_line(f"GET /api/overlay/1/camera?token={token} 200")
     assert "_tail" not in sanitize_log_line(f"token {token}")
+
+
+@pytest.mark.parametrize("param", ["oidc_code", "code", "state", "nonce", "password", "refresh_token", "id_token", "client_secret"])
+def test_auth_flow_query_parameters_are_redacted(param):
+    from core.log_redaction import redact_text
+    value = "S3cr" + secrets.token_hex(8)
+    line = f'GET /api/auth/oidc/callback?x=1&{param}={value}&next=/ HTTP/1.1'
+    assert value not in redact_text(line) and f"{param}=[REDACTED]" in redact_text(line)
+
+
+@pytest.mark.parametrize("header", ["Authorization: Bearer {v}", "authorization: Basic {v}", "Authorization: Token {v}",
+                                    "'Authorization': 'Digest {v}'", "X-API-Key: {v}", "x-api-key={v}", '"X-API-Key": "{v}"'])
+def test_authorization_and_api_key_header_values_are_redacted(header):
+    from core.log_redaction import redact_text
+    value = "Zq" + secrets.token_hex(12)
+    assert value not in redact_text("request headers " + header.format(v=value) + " end")
+
+
+def test_handlers_added_after_startup_and_basic_config_are_redacted():
+    from core.log_redaction import install_log_redaction
+    install_log_redaction()
+    token = _token()
+    stream = io.StringIO()
+    late = logging.StreamHandler(stream)  # e.g. a module's own basicConfig/handler added later
+    logger = logging.getLogger("odin.late.module")
+    logger.propagate = False
+    logger.addHandler(late)
+    try:
+        logger.warning("proxy %s", f"/overlay/1/camera?token={token}")
+        try:
+            raise RuntimeError(f"failed /api/timelapses/1/video?token={token}")
+        except RuntimeError:
+            logger.exception("upstream error")
+        logger.error({"url": f"/overlay/1/camera?token={token}"})  # non-str msg
+    finally:
+        logger.removeHandler(late)
+    assert token not in stream.getvalue() and stream.getvalue().count("[REDACTED]") >= 3
+
+
+def test_jwt_pattern_is_linear_on_adversarial_input():
+    import time
+    from core.log_redaction import redact_text
+    hostile = ("eyJ" + "a" * 50 + ".") * 20000 + "x"
+    started = time.perf_counter()
+    redact_text(hostile)
+    assert time.perf_counter() - started < 1.0
+
+
+def test_odin_matching_targets_real_tokens_only():
+    from core.log_redaction import redact_text
+    token = "odin_" + secrets.token_urlsafe(32)
+    assert redact_text(f"key {token} ok") == "key [REDACTED] ok"
+    for identifier in ("odin_api", "odin_contract-batch-ac", "odin.api", "odin_timelapse_42.mp4", "odin_schema_migrations"):
+        assert redact_text(f"see {identifier} here") == f"see {identifier} here"

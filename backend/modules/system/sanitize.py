@@ -3,9 +3,10 @@ import re
 
 _PATTERNS = [
     re.compile(r'eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+'),
-    # token_urlsafe tokens contain '-' and '_': redact the whole token, not a prefix.
-    re.compile(r'odin_[A-Za-z0-9_-]+'),
-    re.compile(r'(?i)([?&](?:token|access_token|api_key|apikey|key|ws_token)=)[^&\s"\'#]+'),
+    # Scoped tokens are odin_ + 43 url-safe characters ('-' and '_' included): the whole token.
+    re.compile(r'\bodin_[A-Za-z0-9_-]{40,}'),
+    re.compile(r'(?i)([?&](?:token|access_token|api_key|apikey|key|ws_token|oidc_code|code|state|nonce|password|refresh_token|id_token|client_secret)=)[^&\s"\'#]+'),
+    re.compile(r'(?i)\bx-api-key\b["\']?\s*[:=]\s*["\']?[^\s"\',;}]+'),
     re.compile(r"(?i)[\"']?\b(?:authorization|proxy-authorization)[\"']?\s*[:=]\s*[\"']?(?:bearer|basic)?\s*[^\s,;\"']+"),
     re.compile(r'''(?ix)["']?\b(?:password|passwd|access[_-]?code|api[_-]?key|token|secret|credential|cookie|serial(?:_number)?)\b["']?\s*[:=]\s*(?:"[^"\n]*"|'[^'\n]*'|[^\s,;}]+)'''),
     re.compile(r'(?i)\b(?:PASS|USER)\s+[^\s]+'),
