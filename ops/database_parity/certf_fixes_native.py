@@ -53,9 +53,23 @@ app.dependency_overrides[get_current_user] = lambda: dict(principal)
 client = TestClient(app)
 
 # 1. Setup: first admin via the real wizard route (session recorded, farm name kept), then the lock flag.
-r = client.post('/setup/admin', json={'username': 'pgadmin', 'email': 'pgadmin@example.test',
-                                      'password': secrets.token_urlsafe(24) + 'aA1', 'site_name': 'PG Print Lab'})
-assert r.status_code == 200, r.text
+# Concurrent first-run claims: the claim row's key admits exactly one (security review MED 3).
+import threading
+barrier = threading.Barrier(6); codes = {}
+def claim(i):
+    body = {'username': 'pgadmin' if i == 0 else f'pgracer{i}', 'email': f'pgracer{i}@example.test',
+            'password': secrets.token_urlsafe(24) + 'aA1', 'site_name': 'PG Print Lab'}
+    with TestClient(app) as racer:
+        barrier.wait()
+        codes[i] = racer.post('/setup/admin', json=body).status_code
+threads = [threading.Thread(target=claim, args=(i,)) for i in range(6)]
+[t.start() for t in threads]; [t.join() for t in threads]
+assert sorted(codes.values()).count(200) == 1 and set(codes.values()) <= {200, 403}, codes
+assert one('SELECT COUNT(*) FROM users')[0] == 1
+winner = one('SELECT username FROM users')[0]
+with engine.begin() as c:   # name the single winner pgadmin for the rest of the probe
+    c.execute(text("UPDATE users SET username='pgadmin', email='pgadmin@example.test' WHERE username=:w"), {'w': winner})
+print('postgres-setup-admin-race-pass', flush=True)
 admin_id = one("SELECT id FROM users WHERE username='pgadmin'")[0]
 assert one('SELECT COUNT(*) FROM active_sessions WHERE user_id=:u', u=admin_id)[0] == 1
 assert one('SELECT app_name FROM branding WHERE id=1')[0] == 'PG Print Lab'
@@ -125,7 +139,9 @@ with raw_db() as conn:
     record_print_consumption(qmark_runner(cur), jid, grams=10.0, measured_hours=1.5)
     conn.commit()
 grams2, hours2 = one('SELECT grams_used, hours_used FROM quota_usage WHERE user_id=3 AND period_key=:k', k=key)
-assert abs(grams2 - 52.5) < 1e-9 and abs(hours2 - hours - 1.5) < 1e-4  # REAL (float4) column, (grams2, hours2, hours)
+# Once per job (security review MED 4): the monitor-path charge after a manual completion is a no-op.
+assert (grams2, hours2) == (grams, hours), (grams2, hours2, grams, hours)
+assert one("SELECT COUNT(*) FROM system_config WHERE key=:k", k=f'quota_charged:job:{jid}')[0] == 1
 print('postgres-quota-charging-pass', flush=True)
 
 # 3. GDPR erasure scrubs audit details (JSON) and login attempts.
@@ -139,9 +155,14 @@ with engine.begin() as c:
                'b': json.dumps({'username': 'pg_operator'}),
                'c': json.dumps({'name': 'Lab', 'by': 'pg_operator@example.test'})})
     c.execute(text("INSERT INTO login_attempts(ip,username,attempted_at,success) VALUES('192.0.2.5','PG_Operator',1.0,0)"))
+    # Bystander rows (security review MED 5): a similar name and a non-ASCII name stay byte-identical.
+    bystander_ids = [c.execute(text("INSERT INTO audit_logs(action,entity_type,details) VALUES('auth.login_failed','user',CAST(:d AS JSON)) RETURNING id"),
+                               {'d': json.dumps(d)}).scalar_one()
+                     for d in ({'username': 'pg_operator2', 'note': 'pg_operator2 from lab'}, {'username': 'zoë_ström'})]
+bystanders_before = {i: one('SELECT CAST(details AS TEXT) FROM audit_logs WHERE id=:i', i=i)[0] for i in bystander_ids}
 r = client.delete('/users/3/erase')
 assert r.status_code == 200, r.text
-left = one("SELECT COUNT(*) FROM audit_logs WHERE CAST(details AS TEXT) LIKE '%pg_operator%'")[0]
+left = one("SELECT COUNT(*) FROM audit_logs WHERE CAST(details AS TEXT) ~ 'pg_operator([^0-9]|$)'")[0]
 assert left == 0, left
 with engine.connect() as c:
     for (d,) in c.execute(text("SELECT CAST(details AS TEXT) FROM audit_logs WHERE details IS NOT NULL")):
@@ -149,7 +170,8 @@ with engine.connect() as c:
     assert c.execute(text("SELECT COUNT(*) FROM audit_logs WHERE CAST(details AS TEXT) LIKE '%[deleted-user]%'")).scalar_one() == 3
     assert [r[0] for r in c.execute(text("SELECT username FROM login_attempts"))] == ['[deleted-3]']
 assert one('SELECT username FROM users WHERE id=3')[0] == '[deleted-3]'
-assert abs(one('SELECT grams_used FROM quota_usage WHERE user_id=3 AND period_key=:k', k=key)[0] - 52.5) < 1e-9
+assert {i: one('SELECT CAST(details AS TEXT) FROM audit_logs WHERE id=:i', i=i)[0] for i in bystander_ids} == bystanders_before
+assert abs(one('SELECT grams_used FROM quota_usage WHERE user_id=3 AND period_key=:k', k=key)[0] - 42.5) < 1e-9
 print('postgres-gdpr-scrub-pass', flush=True)
 print('certf-fixes-native-pass', flush=True)
 engine.dispose()
