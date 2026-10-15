@@ -42,8 +42,8 @@ def pg_engine():
         started = _docker('run', '-d', '--name', name, '-p', '127.0.0.1::5432', '--tmpfs',
                           '/var/lib/postgresql/data:rw,size=256m', '-e', 'POSTGRES_PASSWORD=' + password, IMAGE, timeout=120)
         assert started.returncode == 0, started.stderr
-        deadline = time.monotonic() + 60
-        while _docker('exec', name, 'pg_isready', '-U', 'postgres', '-h', '127.0.0.1', timeout=10).returncode:
+        deadline = time.monotonic() + 180
+        while _docker('exec', name, 'pg_isready', '-U', 'postgres', '-h', '127.0.0.1', timeout=60).returncode:
             assert time.monotonic() < deadline, 'owned PostgreSQL not ready'
             time.sleep(0.3)
         port = _docker('port', name, '5432/tcp').stdout.strip().rsplit(':', 1)[-1]
@@ -212,3 +212,42 @@ def test_postgres_quiet_hours_config_put_round_trips(pg_engine):
     finally:
         quiet_hours.engine = original
         quiet_hours.invalidate_cache()
+
+
+def test_postgres_mqtt_republish_config_put_round_trips(pg_engine, monkeypatch):
+    """PUT /config/mqtt-republish writes text values into the system_config JSON column on
+    PostgreSQL; GET and the republish loader read them back (password stays encrypted)."""
+    import core.crypto as crypto
+    from cryptography.fernet import Fernet
+    from core.db import get_db
+    from core.dependencies import get_current_user
+    from modules.notifications import mqtt_republish
+    from modules.system import routes_config
+    monkeypatch.setenv('ENCRYPTION_KEY', Fernet.generate_key().decode())
+    app = FastAPI()
+    app.include_router(routes_config.router)
+
+    def session():
+        with Session(pg_engine) as db:
+            yield db
+    app.dependency_overrides[get_db] = session
+    app.dependency_overrides[get_current_user] = lambda: {'id': 3, 'username': 'admin', 'role': 'admin', 'group_id': None}
+    monkeypatch.setattr(routes_config, 'mqtt_republish', None)
+    body = {'enabled': True, 'host': 'broker.example.test', 'port': 8883, 'username': 'odin',
+            'password': 'synthetic-mqtt-secret', 'topic_prefix': 'odin/plant', 'use_tls': True}
+    with TestClient(app) as client:
+        put = client.put('/config/mqtt-republish', json=body)
+        assert put.status_code == 200, put.text
+        got = client.get('/config/mqtt-republish').json()
+        assert got == {**body, 'password': '••••••••'}
+        assert client.put('/config/mqtt-republish', json={'host': 'other.example.test'}).status_code == 200
+        assert client.get('/config/mqtt-republish').json()['host'] == 'other.example.test'
+    with pg_engine.connect() as c:
+        stored = c.execute(text("SELECT value FROM system_config WHERE key='mqtt_republish_password'")).scalar_one()
+    assert stored != 'synthetic-mqtt-secret'
+    monkeypatch.setattr(mqtt_republish, 'engine', pg_engine)
+    monkeypatch.setattr(mqtt_republish, '_config_cache', None)
+    monkeypatch.setattr(mqtt_republish, '_config_ts', 0)
+    config = mqtt_republish._get_config()
+    assert config == {'host': 'other.example.test', 'port': 8883, 'username': 'odin', 'password': 'synthetic-mqtt-secret',
+                      'topic_prefix': 'odin/plant', 'use_tls': True}

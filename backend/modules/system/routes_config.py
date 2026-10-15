@@ -7,8 +7,10 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel as PydanticBaseModel
-from sqlalchemy import JSON, bindparam, text
+from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
+
+from core.system_config_values import config_text, write_config_text
 from starlette.responses import Response
 
 from core.db import get_db
@@ -234,7 +236,6 @@ async def get_quiet_hours_config(db: Session = Depends(get_db), current_user: di
         row = db.execute(text("SELECT value FROM system_config WHERE key = :k"), {"k": key}).fetchone()
         short_key = key.replace("quiet_hours_", "")
         if row:
-            from modules.notifications.quiet_hours import config_text
             val = config_text(row[0])
             if short_key in ("enabled", "digest"):
                 config[short_key] = val.lower() in ("true", "1", "yes")
@@ -252,14 +253,7 @@ async def update_quiet_hours_config(request: Request, current_user: dict = Depen
     for short_key, value in body.items():
         db_key = f"quiet_hours_{short_key}"
         str_val = str(value).lower() if isinstance(value, bool) else str(value)
-        # system_config.value is a JSON column: bind as JSON so PostgreSQL
-        # accepts text such as "22:00" (stored as a JSON string on both dialects).
-        json_value = bindparam("v", type_=JSON)
-        existing = db.execute(text("SELECT 1 FROM system_config WHERE key = :k"), {"k": db_key}).fetchone()
-        if existing:
-            db.execute(text("UPDATE system_config SET value = :v WHERE key = :k").bindparams(json_value), {"v": str_val, "k": db_key})
-        else:
-            db.execute(text("INSERT INTO system_config (key, value) VALUES (:k, :v)").bindparams(json_value), {"k": db_key, "v": str_val})
+        write_config_text(db, db_key, str_val)
     db.commit()
     try:
         from modules.notifications.quiet_hours import invalidate_cache
@@ -290,7 +284,7 @@ async def get_mqtt_republish_config(db: Session = Depends(get_db), current_user:
         row = db.execute(text("SELECT value FROM system_config WHERE key = :k"), {"k": key}).fetchone()
         short_key = key.replace("mqtt_republish_", "")
         if row:
-            val = row[0]
+            val = config_text(row[0])
             if short_key in ("enabled", "use_tls"):
                 config[short_key] = val.lower() in ("true", "1", "yes")
             elif short_key == "port":
@@ -323,11 +317,7 @@ async def update_mqtt_republish_config(request: Request, current_user: dict = De
             str_val = crypto.encrypt(str(value))
         else:
             str_val = str(value).lower() if isinstance(value, bool) else str(value)
-        existing = db.execute(text("SELECT 1 FROM system_config WHERE key = :k"), {"k": db_key}).fetchone()
-        if existing:
-            db.execute(text("UPDATE system_config SET value = :v WHERE key = :k"), {"v": str_val, "k": db_key})
-        else:
-            db.execute(text("INSERT INTO system_config (key, value) VALUES (:k, :v)"), {"k": db_key, "v": str_val})
+        write_config_text(db, db_key, str_val)
     db.commit()
     if mqtt_republish:
         mqtt_republish.invalidate_cache()

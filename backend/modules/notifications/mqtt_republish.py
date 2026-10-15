@@ -48,7 +48,8 @@ def _get_config() -> Optional[Dict[str, Any]]:
     try:
         with engine.connect() as conn:
             result = conn.execute(text("SELECT key, value FROM system_config WHERE key LIKE 'mqtt_republish_%'"))
-            rows = {r._mapping["key"]: r._mapping["value"] for r in result.fetchall()}
+            from core.system_config_values import config_text
+            rows = {r._mapping["key"]: config_text(r._mapping["value"]) for r in result.fetchall()}
 
         if rows.get("mqtt_republish_enabled", "").lower() not in ("true", "1", "yes"):
             _config_cache = None
