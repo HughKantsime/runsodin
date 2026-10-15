@@ -177,6 +177,9 @@ function UploadSuccess({ data, onUploadAnother, onViewLibrary, onScheduleNow, on
                 <p className="text-xs text-[var(--brand-text-secondary)]">
                   Sellable pieces: <span className="text-green-400 font-medium">{data.objects.filter(o => o.checked).length}</span>
                 </p>
+                {data.is_new_model === false && (
+                  <p className="text-xs text-[var(--brand-text-muted)]">Variant: the model keeps its saved pieces per plate ({data.quantity_per_bed ?? 1}).</p>
+                )}
               </div>
               <div className="bg-[var(--brand-input-bg)]/50 rounded-md p-2 max-h-32 overflow-y-auto space-y-1">
                 {data.objects.map((obj, i) => (
@@ -295,9 +298,9 @@ export default function Upload() {
   const [uploadedFile, setUploadedFile] = useState(null)
   const [uploadProgress, setUploadProgress] = useState(null)
 
-  // Sellable pieces (checked objects) persist as models.quantity_per_bed. The default
-  // checked count is saved after upload and each toggle re-saves; rapid changes are
-  // coalesced into one PATCH and a pending save is flushed on unmount.
+  // Sellable pieces (checked objects) persist as models.quantity_per_bed for a NEW model only.
+  // The server stores the default checked count; toggles re-save, coalesced into one PATCH,
+  // and a pending save is flushed on unmount. Variant uploads never overwrite the model.
   const pendingQuantity = useRef(null)
   const quantityTimer = useRef(null)
   const flushQuantity = useCallback(() => {
@@ -362,8 +365,11 @@ export default function Upload() {
     },
     onSuccess: (data) => {
       setUploadedFile(data)
-      const upload = data as { model_id?: number; objects?: { checked?: boolean }[] }
-      if (upload?.objects?.length) saveQuantity(upload.model_id, upload.objects)
+      // Only a new model takes its sellable pieces from this upload; the server already stored the
+      // default checked count, so save only if the stored value differs. Variants never overwrite.
+      const upload = data as { model_id?: number; is_new_model?: boolean; quantity_per_bed?: number | null; objects?: { checked?: boolean }[] }
+      const checked = (upload?.objects || []).filter(o => o.checked).length
+      if (upload?.is_new_model === true && checked > 0 && upload.quantity_per_bed !== checked) saveQuantity(upload.model_id, upload.objects)
       setUploadProgress(null)
       queryClient.invalidateQueries({ queryKey: ['print-files'] })
       queryClient.invalidateQueries({ queryKey: ['models'] })
@@ -396,7 +402,7 @@ export default function Upload() {
           onViewLibrary={() => navigate('/models')}
           onUpdateObjects={(newObjects) => {
             setUploadedFile(prev => ({ ...prev, objects: newObjects }))
-            saveQuantity(uploadedFile?.model_id, newObjects)
+            if (uploadedFile?.is_new_model === true) saveQuantity(uploadedFile?.model_id, newObjects)
           }}
           onScheduleNow={() => navigate(`/models?schedule=${uploadedFile.model_id}`)}
           submitForApproval={showSubmitForApproval}

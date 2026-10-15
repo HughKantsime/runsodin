@@ -26,6 +26,7 @@
     "is_sliced": true,
     "model_id": 13,
     "is_new_model": true,
+    "quantity_per_bed": 3,
     "printer_model": "Bambu Lab A1",
     "objects": [
       {

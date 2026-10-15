@@ -12,7 +12,7 @@ vi.mock('../../api',()=>({
 }))
 vi.mock('../../permissions',()=>({getCurrentUser:()=>({id:2,role:'operator'}),canDo:()=>true}))
 vi.mock('../../contexts/OrgContext',()=>({useOrg:()=>({orgId:1})}))
-const uploadData={model_id:41,project_name:'Synthetic model',is_sliced:true,filaments:[],objects:[{name:'Synthetic part A',checked:true,is_wipe_tower:false},{name:'Synthetic part B',checked:true,is_wipe_tower:false},{name:'Synthetic wipe tower',checked:false,is_wipe_tower:true}]}
+const uploadData={model_id:41,is_new_model:true,quantity_per_bed:2,project_name:'Synthetic model',is_sliced:true,filaments:[],objects:[{name:'Synthetic part A',checked:true,is_wipe_tower:false},{name:'Synthetic part B',checked:true,is_wipe_tower:false},{name:'Synthetic wipe tower',checked:false,is_wipe_tower:true}]}
 class UploadRequest {
  status=200;responseText=JSON.stringify(uploadData);withCredentials=false
  upload={addEventListener:vi.fn()};handlers:Record<string,Function>={}

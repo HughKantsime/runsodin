@@ -13,14 +13,15 @@ vi.mock('../../api', () => ({
 }))
 vi.mock('../../permissions', () => ({ getCurrentUser: () => ({ id: 3, role: 'operator' }), canDo: () => true }))
 vi.mock('../../contexts/OrgContext', () => ({ useOrg: () => ({ orgId: 1 }) }))
+let response: any = fixture.upload
 class UploadRequest {
-  status = 200; responseText = JSON.stringify(fixture.upload); withCredentials = false
+  status = 200; responseText = JSON.stringify(response); withCredentials = false
   upload = { addEventListener: vi.fn() }; handlers: Record<string, Function> = {}
   addEventListener(name: string, fn: Function) { this.handlers[name] = fn }
   open = vi.fn(); send() { queueMicrotask(() => this.handlers.load?.()) }
 }
 beforeEach(() => { api.update.mockResolvedValue({}); vi.stubGlobal('XMLHttpRequest', UploadRequest) })
-afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals() })
+afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals(); response = fixture.upload })
 async function upload() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   const view = render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/upload']}><Upload /></MemoryRouter></QueryClientProvider>)
@@ -43,11 +44,29 @@ test('F05-5.1-04 toggling an object persists the checked count as quantity_per_b
   await waitFor(() => expect(api.update).toHaveBeenCalledExactlyOnceWith(fixture.upload.model_id, { quantity_per_bed: 2 }))
 })
 
-// Fixed (cert-fix-C): formerly only a checkbox toggle persisted quantity_per_bed, so the default
-// checked count shown after upload (3) was never saved and the server stored NULL.
+// The server stores the default checked count for a new model (wire: quantity_per_bed=3), so the
+// page sends no redundant PATCH; it only saves when the stored value differs (review MEDIUM-8).
 test('F05-5.1-04 default checked count is persisted without user interaction', async () => {
+  expect(fixture.upload.is_new_model).toBe(true)
+  expect((fixture.upload as any).quantity_per_bed).toBe(3)
   await upload()
-  await waitFor(() => expect(api.update).toHaveBeenCalledWith(fixture.upload.model_id, { quantity_per_bed: 3 }), { timeout: 500 })
+  await new Promise(resolve => setTimeout(resolve, 400))
+  expect(api.update).not.toHaveBeenCalled()
+})
+
+test('F05-5.1-04 a new model whose stored count differs from the checklist is saved once', async () => {
+  response = { ...fixture.upload, quantity_per_bed: null }
+  await upload()
+  await waitFor(() => expect(api.update).toHaveBeenCalledExactlyOnceWith(fixture.upload.model_id, { quantity_per_bed: 3 }), { timeout: 600 })
+})
+
+test('F05-5.1-04 a variant upload never overwrites the existing model quantity', async () => {
+  response = { ...fixture.upload, is_new_model: false, quantity_per_bed: 6 }
+  await upload()
+  expect(screen.getByText('Added as variant to existing model')).toBeInTheDocument()
+  fireEvent.click(screen.getAllByRole('checkbox')[0])
+  await new Promise(resolve => setTimeout(resolve, 400))
+  expect(api.update).not.toHaveBeenCalled()
 })
 
 test('F05-5.1-04 unchecking every object is refused visibly instead of sending an invalid 0', async () => {

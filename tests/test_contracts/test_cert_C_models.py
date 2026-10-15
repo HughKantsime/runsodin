@@ -300,3 +300,13 @@ def test_revision_changelog_form_field_wins_over_legacy_query(revisions):
     assert fileless.status_code == 200, fileless.text
     notes = [r['changelog'] for r in client.get(f'/models/{model_id}/revisions', headers=issue(['read:models'])).json()]
     assert 'form note' in notes and 'query note' not in notes and 'fileless query note' in notes
+
+
+def test_upload_response_reports_the_models_stored_quantity(library):
+    """Lets the Upload page skip a redundant PATCH and never overwrite a variant's model (review MEDIUM-8)."""
+    client, issue = library
+    first = _upload(client, issue(['write:models']), sliced_3mf(plates=3))
+    assert (first['is_new_model'], first['quantity_per_bed']) == (True, 3)
+    assert client.patch(f"/models/{first['model_id']}", headers=issue(['write:models']), json={'quantity_per_bed': 6}).status_code == 200
+    variant = _upload(client, issue(['write:models']), sliced_3mf(plates=1))
+    assert (variant['is_new_model'], variant['quantity_per_bed']) == (False, 6)

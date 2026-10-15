@@ -247,7 +247,10 @@ async def upload_3mf(
                 is_new_model = False
                 db.execute(text("UPDATE print_files SET model_id = :mid WHERE id = :fid"),
                            {"mid": model_id, "fid": file_id})
+                stored_quantity = db.execute(text("SELECT quantity_per_bed FROM models WHERE id = :mid"),
+                                             {"mid": model_id}).scalar()
             else:
+                stored_quantity = default_quantity
                 # Create new model
                 model_id = execute_insert_returning_id(db, """
                     INSERT INTO models (
@@ -321,6 +324,7 @@ async def upload_3mf(
                 "is_sliced": metadata.print_time_seconds > 0,
                 "model_id": model_id,
                 "is_new_model": is_new_model,
+                "quantity_per_bed": stored_quantity,  # model's stored sellable pieces per plate
                 "printer_model": metadata.printer_model,
                 "objects": plate_objects,
                 "has_mesh": mesh_data is not None,
