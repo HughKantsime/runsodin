@@ -133,6 +133,7 @@ def complete_job(job_id: int, current_user: dict = Depends(require_role("operato
         raise HTTPException(status_code=404, detail="Job not found")
 
     if _status_value(job.status) in {s.value for s in _COMPLETE_REFUSED_FROM}:
+        db.rollback()
         raise HTTPException(
             status_code=409,
             detail=f"Cannot complete a job in {_status_value(job.status)} status",
@@ -225,8 +226,13 @@ def complete_job(job_id: int, current_user: dict = Depends(require_role("operato
             except (json.JSONDecodeError, TypeError):
                 pass
 
-    # Apply deductions to spools loaded on this printer
-    if slot_grams and job.printer_id:
+    # Apply deductions to spools loaded on this printer — at most once per job:
+    # a failed->completed correction (or any later re-completion) must not
+    # deduct the same print's filament a second time.
+    already_deducted = db.execute(
+        text("SELECT 1 FROM spool_usage WHERE job_id = :jid LIMIT 1"), {"jid": job.id}
+    ).first() is not None
+    if slot_grams and job.printer_id and not already_deducted:
         from core.base import SpoolStatus
         loaded_spools = db.query(Spool).filter(
             Spool.location_printer_id == job.printer_id,
@@ -358,18 +364,31 @@ def fail_job(job_id: int, notes: Optional[str] = None, current_user: dict = Depe
     job = db.query(Job).filter(Job.id == job_id).populate_existing().first()
     if not job or not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
-    if _status_value(job.status) in {s.value for s in _FAIL_REFUSED_FROM}:
+    # Atomic transition, same shape as /complete: the UPDATE predicate (not a
+    # Python read) decides, so a concurrent cancel/reject cannot be overwritten.
+    failed_notes = f"{job.notes or ''}\nFailed: {notes}".strip() if notes else job.notes
+    result = db.execute(
+        update(Job)
+        .where(
+            Job.id == job_id,
+            or_(Job.status.notin_(_FAIL_REFUSED_FROM), Job.status.is_(None)),
+        )
+        .values(
+            status=JobStatus.FAILED,
+            actual_end=datetime.now(timezone.utc),
+            is_locked=True,
+            queue_position=None,
+            notes=failed_notes,
+        )
+    )
+    if result.rowcount == 0:
+        current = db.execute(text("SELECT status FROM jobs WHERE id = :id"), {"id": job_id}).scalar()
+        db.rollback()
         raise HTTPException(
             status_code=409,
-            detail=f"Cannot fail a job in {_status_value(job.status)} status",
+            detail=f"Cannot fail a job in {_status_value(current)} status",
         )
-
-    job.status = JobStatus.FAILED
-    job.actual_end = datetime.now(timezone.utc)
-    job.is_locked = True
-    job.queue_position = None
-    if notes:
-        job.notes = f"{job.notes or ''}\nFailed: {notes}".strip()
+    db.refresh(job)
 
     log_audit(db, "job.failed", "job", job.id, {"printer_id": job.printer_id, "notes": notes})
     reconcile_job_write(db, production_orders)
