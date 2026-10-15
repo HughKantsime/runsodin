@@ -152,6 +152,8 @@ async def delete_org(org_id: int, current_user: dict = Depends(require_superadmi
     _ORG_RESOURCE_TABLES = ("printers", "models", "spools")
     for tbl in _ORG_RESOURCE_TABLES:
         db.execute(text(f"UPDATE {tbl} SET org_id = NULL WHERE org_id = :id"), {"id": org_id})  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
+    from modules.organizations.routes_users import delete_deferred_deliveries
+    delete_deferred_deliveries(db, org_id=org_id)
     db.execute(text("DELETE FROM groups WHERE id = :id"), {"id": org_id})
 
     log_audit(db, "org_deleted", "org", org_id, f"Organization '{org.name}' deleted")

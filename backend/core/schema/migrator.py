@@ -20,20 +20,6 @@ class MigrationError(RuntimeError):
     """Raised when migration history or execution is unsafe."""
 
 
-class MigrationDeferred(MigrationError):
-    """A DEFERRABLE post-027 migration cannot apply yet because of existing user data.
-
-    Raised before the migration writes anything. Bootstrap records a ``<id>#deferred``
-    ledger marker and an admin warning, continues, and retries on every later boot.
-    ``reason`` tells the operator what to change; ``detail`` is JSON-serialisable.
-    """
-
-    def __init__(self, reason: str, *, detail: dict):
-        super().__init__(reason)
-        self.reason = reason
-        self.detail = detail
-
-
 _ACTIVE_PYTHON_MIGRATION: ContextVar[str | None] = ContextVar(
     "odin_active_python_migration", default=None
 )
@@ -106,7 +92,7 @@ _ALLOWED_PYTHON_MIGRATIONS = frozenset(
         "core.schema.migrations.026_global_order_origins",
         "core.schema.migrations.027_power_target_operations",
         # Post-027: keep in step with bootstrap.POST027_MIGRATIONS.
-        "core.schema.migrations.030_spoolman_link_uniqueness",
+        "core.schema.migrations.032_quiet_hours_deferred_deliveries",
     }
 )
 

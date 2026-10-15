@@ -194,11 +194,8 @@ def readiness_check(db: Session = Depends(get_db)):
             status_code=503,
             detail={"ready": False, "reason": f"schema:{type(e).__name__}"},
         )
-    from modules.system.schema_warnings import deferred_migrations
-    # Deferred migrations do not fail readiness: the schema is valid, a constraint waits for data cleanup.
-    warnings = deferred_migrations(db.connection(), detail=False)
     return {"ready": True, "version": __version__, "dialect": db.bind.dialect.name,
-            "schema_fingerprint": fingerprint, "schema_warnings": warnings, **validation}
+            "schema_fingerprint": fingerprint, **validation}
 
 
 # ============== License ==============

@@ -630,8 +630,6 @@ def _validate_current_postgres_restore(
         work_dir=paths.backups,
         trusted_prevalidated=True,
     )
-    from modules.system.pre026_restore_stage import current_archive_deferrals
-    deferred = current_archive_deferrals(archive, target_url, password_file, paths.backups)
     validation_database = "odin_validate_" + uuid.uuid4().hex[:20]
     if not _SAFE_DATABASE_NAME.fullmatch(validation_database):
         raise AssertionError("Generated unsafe validation database name")
@@ -662,7 +660,7 @@ def _validate_current_postgres_restore(
             password_file=maintenance_password_file,
         )
         try:
-            canonical_result = bootstrap_database(validation_engine, _deferred=deferred)
+            canonical_result = bootstrap_database(validation_engine)
             canonical_fingerprint = str(canonical_result["schema_fingerprint"])
             with validation_engine.connect() as connection:
                 canonical_manifest = schema_manifest(connection)
@@ -717,7 +715,7 @@ def _validate_current_postgres_restore(
             paths.backups, schema_descriptors=original_structure)
         validate_schema_sql(original_schema, canonical_schema)
         # Only data enters a canonical source-created schema. Archive DDL is never executed.
-        _restore_postgres_archive(archive, validation_url, maintenance_password_file, paths.backups, _deferred=deferred)
+        _restore_postgres_archive(archive, validation_url, maintenance_password_file, paths.backups)
         validation_engine = create_database_engine(
             validation_url,
             role="restore",
@@ -1069,7 +1067,7 @@ def _schema_sql_evidence(archive, database_url, password_file, directory, *, all
         listing.unlink(missing_ok=True)
 
 
-def _restore_postgres_archive(archive: Path, target_url: str, password_file: str | None, directory: Path, *, _contract=None, _stage=None, _deferred=frozenset()) -> None:
+def _restore_postgres_archive(archive: Path, target_url: str, password_file: str | None, directory: Path, *, _contract=None, _stage=None) -> None:
     from core.schema.pre026_restore_contract import check_contract
     check_contract(_contract)
     if _contract is not None:
@@ -1097,7 +1095,7 @@ def _restore_postgres_archive(archive: Path, target_url: str, password_file: str
         with engine.begin() as connection:
             install_trusted_guards(connection,_contract=_contract)
         # Migration adoption/data associations are verified after guard installation.
-        if _contract is None:bootstrap_database(engine, _deferred=_deferred)
+        if _contract is None:bootstrap_database(engine)
     finally:
         engine.dispose()
         if restore_list is not None:restore_list.unlink(missing_ok=True)

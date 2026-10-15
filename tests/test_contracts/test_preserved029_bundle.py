@@ -352,7 +352,7 @@ def test_intermediate_post027_archive_refuses_loudly(routed, monkeypatch):
     from modules.system.pre026_restore_stage import identify_contract
     archive, state = routed
     monkeypatch.setattr(bootstrap, "POST027_MIGRATIONS", bootstrap.POST027_MIGRATIONS + (("python:031-next", "core.schema.migrations.031_next"),))
-    state["ledger"] = _ledger_sql(sorted(p.ledger_ids()) + ["python:030-spoolman-link-uniqueness"])
+    state["ledger"] = _ledger_sql(sorted(p.ledger_ids()) + [bootstrap.POST027_MIGRATIONS[0][0]])
     with pytest.raises(BackupValidationError, match="intermediate post-027 build"):
         identify_contract(archive, "postgresql://o@pg/odin", None, archive.parent)
 
@@ -373,14 +373,6 @@ def test_post027_registry_is_ordered_allowlisted_and_self_identifying():
     registered = {module for _, module in bootstrap.POST027_MIGRATIONS}
     for module_name in migrator._ALLOWED_PYTHON_MIGRATIONS - registered:
         assert importlib.import_module(module_name).MIGRATION_ID in p.ledger_ids(), module_name
-
-
-def test_deferred_post027_marker_counts_as_current(routed):
-    from modules.system.pre026_restore_stage import identify_contract, current_archive_deferrals
-    archive, state = routed
-    state["ledger"] = _ledger_sql(sorted(p.ledger_ids()) + ["python:030-spoolman-link-uniqueness#deferred"])
-    assert identify_contract(archive, "postgresql://o@pg/odin", None, archive.parent) is None
-    assert current_archive_deferrals(archive, "postgresql://o@pg/odin", None, archive.parent) == frozenset({"python:030-spoolman-link-uniqueness"})
 
 
 def test_restore_wraps_migration_refusals_as_validation_errors(tmp_path, monkeypatch):

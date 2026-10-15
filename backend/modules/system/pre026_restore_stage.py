@@ -17,7 +17,7 @@ from sqlalchemy.engine import make_url
 PRESERVED029=object()
 STAGE_SECONDS=3600
 _LEDGER_COPY='COPY public.odin_schema_migrations (migration_id, checksum, dialect, applied_at) FROM stdin;'
-_LEDGER_ROW=re.compile(r'([A-Za-z0-9_:./#-]{1,255})\t([0-9a-f]{64})\t(sqlite|postgresql)\t[0-9: .+-]{10,40}')
+_LEDGER_ROW=re.compile(r'([A-Za-z0-9_:./-]{1,255})\t([0-9a-f]{64})\t(sqlite|postgresql)\t[0-9: .+-]{10,40}')
 
 
 def post027_migration_ids():
@@ -78,31 +78,6 @@ def archive_ledger_ids(archive,url,password_file,directory):
     return frozenset(ids)
 
 
-DEFERRED_SUFFIX='#deferred'
-
-
-def _satisfied(ids,b):
-    """Post-027 migrations applied, or deferred by a DEFERRABLE migration (docs/SCHEMA_MIGRATIONS.md)."""
-    import importlib
-    from core.schema.bootstrap import POST027_MIGRATIONS
-    satisfied=set()
-    for migration_id,module_name in POST027_MIGRATIONS:
-        marker=migration_id+DEFERRED_SUFFIX
-        if migration_id in ids and marker in ids:raise b.BackupValidationError('PostgreSQL archive migration ledger is missing or malformed')
-        if marker in ids and getattr(importlib.import_module(module_name),'DEFERRABLE',False) is not True:  # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import -- literal registry module
-            raise b.BackupValidationError('PostgreSQL archive migration ledger is missing or malformed')
-        if migration_id in ids or marker in ids:satisfied.add(migration_id)
-    known={m+DEFERRED_SUFFIX for m,_ in POST027_MIGRATIONS}
-    if any(i.endswith(DEFERRED_SUFFIX) and i not in known for i in ids):raise b.BackupValidationError('Unsupported PostgreSQL archive schema version or partial table inventory')
-    return satisfied
-
-
-def current_archive_deferrals(archive,url,password_file,directory):
-    """Post-027 migrations a current archive recorded as deferred (its canonical schema lacks them)."""
-    ids=archive_ledger_ids(archive,url,password_file,directory)
-    return frozenset(m for m in post027_migration_ids() if m not in ids and m+DEFERRED_SUFFIX in ids)
-
-
 def identify_contract(archive,url,password_file,directory):
     """None for a current archive, PRESERVED029 for a 025/026/027-era archive; else refuse."""
     from modules.system import postgres_backup_service as b
@@ -112,9 +87,8 @@ def identify_contract(archive,url,password_file,directory):
     b._toc_inventory(toc)
     ids=archive_ledger_ids(archive,url,password_file,directory)
     post=set(post027_migration_ids())
-    satisfied=_satisfied(ids,b)
-    if satisfied==post:return None # Current path validates tables, structure and schema exactly.
-    if satisfied or any(i.endswith(DEFERRED_SUFFIX) for i in ids):
+    if post<=ids:return None # Current path validates tables, structure and schema exactly.
+    if ids&post:
         raise b.BackupValidationError('PostgreSQL archive is from an intermediate post-027 build; restore it on that build or a matching release')
     if not ids<=ledger_ids():raise b.BackupValidationError('Unsupported PostgreSQL archive schema version or partial table inventory')
     return PRESERVED029
@@ -170,7 +144,7 @@ def prepared_archive(archive,target_url,maintenance_url,password_file,maintenanc
             validate_executables(c)
             if set(inspect(c).get_table_names(schema='public'))!=set(b.canonical_tables()):raise b.BackupValidationError('Upgraded historical stage tables differ')
             ids={row[0] for row in c.execute(text('SELECT migration_id FROM odin_schema_migrations'))}
-            if _satisfied(ids,b)!=set(post027_migration_ids()):raise b.BackupValidationError('Upgraded historical stage ledger differs')
+            if not set(post027_migration_ids())<=ids:raise b.BackupValidationError('Upgraded historical stage ledger differs')
         if _era is not None:_era.append(era)
         descriptor,path=tempfile.mkstemp(prefix='.odin-upgraded029-',suffix='.dump',dir=directory);os.close(descriptor);candidate=Path(path);temporary.append(candidate)
         b._run_pg_tool(['pg_dump','--format=custom','--schema','public','--no-owner','--no-privileges','--no-comments','--file',str(candidate),'--dbname',cli],maintenance_url,maintenance_password_file,directory)
