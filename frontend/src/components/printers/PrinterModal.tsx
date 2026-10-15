@@ -146,7 +146,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
   const [modelOverride, setModelOverride] = useState(false)
   const [slotOverride, setSlotOverride] = useState(false)
 
-  const BAMBU_MODELS = ['X1C', 'X1E', 'X1', 'P1S', 'P1P', 'A1', 'A1 Mini', 'H2D']
+  const BAMBU_MODELS = ['X1C', 'X1E', 'X1', 'P1S', 'P1P', 'P2S', 'A1', 'A1 Mini', 'H2D', 'H2D Pro', 'H2S', 'H2C']
 
   useEffect(() => {
     setSubmitError(null)
