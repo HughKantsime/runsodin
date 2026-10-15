@@ -155,16 +155,32 @@ def cleanup_old_frames(frames_dir: str = VISION_FRAMES_DIR) -> None:
     """
     try:
         with engine.begin() as conn:
-            # Get retention days from global settings (default 30)
-            row = conn.execute(
-                text("SELECT value FROM system_config WHERE key = 'vision_retention_days'")
-            ).fetchone()
+            # Retention comes from the global settings written by PATCH /api/vision/settings
+            # ('vision_settings'.retention_days); the legacy 'vision_retention_days' key is the
+            # fallback. Default 30.
             retention_days = 30
-            if row:
+            rows = dict(conn.execute(
+                text("SELECT key, value FROM system_config WHERE key IN ('vision_settings', 'vision_retention_days')")
+            ).fetchall())
+
+            def _decode(value):
+                return json.loads(value) if isinstance(value, str) else value
+
+            try:
+                settings = _decode(rows.get('vision_settings'))
+            except ValueError:
+                settings = None
+            configured = settings.get('retention_days') if isinstance(settings, dict) else None
+            if configured is None and rows.get('vision_retention_days') is not None:
                 try:
-                    retention_days = int(json.loads(row[0]))
-                except (ValueError, TypeError):
-                    pass
+                    configured = _decode(rows['vision_retention_days'])
+                except ValueError:
+                    configured = None
+            try:
+                if configured is not None and int(configured) >= 1:
+                    retention_days = int(configured)
+            except (ValueError, TypeError):
+                pass
 
             # Find old detections with frame paths
             _cutoff_sql = sql.now_offset(f"-{retention_days} days")

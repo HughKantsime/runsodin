@@ -110,6 +110,29 @@ class VisionMonitorDaemon:
         log.info(f"Received signal {signum}, shutting down...")
         self._running = False
 
+    def _globally_enabled(self) -> bool:
+        """Read the global Vigil AI switch from system_config 'vision_settings' (default on)."""
+        try:
+            with engine.connect() as conn:
+                row = conn.execute(
+                    text("SELECT value FROM system_config WHERE key = 'vision_settings'")
+                ).fetchone()
+        except Exception as e:
+            log.error(f"Failed to read global vision settings: {e}")
+            return True
+        if not row or row[0] is None:
+            return True
+        value = row[0]
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except ValueError:
+                log.error("Global vision settings are not valid JSON; keeping monitoring enabled")
+                return True
+        if not isinstance(value, dict):
+            return True
+        return value.get('enabled', True) is not False
+
     def _scan_printers(self):
         """Query DB for printers that should have vision monitoring."""
         try:
@@ -138,14 +161,19 @@ class VisionMonitorDaemon:
             log.error(f"Failed to scan printers: {e}")
             return
 
+        # Global kill switch (PATCH /api/vision/settings {enabled: false}) stops all monitoring.
+        if not self._globally_enabled():
+            rows = []
+
         active_ids = set()
         for row in rows:
             pid = row['id']
-            active_ids.add(pid)
 
-            # Check if vision is enabled (default yes if no settings row)
+            # Check if vision is enabled (default yes if no settings row); a disabled
+            # printer is not active, so its running thread is stopped below.
             if row['enabled'] is not None and not row['enabled']:
                 continue
+            active_ids.add(pid)
 
             printer_name = row['nickname'] or row['name']
             settings = {
@@ -163,10 +191,12 @@ class VisionMonitorDaemon:
             }
 
             if pid in self._threads:
-                # Update layer info and gcode_state on existing thread
+                # Update layer info, gcode_state and the persisted settings on the existing
+                # thread so sensitivity/auto-pause changes apply to a running print.
                 self._threads[pid].update_layer(
                     row['current_layer'], row['print_job_id'], row['gcode_state']
                 )
+                self._threads[pid].settings = settings
             else:
                 # Start new thread
                 thread = PrinterVisionThread(

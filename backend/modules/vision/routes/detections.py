@@ -255,6 +255,11 @@ async def update_printer_vision_settings(
     updates = {k: v for k, v in body.items() if k in allowed}
     if not updates:
         raise HTTPException(status_code=400, detail="No valid fields to update")
+    for key, value in updates.items():
+        if key.endswith("_threshold") and (
+            isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 1
+        ):
+            raise HTTPException(status_code=422, detail=f"{key} must be a number between 0 and 1")
 
     row = db.query(VisionSettings).filter(VisionSettings.printer_id == printer_id).first()
     if row:
@@ -297,12 +302,20 @@ async def update_global_vision_settings(
     body = await request.json()
     allowed = {"enabled", "retention_days"}
     updates = {k: v for k, v in body.items() if k in allowed}
+    if "enabled" in updates and not isinstance(updates["enabled"], bool):
+        raise HTTPException(status_code=422, detail="enabled must be a boolean")
+    if "retention_days" in updates and (
+        isinstance(updates["retention_days"], bool)
+        or not isinstance(updates["retention_days"], int)
+        or updates["retention_days"] < 1
+    ):
+        raise HTTPException(status_code=422, detail="retention_days must be a positive integer")
 
     row = db.query(SystemConfig).filter(SystemConfig.key == "vision_settings").first()
     if row:
         existing = json.loads(row.value) if isinstance(row.value, str) else (row.value or {})
-        existing.update(updates)
-        row.value = existing
+        # Assign a new object: mutating the loaded JSON in place is invisible to SQLAlchemy.
+        row.value = {**existing, **updates}
     else:
         db.add(SystemConfig(key="vision_settings", value=updates))
     db.commit()
