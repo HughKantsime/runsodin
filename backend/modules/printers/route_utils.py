@@ -63,7 +63,11 @@ def _check_ssrf_blocklist(host: str) -> None:
         pass  # hostname — let OS resolve it
 
 
-_CAMERA_SHELL_METACHAR_RE = re.compile(r'[;&|$`\\]')
+# '&' is a query-string separator (cameras take ?user=&password=); the URL is only ever
+# written to go2rtc's YAML as an rtsp(s) source, never to a shell.
+_CAMERA_SHELL_METACHAR_RE = re.compile(r'[;|$`\\]')
+# Discovered (HTTP/ffmpeg) sources also refuse '&': go2rtc ffmpeg sources parse directives.
+_CAMERA_DIRECTIVE_RE = re.compile(r'[;&|$`\\]')
 
 
 def _validate_camera_url(url: str) -> str:
@@ -137,11 +141,24 @@ _URL_USERINFO_RE = re.compile(r'^([a-z][a-z0-9+.\-]*://)([^@/?#]*)@', re.IGNOREC
 CAMERA_CREDENTIAL_MASK = '***'
 
 
+# Query parameters some cameras take credentials in (?user=..&password=..).
+_CREDENTIAL_QUERY_RE = re.compile(r'([?&](?:user|username|login|password|pass|passwd|pwd|token|auth|key|secret)=)([^&#]*)', re.IGNORECASE)
+_DEFAULT_PORTS = {'rtsp': 554, 'rtsps': 322, 'rtspx': 322, 'http': 80, 'https': 443}
+
+
+def camera_url_has_credentials(url) -> bool:
+    """Userinfo or a credential query parameter: the URL must be stored encrypted."""
+    if not isinstance(url, str):
+        return False
+    return bool(_URL_USERINFO_RE.match(url.strip())) or any(m.group(2) for m in _CREDENTIAL_QUERY_RE.finditer(url))
+
+
 def sanitize_camera_url(url: str) -> str:
-    """Mask URL credentials for API responses, for any scheme and any case."""
+    """Mask URL credentials (userinfo and credential query values) for API responses."""
     if not url:
         return url
-    return _URL_USERINFO_RE.sub(lambda m: m.group(1) + CAMERA_CREDENTIAL_MASK + '@', url.strip(), count=1)
+    masked = _URL_USERINFO_RE.sub(lambda m: m.group(1) + CAMERA_CREDENTIAL_MASK + '@', url.strip(), count=1)
+    return _CREDENTIAL_QUERY_RE.sub(lambda m: m.group(1) + (CAMERA_CREDENTIAL_MASK if m.group(2) else ''), masked)
 
 
 def masked_camera_url(stored):
@@ -158,12 +175,22 @@ def masked_camera_url(stored):
 
 
 def _url_endpoint(url):
+    """(scheme, host, port) with the scheme's default port filled in."""
     import urllib.parse
     try:
         parsed = urllib.parse.urlsplit(url)
-        return (parsed.scheme.lower(), (parsed.hostname or '').lower(), parsed.port)
+        scheme = parsed.scheme.lower()
+        return (scheme, (parsed.hostname or '').lower(), parsed.port or _DEFAULT_PORTS.get(scheme))
     except ValueError:
         return None
+
+
+def camera_url_is_masked(url) -> bool:
+    if not isinstance(url, str):
+        return False
+    match = _URL_USERINFO_RE.match(url.strip())
+    return bool(match and match.group(2) == CAMERA_CREDENTIAL_MASK) or any(
+        m.group(2) == CAMERA_CREDENTIAL_MASK for m in _CREDENTIAL_QUERY_RE.finditer(url))
 
 
 def resolve_masked_camera_url(incoming, stored):
@@ -171,24 +198,43 @@ def resolve_masked_camera_url(incoming, stored):
 
     Returns the plaintext URL to save, or None when the client sent back
     exactly the masked form of the stored URL (nothing changed). Stored
-    credentials are carried over only to the same scheme, host and port
-    (a path change is allowed); pointing a masked URL at another endpoint,
-    or sending a masked URL with no stored credentials, is a 400 that
+    credentials (userinfo and credential query values) are carried over only to
+    the same scheme, host and port (default ports are equivalent; a path or
+    other parameter change is allowed); pointing a masked URL at another
+    endpoint, or masking a value with no stored counterpart, is a 400 that
     requires the full credentialed URL.
     """
-    match = _URL_USERINFO_RE.match(incoming.strip()) if isinstance(incoming, str) else None
-    if not match or match.group(2) != CAMERA_CREDENTIAL_MASK:
+    if not camera_url_is_masked(incoming):
         return incoming
+    incoming = incoming.strip()
     plain = crypto.decrypt(stored) if stored and crypto.is_encrypted(stored) else stored
-    stored_match = _URL_USERINFO_RE.match((plain or '').strip())
-    if not stored_match or crypto.is_encrypted(plain or ''):
+    if not plain or crypto.is_encrypted(plain):
         raise HTTPException(status_code=400, detail="Camera URL credentials are masked; enter the full URL")
-    target = _url_endpoint(incoming.strip())
-    if target is None or target != _url_endpoint(plain.strip()):
+    plain = plain.strip()
+    if incoming == sanitize_camera_url(plain):
+        return None
+    target = _url_endpoint(incoming)
+    if target is None or target != _url_endpoint(plain):
         raise HTTPException(status_code=400,
                             detail="Camera URL endpoint changed; enter the full URL including credentials")
-    resolved = match.group(1).lower() + stored_match.group(2) + '@' + incoming.strip()[match.end():]
-    return None if resolved == plain.strip() else resolved
+    resolved = incoming
+    match = _URL_USERINFO_RE.match(resolved)
+    if match and match.group(2) == CAMERA_CREDENTIAL_MASK:
+        stored_match = _URL_USERINFO_RE.match(plain)
+        if not stored_match:
+            raise HTTPException(status_code=400, detail="Camera URL credentials are masked; enter the full URL")
+        resolved = match.group(1).lower() + stored_match.group(2) + '@' + resolved[match.end():]
+    stored_values = {m.group(1)[1:].lower(): m.group(2) for m in _CREDENTIAL_QUERY_RE.finditer(plain)}
+
+    def restore(m):
+        if m.group(2) != CAMERA_CREDENTIAL_MASK:
+            return m.group(0)
+        value = stored_values.get(m.group(1)[1:].lower())
+        if not value:
+            raise HTTPException(status_code=400, detail="Camera URL credentials are masked; enter the full URL")
+        return m.group(1) + value
+    resolved = _CREDENTIAL_QUERY_RE.sub(restore, resolved)
+    return None if resolved == plain else resolved
 
 
 def _get_lan_ip():

@@ -32,7 +32,7 @@ from modules.printers.schemas import (
 )
 from core.base import FilamentType
 from modules.printers.route_utils import (
-    TestConnectionRequest, _check_ssrf_blocklist, _validate_camera_url,
+    TestConnectionRequest, _check_ssrf_blocklist, _validate_camera_url, camera_url_has_credentials,
 )
 
 log = logging.getLogger("odin.api")
@@ -99,7 +99,7 @@ def create_printer(
     camera_url = None
     if printer.camera_url:
         camera_url = _validate_camera_url(printer.camera_url)
-        if '@' in camera_url:
+        if camera_url_has_credentials(camera_url):
             camera_url = crypto.encrypt(camera_url)
 
     from license_manager import check_printer_limit
@@ -250,15 +250,21 @@ def update_printer(
         from modules.printers.route_utils import resolve_masked_camera_url
         # GET returns the effective URL masked (stored, or generated from the
         # printer's credentials), so masked values resolve against that.
-        from modules.printers.route_utils import effective_camera_url
+        from modules.printers.route_utils import effective_camera_url, camera_url_is_masked
         effective = effective_camera_url(printer)
+        if (not printer.camera_url and camera_url_is_masked(update_data['camera_url'])
+                and resolve_masked_camera_url(update_data['camera_url'], effective) is not None):
+            # The generated camera (Bambu access code) is derived at read time; a masked
+            # edit would freeze the access code into camera_url.
+            raise HTTPException(status_code=400, detail="This camera comes from the printer's access code; "
+                                "enter a full camera URL to override it")
         if update_data['camera_url'] and resolve_masked_camera_url(update_data['camera_url'], effective) is None:
             # The masked URL from GET sent back unchanged: keep the stored value.
             del update_data['camera_url']
         elif update_data['camera_url']:
             update_data['camera_url'] = resolve_masked_camera_url(update_data['camera_url'], effective)
             update_data['camera_url'] = _validate_camera_url(update_data['camera_url'])
-            if '@' in update_data['camera_url']:
+            if camera_url_has_credentials(update_data['camera_url']):
                 update_data['camera_url'] = crypto.encrypt(update_data['camera_url'])
             update_data['camera_enabled'] = True
         else:

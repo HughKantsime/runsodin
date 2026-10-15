@@ -52,15 +52,42 @@ def test_resaving_masked_auto_camera_keeps_it_generated(printers_client, review_
     response = printers_client.patch("/printers/21", json={"camera_url": masked, "nickname": "Bay 1"})
     assert response.status_code == 200, response.text
     assert review_db.execute(text("SELECT camera_url FROM printers WHERE id=21")).scalar_one() is None
-    # Another host with the masked access code is refused (credentials only follow the same endpoint)...
-    response = printers_client.patch("/printers/21", json={"camera_url": "rtsps://***@192.0.2.99:322/streaming/live/1"})
-    assert response.status_code == 400, response.text
-    # ...while a path change on the generated endpoint keeps the access code.
-    response = printers_client.patch("/printers/21", json={"camera_url": "rtsps://***@192.0.2.21:322/streaming/live/2"})
-    assert response.status_code == 200, response.text
+    # The generated URL is derived from the access code at read time; a masked edit
+    # would freeze the code into camera_url, so it is refused (enter a full URL to override).
+    for edited in ("rtsps://***@192.0.2.99:322/streaming/live/1", "rtsps://***@192.0.2.21:322/streaming/live/2"):
+        response = printers_client.patch("/printers/21", json={"camera_url": edited})
+        assert response.status_code == 400, response.text
+        assert review_db.execute(text("SELECT camera_url FROM printers WHERE id=21")).scalar_one() is None
+    # An explicit full URL still overrides the generated camera.
+    response = printers_client.patch("/printers/21", json={"camera_url": "rtsps://bblp:other@192.0.2.21:322/streaming/live/2"})
+    assert response.status_code == 200 and response.json()["camera_source"] == "configured"
+
+
+def test_query_string_camera_credentials_are_encrypted_masked_and_carried(printers_client, review_db):
     from core import crypto
-    stored = crypto.decrypt(review_db.execute(text("SELECT camera_url FROM printers WHERE id=21")).scalar_one())
-    assert stored.startswith("rtsps://bblp:") and stored.endswith("@192.0.2.21:322/streaming/live/2")
+    url = "rtsp://192.0.2.23:554/stream?user=admin&password=Hunter2x&channel=1"
+    response = printers_client.patch("/printers/23", json={"camera_url": url})
+    assert response.status_code == 200, response.text
+    stored = review_db.execute(text("SELECT camera_url FROM printers WHERE id=23")).scalar_one()
+    assert crypto.is_encrypted(stored) and crypto.decrypt(stored) == url  # never plaintext at rest
+    masked = printers_client.get("/printers/23").json()["camera_url"]
+    assert "Hunter2x" not in masked and "admin" not in masked and masked == "rtsp://192.0.2.23:554/stream?user=***&password=***&channel=1"
+    # Resaving the masked URL changes nothing; a path/param change keeps the credentials.
+    assert printers_client.patch("/printers/23", json={"camera_url": masked}).status_code == 200
+    assert crypto.decrypt(review_db.execute(text("SELECT camera_url FROM printers WHERE id=23")).scalar_one()) == url
+    edited = "rtsp://192.0.2.23/stream?user=***&password=***&channel=2"  # default port 554 is the same endpoint
+    assert printers_client.patch("/printers/23", json={"camera_url": edited}).status_code == 200
+    assert crypto.decrypt(review_db.execute(text("SELECT camera_url FROM printers WHERE id=23")).scalar_one()) == \
+        "rtsp://192.0.2.23/stream?user=admin&password=Hunter2x&channel=2"
+    # Another host with masked values is refused.
+    assert printers_client.patch("/printers/23", json={"camera_url": "rtsp://192.0.2.99/stream?user=***&password=***"}).status_code == 400
+
+
+@pytest.mark.parametrize("a,b,same", [("rtsp://h/x", "rtsp://h:554/y", True), ("rtsps://h/x", "rtsps://h:322/y", True),
+                                      ("rtsps://h:322/x", "rtsps://h:8322/x", False), ("rtsp://h/x", "rtsps://h/x", False)])
+def test_default_ports_are_equivalent_endpoints(a, b, same):
+    from modules.printers.route_utils import _url_endpoint
+    assert (_url_endpoint(a) == _url_endpoint(b)) is same
 
 
 def test_filament_slot_reports_remaining_grams(printers_client, review_db):
