@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, Fragment } from 'react'
+import { useNewItemShortcut } from '../../hooks/useNewItemShortcut'
 import { products, models, consumables as consumablesApi } from '../../api'
 import { Package, Plus, Trash2, Pencil, X, Save, Layers } from 'lucide-react'
 import { canDo } from '../../permissions'
@@ -64,6 +65,7 @@ export default function Products() {
     setComponents([])
     setShowModal(true)
   }
+  useNewItemShortcut('/products', openCreateModal, canDo('products.create'))
 
   const openEditModal = async (product) => {
     const request = ++editRequest.current
@@ -443,9 +445,9 @@ export default function Products() {
       {/* Create/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={closeModal}>
-          <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <div role="dialog" aria-modal="true" aria-labelledby="product-modal-title" className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="p-4 border-b border-[var(--brand-card-border)] flex justify-between items-center">
-              <h2 className="text-lg font-semibold text-[var(--brand-text)]">
+              <h2 id="product-modal-title" className="text-lg font-semibold text-[var(--brand-text)]">
                 {editingProduct ? 'Edit Product' : 'New Product'}
               </h2>
               <button onClick={closeModal} className="p-1 text-[var(--brand-muted)] hover:text-[var(--brand-text-secondary)] hover:bg-[var(--brand-input-bg)] rounded-md transition-colors">

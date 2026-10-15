@@ -96,3 +96,18 @@ it('uses the configured models.edit action for authorized inventory edits and ad
  expect(await screen.findByTitle('Edit')).toBeTruthy()
  expect(screen.getByTitle('Adjust Stock')).toBeTruthy()
 })
+
+// F16-16.3-03: the real N shortcut opens the real Consumables create dialog.
+import {MemoryRouter} from 'react-router-dom'
+import useKeyboardShortcuts from '../../hooks/useKeyboardShortcuts'
+function Shortcuts(){useKeyboardShortcuts();return null}
+it('F16-16.3-03 N on /consumables opens the Add Consumable dialog',async()=>{
+ const client=new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}})
+ render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/consumables']}><Shortcuts/><Consumables /></MemoryRouter></QueryClientProvider>)
+ await screen.findByTitle('Adjust Stock')
+ expect(screen.getAllByText('Add Consumable')).toHaveLength(1) // the button only
+ fireEvent.keyDown(document,{key:'n'})
+ // the create form (its heading and Name field) is now open
+ await waitFor(()=>expect(screen.getAllByText('Add Consumable')).toHaveLength(2))
+ expect(screen.getByRole('button',{name:'Create'})).toBeTruthy()
+})

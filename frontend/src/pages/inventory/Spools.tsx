@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
+import { useNewItemShortcut } from '../../hooks/useNewItemShortcut'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Package, Beaker, AlertTriangle } from 'lucide-react'
@@ -27,6 +28,7 @@ export default function Spools() {
   useEffect(() => { createInstance.current += 1 }, [createOwner])
   const openCreate = () => { createInstance.current += 1; createOpen.current = true; setShowCreateModal(true) }
   const closeCreate = () => { createInstance.current += 1; createOpen.current = false; setShowCreateModal(false) }
+  useNewItemShortcut('/spools', openCreate, view === 'spools' && canDo('spools.edit'))
   const currentCreate = (variables: { audience: string; instance: number }) =>
     createOpen.current && variables.instance === createInstance.current &&
     variables.audience === purchaseAudience(queryClient.getQueryData<PurchasePrincipal | null>(['auth', 'me']))

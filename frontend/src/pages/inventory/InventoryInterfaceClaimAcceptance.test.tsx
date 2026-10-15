@@ -84,3 +84,16 @@ it('F06-6.3-02 CLAIM GAP: spool list displays stored PA profile', async () => {
 it('F06-6.3-02 CLAIM GAP: spool detail/edit view displays stored PA profile', async () => {
   await inventory(); fireEvent.click(screen.getAllByTitle('Edit spool')[0]); expect(within(screen.getByRole('dialog', { name: 'Edit Spool' })).getByText('K0.042')).toBeInTheDocument()
 })
+
+// F16-16.3-03: the real N shortcut opens the real Add New Spool dialog.
+import useKeyboardShortcuts from '../../hooks/useKeyboardShortcuts'
+function Shortcuts() { useKeyboardShortcuts(); return null }
+it('F16-16.3-03 N on /spools opens the Add New Spool dialog', async () => {
+  const c = new QueryClient({ defaultOptions: { queries: { retry: false } } }); clients.push(c)
+  c.setQueryData(['auth', 'me'], { id: 3, group_id: 1, role: 'admin' }) // signed-in principal owns the create form
+  render(<QueryClientProvider client={c}><MemoryRouter initialEntries={['/spools']}><Shortcuts /><Spools /></MemoryRouter></QueryClientProvider>)
+  await screen.findByText('SPL-ACCEPTANCE')
+  expect(screen.queryByRole('dialog')).toBeNull()
+  fireEvent.keyDown(document, { key: 'n' })
+  expect(await screen.findByRole('dialog', { name: 'Add New Spool' })).toBeTruthy()
+})

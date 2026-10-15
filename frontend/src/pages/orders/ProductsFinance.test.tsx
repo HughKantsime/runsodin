@@ -97,3 +97,15 @@ it.each([[12.99,0,'$6.50'],[0,0,'$0.00'],[12.99,null,'Unknown'],[null,null,'Unkn
  expect(value('With SKU')).toBe('1')
  expect(value('Avg Price')).toBe(average)
 })
+
+// F16-16.3-03: the real N shortcut opens the real New Product dialog.
+import { MemoryRouter } from 'react-router-dom'
+import useKeyboardShortcuts from '../../hooks/useKeyboardShortcuts'
+function Shortcuts() { useKeyboardShortcuts(); return null }
+it('F16-16.3-03 N on /products opens the New Product dialog', async () => {
+  render(<MemoryRouter initialEntries={['/products']}><Shortcuts /><Products /></MemoryRouter>)
+  await screen.findAllByText('Synthetic free product')
+  expect(screen.queryByRole('dialog')).toBeNull()
+  fireEvent.keyDown(document, { key: 'n' })
+  expect(await screen.findByRole('dialog', { name: 'New Product' })).toBeTruthy()
+})
