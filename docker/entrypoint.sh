@@ -140,7 +140,9 @@ if [ "${ODIN_DB_BOOTSTRAP_OWNER:-1}" = "1" ]; then
             fi
             ;;
         postgresql://*|postgres://*)
-            python3 -m modules.system.restore_coordinator
+            # As the app user: mounted secrets are owned by it, and the preserved029
+            # restore stage requires credentials owned by the process that reads them.
+            /usr/sbin/runuser -u odin -- python3 -m modules.system.restore_coordinator
             ;;
     esac
     ODIN_DB_ROLE=bootstrap python3 -m scripts.bootstrap_database

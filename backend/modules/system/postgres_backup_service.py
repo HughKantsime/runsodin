@@ -1125,6 +1125,62 @@ def _insert_postgres_restore_audit(
         engine.dispose()
 
 
+def quarantine_failed_pending_postgres_restore(
+    target_url: str,
+    *,
+    error: BaseException,
+    password_file: str | None = None,
+    base_dir: Path | None = None,
+) -> dict[str, object] | None:
+    """Move aside a staged restore that failed before touching the target.
+
+    Only for state 'staged' (no data was replaced) and never while this process holds a
+    failed-recovery barrier. The archive and an actionable record stay in the backups
+    directory; startup then continues on the untouched target instead of restarting
+    forever. Returns None when the failure is not quarantinable, and the caller re-raises.
+    """
+    if target_url in _FAILED_RESTORE_BARRIERS:
+        return None
+    paths = postgres_paths(base_dir)
+    try:
+        manifest = _read_pending_manifest(paths)
+    except BackupValidationError:
+        return None
+    if manifest.get("state") != "staged":
+        return None
+    reason = (str(error) or type(error).__name__)[:500]
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+    archive = paths.backups / f"failed_restore_{stamp}.dump"
+    record_path = paths.backups / f"failed_restore_{stamp}.json"
+    record = {
+        "status": "restore_failed_target_untouched",
+        "reason": reason,
+        "error_type": type(error).__name__,
+        "candidate_sha256": manifest.get("sha256"),
+        "staged_at": manifest.get("staged_at"),
+        "failed_at": datetime.now(timezone.utc).isoformat(),
+        "archive": archive.name if paths.pending.is_file() else None,
+        "action": "The current database was not changed. Fix the reason above, then re-stage the archive "
+                  "and restart with ODIN_POSTGRES_RESTORE_ACKNOWLEDGEMENT set to its SHA-256.",
+    }
+    paths.backups.mkdir(parents=True, exist_ok=True)
+    temporary = record_path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(record, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    _secure(temporary)
+    os.replace(temporary, record_path)
+    if paths.pending.is_file():
+        os.replace(paths.pending, archive)
+    paths.manifest.unlink(missing_ok=True)
+    _fsync_directory(paths.backups)
+    _fsync_directory(paths.manifest.parent)
+    try:
+        _insert_postgres_restore_audit(target_url, password_file, "restore_failed",
+            {"reason": reason, "candidate_sha256": manifest.get("sha256"), "target_untouched": True})
+    except Exception:  # The record file and the returned status already carry the reason.
+        pass
+    return record
+
+
 def apply_pending_postgres_restore(
     target_url: str,
     maintenance_url: str,
