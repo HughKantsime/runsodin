@@ -219,3 +219,16 @@ def parse_h2d_external_spools(state: dict) -> Optional[dict]:
         if spool:
             external_spools['left' if idx == 0 else 'right'] = spool
     return external_spools if external_spools else None
+
+
+def ota_product_name(info_section) -> Optional[str]:
+    """Printer model reported in a get_version reply: info.module[name=ota].product_name."""
+    modules = info_section.get('module') if isinstance(info_section, dict) else None
+    if not isinstance(modules, list):
+        return None
+    for module in modules:
+        if isinstance(module, dict) and module.get('name') == 'ota':
+            product = module.get('product_name')
+            if isinstance(product, str) and product.strip():
+                return product.strip()
+    return None

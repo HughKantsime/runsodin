@@ -157,6 +157,39 @@ def test_masked_camera_url_without_stored_credentials_is_rejected(cert_app):
     assert response.status_code == 400
 
 
+@pytest.mark.parametrize("url", ["RTSP://cam:secretpw@192.0.2.88:554/s", "Rtsps://cam:secretpw@192.0.2.88/s"])
+def test_uppercase_scheme_camera_url_never_returns_password(cert_app, review_db, url):
+    import core.crypto as crypto
+    response = cert_app.patch("/printers/301", headers=cert_app.roles["operator"], json={"camera_url": url})
+    assert response.status_code == 200, response.text
+    assert "secretpw" not in response.text
+    listed = cert_app.get("/printers", headers=cert_app.roles["viewer"])
+    assert "secretpw" not in listed.text
+    review_db.expire_all()
+    stored = crypto.decrypt(review_db.execute(text("SELECT camera_url FROM printers WHERE id=301")).scalar_one())
+    assert stored.split("://")[0] in ("rtsp", "rtsps") and "secretpw" in stored  # scheme normalized on store
+
+
+@pytest.mark.parametrize("legacy", ["http://admin:secretpw@192.0.2.9/snap", "HTTPS://admin:secretpw@192.0.2.9/x",
+                                    "rtsp://secretpw@192.0.2.9/x"])
+def test_legacy_plaintext_credentialed_row_is_masked_for_any_scheme(cert_app, review_db, legacy):
+    review_db.execute(text("UPDATE printers SET camera_url=:u WHERE id=301"), {"u": legacy})
+    review_db.commit()
+    body = cert_app.get("/printers/301", headers=cert_app.roles["viewer"])
+    assert "secretpw" not in body.text and "***@192.0.2.9" in body.json()["camera_url"]
+
+
+@pytest.mark.parametrize("target", ["rtsp://***@203.0.113.5:554/stream1", "rtsp://***@192.0.2.88:8554/stream1",
+                                    "rtsps://***@192.0.2.88:554/stream1"])
+def test_masked_camera_url_does_not_carry_credentials_to_another_endpoint(cert_app, review_db, monkeypatch, target):
+    import core.crypto as crypto
+    url, response, configs = set_camera(cert_app, review_db, monkeypatch)
+    moved = cert_app.patch("/printers/301", headers=cert_app.roles["operator"], json={"camera_url": target})
+    assert moved.status_code == 400
+    review_db.expire_all()
+    assert crypto.decrypt(review_db.execute(text("SELECT camera_url FROM printers WHERE id=301")).scalar_one()) == url
+
+
 @pytest.mark.parametrize("body", [{"camera_url": "http://192.0.2.88/snap"}, {"camera_url": "rtsp://127.0.0.1/x"}])
 def test_camera_url_rejects_non_rtsp_or_loopback(cert_app, body):
     assert cert_app.patch("/printers/301", headers=cert_app.roles["operator"], json=body).status_code == 400

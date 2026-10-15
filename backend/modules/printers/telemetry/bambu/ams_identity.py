@@ -4,6 +4,11 @@ Bambu numbers four-tray units (AMS, AMS 2 Pro, AMS Lite) 0-3 and single-tray
 AMS HT units 128-135 (captured H2D: unit "128", module n3s/128). Slots 1-16
 are the four-tray units; AMS HT unit 128+n is slot 17+n, matching the bit
 position Bambu uses for it in ``tray_exist_bits`` (captured H2D: 0x100ff).
+
+Dispatch AMS mapping stays capped to slots 1-16 (Bambu tray index 0-15):
+ams_evidence rejects AMS HT units, so no mapping target can reach an HT
+slot. AMS HT is inventory/display only until HT acquisition evidence is
+accepted; mapping it would need Bambu's HT tray id (the unit id, 128+).
 """
 from modules.printers.telemetry.validators import coerce_int_or_raise
 

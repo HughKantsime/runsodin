@@ -134,3 +134,19 @@ export function isOnline(printer: Printer): boolean {
   const age = Date.now() - lastSeen
   return Number.isFinite(lastSeen) && age >= 0 && age < ONLINE_THRESHOLD_MS
 }
+
+// ---- AMS slot grouping ----
+// Backend slot numbers: 1-16 are four-tray AMS units 0-3 (unit = (n-1)/4),
+// 17-24 are single-tray AMS HT units 128-135.
+export const AMS_HT_FIRST_SLOT = 17
+
+export interface AmsSlotGroup { key: string; label: string }
+
+export function amsSlotGroup(slotNumber: number): AmsSlotGroup {
+  if (slotNumber >= AMS_HT_FIRST_SLOT) {
+    const index = slotNumber - AMS_HT_FIRST_SLOT + 1
+    return { key: `ht-${index}`, label: `AMS HT ${index}` }
+  }
+  const unit = Math.floor((slotNumber - 1) / 4)
+  return { key: `ams-${unit}`, label: `AMS Unit ${unit}` }
+}

@@ -313,3 +313,49 @@ def test_real_h2d_report_includes_ams_ht_unit_128():
     units = [p["print"]["ams"]["ams"] for _, p in load_frames("bambu-h2d-failure-arc")
              if isinstance(p.get("print", {}).get("ams"), dict) and p["print"]["ams"].get("ams")][0]
     assert [u["id"] for u in units] == ["0", "1", "128"]
+
+
+def test_failed_ams_sync_keeps_report_and_retries_on_next_heartbeat(wire_monitor, review_db, monkeypatch):
+    import modules.printers.monitors.ams_inventory as ams_inventory
+    monitor, sock, clock, events = wire_monitor
+    frames = load_frames("bambu-x1c-ams-swap")
+    real_sync = ams_inventory.sync_ams_inventory
+    calls = []
+
+    def flaky(conn, printer_id, units):
+        calls.append(len(units))
+        if len(calls) == 1:
+            raise RuntimeError("synthetic database failure")
+        return real_sync(conn, printer_id, units)
+    monkeypatch.setattr(ams_inventory, "sync_ams_inventory", flaky)
+    first = next(p for _, p in frames if isinstance(p.get("print", {}).get("ams"), dict) and p["print"]["ams"].get("ams"))
+    clock[0] += 11
+    sock.deliver(first)
+    assert len(calls) == 1 and monitor._pending_ams_report is not None
+    clock[0] += 11
+    sock.deliver({"print": {"gcode_state": "IDLE"}})  # heartbeat without an AMS list
+    assert len(calls) == 2 and monitor._pending_ams_report is None
+    review_db.expire_all()
+    assert review_db.execute(text("SELECT COUNT(*) FROM filament_slots WHERE printer_id=301")).scalar_one() > 0
+
+
+def test_unplugged_ams_ht_unit_slot_is_cleared(wire_monitor, review_db):
+    import copy
+    monitor, sock, clock, events = wire_monitor
+    frames = frames_until("bambu-h2d-failure-arc", lambda p: isinstance(p.get("ams"), dict) and p["ams"].get("ams"))
+    replay(sock, clock, frames[:-1])
+    clock[0] = frames[-1][0] + 11
+    sock.deliver(frames[-1][1])
+    slot17 = lambda: review_db.execute(text(
+        "SELECT filament_type FROM filament_slots WHERE printer_id=301 AND slot_number=17")).scalar_one()
+    review_db.expire_all()
+    assert str(slot17()).split(".")[-1].upper() == "PLA_SUPPORT"  # AMS HT unit 128 tray
+    unplugged = copy.deepcopy(frames[-1][1])
+    unplugged["print"]["ams"]["ams"] = [u for u in unplugged["print"]["ams"]["ams"] if u["id"] != "128"]
+    clock[0] += 61
+    sock.deliver(unplugged)
+    review_db.expire_all()
+    assert str(slot17()).split(".")[-1].lower() == "empty"
+    # Four-tray units still reported keep their slots.
+    assert review_db.execute(text("SELECT COUNT(*) FROM filament_slots WHERE printer_id=301 AND slot_number<=8 "
+                                  "AND filament_type<>'empty'")).scalar_one() >= 7

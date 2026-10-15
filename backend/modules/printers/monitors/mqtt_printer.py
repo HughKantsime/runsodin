@@ -32,6 +32,7 @@ from modules.printers.monitors.mqtt_telemetry import (
     finite_nozzle_measurement,
     parse_bambu_speed,
     parse_h2d_external_spools,
+    ota_product_name,
 )
 from modules.printers.monitors.mqtt_job_lifecycle import (
     record_job_started,
@@ -120,7 +121,7 @@ class PrinterMonitor:
         from modules.printers.telemetry.bambu.broker_policy import (
             resolve_bambu_broker_config,
         )
-        from modules.printers.telemetry.events import BambuReportEvent, ConnectionEvent
+        from modules.printers.telemetry.events import BambuInfoEvent, BambuReportEvent, ConnectionEvent
         generation = self._begin_connection()
 
         class _LegacyStatusShim:
@@ -136,6 +137,17 @@ class PrinterMonitor:
                 # model_dump() preserves the same keys legacy saw
                 section_dict = item.section.model_dump(exclude_unset=True)
                 on_status(_LegacyStatusShim(section_dict, item.mqtt_retained), generation)
+            elif isinstance(item, BambuInfoEvent):
+                # Model identity (ota product_name); persisted on the next heartbeat.
+                product = ota_product_name(item.section.model_dump())
+                if product:
+                    with self._lock:
+                        if generation == self._connection_generation:
+                            self._reported_model = product
+            elif isinstance(item, ConnectionEvent) and item.kind == "connected":
+                adapter = getattr(self, '_v2_adapter', None)
+                if adapter is not None and hasattr(adapter, 'request_version'):
+                    adapter.request_version()
             elif isinstance(item, ConnectionEvent) and item.kind in ("disconnected", "error"):
                 with self._lock:
                     if generation != self._connection_generation or self._connection_retired:
@@ -659,7 +671,8 @@ class PrinterMonitor:
                         # Auto-detect printer model from MQTT — write once, never overwrite a user-set value.
                         # print.printer_type when present, else the ota product_name
                         # from the get_version reply (what real printers send).
-                        raw_pt = self._state.get('printer_type', '') or getattr(status, 'printer_type', '') or ''
+                        raw_pt = (self._state.get('printer_type', '') or getattr(status, 'printer_type', '')
+                                  or getattr(self, '_reported_model', '') or '')
                         if not isinstance(raw_pt, str):
                             raw_pt = ''
                         from modules.printers.printer_models import bambu_model_name
@@ -742,17 +755,20 @@ class PrinterMonitor:
                         if (pending_ams is not None
                                 and time.time() - getattr(self, '_last_ams_slot_sync', 0) >= 60):
                             sync_observed_at = time.time()
-                            # Inventory receives only the latest reported AMS list, once.
-                            # A heartbeat cannot renew cached tray observations.
-                            self._pending_ams_report = None
+                            # Inventory receives only the latest reported AMS list; it is
+                            # consumed after a committed sync. A heartbeat cannot renew
+                            # cached tray observations, and a failed sync keeps the list
+                            # for the next heartbeat unless a newer report replaces it.
                             try:
                                 from modules.printers.monitors.ams_inventory import sync_ams_inventory
                                 sync_ams_inventory(conn, self.printer_id, pending_ams)
                                 conn.commit()
                                 self._last_ams_slot_sync = sync_observed_at
+                                if self._pending_ams_report is pending_ams:
+                                    self._pending_ams_report = None
                             except Exception:
                                 conn.rollback()
-                                log.warning("AMS inventory synchronization failed; retry on next reported AMS list")
+                                log.warning("AMS inventory synchronization failed; keeping the reported AMS list for retry on the next heartbeat")
 
                     # ---- H2D Dual-Nozzle / External Spool Parsing ----
                     h2d_nozzle_data = None

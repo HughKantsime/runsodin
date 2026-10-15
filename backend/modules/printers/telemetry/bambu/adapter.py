@@ -163,6 +163,23 @@ class BambuTelemetryAdapter:
             self._client = None
             self._connected = False
 
+    def request_version(self) -> bool:
+        """Publish one `get_version` request (read-only identity query).
+
+        Real printers report their model only in the reply's
+        info.module[name=ota].product_name, never in `print` reports.
+        """
+        client = self._client
+        if client is None or not self._connected:
+            return False
+        payload = json.dumps({"info": {"sequence_id": "0", "command": "get_version"}})
+        try:
+            result = client.publish(self._config.topic_request, payload, qos=0)
+        except Exception:
+            logger.warning("bambu get_version request failed: printer=%s", self._config.printer_id)
+            return False
+        return getattr(result, "rc", 0) == 0
+
     def status(self) -> PrinterStatus:
         """Return a snapshot of the current PrinterStatus (frozen dataclass)."""
         with self._lock:

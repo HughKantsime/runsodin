@@ -49,6 +49,9 @@ except ImportError:
 log = logging.getLogger("moonraker_monitor")
 
 POLL_INTERVAL = 3          # seconds between status polls
+# A failed poll is a transient until this many fail in a row (same debounce as
+# PrusaLink); then the printer is persisted OFFLINE and reconnection starts.
+MAX_CONSECUTIVE_FAILURES = 5
 RECONNECT_INTERVAL = 30    # seconds between reconnection attempts
 PROGRESS_DB_INTERVAL = 5   # seconds between progress DB writes (throttle)
 TELEMETRY_INSERT_INTERVAL = 60   # seconds between timeseries inserts
@@ -83,6 +86,7 @@ class MoonrakerMonitor:
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._marked_offline = False
+        self._consecutive_failures = 0
         self._status_lock = threading.RLock()
         self._retired = False
         self._prev_state: Optional[str] = None
@@ -148,10 +152,15 @@ class MoonrakerMonitor:
                     # printer goes OFFLINE without refreshing its heartbeat.
                     raise ConnectionError("Moonraker status poll failed")
                 self._process_status(status)
+                self._consecutive_failures = 0
             except Exception as e:
-                log.error(f"[{self.name}] Poll error: {e}")
-                # Try to reconnect
-                self._handle_disconnect()
+                # A failed poll never refreshes the heartbeat; OFFLINE is
+                # persisted only after MAX_CONSECUTIVE_FAILURES in a row.
+                self._consecutive_failures = getattr(self, '_consecutive_failures', 0) + 1
+                log.error(f"[{self.name}] Poll error ({self._consecutive_failures} consecutive): {e}")
+                if self._consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    self._consecutive_failures = 0
+                    self._handle_disconnect()
             
             time.sleep(POLL_INTERVAL)
     

@@ -212,13 +212,30 @@ def test_moonraker_snapshots_every_60s_while_printing(proto, moonraker):
 
 
 def test_moonraker_unreachable_printer_is_marked_offline(proto, moonraker):
+    limit = moonraker.module.MAX_CONSECUTIVE_FAILURES
     moonraker.poll(step=11)
     seen = row(proto.db, 401, "last_seen")["last_seen"]
     moonraker.http.down = True
-    moonraker.poll(times=2, step=11)
+    moonraker.poll(times=limit - 1, step=11)
+    r = row(proto.db, 401, "gcode_state,last_seen")
+    assert r["gcode_state"] != "OFFLINE"  # transient failures are debounced
+    assert r["last_seen"] == seen  # but never refresh the heartbeat
+    moonraker.poll(step=11)
     r = row(proto.db, 401, "gcode_state,last_seen")
     assert r["gcode_state"] == "OFFLINE"
     assert r["last_seen"] == seen
+
+
+def test_moonraker_successful_poll_resets_failure_debounce(proto, moonraker):
+    limit = moonraker.module.MAX_CONSECUTIVE_FAILURES
+    moonraker.poll(step=11)
+    moonraker.http.down = True
+    moonraker.poll(times=limit - 1, step=11)
+    moonraker.http.down = False
+    moonraker.poll(step=11)
+    moonraker.http.down = True
+    moonraker.poll(times=limit - 1, step=11)
+    assert row(proto.db, 401, "gcode_state")["gcode_state"] != "OFFLINE"
 
 
 def test_moonraker_disconnect_handler_marks_offline(proto, moonraker):
