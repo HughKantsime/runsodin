@@ -321,3 +321,26 @@ def test_stats_window_hours_use_measured_spans_and_unlinked_monitor_runs(ana):
     assert (p10["completed_jobs"], p10["failed_jobs"]) == (2, 1)
     assert p10["success_rate"] == round(2 / 3 * 100, 1)
     assert p10["avg_job_hours"] == round(6.5 / 2, 1)
+
+
+def test_backend_model_cost_is_per_item_for_multi_unit_beds(ana):
+    """Review M5: a 2-up bed (100 g, 2 h per bed) costs per item:
+    material 100g/2 x $0.20/g = 10.00; electricity 0.5 kW x 1 h x $1 = 0.50;
+    depreciation $1000/1000 h x 1 h = 1.00; labour (10+10+10 min)/60 x $12 = 6.00 per item;
+    packaging 3.00, other 4.00 per item; base 24.50; failure 10% = 2.45; overhead $500/100 = 5.00;
+    subtotal 31.95; margin 50% -> 47.925, which round() gives as 47.92 (binary float)."""
+    client, identity, db = ana
+    identity.update(role="admin")
+    client.put("/pricing-config", json={"default_margin": 50, "failure_rate": 10, "spool_cost": 200, "spool_weight": 1000,
+                                        "hourly_rate": 12, "post_processing_min": 10, "packing_min": 10, "support_min": 10,
+                                        "electricity_rate": 1, "printer_wattage": 500, "printer_cost": 1000,
+                                        "printer_lifespan": 1000, "packaging_cost": 3, "monthly_rent": 500,
+                                        "parts_per_month": 100, "other_costs": 4})
+    db.execute(text("UPDATE models SET color_requirements=:c, build_time_hours=2, units_per_bed=2, markup_percent=NULL WHERE id=101"),
+               {"c": GRAMS_100})
+    db.commit()
+    body = client.get("/models/101/cost").json()
+    assert body["units_per_bed"] == 2 and body["filament_grams"] == 50 and body["print_hours"] == 1
+    assert body["costs"] == {"material": 10.0, "labor": 6.0, "electricity": 0.5, "depreciation": 1.0,
+                             "packaging": 3.0, "failure": 2.45, "overhead": 5.0, "other": 4.0}
+    assert body["subtotal"] == 31.95 and body["suggested_price"] == 47.92

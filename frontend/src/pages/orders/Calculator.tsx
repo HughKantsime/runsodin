@@ -54,15 +54,14 @@ function CostSection({ title, icon: Icon, cost, children }: { title: string; ico
 }
 
 function PricingBreakdown({ costs, margin, quantity, unitsPerBed = 1 }: { costs: Record<'material' | 'labor' | 'electricity' | 'depreciation' | 'packaging' | 'failure' | 'overhead' | 'other' | 'failureRate', number>; margin: number; quantity: number; unitsPerBed?: number }) {
-  // The cost inputs (filament grams, print time, ...) describe one full bed; a bed
-  // yields `unitsPerBed` units, so per-unit values divide the bed values.
+  // `costs` are per sellable item (per-bed inputs were divided by the unit count).
   const units = Number.isFinite(unitsPerBed) && unitsPerBed >= 1 ? unitsPerBed : 1
   const subtotal = costs.material + costs.labor + costs.electricity
     + costs.depreciation + costs.packaging + costs.failure
     + costs.overhead + costs.other
   const withMargin = subtotal * (1 + margin / 100)
-  const perUnit = withMargin / units
-  const costPerUnit = subtotal / units
+  const perUnit = withMargin
+  const costPerUnit = subtotal
   const total = perUnit * quantity
 
   return (
@@ -88,7 +87,7 @@ function PricingBreakdown({ costs, margin, quantity, unitsPerBed = 1 }: { costs:
         </div>
 
         {units > 1 && (
-          <div className="flex justify-between text-xs text-[var(--brand-muted)]"><span>Bed price ({units} units per bed):</span><span>${withMargin.toFixed(2)}</span></div>
+          <div className="flex justify-between text-xs text-[var(--brand-muted)]"><span>Bed price ({units} units per bed):</span><span>${(perUnit * units).toFixed(2)}</span></div>
         )}
 
         <div className="bg-[var(--brand-primary)]/10 border border-[var(--brand-primary)]/30 rounded-md p-3 md:p-4 text-center">
@@ -248,13 +247,16 @@ export default function CalculatorPage() {
     }
   }
 
-  // Calculations
+  // Calculations, per sellable item. Filament grams and print time describe one
+  // bed, so material, electricity and machine depreciation divide by the bed's
+  // unit count; labour, packaging, overhead and other costs are already per item.
+  const bedUnits = Number.isFinite(unitsPerBed) && unitsPerBed >= 1 ? unitsPerBed : 1
   const costPerGram = spoolCost / spoolWeight
-  const materialCost = filamentGrams * costPerGram
+  const materialCost = filamentGrams * costPerGram / bedUnits
   const laborHours = (postProcessingMin + packingMin + supportMin) / 60
   const laborCost = laborHours * hourlyRate
-  const electricityCost = (printerWattage / 1000) * printTimeHours * electricityRate
-  const depreciationCost = (printerCost / printerLifespan) * printTimeHours
+  const electricityCost = (printerWattage / 1000) * printTimeHours * electricityRate / bedUnits
+  const depreciationCost = (printerCost / printerLifespan) * printTimeHours / bedUnits
   const baseCost = materialCost + laborCost + electricityCost + depreciationCost + packagingCost + otherCosts
   const failureCost = baseCost * (failureRate / 100)
   const overheadCost = partsPerMonth > 0 ? monthlyRent / partsPerMonth : 0

@@ -167,29 +167,36 @@ test('F10-10.2-04 dedicated Calculator page loads saved config and model inputs'
   expect(label('Print Time')).toHaveValue(2); expect(label('Quantity')).toHaveValue(2)
   expect(screen.getByRole('heading', { name: 'Final Pricing' })).toBeInTheDocument()
 })
+// Per-item arithmetic for the 2-up model (100 g and 2 h per bed; config: $200/1000 g, $12/h labour for
+// 10+10+10 min, 500 W at $1/kWh, $1000 printer over 1000 h, $3 packaging, $4 other, $500 rent / 100 parts):
+//   per-bed quantities divide by 2 units: material 100 g x $0.20 / 2 = $10.00, electricity 0.5 kW x 2 h x $1 / 2 = $0.50,
+//   depreciation $1/h x 2 h / 2 = $1.00; per-item costs do not: labour 0.5 h x $12 = $6.00, packaging $3.00, other $4.00,
+//   overhead $500 / 100 = $5.00. Base 10 + 6 + 0.5 + 1 + 3 + 4 = $24.50; failure buffer 10% = $2.45; subtotal $31.95.
 test('F10-10.2-01 per-model breakdown matches backend /models/{id}/cost components', async () => {
   await calculator()
-  for (const [l, v] of [['Material Cost:', '$20.00'], ['Labor Cost:', '$6.00'], ['Electricity:', '$1.00'], ['Printer Depreciation:', '$2.00'], ['Packaging:', '$3.00'], ['Failure Buffer (10%):', '$3.60'], ['Overhead:', '$5.00'], ['Other Costs:', '$4.00'], ['Subtotal:', '$44.60']]) expect(money(l)).toHaveTextContent(v)
+  for (const [l, v] of [['Material Cost:', '$10.00'], ['Labor Cost:', '$6.00'], ['Electricity:', '$0.50'], ['Printer Depreciation:', '$1.00'], ['Packaging:', '$3.00'], ['Failure Buffer (10%):', '$2.45'], ['Overhead:', '$5.00'], ['Other Costs:', '$4.00'], ['Subtotal:', '$31.95']]) expect(money(l)).toHaveTextContent(v)
 })
 test('F10-10.2-02 margin from saved config prices the unit and an edited margin is saved', async () => {
   await calculator()
-  // Model 101 is a 2-up bed: bed subtotal $44.60 x 1.25 = $55.75 per bed, $27.88 per unit.
-  expect(money('Recommended Price (per unit)')).toHaveTextContent('$27.88')
+  // Per item: $31.95 x 1.25 = $39.94; at 30%: $31.95 x 1.30 = $41.535 -> $41.54.
+  expect(money('Recommended Price (per unit)')).toHaveTextContent('$39.94')
   fireEvent.change(label('Margin'), { target: { value: '30' } })
-  expect(money('Recommended Price (per unit)')).toHaveTextContent('$28.99')
+  expect(money('Recommended Price (per unit)')).toHaveTextContent('$41.54')
   fireEvent.click(screen.getByRole('button', { name: 'Save Config' }))
   await waitFor(() => expect(api.save).toHaveBeenCalledWith(expect.objectContaining({ default_margin: 30 }), expect.anything()))
 })
 test('F10-10.2-03 bulk quantity multiplies the per-unit price', async () => {
   await calculator(); fireEvent.change(label('Quantity'), { target: { value: '3' } })
-  expect(money('Total for 3 units')).toHaveTextContent('$83.63')
+  // 3 x $39.9375 = $119.8125 -> $119.81
+  expect(money('Total for 3 units')).toHaveTextContent('$119.81')
 })
 // Fixed (was: Calculator priced a whole 2-up bed as one unit, so 'Total for 2 units' double-counted 111.50 vs 55.75).
-test('F10-10.2-03 per-unit price of a multi-unit bed divides the bed cost', async () => {
+test('F10-10.2-03 per-unit price of a multi-unit bed divides only the per-bed costs', async () => {
   await calculator()
   expect(label('Units per Bed')).toHaveValue(2)
-  expect(money('Total for 2 units')).toHaveTextContent('$55.75')
-  // A single-unit bed keeps the bed price as the unit price.
+  // 2 x $39.9375 = $79.875 -> $79.88 (not the old double-count $111.50, nor the bed price halved $55.75 / 2).
+  expect(money('Total for 2 units')).toHaveTextContent('$79.88')
+  // A single-unit bed: material $20, electricity $1, depreciation $2; base $36, failure $3.60, subtotal $44.60 x 1.25.
   fireEvent.change(label('Units per Bed'), { target: { value: '1' } })
   expect(money('Recommended Price (per unit)')).toHaveTextContent('$55.75')
 })
