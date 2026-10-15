@@ -59,6 +59,15 @@ def test_authorized_superadmin_reaches_substituted_system_boundary(system_client
     client,issue,calls,dummy=system_client
     headers=issue(['admin']) if credential=='admin_token' else interactive_headers()
     response=operation(client,headers,kind)
+    # Security review HIGH-B: backup create/download/restore/delete handle
+    # credential material and are interactive-session only; an admin token is
+    # refused. Listing backups and the mqtt operations stay token-reachable.
+    credential_backup = kind in ('backup_create', 'backup_download', 'backup_delete', 'backup_restore')
+    if credential=='admin_token' and credential_backup:
+        assert response.status_code==403
+        assert response.json()['detail']=="API tokens cannot create or change credentials; sign in with a password session"
+        assert calls==[]
+        return
     assert response.status_code==(204 if kind=='backup_delete' else 200)
     assert len(calls)==(0 if kind=='mqtt_read' else 1)
     if kind=='mqtt_update':
