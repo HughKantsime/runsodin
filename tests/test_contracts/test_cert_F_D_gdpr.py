@@ -188,3 +188,40 @@ def test_erase_leaves_no_former_identifier_anywhere_in_database(erased):
         con.close()
     erased["o"].erase_residue = sorted(hits)
     assert sorted(hits) == [], [(t, ("username", "email", "device_token")[i]) for t, i in sorted(hits)]
+
+
+# ------------------------------------------------- security review MED 5: structural scrub
+def _audit(o, action, details):
+    _exec(o, "INSERT INTO audit_logs (action, entity_type, entity_id, details, ip_address) "
+          "VALUES (:a, 'system', NULL, :d, '192.0.2.9')", a=action, d=json.dumps(details))
+    return o.sql("SELECT MAX(id) FROM audit_logs")[0][0]
+
+
+def _details(o, row_id):
+    return o.sql("SELECT details FROM audit_logs WHERE id=:i", i=row_id)[0][0]
+
+
+def test_erase_scrubs_non_ascii_identifiers_stored_json_escaped(odin):
+    o = odin
+    name = "zoë_ström_" + secrets.token_hex(2)
+    _create(o, name, "viewer")
+    uid = _uid(o, name)
+    row = _audit(o, "export.requested", {"by": name, "note": f"Requested by {name} today"})
+    assert name not in _details(o, row) and "\\u00eb" in _details(o, row)   # stored escaped
+    assert o.delete(f"/api/users/{uid}/erase", headers=o.H).status_code == 200
+    stored = json.loads(_details(o, row))
+    assert stored == {"by": "[deleted-user]", "note": "Requested by [deleted-user] today"}
+
+
+def test_identifier_colliding_with_a_json_key_and_bystanders_are_left_intact(odin):
+    o = odin
+    _create(o, "username", "viewer")          # a real account literally named "username"
+    _create(o, "username2", "viewer")         # a bystander whose name contains it
+    uid = _uid(o, "username")
+    target = _audit(o, "auth.login_failed", {"username": "username"})
+    bystander = _audit(o, "auth.login_failed", {"username": "username2", "note": "username2 from lab"})
+    unrelated = _audit(o, "printer.created", {"name": "Lab", "username": "someone-else"})
+    before = {r: _details(o, r) for r in (bystander, unrelated)}
+    assert o.delete(f"/api/users/{uid}/erase", headers=o.H).status_code == 200
+    assert json.loads(_details(o, target)) == {"username": "[deleted-user]"}   # key kept, value scrubbed
+    assert {r: _details(o, r) for r in (bystander, unrelated)} == before         # byte-identical
