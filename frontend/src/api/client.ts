@@ -2,6 +2,34 @@ import { clearSensitiveBrowserState } from '../permissions'
 
 const API_BASE = '/api'
 
+/**
+ * Human-readable text for a FastAPI error `detail`, which may be a string, an
+ * object such as {message, sent_count, failed_count}, or a validation-error list.
+ */
+export function errorDetailMessage(detail: unknown): string | null {
+  if (detail === null || detail === undefined || detail === '') return null
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    const parts = detail.map(item => errorDetailMessage(item && typeof item === 'object' && 'msg' in item ? (item as { msg: unknown }).msg : item)).filter(Boolean)
+    return parts.length ? parts.join('; ') : null
+  }
+  if (typeof detail === 'object') {
+    const record = detail as Record<string, unknown>
+    const base = errorDetailMessage(record.message ?? record.detail ?? record.msg)
+    const counts = typeof record.sent_count === 'number' && typeof record.failed_count === 'number'
+      ? ` (sent ${record.sent_count}, failed ${record.failed_count})` : ''
+    if (base) return base + counts
+    try { return JSON.stringify(detail) } catch { return null }
+  }
+  return String(detail)
+}
+
+function apiError(err: { detail?: unknown; message?: unknown }, fallback: string): Error {
+  const error = new Error(errorDetailMessage(err.detail) || errorDetailMessage(err.message) || fallback) as Error & { detail?: unknown }
+  if (err.detail !== undefined) error.detail = err.detail
+  return error
+}
+
 export async function fetchAPI<T = unknown>(endpoint: string, options: RequestInit = {}, responseFormat: 'json' | 'csv' = 'json'): Promise<T> {
   const headers = new Headers(options.headers)
   if (!(options.body instanceof FormData) && !headers.has('Content-Type')) {
@@ -29,16 +57,16 @@ export async function fetchAPI<T = unknown>(endpoint: string, options: RequestIn
   }
   if (response.status === 403) {
     const err = await response.json().catch(() => ({}))
-    throw new Error(err.detail || 'You do not have permission to perform this action.')
+    throw apiError(err, 'You do not have permission to perform this action.')
   }
   if (response.status === 404) {
     const err = await response.json().catch(() => ({}))
-    throw new Error(err.detail || 'The requested resource was not found.')
+    throw apiError(err, 'The requested resource was not found.')
   }
   if (!response.ok) {
     const err = await response.json().catch(() => ({}))
     if (err.detail) console.error('[API] Error detail:', err.detail)
-    throw new Error(err.detail || err.message || 'Request failed. Please try again.')
+    throw apiError(err, 'Request failed. Please try again.')
   }
   if (response.status === 204) return null as unknown as T
   if (responseFormat === 'csv') {
@@ -54,7 +82,7 @@ export const downloadBlob = async (endpoint: string, filename: string): Promise<
   const res = await fetch(`${API_BASE}${endpoint}`, { credentials: 'include' })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
-    throw new Error(err.detail || 'Export failed')
+    throw apiError(err, 'Export failed')
   }
   const blob = await res.blob()
   const url = URL.createObjectURL(blob)

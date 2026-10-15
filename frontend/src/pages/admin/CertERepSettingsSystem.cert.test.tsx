@@ -119,10 +119,8 @@ test('CertERep F10-10.9-06 Run Now surfaces an unconfigured SMTP refusal', async
   expect(await screen.findByText('Failed to send report: Report generation failed. Check report configuration.')).toBeInTheDocument()
 })
 
-// DEFECT: frontend/src/api/client.ts:41 fetchAPI does `new Error(err.detail || ...)`; the run-now 502 detail
-// is an object ({message,sent_count,failed_count}) so ReportScheduleManager.tsx:41 toasts
-// "Failed to send report: [object Object]" on partial delivery instead of the backend message/counts.
-test.fails('CertERep F10-10.9-06 Run Now partial delivery shows the backend message, not [object Object]', async () => {
+// Fixed (was: fetchAPI wrapped the object 502 detail {message,sent_count,failed_count} as "[object Object]").
+test('CertERep F10-10.9-06 Run Now partial delivery shows the backend message, not [object Object]', async () => {
   runResponse = scheduleWire.run_partial
   await openSystemTab()
   await screen.findByText('Cert weekly')
@@ -130,4 +128,5 @@ test.fails('CertERep F10-10.9-06 Run Now partial delivery shows the backend mess
   await screen.findByText(/^Failed to send report:/)
   expect(screen.queryByText(/\[object Object\]/)).not.toBeInTheDocument()
   expect(screen.getByText(/Report was not delivered to every recipient/)).toBeInTheDocument()
+  expect(screen.getByText(/Report was not delivered to every recipient/).textContent).toBe('Failed to send report: Report was not delivered to every recipient (sent 1, failed 1)')
 })
