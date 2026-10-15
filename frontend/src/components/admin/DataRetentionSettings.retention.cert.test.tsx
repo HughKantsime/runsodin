@@ -89,23 +89,21 @@ it('F12-12.5-02 UI cancelled confirmation never calls the cleanup route', async 
   expect(calls.filter(c => c.method === 'POST')).toHaveLength(0)
 })
 
-// DEFECT: frontend/src/components/admin/DataRetentionSettings.tsx:95-97,153-160 — the real backend answers
-// {status:"partial", refused:{timelapses:{status:"refused"}}} (timelapse TTL not applied), but the component reads
-// only result.deleted and renders "Cleanup complete:" with no mention that timelapses were refused. Scenario: an
-// admin sets Timelapses = 7 days, runs cleanup, is told it is complete, and month-old timelapses are retained.
-it.fails('F12-12.5-03 DEFECT partial cleanup (timelapses refused) is surfaced to the admin', async () => {
+// Regression for F12-12.5-03 (fixed): the real backend answers {status:"partial", refused:{timelapses:...}}
+// (timelapse TTL not applied); the component used to render "Cleanup complete:" and drop the refusal.
+it('F12-12.5-03 partial cleanup (timelapses refused) is surfaced to the admin', async () => {
   render(<DataRetentionSettings />)
   await screen.findByLabelText('Timelapses')
   fireEvent.click(screen.getByRole('button', { name: /Run Cleanup Now/ }))
   await screen.findByText('completed_jobs: 3 records deleted')
   expect(screen.queryByText(/Cleanup complete/)).toBeNull()
-  expect(screen.getByText(/timelapses/i)).toHaveTextContent(/refused|not (applied|cleaned|deleted)/i)
+  // Anchored on the result line: the "Timelapses" input label also matches /timelapses/i.
+  expect(screen.getByText(/^timelapses:/i)).toHaveTextContent(/refused|not (applied|cleaned|deleted)/i)
 })
 
-// DEFECT: frontend/src/components/admin/DataRetentionSettings.tsx:114 says data is kept "before automatic cleanup",
-// but no backend scheduler applies the policy (only POST /api/admin/retention/cleanup does; proven by
-// tests/test_contracts/test_cert_F_D_retention.py::test_no_automatic_cleanup_runs_without_manual_trigger).
-it.fails('F12-12.5-03 DEFECT description does not promise automatic cleanup that never runs', async () => {
+// Regression for F12-12.5-03 (fixed): the description used to promise "automatic cleanup", but no backend
+// scheduler applies the policy (tests/test_contracts/test_cert_F_D_retention.py::test_no_automatic_cleanup_runs_without_manual_trigger).
+it('F12-12.5-03 description does not promise automatic cleanup that never runs', async () => {
   render(<DataRetentionSettings />)
   await screen.findByLabelText('Audit logs')
   expect(screen.queryByText(/automatic cleanup/i)).toBeNull()

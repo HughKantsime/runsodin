@@ -16,7 +16,7 @@ export default function DataRetentionSettings() {
   const [cleaning, setCleaning] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-  const [cleanResult, setCleanResult] = useState(null)
+  const [cleanResult, setCleanResult] = useState<{ deleted: Record<string, number>; refused: Record<string, string>; partial: boolean } | null>(null)
 
   const [loadAttempt, setLoadAttempt] = useState(0)
   const [persisted, setPersisted] = useState(null)
@@ -90,10 +90,14 @@ export default function DataRetentionSettings() {
       const periods = FIELDS.map(({ key, label }) => `${label}: ${observed[key]} days`).join(', ')
       if (!confirm(`Run data cleanup now? This permanently deletes data using the server's current policy. Last observed policy: ${periods}. Another administrator may have changed it.`)) return
       if (!mounted.current || uncertain || !validPolicy(observed) || dirty) return
-      const result = await retention.runCleanup()
+      const result: any = await retention.runCleanup()
       if (!mounted.current) return
       if (!result?.deleted || typeof result.deleted !== 'object' || Array.isArray(result.deleted) || !Object.values(result.deleted).every(value => Number.isSafeInteger(value) && value >= 0)) throw new Error('Unable to verify cleanup result')
-      setCleanResult(result.deleted)
+      const refused = result.refused ?? {}
+      if (typeof refused !== 'object' || Array.isArray(refused)) throw new Error('Unable to verify cleanup result')
+      const refusedReasons: Record<string, string> = Object.fromEntries(Object.entries(refused).map(([k, v]: [string, any]) => [k, typeof v?.reason === 'string' ? v.reason : 'refused']))
+      const partial = result.status !== 'complete' || Object.keys(refusedReasons).length > 0
+      setCleanResult({ deleted: result.deleted, refused: refusedReasons, partial })
     } catch (err) {
       if (mounted.current) setError(err.message || 'Unable to verify data cleanup')
     } finally {
@@ -111,7 +115,7 @@ export default function DataRetentionSettings() {
         <Clock size={20} className="text-[var(--brand-primary)]" />
         <h3 className="text-lg font-semibold">Data Retention</h3>
       </div>
-      <p className="text-sm text-[var(--brand-text-secondary)] mb-4">Configure how long data is kept before automatic cleanup. Set to 0 to keep forever.</p>
+      <p className="text-sm text-[var(--brand-text-secondary)] mb-4">Configure how long data is kept. Nothing is removed on a schedule: data older than the policy is deleted only when an administrator runs cleanup. Set to 0 to keep forever.</p>
 
       {error && (
         <div role="alert" className="mb-3 p-3 bg-red-900/30 border border-red-700 rounded-md flex items-center gap-2 text-sm text-red-400">
@@ -152,10 +156,13 @@ export default function DataRetentionSettings() {
       </div>
 
       {cleanResult && (
-        <div className="mt-3 p-3 bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] text-sm">
-          <p className="text-[var(--brand-text-secondary)] font-medium mb-1">Cleanup complete:</p>
-          {Object.entries(cleanResult).map(([k, v]) => (
+        <div role="status" className="mt-3 p-3 bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] text-sm">
+          <p className="text-[var(--brand-text-secondary)] font-medium mb-1">{cleanResult.partial ? 'Cleanup partially applied:' : 'Cleanup complete:'}</p>
+          {Object.entries(cleanResult.deleted).map(([k, v]) => (
             <p key={k} className="text-[var(--brand-text-secondary)] text-xs">{k}: {v} records deleted</p>
+          ))}
+          {Object.entries(cleanResult.refused).map(([k, reason]) => (
+            <p key={k} className="text-orange-400 text-xs">{k}: not applied — cleanup refused ({reason}); this data was kept</p>
           ))}
         </div>
       )}
