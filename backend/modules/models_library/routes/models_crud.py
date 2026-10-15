@@ -4,7 +4,7 @@ from core.quota import charge_job_quota
 
 from core.rbac import should_filter_org
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from sqlalchemy import text, bindparam
 from typing import List, Optional
@@ -533,10 +533,17 @@ def _next_revision_number(db, model_id):
 
 @router.post("/{model_id}/revisions")
 async def create_model_revision(
-    model_id: int, changelog: str = "", file: UploadFile = File(None),
+    model_id: int, changelog: str = Query(""), file: UploadFile = File(None),
+    changelog_form: Optional[str] = Form(None, alias="changelog"),
     current_user: dict = Depends(require_role("operator", scope="write:models")), db: Session = Depends(get_db)
 ):
-    """Upload a revision, preserving fileless changelog revisions."""
+    """Upload a revision, preserving fileless changelog revisions.
+
+    The changelog is accepted as a multipart form field (what the UI sends) or as the
+    legacy query parameter; the form field wins when both are present.
+    """
+    if changelog_form is not None:
+        changelog = changelog_form
     model = db.query(Model).filter(Model.id == model_id).first()
     if not model or not check_org_access(current_user, model.org_id):
         raise HTTPException(status_code=404, detail="Model not found")

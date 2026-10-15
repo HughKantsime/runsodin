@@ -174,6 +174,11 @@ async def upload_3mf(
             import zipfile
             with zipfile.ZipFile(tmp_path, 'r') as zf:
                 plate_objects = extract_objects_from_plate(zf)
+                # Sliced plates are the Metadata/plate_N.gcode members (same rule as schedule-options).
+                plate_count = len({name for name in zf.namelist()
+                                   if re.fullmatch(r"Metadata/plate_[1-9][0-9]*\.gcode", name)}) or 1
+            # Default sellable pieces = objects checked by default (wipe towers excluded).
+            default_quantity = sum(1 for obj in plate_objects if obj.get("checked")) or 1
 
             # Extract 3D mesh for viewer
             mesh_data = extract_mesh_from_3mf(tmp_path)
@@ -188,14 +193,15 @@ async def upload_3mf(
                     filename, project_name, print_time_seconds, total_weight_grams,
                     layer_count, layer_height, nozzle_diameter, printer_model,
                     supports_used, bed_type, filaments_json, thumbnail_b64, mesh_data,
-                    file_hash, org_id, created_by
+                    file_hash, org_id, created_by, plate_count
                 ) VALUES (
                     :filename, :project_name, :print_time_seconds, :total_weight_grams,
                     :layer_count, :layer_height, :nozzle_diameter, :printer_model,
                     :supports_used, :bed_type, :filaments_json, :thumbnail_b64, :mesh_json,
-                    :file_hash, :org_id, :created_by
+                    :file_hash, :org_id, :created_by, :plate_count
                 )
             """, {
+                "plate_count": plate_count,
                 "filename": file.filename,
                 "project_name": metadata.project_name,
                 "print_time_seconds": metadata.print_time_seconds,
@@ -246,12 +252,15 @@ async def upload_3mf(
                 model_id = execute_insert_returning_id(db, """
                     INSERT INTO models (
                         name, build_time_hours, default_filament_type,
-                        color_requirements, thumbnail_b64, print_file_id, category, org_id
+                        color_requirements, thumbnail_b64, print_file_id, category, org_id,
+                        quantity_per_bed
                     ) VALUES (
                         :name, :build_time_hours, :filament_type,
-                        :color_requirements, :thumbnail_b64, :print_file_id, :category, :org_id
+                        :color_requirements, :thumbnail_b64, :print_file_id, :category, :org_id,
+                        :quantity_per_bed
                     )
                 """, {
+                    "quantity_per_bed": default_quantity,
                     "name": normalized_name,
                     "build_time_hours": round(metadata.print_time_seconds / 3600.0, 2),
                     "filament_type": fil_type,

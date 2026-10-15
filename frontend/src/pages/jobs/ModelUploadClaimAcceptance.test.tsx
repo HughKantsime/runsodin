@@ -42,8 +42,11 @@ test('F05-5.1-04 object selection changes count and persists quantity_per_bed to
  fireEvent.click(screen.getByRole('checkbox',{name:'Synthetic part A'}))
  expect(screen.getByText('Sellable pieces:').textContent).toContain('1')
  await waitFor(()=>expect(api.update).toHaveBeenCalledExactlyOnceWith(41,{quantity_per_bed:1}))
+ // Unchecking every object would send quantity_per_bed=0, which the API rejects (ge=1);
+ // the page refuses it visibly instead of firing a doomed PATCH (cert C F05-5.1-04).
  fireEvent.click(screen.getByRole('checkbox',{name:'Synthetic part B'}))
- await waitFor(()=>expect(api.update).toHaveBeenLastCalledWith(41,{quantity_per_bed:0}))
+ await new Promise(resolve=>setTimeout(resolve,400))
+ expect(api.update).toHaveBeenCalledExactlyOnceWith(41,{quantity_per_bed:1})
 })
 test('F05-5.1-05 verified schedule options render all selectable plates',async()=>{
  mount(<Models/>,'/models?schedule=41')
