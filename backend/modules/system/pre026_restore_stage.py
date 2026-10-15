@@ -132,11 +132,17 @@ def prepared_archive(archive,target_url,maintenance_url,password_file,maintenanc
                 drop=lambda names:artifacts.drop_databases(maintenance_url,maintenance_password_file,names),
                 deadline=monotonic()+STAGE_SECONDS)
         except preserved029.Preserved029Refused as refusal:
-            if refusal.kind in ('BackupValidationError','MigrationError') and refusal.detail:raise b.BackupValidationError(refusal.detail) from None
-            raise b.BackupValidationError('Historical PostgreSQL archive refused by the preserved029 stage ('+refusal.kind+')') from None
+            # The preserved sources judged the archive. Their client/credential failures are
+            # environment problems; every other typed refusal is about the archive itself.
+            detail=refusal.detail or ''
+            archive_kind=refusal.kind in ('BackupValidationError','MigrationError') and detail and not detail.startswith(('PostgreSQL client operation failed','PostgreSQL password file','Required PostgreSQL client','PostgreSQL backup validation requires','PostgreSQL maintenance password file'))
+            archive_kind=archive_kind or (refusal.kind=='Preserved029Error' and detail.startswith(('Preserved029 stage tables differ','Preserved029 stage ledger differs')))
+            if archive_kind:raise b.ArchiveRefused(detail) from None
+            raise b.RestoreEnvironmentError('Historical PostgreSQL archive stage could not run ('+refusal.kind+(': '+detail[:200] if detail else '')+')') from None
         except preserved029.Preserved029Error as error:
             # Parent-side refusals are source-authored text (never driver output).
-            raise b.BackupValidationError('Historical PostgreSQL archive stage did not validate: '+str(error)[:200]) from None
+            if str(error).startswith('Preserved029 stage ledger differs'):raise b.ArchiveRefused(str(error)) from None
+            raise b.RestoreEnvironmentError('Historical PostgreSQL archive stage did not validate: '+str(error)[:200]) from None
         with engine.connect() as c:
             if tuple(c.execute(text('SELECT oid,datdba FROM pg_database WHERE datname=current_database()')).one())!=identity:raise b.BackupValidationError('Historical stage identity differs')
         bootstrap_database(engine) # Live sources: 027-era stage -> current schema.

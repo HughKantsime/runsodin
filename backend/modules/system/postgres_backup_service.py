@@ -8,9 +8,11 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -62,6 +64,58 @@ class PostgreSQLTOCInventory:
 # survive process death; the durable unfinished manifest must gate startup.
 _FAILED_RESTORE_BARRIERS: dict[str, tuple[object, object]] = {}
 
+
+class ArchiveRefused(BackupValidationError):
+    """Deterministic refusal of the archive's content; re-running cannot change it."""
+
+
+class RestoreEnvironmentError(BackupValidationError):
+    """Credentials, clients or local storage are not usable; the archive was not judged."""
+
+
+class RestoreAcknowledgementRequired(BackupValidationError):
+    """The operator has not acknowledged the staged archive's SHA-256."""
+
+
+class PostgreSQLClientFailed(BackupValidationError):
+    """A pg_dump/pg_restore run failed. ``connects`` says whether it talked to a server."""
+
+    def __init__(self, message: str, *, connects: bool):
+        super().__init__(message)
+        self.connects = connects
+
+
+def _as_archive_refusal(error: BaseException) -> BaseException:
+    """Classify an error raised while the archive itself is being validated."""
+    from core.schema.migrator import MigrationError
+    if isinstance(error, (ArchiveRefused, RestoreEnvironmentError, RestoreAcknowledgementRequired)):
+        return error
+    if isinstance(error, PostgreSQLClientFailed):
+        if error.connects:
+            return error
+        refused = ArchiveRefused(str(error)); refused.__cause__ = error
+        return refused
+    if isinstance(error, (BackupValidationError, MigrationError)):
+        refused = ArchiveRefused(str(error)); refused.__cause__ = error
+        return refused
+    return error
+
+
+@contextmanager
+def _archive_phase(manager):
+    """Enter ``manager`` (archive validation) classifying its refusals; its body is not."""
+    try:
+        value = manager.__enter__()
+    except BaseException as error:
+        raise _as_archive_refusal(error)
+    try:
+        yield value
+    except BaseException:
+        if not manager.__exit__(*sys.exc_info()):
+            raise
+    else:
+        manager.__exit__(None, None, None)
+
 _SAFE_DATABASE_NAME = re.compile(r"^odin_validate_[0-9a-f]{20}$")
 _SAFE_ROLLBACK_NAME = re.compile(
     r"^rollback_[0-9]{8}_[0-9]{6}_[0-9]{6}\.dump$"
@@ -109,13 +163,13 @@ def _require_distinct_maintenance_secret(
 ) -> str:
     """Require maintenance credentials that cannot silently alias the app role."""
     if not maintenance_password_file:
-        raise BackupValidationError(
+        raise RestoreEnvironmentError(
             "PostgreSQL backup validation requires a dedicated maintenance password file"
         )
     if password_file and Path(password_file).resolve() == Path(
         maintenance_password_file
     ).resolve():
-        raise BackupValidationError(
+        raise RestoreEnvironmentError(
             "PostgreSQL maintenance password file must be distinct from the application password file"
         )
     return maintenance_password_file
@@ -222,16 +276,16 @@ def _postgres_password(password_file: str | None) -> str:
         mode = secret_path.stat().st_mode & 0o777
         secret = secret_path.read_text(encoding="utf-8").rstrip("\r\n")
     except OSError as exc:
-        raise BackupValidationError("PostgreSQL password file is not readable") from exc
+        raise RestoreEnvironmentError("PostgreSQL password file is not readable") from exc
     if mode & 0o077 or not secret or "\n" in secret or "\r" in secret:
-        raise BackupValidationError("PostgreSQL password file is invalid or too permissive")
+        raise RestoreEnvironmentError("PostgreSQL password file is invalid or too permissive")
     return secret
 
 
 def _run_pg_tool(command: list[str], database_url: str, password_file: str | None, directory: Path) -> str:
     executable = shutil.which(command[0])
     if not executable:
-        raise BackupValidationError(f"Required PostgreSQL client is unavailable: {command[0]}")
+        raise RestoreEnvironmentError(f"Required PostgreSQL client is unavailable: {command[0]}")
     command = [executable, *command[1:]]
     environment = os.environ.copy()
     environment.pop("PGPASSFILE", None)
@@ -247,8 +301,9 @@ def _run_pg_tool(command: list[str], database_url: str, password_file: str | Non
             timeout=300,
         )
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        raise BackupValidationError(
-            f"PostgreSQL client operation failed: {Path(command[0]).name}"
+        raise PostgreSQLClientFailed(
+            f"PostgreSQL client operation failed: {Path(command[0]).name}",
+            connects=any(item == "--dbname" or item.startswith("--dbname=") for item in command),
         ) from exc
     return result.stdout
 
@@ -1137,7 +1192,7 @@ def quarantine_failed_pending_postgres_restore(
     directory; startup then continues on the untouched target instead of restarting
     forever. Returns None when the failure is not quarantinable, and the caller re-raises.
     """
-    if target_url in _FAILED_RESTORE_BARRIERS:
+    if not isinstance(error, ArchiveRefused) or target_url in _FAILED_RESTORE_BARRIERS:
         return None
     paths = postgres_paths(base_dir)
     try:
@@ -1176,7 +1231,54 @@ def quarantine_failed_pending_postgres_restore(
             {"reason": reason, "candidate_sha256": manifest.get("sha256"), "target_untouched": True})
     except Exception:  # The record file and the returned status already carry the reason.
         pass
+    try:
+        _notify_superadmins_of_quarantine(target_url, password_file, record)
+    except Exception:  # The backups list and diagnostics still show the record.
+        pass
     return record
+
+
+def _notify_superadmins_of_quarantine(target_url, password_file, record) -> None:
+    """Persistent in-app alert for every active superadmin (existing alerts table)."""
+    engine = create_database_engine(target_url, role="restore", password_file=password_file)
+    try:
+        with engine.begin() as connection:
+            admins = connection.execute(text(
+                "SELECT id FROM users WHERE role='admin' AND group_id IS NULL AND is_active IS TRUE")).scalars().all()
+            for user_id in admins:
+                connection.execute(text(
+                    "INSERT INTO alerts(user_id,alert_type,severity,title,message,is_read,is_dismissed,metadata_json) "
+                    "VALUES(:u,'maintenance_overdue','critical',:t,:m,FALSE,FALSE,:j)"),
+                    {"u": user_id, "t": "Database restore was not applied",
+                     "m": f"{record['reason']} {record['action']} The archive is kept as {record['archive']} in the backup list.",
+                     "j": json.dumps({"kind": "restore_quarantined", "archive": record["archive"],
+                                      "candidate_sha256": record["candidate_sha256"], "failed_at": record["failed_at"]})})
+    finally:
+        engine.dispose()
+
+
+QUARANTINE_RETENTION_DAYS = 30
+_QUARANTINED = re.compile(r"failed_restore_\d{8}_\d{6}_\d{6}\.(dump|json)")
+
+
+def quarantined_restores(base_dir: Path | None = None) -> list[dict[str, object]]:
+    """Quarantined restore records (newest first) for the backups list and diagnostics."""
+    backups = postgres_paths(base_dir).backups
+    if not backups.is_dir():
+        return []
+    entries = []
+    for record_path in sorted(backups.glob("failed_restore_*.json"), reverse=True):
+        if not _QUARANTINED.fullmatch(record_path.name):
+            continue
+        try:
+            record = json.loads(record_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            record = {"reason": "Quarantine record is unreadable"}
+        archive = backups / (record_path.stem + ".dump")
+        entries.append({"record": record_path.name, "archive": archive.name if archive.is_file() else None,
+                        "reason": record.get("reason"), "action": record.get("action"),
+                        "candidate_sha256": record.get("candidate_sha256"), "failed_at": record.get("failed_at")})
+    return entries
 
 
 def apply_pending_postgres_restore(
@@ -1207,10 +1309,13 @@ def apply_pending_postgres_restore(
         if not paths.pending.is_file():
             raise BackupValidationError("Pending PostgreSQL restore pair is incomplete")
         if acknowledgement != manifest.get("sha256"):
-            raise BackupValidationError(
+            raise RestoreAcknowledgementRequired(
                 "PostgreSQL restore acknowledgement must exactly match the staged SHA-256"
             )
-        candidate = _inspect_compatible_archive(paths.pending,target_url,password_file,paths.backups)
+        try:
+            candidate = _inspect_compatible_archive(paths.pending,target_url,password_file,paths.backups)
+        except BaseException as error:
+            raise _as_archive_refusal(error)
         if (
             candidate["sha256"] != manifest.get("sha256")
             or candidate["size_bytes"] != manifest.get("size_bytes")
@@ -1338,7 +1443,7 @@ def apply_pending_postgres_restore(
                     prefix="rollback_",
                 )
                 from modules.system.pre026_restore_stage import prepared_archive
-                with prepared_archive(paths.pending,target_url,maintenance_url,password_file,maintenance_password_file,paths.backups) as prepared:
+                with _archive_phase(prepared_archive(paths.pending,target_url,maintenance_url,password_file,maintenance_password_file,paths.backups)) as prepared:
                     with restore_lock(paths.lock):
                         _assert_no_target_sessions(
                             maintenance_connection,
