@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # O.D.I.N. Updater — run from your odin/ install directory
 set -euo pipefail
+# An exported CDPATH makes `cd` print the resolved directory, which corrupts the
+# $(cd ... && pwd -P) path resolution below.
+unset CDPATH
 
 if [ -n "${ODIN_IMAGE+x}" ]; then
     ODIN_IMAGE_EXPLICIT=1
@@ -113,6 +116,7 @@ draw_box() {
 cleanup() {
     local exit_code=$?
     spin_stop
+    [ -n "${tmp_self:-}" ] && rm -f "$tmp_self"
     if [ "${UPDATE_FAILED:-}" = "1" ]; then
         printf "\n${RED}Update failed.${RESET}\n"
         dim "If the problem persists, open an issue at:"
@@ -257,8 +261,13 @@ if [ "${ODIN_SELF_UPDATED:-}" != "1" ]; then
         if ! diff -q "$SELF" "$tmp_update" > /dev/null 2>&1; then
             spin_stop
             dim "Updater has a new version, restarting..."
-            cp "$tmp_update" "$SELF"
-            chmod +x "$SELF"
+            # Replace atomically: stage next to the script (same filesystem), then rename
+            # over it, so an interrupted or failed copy never leaves a truncated updater.
+            tmp_self=$(mktemp "${SELF_DIR}/.update.sh.XXXXXX")
+            cp "$tmp_update" "$tmp_self"
+            chmod 755 "$tmp_self"
+            mv -f "$tmp_self" "$SELF"
+            tmp_self=""
             rm -f "$tmp_update"
             export ODIN_SELF_UPDATED=1
             exec bash "$SELF" "$@"

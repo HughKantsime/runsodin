@@ -387,12 +387,47 @@ def test_update_failure_prints_rollback_that_actually_restores_previous_version(
     assert version == STATE["current_version"]
 
 
+def _assert_self_updated(install_dir: Path, newer: Path, out: str) -> None:
+    assert "Updater has a new version, restarting..." in out, out[-1500:]
+    assert out.count("Updater — Orchestrated") == 2, out[-1500:]  # the old updater, then the re-exec'd one
+    assert "Already up to date!" in out, out[-1500:]
+    installed = install_dir / "update.sh"
+    assert installed.read_text() == newer.read_text()
+    assert stat.S_IMODE(installed.stat().st_mode) == 0o755
+    assert not list(install_dir.glob(".update.sh.*"))  # the atomic staging file was renamed, not left behind
+
+
 def test_update_works_when_invoked_by_relative_path_from_parent_directory():
     root = STATE["main"]
-    result = _run(f"{root.name}/update.sh", _update_env(ODIN_REPO=_repo(root, STATE["current_version"])), cwd=root)
+    install_dir = root / root.name
+    # a differing update source, given relative to the caller's directory, so the run copies and re-execs
+    newer = root / "update-relative-newer.sh"
+    newer.write_text(UPDATE_SH.read_text() + "\n# cert-H relative-path self-update marker\n")
+    assert newer.read_text() != (install_dir / "update.sh").read_text()
+    result = _run(f"{root.name}/update.sh",
+                  _update_env(ODIN_REPO=_repo(root, STATE["current_version"]), ODIN_UPDATE_SOURCE=newer.name), cwd=root)
     out = result.stdout + result.stderr
     _log("update-relative-path", out)
-    assert result.returncode == 0 and "Already up to date!" in out, out[-1500:]
+    assert result.returncode == 0, out[-1500:]
+    _assert_self_updated(install_dir, newer, out)
+
+
+def test_update_self_update_is_not_misled_by_an_exported_cdpath():
+    root = STATE["main"]
+    install_dir = root / root.name
+    # CDPATH holds a decoy directory with the same name; `cd odin-dir` would resolve to it and print its path
+    decoy = root / "cdpath" / root.name
+    decoy.mkdir(parents=True, exist_ok=True)
+    newer = root / "update-cdpath-newer.sh"
+    newer.write_text(UPDATE_SH.read_text() + "\n# cert-H CDPATH self-update marker\n")
+    env = _update_env(ODIN_REPO=_repo(root, STATE["current_version"]), ODIN_UPDATE_SOURCE=str(newer),
+                      CDPATH=str(root / "cdpath"))
+    result = _run(f"{root.name}/update.sh", env, cwd=root)
+    out = result.stdout + result.stderr
+    _log("update-cdpath", out)
+    assert result.returncode == 0, out[-1500:]
+    _assert_self_updated(install_dir, newer, out)
+    assert list(decoy.iterdir()) == []
 
 
 # ── F22-22.4-04 SIGINT traps ─────────────────────────────────────────────────

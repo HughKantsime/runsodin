@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # O.D.I.N. Installer — curl -sfL https://raw.githubusercontent.com/HughKantsime/runsodin/master/install/install.sh | bash
 set -euo pipefail
+# An exported CDPATH makes `cd` print the resolved directory, which corrupts the
+# $(cd ... && pwd -P) path resolution below.
+unset CDPATH
 
 # Windows detection: if running under Cygwin, MSYS2, or Git Bash, redirect to PowerShell installer
 case "$(uname -s 2>/dev/null)" in
