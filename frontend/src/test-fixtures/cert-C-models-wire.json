@@ -1,0 +1,77 @@
+{
+  "scope": "Owned real GET /models-with-pricing response (cert C)",
+  "models": [
+    {
+      "id": 13,
+      "name": "Cert bracket",
+      "build_time_hours": 1.51,
+      "default_filament_type": "PLA",
+      "color_requirements": {
+        "slot1": {
+          "color": "#FF0000",
+          "grams": 29.25
+        },
+        "slot2": {
+          "color": "#000000",
+          "grams": 12.12
+        }
+      },
+      "category": "Uploaded",
+      "thumbnail_url": null,
+      "thumbnail_b64": "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAQUlEQVQoFZXBAQEAAADBMIrI+YhiyWBziR4u0cMlerhED5fo4RI9XKKHS/RwiR4u0cMlerhED5fo4RI9XKKHS/QYlPUV8XrjFQAAAAAASUVORK5CYII=",
+      "notes": null,
+      "cost_per_item": null,
+      "units_per_bed": null,
+      "markup_percent": null,
+      "created_at": "2026-10-14T12:00:00",
+      "updated_at": "2026-10-14T12:00:00",
+      "required_colors": [
+        "#ff0000",
+        "#000000"
+      ],
+      "total_filament_grams": 41.37,
+      "variant_count": 1,
+      "job_statistics": {
+        "completed_job_count": 0,
+        "actual_print_hours": 0.0,
+        "unknown_timing_job_count": 0
+      },
+      "estimated_cost": 5.72,
+      "suggested_price": 8.58,
+      "margin_percent": 50.0,
+      "is_favorite": false,
+      "bed_x_mm": null,
+      "bed_y_mm": null
+    },
+    {
+      "id": 14,
+      "name": "Cert hinge",
+      "build_time_hours": null,
+      "default_filament_type": "PETG",
+      "color_requirements": null,
+      "category": "Uploaded",
+      "thumbnail_url": null,
+      "thumbnail_b64": null,
+      "notes": null,
+      "cost_per_item": null,
+      "units_per_bed": null,
+      "markup_percent": null,
+      "created_at": "2026-10-14T12:00:00",
+      "updated_at": "2026-10-14T12:00:00",
+      "required_colors": [],
+      "total_filament_grams": 0,
+      "variant_count": 1,
+      "job_statistics": {
+        "completed_job_count": 0,
+        "actual_print_hours": 0.0,
+        "unknown_timing_job_count": 0
+      },
+      "estimated_cost": 4.57,
+      "suggested_price": 6.86,
+      "margin_percent": 50.0,
+      "is_favorite": true,
+      "bed_x_mm": null,
+      "bed_y_mm": null
+    }
+  ]
+}

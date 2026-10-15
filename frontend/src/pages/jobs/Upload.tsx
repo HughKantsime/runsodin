@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Upload as UploadIcon, FileUp, Clock, Scale, Layers, Check, Printer, Trash2, ArrowRight, Calendar, CheckSquare, Square, Zap } from 'lucide-react'
 import { useNavigate, Link } from 'react-router-dom'
@@ -295,6 +295,33 @@ export default function Upload() {
   const [uploadedFile, setUploadedFile] = useState(null)
   const [uploadProgress, setUploadProgress] = useState(null)
 
+  // Sellable pieces (checked objects) persist as models.quantity_per_bed. The default
+  // checked count is saved after upload and each toggle re-saves; rapid changes are
+  // coalesced into one PATCH and a pending save is flushed on unmount.
+  const pendingQuantity = useRef(null)
+  const quantityTimer = useRef(null)
+  const flushQuantity = useCallback(() => {
+    clearTimeout(quantityTimer.current)
+    const pending = pendingQuantity.current
+    pendingQuantity.current = null
+    if (!pending) return
+    modelsApi.update(pending.modelId, { quantity_per_bed: pending.count })
+      .catch(e => toast.error('Failed to save sellable pieces: ' + (e?.message || 'Unknown error')))
+  }, [])
+  const saveQuantity = useCallback((modelId, objects) => {
+    if (!modelId) return
+    const count = (objects || []).filter(o => o.checked).length
+    clearTimeout(quantityTimer.current)
+    if (count < 1) {
+      pendingQuantity.current = null
+      toast.error('Select at least one sellable object')
+      return
+    }
+    pendingQuantity.current = { modelId, count }
+    quantityTimer.current = setTimeout(flushQuantity, 250)
+  }, [flushQuantity])
+  useEffect(() => flushQuantity, [flushQuantity])
+
   const { data: approvalSetting } = useQuery({
     queryKey: ['approval-setting'],
     queryFn: getApprovalSetting,
@@ -335,6 +362,7 @@ export default function Upload() {
     },
     onSuccess: (data) => {
       setUploadedFile(data)
+      if (data?.objects?.length) saveQuantity(data.model_id, data.objects)
       setUploadProgress(null)
       queryClient.invalidateQueries({ queryKey: ['print-files'] })
       queryClient.invalidateQueries({ queryKey: ['models'] })
@@ -367,11 +395,7 @@ export default function Upload() {
           onViewLibrary={() => navigate('/models')}
           onUpdateObjects={(newObjects) => {
             setUploadedFile(prev => ({ ...prev, objects: newObjects }))
-            const checkedCount = newObjects.filter(o => o.checked).length
-            if (uploadedFile?.model_id) {
-              modelsApi.update(uploadedFile.model_id, { quantity_per_bed: checkedCount })
-                .catch(e => console.error('Failed to save quantity_per_bed:', e))
-            }
+            saveQuantity(uploadedFile?.model_id, newObjects)
           }}
           onScheduleNow={() => navigate(`/models?schedule=${uploadedFile.model_id}`)}
           submitForApproval={showSubmitForApproval}
