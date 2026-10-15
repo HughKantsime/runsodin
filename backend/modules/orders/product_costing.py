@@ -17,7 +17,7 @@ def _number(value, *, positive=False, integer=False):
 
 
 def _filament_cost_per_item(model):
-    """Printed-component cost from filament usage: sliced grams x the material's rate.
+    """Printed-component cost from filament usage: plate grams x material rate / pieces per plate.
 
     The rate is the filament library's cost_per_gram for the model's material, else the
     pricing-config spool_cost / spool_weight (same resolution as the model cost calculator).
@@ -48,7 +48,9 @@ def _filament_cost_per_item(model):
         if spool_cost is None or spool_weight is None:
             return None
         rate = spool_cost / spool_weight
-    return grams * rate
+    # Sliced grams are for the whole plate; a plate yields quantity_per_bed sellable pieces.
+    pieces = _number(getattr(model, 'quantity_per_bed', None), positive=True, integer=True) or 1
+    return grams * rate / pieces
 
 
 def estimated_product_cogs(product):

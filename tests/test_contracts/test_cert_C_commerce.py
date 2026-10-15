@@ -142,3 +142,17 @@ def test_filament_cogs_unknown_without_grams_and_entered_cost_still_wins(bom_cli
     review_db.execute(text("UPDATE models SET cost_per_item=1.25, color_requirements=:c WHERE id=101"), {'c': json.dumps({'slot1': {'color': '#000000', 'grams': 100}})})
     review_db.commit()
     assert bom_client.get('/products/101').json()['estimated_cogs'] == pytest.approx(2.5)
+
+
+def test_filament_cogs_is_per_sellable_piece_not_per_plate(bom_client, review_db):
+    """100 g plate holding 4 sellable pieces at $0.05/g costs $1.25 per item (review HIGH-1)."""
+    review_db.execute(text("INSERT INTO filament_library(id,brand,name,material,cost_per_gram) VALUES(302,'Cert','PETG rate','PETG',0.05)"))
+    review_db.execute(text("UPDATE models SET cost_per_item=NULL, quantity_per_bed=4, default_filament_type='PETG', color_requirements=:c WHERE id=101"),
+                      {'c': json.dumps({'slot1': {'color': '#000000', 'grams': 100}})})
+    review_db.commit()
+    assert bom_client.post('/products/101/components', json={'model_id': 101, 'quantity_needed': 1}).status_code == 200
+    assert bom_client.get('/products/101').json()['estimated_cogs'] == pytest.approx(1.25)
+    for stored in (0, None):
+        review_db.execute(text('UPDATE models SET quantity_per_bed=:q WHERE id=101'), {'q': stored})
+        review_db.commit()
+        assert bom_client.get('/products/101').json()['estimated_cogs'] == pytest.approx(5.0)
