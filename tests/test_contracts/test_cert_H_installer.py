@@ -240,6 +240,9 @@ def test_non_tty_reinstall_over_existing_install_does_not_prompt():
     _log("reinstall-non-tty", out)
     assert result.returncode == 0, out[-2000:]
     assert "Port 27431 is held by this install's running O.D.I.N. container" in out
+    assert "Ports 27431, 27432, 27433 free" not in out
+    assert ("Ports 27431, 27432, 27433 usable (27431, 27432, 27433 held by this install's "
+            f"{root.name}-odin container, which will be recreated)") in out
     assert "Existing install detected in non-interactive mode. Re-installing." in out
     assert _ready(27431)
 
@@ -255,6 +258,23 @@ def test_reinstall_still_refuses_ports_held_by_another_container():
     assert "Port 27431 in use" in out and "Required ports are in use" in out
     assert "held by this install's running" not in out
     assert _ready(27431) and _container_image(f"{root.name}-odin")
+
+
+def test_reinstall_refuses_ports_of_the_same_project_started_from_another_directory():
+    root = STATE["main"]
+    # same compose project and container name, but this install directory is not the one it runs from
+    other = root / "other-install"
+    other.mkdir(exist_ok=True)
+    shutil.copy(COMPOSE, other / "docker-compose.yml")
+    env = {**STATE["main_env"], "ODIN_INSTALL_DIR": str(other)}
+    result = _run(INSTALL_SH, env)
+    out = result.stdout + result.stderr
+    _log("reinstall-other-workdir", out)
+    assert result.returncode == 1, out[-2000:]
+    assert "Port 27431 in use" in out and "Required ports are in use" in out
+    assert "held by this install's running" not in out
+    assert sorted(p.name for p in other.iterdir()) == ["docker-compose.yml"]  # refused before writing anything
+    assert _ready(27431)
 
 
 def test_non_tty_install_pulls_published_image_from_registry():

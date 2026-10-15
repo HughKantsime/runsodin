@@ -354,10 +354,12 @@ if [ -f "${INSTALL_DIR}/docker-compose.yml" ]; then
     fi
 fi
 port_fail=0
+accepted_ports=""
 for port in "$ODIN_HTTP_PORT" "$ODIN_GO2RTC_PORT" "$ODIN_WEBRTC_PORT"; do
     case "$own_ports" in
         *" $port "*)
             dim "Port $port is held by this install's running O.D.I.N. container (${ODIN_CONTAINER_NAME}); it will be recreated"
+            accepted_ports="${accepted_ports:+${accepted_ports}, }${port}"
             continue ;;
     esac
     if ! check_port "$port"; then
@@ -441,7 +443,11 @@ if [ "${ODIN_SKIP_PUBLIC_CHECK:-0}" != "1" ]; then
         fi
     fi
 fi
-ok "Ports ${ODIN_HTTP_PORT}, ${ODIN_GO2RTC_PORT}, ${ODIN_WEBRTC_PORT} free"
+if [ -n "$accepted_ports" ]; then
+    ok "Ports ${ODIN_HTTP_PORT}, ${ODIN_GO2RTC_PORT}, ${ODIN_WEBRTC_PORT} usable (${accepted_ports} held by this install's ${ODIN_CONTAINER_NAME} container, which will be recreated)"
+else
+    ok "Ports ${ODIN_HTTP_PORT}, ${ODIN_GO2RTC_PORT}, ${ODIN_WEBRTC_PORT} free"
+fi
 
 # Architecture
 arch=$(uname -m)
