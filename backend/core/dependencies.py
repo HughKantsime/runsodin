@@ -386,6 +386,11 @@ async def get_current_user(
 
         # 2b: Per-user scoped tokens (odin_xxx format)
         principal = resolve_user_api_token(api_key, db)
+        from core.api_token_policy import is_camera_only
+        if principal and is_camera_only(principal.get("_token_scopes")):
+            # Overlay camera tokens authenticate only /overlay/{id}/camera, which
+            # resolves them itself; never a general API credential.
+            return None
         if principal:
             bind_verified_actor(db, principal)
             return principal

@@ -37,3 +37,14 @@ def token_scope_granted(scopes, required):
         return True
     action, separator, resource = required.partition(":")
     return bool(separator and resource and action in ("read", "write") and action in scopes)
+
+
+# Scopes that authenticate only the OBS overlay camera relay. A token holding
+# nothing else is not a general credential: get_current_user refuses it on
+# every route, whatever scope (or none) the route declares.
+CAMERA_ONLY_SCOPES = frozenset({"read:cameras"})
+CAMERA_TOKEN_DEFAULT_DAYS = 365  # default lifetime of a camera-only token
+
+
+def is_camera_only(scopes) -> bool:
+    return bool(scopes) and set(scopes) <= CAMERA_ONLY_SCOPES

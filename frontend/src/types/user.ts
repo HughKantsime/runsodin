@@ -97,7 +97,7 @@ export interface ApiToken {
 export interface ApiTokenCreate {
   name: string;
   scopes?: string[];
-  expires_in_days?: number;
+  expires_days?: number | null;
 }
 
 export interface ApiTokenCreateResponse extends ApiToken {

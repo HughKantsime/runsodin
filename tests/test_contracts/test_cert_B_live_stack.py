@@ -502,7 +502,8 @@ def test_F02_2_8_06_copy_overlay_url_from_printer_card(live):
     status, kind, first = stream_head(f"/api/overlay/{live.ids['rtsp']}/camera?token={copied}")
     assert status == 200 and kind.startswith("multipart/x-mixed-replace") and first, (status, kind)
     tokens = live.json("GET", "/api/tokens", token=live.tokens["certb-operator"])[1]
-    assert any(t["name"] == f"OBS overlay: {RTSP} (#{live.ids['rtsp']})" and t["scopes"] == ["read:cameras"] for t in tokens), tokens
+    assert any(t["name"].startswith(f"OBS overlay: {RTSP} (#{live.ids['rtsp']}) ") and t["scopes"] == ["read:cameras"]
+               and t["expires_at"] for t in tokens), tokens  # labelled per printer and day, expiring
 
 
 # --------------------------------------------------------------------------- Klipper live print lifecycle

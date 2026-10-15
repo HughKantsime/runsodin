@@ -79,7 +79,10 @@ async function copyOverlayUrl(printer: { id: number; name: string; nickname?: st
     return
   }
   try {
-    const created = await apiTokens.create({ name: `OBS overlay: ${printer.nickname || printer.name} (#${printer.id})`, scopes: ['read:cameras'] })
+    // A raw token cannot be read back, so each copy mints one; the name says which
+    // printer and day it was made for, and it expires after a year.
+    const day = new Date().toISOString().slice(0, 10)
+    const created = await apiTokens.create({ name: `OBS overlay: ${printer.nickname || printer.name} (#${printer.id}) ${day}`, scopes: ['read:cameras'], expires_days: 365 })
     await navigator.clipboard.writeText(`${base}?token=${encodeURIComponent(created.token)}`)
     toast.success('Overlay URL copied. It includes a camera token; revoke it in Settings > API Tokens.')
   } catch {

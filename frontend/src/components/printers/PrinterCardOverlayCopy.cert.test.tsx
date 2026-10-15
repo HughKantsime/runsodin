@@ -25,7 +25,7 @@ test('printer with a camera: mints a read:cameras token and copies the token-bea
   mount(printer())  // no hasCamera prop yet (camera list still loading): printer data decides
   fireEvent.click(screen.getByRole('button', { name: 'Copy OBS overlay URL' }))
   await waitFor(() => expect(writes).toHaveLength(1))
-  expect(state.create).toHaveBeenCalledWith({ name: 'OBS overlay: Bay 7 (#7)', scopes: ['read:cameras'] })
+  expect(state.create).toHaveBeenCalledWith({ name: `OBS overlay: Bay 7 (#7) ${new Date().toISOString().slice(0, 10)}`, scopes: ['read:cameras'], expires_days: 365 })
   expect(writes[0]).toBe(`${window.location.origin}/overlay/7?token=odin_synthetic%2Btoken`)
 })
 
