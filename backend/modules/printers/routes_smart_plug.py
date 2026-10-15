@@ -80,6 +80,15 @@ async def update_plug_config(printer_id: int, request: Request, current_user: di
     plug_type = data.get("type")
     if plug_type and plug_type not in ("tasmota", "homeassistant", "mqtt"):
         raise HTTPException(400, "Invalid plug type. Use: tasmota, homeassistant, mqtt")
+    # Fields the client omits keep their stored values, so re-saving the
+    # printer settings panel never wipes a stored token or automation options.
+    current = db.execute(text(
+        "SELECT plug_auth_token, plug_auto_on, plug_auto_off, plug_cooldown_minutes FROM printers WHERE id = :id"
+    ), {"id": printer_id}).fetchone()
+    if "auth_token" in data:
+        auth_token = crypto.encrypt(data["auth_token"]) if data.get("auth_token") else None
+    else:
+        auth_token = current[0] if current else None
 
     db.execute(text("""
         UPDATE printers SET
@@ -96,10 +105,10 @@ async def update_plug_config(printer_id: int, request: Request, current_user: di
         "plug_type": plug_type,
         "plug_host": data.get("host"),
         "plug_entity_id": data.get("entity_id"),
-        "plug_auth_token": crypto.encrypt(data.get("auth_token")) if data.get("auth_token") else None,
-        "plug_auto_on": data.get("auto_on", True),
-        "plug_auto_off": data.get("auto_off", True),
-        "plug_cooldown_minutes": data.get("cooldown_minutes", 5),
+        "plug_auth_token": auth_token,
+        "plug_auto_on": data["auto_on"] if "auto_on" in data else (current[1] if current and current[1] is not None else True),
+        "plug_auto_off": data["auto_off"] if "auto_off" in data else (current[2] if current and current[2] is not None else True),
+        "plug_cooldown_minutes": data["cooldown_minutes"] if "cooldown_minutes" in data else (current[3] if current and current[3] is not None else 5),
     })
     db.commit()
 

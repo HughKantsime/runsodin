@@ -129,6 +129,43 @@ def sanitize_camera_url(url: str) -> str:
     return re.sub(r'(rtsps?://)([^@]+)@', r'\1***@', url)
 
 
+_CAMERA_USERINFO_RE = re.compile(r'^(rtsps?://)([^@/]+)@', re.IGNORECASE)
+CAMERA_CREDENTIAL_MASK = '***'
+
+
+def masked_camera_url(stored):
+    """Response form of a stored camera URL: decrypted, credentials masked.
+
+    Never returns ciphertext; an undecryptable stored value returns None.
+    """
+    if not stored:
+        return stored
+    plain = crypto.decrypt(stored) if crypto.is_encrypted(stored) else stored
+    if not plain or crypto.is_encrypted(plain):
+        return None
+    return sanitize_camera_url(plain)
+
+
+def resolve_masked_camera_url(incoming, stored):
+    """Restore credentials when a client sends back a masked camera URL.
+
+    Returns the plaintext URL to save, or None when the client sent back
+    exactly the masked form of the stored URL (nothing changed). A masked
+    value with an edited host/path keeps the stored credentials, so resaving
+    settings never overwrites or rejects a credentialed URL. Raises 400 when
+    the value is masked but no stored credentials exist.
+    """
+    match = _CAMERA_USERINFO_RE.match(incoming.strip()) if isinstance(incoming, str) else None
+    if not match or match.group(2) != CAMERA_CREDENTIAL_MASK:
+        return incoming
+    plain = crypto.decrypt(stored) if stored and crypto.is_encrypted(stored) else stored
+    stored_match = _CAMERA_USERINFO_RE.match(plain or '')
+    if not stored_match or crypto.is_encrypted(plain or ''):
+        raise HTTPException(status_code=400, detail="Camera URL credentials are masked; enter the full URL")
+    resolved = match.group(1) + stored_match.group(2) + '@' + incoming.strip()[match.end():]
+    return None if resolved == plain else resolved
+
+
 def _get_lan_ip():
     """Auto-detect LAN IP for WebRTC ICE candidates."""
     import socket

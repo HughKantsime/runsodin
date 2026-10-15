@@ -237,7 +237,12 @@ def update_printer(
         _check_ssrf_blocklist(update_data['api_host'])
 
     if 'camera_url' in update_data:
-        if update_data['camera_url']:
+        from modules.printers.route_utils import resolve_masked_camera_url
+        if update_data['camera_url'] and resolve_masked_camera_url(update_data['camera_url'], printer.camera_url) is None:
+            # The masked URL from GET sent back unchanged: keep the stored value.
+            del update_data['camera_url']
+        elif update_data['camera_url']:
+            update_data['camera_url'] = resolve_masked_camera_url(update_data['camera_url'], printer.camera_url)
             update_data['camera_url'] = _validate_camera_url(update_data['camera_url'])
             if '@' in update_data['camera_url']:
                 update_data['camera_url'] = crypto.encrypt(update_data['camera_url'])

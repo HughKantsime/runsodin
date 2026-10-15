@@ -89,6 +89,10 @@ class ElegooMonitorThread(threading.Thread):
                 log.info(f"[{self.name}] Connecting to {self.host}...")
                 connected = self.client.connect()
                 if not connected:
+                    # A closed socket that cannot reconnect still has to honour the
+                    # 60s status timeout, otherwise a powered-off printer keeps its
+                    # last state forever.
+                    self._persist_offline_if_stale()
                     log.warning(f"[{self.name}] Connection failed, retrying in {RECONNECT_INTERVAL}s")
                     time.sleep(RECONNECT_INTERVAL)
                     continue
@@ -101,23 +105,27 @@ class ElegooMonitorThread(threading.Thread):
             time.sleep(10)
 
             # Heartbeat: if no status update for 60s, try reconnecting
-            reconnect = False
-            with self._status_lock:
-                if not self._retired and self._last_heartbeat > 0 and time.time() - self._last_heartbeat > 60:
-                    reconnect = True
-                    if not self._marked_offline:
-                        try:
-                            with engine.begin() as conn:
-                                conn.execute(text("UPDATE printers SET gcode_state='OFFLINE',print_stage='Offline' WHERE id=:pid"), {"pid": self.printer_id})
-                            self._marked_offline = True
-                        except Exception:
-                            log.warning("Offline state persistence failed; retry on next observation")
+            reconnect = self._persist_offline_if_stale()
             if reconnect:
                 camera_discovered = False
                 self.client.disconnect()
                 time.sleep(2)
 
         log.info(f"[{self.name}] Elegoo SDCP monitor stopped")
+
+    def _persist_offline_if_stale(self) -> bool:
+        """Persist OFFLINE once no status frame arrived for 60s; True when stale."""
+        with self._status_lock:
+            if self._retired or self._last_heartbeat <= 0 or time.time() - self._last_heartbeat <= 60:
+                return False
+            if not self._marked_offline:
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(text("UPDATE printers SET gcode_state='OFFLINE',print_stage='Offline' WHERE id=:pid"), {"pid": self.printer_id})
+                    self._marked_offline = True
+                except Exception:
+                    log.warning("Offline state persistence failed; retry on next observation")
+            return True
 
     def _discover_and_save_camera(self):
         """Discover camera URL and save to DB via printer_events."""

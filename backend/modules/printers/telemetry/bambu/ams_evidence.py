@@ -39,7 +39,9 @@ def parse_raw_ams_facts(print_packet) -> tuple[RawTrayFact, ...]:
     unit_ids = []
     for unit in root['ams']:
         identity = ams_slot_number(unit.get('id'), 0)
-        if identity is None or identity in unit_ids:
+        # Acquisition evidence models four-tray units 0-3 only (unit/tray
+        # derived from the slot number); AMS HT units are not accepted here.
+        if identity is None or identity > 16 or identity in unit_ids:
             raise ValueError('AMS packet identity unavailable')
         unit_ids.append(identity)
     try:

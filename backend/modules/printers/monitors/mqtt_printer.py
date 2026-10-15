@@ -28,6 +28,7 @@ from modules.printers.monitors.mqtt_telemetry import (
     parse_lights,
     parse_ams_env,
     parse_h2d_nozzles,
+    h2d_extruder_temperatures,
     finite_nozzle_measurement,
     parse_bambu_speed,
     parse_h2d_external_spools,
@@ -451,7 +452,19 @@ class PrinterMonitor:
                 measured = finite_nozzle_measurement(raw.get(key))
                 if measured is not None:
                     pending_nozzles[column] = (measured, stamp, datetime.now(timezone.utc))
+            # Real H2D firmware reports the second extruder only in
+            # device.extruder.info[id=1] (packed current|target<<16).
+            second_extruder = h2d_extruder_temperatures(raw).get(1)
+            if second_extruder is not None:
+                observed = datetime.now(timezone.utc)
+                pending_nozzles['nozzle_1_temp'] = (second_extruder[0], 'nozzle_1_temp_observed_at', observed)
+                pending_nozzles['nozzle_1_target_temp'] = (second_extruder[1], 'nozzle_1_target_observed_at', observed)
             self._pending_right_nozzle = pending_nozzles
+            incoming_ams_report = raw.get('ams')
+            if isinstance(incoming_ams_report, dict) and isinstance(incoming_ams_report.get('ams'), list):
+                # Held until the next heartbeat write: Bambu sends the AMS list
+                # only on change/pushall, usually between heartbeats.
+                self._pending_ams_report = incoming_ams_report['ams']
 
             # Merge correlation and lifecycle fields before any HMS processing.
             # A first RUNNING packet may also contain a print-stopping HMS code;
@@ -643,12 +656,16 @@ class PrinterMonitor:
                         conn.commit()
                         self._pending_right_nozzle = {}
 
-                        # Auto-detect printer model from MQTT — write once, never overwrite a user-set value
-                        raw_pt = self._state.get('printer_type', '')
+                        # Auto-detect printer model from MQTT — write once, never overwrite a user-set value.
+                        # print.printer_type when present, else the ota product_name
+                        # from the get_version reply (what real printers send).
+                        raw_pt = self._state.get('printer_type', '') or getattr(status, 'printer_type', '') or ''
+                        if not isinstance(raw_pt, str):
+                            raw_pt = ''
+                        from modules.printers.printer_models import bambu_model_name
                         if raw_pt:
                             try:
-                                from modules.models_library.threemf_parser import _friendly_printer_name
-                                friendly = _friendly_printer_name(raw_pt) or raw_pt
+                                friendly = bambu_model_name(raw_pt) or raw_pt
                                 conn.execute(
                                     "UPDATE printers SET model = ? WHERE id = ? AND (model IS NULL OR model = '' OR model = 'Unknown')",
                                     (friendly, self.printer_id)
@@ -660,8 +677,7 @@ class PrinterMonitor:
                         # Auto-detect machine_type (H2D, X1C, P1S, etc.) — always update
                         if raw_pt:
                             try:
-                                from modules.models_library.threemf_parser import _friendly_printer_name as _fpn
-                                detected_type = _fpn(raw_pt) or raw_pt
+                                detected_type = bambu_model_name(raw_pt) or raw_pt
                                 conn.execute(
                                     "UPDATE printers SET machine_type = ? WHERE id = ? AND (machine_type IS NULL OR machine_type != ?)",
                                     (detected_type, self.printer_id, detected_type)
@@ -722,21 +738,21 @@ class PrinterMonitor:
                                 log.debug(f"[{self.name}] AMS env capture: {e}")
 
                         # ---- AMS Filament Slot Auto-Sync ----
-                        incoming_ams = raw.get('ams')
-                        if (isinstance(incoming_ams, dict)
-                                and isinstance(incoming_ams.get('ams'), list)
+                        pending_ams = getattr(self, '_pending_ams_report', None)
+                        if (pending_ams is not None
                                 and time.time() - getattr(self, '_last_ams_slot_sync', 0) >= 60):
                             sync_observed_at = time.time()
+                            # Inventory receives only the latest reported AMS list, once.
+                            # A heartbeat cannot renew cached tray observations.
+                            self._pending_ams_report = None
                             try:
                                 from modules.printers.monitors.ams_inventory import sync_ams_inventory
-                                # Inventory receives only trays reported in this packet.
-                                # A heartbeat cannot renew cached tray observations.
-                                sync_ams_inventory(conn, self.printer_id, incoming_ams['ams'])
+                                sync_ams_inventory(conn, self.printer_id, pending_ams)
                                 conn.commit()
                                 self._last_ams_slot_sync = sync_observed_at
                             except Exception:
                                 conn.rollback()
-                                log.warning("AMS inventory synchronization failed; retry on next eligible observation")
+                                log.warning("AMS inventory synchronization failed; retry on next reported AMS list")
 
                     # ---- H2D Dual-Nozzle / External Spool Parsing ----
                     h2d_nozzle_data = None
@@ -750,8 +766,7 @@ class PrinterMonitor:
 
                     if machine_type == 'H2D':
                         h2d_nozzle_data = parse_h2d_nozzles(self._state)
-                        ams_raw = self._state.get('ams', {})
-                        external_spools = parse_h2d_external_spools(ams_raw)
+                        external_spools = parse_h2d_external_spools(self._state)
 
                     # Push telemetry to WebSocket clients
                     ws_payload = {

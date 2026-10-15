@@ -252,14 +252,21 @@ export interface MaintenanceLogCreate {
 
 // ---- Smart Plug ----
 
+/** Wire shape of GET/PUT /printers/{id}/plug. Omitted PUT fields keep their stored values. */
 export interface PlugConfig {
-  plug_type: string;
-  plug_host: string;
-  plug_username?: string;
-  plug_password?: string;
+  type: 'tasmota' | 'homeassistant' | 'mqtt' | null;
+  /** Tasmota IP or Home Assistant URL. */
+  host?: string | null;
+  /** Home Assistant entity id, or the MQTT topic for MQTT plugs. */
+  entity_id?: string | null;
+  /** Write-only Home Assistant token; never returned by GET. */
+  auth_token?: string;
   auto_on?: boolean;
   auto_off?: boolean;
-  off_delay_minutes?: number;
+  cooldown_minutes?: number;
+  power_state?: boolean | null;
+  energy_kwh?: number;
+  configured?: boolean;
 }
 
 export interface PlugEnergyData {

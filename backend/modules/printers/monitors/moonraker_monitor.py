@@ -142,6 +142,11 @@ class MoonrakerMonitor:
         while self._running:
             try:
                 status = self.printer.get_status()
+                if status.state == MoonrakerState.DISCONNECTED:
+                    # The adapter swallows transport errors and returns a default
+                    # DISCONNECTED status; treat it as a lost connection so the
+                    # printer goes OFFLINE without refreshing its heartbeat.
+                    raise ConnectionError("Moonraker status poll failed")
                 self._process_status(status)
             except Exception as e:
                 log.error(f"[{self.name}] Poll error: {e}")
@@ -221,7 +226,9 @@ class MoonrakerMonitor:
                 remaining_min = None
                 current_layer = None
                 total_layers = None
-                fan_speed_val = status.fan_speed or None
+                # A measured 0% fan is a real reading; only a missing fan object is unknown.
+                raw_status = getattr(status, 'raw_data', None) or {}
+                fan_speed_val = status.fan_speed if isinstance(raw_status.get('fan'), dict) else None
                 noz_dia = status.nozzle_diameter
 
                 if hasattr(status, 'raw_data') and status.raw_data:

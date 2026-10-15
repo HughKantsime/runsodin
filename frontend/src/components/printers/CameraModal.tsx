@@ -5,6 +5,7 @@ import { printers as printersApi } from '../../api'
 import { PrinterInfoPanel, ActiveJobPanel, FilamentSlotsPanel } from './PrinterPanels'
 import { Modal } from '../ui'
 import useWebRTC from '../../hooks/useWebRTC'
+import { isActivePrintState } from '../../utils/shared'
 
 // TODO: type this properly — runtime printer shape has extra MQTT fields
 interface PrinterLike {
@@ -64,7 +65,7 @@ export default function CameraModal({ printer, onClose }: CameraModalProps) {
       ? 'bg-amber-500'
       : 'bg-red-500'
 
-  const isPrinting = p.gcode_state === 'RUNNING' || p.gcode_state === 'PAUSE'
+  const isPrinting = isActivePrintState(p.gcode_state)
   const nozTemp = p.nozzle_temp != null ? Math.round(p.nozzle_temp) : null
   const bedTemp = p.bed_temp != null ? Math.round(p.bed_temp) : null
 

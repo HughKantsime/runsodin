@@ -78,7 +78,7 @@ def _sliced_3mf() -> bytes:
     <metadata key="prediction" value="3600"/>
     <metadata key="weight" value="12.5"/>
     <metadata key="nozzle_diameters" value="0.4"/>
-    <metadata key="printer_model_id" value="BL-P001"/>
+    <metadata key="printer_model_id" value="C12"/>
     <filament id="1" type="PLA" color="#FFFFFF" used_m="4" used_g="12.5"/>
     </plate></config>"""
     project = {

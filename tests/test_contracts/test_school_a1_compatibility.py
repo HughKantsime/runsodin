@@ -6,7 +6,8 @@ from tests.test_contracts.test_education_review_workflow import review_db
 from tests.test_contracts.test_education_upload_scheduler_integration import _upload_and_approve,_schedule
 
 
-@pytest.mark.parametrize('machine',['Bambu Lab A1','A1','BL-A001','N2S'])
+# BL-A001 is not a Bambu model id (Bambu Studio: A1 = N2S); it is no longer treated as an A1 alias.
+@pytest.mark.parametrize('machine',['Bambu Lab A1','A1','N2S'])
 def test_a1_file_approves_and_schedules_only_on_entitled_a1(review_db,tmp_path,monkeypatch,machine):
     review_db.execute(text("UPDATE printers SET name='A1-Pilot',model='Bambu Lab A1',machine_type='A1' WHERE id=9"))
     review_db.commit()

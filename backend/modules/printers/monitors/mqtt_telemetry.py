@@ -112,11 +112,45 @@ def finite_nozzle_measurement(value) -> Optional[float]:
     return measured if math.isfinite(measured) else None
 
 
+def h2d_extruder_temperatures(print_section: dict) -> dict:
+    """Decode print.device.extruder.info[] into {extruder_id: (current, target)}.
+
+    Real H2D frames report per-extruder temperatures only here, packed as
+    ``current | target << 16``; they never send ``nozzle_temper_1``.
+    """
+    device = print_section.get('device') if isinstance(print_section, dict) else None
+    extruder = device.get('extruder') if isinstance(device, dict) else None
+    info = extruder.get('info') if isinstance(extruder, dict) else None
+    result = {}
+    if not isinstance(info, list):
+        return result
+    for entry in info:
+        if not isinstance(entry, dict):
+            continue
+        ident, packed = entry.get('id'), entry.get('temp')
+        if (isinstance(ident, bool) or not isinstance(ident, int)
+                or isinstance(packed, bool) or not isinstance(packed, int) or not 0 <= packed <= 0xFFFFFFFF):
+            continue
+        result[ident] = (float(packed & 0xFFFF), float(packed >> 16))
+    return result
+
+
 def parse_h2d_nozzles(state: dict) -> Optional[dict]:
     """
     Extract dual-nozzle temperature data for H2D printers.
     Returns dict with nozzle_0 and nozzle_1 data, or None if no second nozzle data present.
+
+    nozzle_0/nozzle_1 are Bambu extruder ids 0/1 from device.extruder.info
+    when reported (real H2D firmware); legacy nozzle_temper(_1) otherwise.
     """
+    extruders = h2d_extruder_temperatures(state)
+    if 1 in extruders:
+        first = extruders.get(0, (finite_nozzle_measurement(state.get('nozzle_temper')),
+                                  finite_nozzle_measurement(state.get('nozzle_target_temper'))))
+        return {
+            'nozzle_0': {'temp': first[0], 'target': first[1]},
+            'nozzle_1': {'temp': extruders[1][0], 'target': extruders[1][1]},
+        }
     noz_t = finite_nozzle_measurement(state.get('nozzle_temper'))
     noz_tt = finite_nozzle_measurement(state.get('nozzle_target_temper'))
     noz1_t = finite_nozzle_measurement(state.get('nozzle_temper_1'))
@@ -129,34 +163,59 @@ def parse_h2d_nozzles(state: dict) -> Optional[dict]:
     }
 
 
-def parse_h2d_external_spools(ams_raw: dict) -> Optional[dict]:
+def _external_spool(ext) -> Optional[dict]:
+    if not isinstance(ext, dict) or not ext.get('tray_type'):
+        return None
+    color_raw = ext.get('tray_color', '')
+    if not isinstance(color_raw, str):
+        color_raw = ''
+    remaining = None
+    if ext.get('remain') is not None:
+        from modules.printers.telemetry.validators import coerce_int_or_raise
+        try:
+            remaining = coerce_int_or_raise(ext['remain'])
+        except ValueError:
+            pass
+    return {
+        'material': ext.get('tray_type', ''),
+        'color': f"#{color_raw}" if color_raw and not color_raw.startswith('#') else color_raw,
+        'remain_percent': remaining,
+    }
+
+
+# Bambu virtual tray ids for the external spool holders on dual-extruder
+# printers: 254 = deputy (left) extruder, 255 = main (right) extruder.
+_VIR_SLOT_SIDES = {'254': 'left', '255': 'right'}
+
+
+def parse_h2d_external_spools(state: dict) -> Optional[dict]:
     """
-    Extract H2D external spool data (Ext-L / Ext-R) from vt_tray in AMS payload.
+    Extract H2D external spool data (Ext-L / Ext-R).
+
+    Real H2D frames report them as print.vir_slot (ids 254/255). The legacy
+    print.ams.vt_tray shape is still accepted. ``state`` is the merged print
+    section; a bare AMS dict (legacy callers) is accepted too.
     Returns dict of {left: {...}, right: {...}} or None if no external spool data.
     """
-    if not isinstance(ams_raw, dict):
+    if not isinstance(state, dict):
         return None
-    vt_tray = ams_raw.get('vt_tray')
+    external_spools = {}
+    vir_slot = state.get('vir_slot')
+    if isinstance(vir_slot, list):
+        for idx, ext in enumerate(vir_slot[:2]):
+            side = _VIR_SLOT_SIDES.get(str(ext.get('id')) if isinstance(ext, dict) else None,
+                                       'left' if idx == 0 else 'right')
+            spool = _external_spool(ext)
+            if spool:
+                external_spools[side] = spool
+        return external_spools or None
+    ams_raw = state.get('ams') if isinstance(state.get('ams'), dict) else {}
+    vt_tray = state.get('vt_tray') or ams_raw.get('vt_tray')
     if not vt_tray:
         return None
     ext_spools_raw = vt_tray if isinstance(vt_tray, list) else [vt_tray]
-    external_spools = {}
     for idx, ext in enumerate(ext_spools_raw[:2]):
-        if isinstance(ext, dict) and ext.get('tray_type'):
-            side = 'left' if idx == 0 else 'right'
-            color_raw = ext.get('tray_color', '')
-            if not isinstance(color_raw, str):
-                color_raw = ''
-            remaining = None
-            if ext.get('remain') is not None:
-                from modules.printers.telemetry.validators import coerce_int_or_raise
-                try:
-                    remaining = coerce_int_or_raise(ext['remain'])
-                except ValueError:
-                    pass
-            external_spools[side] = {
-                'material': ext.get('tray_type', ''),
-                'color': f"#{color_raw}" if color_raw and not color_raw.startswith('#') else color_raw,
-                'remain_percent': remaining,
-            }
+        spool = _external_spool(ext)
+        if spool:
+            external_spools['left' if idx == 0 else 'right'] = spool
     return external_spools if external_spools else None

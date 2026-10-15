@@ -28,7 +28,7 @@ import SectionErrorBoundary from './SectionErrorBoundary'
 
 import { stats, jobs, printers, printJobs, alerts as alertsApi, maintenance } from '../../api'
 import { canDo } from '../../permissions'
-import { getShortName, formatHours, formatTime, formatDuration, isOnline } from '../../utils/shared'
+import { getShortName, formatHours, formatTime, formatDuration, isOnline, isActivePrintState } from '../../utils/shared'
 
 export function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onClick }: { printer: any; hasCamera: boolean; onCameraClick: (id: number) => void; activeJob?: any; onClick: () => void }) {
   const slots = printer.filament_slots || []
@@ -45,7 +45,7 @@ export function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onCl
   const isHeating = (bedTarget && bedTarget > 0) || (nozTarget && nozTarget > 0)
   const stage = printer.print_stage && printer.print_stage !== 'Idle' ? printer.print_stage : null
   
-  const isPrinting = online && ['RUNNING', 'PAUSE'].includes(printer.gcode_state?.toUpperCase() || '')
+  const isPrinting = online && isActivePrintState(printer.gcode_state)
   const hasError = printer.hms_errors && printer.hms_errors.length > 0
   const statusColor = hasError ? 'bg-red-500' : isPrinting ? 'bg-[var(--status-completed)]' : online ? 'bg-yellow-500' : 'bg-[var(--brand-text-muted)]'
   const statusLabel = hasError ? 'Error' : isPrinting ? 'Printing' : online ? 'Idle' : 'Offline'

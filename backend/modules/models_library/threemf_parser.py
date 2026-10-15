@@ -13,20 +13,13 @@ from pathlib import Path
 from defusedxml import ElementTree as ET
 
 def _friendly_printer_name(model_id: str) -> str:
-    """Convert Bambu internal codes to friendly names."""
-    mappings = {
-        'BL-P001': 'P1S', 'BL-P002': 'P1P',
-        'BL-A001': 'A1', 'BL-A003': 'A1 Mini',
-        'BL-P003': 'H2D',  # H2D (dual-extruder, released 2025)
-        'C11': 'X1C', 'C12': 'X1E', 'C13': 'X1',
-        'N1': 'A1 Mini', 'N2S': 'A1',
-        'O1D': 'X1C',
-        'H2D': 'H2D',  # In case MQTT reports the friendly name directly
-    }
-    for code, name in mappings.items():
-        if code.lower() in model_id.lower():
-            return name
-    return model_id
+    """Convert Bambu model ids / product names to friendly names.
+
+    Delegates to the single Bambu model table in
+    modules.printers.printer_models; unknown values pass through.
+    """
+    from modules.printers.printer_models import bambu_model_name
+    return bambu_model_name(model_id) or model_id
 
 
 def extract_printer_model_from_settings(zf: zipfile.ZipFile) -> str:

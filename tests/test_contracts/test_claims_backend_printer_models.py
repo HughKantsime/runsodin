@@ -15,7 +15,9 @@ from modules.printers.printer_models import normalize_model_name
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / 'tests' / 'fixtures' / 'telemetry'
 
-BAMBU = {'X1C': ['BL-P001'], 'A1': ['N2S', 'BL-A001'], 'P1S': ['C11', 'BL-P00501'], 'H2D': ['BL-H001']}
+# Bambu Studio machine model ids plus the ota product names real printers report.
+BAMBU = {'X1C': ['BL-P001', 'Bambu Lab X1 Carbon'], 'A1': ['N2S', 'Bambu Lab A1'], 'P1S': ['C12', 'Bambu Lab P1S'],
+         'H2D': ['O1D', 'Bambu Lab H2D']}
 PRUSA = {'MK4/S': ['MK4', 'MK4S'], 'MK3.9': ['MK39', 'MK3.9'], 'MK3.5': ['MK35', 'MK3.5'], 'MINI+': ['MINI', 'MINI+'],
          'XL': ['XL'], 'CORE One': ['CORE_ONE', 'COREONE']}
 ELEGOO = {'Centauri Carbon': ['Centauri Carbon', 'CENTAURI CARBON'], 'Neptune 4': ['Neptune 4', 'Neptune 4 Pro'],
@@ -73,5 +75,6 @@ def test_captured_bambu_fixture_model_identity_and_v2_printer_type():
     record['captured_print_sections_with_printer_type'] = with_type
     (out / 'printer-model-recognition.json').write_text(json.dumps(record, indent=1))
     assert 'Bambu Lab A1' in flat and 'Bambu Lab H2D' in flat
-    # Fixture product names are passed through unchanged (not in code table).
-    assert normalize_model_name('bambu', 'Bambu Lab H2D') == 'Bambu Lab H2D'
+    # Captured ota product names resolve through the single Bambu model table.
+    assert normalize_model_name('bambu', 'Bambu Lab H2D') == 'H2D'
+    assert normalize_model_name('bambu', 'Bambu Lab A1') == 'A1'

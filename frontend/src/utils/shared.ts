@@ -2,6 +2,55 @@ import type { Printer, FilamentSlot } from '../types'
 
 export const ONLINE_THRESHOLD_MS = 90_000
 
+// ---- Print state vocabulary (one place for every protocol) ----
+// Bambu reports RUNNING / PAUSE; Moonraker, PrusaLink and Elegoo monitors
+// persist PRINTING / PAUSED. UI code must use these helpers, never compare
+// gcode_state strings directly.
+const PRINTING_STATES = new Set(['RUNNING', 'PRINTING'])
+const PAUSED_STATES = new Set(['PAUSE', 'PAUSED'])
+
+/** Protocol-neutral activity of a gcode_state: 'printing', 'paused' or null. */
+export function printActivity(state: string | null | undefined): 'printing' | 'paused' | null {
+  const normalized = (state || '').trim().toUpperCase()
+  if (PRINTING_STATES.has(normalized)) return 'printing'
+  if (PAUSED_STATES.has(normalized)) return 'paused'
+  return null
+}
+
+/** True while a print is running or paused, for any protocol. */
+export function isActivePrintState(state: string | null | undefined): boolean {
+  return printActivity(state) !== null
+}
+
+/** True while a print is running (not paused), for any protocol. */
+export function isPrintingState(state: string | null | undefined): boolean {
+  return printActivity(state) === 'printing'
+}
+
+/** True while a print is paused, for any protocol. */
+export function isPausedState(state: string | null | undefined): boolean {
+  return printActivity(state) === 'paused'
+}
+
+// ---- Fan speed units ----
+// Stored fan_speed is protocol-native: Bambu cooling_fan_speed is a 0-15
+// gear, Moonraker is already converted to 0-100 %, Elegoo SDCP ModelFan is
+// 0-100 %, PrusaLink fan_print is RPM.
+export interface FanDisplay { value: number; unit: '%' | 'RPM'; text: string }
+
+export function fanSpeedDisplay(apiType: string | null | undefined, raw: number | null | undefined): FanDisplay | null {
+  if (raw == null || typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0) return null
+  const type = (apiType || '').toLowerCase()
+  if (type === 'prusalink') {
+    const rpm = Math.round(raw)
+    return { value: rpm, unit: 'RPM', text: `${rpm} RPM` }
+  }
+  const percent = type === 'bambu'
+    ? Math.round(Math.min(raw, 15) / 15 * 100)
+    : Math.round(Math.min(raw, 100))
+  return { value: percent, unit: '%', text: `${percent}%` }
+}
+
 export function getShortName(slot: string | FilamentSlot | null): string {
   const color = typeof slot === 'string' ? slot : slot?.color
   const ft = typeof slot === 'string' ? '' : (slot?.filament_type || '')

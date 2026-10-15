@@ -6,7 +6,7 @@ import { Plus, Filter, Printer as PrinterIcon } from 'lucide-react'
 import clsx from 'clsx'
 import toast from 'react-hot-toast'
 import ConfirmModal from '../../components/shared/ConfirmModal'
-import { getPlugState, plugPowerOn, plugPowerOff } from '../../api'
+import { getPlugState, plugPowerOn, plugPowerOff, updatePlugConfig, removePlugConfig } from '../../api'
 import { printers, filaments, bulkOps, spools as spoolsApi } from '../../api'
 import { canDo, getCurrentUser } from '../../permissions'
 import { canControlPlug } from '../../utils/plugControl'
@@ -16,7 +16,7 @@ import { useOrg } from '../../contexts/OrgContext'
 import CameraModal from '../../components/printers/CameraModal'
 import PrinterCard from '../../components/printers/PrinterCard'
 import PrinterModal from '../../components/printers/PrinterModal'
-import { isOnline } from '../../utils/shared'
+import { isOnline, isActivePrintState } from '../../utils/shared'
 import { PageHeader, Button, SearchInput, EmptyState } from '../../components/ui'
 
 export default function Printers() {
@@ -96,8 +96,15 @@ export default function Printers() {
   const { data: spoolsData } = useQuery({ queryKey: ['spools'], queryFn: () => spoolsApi.list({ status: 'active' }) })
 
   const mutErr = (label) => (err) => toast.error(`${label}: ${err?.message || 'Unknown error'}`)
-  const createPrinter = useMutation({ mutationFn: printers.create, onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['printers'] }); setShowModal(false) }, onError: mutErr('Create printer failed') })
-  const updatePrinter = useMutation({ mutationFn: ({ id, data }) => printers.update(id, data), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['printers'] }); setShowModal(false); setEditingPrinter(null) }, onError: mutErr('Update printer failed') })
+  // The settings modal hands smart-plug settings over as `plug`; they are
+  // stored by PUT/DELETE /printers/{id}/plug, not by the printer PATCH/POST.
+  const savePlug = async (printerId, plug) => {
+    if (plug === undefined || !printerId) return
+    if (plug === null) await removePlugConfig(printerId)
+    else await updatePlugConfig(printerId, plug)
+  }
+  const createPrinter = useMutation({ mutationFn: async ({ plug, ...data }: any) => { const created = await printers.create(data); await savePlug(created?.id, plug); return created }, onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['printers'] }); setShowModal(false) }, onError: mutErr('Create printer failed') })
+  const updatePrinter = useMutation({ mutationFn: async ({ id, data }) => { const { plug, ...rest } = data; const saved = await printers.update(id, rest); await savePlug(id, plug); return saved }, onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['printers'] }); setShowModal(false); setEditingPrinter(null) }, onError: mutErr('Update printer failed') })
   const deletePrinter = useMutation({ mutationFn: printers.delete, onSuccess: () => queryClient.invalidateQueries({ queryKey: ['printers'] }), onError: mutErr('Delete printer failed') })
   const updateSlot = useMutation({ mutationFn: ({ printerId, slotNumber, data }) => printers.updateSlot(printerId, slotNumber, data), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['printers'] }), onError: mutErr('Update slot failed') })
   const reorderPrinters = useMutation({ mutationFn: printers.reorder, onSuccess: () => queryClient.invalidateQueries({ queryKey: ['printers'] }), onError: mutErr('Reorder printers failed') })
@@ -167,7 +174,7 @@ export default function Printers() {
         switch (statusFilter) {
           case 'online': return online
           case 'offline': return !online
-          case 'printing': return online && ['RUNNING', 'PAUSE'].includes(p.gcode_state?.toUpperCase() || '')
+          case 'printing': return online && isActivePrintState(p.gcode_state)
           case 'idle': return online && (!stage || stage === 'Idle')
           default: return true
         }

@@ -1,7 +1,8 @@
 import { useState, useEffect, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Lock, CheckCircle, XCircle } from 'lucide-react'
 import clsx from 'clsx'
-import { printers } from '../../api'
+import { printers, getPlugConfig } from '../../api'
+import type { PlugConfig } from '../../types'
 import { canDo } from '../../permissions'
 import { Modal } from '../ui'
 
@@ -94,6 +95,38 @@ function lookupBedSize(modelStr: string): [number, number] | null {
   return null
 }
 
+type PlugFields = Pick<FormData, 'plug_type' | 'plug_host' | 'plug_topic' | 'plug_entity'>
+const EMPTY_PLUG: PlugFields = { plug_type: '', plug_host: '', plug_topic: '', plug_entity: '' }
+
+/** Form fields for a stored plug config (GET /printers/{id}/plug). */
+function plugFieldsFromConfig(config: PlugConfig): PlugFields {
+  const type = config.type || ''
+  return {
+    plug_type: type,
+    plug_host: type === 'mqtt' ? '' : config.host || '',
+    plug_topic: type === 'mqtt' ? config.entity_id || '' : '',
+    plug_entity: type === 'homeassistant' ? config.entity_id || '' : '',
+  }
+}
+
+/**
+ * Plug config to save through PUT /printers/{id}/plug, null to remove it,
+ * or undefined when the plug fields are unchanged.
+ */
+export function plugConfigToSave(form: FormData, baseline: PlugFields): PlugConfig | null | undefined {
+  const type = form.plug_type || ''
+  const changed = (Object.keys(EMPTY_PLUG) as (keyof PlugFields)[]).some(key => (form[key] || '') !== (baseline[key] || ''))
+  if (!changed && !form.plug_token) return undefined
+  if (!type) return baseline.plug_type ? null : undefined
+  const config: PlugConfig = {
+    type: type as PlugConfig['type'],
+    host: type === 'mqtt' ? null : form.plug_host || null,
+    entity_id: type === 'mqtt' ? form.plug_topic || null : type === 'homeassistant' ? form.plug_entity || null : null,
+  }
+  if (form.plug_token) config.auth_token = form.plug_token
+  return config
+}
+
 export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }: PrinterModalProps) {
   const [formData, setFormData] = useState<FormData>({
     name: '',
@@ -106,6 +139,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
     bed_x_mm: '',
     bed_y_mm: '',
   })
+  const [plugBaseline, setPlugBaseline] = useState<PlugFields>(EMPTY_PLUG)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [testStatus, setTestStatus] = useState<TestStatus>(null)
   const [testMessage, setTestMessage] = useState('')
@@ -148,11 +182,25 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
     } else {
       setFormData({ name: '', nickname: '', model: '', slot_count: 4, api_type: '', api_host: '', serial: '', access_code: '', camera_url: '', plug_type: '', plug_host: '', plug_topic: '', plug_entity: '', plug_token: '', tags: [], timelapse_enabled: false, shared: false, bed_x_mm: '', bed_y_mm: '' })
     }
+    setPlugBaseline(EMPTY_PLUG)
     setTestStatus(null)
     setTestMessage('')
     setModelOverride(false)
     setSlotOverride(false)
   }, [printer, isOpen])
+
+  // The printer list does not carry plug settings; load them for editing.
+  useEffect(() => {
+    if (!isOpen || !printer?.id) return
+    let cancelled = false
+    getPlugConfig(printer.id).then(config => {
+      if (cancelled || !config || typeof config !== 'object' || !('configured' in config)) return
+      const fields = config.configured ? plugFieldsFromConfig(config) : EMPTY_PLUG
+      setPlugBaseline(fields)
+      setFormData(prev => ({ ...prev, ...fields, plug_token: '' }))
+    }).catch(() => { /* plug settings stay empty; saving them still works */ })
+    return () => { cancelled = true }
+  }, [printer?.id, isOpen])
 
   // Auto-fill bed size from known printer model lookup
   useEffect(() => {
@@ -234,6 +282,9 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
     }
 
     if (!unchangedMaskedCamera) submitData.camera_url = cameraUrl || null
+    // Saved separately through PUT/DELETE /printers/{id}/plug by the caller.
+    const plug = plugConfigToSave(formData, plugBaseline)
+    if (plug !== undefined) submitData.plug = plug
     if (formData.api_type) submitData.api_type = formData.api_type
     if (formData.api_host) submitData.api_host = formData.api_host
     if (formData.serial && formData.access_code) {

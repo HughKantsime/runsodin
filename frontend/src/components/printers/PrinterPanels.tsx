@@ -1,5 +1,5 @@
 import { Thermometer, Wind, Activity } from 'lucide-react'
-import { getShortName, isOnline } from '../../utils/shared'
+import { getShortName, isOnline, isActivePrintState, fanSpeedDisplay } from '../../utils/shared'
 import { SpoolRing } from '../ui'
 import PrintProgress from './PrintProgress'
 
@@ -11,6 +11,7 @@ interface PrinterLike {
   bed_temp: number | null
   bed_target_temp: number | null
   fan_speed: number | null
+  api_type?: string | null
   print_stage: string | null
   gcode_state: string | null
   mc_percent?: number
@@ -28,7 +29,7 @@ export function PrinterInfoPanel({ printer }: { printer: PrinterLike }) {
   const nozTarget = printer.nozzle_target_temp != null ? Math.round(printer.nozzle_target_temp) : null
   const bedTemp = printer.bed_temp != null ? Math.round(printer.bed_temp) : null
   const bedTarget = printer.bed_target_temp != null ? Math.round(printer.bed_target_temp) : null
-  const fanSpeed = printer.fan_speed != null ? Math.round(printer.fan_speed) : null
+  const fan = fanSpeedDisplay(printer.api_type, printer.fan_speed)
   const stage = printer.print_stage && printer.print_stage !== 'Idle' ? printer.print_stage : null
 
   return (
@@ -64,10 +65,10 @@ export function PrinterInfoPanel({ printer }: { printer: PrinterLike }) {
             </span>
           </div>
         )}
-        {fanSpeed != null && (
+        {fan != null && (
           <div className="flex items-center justify-between">
             <span className="text-sm text-[var(--brand-text-secondary)] flex items-center gap-1.5"><Wind size={13} /> Fan</span>
-            <span className="text-sm text-[var(--brand-text-secondary)]">{fanSpeed}%</span>
+            <span className="text-sm text-[var(--brand-text-secondary)]">{fan.text}</span>
           </div>
         )}
       </div>
@@ -100,7 +101,7 @@ export function FilamentSlotsPanel({ printer }: { printer: PrinterLike }) {
 }
 
 export function ActiveJobPanel({ printer }: { printer: PrinterLike }) {
-  const isPrinting = isOnline(printer) && ['RUNNING', 'PAUSE'].includes(printer.gcode_state?.toUpperCase() || '')
+  const isPrinting = isOnline(printer) && isActivePrintState(printer.gcode_state)
   if (!isPrinting) return null
 
   const jobName = printer.gcode_file || 'Printing'
