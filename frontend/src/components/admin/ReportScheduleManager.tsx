@@ -3,14 +3,20 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2, Calendar, X, Pause, Play, Zap } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { reportSchedules } from '../../api'
+import { useLicense } from '../../LicenseContext'
 
 const REPORT_TYPES = ['fleet_utilization', 'job_summary', 'filament_consumption', 'failure_analysis', 'chargeback_summary']
+// Analytics-derived report types need the Pro "analytics" entitlement (backend: 403 below Pro).
+export const ANALYTICS_REPORT_TYPES = ['fleet_utilization', 'failure_analysis', 'chargeback_summary']
 const FREQUENCIES = ['daily', 'weekly', 'monthly']
 
 export default function ReportScheduleManager() {
   const queryClient = useQueryClient()
+  const analyticsLicensed = useLicense().hasFeature('analytics')
+  const availableTypes = REPORT_TYPES.filter(t => analyticsLicensed || !ANALYTICS_REPORT_TYPES.includes(t))
+  const emptyForm = { name: '', report_type: availableTypes[0], frequency: 'weekly', recipients: '' }
   const [showCreate, setShowCreate] = useState(false)
-  const [form, setForm] = useState({ name: '', report_type: 'fleet_utilization', frequency: 'weekly', recipients: '' })
+  const [form, setForm] = useState(emptyForm)
 
   const { data: schedules, isLoading } = useQuery({
     queryKey: ['report-schedules'],
@@ -19,7 +25,7 @@ export default function ReportScheduleManager() {
 
   const createSchedule = useMutation({
     mutationFn: (data) => reportSchedules.create(data),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['report-schedules'] }); setShowCreate(false); setForm({ name: '', report_type: 'fleet_utilization', frequency: 'weekly', recipients: '' }) },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['report-schedules'] }); setShowCreate(false); setForm(emptyForm) },
     onError: (err) => toast.error('Create schedule failed: ' + (err?.message || 'Unknown error')),
   })
 
@@ -78,7 +84,7 @@ export default function ReportScheduleManager() {
               <label htmlFor="rs-type" className="text-xs text-[var(--brand-text-secondary)] block mb-1">Report Type</label>
               <select id="rs-type" value={form.report_type} onChange={e => setForm(f => ({ ...f, report_type: e.target.value }))}
                 className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm">
-                {REPORT_TYPES.map(t => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
+                {availableTypes.map(t => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
               </select>
             </div>
             <div>
@@ -120,11 +126,11 @@ export default function ReportScheduleManager() {
           <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={() => runNow.mutate(s.id)}
-              disabled={runNow.isPending}
+              disabled={runNow.isPending || (!analyticsLicensed && ANALYTICS_REPORT_TYPES.includes(s.report_type))}
               aria-busy={runNow.isPending}
               aria-label={`Run "${s.name}" now`}
               className="p-1.5 text-[var(--brand-text-muted)] hover:text-[var(--brand-primary)] rounded-md disabled:opacity-50"
-              title="Send now"
+              title={!analyticsLicensed && ANALYTICS_REPORT_TYPES.includes(s.report_type) ? 'Requires a Pro license (analytics)' : 'Send now'}
             >
               <Zap size={14} />
             </button>
