@@ -18,6 +18,7 @@ import numpy as np
 from sqlalchemy import text
 
 from core.db import engine
+from core.printer_utils import is_idle_state, is_printing_state
 from core.db_compat import execute_insert_returning_id, sql
 from modules.vision.inference_engine import VisionInferenceEngine
 from modules.vision import frame_storage
@@ -117,24 +118,24 @@ class PrinterVisionThread(threading.Thread):
 
         # Determine which detections to run based on layer
         checks = []
-        if self.gcode_state == 'RUNNING' and self.settings.get('spaghetti_enabled', 1) and self.engine.has_model('spaghetti'):
+        if is_printing_state(self.gcode_state) and self.settings.get('spaghetti_enabled', 1) and self.engine.has_model('spaghetti'):
             checks.append(('spaghetti', self.settings.get('spaghetti_threshold', 0.65)))
 
-        if self.gcode_state == 'RUNNING' and self.settings.get('first_layer_enabled', 1) and layer <= 3 and self.engine.has_model('first_layer'):
+        if is_printing_state(self.gcode_state) and self.settings.get('first_layer_enabled', 1) and layer <= 3 and self.engine.has_model('first_layer'):
             checks.append(('first_layer', self.settings.get('first_layer_threshold', 0.60)))
 
-        if self.gcode_state == 'RUNNING' and self.settings.get('detachment_enabled', 1) and layer > 5 and self.engine.has_model('detachment'):
+        if is_printing_state(self.gcode_state) and self.settings.get('detachment_enabled', 1) and layer > 5 and self.engine.has_model('detachment'):
             checks.append(('detachment', self.settings.get('detachment_threshold', 0.70)))
 
         for detection_type, threshold in checks:
-            if self.gcode_state != 'RUNNING':
+            if not is_printing_state(self.gcode_state):
                 break
             observation = self.engine.infer_observation(detection_type, frame)
             if not self.engine.observation_current(detection_type, observation):
                 self._history[detection_type].clear()
                 continue
             detections = observation.detections
-            if self.gcode_state != 'RUNNING':
+            if not is_printing_state(self.gcode_state):
                 break
             with self.engine.decision_guard(detection_type, observation) as admitted:
                 if not admitted:
@@ -156,7 +157,7 @@ class PrinterVisionThread(threading.Thread):
 
         # Build plate empty detection — runs when printer is IDLE, not during printing
         if (self.settings.get('build_plate_empty_enabled', 0)
-                and self.gcode_state in ('IDLE', 'FINISH', 'FINISHED')):
+                and is_idle_state(self.gcode_state)):
             threshold = self.settings.get('build_plate_empty_threshold', 0.70)
             plate = self._detect_build_plate_empty(frame)
             if plate is None:
@@ -329,7 +330,7 @@ class PrinterVisionThread(threading.Thread):
         # Auto-pause if enabled
         if (self.settings.get('auto_pause', 0)
                 and detection_type in ('spaghetti', 'first_layer', 'detachment')
-                and self.gcode_state == 'RUNNING'):
+                and is_printing_state(self.gcode_state)):
             self._auto_pause()
 
     def _insert_training_sample(self, frame_path: str) -> None:
@@ -371,7 +372,7 @@ class PrinterVisionThread(threading.Thread):
 
     def _auto_pause(self):
         """Pause only with positive running telemetry, using the appropriate adapter."""
-        if self.gcode_state != 'RUNNING':
+        if not is_printing_state(self.gcode_state):
             return
         try:
             with engine.connect() as conn:

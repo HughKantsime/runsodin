@@ -41,16 +41,16 @@ SessionLocal = sessionmaker(bind=engine)
 
 def get_active_printers(session) -> list:
     """Get printers that have timelapse enabled and are currently printing."""
-    from core.printer_utils import PRINTING_STATES
+    from core.printer_utils import PRINTING_STATES, state_sql_in
     # Protocol-neutral: Bambu reports RUNNING, Moonraker/PrusaLink/Elegoo PRINTING.
-    placeholders = ",".join(f":state{i}" for i in range(len(PRINTING_STATES)))
+    printing, params = state_sql_in("p.gcode_state", PRINTING_STATES, "state")
     rows = session.execute(text(f"""
         SELECT p.id, p.name
         FROM printers p
         WHERE p.timelapse_enabled IS TRUE
           AND p.is_active IS TRUE
-          AND UPPER(p.gcode_state) IN ({placeholders})
-    """), {f"state{i}": state for i, state in enumerate(PRINTING_STATES)}).fetchall()
+          AND {printing}
+    """), params).fetchall()
     return [{"id": r[0], "name": r[1]} for r in rows]
 
 

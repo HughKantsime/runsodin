@@ -113,8 +113,12 @@ class VisionMonitorDaemon:
     def _scan_printers(self):
         """Query DB for printers that should have vision monitoring."""
         try:
+            from core.printer_utils import IDLE_STATES, PRINTING_STATES, state_sql_in
+            # Protocol-neutral: Bambu RUNNING, Moonraker/PrusaLink/Elegoo PRINTING.
+            printing, printing_params = state_sql_in("p.gcode_state", PRINTING_STATES, "printing")
+            idle, idle_params = state_sql_in("p.gcode_state", IDLE_STATES, "idle")
             with engine.connect() as conn:
-                rows = conn.execute(text("""
+                rows = conn.execute(text(f"""
                     SELECT p.id, p.name, p.nickname, p.gcode_state,
                            pj.id as print_job_id, pj.current_layer,
                            vs.enabled, vs.spaghetti_enabled, vs.spaghetti_threshold,
@@ -130,10 +134,10 @@ class VisionMonitorDaemon:
                     WHERE p.is_active IS TRUE
                       AND p.camera_enabled IS TRUE
                       AND p.camera_url IS NOT NULL
-                      AND (p.gcode_state = 'RUNNING'
-                           OR (p.gcode_state IN ('IDLE', 'FINISH', 'FINISHED')
+                      AND ({printing}
+                           OR ({idle}
                                AND COALESCE(vs.build_plate_empty_enabled, 0) = 1))
-                """)).mappings().fetchall()
+                """), {**printing_params, **idle_params}).mappings().fetchall()
         except Exception as e:
             log.error(f"Failed to scan printers: {e}")
             return

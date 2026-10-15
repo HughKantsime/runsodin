@@ -114,7 +114,9 @@ def generate_fleet_utilization(session, filters):
     """Printer count, utilization %, hours."""
     total = session.execute(text("SELECT COUNT(*) FROM printers")).scalar() or 0
     active = session.execute(text("SELECT COUNT(*) FROM printers WHERE is_active IS TRUE")).scalar() or 0
-    printing = session.execute(text("SELECT COUNT(*) FROM printers WHERE gcode_state = 'RUNNING'")).scalar() or 0
+    from core.printer_utils import PRINTING_STATES, state_sql_in
+    printing_sql, printing_params = state_sql_in("gcode_state", PRINTING_STATES, "state")
+    printing = session.execute(text(f"SELECT COUNT(*) FROM printers WHERE {printing_sql}"), printing_params).scalar() or 0
     total_hours = session.execute(text(
         "SELECT COALESCE(SUM(total_print_hours), 0) FROM printers"
     )).scalar() or 0
