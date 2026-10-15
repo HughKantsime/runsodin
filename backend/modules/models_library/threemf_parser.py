@@ -92,12 +92,15 @@ class PrintFileMetadata:
         return d
 
 
-def parse_3mf(file_path: str) -> Optional[PrintFileMetadata]:
+def parse_3mf(file_path: str, display_name: Optional[str] = None) -> Optional[PrintFileMetadata]:
     """
     Parse a Bambu Studio sliced .3mf file and extract metadata.
     
     Args:
         file_path: Path to the .3mf file
+        display_name: The user's original filename. When the 3MF carries no
+            Title, the project name falls back to this name rather than the
+            server-side temp file stem.
         
     Returns:
         PrintFileMetadata object or None if parsing fails
@@ -114,7 +117,7 @@ def parse_3mf(file_path: str) -> Optional[PrintFileMetadata]:
             
             if not has_gcode:
                 # Try to parse as unsliced project
-                return parse_unsliced_3mf(zf, file_path)
+                return parse_unsliced_3mf(zf, file_path, display_name)
             
             # Parse slice_info.config for main metadata
             slice_info = parse_slice_info(zf)
@@ -128,7 +131,7 @@ def parse_3mf(file_path: str) -> Optional[PrintFileMetadata]:
             thumbnail_b64 = extract_thumbnail(zf)
             
             # Get project name from 3dmodel.model
-            project_name = extract_project_name(zf) or Path(file_path).stem
+            project_name = extract_project_name(zf) or Path(display_name or file_path).stem
             
             # Build filament list
             filaments = []
@@ -277,7 +280,7 @@ def extract_project_name(zf: zipfile.ZipFile) -> Optional[str]:
         return None
 
 
-def parse_unsliced_3mf(zf: zipfile.ZipFile, file_path: str) -> Optional[PrintFileMetadata]:
+def parse_unsliced_3mf(zf: zipfile.ZipFile, file_path: str, display_name: Optional[str] = None) -> Optional[PrintFileMetadata]:
     """Parse an unsliced .3mf project file (limited data)."""
     try:
         from modules.models_library.print_file_meta import extract_print_file_meta
@@ -311,7 +314,7 @@ def parse_unsliced_3mf(zf: zipfile.ZipFile, file_path: str) -> Optional[PrintFil
             used_grams=0
         ))
         
-        project_name = extract_project_name(zf) or Path(file_path).stem
+        project_name = extract_project_name(zf) or Path(display_name or file_path).stem
         thumbnail_b64 = extract_thumbnail(zf)
         
         return PrintFileMetadata(

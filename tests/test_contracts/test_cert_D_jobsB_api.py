@@ -328,19 +328,10 @@ def test_upload_library_schedule_jobs_pipeline_ends_scheduled_on_compatible_prin
     _pipeline_to_scheduled(pipeline, None)
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "DEFECT: backend/modules/jobs/scheduler.py:722-725 compares print_files.printer_model verbatim; uploads "
-    "store the raw Bambu code ('N2S', backend/modules/models_library/threemf_parser.py:160) while the MQTT "
-    "monitor auto-detects printers.model as the friendly name ('A1', mqtt_printer.py:650-654), so an A1-sliced "
-    "upload never schedules on an auto-detected A1"))
 def test_pipeline_schedules_on_auto_detected_a1(pipeline):
     _pipeline_to_scheduled(pipeline, 'A1')
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "DEFECT: backend/modules/models_library/threemf_parser.py:131 falls back to Path(file_path).stem, the "
-    "server temp file, when a sliced 3MF lacks a Title; the Model Library entry is named 'tmpXXXX' instead of "
-    "the uploaded filename"))
 def test_uploaded_model_library_name_falls_back_to_uploaded_filename(pipeline):
     client, headers, db, uploaded = pipeline
     name = db.execute(text('SELECT name FROM models WHERE id=:id'), {'id': uploaded['model_id']}).scalar_one()

@@ -166,7 +166,7 @@ async def upload_3mf(
             except _zf.BadZipFile:
                 raise HTTPException(status_code=400, detail="Invalid .3mf file (bad zip structure).")
 
-            metadata = parse_3mf(tmp_path)
+            metadata = parse_3mf(tmp_path, display_name=os.path.basename(file.filename or "") or None)
             if not metadata:
                 raise HTTPException(status_code=400, detail="Failed to parse .3mf file")
 

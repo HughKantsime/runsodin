@@ -21,6 +21,15 @@ from modules.printers.services import evaluate_submission_compatibility
 from modules.jobs.models import Job, SchedulerRun
 
 
+def _same_printer_model(printer_model: str, required_model: str) -> bool:
+    """True when a printer's model and a file's sliced-for model are the same machine."""
+    from core.printer_identity import canonical_machine
+    left, right = canonical_machine(printer_model), canonical_machine(required_model)
+    if left and right:
+        return left == right
+    return printer_model.strip().casefold() == str(required_model).strip().casefold()
+
+
 @dataclass
 class SchedulerConfig:
     """Configuration for the scheduler."""
@@ -719,9 +728,11 @@ class Scheduler:
             # Model constraint: skip printers whose model is known and doesn't match.
             # If printer model is unset (not yet auto-detected), we allow it through —
             # blocking on unknown model would exclude all non-Bambu printers.
+            # Slicer files carry raw Bambu codes (N2S) while MQTT auto-detect
+            # stores friendly names (A1): compare canonical identities.
             if required_printer_model:
                 printer_model = (state.printer.model or '').strip()
-                if printer_model and printer_model != required_printer_model:
+                if printer_model and not _same_printer_model(printer_model, required_printer_model):
                     continue
 
             # Tag constraint: skip printers missing required tags
