@@ -1,6 +1,6 @@
 # Schema migrations after 027
 
-This document explains how to add a database schema migration numbered 030 or higher. The design decision is recorded in `.claude/specs/post027-migrations.md`.
+This document explains how to add a database schema migration numbered 030 or higher. The first registered one is 032 (quiet-hours deferred deliveries); 030 was withdrawn and 031 is not registered. The design decision is recorded in `.claude/specs/post027-migrations.md`.
 
 ## How it works
 
@@ -24,9 +24,8 @@ This document explains how to add a database schema migration numbered 030 or hi
    - `validate(connection)`, which checks the exact shape on both SQLite and PostgreSQL.
 
    Rules for the migration:
-   - It is additive.
+   - **It is additive and can never fail because of existing user data.** It may create tables, columns and indexes that no stored row can violate, and validate their exact shape. It must not add a uniqueness, check or foreign-key constraint over data a released version could already hold, and it must not rewrite data. Enforce data-dependent invariants in the application layer (serialised API checks plus an admin warning for existing violations). See "Why data-dependent constraints are excluded" below.
    - It creates everything it needs itself. It must never rely on `Base.metadata.create_all`, because upgraded and restored databases only get the migration's DDL.
-   - Data that the change would conflict with is never rewritten. How the conflict is handled depends on whether a released database can already hold it; see "Constraint-adding migrations" below.
    - If it begins its own SQLite transaction, it uses `BEGIN IMMEDIATE` only when the connection is not already in a transaction.
    - The file is final once merged. The ledger records its SHA-256, so any later byte change makes every upgraded database refuse to boot.
 2. **Register it in two places.** Use the next number; numbers must strictly increase.
@@ -46,12 +45,13 @@ This document explains how to add a database schema migration numbered 030 or hi
    - **Never edit, re-checksum or delete an existing entry.** Existing databases recorded those checksums. A wrongly named entry may be superseded only by adding a correct one. Example: `released_1_9_24` came from the local pre-release build 9fb4ce77, not the published image. It stays, and `published_1_9_13_to_1_9_24` is the entry the published releases need.
 5. **Regenerate the SQLite compatibility inventory.**
    `PYTHONPATH=backend:. python ops/database_parity/sqlite_compatibility_inventory.py --write`
-6. **Add tests.** Put them in `tests/test_contracts/test_post027_migration_0NN.py`, modelled on `test_post027_migration_030.py`. They must cover:
+6. **Add tests.** Put them in `tests/test_contracts/test_post027_migration_0NN.py`, modelled on `test_post027_migration_032.py`. They must cover:
+   - the inventory lists every new table and its exact columns;
    - fresh SQLite boot applies it once, and a second boot applies nothing with the same fingerprint;
    - a pre-0NN database upgrades and keeps its rows;
-   - conflicting data is never rewritten: a DEFERRABLE migration boots with the deferral marker and warning, later boots retry, and a fixed database then applies it; a non-deferrable one is refused with no ledger row;
-   - a wrong existing shape is refused;
-   - the published v1.9.24 fixture upgrades through it with the entrypoint command.
+   - a wrong existing shape is refused, with no ledger row;
+   - the published v1.9.24 fixture upgrades through it with the entrypoint command;
+   - deletion cleanup and retention for owned rows (for 032: `test_cert_E_deferred_cleanup.py` and the retention test).
 
    `test_post027_registry_inventory.py` already checks, for every registered migration, that a booted schema holds exactly `canonical_tables()`. It catches a table missing from the inventory without any PostgreSQL run.
 7. **Run the PostgreSQL proof.**
@@ -62,9 +62,9 @@ This document explains how to add a database schema migration numbered 030 or hi
    - tampered archives refused;
    - a current-schema backup→restore round trip;
    - a database written by the published v1.9.24 image's own bootstrap, upgraded, backed up and restored;
-   - deferral on conflicting data, backup/restore while deferred, and the retry;
+   - a row in every new table surviving the current backup→restore round trip;
    - a killed preserved029 child leaving nothing behind;
-   - a staged historical restore applied by the coordinator under enterprise-compose secret ownership (uid 10001, mode 0400), plus the quarantine of a root run;
+   - a staged historical restore applied by the coordinator under enterprise-compose secret ownership (uid 10001, mode 0400); a root-run coordinator keeps the restore staged and fails; a deterministic archive refusal is quarantined;
    - a maintenance URL that carries `?sslmode=`.
 
    The round trip runs `create_postgres_backup`, which calls `validate_live_postgres_objects`, and then a full validate→stage→apply. So applying every registered migration is proved never to break PostgreSQL backup and restore. If the migration adds a table or column, extend step 5 of `post027_restore_native.py` to insert a row into it before the backup and assert that the row survives the restore. The receipt is written to `artifacts/application-certification/migrations/post027-restore-native.json`.
@@ -72,26 +72,24 @@ This document explains how to add a database schema migration numbered 030 or hi
    `ops/run_contract_batches.sh <out-dir>`
    It must exit with status 0.
 
-## Constraint-adding migrations
+## Why data-dependent constraints are excluded
 
-Migration 030 sets the pattern. Use it for any migration that adds a uniqueness, check or foreign-key constraint over data that released versions could already hold.
+Migration 030 tried to add a unique index over Spoolman links that released databases could already violate. Deferring it while duplicates existed let an archive's schema differ from its target's, which broke restores in both directions: a deferred archive onto an applied target, and the reverse. Those failures surfaced after validation had passed and the staged copy was gone, and they conflicted with the release-ledger rule. So a post-027 migration's outcome must never depend on stored data. Such invariants live in the application layer instead: Spoolman link uniqueness is enforced by the API with real serialisation, and existing duplicates are reported to the admin, never rewritten.
 
-- **Assume released databases can hold the conflicting data.** If a released schema had no constraint, assume the data exists. A hard `MigrationError` at boot would restart the container forever on an in-place upgrade.
-- **Mark the module `DEFERRABLE = True`.** When `apply` finds conflicting rows, it raises `MigrationDeferred(reason, detail=...)` before writing anything.
-  - `reason` tells the operator what to change and that a restart applies it.
-  - `detail` names the conflicting rows by id, capped at 200.
-- **What bootstrap does on deferral.** It records a `<id>#deferred` ledger marker and the `system_config` entry `schema_deferred_migrations`, then continues. Every later boot retries, and success removes both.
-  - `/health/ready` lists deferred migrations without failing readiness.
-  - The admin diagnostics bundle (`/api/v1/system/diagnostics`, key `schema_warnings`) carries the reason and the rows.
-- **The API must enforce the rule meanwhile.** The API must refuse new conflicting rows (for 030, the Spoolman-link 409), so the data can only get better.
-- **Backups and restores keep working while a migration is deferred.** An archive whose ledger records the deferral is current. Its canonical schema is built without the deferred migration, and the real target retries it after the restore.
-- **Migration refusals during restore validation are 400s.** Any other `MigrationError` raised while validating a restore becomes a `BackupValidationError` (HTTP 400) that names the reason.
+Migration refusals raised while validating a restore (for example a ledger checksum mismatch) are `BackupValidationError`s, which are HTTP 400 at staging, never a 500.
 
 ## Restore safety
 
 - **The restore coordinator runs as the app user.** For PostgreSQL, the entrypoint runs `restore_coordinator` via `runuser -u odin`, the same user as the app. Mounted secrets must therefore be readable by odin and owned by it with mode 0400 or 0600, as `docker-compose.enterprise.yml` mounts them.
-- **A failed restore does not restart the container forever.** If a staged restore fails before touching the target, the coordinator moves the archive and a `failed_restore_<ts>.json` record (reason and next step) into the backups directory. It records `restore_failed` and lets startup continue on the untouched target. A failure after the target was touched still stops startup, under the existing rollback and barrier rules.
-- **Disposable databases and files are always cleaned up.** Every `odin_validate_*` database is journaled in `<backups>/.odin-stage-journal/` before it is created. The preserved029 child journals its own databases and works in a private `.odin-preserved029-*` directory. Whatever the child's outcome, including SIGKILL, the parent drops what the child journaled and removes that directory. Startup and every restore validation also sweep journaled databases and `.odin-*` working files older than six hours.
+- **Only a deterministic archive refusal is quarantined.** `ArchiveRefused` covers TOC, schema, ledger and history refusals, preserved029 refusals, and pg_restore failing to read the file. When it is raised while the archive is validated, before the target is touched, the coordinator moves the archive and a `failed_restore_<ts>.json` record (reason and next step) into the backups directory, records `restore_failed`, raises a persistent alert for every superadmin, and lets startup continue on the untouched target.
+  - The quarantined archive is listed first in the backups list, with its reason. It can be re-staged (`POST /backups/{filename}/stage`, "Stage again" in Settings > System) or deleted.
+  - It is counted in `/health/ready` (`notices.restore_quarantined`, no detail), listed in the admin diagnostics bundle (`restore_quarantine`), and kept for 30 days.
+- **Everything else keeps the staged restore.** Connection-level failures (PostgreSQL not ready, DNS, a client that could not reach the server, a probe timeout) are retried with a bounded backoff of about a minute, then fail. Operator and environment errors (a missing `ODIN_POSTGRES_RESTORE_ACKNOWLEDGEMENT`, unreadable credentials, a restore-gate refusal) fail at once. In both cases the process exits non-zero as before, with a log line saying the restore is kept. A failure after the target was touched still stops startup, under the existing rollback and barrier rules.
+- **Disposable databases and files are always cleaned up, and only this code's.** Every `odin_validate_*` database is journaled in `<backups>/.odin-stage-journal/` before it is created, and live code drops a database only if its own `CREATE DATABASE` succeeded.
+  - The preserved029 child journals into its own subdirectory: `<name>.intent` before `CREATE DATABASE`, then `<name>` once it succeeded. It works in a private `.odin-preserved029-*` directory.
+  - Whatever the child's outcome, including SIGKILL, the parent drops the child's confirmed names. It drops intended names only if no database of that name existed before the child started. It never touches another operation's names, and it removes the child's directory.
+  - Startup and every restore validation also sweep journaled databases and `.odin-*` working files older than six hours.
+- **Historical-restore URLs never load credentials from elsewhere.** Non-credential libpq parameters such as `sslmode` pass. `password`, `sslpassword`, `passfile`, `service`, `sslkey`, `sslcert` and `application_name` are refused.
 
 ## Releases
 
