@@ -586,6 +586,9 @@
     "operator",
     "viewer"
    ],
+   "audit": [
+    "admin"
+   ],
    "branding": [
     "admin"
    ],
