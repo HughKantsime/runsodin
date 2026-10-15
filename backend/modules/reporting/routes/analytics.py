@@ -146,7 +146,10 @@ async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(
                  "WHERE printer_id = :pid AND status IN ('completed', 'failed')"),
             {"pid": p.id}
         ).fetchall()
-        mqtt_rows = [row for row in mqtt_terminal if _ended_in_range(row.ended_at, range_start)]
+        # A printer-observed run linked to a scheduled job is that job's attempt and
+        # is already counted through the job row: count only unlinked runs.
+        mqtt_rows = [row for row in mqtt_terminal
+                     if row.scheduled_job_id is None and _ended_in_range(row.ended_at, range_start)]
         completed_jobs += sum(row.status == 'completed' for row in mqtt_rows)
         failed_jobs += sum(row.status == 'failed' for row in mqtt_rows)
 
@@ -161,8 +164,7 @@ async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(
             elif job.status == JobStatus.COMPLETED and job.duration_hours:
                 window_print_hours += job.duration_hours
         for row in mqtt_rows:
-            if row.scheduled_job_id is None:
-                window_print_hours += _span_hours(row.started_at, row.ended_at) or 0
+            window_print_hours += _span_hours(row.started_at, row.ended_at) or 0
 
         total_hours = round(window_print_hours, 1)
         total_jobs = completed_jobs + failed_jobs

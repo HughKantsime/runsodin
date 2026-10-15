@@ -317,3 +317,7 @@ def test_stats_window_hours_use_measured_spans_and_unlinked_monitor_runs(ana):
     # 7003 duration 2h + 7005 measured 1.5h + unlinked 8901 3h; linked 8902 and old 8903 excluded.
     assert p10["total_hours"] == 6.5
     assert p10["utilization_pct"] == round(6.5 / 24 * 100, 1)
+    # Counts exclude the linked run too (review M3): completed = 7003 + unlinked 8901, failed = 7005.
+    assert (p10["completed_jobs"], p10["failed_jobs"]) == (2, 1)
+    assert p10["success_rate"] == round(2 / 3 * 100, 1)
+    assert p10["avg_job_hours"] == round(6.5 / 2, 1)
