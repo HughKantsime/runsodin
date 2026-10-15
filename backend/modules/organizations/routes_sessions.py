@@ -590,14 +590,15 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
     # (failed logins have no entity id; actions the user performed carry
     # their username). Scrub the identifiers, keep the event.
     for identifier in identifiers:
+        # Read the stored JSON text on both dialects: PostgreSQL decodes a JSON
+        # string value to a bare Python str, which is not valid JSON to write back.
         rows = db.execute(
-            text("SELECT id, details FROM audit_logs WHERE CAST(details AS TEXT) LIKE :pattern"),
+            text("SELECT id, CAST(details AS TEXT) AS details FROM audit_logs WHERE CAST(details AS TEXT) LIKE :pattern"),
             {"pattern": f"%{identifier}%"},
         ).fetchall()
         for row in rows:
-            raw = row.details if isinstance(row.details, str) else json.dumps(row.details)
             db.execute(text("UPDATE audit_logs SET details = :details WHERE id = :id"),
-                       {"details": raw.replace(identifier, "[deleted-user]"), "id": row.id})
+                       {"details": row.details.replace(identifier, "[deleted-user]"), "id": row.id})
 
     erasure_details = {"anonymized_user_id": user_id}
     if not actor_is_erased(db, current_user["id"]):
