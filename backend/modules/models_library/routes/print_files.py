@@ -119,8 +119,9 @@ MESH_EXTRACTION_TIMEOUT_SECONDS = 30
 async def _extract_preview_mesh(path):
     """Mesh preview or None. Runs in a worker thread; a slow package gets no preview."""
     import asyncio
+    from modules.models_library import threemf_parser
     try:
-        return await asyncio.wait_for(asyncio.to_thread(extract_mesh_from_3mf, path), MESH_EXTRACTION_TIMEOUT_SECONDS)
+        return await asyncio.wait_for(asyncio.to_thread(threemf_parser.extract_mesh_from_3mf, path), MESH_EXTRACTION_TIMEOUT_SECONDS)
     except asyncio.TimeoutError:
         log.warning("3MF mesh preview skipped: extraction exceeded %ss", MESH_EXTRACTION_TIMEOUT_SECONDS)
         return None

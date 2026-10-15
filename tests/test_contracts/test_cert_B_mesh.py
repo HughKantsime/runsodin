@@ -147,6 +147,7 @@ def test_non_finite_geometry_never_reaches_mesh_data(tmp_path, vertex, transform
 
 def test_upload_extracts_mesh_off_the_event_loop_with_a_deadline(monkeypatch):
     import asyncio, threading, time
+    from modules.models_library import threemf_parser
     from modules.models_library.routes import print_files
     seen = {}
 
@@ -154,7 +155,7 @@ def test_upload_extracts_mesh_off_the_event_loop_with_a_deadline(monkeypatch):
         seen["thread"] = threading.current_thread()
         time.sleep(0.3)
         return {"vertices": [0.0], "triangles": []}
-    monkeypatch.setattr(print_files, "extract_mesh_from_3mf", slow)
+    monkeypatch.setattr(threemf_parser, "extract_mesh_from_3mf", slow)
 
     async def run():
         ticks = 0
