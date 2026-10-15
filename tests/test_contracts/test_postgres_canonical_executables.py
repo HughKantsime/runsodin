@@ -8,6 +8,7 @@ import pytest
 from modules.system.backup_service import BackupValidationError
 from modules.system import postgres_backup_service as backup
 from modules.system.postgres_canonical_executables import sql_statements, validate_schema_sql, canonical_functions, canonical_triggers
+from ._preserved029_target import bundle_only
 
 
 @pytest.mark.parametrize('original,canonical',[
@@ -76,6 +77,7 @@ def test_noncanonical_function_overload_trigger_alias_rejected(entry):
     with pytest.raises(BackupValidationError):backup.validate_archive_toc(base+'\n'+entry,allow_unresolved_structure=True)
 
 
+@bundle_only
 def test_exact_source_registry_has_expected_union_counts():
     from core.schema.pre026_restore_contract import PRE027_RESTORE026
     functions=canonical_functions(); triggers=canonical_triggers()
