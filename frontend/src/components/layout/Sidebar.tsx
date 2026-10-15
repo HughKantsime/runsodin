@@ -38,7 +38,7 @@ import { useLicense } from '../../LicenseContext'
 import { useOrg } from '../../contexts/OrgContext'
 import ProBadge from '../shared/ProBadge'
 import { canAccessPage, clearSensitiveBrowserState } from '../../permissions'
-import { isOnline } from '../../utils/shared'
+import { isOnline, isPrintingState } from '../../utils/shared'
 import { stats, printers, getEducationMode, pricingConfig } from '../../api'
 import { Modal, Button } from '../ui'
 
@@ -134,7 +134,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }) {
   })
 
   const onlinePrinters = (printersData || []).filter(isOnline)
-  const printingCount = onlinePrinters.filter(p => ['RUNNING', 'PRINTING'].includes(p.gcode_state?.trim().toUpperCase())).length
+  const printingCount = onlinePrinters.filter(p => isPrintingState(p.gcode_state)).length
   const idleCount = onlinePrinters.filter(p => ['IDLE', 'READY', 'FINISH', 'COMPLETED'].includes(p.gcode_state?.trim().toUpperCase())).length
   const otherCount = onlinePrinters.length - printingCount - idleCount
   const offlineCount = (printersData?.length || 0) - onlinePrinters.length

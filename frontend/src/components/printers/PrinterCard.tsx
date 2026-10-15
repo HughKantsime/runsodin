@@ -11,7 +11,7 @@ import PrintProgress from './PrintProgress'
 import { printers } from '../../api'
 import { canDo, getCurrentUser } from '../../permissions'
 import { canControlPlug } from '../../utils/plugControl'
-import { isOnline } from '../../utils/shared'
+import { isOnline, isActivePrintState } from '../../utils/shared'
 import { Button, SpoolRing } from '../ui'
 
 // TODO: type this properly — runtime printer shape has extra MQTT/telemetry fields
@@ -86,7 +86,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
     if (target.org_id === undefined) return false
     const tenantAccess = (principal.role === 'admin' && !principal.group_id) || target.org_id === null || target.org_id === principal.group_id
     return tenantAccess && target.api_type === 'bambu' && !!target.api_host && target.has_api_key && isOnline(target)
-      && (!speed || ['RUNNING', 'PAUSE'].includes(target.gcode_state?.toUpperCase() || ''))
+      && (!speed || isActivePrintState(target.gcode_state))
   }
 
   const sendCardCommand = async (action: 'lights' | 'speed', level?: number) => {
@@ -340,13 +340,13 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
           )
         })()}
       </div>
-      {isOnline(printer) && ['RUNNING', 'PAUSE'].includes(printer.gcode_state?.toUpperCase() || '') && (
+      {isOnline(printer) && isActivePrintState(printer.gcode_state) && (
         <div className="px-3 md:px-4 py-2 border-t border-[var(--brand-border)]">
           <PrintProgress percent={printer.mc_percent} remainingMinutes={printer.mc_remaining_time} />
         </div>
       )}
       {/* Bambu speed control — active prints only */}
-      {printer.api_type === 'bambu' && isOnline(printer) && ['RUNNING', 'PAUSE'].includes(printer.gcode_state?.toUpperCase() || '') && (
+      {printer.api_type === 'bambu' && isOnline(printer) && isActivePrintState(printer.gcode_state) && (
         <div className="px-3 md:px-4 py-2 border-t border-[var(--brand-border)]">
           <p className="text-xs text-[var(--brand-text-muted)]">
             {reportedPercent == null ? 'Reported speed unknown' : `Last reported speed: ${reportedPercent}%`}
@@ -405,7 +405,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
         </button>
       </div>
       {activePanel === 'ams' && <AmsEnvironmentChart printerId={printer.id} onClose={() => setActivePanel(null)} />}
-      {activePanel === 'telemetry' && <PrinterTelemetryChart printerId={printer.id} onClose={() => setActivePanel(null)} />}
+      {activePanel === 'telemetry' && <PrinterTelemetryChart printerId={printer.id} apiType={printer.api_type} onClose={() => setActivePanel(null)} />}
       {activePanel === 'nozzle' && <NozzleStatusCard printerId={printer.id} onClose={() => setActivePanel(null)} />}
       {activePanel === 'hms' && <HmsHistoryPanel printerId={printer.id} apiType={printer.api_type} onClose={() => setActivePanel(null)} />}
     </div>

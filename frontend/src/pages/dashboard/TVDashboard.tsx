@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { VideoOff, X, AlertTriangle, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
 import { useBranding } from '../../BrandingContext'
 import { printers as printersApi, alerts as alertsApi } from '../../api'
-import { isOnline } from '../../utils/shared'
+import { isOnline, isActivePrintState } from '../../utils/shared'
 import useWebRTC from '../../hooks/useWebRTC'
 
 const CARDS_PER_PAGE = 12
@@ -36,7 +36,7 @@ function TVCameraStream({ cameraId }: { cameraId: number }) {
 
 function TVPrinterCard({ printer }: { printer: any }) {
   const online = isOnline(printer)
-  const isPrinting = printer.gcode_state === 'RUNNING' || printer.gcode_state === 'PAUSE'
+  const isPrinting = isActivePrintState(printer.gcode_state)
   const hasError = printer.hms_errors && printer.hms_errors.length > 0
   const hasCamera = printer.camera_url && printer.camera_enabled !== false
   const progress = printer.mc_percent || 0
@@ -142,7 +142,7 @@ export default function TVDashboard() {
 
   const allPrinters = printerList || []
   const totalPages = Math.max(1, Math.ceil(allPrinters.length / CARDS_PER_PAGE))
-  const printingCount = allPrinters.filter(p => p.gcode_state === 'RUNNING' || p.gcode_state === 'PAUSE').length
+  const printingCount = allPrinters.filter(p => isActivePrintState(p.gcode_state)).length
   const errorCount = allPrinters.filter(p => p.hms_errors?.length > 0).length
   const unreadAlerts = alertSummary?.total ?? 0
 

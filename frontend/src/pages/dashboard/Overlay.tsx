@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
+import { printActivity } from '../../utils/shared'
 
 const POLL_INTERVAL = 5000
 
@@ -77,15 +78,16 @@ export default function Overlay() {
   }
 
   const progress = data.print_progress ?? 0
-  const isPrinting = data.gcode_state === 'RUNNING' || data.gcode_state === 'PAUSE'
-  const statusLabel = data.gcode_state === 'RUNNING' ? 'Printing'
-    : data.gcode_state === 'PAUSE' ? 'Paused'
+  const activity = printActivity(data.gcode_state)
+  const isPrinting = activity !== null
+  const statusLabel = activity === 'printing' ? 'Printing'
+    : activity === 'paused' ? 'Paused'
     : data.gcode_state === 'FINISH' ? 'Complete'
     : data.gcode_state === 'IDLE' ? 'Idle'
     : data.gcode_state || 'Unknown'
 
-  const statusColor = data.gcode_state === 'RUNNING' ? 'text-[var(--status-completed)]'
-    : data.gcode_state === 'PAUSE' ? 'text-yellow-400'
+  const statusColor = activity === 'printing' ? 'text-[var(--status-completed)]'
+    : activity === 'paused' ? 'text-yellow-400'
     : data.gcode_state === 'FINISH' ? 'text-[var(--status-printing)]'
     : mutedText
 
