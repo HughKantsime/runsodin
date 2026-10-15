@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import type { AnalyticsSummary } from '../../api/reporting'
 import { analytics, printJobs } from '../../api'
 import { useState } from 'react'
 import {
@@ -397,7 +398,9 @@ export default function Analytics() {
     )
   }
 
-  const { summary, top_by_hour, worst_performers, printer_stats, jobs_by_date } = data
+  const { top_by_hour, worst_performers, printer_stats, jobs_by_date } = data
+  // Money totals are null when a counted job has no price/cost (rendered as Unknown).
+  const summary = data.summary as AnalyticsSummary
 
   return (
     <div className="p-4 md:p-6 space-y-6">
