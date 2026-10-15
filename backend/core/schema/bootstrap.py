@@ -267,6 +267,13 @@ def _orm_checksum() -> str:
 
 CURRENT_ORM_BASELINE = "main_audit_20261012"
 
+# Post-027 migrations, applied in this order on the current path only. Historical
+# PostgreSQL archives are staged by core/schema/preserved029 and then upgraded
+# through this list. Procedure: docs/SCHEMA_MIGRATIONS.md.
+POST027_MIGRATIONS = (
+    ("python:030-spoolman-link-uniqueness", "core.schema.migrations.030_spoolman_link_uniqueness"),
+)
+
 
 def _recognized_orm_checksums() -> frozenset[str]:
     """Explicit build manifests, never inferred from the database being upgraded."""
@@ -525,6 +532,10 @@ def _bootstrap_database_contract(
             applied.append("python:026-global-order-origins")
         if contract is None and apply_python_migration(connection, "core.schema.migrations.027_power_target_operations"):
             applied.append("python:027-power-target-operations")
+        if contract is None:
+            for migration_id, module_name in POST027_MIGRATIONS:
+                if apply_python_migration(connection, module_name):
+                    applied.append(migration_id)
 
     with engine.begin() as connection:
         if connection.dialect.name == "postgresql":

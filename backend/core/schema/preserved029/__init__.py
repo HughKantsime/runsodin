@@ -17,7 +17,7 @@ import sys
 import tempfile
 from time import monotonic
 from sqlalchemy import inspect,text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine,URL
 from .integrity import check_package,Preserved029Error
 
 _BASE=Path(__file__).resolve().parent
@@ -94,6 +94,12 @@ def _bounded_child(control_path,deadline):
                 else:raise Preserved029Error('Owned preserved029 pipe close unconfirmed') from None
 
 
+def credentialless(url):
+    """The stage URL without any credential. URL.set(password=None) would keep it."""
+    if url.query:raise Preserved029Error('Preserved029 URL query refused')
+    return URL.create(url.drivername,username=url.username,host=url.host,port=url.port,database=url.database)
+
+
 def _private_file(path,label):
     facts=Path(path).lstat()
     if not stat.S_ISREG(facts.st_mode) or facts.st_uid!=os.getuid() or stat.S_IMODE(facts.st_mode)&0o077 or facts.st_nlink!=1:
@@ -115,8 +121,7 @@ def restore_into_stage(engine,name,*,archive,archive_sha256,target_url,password_
         identity=_identity(c)
         if identity[0]!=name:raise Preserved029Error('Preserved029 stage name differs')
         if inspect(c).get_table_names(schema='public'):raise Preserved029Error('Preserved029 stage is not fresh')
-    url=engine.url.set(password=None)
-    if url.query:raise Preserved029Error('Preserved029 URL query refused')
+    url=credentialless(engine.url)
     with tempfile.TemporaryDirectory(prefix='preserved029-parent-') as folder:
         control=Path(folder)/'control.json'
         data={'action':'restore029','archive':str(Path(archive).resolve()),'archive_sha256':archive_sha256,

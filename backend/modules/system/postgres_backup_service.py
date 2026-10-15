@@ -775,22 +775,23 @@ def _validate_current_postgres_restore(
 
 
 def _inspect_compatible_archive(archive,target_url,password_file,directory):
-    from modules.system.pre026_restore_stage import identify_contract
-    contract=identify_contract(archive,target_url,password_file,directory)
-    return inspect_postgres_archive(archive,target_url,password_file=password_file,work_dir=directory,trusted_prevalidated=True,_contract=contract)
+    from modules.system.pre026_restore_stage import identify_contract,archive_metadata
+    if identify_contract(archive,target_url,password_file,directory) is None:
+        return inspect_postgres_archive(archive,target_url,password_file=password_file,work_dir=directory,trusted_prevalidated=True)
+    # Historical archives are validated in full by the preserved029 stage in prepared_archive.
+    return archive_metadata(archive)
 
 
 def validate_postgres_restore(archive,target_url,maintenance_url,*,password_file=None,maintenance_password_file=None,base_dir=None):
-    from modules.system.pre026_restore_stage import identify_contract,prepared_archive
+    from modules.system.pre026_restore_stage import identify_contract,prepared_archive,archive_metadata,current_schema_version
     directory=postgres_paths(base_dir).backups
     contract=identify_contract(archive,target_url,password_file,directory)
     if contract is None:
         return _validate_current_postgres_restore(archive,target_url,maintenance_url,password_file=password_file,maintenance_password_file=maintenance_password_file,base_dir=base_dir)
-    from core.schema.pre026_restore_contract import schema_version
-    original=inspect_postgres_archive(archive,target_url,password_file=password_file,work_dir=directory,trusted_prevalidated=True,_contract=contract)
-    with prepared_archive(archive,target_url,maintenance_url,password_file,maintenance_password_file,directory) as prepared:
+    original=archive_metadata(archive);era=[]
+    with prepared_archive(archive,target_url,maintenance_url,password_file,maintenance_password_file,directory,_era=era) as prepared:
         current=_validate_current_postgres_restore(prepared,target_url,maintenance_url,password_file=password_file,maintenance_password_file=maintenance_password_file,base_dir=base_dir)
-        return {**original,'restore_validated':True,'schema_fingerprint':current['schema_fingerprint'],'source_schema_version':schema_version(contract),'prepared_schema_version':27,'upgrade_required':True,'prepared_sha256':_sha256(prepared)}
+        return {**original,'restore_validated':True,'schema_fingerprint':current['schema_fingerprint'],'source_schema_version':era[0],'prepared_schema_version':current_schema_version(),'upgrade_required':True,'prepared_sha256':_sha256(prepared)}
 
 
 def stage_postgres_restore(

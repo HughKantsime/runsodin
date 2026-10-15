@@ -1,0 +1,301 @@
+"""preserved029: closed bundle, isolated child, archive routing and frozen-artifact identity."""
+import hashlib
+import importlib
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+from time import monotonic
+
+import pytest
+
+from core.schema import preserved029 as p
+from core.schema.preserved029 import integrity
+
+ROOT = Path(__file__).resolve().parents[2]
+SCHEMA = ROOT / "backend/core/schema"
+BASE = Path(p.__file__).parent
+SOURCE_COMMIT = "ba0b90254a2387de60a888a1939897eacf722c36"
+
+# Byte digests at SOURCE_COMMIT. These artifacts are frozen: never edit or re-pin them.
+FROZEN = {
+    "pre026_restore_contract.py": "a69f865465cb478ad0c490ba7096a83f171d0714377b88d566994309d1ccbd9d",
+    "pre026_restore_integrity.py": "2b83c4c2f7986c46fc7806dbcd9a290baf86467edc0eb17ad029126c5919236c",
+    "prepriced_restore_contract.py": "2009b49bce52e7630422bbefce007defc79b560f5bcac1e01e07606c7792d5e7",
+}
+PRESERVED027_TREE = ("1ecbc53957108027428c17cb845da4ca8a7f4795030355fe42d146c226f82cfe", 121)
+
+
+def _sha(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _tree_digest(base):
+    files = sorted(path for path in base.rglob("*") if path.is_file() and "__pycache__" not in path.parts)
+    digest = hashlib.sha256()
+    for path in files:
+        digest.update(path.relative_to(base).as_posix().encode() + b"\0" + _sha(path).encode() + b"\n")
+    return digest.hexdigest(), len(files)
+
+
+def test_frozen_restore_artifacts_are_byte_identical():
+    for name, digest in FROZEN.items():
+        assert _sha(SCHEMA / name) == digest, name
+    assert _tree_digest(SCHEMA / "preserved027") == PRESERVED027_TREE
+
+
+def test_bundle_is_the_exact_source_commit_restore_stage_closure():
+    bundle, manifest = integrity.check_package()
+    assert manifest["source_commit"] == SOURCE_COMMIT and manifest["profile"] == "restore-029"
+    # The frozen contracts inside the bundle are the same bytes as the frozen live files.
+    for name, digest in FROZEN.items():
+        assert manifest["sources"]["core/schema/" + name] == digest
+    # preserved027's closure plus the two files the 025/026 contract pins that it lacks, and
+    # core/timelapse_recipes.py, which migration 019 reads by path for its own source pin.
+    p27 = json.loads((SCHEMA / "preserved027/manifest.json").read_text())
+    expected = set(p27["original_sources"]) | set(p27["producer_sources"]) | {
+        "core/schema/pre026_restore_integrity.py", "modules/system/pre026_restore_stage.py", "core/timelapse_recipes.py"}
+    assert set(manifest["sources"]) == expected
+    # Every source pinned by the 025/026 contract is present with its pinned bytes.
+    import ast, re
+    text = (bundle / "core/schema/pre026_restore_contract.py").read_text()
+    for symbol in ("SOURCE_PINS", "SQL_SOURCE_PINS", "EXTRA026_SOURCE_PINS"):
+        pins = ast.literal_eval(re.search(r"^" + symbol + r"=(\{.*?\})$", text, re.M).group(1))
+        assert all(manifest["sources"][name] == digest for name, digest in pins.items()), symbol
+    assert b"030_" not in (bundle / "core/schema/migrator.py").read_bytes()
+    assert len(manifest["ledger_ids"]) == 52 and "python:027-power-target-operations" in manifest["ledger_ids"]
+
+
+@pytest.mark.parametrize("change", ["missing", "new", "changed", "file_symlink", "directory_symlink", "manifest_changed"])
+def test_package_tamper_refuses(tmp_path, change):
+    target = tmp_path / "package"
+    shutil.copytree(BASE, target, ignore=shutil.ignore_patterns("__pycache__"))
+    chosen = target / "bundle/core/schema/bootstrap.py"
+    if change == "missing":
+        chosen.unlink()
+    elif change == "new":
+        (target / "bundle/core/evil.py").write_text("raise Exception()")
+    elif change == "changed":
+        chosen.write_bytes(chosen.read_bytes() + b"\n# drift\n")
+    elif change == "file_symlink":
+        chosen.unlink(); chosen.symlink_to(BASE / "bundle/core/schema/bootstrap.py")
+    elif change == "directory_symlink":
+        shutil.rmtree(target / "bundle/core/migrations")
+        (target / "bundle/core/migrations").symlink_to(BASE / "bundle/core/migrations", target_is_directory=True)
+    else:
+        (target / "manifest.json").write_text("{}")
+    with pytest.raises(integrity.Preserved029Error):
+        integrity.check_package(target)
+
+
+def isolated(code, *, cwd=None, env=None):
+    return subprocess.run([sys.executable, "-I", "-c", code], cwd=cwd, env=env, capture_output=True, text=True, timeout=30)
+
+
+def runner_code(tail):
+    return ("import importlib.util,sys;sys.dont_write_bytecode=True;s=importlib.util.spec_from_file_location('owned_runner',"
+            + repr(str(BASE / "runner.py")) + ");r=importlib.util.module_from_spec(s);s.loader.exec_module(r);" + tail)
+
+
+def test_isolated_import_ignores_live_checkout_pythonpath_and_cwd_shadow(tmp_path):
+    (tmp_path / "core").mkdir(); (tmp_path / "core/__init__.py").write_text("raise RuntimeError('live shadow imported')")
+    result = isolated(runner_code("b,m=r.prepare_sources();import core.schema.bootstrap as x;assert x.__file__==str(b/'core/schema/bootstrap.py');print('closed-origin')"),
+                      cwd=tmp_path, env={**os.environ, "PYTHONPATH": str(tmp_path)})
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "closed-origin\n"
+
+
+def test_missing_dependency_cannot_use_live_checkout_fallback():
+    result = isolated(runner_code("r.prepare_sources();import core.dependencies"), env={**os.environ, "PYTHONPATH": str(ROOT / "backend")})
+    assert result.returncode != 0 and "dependency is not admitted" in result.stderr
+
+
+def test_unisolated_runner_and_early_backend_import_refuse():
+    result = subprocess.run([sys.executable, "-c", runner_code("r.prepare_sources()")], capture_output=True, text=True, timeout=30)
+    assert result.returncode != 0 and "isolated interpreter required" in result.stderr
+    result = isolated(runner_code("import types;sys.modules['core']=types.ModuleType('core');r.prepare_sources()"))
+    assert result.returncode != 0 and "imported early" in result.stderr
+
+
+def test_unknown_action_control_refuses_without_connecting(tmp_path):
+    control = tmp_path / "control"; control.write_text(json.dumps({"action": "executeSQL"})); control.chmod(0o600)
+    result = subprocess.run([sys.executable, "-I", str(BASE / "runner.py"), str(control)], capture_output=True, text=True, timeout=30)
+    assert result.returncode == 1 and result.stdout == ""
+    assert result.stderr.startswith("preserved029-refused:Preserved029Error:")
+
+
+def _control(**overrides):
+    data = {"action": "restore029", "archive": "/x.dump", "archive_sha256": "a" * 64, "target_url": "postgresql+psycopg://odin@pg/odin",
+            "password_file": "/p", "maintenance_url": "postgresql+psycopg://odin@pg/postgres", "maintenance_password_file": "/m",
+            "directory": "/d", "database": "odin_validate_" + "a" * 20, "oid": 1, "owner": 2,
+            "stage_url": "postgresql+psycopg://odin@pg/odin_validate_" + "a" * 20, "deadline": monotonic() + 30}
+    data.update(overrides)
+    return data
+
+
+@pytest.mark.parametrize("change", ["mode", "symlink", "duplicate", "oversize", "expired", "bool_oid", "extra", "foreign_name", "digest", "sql"])
+def test_private_control_closed_shape_and_identity(tmp_path, change):
+    control = tmp_path / "control"
+    data = _control()
+    if change == "expired": data["deadline"] = monotonic() - 1
+    if change == "bool_oid": data["oid"] = True
+    if change == "extra": data["sql"] = "SELECT 1"
+    if change == "foreign_name": data["database"] = "postgres"
+    if change == "digest": data["archive_sha256"] = "z" * 64
+    if change == "sql": data["action"] = "build027"
+    raw = json.dumps(data)
+    if change == "duplicate": raw = '{"action":"restore029",' + raw[1:]
+    if change == "oversize": raw = " " * 8193
+    control.write_text(raw); control.chmod(0o644 if change == "mode" else 0o600)
+    if change == "symlink":
+        actual = tmp_path / "actual"; control.rename(actual); control.symlink_to(actual)
+    result = isolated(runner_code("r.read_control(" + repr(str(control)) + ")"))
+    assert result.returncode != 0
+
+
+def test_valid_control_shape_is_admitted(tmp_path):
+    control = tmp_path / "control"; control.write_text(json.dumps(_control())); control.chmod(0o600)
+    result = isolated(runner_code("v=r.read_control(" + repr(str(control)) + ");print(v['action'])"))
+    assert result.returncode == 0 and result.stdout == "restore029\n", result.stderr
+
+
+@pytest.mark.parametrize("mode", ["success", "refusal", "stderr", "nonzero", "wrong_ack", "oversized", "timeout"])
+def test_owned_child_supervision_closed_ack_output_deadline_and_reap(tmp_path, monkeypatch, mode):
+    actual_popen = subprocess.Popen
+    scripts = {"success": "print('preserved029-validated:26',flush=True)",
+               "refusal": "import sys;print('preserved029-refused:BackupValidationError:Imported025 migration history differs from fixed packaged contract',file=sys.stderr);raise SystemExit(1)",
+               "stderr": "import sys;print('preserved029-validated:27');print('uncertain',file=sys.stderr)",
+               "nonzero": "raise SystemExit(2)",
+               "wrong_ack": "print('preserved029-validated:30')",
+               "oversized": "print('x'*20000,flush=True)",
+               "timeout": "import time;time.sleep(5)"}
+    child = tmp_path / "owned_child.py"; child.write_text(scripts[mode])
+    process = []
+
+    def launch(argv, **kw):
+        assert argv[:2] == [sys.executable, "-I"] and argv[2] == str(BASE / "runner.py")
+        assert kw["start_new_session"] is True and "PYTHONPATH" not in kw["env"]
+        owned = actual_popen([sys.executable, "-I", str(child)], **kw); process.append(owned); return owned
+
+    monkeypatch.setattr(p.subprocess, "Popen", launch)
+    control = tmp_path / "control"; control.write_text("{}")
+    if mode == "success":
+        assert p._bounded_child(control, monotonic() + 5) == 26
+    elif mode == "refusal":
+        with pytest.raises(p.Preserved029Refused) as refused:
+            p._bounded_child(control, monotonic() + 5)
+        assert refused.value.kind == "BackupValidationError" and "migration history differs" in refused.value.detail
+    else:
+        with pytest.raises(p.Preserved029Error):
+            p._bounded_child(control, monotonic() + (.3 if mode == "timeout" else 5))
+    assert process[0].returncode is not None
+    assert process[0].stdout.closed and process[0].stderr.closed
+
+
+def test_stage_url_handed_to_the_child_never_carries_a_credential():
+    from sqlalchemy.engine import make_url
+    url = make_url("postgresql+psycopg://odin:secret-value@pg:5433/odin_validate_" + "a" * 20)
+    clean = p.credentialless(url)
+    assert clean.password is None and "secret-value" not in clean.render_as_string(hide_password=False)
+    assert (clean.drivername, clean.username, clean.host, clean.port, clean.database) == (url.drivername, url.username, url.host, url.port, url.database)
+    with pytest.raises(p.Preserved029Error):
+        p.credentialless(make_url("postgresql+psycopg://odin@pg/odin_validate_" + "a" * 20 + "?host=/tmp"))
+
+
+def test_forged_or_unowned_stage_refuses_before_child(tmp_path):
+    from sqlalchemy import create_engine
+    engine = create_engine("sqlite://")
+    secret = tmp_path / "s"; secret.write_text("x"); secret.chmod(0o600)
+    with pytest.raises(p.Preserved029Error):
+        p.restore_into_stage(engine, "odin_validate_" + "a" * 20, archive=tmp_path / "a", archive_sha256="a" * 64, target_url="", password_file=secret,
+                             maintenance_url="", maintenance_password_file=secret, directory=tmp_path, deadline=monotonic() + 10)
+    engine.dispose()
+
+
+# --- Archive routing: current, preserved029 era, or refused. -------------------------------------------
+
+def _ledger_sql(ids):
+    rows = "\n".join(f"{i}\t{'0'*64}\tpostgresql\t2026-10-15 10:00:00.123456+00" for i in ids)
+    return ("--\n-- PostgreSQL database dump\n--\nSET statement_timeout = 0;\n"
+            "COPY public.odin_schema_migrations (migration_id, checksum, dialect, applied_at) FROM stdin;\n"
+            + rows + ("\n" if rows else "") + "\\.\n\n")
+
+
+@pytest.fixture
+def routed(tmp_path, monkeypatch):
+    from modules.system import postgres_backup_service as b
+    archive = tmp_path / "archive.dump"; archive.write_bytes(b"x" * 200)
+    state = {}
+
+    def fake(command, *args):
+        if "--list" in command:
+            return "1; 2615 2200 SCHEMA - public owner\n2; 1259 1 TABLE public orders owner\n"
+        return state["ledger"]
+
+    monkeypatch.setattr(b, "_run_pg_tool", fake)
+    return archive, state
+
+
+def test_current_archive_takes_the_ordinary_path(routed):
+    from modules.system.pre026_restore_stage import identify_contract, post027_migration_ids
+    archive, state = routed
+    state["ledger"] = _ledger_sql(sorted(p.ledger_ids()) + list(post027_migration_ids()))
+    assert identify_contract(archive, "postgresql://o@pg/odin", None, archive.parent) is None
+
+
+@pytest.mark.parametrize("era", ["025", "026", "027"])
+def test_pre_post027_archives_route_to_preserved029(routed, era):
+    from core.schema import pre026_restore_contract as C
+    from modules.system.pre026_restore_stage import identify_contract, PRESERVED029
+    archive, state = routed
+    ids = {"025": [row[0] for row in C.EXPECTED_POSTGRES_LEDGER], "026": [row[0] for row in C.EXPECTED_POSTGRES_LEDGER026],
+           "027": sorted(p.ledger_ids())}[era]
+    state["ledger"] = _ledger_sql(ids)
+    assert identify_contract(archive, "postgresql://o@pg/odin", None, archive.parent) is PRESERVED029
+
+
+@pytest.mark.parametrize("case", ["unknown_id", "malformed_row", "no_copy", "duplicate_id", "unterminated"])
+def test_unknown_or_malformed_ledger_refuses(routed, case):
+    from modules.system.backup_service import BackupValidationError
+    from modules.system.pre026_restore_stage import identify_contract
+    archive, state = routed
+    ids = sorted(p.ledger_ids())
+    sql = _ledger_sql(ids + ["python:099-from-the-future"] if case == "unknown_id" else ids)
+    if case == "malformed_row": sql = sql.replace("\tpostgresql\t", "\tpostgresql;DROP\t", 1)
+    if case == "no_copy": sql = "SET x = 1;\n"
+    if case == "duplicate_id": sql = _ledger_sql(ids + ids[:1])
+    if case == "unterminated": sql = sql.replace("\\.\n", "")
+    state["ledger"] = sql
+    with pytest.raises(BackupValidationError):
+        identify_contract(archive, "postgresql://o@pg/odin", None, archive.parent)
+
+
+def test_intermediate_post027_archive_refuses_loudly(routed, monkeypatch):
+    from core.schema import bootstrap
+    from modules.system.backup_service import BackupValidationError
+    from modules.system.pre026_restore_stage import identify_contract
+    archive, state = routed
+    monkeypatch.setattr(bootstrap, "POST027_MIGRATIONS", bootstrap.POST027_MIGRATIONS + (("python:031-next", "core.schema.migrations.031_next"),))
+    state["ledger"] = _ledger_sql(sorted(p.ledger_ids()) + ["python:030-spoolman-link-uniqueness"])
+    with pytest.raises(BackupValidationError, match="intermediate post-027 build"):
+        identify_contract(archive, "postgresql://o@pg/odin", None, archive.parent)
+
+
+# --- Post-027 registry. ----------------------------------------------------------------------------------
+
+def test_post027_registry_is_ordered_allowlisted_and_self_identifying():
+    from core.schema import bootstrap, migrator
+    numbers = []
+    for migration_id, module_name in bootstrap.POST027_MIGRATIONS:
+        module = importlib.import_module(module_name)
+        assert module.MIGRATION_ID == migration_id
+        assert module_name in migrator._ALLOWED_PYTHON_MIGRATIONS
+        assert migration_id not in p.ledger_ids()
+        numbers.append(int(migration_id.split(":")[1][:3]))
+    assert numbers == sorted(set(numbers)) and numbers[0] >= 30
+    # Every allowlisted module is either preserved-era (ledgered by preserved029) or registered post-027.
+    registered = {module for _, module in bootstrap.POST027_MIGRATIONS}
+    for module_name in migrator._ALLOWED_PYTHON_MIGRATIONS - registered:
+        assert importlib.import_module(module_name).MIGRATION_ID in p.ledger_ids(), module_name
