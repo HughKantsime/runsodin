@@ -58,6 +58,12 @@ F["require_mfa"] = call("put", "/api/config/require-mfa", json={"require_mfa": F
 F["ip_allowlist"] = call("put", "/api/config/ip-allowlist", json={"enabled": False, "cidrs": ["10.0.0.0/8"]})
 F["organizations"] = call("post", "/api/orgs", json={"name": "CertG Org " + tier})
 F["gdpr_export"] = call("get", f"/api/users/{admin_id}/export")
+# Org-level branding is branding too (review MEDIUM 2); other org settings stay free.
+org_row = sql("SELECT id FROM groups WHERE is_org IS TRUE ORDER BY id")
+F["org_branding"] = call("put", f"/api/orgs/{org_row[0][0]}/settings", json={"branding_app_name": "CertG white label"})
+F["org_branding_logo"] = call("put", f"/api/orgs/{org_row[0][0]}/settings", json={"branding_logo_url": "/static/branding/x.png"})
+F["org_settings_free"] = call("put", f"/api/orgs/{org_row[0][0]}/settings", json={"quiet_hours_enabled": True})
+F["org_branding_clear"] = call("put", f"/api/orgs/{org_row[0][0]}/settings", json={"branding_app_name": None})
 F["audit_export"] = call("get", "/api/export/audit-logs")
 # Further members of each gated route family (cert-fix-G regression coverage)
 F["analytics_failures"] = call("get", "/api/analytics/failures?days=30")
@@ -235,6 +241,7 @@ PRO_GATED = {
     "analytics": "analytics", "analytics_failures": "analytics", "analytics_time_accuracy": "analytics",
     "maintenance": "maintenance", "maintenance_seed": "maintenance",
     "branding": "branding", "branding_logo": "branding",
+    "org_branding": "branding", "org_branding_logo": "branding",
 }
 
 
@@ -261,7 +268,7 @@ def test_enterprise_gate_mqtt_event_republish(tiers):
     assert {t: tiers[t]["mqtt_republished"] for t in TIERS} == {"community": 0, "pro": 0, "education": 0, "enterprise": 2}
 
 
-@pytest.mark.parametrize("call_name", ["orders_list", "products_list", "maintenance_tasks_list", "maintenance_status",
+@pytest.mark.parametrize("call_name", ["org_settings_free", "org_branding_clear", "orders_list", "products_list", "maintenance_tasks_list", "maintenance_status",
                                        "branding_read", "stats"])
 def test_reads_stay_available_on_every_tier(tiers, call_name):
     for t in TIERS:

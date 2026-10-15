@@ -97,7 +97,12 @@ export function BrandingProvider({ children }) {
           const meRes = await fetch(`${API_BASE}/auth/me`, { credentials: 'include' })
           if (meRes.ok) {
             const me = await meRes.json()
-            if (me.group_id) {
+            // Org white-labelling is the Pro "branding" entitlement: values stored
+            // before a downgrade/expiry must not keep white-labelling this install.
+            const licenseRes = me.group_id ? await fetch(`${API_BASE}/license`, { credentials: 'include' }) : null
+            const license = licenseRes?.ok ? await licenseRes.json() : null
+            const brandingLicensed = Array.isArray(license?.features) && license.features.includes('branding')
+            if (me.group_id && brandingLicensed) {
               const settingsRes = await fetch(`${API_BASE}/orgs/${me.group_id}/settings`, { credentials: 'include' })
               if (settingsRes.ok) {
                 const orgSettings = await settingsRes.json()
