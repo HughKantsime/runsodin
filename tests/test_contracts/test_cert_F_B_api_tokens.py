@@ -1,0 +1,201 @@
+"""Cert F / cluster B — F11-11.6-01/02/03 scoped API tokens on the real server (LiveOdin).
+
+Claims: "`odin_` prefixed tokens with granular per-route scopes", "Scopes: read:printers, write:jobs, etc.",
+"APITokenManager component for CRUD" (backend half: create/list/revoke wire contract).
+"""
+from __future__ import annotations
+
+import json
+import re
+from collections import Counter
+from pathlib import Path
+
+import pytest
+import requests
+
+from tests.test_contracts.test_cert_F_B_00_support import LiveOdinB
+from tests.test_contracts.test_route_auth_census import PUBLIC
+
+ROOT = Path(__file__).resolve().parents[2]
+RECEIPTS = ROOT / "artifacts" / "application-certification" / "cert-F"
+CAPTURE = RECEIPTS / "B-wire-captures.json"
+
+
+def capture(key, value):
+    data = json.loads(CAPTURE.read_text()) if CAPTURE.exists() else {}
+    data[key] = value
+    CAPTURE.write_text(json.dumps(data, indent=1, default=str))
+
+
+@pytest.fixture(scope="module")
+def odin(tmp_path_factory):
+    o = LiveOdinB(tmp_path_factory.mktemp("tokens")).start()
+    o.boot_admin()
+    o.operator = o.mkuser("tok_operator", "operator")
+    o.viewer = o.mkuser("tok_viewer", "viewer")
+    o.victim = o.mkuser("tok_victim", "viewer", login=False)
+    r = o.post("/api/printers", json={"name": "Token printer", "api_type": "moonraker", "api_host": "192.0.2.21"}, headers=o.admin_bearer)
+    assert r.status_code == 201, r.text
+    o.printer_id = r.json()["id"]
+    r = o.post("/api/jobs", json={"item_name": "Token job"}, headers=o.operator["headers"])
+    assert r.status_code == 201, r.text
+    o.job_id = r.json()["id"]
+    yield o
+    o.stop()
+
+
+def key(token):
+    return {"X-API-Key": token}
+
+
+# ---------------------------------------------------------------- F11-11.6-01 prefix + lifecycle
+def test_minted_token_is_odin_prefixed_hashed_listed_and_revocable(odin):
+    created = odin.mint(odin.operator["headers"], ["read:printers"], name="Cert prefix token")
+    raw = created["token"]
+    assert raw.startswith("odin_") and len(raw) > 30
+    assert created["prefix"] == raw[:10] and created["scopes"] == ["read:printers"]
+    row = odin.one("SELECT token_hash, token_prefix, scopes FROM api_tokens WHERE id=:i", i=created["id"])
+    assert row.token_prefix == raw[:10] and raw not in row.token_hash and json.loads(row.scopes) == ["read:printers"]
+    listed = odin.get("/api/tokens", headers=odin.operator["headers"]).json()
+    entry = [t for t in listed if t["id"] == created["id"]]
+    assert entry and entry[0]["prefix"] == raw[:10] and "token" not in entry[0] and "token_hash" not in entry[0]
+    capture("tokens_create", {k: created[k] for k in created if k != "token"} | {"token": "odin_" + "X" * 43})
+    capture("tokens_list", listed)
+    assert odin.get("/api/printers", headers=key(raw)).status_code == 200
+    assert odin.delete(f"/api/tokens/{created['id']}", headers=odin.operator["headers"]).status_code == 200
+    assert odin.get("/api/printers", headers=key(raw)).status_code == 401
+    assert all(t["id"] != created["id"] for t in odin.get("/api/tokens", headers=odin.operator["headers"]).json())
+
+
+def test_fabricated_and_non_prefixed_tokens_are_refused(odin):
+    real = odin.mint(odin.operator["headers"], ["read:printers"])["token"]
+    assert odin.get("/api/printers", headers=key(real[:-2] + "zz")).status_code == 401
+    assert odin.get("/api/printers", headers=key(real.replace("odin_", "nido_", 1))).status_code == 401
+
+
+# ---------------------------------------------------------------- F11-11.6-02 scope vocabulary + enforcement
+@pytest.mark.parametrize("scope", ["read:printers", "write:printers", "read:jobs", "write:jobs", "read:spools", "write:spools",
+                                   "read:models", "write:models", "read:analytics", "read:education", "write:education",
+                                   "read", "write", "agent:read", "agent:write"])
+def test_advertised_scope_vocabulary_is_accepted(odin, scope):
+    assert odin.mint(odin.operator["headers"], [scope])["scopes"] == [scope]
+
+
+@pytest.mark.parametrize("bad", [["printers:read"], ["read:everything"], ["superuser"], []])
+def test_unknown_or_empty_scopes_are_rejected(odin, bad):
+    r = odin.post("/api/tokens", json={"name": "bad", "scopes": bad}, headers=odin.operator["headers"])
+    assert r.status_code == 400
+
+
+def test_admin_scope_requires_admin_role(odin):
+    r = odin.post("/api/tokens", json={"name": "esc", "scopes": ["admin"]}, headers=odin.operator["headers"])
+    assert r.status_code == 403
+
+
+def test_resource_scopes_are_enforced_per_route(odin):
+    op = odin.operator["headers"]
+    printers = odin.mint(op, ["read:printers"])["token"]
+    jobs_read = odin.mint(op, ["read:jobs"])["token"]
+    jobs_write = odin.mint(op, ["write:jobs"])["token"]
+    # read:printers grants printer reads only
+    assert odin.get("/api/printers", headers=key(printers)).status_code == 200
+    assert odin.get("/api/jobs", headers=key(printers)).status_code == 403
+    assert odin.get("/api/spools", headers=key(printers)).status_code == 403
+    assert odin.patch(f"/api/printers/{odin.printer_id}", json={"nickname": "nope"}, headers=key(printers)).status_code == 403
+    # read:jobs reads but cannot create
+    assert odin.get("/api/jobs", headers=key(jobs_read)).status_code == 200
+    before = odin.one("SELECT COUNT(*) AS n FROM jobs").n
+    assert odin.post("/api/jobs", json={"item_name": "denied"}, headers=key(jobs_read)).status_code == 403
+    assert odin.one("SELECT COUNT(*) AS n FROM jobs").n == before
+    # write:jobs creates jobs, but does not grant printer writes
+    r = odin.post("/api/jobs", json={"item_name": "Scoped write job"}, headers=key(jobs_write))
+    assert r.status_code == 201, r.text
+    assert odin.one("SELECT item_name FROM jobs WHERE id=:i", i=r.json()["id"]).item_name == "Scoped write job"
+    assert odin.patch(f"/api/printers/{odin.printer_id}", json={"nickname": "nope"}, headers=key(jobs_write)).status_code == 403
+    assert odin.one("SELECT nickname FROM printers WHERE id=:i", i=odin.printer_id).nickname is None
+
+
+def test_token_cannot_exceed_owner_role(odin):
+    viewer_write = odin.mint(odin.viewer["headers"], ["write:printers"])["token"]
+    assert odin.patch(f"/api/printers/{odin.printer_id}", json={"nickname": "viewer"}, headers=key(viewer_write)).status_code == 403
+
+
+# ---------------------------------------------------------------- scope bypass defects (security)
+SCOPE_DEFECT = ("DEFECT (security): backend/core/rbac.py:89-101 — require_role(...) without a scope argument performs no token-scope "
+                "check, and ~50 mutating routes (e.g. backend/modules/notifications/routes/alerts.py:433 PUT /api/smtp-config, "
+                "backend/modules/organizations/routes_oidc.py:463 PUT /api/admin/oidc, backend/modules/organizations/routes_sessions.py:449 "
+                "DELETE /api/users/{id}/erase, backend/modules/jobs/routes/jobs_lifecycle.py:57 POST /api/jobs/{id}/start, PUT /api/config/require-mfa, "
+                "PUT /api/config/ip-allowlist, POST /api/admin/retention/cleanup) declare no scope. Scenario: an admin mints a read-only "
+                "token (scopes ['read']) for a dashboard; whoever holds it sends PUT /api/smtp-config with host=attacker and no password "
+                "(the stored SMTP password is retained), so the server authenticates to the attacker's SMTP host and delivers every "
+                "password-reset link there; the same token rewrites SSO (PUT /api/admin/oidc), disables required MFA, or GDPR-erases users.")
+
+
+@pytest.mark.xfail(strict=True, reason=SCOPE_DEFECT)
+def test_read_only_admin_token_cannot_reconfigure_smtp(odin):
+    ro = odin.mint(odin.admin_bearer, ["read"])["token"]
+    r = odin.put("/api/smtp-config", json={"enabled": True, "host": "smtp.attacker.example.test", "port": 25, "username": "x",
+                                           "password": "", "from_address": "odin@example.test", "use_tls": False}, headers=key(ro))
+    stored = odin.one("SELECT value FROM system_config WHERE key='smtp_config'")
+    assert r.status_code == 403 and (stored is None or "attacker" not in stored.value)
+
+
+@pytest.mark.xfail(strict=True, reason=SCOPE_DEFECT)
+def test_read_only_admin_token_cannot_rewrite_sso(odin):
+    ro = odin.mint(odin.admin_bearer, ["read"])["token"]
+    r = odin.put("/api/admin/oidc", json={"provider_type": "generic", "client_id": "attacker", "is_enabled": True,
+                                          "discovery_url": "https://idp.attacker.example.test/.well-known/openid-configuration"}, headers=key(ro))
+    row = odin.one("SELECT client_id FROM oidc_config ORDER BY id LIMIT 1")
+    assert r.status_code == 403 and (row is None or row.client_id != "attacker")
+
+
+@pytest.mark.xfail(strict=True, reason=SCOPE_DEFECT)
+def test_read_only_admin_token_cannot_gdpr_erase_users(odin):
+    ro = odin.mint(odin.admin_bearer, ["read"])["token"]
+    r = odin.delete(f"/api/users/{odin.victim['id']}/erase", headers=key(ro))
+    assert r.status_code == 403
+    assert odin.one("SELECT username FROM users WHERE id=:i", i=odin.victim["id"]).username == "tok_victim"
+
+
+@pytest.mark.xfail(strict=True, reason=SCOPE_DEFECT)
+def test_read_printers_token_cannot_start_jobs(odin):
+    ro = odin.mint(odin.operator["headers"], ["read:printers"])["token"]
+    r = odin.post(f"/api/jobs/{odin.job_id}/start", headers=key(ro))
+    assert r.status_code == 403
+    assert odin.one("SELECT status FROM jobs WHERE id=:i", i=odin.job_id).status == "pending"
+
+
+@pytest.mark.xfail(strict=True, reason=SCOPE_DEFECT + " Read side: a token scoped only to read:education reads GET /api/users, "
+                   "/api/admin/oidc, /api/smtp-config, /api/admin/logs and /api/admin/support-bundle.")
+def test_unrelated_scope_cannot_read_admin_data(odin):
+    edu = odin.mint(odin.admin_bearer, ["read:education"])["token"]
+    statuses = {p: odin.get(p, headers=key(edu)).status_code for p in ("/api/users", "/api/admin/oidc", "/api/smtp-config", "/api/admin/logs")}
+    assert set(statuses.values()) == {403}, statuses
+
+
+SKIP_SIDE_EFFECTS = ("restore", "restart", "shutdown", "license", "logout", "/tokens", "/sessions")
+
+
+@pytest.mark.xfail(strict=True, reason=SCOPE_DEFECT + " Census: every mutating /api route probed with an admin-held ['read'] token.")
+def test_census_every_mutating_route_refuses_read_only_token(odin, tmp_path_factory):
+    import subprocess, sys, os
+    from tests.test_contracts.test_cert_F_B_route_census import SNAPSHOT
+    d = tmp_path_factory.mktemp("scope-snapshot")
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("ODIN_", "API_KEY", "DATABASE_"))}
+    env.update(DATABASE_URL=f"sqlite:///{d}/s.db", LICENSE_DIR=str(d), PYTHONPATH=str(ROOT / "backend"))
+    subprocess.run([sys.executable, "-c", SNAPSHOT, str(d / "s.json")], cwd=ROOT / "backend", env=env, check=True,
+                   capture_output=True, timeout=300)
+    pairs = json.loads((d / "s.json").read_text())["pairs"]
+    ro = odin.mint(odin.admin_bearer, ["read"])["token"]
+    rows = []
+    for m, p in pairs:
+        if m == "GET" or not p.startswith("/api/") or p.startswith(("/api/v1/", "/api/auth/", "/api/setup")):
+            continue
+        if f"{m} {p}" in PUBLIC or any(x in p for x in SKIP_SIDE_EFFECTS):
+            continue
+        url = re.sub(r"\{[^}]+\}", "99999", p).replace(":path", "")
+        rows.append([m, p, requests.request(m, odin.url + url, json={}, headers=key(ro), timeout=30).status_code])
+    unscoped = [r for r in rows if r[2] != 403]
+    (RECEIPTS / "B-token-scope-census.json").write_text(json.dumps({
+        "probed": len(rows), "histogram": dict(Counter(str(r[2]) for r in rows)), "not_refused_by_scope": unscoped}, indent=1))
+    assert unscoped == []
