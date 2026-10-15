@@ -37,7 +37,9 @@ def approval_client(review_db,signed_license,monkeypatch):
     with TestClient(app) as client:yield client,user
 
 @pytest.mark.parametrize('operation',['submit','resubmit'])
-@pytest.mark.parametrize('owner,active,recipients',[(2,True,{2}),(None,True,{3}),(5,True,set()),(2,False,set())])
+# An owner who cannot open the group's jobs (outside the group, or inactive) is not targeted;
+# the alert falls back to the group's reviewers instead of reaching nobody (F11-11.4-02).
+@pytest.mark.parametrize('owner,active,recipients',[(2,True,{2}),(None,True,{3}),(5,True,{3}),(2,False,{3})])
 def test_actual_job_workflow_targets_owner_or_scoped_fallback(approval_client,review_db,operation,owner,active,recipients):
     client,user=approval_client
     review_db.execute(text('UPDATE groups SET owner_id=:owner WHERE id=1'),{'owner':owner})
