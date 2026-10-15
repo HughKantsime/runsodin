@@ -96,11 +96,11 @@ def create_printer(
     """Create a new printer."""
     if printer.api_host:
         _check_ssrf_blocklist(printer.api_host)
+    camera_url = None
     if printer.camera_url:
-        printer.camera_url = _validate_camera_url(printer.camera_url)
-        if '@' in printer.camera_url:
-            printer.camera_url = crypto.encrypt(printer.camera_url)
-        printer.camera_enabled = True
+        camera_url = _validate_camera_url(printer.camera_url)
+        if '@' in camera_url:
+            camera_url = crypto.encrypt(camera_url)
 
     from license_manager import check_printer_limit
 
@@ -127,6 +127,8 @@ def create_printer(
         org_id=current_user.get("group_id") if current_user else None,
         bed_x_mm=printer.bed_x_mm,
         bed_y_mm=printer.bed_y_mm,
+        # Without a URL the model default applies (Bambu printers have a built-in camera).
+        **({"camera_url": camera_url, "camera_enabled": True} if camera_url else {}),
     )
     db.add(db_printer)
     db.flush()
@@ -150,6 +152,14 @@ def create_printer(
     log_audit(db, "printer.created", "printer", db_printer.id,
               {"name": db_printer.name, "api_type": db_printer.api_type})
     db.commit()
+    db.refresh(db_printer)
+
+    if camera_url:
+        try:
+            from modules.printers.route_utils import sync_go2rtc_config
+            sync_go2rtc_config(db)
+        except Exception as e:
+            log.debug(f"Failed to sync go2rtc config: {e}")
     return db_printer
 
 
