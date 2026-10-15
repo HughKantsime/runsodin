@@ -94,10 +94,20 @@ def _bounded_child(control_path,deadline):
                 else:raise Preserved029Error('Owned preserved029 pipe close unconfirmed') from None
 
 
+# libpq parameters that carry or locate a credential, plus the ODIN-managed one.
+CREDENTIAL_QUERY_KEYS=frozenset({'password','sslpassword','passfile','application_name'})
+
+
+def refuse_credential_query(url):
+    """Same rule as the current restore path: non-credential parameters (sslmode, ...) pass."""
+    if url.password is not None or CREDENTIAL_QUERY_KEYS & {str(key).lower() for key in url.query}:
+        raise Preserved029Error('Preserved029 credential-bearing URL refused')
+    return url
+
+
 def credentialless(url):
     """The stage URL without any credential. URL.set(password=None) would keep it."""
-    if url.query:raise Preserved029Error('Preserved029 URL query refused')
-    return URL.create(url.drivername,username=url.username,host=url.host,port=url.port,database=url.database)
+    return refuse_credential_query(URL.create(url.drivername,username=url.username,host=url.host,port=url.port,database=url.database,query=url.query))
 
 
 def _private_file(path,label):
@@ -122,6 +132,8 @@ def restore_into_stage(engine,name,*,archive,archive_sha256,target_url,password_
         if identity[0]!=name:raise Preserved029Error('Preserved029 stage name differs')
         if inspect(c).get_table_names(schema='public'):raise Preserved029Error('Preserved029 stage is not fresh')
     url=credentialless(engine.url)
+    from sqlalchemy.engine import make_url
+    for value in (target_url,maintenance_url):refuse_credential_query(make_url(value))
     with tempfile.TemporaryDirectory(prefix='preserved029-parent-') as folder:
         control=Path(folder)/'control.json'
         data={'action':'restore029','archive':str(Path(archive).resolve()),'archive_sha256':archive_sha256,

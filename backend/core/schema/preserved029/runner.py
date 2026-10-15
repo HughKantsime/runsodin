@@ -118,6 +118,17 @@ def read_control(path):
     return value
 
 
+# libpq parameters that carry or locate a credential, plus the ODIN-managed one.
+CREDENTIAL_QUERY_KEYS=frozenset({'password','sslpassword','passfile','application_name'})
+
+
+def admit_url(url,label):
+    """Non-credential parameters (sslmode, connect_timeout, ...) pass, as on the current path."""
+    if url.password is not None or CREDENTIAL_QUERY_KEYS & {str(key).lower() for key in url.query}:
+        raise Preserved029Error('Preserved029 credential-bearing URL refused: '+label)
+    return url
+
+
 def _sha256(path):
     digest=hashlib.sha256()
     with open(path,'rb') as file:
@@ -134,11 +145,10 @@ def main():
     archive=Path(control['archive'])
     if not stat.S_ISREG(archive.lstat().st_mode) or _sha256(archive)!=control['archive_sha256']:raise Preserved029Error('Preserved029 archive identity differs')
     from sqlalchemy.engine import make_url
+    for key in ('target_url','maintenance_url','stage_url'):admit_url(make_url(control[key]),key)
     stage=make_url(control['stage_url'])
-    if stage.get_backend_name()!='postgresql' or stage.database!=control['database'] or stage.password is not None or stage.query:
+    if stage.get_backend_name()!='postgresql' or stage.database!=control['database']:
         raise Preserved029Error('Preserved029 stage URL differs')
-    for key in ('target_url','maintenance_url'):
-        if make_url(control[key]).password is not None:raise Preserved029Error('Preserved029 credential-bearing URL refused')
     with tempfile.TemporaryDirectory(prefix='preserved029-child-') as folder:
         # Settings read .env from cwd: use a private empty cwd and closed environment.
         os.chdir(folder)

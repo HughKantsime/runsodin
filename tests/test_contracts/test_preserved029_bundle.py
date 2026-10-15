@@ -200,8 +200,24 @@ def test_stage_url_handed_to_the_child_never_carries_a_credential():
     clean = p.credentialless(url)
     assert clean.password is None and "secret-value" not in clean.render_as_string(hide_password=False)
     assert (clean.drivername, clean.username, clean.host, clean.port, clean.database) == (url.drivername, url.username, url.host, url.port, url.database)
-    with pytest.raises(p.Preserved029Error):
-        p.credentialless(make_url("postgresql+psycopg://odin@pg/odin_validate_" + "a" * 20 + "?host=/tmp"))
+    # Non-credential connection parameters are kept, as on the current restore path.
+    kept = p.credentialless(make_url("postgresql+psycopg://odin@pg/odin_validate_" + "a" * 20 + "?sslmode=require&connect_timeout=10"))
+    assert dict(kept.query) == {"sslmode": "require", "connect_timeout": "10"}
+    for key in ("password", "sslpassword", "passfile", "application_name", "PASSWORD"):
+        with pytest.raises(p.Preserved029Error, match="credential"):
+            p.credentialless(make_url("postgresql+psycopg://odin@pg/odin_validate_" + "a" * 20 + f"?sslmode=require&{key}=x"))
+
+
+@pytest.mark.parametrize("key", ["target_url", "maintenance_url", "stage_url"])
+def test_child_admits_non_credential_queries_and_refuses_credential_ones(tmp_path, key):
+    good = _control(**{key: _control()[key] + "?sslmode=require"})
+    bad = _control(**{key: _control()[key] + "?sslpassword=x"})
+    script = ("from sqlalchemy.engine import make_url;v=r.read_control({path!r});"
+              "[r.admit_url(make_url(v[k]),k) for k in ('target_url','maintenance_url','stage_url')];print('admitted')")
+    for data, admitted in ((good, True), (bad, False)):
+        control = tmp_path / ("good" if admitted else "bad"); control.write_text(json.dumps(data)); control.chmod(0o600)
+        result = isolated(runner_code(script.format(path=str(control))))
+        assert (result.returncode == 0 and result.stdout == "admitted\n") is admitted, result.stderr
 
 
 def test_forged_or_unowned_stage_refuses_before_child(tmp_path):
