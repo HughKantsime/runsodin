@@ -67,6 +67,9 @@ class JobBase(BaseModel):
 
 class JobCreate(JobBase):
     model_revision_id: Optional[int] = None
+    # Specific-printer target: with target_type='specific' the scheduler only
+    # places this job on the chosen printer. None = any compatible printer.
+    printer_id: Optional[int] = Field(default=None, ge=1)
 
 
 class JobUpdate(BaseModel):
@@ -142,6 +145,21 @@ class JobResponse(JobBase):
     # Order fulfillment
     order_item_id: Optional[int] = None
     quantity_on_bed: Optional[int] = 1
+
+    # Queue order set by drag-and-drop reorder (None = not manually placed)
+    queue_position: Optional[int] = None
+
+    # Approval workflow. These describe the job row itself and are only
+    # served on org-scoped job routes (same visibility as the job).
+    submitted_by: Optional[int] = None
+    approved_by: Optional[int] = None
+    approved_at: Optional[datetime] = None
+    rejected_reason: Optional[str] = None
+    charged_to_org_id: Optional[int] = None
+
+    # Failure logging
+    fail_reason: Optional[str] = None
+    fail_notes: Optional[str] = None
 
     # Expanded relations (optional) — local summary schemas to avoid cross-module imports
     printer: Optional["_PrinterSummary"] = None

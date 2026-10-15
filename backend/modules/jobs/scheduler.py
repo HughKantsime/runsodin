@@ -483,7 +483,10 @@ class Scheduler:
             Job.status == JobStatus.PENDING,
             Job.hold.is_(False),
             Job.id.in_(candidates)
-        ).order_by(Job.priority, Job.created_at).populate_existing().all()
+        ).order_by(
+            # Operator drag-and-drop order wins; unplaced jobs follow by priority/age.
+            Job.queue_position.is_(None), Job.queue_position, Job.priority, Job.created_at
+        ).populate_existing().all()
         
         # Pre-fetch printer model requirements from uploaded print files.
         # This is the safety gate data: a job that uses an H2D file must not
@@ -575,6 +578,14 @@ class Scheduler:
                         f"Could not schedule Education job {job.id}: {reason}"
                     )
                     continue
+
+            # Generic specific-printer target: a pending job that carries a
+            # printer_id with target_type 'specific' is pinned to that printer
+            # (set at creation or via PATCH). Ownership/compatibility gates
+            # in _find_best_fit still apply; no fit leaves it pending.
+            if (education_context is None and job.printer_id is not None
+                    and (job.target_type or 'specific') == 'specific'):
+                approved_printer_id = int(job.printer_id)
 
             payload_snapshot = None
             if education_context is None:

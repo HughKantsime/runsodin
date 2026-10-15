@@ -44,6 +44,16 @@ router = APIRouter(prefix="/jobs", tags=["Jobs"])
 
 from modules.jobs.queue_creation import _stage_prospective_queue_job, _stage_prospective_queue_values, _stage_queue_entries, _deliver_queue_entries, JobBatchRequest, JobReorderRequest
 
+def _target_printer_id(db, current_user, printer_id, target_type):
+    """Validate a specific-printer target; return the id to pin (or None)."""
+    if printer_id is None or (target_type or "specific") != "specific":
+        return None
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
+        raise HTTPException(status_code=404, detail="Printer not found")
+    return printer.id
+
+
 @router.get("/filament-check", tags=["Jobs"])
 def check_filament_compatibility(
     printer_id: int,
@@ -98,11 +108,13 @@ def create_jobs_bulk(jobs: List[JobCreate], current_user: dict = Depends(require
             org_settings = _org_provider.get_org_settings(db, current_user["group_id"])
 
     # Preflight every Education boundary before quota mutation or job staging.
+    pinned = []
     for job in jobs:
         assert_generic_model_reference_allowed(db, job.model_id)
+        pinned.append(_target_printer_id(db, current_user, job.printer_id, job.target_type))
     charge_job_quota(db, current_user, len(jobs))
     db_jobs = []
-    for job in jobs:
+    for job, pinned_printer_id in zip(jobs, pinned):
         # Calculate cost if model is linked
         estimated_cost, suggested_price, _ = (None, None, None)
         if job.model_id:
@@ -130,6 +142,11 @@ def create_jobs_bulk(jobs: List[JobCreate], current_user: dict = Depends(require
             suggested_price=suggested_price,
             charged_to_user_id=current_user.get("id") if current_user else None,
             charged_to_org_id=current_user.get("group_id") if current_user else None,
+            due_date=job.due_date,
+            required_tags=job.required_tags or [],
+            target_type=job.target_type or "specific",
+            target_filter=job.target_filter,
+            printer_id=pinned_printer_id,
         )
         _stage_prospective_queue_job(db, db_job, current_user)
         db_jobs.append(db_job)
@@ -362,7 +379,10 @@ def list_jobs(
     if should_filter_org(current_user, effective_org):
         query = query.filter((Job.charged_to_org_id == effective_org) | (Job.charged_to_org_id == None))
 
-    return query.order_by(Job.priority, Job.created_at).offset(offset).limit(limit).all()
+    # Manual drag-and-drop order first (queue_position), then priority/age.
+    return query.order_by(
+        Job.queue_position.is_(None), Job.queue_position, Job.priority, Job.created_at
+    ).offset(offset).limit(limit).all()
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, tags=["Jobs"])
@@ -390,6 +410,7 @@ def create_job(
     from modules.models_library.services import calculate_job_cost
 
     assert_generic_model_reference_allowed(db, job.model_id)
+    pinned_printer_id = _target_printer_id(db, current_user, job.printer_id, job.target_type)
     # Calculate cost if model is linked
     estimated_cost, suggested_price, _ = (None, None, None)
     if job.model_id:
@@ -489,6 +510,7 @@ def create_job(
         required_tags=job.required_tags or [],
         target_type=job.target_type or "specific",
         target_filter=job.target_filter,
+        printer_id=pinned_printer_id,
     )
     charge_job_quota(db, current_user)
     _stage_prospective_queue_job(db, db_job, current_user)
@@ -609,6 +631,10 @@ async def update_job(job_id: int, updates: JobUpdate, request: Request, current_
             and updates.model_id != job.model_id):
         raise HTTPException(409, "Archived payload jobs cannot change their source model")
     assert_generic_model_reference_allowed(db, updates.model_id)
+    if updates.printer_id is not None:
+        printer = db.query(Printer).filter(Printer.id == updates.printer_id).first()
+        if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
+            raise HTTPException(status_code=404, detail="Printer not found")
     for field, value in updates.model_dump(exclude_unset=True).items():
         setattr(job, field, value)
 

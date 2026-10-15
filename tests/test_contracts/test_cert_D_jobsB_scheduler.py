@@ -193,11 +193,6 @@ def specific_client(review_db, signed_license, monkeypatch):
 from tests.test_contracts.test_license_user_limits import signed_license  # noqa: E402
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "DEFECT: backend/modules/jobs/schemas.py:14 JobBase/JobCreate has no printer_id field and "
-    "backend/modules/jobs/routes/jobs_crud.py:465 create_job never persists one, so the "
-    "'Specific Printer' target the UI sends (frontend/src/components/jobs/JobModals.tsx:68 printer_id) "
-    "is silently dropped; backend/modules/jobs/scheduler.py:712 then assigns any compatible printer"))
 def test_specific_target_created_through_api_schedules_only_on_chosen_printer(fleet, signed_license, monkeypatch):
     client = specific_client(fleet, signed_license, monkeypatch)
     response = client.post('/api/v1/jobs', json={'item_name': 'Synthetic specific target', 'quantity': 1,
@@ -276,10 +271,6 @@ def test_stale_cleanup_runs_even_when_no_printer_is_available(fleet):
     assert rows(fleet, [701])[701] == ('pending', None, None, None)
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "DEFECT: backend/modules/jobs/scheduler.py:716 only honours required_printer_id for Education jobs; "
-    "a generic pending job whose printer_id was set to a specific printer via PATCH /jobs/{id} "
-    "(target_type='specific') is reassigned to whichever printer scores best (scheduler.py:712-803)"))
 def test_specific_printer_set_by_patch_is_honoured_by_scheduler(fleet, signed_license, monkeypatch):
     client = specific_client(fleet, signed_license, monkeypatch)
     add_job(fleet, 901, target_type='specific')
