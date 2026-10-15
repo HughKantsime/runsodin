@@ -138,10 +138,9 @@ it('F11-11.1-08 smtp_enabled=false hides the reset action and shows administrato
   expect(screen.queryByRole('button', { name: 'Forgot your password?' })).not.toBeInTheDocument()
 })
 
-// DEFECT: frontend/src/pages/auth/Login.tsx:187-188 + backend/modules/organizations/password_reset.py:25-35.
-// With SMTP configured through Settings but no (unconfigurable) base_url, the backend refuses with 503 and
-// sends nothing, yet the page tells the user a reset link has been sent.
-it.fails('DEFECT F11-11.1-06 a refused reset request (503) is not reported as sent', async () => {
+// Regression for F11-11.1-06 (fixed): Login.tsx used to report "a reset link has been sent" even when the
+// backend refused the request (503) and sent nothing. A refusal is now shown as an alert instead.
+it('F11-11.1-06 a refused reset request (503) is not reported as sent', async () => {
   routes = { 'GET /api/auth/capabilities': () => [200, WIRE.capabilitiesEnabled],
     'POST /api/auth/forgot-password': () => [503, { detail: 'Password reset requires a valid application base URL.' }] }
   mount()
@@ -151,4 +150,5 @@ it.fails('DEFECT F11-11.1-06 a refused reset request (503) is not reported as se
   await waitFor(() => expect(calls.some(c => c.url === '/api/auth/forgot-password')).toBe(true))
   await new Promise(resolve => setTimeout(resolve, 50))
   expect(screen.queryByText('If that email is registered, a reset link has been sent.')).not.toBeInTheDocument()
+  expect(await screen.findByRole('alert')).toHaveTextContent(/No reset link was sent/)
 })

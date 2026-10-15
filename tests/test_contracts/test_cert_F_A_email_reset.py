@@ -85,30 +85,8 @@ def test_capabilities_reflect_real_smtp_configuration(odin, smtp):
 
 
 # ---------------------------------------------------------------- F11-11.1-06/07 product-configurable reset
-@pytest.mark.xfail(strict=True, reason=(
-    "DEFECT: backend/modules/organizations/password_reset.py:25-35 reset_mail_base_url requires a "
-    "system_config 'base_url' row that no API route or UI writes (grep: only read here). Scenario: admin "
-    "configures SMTP in Settings (PUT /api/smtp-config); /auth/capabilities then reports smtp_enabled=true and "
-    "the Login page shows 'Forgot your password?', but POST /api/auth/forgot-password returns 503 'Password reset "
-    "requires a valid application base URL.' and no email is sent; Login.tsx:187-188 swallows the error and "
-    "shows 'a reset link has been sent'."))
-def test_forgot_password_works_with_product_configured_smtp(odin, smtp):
-    r = odin.post("/api/auth/forgot-password", json={"email": "reset_reader@example.test"})
-    assert r.status_code == 200, r.text
-    assert len(smtp.for_rcpt("reset_reader@example.test")) == 1
-
-
-@pytest.mark.xfail(strict=True, reason=(
-    "DEFECT: backend/modules/organizations/password_reset.py:25-35 (missing base_url has no API/UI) + "
-    "routes_users.py:213. Scenario: admin with SMTP configured clicks 'Send password reset link' in the "
-    "user table; POST /api/users/{id}/reset-password-email returns 503 and no email is sent."))
-def test_admin_reset_email_works_with_product_configured_smtp(odin, smtp):
-    r = odin.post(f"/api/users/{odin.reader_id}/reset-password-email", headers=odin.admin_auth)
-    assert r.status_code == 200, r.text
-
-
-def test_reset_routes_without_base_url_refuse_with_503_and_send_nothing(odin, smtp):
-    """Pins the observed defect behavior (see the strict xfails above)."""
+def test_reset_routes_without_application_url_refuse_with_503_and_send_nothing(odin, smtp):
+    """SMTP alone is not enough: links need the admin-set application URL, never the request Host."""
     sessions = smtp.sessions
     r = odin.post("/api/auth/forgot-password", json={"email": "reset_reader@example.test"})
     assert r.status_code == 503 and r.json()["detail"] == "Password reset requires a valid application base URL."
@@ -117,11 +95,41 @@ def test_reset_routes_without_base_url_refuse_with_503_and_send_nothing(odin, sm
     assert smtp.sessions == sessions
 
 
+def test_smtp_settings_reject_an_invalid_application_url(odin, smtp):
+    for bad in ("ftp://odin.example.test", "https://user:pw@odin.example.test", "https://odin.example.test/?q=1", "odin"):
+        r = odin.put("/api/smtp-config", headers=odin.admin_auth, json={**smtp.config(), "base_url": bad})
+        assert r.status_code == 400, (bad, r.text)
+    assert odin.get("/api/smtp-config", headers=odin.admin_auth).json()["base_url"] == ""
+
+
+def test_application_url_is_set_through_smtp_settings(odin, smtp):
+    r = odin.put("/api/smtp-config", headers=odin.admin_auth, json={**smtp.config(), "base_url": BASE + "/"})
+    assert r.status_code == 200, r.text
+    got = odin.get("/api/smtp-config", headers=odin.admin_auth).json()
+    assert got["base_url"] == BASE and got["host"] == "127.0.0.1"
+    # Saving SMTP again without the field keeps the stored URL.
+    assert odin.put("/api/smtp-config", headers=odin.admin_auth, json=smtp.config()).status_code == 200
+    assert odin.get("/api/smtp-config", headers=odin.admin_auth).json()["base_url"] == BASE
+
+
+def test_forgot_password_works_with_product_configured_smtp(odin, smtp):
+    r = odin.post("/api/auth/forgot-password", json={"email": "reset_reader@example.test"})
+    assert r.status_code == 200, r.text
+    msgs = smtp.for_rcpt("reset_reader@example.test")
+    assert len(msgs) == 1
+    link_token(msgs[0])
+
+
+def test_admin_reset_email_works_with_product_configured_smtp(odin, smtp):
+    r = odin.post(f"/api/users/{odin.reader_id}/reset-password-email", headers=odin.admin_auth)
+    assert r.status_code == 200, r.text
+    assert len(smtp.for_rcpt("reset_reader@example.test")) == 2
+
+
 @pytest.fixture
 def base_url(odin):
-    # Out-of-band configuration (no product surface exists, see DEFECT above).
-    if not odin.sql("SELECT 1 FROM system_config WHERE key='base_url'"):
-        execute(odin, "INSERT INTO system_config (key, value) VALUES ('base_url', :v)", v=f'"{BASE}"')
+    # Set through the product (Settings > Notifications) by test_application_url_is_set_through_smtp_settings.
+    assert odin.get("/api/smtp-config", headers=odin.admin_auth).json()["base_url"] == BASE
     return BASE
 
 

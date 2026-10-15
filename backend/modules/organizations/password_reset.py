@@ -17,23 +17,35 @@ def reset_token_digest(raw):
     return 'sha256:'+hashlib.sha256(raw.encode('utf-8')).hexdigest()
 
 
+def validate_base_url(base):
+    """Return the normalized application URL used in emailed links, or raise ValueError.
+
+    Admins set it in Settings > Notifications (PUT /api/smtp-config base_url);
+    links are never built from the request Host header.
+    """
+    if not isinstance(base,str) or not base or any(char.isspace() or ord(char)<32 or ord(char)==127 for char in base):
+        raise ValueError('Invalid base URL')
+    parsed=urlsplit(base)
+    if parsed.scheme.lower() not in {'http','https'} or not parsed.hostname or parsed.username is not None or parsed.password is not None or parsed.query or parsed.fragment:
+        raise ValueError('Invalid base URL')
+    parsed.port  # Validate a supplied port without emitting the configured value.
+    return base.rstrip('/')
+
+
+def configured_base_url(db):
+    configured=db.query(SystemConfig).filter(SystemConfig.key=='base_url').first()
+    return configured.value if configured and isinstance(configured.value,str) else ''
+
+
 def reset_mail_base_url(db):
     config=db.query(SystemConfig).filter(SystemConfig.key=='smtp_config').first()
     smtp=config.value if config and isinstance(config.value,dict) else {}
     if smtp.get('enabled') is not True or not isinstance(smtp.get('host'),str) or not smtp['host'].strip():
         raise HTTPException(status_code=503,detail='Password reset requires SMTP to be configured.')
-    configured=db.query(SystemConfig).filter(SystemConfig.key=='base_url').first()
-    base=configured.value if configured else None
     try:
-        if not isinstance(base,str) or not base or any(char.isspace() or ord(char)<32 or ord(char)==127 for char in base):
-            raise ValueError('Invalid base URL')
-        parsed=urlsplit(base)
-        if parsed.scheme.lower() not in {'http','https'} or not parsed.hostname or parsed.username is not None or parsed.password is not None or parsed.query or parsed.fragment:
-            raise ValueError('Invalid base URL')
-        parsed.port  # Validate a supplied port without emitting the configured value.
+        return validate_base_url(configured_base_url(db))
     except ValueError:
         raise HTTPException(status_code=503,detail='Password reset requires a valid application base URL.') from None
-    return base.rstrip('/')
 
 
 def send_reset_link(db,user_id,username,email,send,*,base_url,actor_user_id=None):

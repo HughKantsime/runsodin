@@ -106,6 +106,9 @@ class SmtpConfigBase(BaseModel):
     password: str = ""
     from_address: str = ""
     use_tls: bool = True
+    # Application URL used in emailed links (password reset). None leaves the
+    # stored value unchanged; "" clears it.
+    base_url: Optional[str] = None
 
 
 class SmtpConfigResponse(BaseModel):
@@ -117,3 +120,4 @@ class SmtpConfigResponse(BaseModel):
     password_set: bool = False
     from_address: str = ""
     use_tls: bool = True
+    base_url: str = ""

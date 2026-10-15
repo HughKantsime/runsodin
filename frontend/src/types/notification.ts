@@ -96,6 +96,8 @@ export interface SmtpConfig {
   password: string;
   from_address: string;
   use_tls: boolean;
+  /** Application URL used in emailed links (password reset). */
+  base_url?: string;
 }
 
 export interface SmtpConfigResponse {
@@ -106,4 +108,5 @@ export interface SmtpConfigResponse {
   password_set: boolean;
   from_address: string;
   use_tls: boolean;
+  base_url: string;
 }

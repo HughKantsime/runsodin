@@ -415,9 +415,11 @@ async def get_smtp_config(
     db: Session = Depends(get_db)
 ):
     """Get SMTP configuration (admin only, password masked)."""
+    from modules.organizations.password_reset import configured_base_url
     config = db.query(SystemConfig).filter(SystemConfig.key == "smtp_config").first()
+    base_url = configured_base_url(db)
     if not config:
-        return SmtpConfigResponse()
+        return SmtpConfigResponse(base_url=base_url)
     smtp = config.value
     return SmtpConfigResponse(
         enabled=smtp.get("enabled", False),
@@ -426,7 +428,8 @@ async def get_smtp_config(
         username=smtp.get("username", ""),
         password_set=bool(smtp.get("password")),
         from_address=smtp.get("from_address", ""),
-        use_tls=smtp.get("use_tls", True)
+        use_tls=smtp.get("use_tls", True),
+        base_url=base_url,
     )
 
 
@@ -437,8 +440,26 @@ async def update_smtp_config(
     db: Session = Depends(get_db)
 ):
     """Update SMTP configuration (admin only)."""
+    from modules.organizations.password_reset import validate_base_url
     config = db.query(SystemConfig).filter(SystemConfig.key == "smtp_config").first()
     smtp_data = data.dict()
+    base_url = smtp_data.pop("base_url", None)
+    if base_url is not None:
+        base_url = base_url.strip()
+        if base_url:
+            try:
+                base_url = validate_base_url(base_url)
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Application URL must be an http(s) URL such as https://odin.example.com "
+                           "(no credentials, query or fragment).",
+                ) from None
+        stored = db.query(SystemConfig).filter(SystemConfig.key == "base_url").first()
+        if stored:
+            stored.value = base_url
+        else:
+            db.add(SystemConfig(key="base_url", value=base_url))
 
     if not smtp_data.get("password") and config and config.value.get("password"):
         smtp_data["password"] = config.value["password"]
@@ -452,7 +473,8 @@ async def update_smtp_config(
     else:
         db.add(SystemConfig(key="smtp_config", value=smtp_data))
 
-    log_audit(db, "smtp_config_updated", "system", details={"enabled": smtp_data.get("enabled"), "host": smtp_data.get("host")})
+    log_audit(db, "smtp_config_updated", "system", details={"enabled": smtp_data.get("enabled"), "host": smtp_data.get("host"),
+                                                           "base_url_changed": base_url is not None})
     db.commit()
     return {"status": "ok", "message": "SMTP configuration updated"}
 

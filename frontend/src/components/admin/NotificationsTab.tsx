@@ -92,7 +92,7 @@ export default function NotificationsTab() {
   const normalizeType = (type) => type.toLowerCase()
 
   // SMTP config state
-  const [smtp, setSmtp] = useState({ enabled: false, host: '', port: 587, username: '', password: '', from_address: '' })
+  const [smtp, setSmtp] = useState({ enabled: false, host: '', port: 587, username: '', password: '', from_address: '', base_url: '' })
   const [smtpLoading, setSmtpLoading] = useState(true)
   const [smtpSaved, setSmtpSaved] = useState(false)
   const [smtpError, setSmtpError] = useState(null)
@@ -111,6 +111,8 @@ export default function NotificationsTab() {
           username: data.username || '',
           password: '',
           from_address: data.from_address || '',
+          // Password-reset links need the address users open ODIN at; suggest this page's origin.
+          base_url: data.base_url || window.location.origin,
           _password_set: data.password_set || false,
         })
       } catch (err) {
@@ -136,7 +138,7 @@ export default function NotificationsTab() {
       setSmtp(s => ({ ...s, _password_set: true }))
       setTimeout(() => setSmtpSaved(false), 3000)
     } catch (err) {
-      setSmtpError('Failed to save SMTP configuration')
+      setSmtpError(err?.message ? `Failed to save SMTP configuration: ${err.message}` : 'Failed to save SMTP configuration')
       console.error(err)
     }
   }
@@ -389,6 +391,15 @@ export default function NotificationsTab() {
                 value={smtp.from_address}
                 onChange={(e) => setSmtp(s => ({ ...s, from_address: e.target.value }))}
                 placeholder="odin@yourdomain.com"
+                wrapperClassName="max-w-md"
+              />
+
+              <Input
+                label="Application URL (used in password-reset links)"
+                type="url"
+                value={smtp.base_url}
+                onChange={(e) => setSmtp(s => ({ ...s, base_url: e.target.value }))}
+                placeholder="https://odin.example.com"
                 wrapperClassName="max-w-md"
               />
             </div>
