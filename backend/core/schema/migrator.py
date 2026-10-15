@@ -20,6 +20,20 @@ class MigrationError(RuntimeError):
     """Raised when migration history or execution is unsafe."""
 
 
+class MigrationDeferred(MigrationError):
+    """A DEFERRABLE post-027 migration cannot apply yet because of existing user data.
+
+    Raised before the migration writes anything. Bootstrap records a ``<id>#deferred``
+    ledger marker and an admin warning, continues, and retries on every later boot.
+    ``reason`` tells the operator what to change; ``detail`` is JSON-serialisable.
+    """
+
+    def __init__(self, reason: str, *, detail: dict):
+        super().__init__(reason)
+        self.reason = reason
+        self.detail = detail
+
+
 _ACTIVE_PYTHON_MIGRATION: ContextVar[str | None] = ContextVar(
     "odin_active_python_migration", default=None
 )

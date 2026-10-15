@@ -630,6 +630,8 @@ def _validate_current_postgres_restore(
         work_dir=paths.backups,
         trusted_prevalidated=True,
     )
+    from modules.system.pre026_restore_stage import current_archive_deferrals
+    deferred = current_archive_deferrals(archive, target_url, password_file, paths.backups)
     validation_database = "odin_validate_" + uuid.uuid4().hex[:20]
     if not _SAFE_DATABASE_NAME.fullmatch(validation_database):
         raise AssertionError("Generated unsafe validation database name")
@@ -658,7 +660,7 @@ def _validate_current_postgres_restore(
             password_file=maintenance_password_file,
         )
         try:
-            canonical_result = bootstrap_database(validation_engine)
+            canonical_result = bootstrap_database(validation_engine, _deferred=deferred)
             canonical_fingerprint = str(canonical_result["schema_fingerprint"])
             with validation_engine.connect() as connection:
                 canonical_manifest = schema_manifest(connection)
@@ -713,7 +715,7 @@ def _validate_current_postgres_restore(
             paths.backups, schema_descriptors=original_structure)
         validate_schema_sql(original_schema, canonical_schema)
         # Only data enters a canonical source-created schema. Archive DDL is never executed.
-        _restore_postgres_archive(archive, validation_url, maintenance_password_file, paths.backups)
+        _restore_postgres_archive(archive, validation_url, maintenance_password_file, paths.backups, _deferred=deferred)
         validation_engine = create_database_engine(
             validation_url,
             role="restore",
@@ -783,6 +785,15 @@ def _inspect_compatible_archive(archive,target_url,password_file,directory):
 
 
 def validate_postgres_restore(archive,target_url,maintenance_url,*,password_file=None,maintenance_password_file=None,base_dir=None):
+    """Validate an archive; a migration refusal is an actionable validation error, not a 500."""
+    from core.schema.migrator import MigrationError
+    try:
+        return _validate_postgres_restore(archive,target_url,maintenance_url,password_file=password_file,maintenance_password_file=maintenance_password_file,base_dir=base_dir)
+    except MigrationError as error:
+        raise BackupValidationError('PostgreSQL archive cannot be upgraded by this ODIN version: '+str(error)[:300]) from error
+
+
+def _validate_postgres_restore(archive,target_url,maintenance_url,*,password_file=None,maintenance_password_file=None,base_dir=None):
     from modules.system.pre026_restore_stage import identify_contract,prepared_archive,archive_metadata,current_schema_version
     directory=postgres_paths(base_dir).backups
     contract=identify_contract(archive,target_url,password_file,directory)
@@ -1054,7 +1065,7 @@ def _schema_sql_evidence(archive, database_url, password_file, directory, *, all
         listing.unlink(missing_ok=True)
 
 
-def _restore_postgres_archive(archive: Path, target_url: str, password_file: str | None, directory: Path, *, _contract=None, _stage=None) -> None:
+def _restore_postgres_archive(archive: Path, target_url: str, password_file: str | None, directory: Path, *, _contract=None, _stage=None, _deferred=frozenset()) -> None:
     from core.schema.pre026_restore_contract import check_contract
     check_contract(_contract)
     if _contract is not None:
@@ -1082,7 +1093,7 @@ def _restore_postgres_archive(archive: Path, target_url: str, password_file: str
         with engine.begin() as connection:
             install_trusted_guards(connection,_contract=_contract)
         # Migration adoption/data associations are verified after guard installation.
-        if _contract is None:bootstrap_database(engine)
+        if _contract is None:bootstrap_database(engine, _deferred=_deferred)
     finally:
         engine.dispose()
         if restore_list is not None:restore_list.unlink(missing_ok=True)

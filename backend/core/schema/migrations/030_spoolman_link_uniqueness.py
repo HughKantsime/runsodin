@@ -1,14 +1,17 @@
 """Migration 030: one ODIN spool per Spoolman spool, as an additive partial unique index.
 
 Spoolman is a single external instance per install, so the link is unique install-wide
-(not per org). Existing duplicate links are refused loudly instead of being rewritten.
-Registered as the first post-027 migration (bootstrap.POST027_MIGRATIONS).
+(not per org). Released 1.9.x schemas had no constraint, so duplicates can exist. They are
+never rewritten: the migration is DEFERRABLE, so boot continues without the index, an admin
+warning names the conflicting spools, the API keeps refusing new duplicates, and every
+later boot retries. Registered as the first post-027 migration (bootstrap.POST027_MIGRATIONS).
 """
 import re
 from sqlalchemy import text
-from core.schema.migrator import MigrationError
+from core.schema.migrator import MigrationDeferred, MigrationError
 
 MIGRATION_ID = 'python:030-spoolman-link-uniqueness'
+DEFERRABLE = True
 TABLE = 'spools'
 COLUMN = 'spoolman_spool_id'
 INDEX = 'ux_spools_spoolman_spool_id'
@@ -44,12 +47,19 @@ def apply(connection):
     if connection.dialect.name == 'sqlite' and not connection.connection.driver_connection.in_transaction:
         connection.exec_driver_sql('BEGIN IMMEDIATE')
     if _definition(connection) is None:
-        duplicates = connection.execute(text(
-            f'SELECT {COLUMN} FROM {TABLE} WHERE {COLUMN} IS NOT NULL GROUP BY {COLUMN} HAVING COUNT(*) > 1 ORDER BY {COLUMN}'
-        )).scalars().all()
-        if duplicates:
-            raise MigrationError(
-                'Several spools link the same Spoolman spool; unlink all but one before upgrading: '
-                + ', '.join(str(value) for value in duplicates[:20]))
+        rows = connection.execute(text(
+            f'SELECT id, {COLUMN} FROM {TABLE} WHERE {COLUMN} IN '
+            f'(SELECT {COLUMN} FROM {TABLE} WHERE {COLUMN} IS NOT NULL GROUP BY {COLUMN} HAVING COUNT(*) > 1) '
+            f'ORDER BY {COLUMN}, id'
+        )).all()
+        if rows:
+            # Read-only so far: deferral is raised before any write.
+            linked = sorted({int(row[1]) for row in rows})
+            raise MigrationDeferred(
+                'Several spools link the same Spoolman spool, so the one-spool-per-Spoolman-spool '
+                'index was not created. Unlink all but one spool for each listed Spoolman spool, '
+                'then restart ODIN to create it.',
+                detail={'spool_ids': [int(row[0]) for row in rows][:200], 'spoolman_spool_ids': linked[:200],
+                        'conflicting_spoolman_spools': len(linked)})
         connection.execute(text(DDL))
     validate(connection)

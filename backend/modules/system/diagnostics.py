@@ -212,6 +212,18 @@ async def get_diagnostics(current_user: dict = Depends(require_role("admin"))):
 
     result = {}
 
+    # Deferred schema migrations: what to fix and which rows conflict.
+    try:
+        from core.db import SessionLocal
+        from modules.system.schema_warnings import deferred_migrations
+        session = SessionLocal()
+        try:
+            result["schema_warnings"] = deferred_migrations(session.connection(), detail=True)
+        finally:
+            session.close()
+    except Exception as e:
+        result["schema_warnings"] = {"error": str(e)}
+
     # Version
     try:
         result["odin_version"] = _read_version()

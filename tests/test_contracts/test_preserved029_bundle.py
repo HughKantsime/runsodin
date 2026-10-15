@@ -349,3 +349,24 @@ def test_post027_registry_is_ordered_allowlisted_and_self_identifying():
     registered = {module for _, module in bootstrap.POST027_MIGRATIONS}
     for module_name in migrator._ALLOWED_PYTHON_MIGRATIONS - registered:
         assert importlib.import_module(module_name).MIGRATION_ID in p.ledger_ids(), module_name
+
+
+def test_deferred_post027_marker_counts_as_current(routed):
+    from modules.system.pre026_restore_stage import identify_contract, current_archive_deferrals
+    archive, state = routed
+    state["ledger"] = _ledger_sql(sorted(p.ledger_ids()) + ["python:030-spoolman-link-uniqueness#deferred"])
+    assert identify_contract(archive, "postgresql://o@pg/odin", None, archive.parent) is None
+    assert current_archive_deferrals(archive, "postgresql://o@pg/odin", None, archive.parent) == frozenset({"python:030-spoolman-link-uniqueness"})
+
+
+def test_restore_wraps_migration_refusals_as_validation_errors(tmp_path, monkeypatch):
+    from core.schema.migrator import MigrationError
+    from modules.system import postgres_backup_service as b
+    from modules.system import pre026_restore_stage as stage
+    archive = tmp_path / "a.dump"; archive.write_bytes(b"x" * 200)
+    monkeypatch.setattr(stage, "identify_contract", lambda *a: None)
+    def refuse(*a, **k):
+        raise MigrationError("Migration history mismatch: python:027-power-target-operations")
+    monkeypatch.setattr(b, "_validate_current_postgres_restore", refuse)
+    with pytest.raises(b.BackupValidationError, match="cannot be upgraded.*history mismatch"):
+        b.validate_postgres_restore(archive, "postgresql://o@pg/odin", "postgresql://o@pg/postgres", base_dir=tmp_path)

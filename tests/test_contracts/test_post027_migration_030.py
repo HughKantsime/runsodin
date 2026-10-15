@@ -68,15 +68,69 @@ def test_pre030_database_upgrades_and_keeps_its_rows(tmp_path):
         engine.dispose()
 
 
-def test_duplicate_links_refuse_the_upgrade_without_rewriting_or_ledgering(tmp_path):
+def _ledger(engine):
+    with engine.connect() as c:
+        return {row[0] for row in c.execute(text("SELECT migration_id FROM odin_schema_migrations"))}
+
+
+def _warnings(engine):
+    with engine.connect() as c:
+        value = c.execute(text("SELECT value FROM system_config WHERE key='schema_deferred_migrations'")).scalar()
+    return json.loads(value) if isinstance(value, str) else value
+
+
+def test_duplicate_links_defer_030_boot_continues_and_later_boots_retry(tmp_path):
+    """1.9.x had no constraint, so duplicates can exist: never boot-loop, never rewrite."""
     engine = _upgrade_027_database(tmp_path, duplicates=True)
     try:
-        with pytest.raises(MigrationError, match="Several spools link the same Spoolman spool"):
-            bootstrap_database(engine)
+        first = bootstrap_database(engine)
+        assert M.MIGRATION_ID not in first["applied"] and first["deferred"] == [M.MIGRATION_ID]
         assert _index_sql(engine) is None
+        assert M.MIGRATION_ID not in _ledger(engine) and M.MIGRATION_ID + "#deferred" in _ledger(engine)
+        warning = _warnings(engine)[M.MIGRATION_ID]
+        assert warning["detail"]["spoolman_spool_ids"] == [5] and warning["detail"]["spool_ids"] == [1, 3]
+        assert "unlink" in warning["reason"].lower() and "restart" in warning["reason"].lower()
         with engine.connect() as c:
             assert c.execute(text("SELECT spoolman_spool_id FROM spools ORDER BY id")).scalars().all() == [5, 6, 5]
-            assert c.execute(text("SELECT count(*) FROM odin_schema_migrations WHERE migration_id=:id"), {"id": M.MIGRATION_ID}).scalar_one() == 0
+        # Still deferred on the next boot; the schema stays valid and stable.
+        second = bootstrap_database(engine)
+        assert second["applied"] == [] and second["deferred"] == [M.MIGRATION_ID]
+        assert second["schema_fingerprint"] == first["schema_fingerprint"]
+        # The operator unlinks one spool; the next boot creates the index and clears the warning.
+        with engine.begin() as c:
+            c.execute(text("UPDATE spools SET spoolman_spool_id=NULL WHERE id=3"))
+        third = bootstrap_database(engine)
+        assert third["applied"] == [M.MIGRATION_ID] and third["deferred"] == []
+        assert _index_sql(engine) == M.DDL
+        assert M.MIGRATION_ID in _ledger(engine) and M.MIGRATION_ID + "#deferred" not in _ledger(engine)
+        assert not _warnings(engine)
+    finally:
+        engine.dispose()
+
+
+def test_deferred_migration_is_reported_by_readiness_without_failing_it(tmp_path):
+    from modules.system.schema_warnings import deferred_migrations
+    engine = _upgrade_027_database(tmp_path, duplicates=True)
+    try:
+        bootstrap_database(engine)
+        with engine.connect() as c:
+            public = deferred_migrations(c, detail=False)
+            admin = deferred_migrations(c, detail=True)
+        assert public == [{"migration": M.MIGRATION_ID}]
+        assert admin[0]["migration"] == M.MIGRATION_ID and admin[0]["detail"]["spool_ids"] == [1, 3]
+    finally:
+        engine.dispose()
+
+
+def test_non_deferrable_migrations_cannot_defer(tmp_path, monkeypatch):
+    from core.schema import bootstrap
+    from core.schema.migrator import MigrationDeferred
+    engine = _upgrade_027_database(tmp_path, duplicates=False)
+    monkeypatch.setattr(M, "DEFERRABLE", False)
+    monkeypatch.setattr(M, "apply", lambda connection: (_ for _ in ()).throw(MigrationDeferred("x", detail={})))
+    try:
+        with pytest.raises(MigrationError):
+            bootstrap.bootstrap_database(engine)
     finally:
         engine.dispose()
 

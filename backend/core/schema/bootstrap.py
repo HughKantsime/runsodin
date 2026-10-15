@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
+import logging
+from datetime import datetime, timezone
 import re
 from pathlib import Path
 
@@ -13,6 +16,9 @@ from sqlalchemy.engine import Engine
 from core.base import Base
 from core.schema.migrator import (
     MIGRATION_TABLE,
+    MigrationDeferred,
+    MigrationError,
+    _checksum,
     apply_dedicated_python_migration,
     apply_migration_file,
     apply_python_migration,
@@ -275,6 +281,60 @@ POST027_MIGRATIONS = (
 )
 
 
+DEFERRED_SUFFIX = "#deferred"
+DEFERRAL_CONFIG_KEY = "schema_deferred_migrations"
+_log = logging.getLogger("odin.schema")
+
+
+def _deferral_config(connection) -> tuple[bool, dict]:
+    from core.models import SystemConfig
+    table = SystemConfig.__table__
+    row = connection.execute(table.select().where(table.c.key == DEFERRAL_CONFIG_KEY)).first()
+    if row is None:
+        return False, {}
+    value = row.value if not isinstance(row.value, str) else json.loads(row.value)
+    return True, dict(value or {})
+
+
+def _write_deferral_config(connection, exists: bool, value: dict) -> None:
+    from core.models import SystemConfig
+    table = SystemConfig.__table__
+    if not value:
+        if exists:
+            connection.execute(table.delete().where(table.c.key == DEFERRAL_CONFIG_KEY))
+    elif exists:
+        connection.execute(table.update().where(table.c.key == DEFERRAL_CONFIG_KEY).values(value=value))
+    else:
+        connection.execute(table.insert().values(key=DEFERRAL_CONFIG_KEY, value=value))
+
+
+def _record_deferral(connection, migration_id: str, module_name: str, deferral) -> None:
+    """Ledger marker plus an admin-visible reason; the real migration id stays unrecorded."""
+    marker = migration_id + DEFERRED_SUFFIX
+    module = importlib.import_module(module_name)  # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import -- registry module
+    checksum = _checksum(Path(module.__file__))
+    row = connection.execute(text("SELECT checksum FROM odin_schema_migrations WHERE migration_id=:id"), {"id": marker}).fetchone()
+    if row is None:
+        connection.execute(MIGRATION_TABLE.insert().values(migration_id=marker, checksum=checksum, dialect=connection.dialect.name))
+    elif str(row[0]) != checksum:
+        connection.execute(text("UPDATE odin_schema_migrations SET checksum=:c WHERE migration_id=:id"), {"c": checksum, "id": marker})
+    exists, value = _deferral_config(connection)
+    entry = {"reason": deferral.reason, "detail": deferral.detail,
+             "first_deferred_at": value.get(migration_id, {}).get("first_deferred_at") or datetime.now(timezone.utc).isoformat()}
+    if value.get(migration_id) != entry:
+        value[migration_id] = entry
+        _write_deferral_config(connection, exists, value)
+    _log.warning("Schema migration %s deferred: %s", migration_id, deferral.reason)
+
+
+def _clear_deferral(connection, migration_id: str) -> None:
+    connection.execute(text("DELETE FROM odin_schema_migrations WHERE migration_id=:id"), {"id": migration_id + DEFERRED_SUFFIX})
+    exists, value = _deferral_config(connection)
+    if migration_id in value:
+        value.pop(migration_id)
+        _write_deferral_config(connection, exists, value)
+
+
 def _recognized_orm_checksums() -> frozenset[str]:
     """Explicit build manifests, never inferred from the database being upgraded."""
     from core.schema.migrator import MigrationError
@@ -442,13 +502,17 @@ def _validate_adoptable_legacy_core(connection) -> None:
 def _bootstrap_database_contract(
     engine: Engine,
     backend_root: Path | None = None,
-    *, contract=None,
+    *, contract=None, _deferred=frozenset(),
 ) -> dict[str, object]:
     from core.schema.pre026_restore_contract import check_contract,fixed_sql_files,PRE027_RESTORE026
     check_contract(contract)
     import_all_models()
     root = backend_root or Path(__file__).resolve().parents[2]
     applied: list[str] = []
+    deferred: list[str] = []
+    _deferred = frozenset(_deferred)
+    if _deferred - {migration_id for migration_id, _ in POST027_MIGRATIONS}:
+        raise MigrationError("Only registered post-027 migrations can be deferred")
     with engine.begin() as connection:
         if connection.dialect.name == "postgresql":
             acquire_schema_writer_lock(connection)
@@ -534,8 +598,20 @@ def _bootstrap_database_contract(
             applied.append("python:027-power-target-operations")
         if contract is None:
             for migration_id, module_name in POST027_MIGRATIONS:
-                if apply_python_migration(connection, module_name):
-                    applied.append(migration_id)
+                if migration_id in _deferred:
+                    # Validation of an archive taken while this migration was deferred:
+                    # build the canonical schema it was taken with. Never on startup.
+                    continue
+                try:
+                    if apply_python_migration(connection, module_name):
+                        applied.append(migration_id)
+                except MigrationDeferred as deferral:
+                    if getattr(importlib.import_module(module_name), "DEFERRABLE", False) is not True:  # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import -- module_name comes from the literal POST027_MIGRATIONS registry
+                        raise MigrationError(f"Migration cannot be deferred: {migration_id}") from deferral
+                    _record_deferral(connection, migration_id, module_name, deferral)
+                    deferred.append(migration_id)
+                else:
+                    _clear_deferral(connection, migration_id)
 
     with engine.begin() as connection:
         if connection.dialect.name == "postgresql":
@@ -547,11 +623,16 @@ def _bootstrap_database_contract(
     return {
         "dialect": engine.dialect.name,
         "applied": applied,
+        "deferred": deferred,
         "schema_fingerprint": fingerprint,
         **validation,
     }
 
 
-def bootstrap_database(engine: Engine, backend_root: Path | None = None) -> dict[str, object]:
-    """Ordinary startup always uses the current schema contract."""
-    return _bootstrap_database_contract(engine,backend_root)
+def bootstrap_database(engine: Engine, backend_root: Path | None = None, *, _deferred=frozenset()) -> dict[str, object]:
+    """Ordinary startup always uses the current schema contract.
+
+    ``_deferred`` is only for restore validation of an archive recorded while those
+    DEFERRABLE post-027 migrations were deferred; startup never passes it.
+    """
+    return _bootstrap_database_contract(engine,backend_root,_deferred=_deferred)
