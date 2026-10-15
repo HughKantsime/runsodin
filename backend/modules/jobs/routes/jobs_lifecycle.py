@@ -162,6 +162,7 @@ def complete_job(job_id: int, current_user: dict = Depends(require_role("operato
             status=JobStatus.COMPLETED,
             actual_end=now,
             is_locked=True,
+            queue_position=None,  # terminal jobs leave the queue order
         )
     )
 
@@ -366,6 +367,7 @@ def fail_job(job_id: int, notes: Optional[str] = None, current_user: dict = Depe
     job.status = JobStatus.FAILED
     job.actual_end = datetime.now(timezone.utc)
     job.is_locked = True
+    job.queue_position = None
     if notes:
         job.notes = f"{job.notes or ''}\nFailed: {notes}".strip()
 
@@ -550,7 +552,8 @@ def link_job_to_print(job_id: int, print_job_id: int, current_user: dict = Depen
         new_status = 'printing'
 
     if new_status:
-        db.execute(text("UPDATE jobs SET status = :status WHERE id = :id"),
+        db.execute(text("UPDATE jobs SET status = :status, queue_position = CASE WHEN :status IN "
+                        "('completed','failed','cancelled') THEN NULL ELSE queue_position END WHERE id = :id"),
                    {"status": new_status, "id": job_id})
 
     reconcile_job_write(db, production_orders)

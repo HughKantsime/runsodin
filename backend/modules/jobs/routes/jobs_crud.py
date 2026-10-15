@@ -320,7 +320,7 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_role
             if not job or not check_org_access(current_user, job.charged_to_org_id):
                 continue
             assert_generic_job_mutation_allowed(db, jid)
-            changed = db.execute(text("UPDATE jobs SET status = 'cancelled' WHERE id = :id AND status IN ('pending','submitted')"),
+            changed = db.execute(text("UPDATE jobs SET status = 'cancelled', queue_position = NULL WHERE id = :id AND status IN ('pending','submitted')"),
                        {"id": jid})
             count += changed.rowcount
     elif action == "set_priority":
@@ -394,9 +394,10 @@ def list_jobs(
     if should_filter_org(current_user, effective_org):
         query = query.filter((Job.charged_to_org_id == effective_org) | (Job.charged_to_org_id == None))
 
-    # Manual drag-and-drop order first (queue_position), then priority/age.
+    # Priority first; drag-and-drop queue_position orders jobs within a
+    # priority (unplaced jobs last on SQLite and PostgreSQL alike); then age.
     return query.order_by(
-        Job.queue_position.is_(None), Job.queue_position, Job.priority, Job.created_at
+        Job.priority, Job.queue_position.is_(None), Job.queue_position, Job.created_at, Job.id
     ).offset(offset).limit(limit).all()
 
 

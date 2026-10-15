@@ -145,6 +145,10 @@ export default function Jobs() {
     const fromIdx = currentJobs.findIndex(j => j.id === draggedId)
     const toIdx = currentJobs.findIndex(j => j.id === targetId)
     if (fromIdx === -1 || toIdx === -1) return
+    if ((currentJobs[fromIdx].priority ?? 99) !== (currentJobs[toIdx].priority ?? 99)) {
+      toast.error('Drag reorders jobs within the same priority; change the priority to move it further')
+      return
+    }
     const reordered = [...currentJobs]; const [moved] = reordered.splice(fromIdx, 1); reordered.splice(toIdx, 0, moved)
     try { await jobs.reorder(reordered.map(j => j.id)); queryClient.invalidateQueries({ queryKey: ['jobs'] }) }
     catch (err) { toast.error('Reorder failed: ' + (err.message || 'Unknown error')) }

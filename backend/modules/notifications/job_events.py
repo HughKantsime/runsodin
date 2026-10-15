@@ -315,7 +315,7 @@ def job_cancelled(
 
             if scheduled_job_id:
                 cur.execute(
-                    "UPDATE jobs SET status = 'cancelled', actual_end = ? WHERE id = ?",
+                    "UPDATE jobs SET status = 'cancelled', actual_end = ?, queue_position = NULL WHERE id = ?",
                     (ended_at, scheduled_job_id)
                 )
 

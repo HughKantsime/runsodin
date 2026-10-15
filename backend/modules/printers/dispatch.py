@@ -210,7 +210,8 @@ def _get_next_scheduled_job(printer_id: int) -> Optional[dict]:
                   AND j.status = 'scheduled'
                   AND pf.stored_path IS NOT NULL
                   AND pf.stored_path != ''
-                ORDER BY j.queue_position ASC, j.priority ASC, j.created_at ASC
+                ORDER BY j.priority ASC, (j.queue_position IS NULL) ASC, j.queue_position ASC,
+                         j.created_at ASC, j.id ASC
                 LIMIT 1
                 """),
                 {"pid": printer_id},

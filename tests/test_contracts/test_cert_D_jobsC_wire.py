@@ -221,6 +221,41 @@ def test_scheduler_honours_reordered_pending_queue(wire_client):
     assert starts[202] is not None and starts[201] is not None and str(starts[202]) < str(starts[201])
 
 
+def test_queue_order_is_priority_then_position_nulls_last_then_age(wire_client, monkeypatch):
+    """GET /jobs, the scheduler and dispatch share one order on SQLite (PostgreSQL in the native probe)."""
+    import core.db
+    from modules.printers.dispatch import _get_next_scheduled_job
+    client, identity, db = wire_client
+    db.execute(text("UPDATE jobs SET status='completed' WHERE status IN ('pending','scheduled') AND id NOT IN (201,202,203)"))
+    db.execute(text("INSERT INTO jobs(id,item_name,status,charged_to_org_id,quantity,hold,priority,created_at) "
+                    "VALUES(207,'CertC urgent late','pending',1,1,0,1,'2026-10-02 00:00:00')"))
+    db.commit()
+    ok(client.patch('/jobs/reorder', json={'job_ids': [207, 202]}))  # positions only set for 207 and 202
+    db.execute(text('UPDATE jobs SET queue_position=NULL WHERE id=201')); db.commit()
+    listed = [j['id'] for j in ok(client.get('/jobs', params={'status': 'pending'}))]
+    # 207 (P1) beats every P3 job; among P3 the placed 202 precedes unplaced 201 despite 201 being older.
+    assert listed == [207, 202, 201], listed
+    # Dispatch (jobs 201/202 carry stored payloads): same rule for scheduled jobs on one printer.
+    db.execute(text("UPDATE jobs SET status='scheduled', printer_id=9 WHERE id IN (201,202)")); db.commit()
+    monkeypatch.setattr(core.db, 'engine', db.get_bind())
+    assert _get_next_scheduled_job(9)['id'] == 202          # placed beats unplaced (NULLs last) at equal priority
+    db.execute(text('UPDATE jobs SET queue_position=0 WHERE id=201')); db.execute(text('UPDATE jobs SET queue_position=5 WHERE id=202')); db.commit()
+    assert _get_next_scheduled_job(9)['id'] == 201          # lower position first within the priority
+    db.execute(text('UPDATE jobs SET priority=1 WHERE id=202')); db.commit()
+    assert _get_next_scheduled_job(9)['id'] == 202          # priority beats position
+
+
+@pytest.mark.parametrize('route', ['complete', 'fail', 'cancel'])
+def test_terminal_transition_clears_queue_position(wire_client, route):
+    client, identity, db = wire_client
+    source = 'scheduled' if route == 'cancel' else 'printing'
+    db.execute(text("UPDATE jobs SET status=:s, queue_position=4 WHERE id=202"), {'s': source}); db.commit()
+    response = client.post(f'/jobs/202/{route}')
+    assert response.status_code == 200, response.text
+    db.expire_all()
+    assert db.execute(text('SELECT queue_position FROM jobs WHERE id=202')).scalar_one() is None
+
+
 # ---------------- F04-4.3-04 edit modal (backend) ----------------
 
 def test_edit_denied_for_viewer_and_foreign_job_unchanged(wire_client):

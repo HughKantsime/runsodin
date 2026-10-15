@@ -1468,7 +1468,7 @@ def terminal_monitor_observation(
             if submission_changed.rowcount != 1:
                 raise _MonitorTransitionMiss
             job_changed = adapter.execute(
-                "UPDATE jobs SET status=:status,actual_end=COALESCE(:ended_at,CURRENT_TIMESTAMP) "
+                "UPDATE jobs SET status=:status,actual_end=COALESCE(:ended_at,CURRENT_TIMESTAMP),queue_position=NULL "
                 "WHERE id=:job_id AND charged_to_org_id=:org_id AND status='printing' "
                 "AND printer_id=:printer_id",
                 {

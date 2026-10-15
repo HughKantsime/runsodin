@@ -113,6 +113,7 @@ def cancel_job(
                         'Job state changed before cancellation', status=400, retriable=False)
     job.status = JobStatus.CANCELLED
     job.is_locked = True
+    job.queue_position = None
     log_audit(db, "job.cancelled", "job", job.id)
     reconcile_job_write(db, production_orders)
     db.commit()

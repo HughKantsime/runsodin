@@ -33,17 +33,18 @@ export const statusOrder: Record<string, number> = { printing: 0, paused: 1, sch
 
 type QueueOrdered = { queue_position?: number | null; priority?: number | null; created_at?: string | null; id?: number }
 
-// Mirrors GET /api/jobs and the scheduler: drag-and-drop queue_position first
-// (unplaced jobs after), then priority (1 = highest), then age.
+// Mirrors GET /api/jobs, the scheduler and dispatch: priority (1 = highest)
+// first, then the drag-and-drop queue_position within a priority (unplaced
+// jobs after placed ones), then age, then id.
 export function queueCompare(a: QueueOrdered, b: QueueOrdered): number {
+  const pr = (a.priority ?? 99) - (b.priority ?? 99)
+  if (pr) return pr
   const pa = a.queue_position ?? null, pb = b.queue_position ?? null
   if (pa !== pb) {
     if (pa === null) return 1
     if (pb === null) return -1
     return pa - pb
   }
-  const pr = (a.priority ?? 99) - (b.priority ?? 99)
-  if (pr) return pr
   const ta = a.created_at ? Date.parse(a.created_at) : 0, tb = b.created_at ? Date.parse(b.created_at) : 0
   if (ta !== tb) return ta - tb
   return (a.id ?? 0) - (b.id ?? 0)

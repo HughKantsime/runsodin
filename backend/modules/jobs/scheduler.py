@@ -500,8 +500,9 @@ class Scheduler:
             Job.hold.is_(False),
             Job.id.in_(candidates)
         ).order_by(
-            # Operator drag-and-drop order wins; unplaced jobs follow by priority/age.
-            Job.queue_position.is_(None), Job.queue_position, Job.priority, Job.created_at
+            # Same queue order as GET /jobs: priority, then drag position within
+            # the priority (unplaced last), then age.
+            Job.priority, Job.queue_position.is_(None), Job.queue_position, Job.created_at, Job.id
         ).populate_existing().all()
         
         # Pre-fetch printer model requirements from uploaded print files.
