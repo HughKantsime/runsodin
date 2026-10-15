@@ -38,9 +38,8 @@ test('CertENotif: subscribe uses the server VAPID public key as applicationServe
   expect(posted).toHaveLength(1)
 })
 
-// DEFECT: frontend/src/hooks/usePushNotifications.ts:96 posts PushSubscription.toJSON() ({keys:{p256dh,auth}});
-// backend/modules/notifications/schemas.py:93-96 requires top-level p256dh_key/auth_key (422).
-test.fails('CertENotif: subscription body matches the backend PushSubscriptionCreate contract', async () => {
+// Fixed (was: the hook posted PushSubscription.toJSON() {keys:{p256dh,auth}} which the backend rejected 422).
+test('CertENotif: subscription body matches the backend PushSubscriptionCreate contract', async () => {
   const { result } = renderHook(() => usePushNotifications())
   await waitFor(() => expect(result.current.loading).toBe(false))
   await act(async () => { await result.current.subscribe() })

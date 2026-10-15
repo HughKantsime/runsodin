@@ -108,8 +108,8 @@ def test_http_configured_org_window_suppresses_external_channels_and_keeps_in_ap
         assert request['path'] == '/org2-sentinel'
         assert smtp_peer.messages == []
     else:
-        # ORM-path push is pinned separately (test_cert_E_notif_push: VAPID key source defect).
-        expected = {'/org1', '/org2-sentinel'} | ({'/push/sub-1'} if path == 'daemon' else set())
+        # Both dispatchers push, signed with the served VAPID key (F13-13.1-01).
+        expected = {'/org1', '/org2-sentinel', '/push/sub-1'}
         requests = receiver.wait(len(expected))
         assert {r['path'] for r in requests} == expected
         assert smtp_peer.wait(1)[0]['To'] == 'student@example.test'

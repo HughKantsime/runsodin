@@ -27,6 +27,26 @@ _config_ts: float = 0
 CONFIG_TTL = 30  # seconds
 
 
+def config_text(value) -> str:
+    """Text of a quiet-hours system_config value across storage generations.
+
+    Legacy SQLite rows hold raw text (``true``, ``22:00``); current writes store
+    a JSON string in the JSON column, which SQLite returns as quoted text
+    (``"22:00"``) and PostgreSQL returns decoded (``22:00``, or a bool)."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (bytes, bytearray)):
+        value = value.decode()
+    if isinstance(value, str) and len(value) >= 2 and value[0] == '"' and value[-1] == '"':
+        try:
+            decoded = json.loads(value)
+            if isinstance(decoded, str):
+                return decoded
+        except ValueError:
+            pass
+    return "" if value is None else str(value)
+
+
 def _get_config() -> Dict[str, Any]:
     """Load quiet hours config from DB, cached."""
     global _config_cache, _config_ts
@@ -38,7 +58,7 @@ def _get_config() -> Dict[str, Any]:
     try:
         with engine.connect() as conn:
             result = conn.execute(text("SELECT key, value FROM system_config WHERE key LIKE 'quiet_hours_%'"))
-            rows = {r._mapping["key"]: r._mapping["value"] for r in result.fetchall()}
+            rows = {r._mapping["key"]: config_text(r._mapping["value"]) for r in result.fetchall()}
 
         _config_cache = {
             "enabled": rows.get("quiet_hours_enabled", "false").lower() in ("true", "1"),

@@ -142,11 +142,6 @@ def test_push_service_expiry_response_removes_only_expired_subscription(
         assert conn.execute(text('SELECT count(*) FROM push_subscriptions')).scalar_one() == remaining
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    'DEFECT: backend/modules/notifications/alert_dispatcher.py:184 _deliver_browser_push (ORM dispatcher used by '
-    'HTTP-originated alerts: job approvals, queue events) signs only with env VAPID_PRIVATE_KEY and ignores '
-    "system_config['vapid_keys'], the key pair whose public half /push/vapid-key "
-    '(routes/providers.py:24) hands browsers; with keys configured for subscriptions, ORM-dispatched alerts push nothing'))
 def test_orm_dispatched_alert_push_uses_served_vapid_key(push_api, notif_env, receiver, vapid, browser):
     from core.base import AlertType
     from modules.notifications.models import AlertPreference
@@ -159,10 +154,6 @@ def test_orm_dispatched_alert_push_uses_served_vapid_key(push_api, notif_env, re
     verify_vapid_jwt(request['headers']['authorization'], vapid['public_key'], f'http://127.0.0.1:{receiver.port}')
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    'DEFECT: frontend/src/hooks/usePushNotifications.ts:96 posts PushSubscription.toJSON() '
-    "({endpoint, expirationTime, keys:{p256dh, auth}}) but backend/modules/notifications/schemas.py:93-96 "
-    'requires top-level p256dh_key/auth_key, so the browser subscription is rejected with 422'))
 def test_browser_subscription_json_shape_is_accepted(push_api, receiver, browser):
     response = push_api.post('/push/subscribe', json={
         'endpoint': f'http://127.0.0.1:{receiver.port}/push/w3c', 'expirationTime': None,
@@ -170,12 +161,36 @@ def test_browser_subscription_json_shape_is_accepted(push_api, receiver, browser
     assert response.status_code == 200, response.text
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    'DEFECT: no code path generates or stores VAPID keys: system_config["vapid_keys"] is only read '
-    '(backend/modules/notifications/routes/providers.py:24, channels.py:41) and never written by bootstrap, setup '
-    'or any admin API, so on a fresh install /push/vapid-key reports enabled=false and Browser Push cannot be used'))
 def test_fresh_install_provisions_local_vapid_keys(push_api, notif_env):
     from core.schema import bootstrap_database
     from pathlib import Path
     bootstrap_database(notif_env.get_bind(), Path(__file__).resolve().parents[2] / 'backend')
-    assert push_api.get('/push/vapid-key').json()['enabled'] is True
+    first = push_api.get('/push/vapid-key').json()
+    assert first['enabled'] is True
+    # The served key is a 65-byte uncompressed P-256 point, stable across requests.
+    from cryptography.hazmat.primitives.asymmetric import ec
+    ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), unb64u(first['public_key']))
+    assert push_api.get('/push/vapid-key').json() == first
+    from modules.notifications.vapid import read_vapid_keys
+    with Session(notif_env.get_bind()) as db:
+        assert read_vapid_keys(db)['public_key'] == first['public_key']
+
+
+def test_generated_key_signs_daemon_and_orm_pushes(push_api, notif_env, receiver, browser):
+    """End to end on a fresh install: served key -> browser subscribes -> both dispatchers
+    sign with the private half of that same generated pair."""
+    from core.base import AlertType
+    from modules.notifications.models import AlertPreference
+    public = push_api.get('/push/vapid-key').json()['public_key']
+    receiver.status = 201
+    subscribe(push_api, receiver, browser)
+    notif_env.add(AlertPreference(user_id=1, alert_type=AlertType.PRINT_FAILED, in_app=True, browser_push=True, email=False))
+    notif_env.commit()
+    for path, title in (('daemon', 'Synthetic daemon push'), ('orm', 'Synthetic orm push')):
+        dispatch(path, 'print_failed', 'critical', title, 'body', notif_env)
+    requests = receiver.wait(2, timeout=3)
+    for request in requests:
+        verify_vapid_jwt(request['headers']['authorization'], public, f'http://127.0.0.1:{receiver.port}')
+    titles = {json.loads(http_ece.decrypt(r['body'], private_key=browser['private'], auth_secret=browser['auth_raw'],
+                                          version='aes128gcm'))['title'] for r in requests}
+    assert titles == {'Synthetic daemon push', 'Synthetic orm push'}

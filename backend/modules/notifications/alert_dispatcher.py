@@ -181,14 +181,19 @@ def _deliver_browser_push(db, user_id, title, message, severity):
         return
 
     import os
-    vapid_private_key = os.environ.get("VAPID_PRIVATE_KEY")
+    # Sign with the stored pair whose public half /push/vapid-key served to the
+    # browser; the VAPID_PRIVATE_KEY environment variable is only a legacy
+    # fallback for installs without a stored pair.
+    from modules.notifications.vapid import read_vapid_keys
+    stored = read_vapid_keys(db)
+    vapid_private_key = stored["private_key"] if stored else os.environ.get("VAPID_PRIVATE_KEY")
     vapid_email = os.environ.get("VAPID_EMAIL", "mailto:admin@example.com")
 
     # Avoid serializing a cold burst of job notifications behind pywebpush's
     # import lock when push is intentionally unconfigured (the common local
     # and self-hosted EDU case). Configuration is authoritative here.
     if not vapid_private_key:
-        logger.debug("VAPID_PRIVATE_KEY not set — skipping browser push")
+        logger.debug("No VAPID key pair stored or configured — skipping browser push")
         return
 
     try:

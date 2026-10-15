@@ -89,11 +89,15 @@ export function usePushNotifications() {
         applicationServerKey
       });
 
-      // Send subscription to server
+      // Send subscription to server in the PushSubscriptionCreate contract
+      const json = subscription.toJSON();
+      if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) {
+        throw new Error('Browser returned an incomplete push subscription');
+      }
       const subRes = await fetch(`${API_BASE}/push/subscribe`, {
         method: 'POST',
         headers,
-        body: JSON.stringify(subscription.toJSON())
+        body: JSON.stringify({ endpoint: json.endpoint, p256dh_key: json.keys.p256dh, auth_key: json.keys.auth })
       });
 
       if (!subRes.ok) {

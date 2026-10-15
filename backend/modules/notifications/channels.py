@@ -38,14 +38,15 @@ def send_push_notification(user_id: int, alert_type: str, title: str, message: s
             if not subscriptions:
                 return False
 
-            # Get VAPID keys
+            # Get VAPID keys (JSON column: text on SQLite, decoded on PostgreSQL)
             cur.execute("SELECT value FROM system_config WHERE key = 'vapid_keys'")
             vapid_row = cur.fetchone()
             if not vapid_row:
                 log.warning("VAPID keys not configured, skipping push")
                 return False
 
-            vapid_keys = json.loads(vapid_row[0])
+            from modules.notifications.vapid import decode_config_value
+            vapid_keys = decode_config_value(vapid_row[0])
 
             # Build notification payload
             payload = json.dumps({
@@ -270,8 +271,9 @@ def send_email(user_id: int, alert_type: str, title: str, message: str,
                 log.debug("SMTP not configured, skipping email")
                 return
 
-            smtp_config = json.loads(smtp_row[0])
-            if not smtp_config.get("enabled"):
+            from modules.notifications.vapid import decode_config_value
+            smtp_config = decode_config_value(smtp_row[0])
+            if not isinstance(smtp_config, dict) or not smtp_config.get("enabled"):
                 return
 
             # Get user email

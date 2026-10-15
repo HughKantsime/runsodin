@@ -1,6 +1,6 @@
 """Cert-E PostgreSQL native probe: digest idempotency constraints and SMTP config typing.
 
-Owned, pinned PostgreSQL container on 127.0.0.1 (name prefix certE_notif_), current
+Owned, pinned PostgreSQL container on 127.0.0.1 (name prefix certfixE_notif_), current
 ODIN schema bootstrapped, removed afterwards. Skips only if Docker is unavailable.
 """
 import json
@@ -36,7 +36,7 @@ def pg_engine():
     if not shutil.which('docker') or _docker('info', timeout=20).returncode:
         pytest.skip('Docker unavailable')
     from core.schema import bootstrap_database
-    name = 'certE_notif_' + uuid.uuid4().hex[:12]
+    name = 'certfixE_notif_' + uuid.uuid4().hex[:12]
     password = secrets.token_urlsafe(24)
     try:
         started = _docker('run', '-d', '--name', name, '-p', '127.0.0.1::5432', '--tmpfs',
@@ -114,10 +114,6 @@ def test_postgres_racing_claims_admit_exactly_one_sender(pg_engine, claim):
     assert again is False
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    'DEFECT: backend/modules/notifications/channels.py:272 json.loads(smtp_row[0]) on system_config.value, a JSON '
-    'column that PostgreSQL returns already decoded (dict); the TypeError is swallowed and the daemon email '
-    'channel (alert_dispatch -> channels.send_email) never sends on PostgreSQL deployments'))
 def test_postgres_daemon_email_uses_http_saved_smtp_config(pg_engine, smtp_peer, monkeypatch):
     from core import db_utils
     from core.db import get_db
@@ -145,10 +141,6 @@ def test_postgres_daemon_email_uses_http_saved_smtp_config(pg_engine, smtp_peer,
     assert message['To'] == 'student@example.test'
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    'DEFECT: backend/modules/notifications/routes/providers.py:28 (and channels.py:47) json.loads() the '
-    "system_config['vapid_keys'] JSON column, which PostgreSQL returns already decoded; /push/vapid-key reports "
-    'enabled=false and Web Push never signs on PostgreSQL even with keys stored'))
 def test_postgres_vapid_key_endpoint_reads_stored_keys(pg_engine):
     from core.db import get_db
     from modules.notifications.routes import providers
@@ -164,3 +156,59 @@ def test_postgres_vapid_key_endpoint_reads_stored_keys(pg_engine):
     app.dependency_overrides[get_db] = session
     with TestClient(app) as client:
         assert client.get('/push/vapid-key').json() == {'public_key': 'BSyntheticPublicKey', 'enabled': True}
+
+
+def test_postgres_fresh_vapid_key_generation_persists_native_json(pg_engine):
+    """F13-13.1-01 on PostgreSQL: the first /push/vapid-key request generates and stores a pair
+    in the JSON column; the stored value is native JSON and the served key is stable."""
+    from core.db import get_db
+    from modules.notifications.routes import providers
+    with pg_engine.begin() as c:
+        c.execute(text("DELETE FROM system_config WHERE key='vapid_keys'"))
+    app = FastAPI()
+    app.include_router(providers.router)
+
+    def session():
+        with Session(pg_engine) as db:
+            yield db
+    app.dependency_overrides[get_db] = session
+    with TestClient(app) as client:
+        first = client.get('/push/vapid-key').json()
+        assert first['enabled'] is True and len(first['public_key']) == 87
+        assert client.get('/push/vapid-key').json() == first
+    with pg_engine.connect() as c:
+        stored = c.execute(text("SELECT value FROM system_config WHERE key='vapid_keys'")).scalar_one()
+    assert isinstance(stored, dict) and stored['public_key'] == first['public_key']
+
+
+def test_postgres_quiet_hours_config_put_round_trips(pg_engine):
+    """System quiet-hours PUT stores values in the system_config JSON column; GET and the
+    suppression config read them back on PostgreSQL."""
+    from core.db import get_db
+    from core.dependencies import get_current_user
+    from modules.notifications import quiet_hours
+    from modules.system import routes_config
+    app = FastAPI()
+    app.include_router(routes_config.router)
+
+    def session():
+        with Session(pg_engine) as db:
+            yield db
+    app.dependency_overrides[get_db] = session
+    app.dependency_overrides[get_current_user] = lambda: {'id': 3, 'username': 'admin', 'role': 'admin', 'group_id': None}
+    with TestClient(app) as client:
+        put = client.put('/config/quiet-hours', json={'enabled': True, 'start': '21:30', 'end': '06:15', 'digest': False})
+        assert put.status_code == 200, put.text
+        assert client.get('/config/quiet-hours').json() == {'enabled': True, 'start': '21:30', 'end': '06:15', 'digest': False}
+        # Update path (rows exist now).
+        assert client.put('/config/quiet-hours', json={'enabled': False}).status_code == 200
+        assert client.get('/config/quiet-hours').json()['enabled'] is False
+    import core.db as core_db
+    original = quiet_hours.engine
+    quiet_hours.engine = pg_engine
+    try:
+        quiet_hours.invalidate_cache()
+        assert quiet_hours._get_config() == {'enabled': False, 'start': '21:30', 'end': '06:15', 'digest_enabled': False}
+    finally:
+        quiet_hours.engine = original
+        quiet_hours.invalidate_cache()

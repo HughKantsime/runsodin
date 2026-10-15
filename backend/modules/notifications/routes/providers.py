@@ -20,15 +20,19 @@ router = APIRouter(tags=["Alerts"])
 
 @router.get("/push/vapid-key")
 async def get_vapid_key(db: Session = Depends(get_db)):
-    """Get VAPID public key for browser push subscription."""
-    row = db.execute(text("SELECT value FROM system_config WHERE key = 'vapid_keys'")).fetchone()
-    if not row:
-        return {"public_key": None, "enabled": False}
+    """Get VAPID public key for browser push subscription.
+
+    The key pair is generated locally and persisted on first request, so a
+    fresh install can subscribe without any external key service.
+    """
+    from modules.notifications.vapid import ensure_vapid_keys
     try:
-        keys = json.loads(row[0])
-        return {"public_key": keys.get("public_key"), "enabled": True}
-    except Exception:
+        keys = ensure_vapid_keys(db)
+    except Exception as exc:
+        db.rollback()
+        log.error(f"VAPID keys unavailable: {type(exc).__name__}")
         return {"public_key": None, "enabled": False}
+    return {"public_key": keys["public_key"], "enabled": True}
 
 
 @router.post("/push/subscribe")
