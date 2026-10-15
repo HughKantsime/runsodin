@@ -122,6 +122,12 @@ def get_camera_url(printer):
     return None
 
 
+def effective_camera_url(printer):
+    """Stored camera URL (possibly encrypted), else the one generated from the
+    printer's credentials. Contains credentials: responses must mask it."""
+    return printer.camera_url or get_camera_url(printer)
+
+
 def sanitize_camera_url(url: str) -> str:
     """Strip credentials from RTSP URLs for API responses."""
     if not url:

@@ -53,6 +53,7 @@
           "printer_id": 301,
           "loaded_at": "2026-10-14T10:24:00",
           "remaining": null,
+          "remaining_weight": null,
           "material_type": "PETG"
         },
         {
@@ -67,6 +68,7 @@
           "printer_id": 301,
           "loaded_at": "2026-10-14T10:25:00",
           "remaining": null,
+          "remaining_weight": null,
           "material_type": "PETG"
         },
         {
@@ -81,6 +83,7 @@
           "printer_id": 301,
           "loaded_at": "2026-10-14T10:26:00",
           "remaining": null,
+          "remaining_weight": null,
           "material_type": "PETG"
         },
         {
@@ -95,6 +98,7 @@
           "printer_id": 301,
           "loaded_at": "2026-10-14T10:27:00",
           "remaining": null,
+          "remaining_weight": null,
           "material_type": "PETG"
         },
         {
@@ -109,6 +113,7 @@
           "printer_id": 301,
           "loaded_at": "2026-10-14T10:28:00",
           "remaining": null,
+          "remaining_weight": null,
           "material_type": "PETG"
         },
         {
@@ -123,6 +128,7 @@
           "printer_id": 301,
           "loaded_at": "2026-10-14T10:29:00",
           "remaining": null,
+          "remaining_weight": null,
           "material_type": "PLA_SUPPORT"
         },
         {
@@ -137,6 +143,7 @@
           "printer_id": 301,
           "loaded_at": "2026-10-14T10:30:00",
           "remaining": null,
+          "remaining_weight": null,
           "material_type": "PLA"
         },
         {
@@ -151,13 +158,16 @@
           "printer_id": 301,
           "loaded_at": "2026-10-14T10:31:00",
           "remaining": null,
+          "remaining_weight": null,
           "material_type": "PLA"
         }
       ],
       "loaded_colors": [],
       "shared": false,
       "org_id": 1,
-      "has_api_key": true
+      "has_api_key": true,
+      "camera_enabled": false,
+      "camera_source": null
     },
     {
       "name": "Cert Voron",
@@ -202,7 +212,9 @@
       "loaded_colors": [],
       "shared": false,
       "org_id": 1,
-      "has_api_key": false
+      "has_api_key": false,
+      "camera_enabled": true,
+      "camera_source": "configured"
     },
     {
       "name": "Cert MK4",
@@ -245,7 +257,9 @@
       "loaded_colors": [],
       "shared": false,
       "org_id": 1,
-      "has_api_key": false
+      "has_api_key": false,
+      "camera_enabled": true,
+      "camera_source": "configured"
     },
     {
       "name": "Cert Centauri",
@@ -288,7 +302,9 @@
       "loaded_colors": [],
       "shared": false,
       "org_id": 1,
-      "has_api_key": false
+      "has_api_key": false,
+      "camera_enabled": true,
+      "camera_source": null
     }
   ],
   "telemetry_301": [

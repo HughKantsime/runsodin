@@ -117,23 +117,6 @@ class Printer(Base):
         return bool(self.api_key)
 
     @property
-    def camera_source(self) -> Optional[str]:
-        """'configured' (stored URL), 'auto' (generated from credentials) or None."""
-        if self.camera_url:
-            return "configured"
-        from modules.printers.route_utils import get_camera_url
-        return "auto" if get_camera_url(self) else None
-
-    @property
-    def effective_camera_url(self) -> Optional[str]:
-        """Stored camera URL, else the generated one. Contains credentials:
-        responses must mask it (PrinterResponse does)."""
-        if self.camera_url:
-            return self.camera_url
-        from modules.printers.route_utils import get_camera_url
-        return get_camera_url(self)
-
-    @property
     def loaded_colors(self) -> List[str]:
         """Get list of currently loaded colors."""
         return [slot.color.lower() for slot in self.filament_slots if slot.color]
@@ -179,13 +162,6 @@ class FilamentSlot(Base):
         if self.assigned_spool and self.assigned_spool.initial_weight_g and self.assigned_spool.initial_weight_g > 0:
             if self.assigned_spool.remaining_weight_g is not None:
                 return round((self.assigned_spool.remaining_weight_g / self.assigned_spool.initial_weight_g) * 100, 1)
-        return None
-
-    @property
-    def remaining_weight(self) -> Optional[float]:
-        """Grams of filament left on the assigned spool."""
-        if self.assigned_spool and self.assigned_spool.remaining_weight_g is not None:
-            return float(self.assigned_spool.remaining_weight_g)
         return None
 
     @property

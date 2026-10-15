@@ -22,6 +22,9 @@ PUBLIC={
     'GET /api/docs','GET /api/redoc',
     # Public OBS overlay (no stored camera URL, see test_overlay_never_exposes_stored_camera_url)
     'GET /api/overlay/{printer_id}',
+    # Overlay MJPEG relay: no session; the handler requires a scoped read:cameras/read:printers API
+    # token in ?token= and the token user's printer access (test_cert_B_camera_fixes.py)
+    'GET /api/overlay/{printer_id}/camera',
     # SPA fallback
     'GET /{path:path}',
 }

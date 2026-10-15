@@ -250,7 +250,8 @@ def update_printer(
         from modules.printers.route_utils import resolve_masked_camera_url
         # GET returns the effective URL masked (stored, or generated from the
         # printer's credentials), so masked values resolve against that.
-        effective = printer.effective_camera_url
+        from modules.printers.route_utils import effective_camera_url
+        effective = effective_camera_url(printer)
         if update_data['camera_url'] and resolve_masked_camera_url(update_data['camera_url'], effective) is None:
             # The masked URL from GET sent back unchanged: keep the stored value.
             del update_data['camera_url']

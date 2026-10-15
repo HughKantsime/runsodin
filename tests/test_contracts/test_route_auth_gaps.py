@@ -10,8 +10,8 @@ OPERATOR={'id':3,'role':'operator','group_id':1}
 
 @pytest.fixture
 def printers(review_db):
-    review_db.execute(text("INSERT INTO printers(id,name,api_type,org_id,is_active,camera_url) VALUES(61,'Foreign bambu','bambu',2,1,NULL),"
-                           "(62,'Foreign RTSP','moonraker',2,1,'rtsp://camera-user:owned-secret@192.0.2.9/stream')"))
+    review_db.execute(text("INSERT INTO printers(id,name,api_type,org_id,is_active,camera_enabled,camera_url) VALUES(61,'Foreign bambu','bambu',2,1,1,NULL),"
+                           "(62,'Foreign RTSP','moonraker',2,1,1,'rtsp://camera-user:owned-secret@192.0.2.9/stream')"))
     review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type,color_hex) VALUES(61,1,'PLA','FF0000')"))
     review_db.commit()
     return review_db
@@ -35,7 +35,8 @@ def test_foreign_printer_slots_are_not_readable_or_writable(printers):
 def test_overlay_never_exposes_stored_camera_url(printers):
     from modules.printers.routes_crud import get_overlay_data
     payload=get_overlay_data(printer_id=62,db=printers)
-    assert payload['camera_url']=='/api/cameras/62/stream'
+    # The token-guarded MJPEG relay (the former /cameras/{id}/stream target was auth-only JSON).
+    assert payload['camera_url']=='/api/overlay/62/camera'
     assert 'owned-secret' not in str(payload) and 'rtsp://' not in str(payload)
 
 

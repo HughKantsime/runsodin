@@ -4,7 +4,7 @@ modules/printers/schemas.py — Pydantic schemas for the printers domain.
 
 from datetime import datetime
 from typing import Optional, List
-from pydantic import AliasChoices, BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 
 from core.base import FilamentType
 
@@ -43,6 +43,17 @@ class FilamentSlotResponse(FilamentSlotBase):
     remaining: Optional[float] = None
     remaining_weight: Optional[float] = None  # grams left on the assigned spool
     material_type: Optional[str] = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def _slot_spool_grams(cls, data):
+        """From a FilamentSlot row: add the assigned spool's remaining grams."""
+        if isinstance(data, dict) or not hasattr(data, 'assigned_spool'):
+            return data
+        values = {name: getattr(data, name) for name in cls.model_fields if name != 'remaining_weight' and hasattr(data, name)}
+        spool = data.assigned_spool
+        values['remaining_weight'] = float(spool.remaining_weight_g) if spool is not None and spool.remaining_weight_g is not None else None
+        return values
 
 
 # ============== Printer Schemas ==============
@@ -128,10 +139,22 @@ class PrinterResponse(PrinterBase):
     has_api_key: bool = False  # Safe boolean — never exposes the actual credential
     # NULL is reported as disabled: go2rtc and /cameras only stream TRUE.
     camera_enabled: bool = True
-    # The camera actually streamed: the configured URL, or the one generated
-    # from the printer's credentials (Bambu X1C/X1E/H2D RTSPS). Always masked.
-    camera_url: Optional[str] = Field(default=None, validation_alias=AliasChoices("effective_camera_url", "camera_url"))
+    # camera_url is the camera actually streamed: the configured URL, or the one
+    # generated from the printer's credentials (Bambu X1C/X1E/H2D RTSPS). Always masked.
     camera_source: Optional[str] = None  # 'configured' | 'auto' | None
+
+    @model_validator(mode='before')
+    @classmethod
+    def _effective_camera(cls, data):
+        """From a Printer row: report the effective camera and where it comes from."""
+        if isinstance(data, dict) or not hasattr(data, 'api_type'):
+            return data
+        from modules.printers.route_utils import effective_camera_url
+        values = {name: getattr(data, name) for name in cls.model_fields if name != 'camera_source' and hasattr(data, name)}
+        url = effective_camera_url(data)
+        values['camera_url'] = url
+        values['camera_source'] = None if not url else ('configured' if data.camera_url else 'auto')
+        return values
 
     @field_validator('camera_enabled', mode='before')
     @classmethod
