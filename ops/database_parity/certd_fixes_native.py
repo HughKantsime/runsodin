@@ -88,7 +88,13 @@ listed = [j['id'] for j in client.get('/jobs', params={'status': 'pending'}).jso
 assert listed == [ids['A'], ids['C'], ids['B']], listed
 assert client.patch('/jobs/reorder', json={'job_ids': [ids['B'], ids['A'], ids['C']]}).status_code == 200
 listed = [j['id'] for j in client.get('/jobs', params={'status': 'pending'}).json()]
-assert listed == [ids['B'], ids['A'], ids['C']], listed
+# Priority first; drag position only orders within a priority.
+assert listed == [ids['A'], ids['C'], ids['B']], listed
+with engine.begin() as c:
+    c.execute(text("UPDATE jobs SET priority=3 WHERE id IN (:a,:b,:c)"), {'a': ids['A'], 'b': ids['B'], 'c': ids['C']})
+    c.execute(text("UPDATE jobs SET queue_position=NULL WHERE id=:c"), {'c': ids['C']})
+listed = [j['id'] for j in client.get('/jobs', params={'status': 'pending'}).json()]
+assert listed == [ids['B'], ids['A'], ids['C']], listed  # placed by position, unplaced C last (NULLs last on PG)
 from modules.jobs.scheduler import Scheduler, SchedulerConfig
 with engine.begin() as c:
     c.execute(text("UPDATE printers SET is_active=(id=9)"))
@@ -97,6 +103,10 @@ with Session(engine) as db:
     db.commit()
 starts = {k: one('SELECT scheduled_start FROM jobs WHERE id=:id', id=v)[0] for k, v in ids.items()}
 assert all(starts.values()) and starts['B'] < starts['A'] < starts['C'], starts
+# Terminal state clears queue_position.
+assert client.post(f"/jobs/{ids['B']}/start").status_code == 200
+assert client.post(f"/jobs/{ids['B']}/complete").status_code == 200
+assert one('SELECT queue_position FROM jobs WHERE id=:id', id=ids['B'])[0] is None
 print('postgres-named-priority-and-queue-order-pass', flush=True)
 
 # 3. Specific-printer pin through POST /jobs.
@@ -104,12 +114,32 @@ with engine.begin() as c:
     c.execute(text("UPDATE printers SET is_active=TRUE"))
     c.execute(text("UPDATE jobs SET status='completed' WHERE status IN ('pending','scheduled')"))
 pinned = client.post('/jobs', json={'item_name': 'PG pinned', 'duration_hours': 1, 'target_type': 'specific', 'printer_id': 12})
-assert pinned.status_code == 201 and pinned.json()['printer_id'] == 12, pinned.text
+assert pinned.status_code == 201 and pinned.json()['pinned_printer_id'] == 12, pinned.text
 with Session(engine) as db:
     Scheduler(SchedulerConfig(horizon_days=2)).run(db, start_date=datetime(2026, 10, 22, 12, tzinfo=timezone.utc))
     db.commit()
-assert tuple(one('SELECT status, printer_id FROM jobs WHERE id=:id', id=pinned.json()['id'])) == ('scheduled', 12)
+pid = pinned.json()['id']
+assert tuple(one('SELECT status, printer_id FROM jobs WHERE id=:id', id=pid)) == ('scheduled', 12)
+assert client.post(f'/jobs/{pid}/reset').status_code == 200          # reset keeps the pin
+assert tuple(one('SELECT status, printer_id, target_filter FROM jobs WHERE id=:id', id=pid)) == ('pending', None, '12')
+with engine.begin() as c:
+    c.execute(text("UPDATE printers SET is_active=FALSE WHERE id=12"))
+with Session(engine) as db:
+    Scheduler(SchedulerConfig(horizon_days=2)).run(db, start_date=datetime(2026, 10, 22, 12, tzinfo=timezone.utc))
+    db.commit()
+assert one('SELECT status FROM jobs WHERE id=:id', id=pid)[0] == 'pending'  # never placed elsewhere
+assert client.get(f'/jobs/{pid}').json()['pinned_printer_issue'] == 'pinned_printer_inactive'
+with engine.begin() as c:
+    c.execute(text("UPDATE printers SET is_active=TRUE WHERE id=12"))
 print('postgres-specific-printer-pin-pass', flush=True)
+
+# 3b. PATCH cannot move status (approval/lifecycle bypass).
+with engine.begin() as c:
+    cid = c.execute(text("INSERT INTO jobs(item_name,status,charged_to_org_id,quantity,priority,hold,is_locked) "
+                         "VALUES('PG patch','cancelled',1,1,3,FALSE,FALSE) RETURNING id")).scalar_one()
+assert client.patch(f'/jobs/{cid}', json={'status': 'completed'}).status_code == 422
+assert one('SELECT status FROM jobs WHERE id=:id', id=cid)[0] == 'cancelled'
+print('postgres-pin-and-patch-guard-pass', flush=True)
 
 # 4. Ship guard.
 with engine.begin() as c:
