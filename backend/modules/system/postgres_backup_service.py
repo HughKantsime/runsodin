@@ -1314,15 +1314,15 @@ def apply_pending_postgres_restore(
             )
         try:
             candidate = _inspect_compatible_archive(paths.pending,target_url,password_file,paths.backups)
+            if (
+                candidate["sha256"] != manifest.get("sha256")
+                or candidate["size_bytes"] != manifest.get("size_bytes")
+            ):
+                raise BackupValidationError(
+                    "Pending PostgreSQL restore does not match its manifest"
+                )
         except BaseException as error:
             raise _as_archive_refusal(error)
-        if (
-            candidate["sha256"] != manifest.get("sha256")
-            or candidate["size_bytes"] != manifest.get("size_bytes")
-        ):
-            raise BackupValidationError(
-                "Pending PostgreSQL restore does not match its manifest"
-            )
 
     target = make_url(target_url)
     maintenance = make_url(maintenance_url)

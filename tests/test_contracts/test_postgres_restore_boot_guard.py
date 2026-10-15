@@ -124,3 +124,12 @@ def test_entrypoint_runs_the_postgres_coordinator_as_the_app_user():
     branch = entrypoint[entrypoint.index("postgresql://*|postgres://*)\n            "):]
     branch = branch[:branch.index(";;")]
     assert re.search(r"/usr/sbin/runuser -u odin -- python3 -m modules\.system\.restore_coordinator", branch), branch
+
+
+def test_a_staged_archive_that_changed_is_an_archive_refusal(tmp_path, monkeypatch):
+    from modules.system import postgres_backup_service as b
+    paths = _stage(tmp_path)
+    monkeypatch.setattr(b, "_inspect_compatible_archive", lambda *a: {"sha256": "b" * 64, "size_bytes": 200})
+    with pytest.raises(b.ArchiveRefused, match="does not match its manifest"):
+        b.apply_pending_postgres_restore("postgresql://o@pg/odin", "postgresql://m@pg/postgres", acknowledgement="a" * 64,
+                                         password_file="/a", maintenance_password_file="/b", base_dir=tmp_path)
