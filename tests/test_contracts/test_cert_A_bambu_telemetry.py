@@ -337,3 +337,25 @@ def test_failed_ams_sync_keeps_report_and_retries_on_next_heartbeat(wire_monitor
     assert len(calls) == 2 and monitor._pending_ams_report is None
     review_db.expire_all()
     assert review_db.execute(text("SELECT COUNT(*) FROM filament_slots WHERE printer_id=301")).scalar_one() > 0
+
+
+def test_unplugged_ams_ht_unit_slot_is_cleared(wire_monitor, review_db):
+    import copy
+    monitor, sock, clock, events = wire_monitor
+    frames = frames_until("bambu-h2d-failure-arc", lambda p: isinstance(p.get("ams"), dict) and p["ams"].get("ams"))
+    replay(sock, clock, frames[:-1])
+    clock[0] = frames[-1][0] + 11
+    sock.deliver(frames[-1][1])
+    slot17 = lambda: review_db.execute(text(
+        "SELECT filament_type FROM filament_slots WHERE printer_id=301 AND slot_number=17")).scalar_one()
+    review_db.expire_all()
+    assert str(slot17()).split(".")[-1].upper() == "PLA_SUPPORT"  # AMS HT unit 128 tray
+    unplugged = copy.deepcopy(frames[-1][1])
+    unplugged["print"]["ams"]["ams"] = [u for u in unplugged["print"]["ams"]["ams"] if u["id"] != "128"]
+    clock[0] += 61
+    sock.deliver(unplugged)
+    review_db.expire_all()
+    assert str(slot17()).split(".")[-1].lower() == "empty"
+    # Four-tray units still reported keep their slots.
+    assert review_db.execute(text("SELECT COUNT(*) FROM filament_slots WHERE printer_id=301 AND slot_number<=8 "
+                                  "AND filament_type<>'empty'")).scalar_one() >= 7
