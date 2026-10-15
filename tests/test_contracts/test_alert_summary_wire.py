@@ -18,7 +18,8 @@ def test_alert_summary_counts_only_current_principal_active_categories(token_cli
 
     unread = client.get('/alerts/unread-count', headers={'Authorization':'Bearer '+create_access_token(data={'sub':'admin'})})
     assert unread.status_code == 200
-    assert unread.json() == {'unread_count':4}
+    # Consistent with the summary and the default alert list: the dismissed (unread) row is not counted.
+    assert unread.json() == {'unread_count':3}
 
 
 def test_analytics_producer_retains_zero_success_rate(token_client, review_db):

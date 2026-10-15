@@ -7,6 +7,7 @@ import { alerts as alertsApi, approveJob, rejectJob, fetchAPI, printers as print
 import { getCurrentUser } from '../../permissions'
 import { formatDate } from '../../utils/shared'
 import { PageHeader, Button, EmptyState } from '../../components/ui'
+import type { AlertListParams } from '../../types/notification'
 
 interface DigestStatusEntry {
   window_ended_at: string
@@ -70,6 +71,7 @@ const TABS = [
   { key: 'critical', label: 'Critical' },
   { key: 'warning', label: 'Warning' },
   { key: 'info', label: 'Info' },
+  { key: 'dismissed', label: 'Dismissed' },
 ]
 
 export default function Alerts() {
@@ -108,12 +110,15 @@ export default function Alerts() {
     try {
       setLoading(true)
       const newOffset = reset ? 0 : offset
-      const params = { limit: LIMIT, offset: newOffset }
+      const params: AlertListParams = { limit: LIMIT, offset: newOffset }
 
+      // The server hides dismissed alerts by default; the Dismissed tab lists only them.
       if (activeTab === 'unread') {
         params.is_read = false
+      } else if (activeTab === 'dismissed') {
+        params.is_dismissed = true
       } else if (['critical', 'warning', 'info'].includes(activeTab)) {
-        params.severity = activeTab
+        params.severity = activeTab as AlertListParams['severity']
       }
 
       const response = await alertsApi.list(params)
@@ -161,6 +166,7 @@ export default function Alerts() {
       if (receipt?.status !== 'ok' || receipt.alert_id !== alertId) throw new Error('Deletion was not confirmed')
       deletedIds.current.add(alertId)
       setAlerts(prev => prev.filter(alert => alert.id !== alertId))
+      setOffset(prev => Math.max(0, prev - 1))
       window.dispatchEvent(new Event('odin:alerts-changed'))
     } catch {
       toast.error('Failed to delete alert')
@@ -174,6 +180,9 @@ export default function Alerts() {
     try {
       await alertsApi.dismiss(alertId)
       setAlerts(prev => prev.filter(a => a.id !== alertId))
+      // The server no longer lists it: keep the next page's offset aligned.
+      setOffset(prev => Math.max(0, prev - 1))
+      window.dispatchEvent(new Event('odin:alerts-changed'))
     } catch (err: any) {
       toast.error('Failed to dismiss alert')
     }
@@ -397,13 +406,15 @@ export default function Alerts() {
                           <Trash2 size={14} />
                         </button>
                       )}
-                      <button
-                        onClick={() => handleDismiss(alert.id)}
-                        className="p-1.5 rounded-md transition-colors hover:bg-red-900/50 text-[var(--brand-text-muted)] hover:text-red-400"
-                        title="Dismiss"
-                      >
-                        <X size={14} />
-                      </button>
+                      {!alert.is_dismissed && (
+                        <button
+                          onClick={() => handleDismiss(alert.id)}
+                          className="p-1.5 rounded-md transition-colors hover:bg-red-900/50 text-[var(--brand-text-muted)] hover:text-red-400"
+                          title="Dismiss"
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>

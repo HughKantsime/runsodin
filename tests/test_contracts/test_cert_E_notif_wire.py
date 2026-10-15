@@ -109,11 +109,24 @@ def test_capture_alerts_wire_from_real_http(wire_app, notif_env):
     assert deleted.status_code == 200
     exchanges['DELETE ' + delete_path] = deleted.json()
     counts.append(client.get('/alerts/unread-count').json())
-    assert counts == [{'unread_count': 3}, {'unread_count': 2}, {'unread_count': 1}]
+    # Dismiss the maintenance alert: hidden from the default list (also after reload), listed by
+    # the Dismissed filter and include_dismissed, and no longer counted as unread.
+    dismiss_path = f"/alerts/{ids['maintenance_overdue']}/dismiss"
+    dismissed = client.patch(dismiss_path)
+    assert dismissed.status_code == 200
+    exchanges['PATCH ' + dismiss_path] = dismissed.json()
+    exchanges['GET /alerts?limit=25 (after dismiss)'] = client.get('/alerts?limit=25').json()
+    exchanges['GET /alerts?is_dismissed=true&limit=25'] = client.get('/alerts?is_dismissed=true&limit=25').json()
+    exchanges['GET /alerts?include_dismissed=true&limit=25'] = client.get('/alerts?include_dismissed=true&limit=25').json()
+    assert [a['id'] for a in exchanges['GET /alerts?limit=25 (after dismiss)']] == [ids['print_failed']]
+    assert [a['id'] for a in exchanges['GET /alerts?is_dismissed=true&limit=25']] == [ids['maintenance_overdue']]
+    assert [a['id'] for a in exchanges['GET /alerts?include_dismissed=true&limit=25']] == [ids['print_failed'], ids['maintenance_overdue']]
+    counts.append(client.get('/alerts/unread-count').json())
+    assert counts == [{'unread_count': 3}, {'unread_count': 2}, {'unread_count': 1}, {'unread_count': 0}]
     assert notif_env.execute(text('SELECT count(*) FROM alerts WHERE id=:i'), {'i': ids['print_complete']}).scalar_one() == 0
     write_or_compare('cert-E-notif-alerts.json', {
         'scope': 'Real alerts router; alerts produced by the production ORM dispatcher for user 3 (admin, org 1); '
-                 'timestamps pinned; unread counts captured before, after mark-read and after delete',
+                 'timestamps pinned; unread counts captured before, after mark-read, after delete and after dismiss',
         'ids': ids, 'exchanges': exchanges, 'unread_counts': counts})
 
 
@@ -153,3 +166,29 @@ def test_capture_webhook_and_smtp_admin_wire(wire_app, notif_env):
     write_or_compare('cert-E-notif-admin.json', {
         'scope': 'Real webhooks and SMTP routers as system admin',
         'webhooks': hooks, 'smtp_config': client.get('/smtp-config').json()})
+
+
+def test_dismissed_alerts_are_excluded_before_paging(wire_app, notif_env):
+    """25-per-page paging with dismissed rows interleaved: every page holds visible alerts only,
+    pages do not overlap, and unread count / summary agree with the default list."""
+    client, _ = wire_app
+    for n in range(32):
+        notif_env.execute(text(
+            "INSERT INTO alerts(user_id,alert_type,severity,title,message,is_read,is_dismissed,created_at) "
+            "VALUES(3,'print_failed','critical',:t,'m',0,:d,:c)"),
+            {"t": f"Synthetic paged {n:02d}", "d": 1 if n % 8 == 3 else 0, "c": f"2026-10-14 09:{n:02d}:00"})
+    notif_env.commit()
+    visible = [f"Synthetic paged {n:02d}" for n in reversed(range(32)) if n % 8 != 3]
+    assert len(visible) == 28
+    first = client.get('/alerts?limit=25').json()
+    second = client.get('/alerts?limit=25&offset=25').json()
+    assert [a['title'] for a in first] == visible[:25]
+    assert [a['title'] for a in second] == visible[25:]
+    assert not any(a['is_dismissed'] for a in first + second)
+    everything = client.get('/alerts?include_dismissed=true&limit=25').json() + \
+        client.get('/alerts?include_dismissed=true&limit=25&offset=25').json()
+    assert len(everything) == 32 and sum(a['is_dismissed'] for a in everything) == 4
+    assert len(client.get('/alerts?is_dismissed=true&limit=25').json()) == 4
+    assert len(client.get('/alerts?is_dismissed=false&limit=50').json()) == 28
+    assert client.get('/alerts/unread-count').json() == {'unread_count': 28}
+    assert client.get('/alerts/summary').json()['print_failed'] == 28

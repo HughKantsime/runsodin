@@ -16,6 +16,8 @@ export const alerts = {
     if (params.severity) query.set('severity', params.severity);
     if (params.alert_type) query.set('alert_type', params.alert_type);
     if (params.is_read !== undefined) query.set('is_read', String(params.is_read));
+    if (params.is_dismissed !== undefined) query.set('is_dismissed', String(params.is_dismissed));
+    if (params.include_dismissed) query.set('include_dismissed', 'true');
     if (params.limit) query.set('limit', String(params.limit));
     if (params.offset) query.set('offset', String(params.offset));
     const qs = query.toString();

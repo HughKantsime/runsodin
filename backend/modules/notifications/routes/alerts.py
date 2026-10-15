@@ -106,6 +106,8 @@ async def list_alerts(
     severity: Optional[str] = None,
     alert_type: Optional[str] = None,
     is_read: Optional[bool] = None,
+    is_dismissed: Optional[bool] = None,
+    include_dismissed: bool = False,
     limit: int = 25,
     offset: int = 0,
     # Stacked auth (Phase 2 canonical read shape). Replaces the ad-hoc
@@ -131,8 +133,14 @@ async def list_alerts(
         query = query.filter(Alert.alert_type == alert_type)
     if is_read is not None:
         query = query.filter(Alert.is_read == is_read)
+    # Dismissed alerts are hidden by default (filtered before paging, so a page
+    # is always `limit` visible alerts); include_dismissed=true keeps them.
+    if is_dismissed is not None:
+        query = query.filter(Alert.is_dismissed.is_(True) if is_dismissed else Alert.is_dismissed.is_not(True))
+    elif not include_dismissed:
+        query = query.filter(Alert.is_dismissed.is_not(True))
 
-    alerts = query.order_by(Alert.created_at.desc()).offset(offset).limit(limit).all()
+    alerts = query.order_by(Alert.created_at.desc(), Alert.id.desc()).offset(offset).limit(limit).all()
 
     results = []
     for alert in alerts:
@@ -158,7 +166,8 @@ async def get_unread_count(
         raise HTTPException(status_code=401, detail="Not authenticated")
     count = db.query(Alert).filter(
         Alert.user_id == current_user["id"],
-        Alert.is_read == False
+        Alert.is_read == False,
+        Alert.is_dismissed.is_not(True),
     ).count()
     return {"unread_count": count}
 
@@ -175,7 +184,7 @@ async def get_alert_summary(
     uid = current_user["id"]
     base = db.query(Alert).filter(
         Alert.user_id == uid,
-        Alert.is_dismissed == False,
+        Alert.is_dismissed.is_not(True),
         Alert.is_read == False
     )
 

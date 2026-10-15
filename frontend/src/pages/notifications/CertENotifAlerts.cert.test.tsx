@@ -13,18 +13,21 @@ vi.mock('../../permissions', async (importOriginal) => ({ ...(await importOrigin
 type Call = { method: string; path: string }
 let calls: Call[] = []
 let afterRead = false
+let afterDismiss = false
 const exchanges = fixture.exchanges as Record<string, any>
 const TITLES = ['Print Failed: Synthetic hinge', 'Maintenance Due: P1S-10', 'Print Complete: Synthetic bracket']
 
 function installWire() {
-  calls = []; afterRead = false
+  calls = []; afterRead = false; afterDismiss = false
   globalThis.fetch = vi.fn(async (input: any, init: any = {}) => {
     const method = (init.method || 'GET').toUpperCase()
     const path = String(input).replace(/^\/api/, '')
     calls.push({ method, path })
     let key = `${method} ${path}`
     if (afterRead && key === 'GET /alerts?is_read=false&limit=25') key += ' (after read)'
+    if (afterDismiss && key === 'GET /alerts?limit=25') key += ' (after dismiss)'
     if (method === 'PATCH' && path.endsWith('/read')) afterRead = true
+    if (method === 'PATCH' && path.endsWith('/dismiss')) afterDismiss = true
     const body = exchanges[key]
     return new Response(JSON.stringify(body ?? { detail: `unmapped ${key}` }), { status: body === undefined ? 500 : 200, headers: { 'Content-Type': 'application/json' } })
   }) as any
@@ -97,4 +100,27 @@ test('CertENotif: viewer gets no delete action on real alerts', async () => {
   await screen.findByText(TITLES[0])
   expect(screen.queryAllByRole('button', { name: 'Delete alert' })).toHaveLength(0)
   expect(screen.getAllByRole('button', { name: 'Mark read' })).toHaveLength(3)
+})
+
+test('CertENotif: a dismissed alert stays gone after reload and is listed under the Dismissed tab', async () => {
+  const changed = vi.fn(); window.addEventListener('odin:alerts-changed', changed)
+  try {
+    show()
+    const title = await screen.findByText(TITLES[1])
+    const card = title.closest('.rounded-md.border') as HTMLElement
+    fireEvent.click(within(card).getByRole('button', { name: 'Dismiss' }))
+    await waitFor(() => expect(calls).toContainEqual({ method: 'PATCH', path: `/alerts/${fixture.ids.maintenance_overdue}/dismiss` }))
+    await waitFor(() => expect(screen.queryByText(TITLES[1])).toBeNull())
+    expect(changed).toHaveBeenCalledTimes(1)
+  } finally { window.removeEventListener('odin:alerts-changed', changed) }
+  // Reload: the server's default list (captured after the dismiss) no longer contains it.
+  cleanup(); show()
+  await screen.findByText(TITLES[0])
+  expect(calls[calls.length - 1]).toEqual({ method: 'GET', path: '/alerts?limit=25' })
+  expect(screen.queryByText(TITLES[1])).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Dismissed' }))
+  await waitFor(() => expect(calls[calls.length - 1]).toEqual({ method: 'GET', path: '/alerts?is_dismissed=true&limit=25' }))
+  const dismissedTitle = await screen.findByText(TITLES[1])
+  const dismissedCard = dismissedTitle.closest('.rounded-md.border') as HTMLElement
+  expect(within(dismissedCard).queryByRole('button', { name: 'Dismiss' })).toBeNull()
 })
