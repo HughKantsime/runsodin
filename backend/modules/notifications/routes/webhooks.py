@@ -42,6 +42,31 @@ def _encrypt_webhook_url(url: str) -> str:
     return crypto.encrypt(url)
 
 
+import re as _re
+
+# Fixed-provider channels store credentials, not URLs (the API host is
+# hardcoded in the dispatcher), in the documented pipe-separated formats.
+_CREDENTIAL_FORMATS = {
+    "telegram": (_re.compile(r"^[A-Za-z0-9:_-]+\|(-?\d+|@[A-Za-z0-9_]{4,})$"),
+                 "Telegram credentials must be bot_token|chat_id"),
+    "whatsapp": (_re.compile(r"^\d+\|\+?\d{6,15}\|[^|\s]+$"),
+                 "WhatsApp credentials must be phone_number_id|recipient_phone|access_token"),
+    "pushover": (_re.compile(r"^[A-Za-z0-9_-]+\|[A-Za-z0-9_-]+$"),
+                 "Pushover credentials must be user_key|api_token"),
+}
+
+
+def _validate_webhook_destination(url: str, webhook_type: str) -> None:
+    """URL types get SSRF validation; fixed-provider types get credential-format validation."""
+    fmt = _CREDENTIAL_FORMATS.get((webhook_type or "").lower())
+    if fmt is None:
+        _validate_webhook_url(url)
+        return
+    pattern, message = fmt
+    if not isinstance(url, str) or not pattern.fullmatch(url.strip()):
+        raise HTTPException(status_code=400, detail=message)
+
+
 # ============== Webhooks ==============
 
 @router.get("")
@@ -80,8 +105,8 @@ async def create_webhook(
     if not url:
         raise HTTPException(status_code=400, detail="URL is required")
 
-    _validate_webhook_url(url)
-    url = _encrypt_webhook_url(url)
+    _validate_webhook_destination(url, webhook_type)
+    url = _encrypt_webhook_url(url.strip() if webhook_type in _CREDENTIAL_FORMATS else url)
 
     insert_sql = """
         INSERT INTO webhooks (name, url, webhook_type, alert_types)
@@ -116,8 +141,14 @@ async def update_webhook(
     updates = []
     params = {"id": webhook_id}
 
-    if "url" in data and data["url"]:
-        _validate_webhook_url(data["url"])
+    if ("url" in data and data["url"]) or "webhook_type" in data:
+        current = db.execute(text("SELECT url, webhook_type FROM webhooks WHERE id = :id"),
+                             {"id": webhook_id}).fetchone()
+        if current is None:
+            raise HTTPException(status_code=404, detail="Webhook not found")
+        target_type = data.get("webhook_type", current.webhook_type)
+        target_url = data["url"] if data.get("url") else _decrypt_webhook_url(current.url)
+        _validate_webhook_destination(target_url, target_type)
 
     for field in ["name", "url", "webhook_type", "is_enabled", "alert_types"]:
         if field in data:

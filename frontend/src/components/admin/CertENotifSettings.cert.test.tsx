@@ -75,9 +75,8 @@ test('CertENotif: Add Webhook creates a Discord webhook via POST /webhooks', asy
   expect(calls.find(c => c.method === 'POST')!.body).toMatchObject({ url: 'https://discord.cert-e.test/api/webhooks/2/y', webhook_type: 'discord' })
 })
 
-// DEFECT: frontend/src/components/admin/WebhookSettings.tsx:18-24 event ids are uppercase ('PRINT_FAILED', 'HMS_ERROR');
-// backend/modules/notifications/event_selection.py:31 matches dispatched lowercase types case-sensitively.
-test.fails('CertENotif: selecting "Print Failed" submits the canonical dispatched event id', async () => {
+// Fixed (was: uppercase event ids that the case-sensitive backend selection never matched).
+test('CertENotif: selecting "Print Failed" submits the canonical dispatched event id', async () => {
   webhookWire()
   render(<WebhookSettings />)
   fireEvent.click(await screen.findByRole('button', { name: /Add Webhook/ }))
@@ -88,14 +87,31 @@ test.fails('CertENotif: selecting "Print Failed" submits the canonical dispatche
   expect(calls.find(c => c.method === 'POST')!.body.alert_types).toEqual(['print_failed'])
 })
 
-// DEFECT: frontend/src/components/admin/WebhookSettings.tsx:162-163 offers only Discord and Slack, although the
-// panel advertises "Discord, Slack, ntfy, or Telegram" and the backend dispatches ntfy/telegram/pushover/whatsapp.
-test.fails('CertENotif: webhook type selector offers every advertised channel', async () => {
+// Fixed (was: the selector offered only Discord and Slack).
+test('CertENotif: webhook type selector offers every advertised channel', async () => {
   webhookWire()
   render(<WebhookSettings />)
   fireEvent.click(await screen.findByRole('button', { name: /Add Webhook/ }))
   const options = within(screen.getAllByRole('combobox')[0]).getAllByRole('option').map(o => (o as HTMLOptionElement).value)
   expect(options).toEqual(expect.arrayContaining(['discord', 'slack', 'ntfy', 'telegram', 'pushover', 'whatsapp']))
+})
+
+test('CertENotif: no selected event submits no selection (receive all alerts)', async () => {
+  webhookWire()
+  render(<WebhookSettings />)
+  fireEvent.click(await screen.findByRole('button', { name: /Add Webhook/ }))
+  fireEvent.change(screen.getByPlaceholderText('https://discord.com/api/webhooks/...'), { target: { value: 'https://discord.cert-e.test/all' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Create Webhook' }))
+  await waitFor(() => expect(calls.find(c => c.method === 'POST')).toBeTruthy())
+  expect(calls.find(c => c.method === 'POST')!.body.alert_types).toBeNull()
+})
+
+test('CertENotif: Pushover option shows the credential format', async () => {
+  webhookWire()
+  render(<WebhookSettings />)
+  fireEvent.click(await screen.findByRole('button', { name: /Add Webhook/ }))
+  fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'pushover' } })
+  expect(screen.getByPlaceholderText('user_key|api_token')).toBeInTheDocument()
 })
 
 // ---------------- SMTP UI ----------------

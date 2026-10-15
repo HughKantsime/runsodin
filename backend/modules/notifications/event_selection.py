@@ -28,7 +28,12 @@ def selects_event(value, event):
         selection = parse_event_selection(value)
     except ValueError:
         return False
-    return selection is None or event in selection or "all" in selection
+    if selection is None:
+        return True
+    # Event ids are matched case-insensitively: dispatched types are lowercase
+    # (AlertType values) and older Settings UI builds stored uppercase ids.
+    wanted = {item.strip().lower() for item in selection}
+    return "all" in wanted or (isinstance(event, str) and event.lower() in wanted)
 
 
 def serialize_event_selection(value):

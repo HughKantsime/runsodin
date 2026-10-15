@@ -342,26 +342,21 @@ def test_discord_test_fire_reaches_receiver(admin_api, notif_env, receiver, synt
     assert json.loads(request['body'])['embeds'][0]['description'] == 'Webhook connection successful!'
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    'DEFECT: frontend/src/components/admin/WebhookSettings.tsx:18-24 submits uppercase event ids '
-    "(e.g. 'PRINT_FAILED', 'HMS_ERROR') but backend/modules/notifications/event_selection.py:31 matches "
-    "case-sensitively against dispatched lowercase types ('print_failed'); a hook configured from the "
-    'Settings UI never fires for the events it selected'))
-def test_ui_shaped_event_selection_fires_for_selected_event(admin_api, notif_env, receiver, synthetic_dns):
-    # Exactly the body WebhookSettings.createWebhook sends after clicking "Print Failed".
+@pytest.mark.parametrize('selected', [['print_failed'], ['PRINT_FAILED']])
+def test_ui_shaped_event_selection_fires_for_selected_event(admin_api, notif_env, receiver, synthetic_dns, selected):
+    # The body WebhookSettings.createWebhook sends after clicking "Print Failed" (canonical id), and the
+    # uppercase id older UI builds stored: both select the dispatched lowercase type.
     assert admin_api.post('/webhooks', json={'name': 'UI hook', 'url': f'{synthetic_dns}/ui',
-                                             'webhook_type': 'discord', 'alert_types': ['PRINT_FAILED']}).status_code == 200
+                                             'webhook_type': 'discord', 'alert_types': selected}).status_code == 200
     dispatch('daemon', 'print_failed', 'critical', 'Synthetic failure', 'Synthetic details', notif_env)
     receiver.wait(1, timeout=3)
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    'DEFECT: frontend/src/components/admin/WebhookSettings.tsx:211 tells admins "Leave empty to receive all '
-    'alerts" and submits alert_types=[]; backend/modules/notifications/event_selection.py:31 treats an '
-    'explicit empty list as selecting nothing, so the hook never fires'))
 def test_ui_empty_selection_receives_all_alerts(admin_api, notif_env, receiver, synthetic_dns):
+    # "Leave empty to receive all alerts": the UI submits no selection (null) when nothing is
+    # selected (CertENotifSettings.cert.test.tsx); an explicit [] still selects nothing.
     assert admin_api.post('/webhooks', json={'name': 'UI hook', 'url': f'{synthetic_dns}/all',
-                                             'webhook_type': 'slack', 'alert_types': []}).status_code == 200
+                                             'webhook_type': 'slack', 'alert_types': None}).status_code == 200
     dispatch('daemon', 'print_failed', 'critical', 'Synthetic failure', 'Synthetic details', notif_env)
     receiver.wait(1, timeout=3)
 
@@ -439,11 +434,6 @@ def test_unselected_fixed_provider_hooks_send_nothing(notif_env, provider, kind)
     assert len(provider.requests) == 1
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    'DEFECT: backend/modules/notifications/routes/webhooks.py:83 runs _validate_webhook_url() '
-    '(backend/core/webhook_utils.py:84) on every webhook URL; the documented credential formats '
-    "'bot_token|chat_id', 'phone_number_id|recipient|token' and 'user_key|api_token' have no http(s) "
-    'scheme, so Telegram, WhatsApp and Pushover channels cannot be created through the API (400)'))
 @pytest.mark.parametrize('kind,address', [
     ('telegram', '123456789:SyntheticBotToken|-100123'),
     ('whatsapp', '1098765|15550001111|synthetic-bearer'),
@@ -453,6 +443,29 @@ def test_fixed_provider_channel_can_be_configured_via_api(admin_api, notif_env, 
     response = admin_api.post('/webhooks', json={'name': f'Synthetic {kind}', 'url': address,
                                                  'webhook_type': kind, 'alert_types': ['print_failed']})
     assert response.status_code == 200, response.text
+
+
+@pytest.mark.parametrize('kind,address', [
+    ('telegram', 'https://api.telegram.org/botX'), ('telegram', 'token-without-chat'),
+    ('whatsapp', '1098765|15550001111'), ('pushover', 'only-user-key'), ('pushover', 'a|b|c'),
+])
+def test_fixed_provider_channel_rejects_malformed_credentials(admin_api, kind, address):
+    response = admin_api.post('/webhooks', json={'name': 'Bad', 'url': address, 'webhook_type': kind})
+    assert response.status_code == 400
+
+
+def test_api_configured_telegram_channel_delivers(admin_api, notif_env, provider):
+    """End to end: created through the API (encrypted), then a dispatched alert reaches the Bot API."""
+    assert admin_api.post('/webhooks', json={'name': 'TG', 'url': '123456789:SyntheticBotToken|-100123',
+                                             'webhook_type': 'telegram', 'alert_types': ['print_failed']}).status_code == 200
+    stored = notif_env.execute(text("SELECT url FROM webhooks WHERE webhook_type='telegram'")).scalar_one()
+    assert stored.startswith('gAAAA')
+    dispatch('daemon', 'print_failed', 'warning', 'Synthetic title', 'Synthetic details', notif_env)
+    request, = provider.wait(1)
+    assert str(request.url) == 'https://api.telegram.org/bot123456789:SyntheticBotToken/sendMessage'
+    # Changing a URL-type hook to a fixed provider re-validates the stored destination.
+    hook_id = notif_env.execute(text("SELECT id FROM webhooks WHERE webhook_type='telegram'")).scalar_one()
+    assert admin_api.patch(f'/webhooks/{hook_id}', json={'webhook_type': 'pushover'}).status_code == 400
 
 
 # --------------------------------------------------------------------------
