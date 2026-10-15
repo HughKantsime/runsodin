@@ -6,7 +6,7 @@ from core.registry import registry
 from core.interfaces.education_policy import generic_archive_audience_sql
 
 _PROJECTION = """(SELECT operation_id,timelapse_id,printer_id,scheduled_job_id AS job_id,
-    filename,owner_state,owner_org_id AS org_id,print_file_id,education_submission_id
+    filename,owner_state,owner_org_id AS org_id,print_file_id,education_submission_id,created_at
     FROM timelapse_ownership_anchors) a"""
 _TUPLE = """a.operation_id=timelapses.ownership_operation_id
     AND a.timelapse_id=timelapses.id AND a.printer_id=timelapses.printer_id
@@ -26,7 +26,8 @@ def immutable_timelapse_policy(principal,*,mutation=False):
         provider=registry.get_provider('EducationPolicyProvider')
         audience=getattr(provider,'archive_audience_sql',None)
         education=audience() if callable(audience) else generic_archive_audience_sql()
-        policy="((a.owner_state='known' AND a.org_id=:_arc_org) OR a.owner_state='shared') AND ("+education+")"
+        from core.tenancy_mode import SHARED_CAPTURE_AUDIENCE_SQL
+        policy="((a.owner_state='known' AND a.org_id=:_arc_org) OR (a.owner_state='shared' AND "+SHARED_CAPTURE_AUDIENCE_SQL+")) AND ("+education+")"
         parameters={'_arc_org':org,'_arc_user':principal.get('id'),'_arc_admin':1 if principal.get('role')=='admin' else 0}
     return policy,parameters
 

@@ -37,24 +37,47 @@ def test_multi_tenant_org_less_unshared_capture_stays_unresolved(review_db, capt
     assert _anchor(review_db, tid) == ("unresolved", None, None, 0, "capture_unresolved")
 
 
-def test_single_tenant_capture_resolves_to_the_install(review_db, capture):
+def _visible(db, principal):
+    from core.timelapse_access import timelapse_visibility
+    condition, params = timelapse_visibility(principal)
+    return db.execute(text("SELECT id FROM timelapses WHERE " + condition), params).scalars().all()
+
+
+def test_single_tenant_capture_is_owned_by_the_install_only_while_no_organization_exists(review_db, capture):
     no_organizations(review_db)
     ticket = capture.get_or_create_timelapse(review_db, 31, 431, return_ticket=True)
+    # 'shared' at capture (the printer was install-wide; the pinned publication contract
+    # admits only known/shared), but the audience is re-decided at every read.
     assert _anchor(review_db, ticket.timelapse_id) == ("shared", None, None, 1, "first_capture_job_file")
-    # Every role of the install sees the recording; content admission is unchanged.
-    from core.timelapse_access import timelapse_visibility
-    for principal in ({"id": 1, "role": "viewer", "group_id": None}, {"id": 2, "role": "operator", "group_id": 1}):
-        condition, params = timelapse_visibility(principal)
-        assert review_db.execute(text("SELECT id FROM timelapses WHERE " + condition), params).scalars().all() == [ticket.timelapse_id]
-    # Per-frame authority admits the capture, and refuses it once an organization exists.
+    viewer = {"id": 1, "role": "viewer", "group_id": 1}
+    foreign = {"id": 4, "role": "viewer", "group_id": 2}
+    assert _visible(review_db, viewer) == [ticket.timelapse_id] == _visible(review_db, foreign)
+    # Frames are admitted while the install is single-tenant...
     from modules.archives.timelapse_frame_capture import _capture_authority
     _capture_authority(review_db, nonce=ticket.nonce, timelapse_id=ticket.timelapse_id, printer_id=31, job_id=431)
     review_db.rollback()
-    review_db.execute(text("UPDATE groups SET is_org=1 WHERE id=1"))
+    # ...and once organizations exist (created after the capture), the recording is
+    # admin-only and capture stops.
+    review_db.execute(text("UPDATE groups SET is_org=1,created_at=datetime('now','+1 minute')"))
     review_db.commit()
+    assert _visible(review_db, foreign) == [] and _visible(review_db, viewer) == []
+    assert _visible(review_db, {"id": 3, "role": "admin", "group_id": None}) == [ticket.timelapse_id]
     with pytest.raises(ValueError, match="Capture authority changed"):
         _capture_authority(review_db, nonce=ticket.nonce, timelapse_id=ticket.timelapse_id, printer_id=31, job_id=431)
     review_db.rollback()
+
+
+def test_capture_of_an_explicitly_shared_printer_keeps_its_audience(review_db, capture):
+    review_db.execute(text("UPDATE printers SET shared=1 WHERE id=31"))
+    review_db.execute(text("UPDATE groups SET created_at=datetime('now','-1 day')"))
+    review_db.commit()
+    tid = capture.get_or_create_timelapse(review_db, 31, 431)  # multi-org install, explicitly shared printer
+    foreign = {"id": 4, "role": "viewer", "group_id": 2}
+    assert _visible(review_db, foreign) == [tid]
+    # Captured while organizations existed: the capture-time sharing is immutable.
+    review_db.execute(text("UPDATE printers SET shared=0,org_id=1 WHERE id=31"))
+    review_db.commit()
+    assert _visible(review_db, foreign) == [tid]
 
 
 def test_single_tenant_rule_never_widens_an_org_printer(review_db, capture):
