@@ -52,8 +52,12 @@ def capture(tmp: Path) -> dict:
         put = o.put(f"/api/admin/quotas/{op_id}", json={"quota_jobs": 9, "quota_period": "daily"}, headers=ah)
         wire["admin_quota_put"] = {"status": put.status_code, "body": put.json()}
         wire["admin_quotas_after_put"] = o.get("/api/admin/quotas", headers=ah).json()
-        # IP allowlist (caller 127.0.0.1 -> lock-out protection appends 127.0.0.1/32)
+        # IP allowlist. A remote caller the list does not cover is refused with its address
+        # (never auto-added); loopback is always admitted and nothing is added for it.
         wire["allowlist_default"] = o.get("/api/config/ip-allowlist", headers=ah).json()
+        lock = o.put("/api/config/ip-allowlist", json={"enabled": True, "cidrs": ["10.20.0.0/16"], "mode": "api_and_ui"},
+                     headers={**ah, "X-Forwarded-For": "198.51.100.23"})
+        wire["allowlist_put_lockout"] = {"status": lock.status_code, "body": lock.json()}
         put = o.put("/api/config/ip-allowlist", json={"enabled": True, "cidrs": ["10.20.0.0/16"], "mode": "api_and_ui"}, headers=ah)
         wire["allowlist_put"] = {"status": put.status_code, "body": put.json()}
         bad = o.put("/api/config/ip-allowlist", json={"enabled": True, "cidrs": ["10.20.0.0/33"], "mode": "api_and_ui"}, headers=ah)
@@ -68,7 +72,9 @@ def test_capture(tmp_path):
     assert wire["roles"]["admin"]["permissions"]["page_access"]["settings"] == ["admin"]
     # The /audit RoleGate looks up the "audit" page key (F12-12.1-06 fixed: the RBAC map now defines it).
     assert wire["roles"]["admin"]["permissions"]["page_access"]["audit"] == ["admin"]
-    assert wire["allowlist_put"]["body"]["cidrs"] == ["10.20.0.0/16", "127.0.0.1/32"]
+    assert wire["allowlist_put"]["body"]["cidrs"] == ["10.20.0.0/16"]
+    assert wire["allowlist_put_lockout"]["status"] == 400
+    assert "198.51.100.23" in wire["allowlist_put_lockout"]["body"]["detail"]
     assert wire["allowlist_put_invalid"]["status"] == 400
     OUT.write_text(json.dumps(wire, indent=1, sort_keys=True))
 

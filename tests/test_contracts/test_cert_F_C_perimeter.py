@@ -64,24 +64,30 @@ def test_allowlist_disabled_by_default_allows_any_ip(odin):
     assert odin.get("/api/printers", headers=at("10.99.0.1", odin.ah)).status_code == 200
 
 
-def test_lockout_protection_appends_callers_exact_address(odin):
+def test_lockout_check_refuses_list_that_excludes_the_caller(odin):
     r = put_allowlist(odin, {"enabled": True, "cidrs": ["10.20.0.0/16", "2001:db8::/32"]}, ip="10.30.0.9")
-    assert r.status_code == 200, r.text
-    assert r.json()["cidrs"] == ["10.20.0.0/16", "2001:db8::/32", "10.30.0.9/32"]
-    # the saving administrator is not locked out of the API
-    assert odin.get("/api/config/ip-allowlist", headers=at("10.30.0.9", odin.ah)).json()["cidrs"][-1] == "10.30.0.9/32"
+    assert r.status_code == 400, r.text
+    assert "This server sees your address as 10.30.0.9" in r.json()["detail"]
+    assert odin.get("/api/config/ip-allowlist", headers=at("10.30.0.9", odin.ah)).json()["enabled"] is False
+
+
+def test_lockout_check_accepts_explicitly_covered_caller_unchanged(odin):
+    r = put_allowlist(odin, {"enabled": True, "cidrs": ["10.20.0.0/16", "2001:db8::/32", "10.30.0.9/32"]}, ip="10.30.0.9")
+    assert r.status_code == 200 and r.json()["cidrs"] == ["10.20.0.0/16", "2001:db8::/32", "10.30.0.9/32"]
     assert odin.get("/api/printers", headers=at("10.30.0.9", odin.ah)).status_code == 200
 
 
-def test_lockout_protection_does_not_duplicate_already_covered_caller(odin):
+def test_lockout_check_does_not_duplicate_already_covered_caller(odin):
     r = put_allowlist(odin, {"enabled": True, "cidrs": ["10.20.0.0/16", "2001:db8::/32", "10.30.0.0/24"]}, ip="10.30.0.9")
     assert r.json()["cidrs"] == ["10.20.0.0/16", "2001:db8::/32", "10.30.0.0/24"]
 
 
-def test_lockout_protection_ipv6_caller_gets_128(odin):
+def test_lockout_check_ipv6_caller(odin):
     r = put_allowlist(odin, {"enabled": True, "cidrs": ["10.20.0.0/16", "10.30.0.0/24"]}, ip="2001:db9::7")
     assert r.status_code == 403  # caller not currently allowed -> middleware refuses before the handler
     r = put_allowlist(odin, {"enabled": True, "cidrs": ["10.20.0.0/16", "10.30.0.0/24"]}, ip="2001:db8::7")
+    assert r.status_code == 400 and "2001:db8::7" in r.json()["detail"]
+    r = put_allowlist(odin, {"enabled": True, "cidrs": ["10.20.0.0/16", "10.30.0.0/24", "2001:db8::7/128"]}, ip="2001:db8::7")
     assert r.status_code == 200 and r.json()["cidrs"] == ["10.20.0.0/16", "10.30.0.0/24", "2001:db8::7/128"]
 
 

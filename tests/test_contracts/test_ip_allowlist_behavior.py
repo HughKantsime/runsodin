@@ -38,21 +38,31 @@ def allowlist_app(review_db,monkeypatch):
     ('2001:db8:abcd::1','2001:db8:feed::/64','2001:db8:9999::20','2001:db8:abcd::1/128'),
     ('::ffff:192.0.2.7','198.51.100.0/24','::ffff:192.0.2.8','::ffff:c000:207/128'),
 ])
-def test_lockout_protection_adds_only_current_host(allowlist_app,caller,allowed,outsider,host_cidr):
+def test_enabling_without_covering_caller_is_refused_with_the_seen_address(allowlist_app,review_db,caller,allowed,outsider,host_cidr):
+    # The caller's address is never added silently (behind a proxy it would admit everyone).
     with TestClient(allowlist_app,client=(caller,50000)) as client:
         response=client.put('/api/config/ip-allowlist',json={'enabled':True,'cidrs':[allowed]})
-        assert response.status_code==200
-        saved = response.json()['cidrs']
-        assert saved[0] == allowed
-        assert ipaddress.ip_network(saved[1]) == ipaddress.ip_network(host_cidr)
-        assert len(saved) == 2
+        assert response.status_code==400
+        assert 'This server sees your address as' in response.json()['detail']
+        assert str(ipaddress.ip_address(caller)) in response.json()['detail']
+    with Session(review_db.get_bind()) as db:
+        assert db.execute(text("SELECT COUNT(*) FROM system_config WHERE key='ip_allowlist'")).scalar_one()==0
+    # Covering the caller explicitly is accepted unchanged and admits only the listed hosts.
+    with TestClient(allowlist_app,client=(caller,50000)) as client:
+        response=client.put('/api/config/ip-allowlist',json={'enabled':True,'cidrs':[allowed,host_cidr]})
+        assert response.status_code==200 and response.json()['cidrs']==[allowed,host_cidr]
         assert client.get('/api/probe').status_code==200
     with TestClient(allowlist_app,client=(outsider,50000)) as client:
         assert client.get('/api/probe').status_code==403
 
+def test_loopback_caller_is_admitted_without_an_added_entry(allowlist_app):
+    with TestClient(allowlist_app,client=('127.0.0.1',50000)) as client:
+        response=client.put('/api/config/ip-allowlist',json={'enabled':True,'cidrs':['203.0.113.0/24']})
+        assert response.status_code==200 and response.json()['cidrs']==['203.0.113.0/24']
+
 def test_ipv6_lockout_does_not_open_unrelated_network(allowlist_app):
     with TestClient(allowlist_app,client=('2001:db8:abcd::1',50000)) as client:
-        assert client.put('/api/config/ip-allowlist',json={'enabled':True,'cidrs':['2001:db8:feed::/64']}).status_code==200
+        assert client.put('/api/config/ip-allowlist',json={'enabled':True,'cidrs':['2001:db8:feed::/64','2001:db8:abcd::1/128']}).status_code==200
     with TestClient(allowlist_app,client=('2001:db8:9999::20',50000)) as outsider:
         assert outsider.get('/api/probe').status_code==403
 
