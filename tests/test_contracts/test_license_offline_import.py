@@ -190,3 +190,24 @@ def test_audit_failure_reports_unconfirmed_without_restoring_license(owned_impor
     assert exc.value.detail=='License installation could not be confirmed; check current license status'
     assert path.read_bytes()==candidate and lm.load_license().max_users==374
     db.rollback.assert_called_once()
+
+
+@pytest.mark.parametrize('tier', ['pro', 'education', 'enterprise'])
+def test_portal_null_feature_list_means_tier_default(owned_import, tier):
+    """F20-20.3-09: the portal signs "features": null for a blank feature list."""
+    upload,path,signed,audit,db,lm,sign=owned_import
+    result=upload(sign(tier=tier, features=None))
+    assert result['status']=='activated' and result['tier']==tier
+    info=lm.load_license()
+    assert info.valid and info.error is None
+    assert info.to_dict()['features']==sorted(set(lm.TIERS[tier]['features'])-{'education_workflows'})
+    assert info.has_feature('usage_reports')
+
+
+@pytest.mark.parametrize('features', ['opcua', {'opcua': True}, [1, 2], ['opcua', None]])
+def test_malformed_feature_list_is_rejected_and_installed_license_kept(owned_import, features):
+    upload,path,signed,audit,db,lm,sign=owned_import
+    with pytest.raises(HTTPException) as exc:
+        upload(sign(tier='enterprise', features=features))
+    assert exc.value.status_code==400
+    assert path.read_text()==signed and lm.load_license().valid

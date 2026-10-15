@@ -452,6 +452,17 @@ def verify_license_text(raw: str, installation_id_reader=None) -> LicenseInfo:
             info.features = TIERS["community"]["features"]
             return info
 
+        # The license portal signs "features": null when the admin leaves the
+        # feature list blank; null means "tier default", exactly like an
+        # absent field. Any other non-list value is malformed.
+        payload_features = payload.get("features")
+        if payload_features is not None and not (
+            isinstance(payload_features, list)
+            and all(isinstance(feature, str) for feature in payload_features)
+        ):
+            info.error = "License contains an invalid feature list"
+            return info
+
         # Valid license
         tier = payload["tier"]
         tier_def = TIERS.get(tier, TIERS["community"])
@@ -469,8 +480,8 @@ def verify_license_text(raw: str, installation_id_reader=None) -> LicenseInfo:
         # Preserve explicit numeric limits, including zero.
         max_users = payload.get("max_users")
         info.max_users = tier_def["max_users"] if max_users is None else max_users
-        if "features" in payload:
-            info.features = payload["features"]
+        if payload_features is not None:
+            info.features = payload_features
         else:
             info.features = [
                 feature
