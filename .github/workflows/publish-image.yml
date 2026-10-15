@@ -256,7 +256,10 @@ jobs:
           registry = [node.value for node in tree.body if isinstance(node, ast.Assign) and [getattr(t, "id", None) for t in node.targets] == ["POST027_MIGRATIONS"]]
           if len(registry) != 1: raise SystemExit("POST027_MIGRATIONS literal not found")
           current = [migration_id for migration_id, _module in ast.literal_eval(registry[0])]
-          releases = json.loads(Path("backend/core/schema/released_post027_ledgers.json").read_text(encoding="utf-8"))["releases"]
+          ledgers = Path("backend/core/schema/released_post027_ledgers.json")
+          if not ledgers.is_file(): raise SystemExit("backend/core/schema/released_post027_ledgers.json is missing from the candidate; run ops/release_control/record_post027_ledger.py and commit it")
+          try: releases = json.loads(ledgers.read_text(encoding="utf-8"))["releases"]
+          except (ValueError, KeyError, TypeError): raise SystemExit("backend/core/schema/released_post027_ledgers.json is not a valid release ledger file")
           if version not in releases: raise SystemExit(f"released_post027_ledgers.json has no entry for {version}; run ops/release_control/record_post027_ledger.py and commit it into the candidate")
           if releases[version] != current: raise SystemExit(f"released_post027_ledgers.json records {releases[version]} for {version}, but the candidate registers {current}")
           PY

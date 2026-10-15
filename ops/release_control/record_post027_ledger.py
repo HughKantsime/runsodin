@@ -32,6 +32,8 @@ def record(root: Path, version: str) -> list[str]:
     if not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", version):
         raise SystemExit("version must be X.Y.Z")
     path = root / LEDGERS
+    if not path.is_file():
+        raise SystemExit(f"{LEDGERS} is missing; restore it from the release history before recording {version}")
     document = json.loads(path.read_text(encoding="utf-8"))
     current = registered_ids(root)
     existing = document["releases"].get(version)

@@ -58,6 +58,52 @@ def test_every_recorded_release_ledger_is_current_or_routed_by_a_bundle(fake_pg_
             assert routed is PRESERVED029 and ids == [], (version, "needs a preservedNNN bundle before this source ships")
 
 
+def test_every_ledger_variant_an_archive_can_record_is_routed_or_refused_by_name(fake_pg_restore, monkeypatch):
+    """Migrations apply in registry order, so an archive's post-027 ids are a registry prefix,
+    on top of a 025, 026 or 027-era base ledger. Only the full prefix (current) and the
+    empty one (preserved029) restore; any other prefix is an intermediate build."""
+    from core.schema import pre026_restore_contract as C
+    from modules.system.backup_service import BackupValidationError
+    from modules.system.pre026_restore_stage import identify_contract, PRESERVED029
+    tmp_path, archive = fake_pg_restore
+    from core.schema import bootstrap
+    registries = [POST027_MIGRATIONS, POST027_MIGRATIONS + (("python:099-future-synthetic", "core.schema.migrations.099_future"),)]
+    for registry in registries:
+        monkeypatch.setattr(bootstrap, "POST027_MIGRATIONS", registry)
+        _variants(tmp_path, archive, monkeypatch, [migration_id for migration_id, _ in registry])
+
+
+def _variants(tmp_path, archive, monkeypatch, current):
+    from core.schema import pre026_restore_contract as C
+    from modules.system.backup_service import BackupValidationError
+    from modules.system.pre026_restore_stage import identify_contract, PRESERVED029
+    bases = {"025": [row[0] for row in C.EXPECTED_POSTGRES_LEDGER], "026": [row[0] for row in C.EXPECTED_POSTGRES_LEDGER026],
+             "027": sorted(preserved029.ledger_ids())}
+    releases = _releases()
+    for base_name, base in bases.items():
+        for size in range(len(current) + 1):
+            prefix = current[:size]
+            ledger = tmp_path / f"{base_name}-{len(current)}-{size}.sql"; ledger.write_text(_ledger_sql(base + prefix))
+            monkeypatch.setenv("FAKE_LEDGER_FILE", str(ledger))
+            if size == len(current):
+                assert identify_contract(archive, "postgresql://o@pg/odin", None, tmp_path) is None
+            elif size == 0:
+                assert identify_contract(archive, "postgresql://o@pg/odin", None, tmp_path) is PRESERVED029
+            else:
+                with pytest.raises(BackupValidationError, match="intermediate post-027 build"):
+                    identify_contract(archive, "postgresql://o@pg/odin", None, tmp_path)
+                assert prefix not in releases.values(), (prefix, "a released ledger would be stranded: add a preservedNNN bundle")
+
+
+def test_publish_workflow_gate_without_a_ledger_file_fails_with_a_clear_message(tmp_path):
+    candidate = _candidate(tmp_path, {"1.9.24": []})
+    (candidate / "backend/core/schema/released_post027_ledgers.json").unlink()
+    result = subprocess.run([sys.executable, "-P", "-c", _gate_script()], cwd=candidate, capture_output=True, text=True,
+                            env={"PATH": os.environ["PATH"], "INPUT_VERSION": "2.0.0"}, timeout=60)
+    assert result.returncode != 0 and "Traceback" not in result.stderr
+    assert "released_post027_ledgers.json is missing" in result.stderr
+
+
 def _gate_script():
     workflow = yaml.safe_load((ROOT / ".github/workflows/publish-image.yml").read_text())
     steps = {step["name"]: step for step in workflow["jobs"]["publish"]["steps"]}
