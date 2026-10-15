@@ -315,6 +315,7 @@ def get_analytics(
     total_cost = 0
     total_print_hours = 0
     jobs_with_cost_data = 0
+    jobs_unpriced = jobs_uncosted = 0
     jobs_with_unknown_quantity = sum(
         job.quantity is None or job.quantity <= 0
         for job in completed_jobs + pending_jobs
@@ -326,31 +327,56 @@ def get_analytics(
             if job.duration_hours:
                 total_print_hours += job.duration_hours
             continue
-        # Use job's stored cost data if available (model catalog fallback for older jobs)
+        # Use job's stored cost data if available (model catalog fallback for older jobs).
+        # An unpriced / uncosted job makes the total unknown (None), never a fabricated 0.
         if job.suggested_price is not None:
             jobs_with_cost_data += 1
-        total_revenue += _job_revenue(db, job) or 0
+        revenue = _job_revenue(db, job)
+        if revenue is None:
+            jobs_unpriced += 1
+        else:
+            total_revenue += revenue
 
         if job.estimated_cost is not None:
             total_cost += job.estimated_cost * job.quantity
+        else:
+            jobs_uncosted += 1
 
         if job.duration_hours:
             total_print_hours += job.duration_hours
 
+    if jobs_unpriced:
+        total_revenue = None
+    if jobs_uncosted:
+        total_cost = None
     # Calculate margin
-    total_margin = total_revenue - total_cost
-    margin_percent = (total_margin / total_revenue * 100) if total_revenue > 0 else 0
+    if total_revenue is None or total_cost is None:
+        total_margin = margin_percent = None
+    else:
+        total_margin = total_revenue - total_cost
+        margin_percent = (total_margin / total_revenue * 100) if total_revenue > 0 else 0
 
-    # Projected revenue from pending jobs
+    # Projected revenue from pending jobs (the current queue; never windowed)
     projected_revenue = 0
     projected_cost = 0
+    pending_unpriced = pending_uncosted = 0
     for job in pending_jobs:
         if job.quantity is None or job.quantity <= 0:
             continue
-        projected_revenue += _job_revenue(db, job) or 0
+        revenue = _job_revenue(db, job)
+        if revenue is None:
+            pending_unpriced += 1
+        else:
+            projected_revenue += revenue
 
         if job.estimated_cost is not None:
             projected_cost += job.estimated_cost * job.quantity
+        else:
+            pending_uncosted += 1
+    if pending_unpriced:
+        projected_revenue = None
+    if pending_uncosted:
+        projected_cost = None
 
     # Printer utilization
     printer_q = db.query(Printer).filter(Printer.is_active.is_(True))
@@ -420,8 +446,10 @@ def get_analytics(
             continue
         ended = as_utc_datetime(job.actual_end if job.actual_end is not None else job.created_at)
         row = _day(ended.strftime("%Y-%m-%d"))
-        known_quantity = job.quantity is not None and job.quantity > 0
-        revenue = _job_revenue(db, job) if known_quantity else None
+        if job.quantity is None or job.quantity <= 0:
+            continue  # unknown quantity: not valued (counted in summary.jobs_with_unknown_quantity)
+        known_quantity = True
+        revenue = _job_revenue(db, job)
         if row["revenue"] is not None:
             row["revenue"] = None if revenue is None else row["revenue"] + revenue
         if row["cost"] is not None:
@@ -451,12 +479,18 @@ def get_analytics(
             "total_jobs": len(all_jobs),
             "completed_jobs": len(completed_jobs),
             "pending_jobs": len(pending_jobs),
-            "total_revenue": round(total_revenue, 2),
-            "total_cost": round(total_cost, 2),
-            "total_margin": round(total_margin, 2),
-            "margin_percent": round(margin_percent, 1),
-            "projected_revenue": round(projected_revenue, 2),
-            "projected_cost": round(projected_cost, 2),
+            "total_revenue": None if total_revenue is None else round(total_revenue, 2),
+            "total_cost": None if total_cost is None else round(total_cost, 2),
+            "total_margin": None if total_margin is None else round(total_margin, 2),
+            "margin_percent": None if margin_percent is None else round(margin_percent, 1),
+            "projected_revenue": None if projected_revenue is None else round(projected_revenue, 2),
+            "projected_cost": None if projected_cost is None else round(projected_cost, 2),
+            "jobs_unpriced": jobs_unpriced,
+            "jobs_uncosted": jobs_uncosted,
+            "pending_unpriced": pending_unpriced,
+            "pending_uncosted": pending_uncosted,
+            # pending_jobs / projected_* describe the current queue, not the selected window.
+            "pending_scope": "current_queue",
             "total_print_hours": round(total_print_hours, 1),
             "avg_value_per_hour": round(avg_value_per_hour, 2),
             "jobs_with_cost_data": jobs_with_cost_data,

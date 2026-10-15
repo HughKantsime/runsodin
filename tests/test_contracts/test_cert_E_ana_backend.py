@@ -344,3 +344,21 @@ def test_backend_model_cost_is_per_item_for_multi_unit_beds(ana):
     assert body["costs"] == {"material": 10.0, "labor": 6.0, "electricity": 0.5, "depreciation": 1.0,
                              "packaging": 3.0, "failure": 2.45, "overhead": 5.0, "other": 4.0}
     assert body["subtotal"] == 31.95 and body["suggested_price"] == 47.92
+
+
+def test_summary_money_is_unknown_not_zero_when_a_job_is_unpriced(ana):
+    """Review L3: like the daily series, totals are null (unknown) when a counted job has no
+    price/cost, with the counts exposed; pending values are labelled as the current queue."""
+    client, _, db = ana
+    db.execute(text("INSERT INTO jobs(id,item_name,status,printer_id,quantity,created_at,actual_end,charged_to_org_id,hold) "
+                    "VALUES(7010,'Unpriced','completed',9,1,'2026-10-12 15:00:00','2026-10-12 16:00:00',1,0)"))
+    db.execute(text("INSERT INTO jobs(id,item_name,status,quantity,suggested_price,created_at,charged_to_org_id,hold) "
+                    "VALUES(7011,'Uncosted pending','pending',1,9,'2026-10-12 15:00:00',1,0)"))
+    db.commit()
+    body = client.get("/analytics", params={"days": 7}).json()
+    s = body["summary"]
+    assert s["total_revenue"] is None and s["total_cost"] is None and s["total_margin"] is None and s["margin_percent"] is None
+    assert (s["jobs_unpriced"], s["jobs_uncosted"]) == (1, 1)
+    assert s["projected_revenue"] == 16 and s["projected_cost"] is None and s["pending_uncosted"] == 1
+    assert s["pending_scope"] == "current_queue"
+    assert body["jobs_by_date"]["2026-10-12"]["revenue"] is None  # consistent with the daily series

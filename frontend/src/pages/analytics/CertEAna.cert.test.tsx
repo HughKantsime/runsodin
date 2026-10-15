@@ -200,3 +200,16 @@ test('F10-10.2-03 per-unit price of a multi-unit bed divides only the per-bed co
   fireEvent.change(label('Units per Bed'), { target: { value: '1' } })
   expect(money('Recommended Price (per unit)')).toHaveTextContent('$55.75')
 })
+
+// Review L3: unpriced/uncosted jobs make totals Unknown (never $0.00); the pipeline is the current queue.
+test('F10-10.1-01 unpriced and uncosted jobs show Unknown with their counts', async () => {
+  const s = (analyticsWire as any).summary
+  api.analytics.mockResolvedValue({ ...analyticsWire, summary: { ...s, total_revenue: null, total_cost: null, total_margin: null,
+    margin_percent: null, projected_cost: null, jobs_unpriced: 1, jobs_uncosted: 2, pending_unpriced: 0, pending_uncosted: 1 } })
+  show(<Analytics />); await screen.findByRole('heading', { name: 'Fleet Overview' })
+  expect(card('Revenue')).toHaveTextContent('Unknown'); expect(card('Revenue')).toHaveTextContent('1 unpriced')
+  expect(card('Total Cost')).toHaveTextContent('Unknown'); expect(card('Total Cost')).toHaveTextContent('2 jobs without a cost estimate')
+  expect(card('Net Margin')).toHaveTextContent('margin unknown')
+  expect(card('Pipeline')).toHaveTextContent('1 pending jobs in the current queue')
+  expect(document.body).not.toHaveTextContent('$0.00')
+})
