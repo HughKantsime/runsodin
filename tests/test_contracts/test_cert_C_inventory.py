@@ -419,3 +419,23 @@ def test_migration_030_refuses_existing_duplicates_and_wrong_shape(tmp_path):
             migration.validate(connection)
     finally:
         engine.dispose()
+
+
+@pytest.mark.xfail(strict=True, reason="pending post-027 migration registration")
+def test_runtime_bootstrap_enforces_spoolman_link_uniqueness(tmp_path):
+    """Once 030 is registered, an ordinarily bootstrapped database rejects a duplicate link itself."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.exc import IntegrityError
+    from core.schema import bootstrap_database
+    engine = create_engine('sqlite:///' + str(tmp_path / 'runtime-link.db'))
+    try:
+        assert _migration().MIGRATION_ID in bootstrap_database(engine)['applied']
+        with engine.begin() as connection:
+            _migration().validate(connection)
+            connection.execute(text("INSERT INTO filament_library(id,brand,name,material) VALUES(1,'Cert','Dup','PLA')"))
+            connection.execute(text("INSERT INTO spools(id,filament_id,spoolman_spool_id,status) VALUES(1,1,9,'active')"))
+        with pytest.raises(IntegrityError):
+            with engine.begin() as connection:
+                connection.execute(text("INSERT INTO spools(id,filament_id,spoolman_spool_id,status) VALUES(2,1,9,'active')"))
+    finally:
+        engine.dispose()
