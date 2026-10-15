@@ -92,17 +92,16 @@ def test_camera_url_without_credentials_is_not_required_to_be_encrypted(odin):
     assert o.sql("SELECT camera_url FROM printers WHERE id=:i", i=p["id"])[0][0] == url
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "DEFECT: backend/modules/printers/routes_crud.py:119-130 create_printer encrypts camera_url "
-    "(line 102) but never passes camera_url/camera_enabled to Printer(...): a camera URL supplied on "
-    "POST /api/printers is silently dropped (only PATCH persists it)."))
 def test_camera_url_with_credentials_persisted_encrypted_on_create(odin):
     o = odin
     pw = _sentinel("campwC")
     url = f"rtsp://camuser:{pw}@192.168.50.13:554/stream1"
     p = _printer(o, name="cert-d-cam-create", api_type="moonraker", api_host="192.168.50.13", camera_url=url)
-    raw = o.sql("SELECT camera_url FROM printers WHERE id=:i", i=p["id"])[0][0]
+    raw, enabled = o.sql("SELECT camera_url, camera_enabled FROM printers WHERE id=:i", i=p["id"])[0]
     assert_fernet(o, raw, url)
+    assert enabled
+    # The API never returns the credentials.
+    assert pw not in o.get(f"/api/printers/{p['id']}", headers=o.H).text
 
 
 def test_smtp_password_fernet(odin):
