@@ -115,12 +115,16 @@ class SpoolWeighRequest(PydanticBaseModel):
     gross_weight_g: float  # Total weight including spool
 
 
+MAX_COST_PER_GRAM = 100.0  # $/g; far above any real filament, rejects typos and overflow
+
+
 class FilamentCreateRequest(PydanticBaseModel):
     brand: str
     name: str
     material: str = "PLA"
     color_hex: Optional[str] = None
-    cost_per_gram: Optional[float] = Field(default=None, ge=0)  # Per-material rate ($/g); null = global default
+    # Per-material rate ($/g); null = global default. Global across orgs: superadmin-only write.
+    cost_per_gram: Optional[float] = Field(default=None, ge=0, le=MAX_COST_PER_GRAM, allow_inf_nan=False)
 
 
 class FilamentUpdateRequest(PydanticBaseModel):
@@ -128,7 +132,7 @@ class FilamentUpdateRequest(PydanticBaseModel):
     name: Optional[str] = None
     material: Optional[str] = None
     color_hex: Optional[str] = None
-    cost_per_gram: Optional[float] = Field(default=None, ge=0)  # null clears the per-material rate
+    cost_per_gram: Optional[float] = Field(default=None, ge=0, le=MAX_COST_PER_GRAM, allow_inf_nan=False)  # null clears
 
 
 class ScanAssignRequest(PydanticBaseModel):

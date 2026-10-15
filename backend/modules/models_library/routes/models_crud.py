@@ -10,6 +10,7 @@ from sqlalchemy import text, bindparam
 from typing import List, Optional
 from datetime import datetime
 import json
+import math
 import logging
 import os
 import re
@@ -30,6 +31,7 @@ from modules.models_library.schemas import (
 )
 from modules.inventory.models import FilamentLibrary
 from .pricing import DEFAULT_PRICING_CONFIG, calculate_job_cost
+from modules.models_library.services import material_cost_per_gram
 
 log = logging.getLogger("odin.api")
 
@@ -149,14 +151,8 @@ def list_models_with_pricing(
 
         # Try to get per-material cost
         material_type = model.default_filament_type.value if model.default_filament_type else "PLA"
-        filament_entry = db.query(FilamentLibrary).filter(
-            FilamentLibrary.material == material_type,
-            FilamentLibrary.cost_per_gram.isnot(None)
-        ).first()
-
-        if filament_entry and filament_entry.cost_per_gram:
-            cost_per_gram = filament_entry.cost_per_gram
-        else:
+        cost_per_gram = material_cost_per_gram(db, material_type)
+        if cost_per_gram is None:
             cost_per_gram = config["spool_cost"] / config["spool_weight"]
 
         # Calculate costs
@@ -173,6 +169,8 @@ def list_models_with_pricing(
 
         margin = model.markup_percent if model.markup_percent else config["default_margin"]
         suggested_price = subtotal * (1 + margin / 100)
+        # One out-of-range input must never 500 the whole list: report that model's estimate as unknown.
+        priced = all(isinstance(v, (int, float)) and math.isfinite(v) for v in (subtotal, suggested_price, margin))
 
         # Build response
         model_dict = {
@@ -195,9 +193,9 @@ def list_models_with_pricing(
             "variant_count": variant_counts.get(model.id, 0),
             "job_statistics": statistics[model.id] if stats_allowed else None,
             # New pricing fields
-            "estimated_cost": round(subtotal, 2),
-            "suggested_price": round(suggested_price, 2),
-            "margin_percent": margin,
+            "estimated_cost": round(subtotal, 2) if priced else None,
+            "suggested_price": round(suggested_price, 2) if priced else None,
+            "margin_percent": margin if priced else None,
             "is_favorite": model.is_favorite or False,
             # Bed dimensions from linked print file (for dispatch compatibility warning)
             "bed_x_mm": bed_dims.get(model.id, {}).get("bed_x_mm"),

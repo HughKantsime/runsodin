@@ -15,6 +15,14 @@ log = logging.getLogger("odin.api")
 router = APIRouter(prefix="/filaments", tags=["Filaments"])
 
 
+def _require_global_rate_writer(current_user: dict) -> None:
+    """filament_library.cost_per_gram is one install-wide rate per filament, read by every
+    org's cost estimates, so only a superadmin (admin with no org; on a single-tenant
+    install every admin) may set or clear it. Same rule as core.rbac.require_superadmin."""
+    if current_user.get("role") != "admin" or current_user.get("group_id"):
+        raise HTTPException(status_code=403, detail="Superadmin access required to set filament cost per gram")
+
+
 @router.get("", tags=["Filaments"])
 def list_filaments(
     brand: Optional[str] = None,
@@ -48,6 +56,8 @@ def list_filaments(
 @router.post("", tags=["Filaments"])
 def add_custom_filament(data: FilamentCreateRequest, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Add a custom filament to the library."""
+    if data.cost_per_gram is not None:
+        _require_global_rate_writer(current_user)
     filament = FilamentLibrary(
         brand=data.brand,
         name=data.name,
@@ -148,6 +158,8 @@ def update_filament(filament_id: str, updates: FilamentUpdateRequest, current_us
         raise HTTPException(status_code=404, detail="Filament not found")
 
     update_data = updates.model_dump(exclude_unset=True)
+    if "cost_per_gram" in update_data and update_data["cost_per_gram"] != filament.cost_per_gram:
+        _require_global_rate_writer(current_user)
     for field, value in update_data.items():
         setattr(filament, field, value)
 

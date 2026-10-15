@@ -156,3 +156,31 @@ def test_filament_cogs_is_per_sellable_piece_not_per_plate(bom_client, review_db
         review_db.execute(text('UPDATE models SET quantity_per_bed=:q WHERE id=101'), {'q': stored})
         review_db.commit()
         assert bom_client.get('/products/101').json()['estimated_cogs'] == pytest.approx(5.0)
+
+
+
+def test_material_rate_is_lowest_id_valid_row_and_corrupt_rows_never_500(pricing_client, review_db):
+    """Deterministic rate (lowest id with a finite non-negative rate); bad rows skipped (review HIGH-2/3)."""
+    client, issue = pricing_client
+    review_db.execute(text("INSERT INTO filament_library(id,brand,name,material,cost_per_gram) VALUES"
+                           "(310,'Cert','Later PETG','PETG',0.09),(306,'Cert','Corrupt PETG','PETG',:inf),"
+                           "(305,'Cert','Negative PETG','PETG',-1),(308,'Cert','First valid PETG','PETG',0.04)"), {'inf': float('inf')})
+    review_db.execute(text("UPDATE models SET default_filament_type='PETG' WHERE id=199"))
+    review_db.commit()
+    body = client.get('/models/199/cost', headers=issue(['read'])).json()
+    assert body['cost_per_gram'] == 0.04 and body['costs']['material'] == pytest.approx(4.0)
+    from modules.models_library.services import calculate_job_cost
+    assert calculate_job_cost(review_db, model_id=199)[0] > 0
+
+
+def test_model_list_reports_unknown_estimate_instead_of_500_on_overflow(pricing_client, review_db):
+    from modules.models_library.routes import models_crud
+    client, issue = pricing_client
+    client.app.include_router(models_crud.router)
+    review_db.execute(text("INSERT INTO filament_library(id,brand,name,material,cost_per_gram) VALUES(311,'Cert','PLA','PLA',100)"))
+    review_db.execute(text("UPDATE models SET default_filament_type='PLA', color_requirements=:c WHERE id=199"), {'c': '{"slot":{"grams":1e308}}'})
+    review_db.commit()
+    response = client.get('/models-with-pricing', headers=issue(['read:models']))
+    assert response.status_code == 200, response.text
+    row = next(r for r in response.json() if r['id'] == 199)
+    assert (row['estimated_cost'], row['suggested_price']) == (None, None)

@@ -48,6 +48,8 @@ def test_spool_tracks_material_color_brand_batch_weights_cost_and_statuses(inven
 
 
 def test_filament_cost_per_gram_is_recorded_and_readable(inventory_client):
+    # cost_per_gram is one install-wide rate: superadmin-only write (review HIGH-2).
+    inventory_client.app.dependency_overrides[get_current_user] = lambda: {'id': 1, 'role': 'admin', 'group_id': None}
     created = inventory_client.post('/api/filaments', json={'brand': 'Cert', 'name': 'Cert ASA', 'material': 'ASA', 'cost_per_gram': 0.031})
     assert created.status_code == 200, created.text
     identity = created.json()['id']
@@ -259,6 +261,8 @@ def test_measured_multi_filament_total_is_refused_not_distributed(archive_case):
 # ------------------------------------------- regression: cert-fix-C inventory fixes
 
 def test_filament_cost_per_gram_lists_clears_and_rejects_negative(inventory_client):
+    # cost_per_gram is one install-wide rate: superadmin-only write (review HIGH-2).
+    inventory_client.app.dependency_overrides[get_current_user] = lambda: {'id': 1, 'role': 'admin', 'group_id': None}
     created = inventory_client.post('/api/filaments', json={'brand': 'Cert', 'name': 'Cert PLA rate', 'material': 'PLA', 'cost_per_gram': 0.02})
     assert created.status_code == 200 and created.json()['cost_per_gram'] == 0.02
     identity = f"lib_{created.json()['id']}"
@@ -282,3 +286,41 @@ def test_spoolman_link_is_readable_editable_and_unlinkable(inventory_client):
     assert inventory_client.patch(f'/api/spools/{sid}', json={'spoolman_spool_id': None}).status_code == 200
     assert inventory_client.get(f'/api/spools/{sid}').json()['spoolman_spool_id'] is None
     assert inventory_client.post('/api/spools', json={'filament_id': 990, 'spoolman_spool_id': -3}).status_code == 422
+
+
+@pytest.mark.parametrize('principal', [{'id': 3, 'role': 'operator', 'group_id': None}, {'id': 4, 'role': 'admin', 'group_id': 1}])
+def test_global_filament_rate_write_requires_superadmin(inventory_client, principal):
+    inventory_client.app.dependency_overrides[get_current_user] = lambda: {'id': 1, 'role': 'admin', 'group_id': None}
+    identity = f"lib_{inventory_client.post('/api/filaments', json={'brand': 'Cert', 'name': 'Rate', 'material': 'PLA', 'cost_per_gram': 0.02}).json()['id']}"
+    inventory_client.app.dependency_overrides[get_current_user] = lambda: principal
+    assert inventory_client.post('/api/filaments', json={'brand': 'Cert', 'name': 'Rated', 'material': 'PLA', 'cost_per_gram': 0.5}).status_code == 403
+    assert inventory_client.patch(f'/api/filaments/{identity}', json={'cost_per_gram': 0.9}).status_code == 403
+    assert inventory_client.patch(f'/api/filaments/{identity}', json={'cost_per_gram': None}).status_code == 403
+    # The edit modal resends the unchanged rate with other edits; that is not a rate write.
+    assert inventory_client.patch(f'/api/filaments/{identity}', json={'name': 'Rate v2', 'cost_per_gram': 0.02}).status_code == 200
+    assert inventory_client.post('/api/filaments', json={'brand': 'Cert', 'name': 'Unrated', 'material': 'PLA', 'cost_per_gram': None}).status_code == 200
+    assert inventory_client.get(f'/api/filaments/{identity}').json()['cost_per_gram'] == 0.02
+
+
+@pytest.mark.parametrize('raw', ['Infinity', '-Infinity', 'NaN', '1e6', '100.01'])
+def test_filament_rate_rejects_non_finite_and_out_of_range(review_db, raw):
+    # Real inventory router + the production 422 envelope function (core.app registers it).
+    from fastapi import FastAPI
+    from fastapi.exceptions import RequestValidationError
+    from fastapi.testclient import TestClient
+    from core.db import get_db
+    from core.errors import request_validation_response
+    from modules.inventory.routes import router as inventory_router
+    app = FastAPI()
+    app.include_router(inventory_router, prefix='/api')
+    app.add_exception_handler(RequestValidationError, lambda request, exc: request_validation_response(exc))
+    app.dependency_overrides[get_current_user] = lambda: {'id': 1, 'role': 'admin', 'group_id': None}
+    app.dependency_overrides[get_db] = lambda: review_db
+    with TestClient(app) as client:
+        body = '{"brand":"Cert","name":"Bad","material":"PLA","cost_per_gram":%s}' % raw
+        rejected = client.post('/api/filaments', content=body, headers={'Content-Type': 'application/json'})
+        assert rejected.status_code == 422 and rejected.json()['error']['fields'] == ['cost_per_gram']
+        identity = f"lib_{client.post('/api/filaments', json={'brand': 'Cert', 'name': 'Ok', 'material': 'PLA', 'cost_per_gram': 100}).json()['id']}"
+        patch = client.patch(f'/api/filaments/{identity}', content='{"cost_per_gram":%s}' % raw, headers={'Content-Type': 'application/json'})
+        assert patch.status_code == 422
+        assert client.get(f'/api/filaments/{identity}').json()['cost_per_gram'] == 100

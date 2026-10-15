@@ -34,12 +34,10 @@ def _filament_cost_per_item(model):
     if grams is None:
         return None
     from core.models import SystemConfig
-    from modules.inventory.models import FilamentLibrary
     from modules.models_library.services import DEFAULT_PRICING_CONFIG
     material = getattr(model.default_filament_type, 'value', model.default_filament_type) or 'PLA'
-    entry = session.query(FilamentLibrary).filter(
-        FilamentLibrary.material == material, FilamentLibrary.cost_per_gram.isnot(None)).first()
-    rate = _number(entry.cost_per_gram) if entry is not None else None
+    from modules.models_library.services import material_cost_per_gram
+    rate = material_cost_per_gram(session, material)
     if rate is None:
         row = session.query(SystemConfig).filter(SystemConfig.key == "pricing_config").first()
         config = {**DEFAULT_PRICING_CONFIG, **(row.value if row is not None and isinstance(row.value, dict) else {})}
