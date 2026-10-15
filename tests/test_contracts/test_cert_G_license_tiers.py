@@ -65,6 +65,38 @@ F["org_branding_logo"] = call("put", f"/api/orgs/{org_row[0][0]}/settings", json
 F["org_settings_free"] = call("put", f"/api/orgs/{org_row[0][0]}/settings", json={"quiet_hours_enabled": True})
 F["org_branding_clear"] = call("put", f"/api/orgs/{org_row[0][0]}/settings", json={"branding_app_name": None})
 F["audit_export"] = call("get", "/api/export/audit-logs")
+# Analytics-derived reports (review MEDIUM 3)
+F["chargebacks"] = call("get", "/api/reports/chargebacks")
+sched = {"frequency": "weekly", "recipients": ["certg-reports@example.test"]}
+F["report_schedule_failure_analysis"] = call("post", "/api/report-schedules", json={**sched, "name": "FA", "report_type": "failure_analysis"})
+F["report_schedule_fleet_utilization"] = call("post", "/api/report-schedules", json={**sched, "name": "FU", "report_type": "fleet_utilization"})
+F["report_schedule_chargeback_summary"] = call("post", "/api/report-schedules", json={**sched, "name": "CB", "report_type": "chargeback_summary"})
+F["report_schedule_job_summary"] = call("post", "/api/report-schedules", json={**sched, "name": "JS", "report_type": "job_summary"})
+F["report_schedule_filament"] = call("post", "/api/report-schedules", json={**sched, "name": "FC", "report_type": "filament_consumption"})
+sql("INSERT INTO report_schedules(name,report_type,frequency,recipients,filters,next_run_at,is_active) VALUES('due-fa','failure_analysis','weekly',:r,'{}','2000-01-01T00:00:00+00:00',1)", r='["a@example.test"]')
+sql("INSERT INTO report_schedules(name,report_type,frequency,recipients,filters,next_run_at,is_active) VALUES('due-js','job_summary','weekly',:r,'{}','2000-01-01T00:00:00+00:00',1)", r='["a@example.test"]')
+fa_id = sql("SELECT id FROM report_schedules WHERE name='due-fa'")[0][0]
+# run-now: SMTP is not configured in the probe, so an entitled run stops at 400 (not 403)
+F["report_run_now_analytics"] = call("post", f"/api/report-schedules/{fa_id}/run")
+# report_runner: only the SMTP boundary is substituted; the real due-schedule loop runs.
+import logging as _logging
+from modules.reporting import report_runner as RR
+SENT, RLOG = [], []
+class _H(_logging.Handler):
+    def emit(self, rec): RLOG.append(rec.getMessage())
+RR.log.addHandler(_H())
+RR.get_smtp_config = lambda session: {"host": "smtp.example.test"}
+RR.send_report_email = lambda cfg, recip, subject, html: SENT.append(subject) or True
+from core.db import SessionLocal as _SL
+_s = _SL()
+try:
+    RR.process_due_reports(_s)
+finally:
+    _s.close()
+OUT["runner_sent"] = sorted(SENT)
+OUT["runner_log"] = [m for m in RLOG if "skipped" in m]
+# Operational monitoring stays free on every tier.
+F["metrics"] = call("get", "/api/metrics")
 # Further members of each gated route family (cert-fix-G regression coverage)
 F["analytics_failures"] = call("get", "/api/analytics/failures?days=30")
 F["analytics_time_accuracy"] = call("get", "/api/analytics/time-accuracy?days=30")
@@ -242,6 +274,8 @@ PRO_GATED = {
     "maintenance": "maintenance", "maintenance_seed": "maintenance",
     "branding": "branding", "branding_logo": "branding",
     "org_branding": "branding", "org_branding_logo": "branding",
+    "chargebacks": "analytics", "report_schedule_failure_analysis": "analytics",
+    "report_schedule_fleet_utilization": "analytics", "report_schedule_chargeback_summary": "analytics",
 }
 
 
@@ -268,7 +302,7 @@ def test_enterprise_gate_mqtt_event_republish(tiers):
     assert {t: tiers[t]["mqtt_republished"] for t in TIERS} == {"community": 0, "pro": 0, "education": 0, "enterprise": 2}
 
 
-@pytest.mark.parametrize("call_name", ["org_settings_free", "org_branding_clear", "orders_list", "products_list", "maintenance_tasks_list", "maintenance_status",
+@pytest.mark.parametrize("call_name", ["report_schedule_job_summary", "report_schedule_filament", "metrics", "org_settings_free", "org_branding_clear", "orders_list", "products_list", "maintenance_tasks_list", "maintenance_status",
                                        "branding_read", "stats"])
 def test_reads_stay_available_on_every_tier(tiers, call_name):
     for t in TIERS:
@@ -338,3 +372,18 @@ def test_downgraded_install_keeps_reading_and_deleting_its_records(downgraded):
 def test_downgraded_install_cannot_create_or_change_pro_records(downgraded):
     r = downgraded["after"]
     assert (r["order_patch"], r["product_patch"], r["maint_patch"], r["order_create"], r["branding_put"]) == (403,) * 5
+
+
+def test_report_run_now_of_an_analytics_schedule_needs_pro(tiers):
+    c = tiers["community"]["features"]["report_run_now_analytics"]
+    assert c["status"] == 403 and "analytics" in c["body"]["detail"]
+    for t in ("pro", "education", "enterprise"):
+        assert tiers[t]["features"]["report_run_now_analytics"]["status"] == 400  # entitled; probe has no SMTP
+
+
+def test_report_runner_skips_analytics_schedules_without_the_entitlement(tiers):
+    assert tiers["community"]["runner_sent"] == ["O.D.I.N. Report: due-js"]
+    assert len(tiers["community"]["runner_log"]) == 1 and "due-fa" in tiers["community"]["runner_log"][0]
+    for t in ("pro", "education", "enterprise"):
+        assert tiers[t]["runner_sent"] == ["O.D.I.N. Report: due-fa", "O.D.I.N. Report: due-js"]
+        assert tiers[t]["runner_log"] == []

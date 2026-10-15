@@ -319,6 +319,19 @@ def generate_chargeback_summary(session, filters):
     return _wrap_report_html("Chargeback Summary Report", content)
 
 
+# Report types derived from the Pro "analytics" entitlement (same data as
+# /api/analytics and /api/reports/chargebacks). job_summary and
+# filament_consumption mirror the free CSV exports and stay free.
+ANALYTICS_REPORT_TYPES = frozenset({"fleet_utilization", "failure_analysis", "chargeback_summary"})
+
+
+def report_type_is_licensed(report_type) -> bool:
+    if report_type not in ANALYTICS_REPORT_TYPES:
+        return True
+    from license_manager import get_license
+    return get_license().has_feature("analytics")
+
+
 GENERATORS = {
     "fleet_utilization": generate_fleet_utilization,
     "job_summary": generate_job_summary,
@@ -368,16 +381,21 @@ def process_due_reports(session):
             log.warning(f"Unknown report type '{report_type}' for schedule {sched_id}")
             continue
 
-        try:
-            html = generator(session, filters)
-            subject = f"O.D.I.N. Report: {name}"
-            sent = 0
-            for recip in recipients:
-                if send_report_email(smtp_config, recip.strip(), subject, html):
-                    sent += 1
-            log.info(f"Report '{name}' (type={report_type}) sent to {sent}/{len(recipients)} recipients")
-        except Exception as e:
-            log.error("Report generation failed for schedule %s (%s)", sched_id, type(e).__name__)
+        if not report_type_is_licensed(report_type):
+            # Not sent, but rescheduled below so the skip is logged once per period.
+            log.warning("Report '%s' (schedule %s, type=%s) skipped: requires the Pro analytics entitlement",
+                        name, sched_id, report_type)
+        else:
+            try:
+                html = generator(session, filters)
+                subject = f"O.D.I.N. Report: {name}"
+                sent = 0
+                for recip in recipients:
+                    if send_report_email(smtp_config, recip.strip(), subject, html):
+                        sent += 1
+                log.info(f"Report '{name}' (type={report_type}) sent to {sent}/{len(recipients)} recipients")
+            except Exception as e:
+                log.error("Report generation failed for schedule %s (%s)", sched_id, type(e).__name__)
 
         # Update schedule timing
         if frequency == "daily":
