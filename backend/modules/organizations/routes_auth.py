@@ -558,14 +558,12 @@ async def reset_password(request: Request, body: ResetPasswordRequest, db: Sessi
         db.execute(text("UPDATE password_reset_tokens SET used = 1 WHERE user_id = :uid AND used = 0"),
                    {"uid": row.user_id})
         from core.mfa_login import cancel_pending_enrollments
+        from modules.organizations.password_reset import revoke_sessions_and_biometric
         cancel_pending_enrollments(db, row.user_id)
-        sessions = db.execute(text("SELECT token_jti FROM active_sessions WHERE user_id = :uid"),
-                              {"uid": row.user_id}).fetchall()
-        expiry = (now + timedelta(hours=auth_module.ACCESS_TOKEN_EXPIRE_HOURS)).isoformat()
-        for session in sessions:
-            db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),
-                       {"jti": session.token_jti, "exp": expiry})
-        db.execute(text("DELETE FROM active_sessions WHERE user_id = :uid"), {"uid": row.user_id})
+        # A reset revokes biometric tokens and every session (the user is not
+        # authenticated here, so none is kept).
+        revoke_sessions_and_biometric(db, row.user_id,
+                                      blacklist_hours=auth_module.ACCESS_TOKEN_EXPIRE_HOURS)
         log_audit(db, "user.password_reset", "user", row.user_id,
                   {"target_user_id": row.user_id})
         db.commit()

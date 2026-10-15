@@ -8,7 +8,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -228,7 +228,7 @@ class UserUpdateRequest(PydanticBaseModel):
 
 
 @router.patch("/users/{user_id}", tags=["Users"], dependencies=[Depends(require_scope("admin"))])
-async def update_user(user_id: int, body: UserUpdateRequest, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+async def update_user(user_id: int, body: UserUpdateRequest, request: Request, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     updates = body.model_dump(exclude_unset=True)
     target = db.execute(
         text("SELECT group_id FROM users WHERE id = :id"), {"id": user_id}
@@ -247,11 +247,16 @@ async def update_user(user_id: int, body: UserUpdateRequest, current_user: dict 
         assert_user_tenant_change_allowed(db, user_id)
 
     # Email and username are account-recovery material (a forgot-password link
-    # goes to the stored email; the username names the account), so changing
-    # either is credential material: interactive session only.
-    changes_recovery = (("email" in updates and updates["email"] is not None)
-                        or ("username" in updates and updates["username"] is not None))
-    if (changes_recovery or ('password' in updates and updates['password'])) and not is_interactive_session(current_user):
+    # goes to the stored email; the username names the account), so CHANGING
+    # either is credential material and needs an interactive session. Setting a
+    # field to its current value (or resending it unchanged) is a no-op and is
+    # allowed; clearing it to null is a change.
+    current_recovery = db.execute(
+        text("SELECT email, username FROM users WHERE id = :id"), {"id": user_id}).fetchone()
+    recovery_change = (
+        ("email" in updates and updates["email"] != current_recovery.email)
+        or ("username" in updates and updates["username"] != current_recovery.username))
+    if (recovery_change or ('password' in updates and updates['password'])) and not is_interactive_session(current_user):
         raise HTTPException(status_code=403, detail=CREDENTIAL_ROUTE_DETAIL)
 
     if 'password' in updates and updates['password']:
@@ -265,8 +270,7 @@ async def update_user(user_id: int, body: UserUpdateRequest, current_user: dict 
     ALLOWED_USER_FIELDS = {"username", "email", "role", "is_active", "password_hash", "group_id"}
     updates = {k: v for k, v in updates.items() if k in ALLOWED_USER_FIELDS}
 
-    existing_email = db.execute(text("SELECT email FROM users WHERE id = :id"), {"id": user_id}).scalar()
-    email_changed = 'email' in updates and updates['email'] != existing_email
+    email_changed = 'email' in updates and updates['email'] != current_recovery.email
     password_changed = 'password_hash' in updates
     role_changed = 'role' in updates
     if updates:
@@ -284,15 +288,14 @@ async def update_user(user_id: int, body: UserUpdateRequest, current_user: dict 
         invalidate_recovery_credentials(db, user_id)
     if password_changed:
         from core.mfa_login import cancel_pending_enrollments
+        from modules.organizations.password_reset import revoke_sessions_and_biometric, current_session_jti
         cancel_pending_enrollments(db, user_id)
         log_audit(db, "user.password_changed", "user", user_id,
                   {"actor_user_id": current_user["id"], "target_user_id": user_id})
-        sessions = db.execute(text("SELECT token_jti FROM active_sessions WHERE user_id = :uid"), {"uid": user_id}).fetchall()
-        expiry = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
-        for session in sessions:
-            db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-                       {"jti": session.token_jti, "exp": expiry})
-        db.execute(text("DELETE FROM active_sessions WHERE user_id = :uid"), {"uid": user_id})
+        # Revoke biometric tokens and every other session. On an admin changing
+        # their OWN password, keep the current session alive.
+        keep_jti = current_session_jti(request) if current_user["id"] == user_id else None
+        revoke_sessions_and_biometric(db, user_id, keep_jti=keep_jti)
     db.commit()
     return {"status": "updated"}
 

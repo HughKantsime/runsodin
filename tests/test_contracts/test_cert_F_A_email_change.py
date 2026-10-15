@@ -53,3 +53,59 @@ def test_interactive_email_change_voids_reset_and_biometric_tokens(odin):
     assert odin.one("SELECT email FROM users WHERE id=:i", i=u["id"]).email == "newaddr@example.test"
     assert odin.one("SELECT COUNT(*) AS n FROM password_reset_tokens WHERE user_id=:u AND used=0", u=u["id"]).n == 0
     assert odin.one("SELECT COUNT(*) AS n FROM biometric_tokens WHERE user_id=:u", u=u["id"]).n == 0
+
+
+def test_null_email_or_username_is_a_credential_change(odin):
+    u = odin.mkuser("victim_null", "viewer")
+    admin_tok = odin.mint(odin.admin_bearer, ["admin"])["token"]
+    for body in ({"email": None}, {"username": None}):
+        r = odin.patch(f"/api/users/{u['id']}", json=body, headers=key(admin_tok))
+        assert r.status_code == 403, (body, r.text)
+    row = odin.one("SELECT email, username FROM users WHERE id=:i", i=u["id"])
+    assert row.email and row.username  # unchanged
+
+
+def test_resending_unchanged_email_or_username_is_a_no_op_not_403(odin):
+    u = odin.mkuser("victim_same", "viewer")
+    cur = odin.one("SELECT email, username FROM users WHERE id=:i", i=u["id"])
+    admin_tok = odin.mint(odin.admin_bearer, ["admin"])["token"]
+    # Same value via an API token is a no-op and must be allowed (also lets an
+    # unrelated field like role ride along).
+    r = odin.patch(f"/api/users/{u['id']}", json={"email": cur.email, "username": cur.username, "role": "operator"},
+                   headers=key(admin_tok))
+    assert r.status_code == 200, r.text
+    assert odin.one("SELECT role FROM users WHERE id=:i", i=u["id"]).role == "operator"
+
+
+def test_password_change_revokes_biometric_and_other_sessions(odin):
+    u = odin.mkuser("victim_pw", "viewer")
+    from sqlalchemy import text
+    with odin.engine.begin() as c:
+        c.execute(text("INSERT INTO biometric_tokens(user_id, device_id, token_hash, expires_at, is_revoked) "
+                       "VALUES(:u, 'd', :h, datetime('now','+30 day'), 0)"), {"u": u["id"], "h": "h" * 16})
+        c.execute(text("INSERT INTO active_sessions(user_id, token_jti) VALUES(:u, 'jti-a'), (:u, 'jti-b')"),
+                  {"u": u["id"]})
+    r = odin.patch(f"/api/users/{u['id']}", json={"password": "NewPassw0rd"}, headers=odin.admin_bearer)
+    assert r.status_code == 200, r.text
+    assert odin.one("SELECT COUNT(*) AS n FROM biometric_tokens WHERE user_id=:u", u=u["id"]).n == 0
+    assert odin.one("SELECT COUNT(*) AS n FROM active_sessions WHERE user_id=:u", u=u["id"]).n == 0
+    assert odin.one("SELECT COUNT(*) AS n FROM token_blacklist WHERE jti IN ('jti-a','jti-b')").n == 2
+
+
+def test_self_password_change_keeps_the_callers_current_session(odin):
+    # An admin changing their OWN password keeps the session making the request
+    # (the admin_bearer login's recorded session); every other session is revoked.
+    from sqlalchemy import text
+    admin_id = odin.one("SELECT id FROM users WHERE username=:u", u=odin.admin[0]).id
+    assert odin.one("SELECT COUNT(*) AS n FROM active_sessions WHERE user_id=:u", u=admin_id).n >= 1
+    with odin.engine.begin() as c:
+        c.execute(text("INSERT INTO active_sessions(user_id, token_jti) VALUES(:u, 'other-device')"),
+                  {"u": admin_id})
+    r = odin.patch(f"/api/users/{admin_id}", json={"password": "FreshAdminPw9"}, headers=odin.admin_bearer)
+    assert r.status_code == 200, r.text
+    live = {row.token_jti for row in odin.all("SELECT token_jti FROM active_sessions WHERE user_id=:u", u=admin_id)}
+    # Other sessions (the seeded device and the earlier setup session) are gone;
+    # the caller's own session survives and still authenticates.
+    assert "other-device" not in live
+    assert odin.get("/api/auth/me", headers=odin.admin_bearer).status_code == 200
+    assert odin.one("SELECT COUNT(*) AS n FROM active_sessions WHERE user_id=:u", u=admin_id).n == 1

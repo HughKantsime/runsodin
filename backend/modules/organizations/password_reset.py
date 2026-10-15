@@ -40,6 +40,47 @@ def invalidate_recovery_credentials(db, user_id):
     db.execute(text('DELETE FROM biometric_tokens WHERE user_id=:uid'), {'uid': user_id})
 
 
+def revoke_sessions_and_biometric(db, user_id, *, keep_jti=None, blacklist_hours=24):
+    """Revoke a user's biometric tokens and active sessions after a password change.
+
+    keep_jti, when given, is the one session left alive (the caller's own, for a
+    self-initiated change); every other session jti is blacklisted and deleted.
+    """
+    from core.db_compat import sql
+    db.execute(text('DELETE FROM biometric_tokens WHERE user_id=:uid'), {'uid': user_id})
+    expiry = (datetime.now(timezone.utc) + timedelta(hours=blacklist_hours)).isoformat()
+    rows = db.execute(text('SELECT token_jti FROM active_sessions WHERE user_id=:uid'),
+                      {'uid': user_id}).fetchall()
+    for session in rows:
+        if keep_jti is not None and session.token_jti == keep_jti:
+            continue
+        db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) "
+                        f"VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),
+                   {'jti': session.token_jti, 'exp': expiry})
+    if keep_jti is None:
+        db.execute(text('DELETE FROM active_sessions WHERE user_id=:uid'), {'uid': user_id})
+    else:
+        db.execute(text('DELETE FROM active_sessions WHERE user_id=:uid AND token_jti != :jti'),
+                   {'uid': user_id, 'jti': keep_jti})
+
+
+def current_session_jti(request):
+    """The jti of the session/bearer token on this request, or None."""
+    if request is None:
+        return None
+    import jwt as _jwt
+    from core import auth as _auth
+    cookie = request.cookies.get('session')
+    header = request.headers.get('authorization', '')
+    raw = cookie or (header.split(' ', 1)[1] if header.startswith('Bearer ') else None)
+    if not raw:
+        return None
+    try:
+        return _jwt.decode(raw, _auth.SECRET_KEY, algorithms=[_auth.ALGORITHM]).get('jti')
+    except Exception:
+        return None
+
+
 def send_reset_link(db,user_id,username,email,send,*,base_url,actor_user_id=None):
     """Persist a hashed link before delivery; never change credentials while sending."""
     raw=secrets.token_urlsafe(32)
