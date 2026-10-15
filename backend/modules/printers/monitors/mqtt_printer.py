@@ -742,17 +742,20 @@ class PrinterMonitor:
                         if (pending_ams is not None
                                 and time.time() - getattr(self, '_last_ams_slot_sync', 0) >= 60):
                             sync_observed_at = time.time()
-                            # Inventory receives only the latest reported AMS list, once.
-                            # A heartbeat cannot renew cached tray observations.
-                            self._pending_ams_report = None
+                            # Inventory receives only the latest reported AMS list; it is
+                            # consumed after a committed sync. A heartbeat cannot renew
+                            # cached tray observations, and a failed sync keeps the list
+                            # for the next heartbeat unless a newer report replaces it.
                             try:
                                 from modules.printers.monitors.ams_inventory import sync_ams_inventory
                                 sync_ams_inventory(conn, self.printer_id, pending_ams)
                                 conn.commit()
                                 self._last_ams_slot_sync = sync_observed_at
+                                if self._pending_ams_report is pending_ams:
+                                    self._pending_ams_report = None
                             except Exception:
                                 conn.rollback()
-                                log.warning("AMS inventory synchronization failed; retry on next reported AMS list")
+                                log.warning("AMS inventory synchronization failed; keeping the reported AMS list for retry on the next heartbeat")
 
                     # ---- H2D Dual-Nozzle / External Spool Parsing ----
                     h2d_nozzle_data = None
