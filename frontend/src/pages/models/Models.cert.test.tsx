@@ -51,7 +51,7 @@ test('F05-5.3-01/03 History button opens the revision panel with numbers, notes 
 
 test('F05-5.2-03 stat cards from the real response: total models, print hours, most printed', async () => {
   mount(); await screen.findAllByText('Cert hinge')
-  const card = (label: string) => screen.getAllByText(label, { exact: true }).at(-1)!.parentElement!.parentElement!
+  const card = (label: string) => screen.getAllByText(label, { exact: true }).slice(-1)[0].parentElement!.parentElement!
   expect(card('Models')).toHaveTextContent('2')
   expect(card('Total Print Hours')).toHaveTextContent('0.0h')
   expect(card('Most Printed')).toHaveTextContent('None')
