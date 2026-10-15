@@ -11,30 +11,11 @@ from sqlalchemy import text
 from core.db_compat import execute_insert_returning_id
 from core.dependencies import log_audit
 from core.models import SystemConfig
+from core.application_url import configured_base_url, validate_base_url  # noqa: F401  (re-exported)
 
 
 def reset_token_digest(raw):
     return 'sha256:'+hashlib.sha256(raw.encode('utf-8')).hexdigest()
-
-
-def validate_base_url(base):
-    """Return the normalized application URL used in emailed links, or raise ValueError.
-
-    Admins set it in Settings > Notifications (PUT /api/smtp-config base_url);
-    links are never built from the request Host header.
-    """
-    if not isinstance(base,str) or not base or any(char.isspace() or ord(char)<32 or ord(char)==127 for char in base):
-        raise ValueError('Invalid base URL')
-    parsed=urlsplit(base)
-    if parsed.scheme.lower() not in {'http','https'} or not parsed.hostname or parsed.username is not None or parsed.password is not None or parsed.query or parsed.fragment:
-        raise ValueError('Invalid base URL')
-    parsed.port  # Validate a supplied port without emitting the configured value.
-    return base.rstrip('/')
-
-
-def configured_base_url(db):
-    configured=db.query(SystemConfig).filter(SystemConfig.key=='base_url').first()
-    return configured.value if configured and isinstance(configured.value,str) else ''
 
 
 def reset_mail_base_url(db):

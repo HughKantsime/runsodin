@@ -415,7 +415,7 @@ async def get_smtp_config(
     db: Session = Depends(get_db)
 ):
     """Get SMTP configuration (admin only, password masked)."""
-    from modules.organizations.password_reset import configured_base_url
+    from core.application_url import configured_base_url
     config = db.query(SystemConfig).filter(SystemConfig.key == "smtp_config").first()
     base_url = configured_base_url(db)
     if not config:
@@ -440,7 +440,7 @@ async def update_smtp_config(
     db: Session = Depends(get_db)
 ):
     """Update SMTP configuration (admin only)."""
-    from modules.organizations.password_reset import validate_base_url
+    from core.application_url import validate_base_url
     config = db.query(SystemConfig).filter(SystemConfig.key == "smtp_config").first()
     smtp_data = data.dict()
     base_url = smtp_data.pop("base_url", None)
