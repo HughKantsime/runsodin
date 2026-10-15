@@ -18,7 +18,7 @@ import os
 import re
 
 from core.db import get_db
-from core.rbac import require_role, get_org_scope, check_org_access
+from core.rbac import require_role, require_superadmin, get_org_scope, check_org_access
 from core.config import settings
 from core.models import SystemConfig
 from modules.printers.models import Printer
@@ -295,7 +295,8 @@ async def get_global_vision_settings(
 @router.patch("/vision/settings", tags=["Vigil AI"])
 async def update_global_vision_settings(
     request: Request,
-    current_user: dict = Depends(require_role("admin")),
+    # One install-wide row: org-scoped admins may not change it.
+    current_user: dict = Depends(require_superadmin()),
     db: Session = Depends(get_db),
 ):
     """Update global vision settings."""

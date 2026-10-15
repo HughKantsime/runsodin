@@ -429,3 +429,18 @@ def test_reenabling_printer_vision_restarts_thread(daemon, camera_printers, visi
     assert client.patch('/api/vision/settings', json={'enabled': True}).status_code == 200
     instance._scan_printers()
     assert instance._threads[9] is not first and instance._threads[9].is_alive()
+
+
+def test_global_vision_settings_write_requires_superadmin(vision_http, review_db):
+    """vision_settings is one install-wide row: an org-scoped admin cannot change it (review HIGH-4)."""
+    client, principal = vision_http
+    principal.update(role='admin', group_id=1)
+    assert client.patch('/api/vision/settings', json={'enabled': False}).status_code == 403
+    # Per-printer settings stay with the org admin for printers of their own org (printer 9 is org 1).
+    assert client.patch('/api/printers/9/vision', json={'spaghetti_threshold': 0.7}).status_code == 200
+    principal.update(group_id=2)
+    assert client.patch('/api/printers/9/vision', json={'spaghetti_threshold': 0.2}).status_code == 404
+    assert client.patch('/api/vision/settings', json={'enabled': False}).status_code == 403
+    principal.update(group_id=None)
+    assert client.get('/api/vision/settings').json()['enabled'] is True
+    assert client.patch('/api/vision/settings', json={'enabled': False}).status_code == 200
