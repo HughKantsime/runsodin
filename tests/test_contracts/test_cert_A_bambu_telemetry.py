@@ -143,7 +143,9 @@ def test_x1c_ipcam_report_registers_rtsps_camera_stream(wire_monitor, review_db,
     assert monitor._camera_discovered is True
     assert len(monitor.go2rtc_configs) == 1
     assert monitor.go2rtc_configs[0]["streams"] == {
-        "printer_301": f"rtsps://bblp:{ACCESS}@192.0.2.31:322/streaming/live/1"}
+        "printer_301": f"rtsps://bblp:{ACCESS}@192.0.2.31:322/streaming/live/1",
+        # on-demand MJPEG variant for the OBS overlay (same builder as the API, cert-B)
+        "printer_301_mjpeg": "ffmpeg:printer_301#video=mjpeg"}
 
 
 def x1c_reported_trays(frames):
