@@ -209,36 +209,30 @@ def mjpeg_stream_name(printer_id: int) -> str:
     return f"printer_{printer_id}_mjpeg"
 
 
-def _build_go2rtc_config(db: Session) -> dict:
-    """Build go2rtc config dict from current printer state."""
-    from modules.printers.models import Printer
-    printers = db.query(Printer).filter(Printer.is_active.is_(True), Printer.camera_enabled.is_(True)).all()
+def go2rtc_config_for(printers, lan_ip) -> dict:
+    """The one go2rtc config builder. ``printers`` are active, camera-enabled rows
+    (ORM objects or anything with id/api_type/api_host/api_key/camera_url/model)."""
     streams = {}
     for p in printers:
         url = get_camera_url(p)
-        if url:
-            # UniFi Protect: rtsps + port 7441 needs rtspx (no SRTP, skip cert check)
-            if url.startswith("rtsps://") and ":7441" in url:
-                url = "rtspx://" + url[8:]
-                url = url.split("?enableSrtp")[0].split("&enableSrtp")[0]
-            if url.startswith(("http://", "https://")):
-                streams[f"printer_{p.id}"] = f"ffmpeg:{url}#video=h264"
-                # MJPEG for <img> consumers (OBS overlay): the webcam's own stream.
-                streams[mjpeg_stream_name(p.id)] = url
-            else:
-                streams[f"printer_{p.id}"] = url
-                # go2rtc does not transcode H.264 for stream.mjpeg; an on-demand
-                # ffmpeg variant (runs only while a consumer is attached) does.
-                streams[mjpeg_stream_name(p.id)] = f"ffmpeg:printer_{p.id}#video=mjpeg"
-    db.commit()
-    webrtc_config = {"listen": "0.0.0.0:8555"}
-    lan_ip = os.environ.get("ODIN_HOST_IP")
-    if not lan_ip:
-        row = db.execute(text("SELECT value FROM system_config WHERE key = 'host_ip'")).fetchone()
-        if row:
-            lan_ip = row[0]
+        if not url:
+            continue
+        # UniFi Protect: rtsps + port 7441 needs rtspx (no SRTP, skip cert check)
+        if url.startswith("rtsps://") and ":7441" in url:
+            url = "rtspx://" + url[8:]
+            url = url.split("?enableSrtp")[0].split("&enableSrtp")[0]
+        if url.startswith(("http://", "https://")):
+            streams[f"printer_{p.id}"] = f"ffmpeg:{url}#video=h264"
+            # MJPEG for <img> consumers (OBS overlay): the webcam's own stream.
+            streams[mjpeg_stream_name(p.id)] = url
+        else:
+            streams[f"printer_{p.id}"] = url
+            # go2rtc does not transcode H.264 for stream.mjpeg; an on-demand
+            # ffmpeg variant (runs only while a consumer is attached) does.
+            streams[mjpeg_stream_name(p.id)] = f"ffmpeg:printer_{p.id}#video=mjpeg"
     if not lan_ip:
         lan_ip = _get_lan_ip()
+    webrtc_config = {"listen": "0.0.0.0:8555"}
     if lan_ip:
         webrtc_config["candidates"] = [f"{lan_ip}:8555"]
     return {
@@ -246,6 +240,20 @@ def _build_go2rtc_config(db: Session) -> dict:
         "webrtc": webrtc_config,
         "streams": streams,
     }
+
+
+def _build_go2rtc_config(db: Session) -> dict:
+    """Build go2rtc config dict from current printer state."""
+    from modules.printers.models import Printer
+    printers = db.query(Printer).filter(Printer.is_active.is_(True), Printer.camera_enabled.is_(True)).all()
+    lan_ip = os.environ.get("ODIN_HOST_IP")
+    if not lan_ip:
+        row = db.execute(text("SELECT value FROM system_config WHERE key = 'host_ip'")).fetchone()
+        if row:
+            lan_ip = row[0]
+    config = go2rtc_config_for(printers, lan_ip)
+    db.commit()
+    return config
 
 
 _go2rtc_retry_lock = threading.Lock()
@@ -428,41 +436,17 @@ def sync_go2rtc_config_standalone():
 
 def sync_go2rtc_config_raw():
     """Regenerate go2rtc config using raw SQL (safe to call from monitors)."""
+    from types import SimpleNamespace
     from core.db_utils import get_db
-    streams = {}
     try:
         with get_db() as conn:
             cur = conn.cursor()
             rows = cur.execute(
                 "SELECT id, api_type, api_host, api_key, camera_url, model "
-                "FROM printers WHERE is_active IS TRUE AND camera_enabled IS TRUE"
+                "FROM printers WHERE is_active IS TRUE AND camera_enabled IS TRUE ORDER BY id"
             ).fetchall()
-            for row in rows:
-                pid, api_type, api_host, api_key, camera_url, model = row
-                url = None
-                if camera_url:
-                    try:
-                        url = crypto.decrypt(camera_url)
-                    except Exception:
-                        url = camera_url
-                elif api_type == 'bambu' and api_key and api_host:
-                    RTSP_MODELS = {'X1C', 'X1 Carbon', 'X1E', 'X1 Carbon Combo', 'H2D'}
-                    if (model or '').strip() in RTSP_MODELS:
-                        try:
-                            parts = crypto.decrypt(api_key).split('|')
-                            if len(parts) == 2:
-                                url = f"rtsps://bblp:{urlquote(parts[1], safe='')}@{api_host}:322/streaming/live/1"
-                        except Exception as e:
-                            log.debug(f"Failed to decrypt Bambu key for go2rtc: {e}")
-                if url:
-                    if url.startswith("rtsps://") and ":7441" in url:
-                        url = "rtspx://" + url[8:]
-                        url = url.split("?enableSrtp")[0].split("&enableSrtp")[0]
-                    if url.startswith(("http://", "https://")):
-                        streams[f"printer_{pid}"] = f"ffmpeg:{url}#video=h264"
-                    else:
-                        streams[f"printer_{pid}"] = url
-
+            printers = [SimpleNamespace(id=r[0], api_type=r[1], api_host=r[2], api_key=r[3], camera_url=r[4], model=r[5])
+                        for r in rows]
             lan_ip = os.environ.get("ODIN_HOST_IP")
             if not lan_ip:
                 r = cur.execute("SELECT value FROM system_config WHERE key = 'host_ip'").fetchone()
@@ -471,18 +455,7 @@ def sync_go2rtc_config_raw():
     except Exception as e:
         log.error(f"go2rtc raw sync DB error: {e}")
         return
-
-    if not lan_ip:
-        lan_ip = _get_lan_ip()
-    webrtc_config = {"listen": "0.0.0.0:8555"}
-    if lan_ip:
-        webrtc_config["candidates"] = [f"{lan_ip}:8555"]
-    config = {
-        "api": {"listen": "127.0.0.1:1984"},
-        "webrtc": webrtc_config,
-        "streams": streams,
-    }
-
+    config = go2rtc_config_for(printers, lan_ip)
     _go2rtc_restart_with_lock(config)
 
 

@@ -152,3 +152,30 @@ def test_go2rtc_config_has_on_demand_mjpeg_variant_per_camera(printers_client, r
     assert streams["printer_23"] == "ffmpeg:http://192.0.2.24:8080/webcam/?action=stream#video=h264"
     assert streams["printer_23_mjpeg"] == "http://192.0.2.24:8080/webcam/?action=stream"  # MJPEG webcam as is
     assert "printer_22" not in streams and "printer_22_mjpeg" not in streams
+
+
+def test_raw_and_orm_go2rtc_config_builders_are_identical(printers_client, review_db, monkeypatch):
+    """Monitors sync go2rtc through the raw-SQL builder; it must emit the same streams
+    (including printer_<id>_mjpeg variants) as the ORM builder the API uses."""
+    from contextlib import contextmanager
+    from core import db_utils
+    from modules.printers import route_utils
+    review_db.execute(text("UPDATE printers SET camera_url='http://192.0.2.24:8080/webcam/?action=stream',camera_enabled=1 WHERE id=23"))
+    review_db.execute(text("UPDATE printers SET camera_url='rtsps://192.0.2.9:7441/abc?enableSrtp',camera_enabled=1 WHERE id=9"))
+    review_db.commit()
+    monkeypatch.setenv("ODIN_HOST_IP", "192.0.2.200")
+
+    @contextmanager
+    def raw_db():
+        conn = review_db.get_bind().raw_connection()
+        try:
+            yield conn
+        finally:
+            conn.close()
+    monkeypatch.setattr(db_utils, "get_db", raw_db)
+    written = []
+    monkeypatch.setattr(route_utils, "_go2rtc_restart_with_lock", written.append)
+    route_utils.sync_go2rtc_config_raw()
+    orm = route_utils._build_go2rtc_config(review_db)
+    assert written == [orm]
+    assert {"printer_21_mjpeg", "printer_23_mjpeg", "printer_9_mjpeg"} <= set(orm["streams"])
