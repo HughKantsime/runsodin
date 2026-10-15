@@ -511,13 +511,10 @@ class BambuPrinter:
             
             # Model identity: real printers report it only in the get_version
             # reply (info.module[name=ota].product_name), never in print.
-            info = payload.get("info")
-            if isinstance(info, dict) and isinstance(info.get("module"), list):
-                for module in info["module"]:
-                    if isinstance(module, dict) and module.get("name") == "ota":
-                        product = module.get("product_name")
-                        if isinstance(product, str) and product.strip():
-                            self._status.printer_type = product.strip()
+            from modules.printers.monitors.mqtt_telemetry import ota_product_name
+            product = ota_product_name(payload.get("info"))
+            if product:
+                self._status.printer_type = product
 
             # Get the print section if present
             print_data = payload.get("print", {})

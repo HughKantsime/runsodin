@@ -131,3 +131,48 @@ def test_h2d_autodetection_persists_capability_before_authenticated_readback(v2_
     assert response.status_code==200
     assert response.json()['nozzle_count']==2
     assert response.json()['nozzle_1']['temp']==190
+
+
+def _captured_info(name):
+    import json
+    from pathlib import Path
+    path = Path(__file__).resolve().parents[1] / 'fixtures' / 'telemetry' / name
+    for line in path.read_text().splitlines():
+        payload = json.loads(line).get('payload') or {}
+        if isinstance(payload.get('info'), dict) and payload['info'].get('module'):
+            return payload['info']
+    raise AssertionError('no get_version reply in fixture')
+
+
+@pytest.mark.parametrize('fixture,expected', [('bambu-h2d-failure-arc.jsonl', 'H2D'), ('bambu-a1-happy-path.jsonl', 'A1')])
+def test_v2_monitor_detects_model_from_captured_get_version_reply(v2_offline_monitor, offline_store, fixture, expected):
+    from modules.printers.telemetry.bambu.raw import BambuInfoSection, BambuPrintSection
+    from modules.printers.telemetry.events import BambuInfoEvent, BambuReportEvent
+    monitor, emitters, _ = v2_offline_monitor
+    offline_store.execute(text("UPDATE printers SET machine_type=NULL, model=NULL WHERE id=199")); offline_store.commit()
+    emitters[0](BambuInfoEvent('monitor-199', 2000, BambuInfoSection.model_validate(_captured_info(fixture))))
+    emitters[0](BambuReportEvent('monitor-199', 2000, BambuPrintSection.model_validate({'gcode_state': 'IDLE'}), mqtt_retained=False))
+    offline_store.expire_all()
+    assert tuple(offline_store.execute(text('SELECT machine_type,model FROM printers WHERE id=199')).one()) == (expected, expected)
+
+
+def test_v2_monitor_requests_get_version_on_connect(v2_offline_monitor):
+    from modules.printers.telemetry.events import ConnectionEvent
+    monitor, emitters, _ = v2_offline_monitor
+    requested = []
+    monitor._v2_adapter.request_version = lambda: requested.append(True) or True
+    emitters[0](ConnectionEvent('monitor-199', 2000, 'connected'))
+    assert requested == [True]
+
+
+def test_v2_adapter_request_version_publishes_get_version():
+    import json
+    from types import SimpleNamespace
+    from modules.printers.telemetry.bambu.adapter import BambuTelemetryAdapter, BambuAdapterConfig
+    adapter = BambuTelemetryAdapter(BambuAdapterConfig('synthetic', 'SYNTHSERIAL', '127.0.0.1', ''), emitter=lambda e: None)
+    published = []
+    adapter._client = SimpleNamespace(publish=lambda topic, payload, qos=0: published.append((topic, json.loads(payload))) or SimpleNamespace(rc=0))
+    assert adapter.request_version() is False  # not connected yet
+    adapter._connected = True
+    assert adapter.request_version() is True
+    assert published == [('device/SYNTHSERIAL/request', {'info': {'sequence_id': '0', 'command': 'get_version'}})]
