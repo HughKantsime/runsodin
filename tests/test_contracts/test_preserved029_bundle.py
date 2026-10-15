@@ -226,7 +226,7 @@ def test_stage_url_handed_to_the_child_never_carries_a_credential():
     # Non-credential connection parameters are kept, as on the current restore path.
     kept = p.credentialless(make_url("postgresql+psycopg://odin@pg/odin_validate_" + "a" * 20 + "?sslmode=require&connect_timeout=10"))
     assert dict(kept.query) == {"sslmode": "require", "connect_timeout": "10"}
-    for key in ("password", "sslpassword", "passfile", "application_name", "PASSWORD"):
+    for key in ("password", "sslpassword", "passfile", "service", "sslkey", "sslcert", "application_name", "PASSWORD", "Service"):
         with pytest.raises(p.Preserved029Error, match="credential"):
             p.credentialless(make_url("postgresql+psycopg://odin@pg/odin_validate_" + "a" * 20 + f"?sslmode=require&{key}=x"))
 
@@ -234,7 +234,7 @@ def test_stage_url_handed_to_the_child_never_carries_a_credential():
 @pytest.mark.parametrize("key", ["target_url", "maintenance_url", "stage_url"])
 def test_child_admits_non_credential_queries_and_refuses_credential_ones(tmp_path, key):
     good = _control(**{key: _control()[key] + "?sslmode=require"})
-    bad = _control(**{key: _control()[key] + "?sslpassword=x"})
+    bad = _control(**{key: _control()[key] + "?service=odin"})
     script = ("from sqlalchemy.engine import make_url;v=r.read_control({path!r});"
               "[r.admit_url(make_url(v[k]),k) for k in ('target_url','maintenance_url','stage_url')];print('admitted')")
     for data, admitted in ((good, True), (bad, False)):
@@ -250,6 +250,7 @@ def test_forged_or_unowned_stage_refuses_before_child(tmp_path):
     with pytest.raises(p.Preserved029Error):
         p.restore_into_stage(engine, "odin_validate_" + "a" * 20, archive=tmp_path / "a", archive_sha256="a" * 64, target_url="", password_file=secret,
                              maintenance_url="", maintenance_password_file=secret, directory=tmp_path, journal=tmp_path, drop=lambda names: [],
+                             existing=lambda: set(),
                              deadline=monotonic() + 10)
     engine.dispose()
 
@@ -390,17 +391,24 @@ def test_restore_wraps_migration_refusals_as_validation_errors(tmp_path, monkeyp
 
 # --- Killed children and stale artifacts. -----------------------------------------------------------------
 
-def test_killed_child_leaves_no_stage_databases_or_working_files(tmp_path, monkeypatch):
+def test_killed_child_drops_only_databases_it_created(tmp_path, monkeypatch):
     from modules.system import restore_artifacts
     backups = tmp_path / "backups"; backups.mkdir()
     journal = restore_artifacts.journal_dir(backups)
     work = backups / (".odin-preserved029-" + "b" * 20); (work / "backups").mkdir(parents=True)
-    leaked = "odin_validate_" + "c" * 20
+    created = "odin_validate_" + "c" * 20         # CREATE DATABASE succeeded
+    creating = "odin_validate_" + "e" * 20        # killed while CREATE DATABASE ran
+    preexisting = "odin_validate_" + "f" * 20     # intent for a name that already existed
+    concurrent = "odin_validate_" + "a" * 20      # another operation, journaled meanwhile
     stage = "odin_validate_" + "d" * 20
     restore_artifacts.record(backups, stage)
+    child_journal = journal / work.name
     child = tmp_path / "child.py"
-    child.write_text("import os,time,sys\n"
-                     f"open(os.path.join({str(journal)!r},{leaked!r}),'w').close()\n"
+    child.write_text("import os,time\n"
+                     f"open(os.path.join({str(child_journal)!r},{created!r}),'w').close()\n"
+                     f"open(os.path.join({str(child_journal)!r},{creating + '.intent'!r}),'w').close()\n"
+                     f"open(os.path.join({str(child_journal)!r},{preexisting + '.intent'!r}),'w').close()\n"
+                     f"open(os.path.join({str(journal)!r},{concurrent!r}),'w').close()\n"
                      f"open(os.path.join({str(work / 'backups')!r},'.odin-canonical-schema-x.dump'),'w').write('x')\n"
                      "time.sleep(30)\n")
     actual_popen = subprocess.Popen
@@ -408,10 +416,12 @@ def test_killed_child_leaves_no_stage_databases_or_working_files(tmp_path, monke
     dropped = []
     with pytest.raises(p.Preserved029Error, match="deadline"):
         p._supervised({"action": "restore029"}, monotonic() + 2, journal=journal, work=work, keep={stage},
-                      drop=lambda names: dropped.extend(sorted(names)) or sorted(names))
-    assert dropped == [leaked]
-    assert not work.exists()
-    assert set(restore_artifacts.journal_entries(backups)) == {stage}  # the parent's own stage is the caller's to drop
+                      drop=lambda names: dropped.extend(sorted(names)) or sorted(names),
+                      existing=lambda: {preexisting, stage, concurrent})
+    assert dropped == sorted([created, creating])
+    assert not work.exists() and not child_journal.exists()
+    # The caller's own stage and the concurrent operation's database stay journaled.
+    assert set(restore_artifacts.journal_entries(backups)) == {stage, concurrent}
 
 
 def test_startup_sweep_drops_only_stale_journaled_databases_and_files(tmp_path):

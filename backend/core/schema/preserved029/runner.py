@@ -118,8 +118,10 @@ def read_control(path):
     return value
 
 
-# libpq parameters that carry or locate a credential, plus the ODIN-managed one.
-CREDENTIAL_QUERY_KEYS=frozenset({'password','sslpassword','passfile','application_name'})
+# libpq parameters that carry a credential or load one from a file (service= reads
+# pg_service.conf, which can hold a password; sslkey/sslcert load client keys), plus the
+# ODIN-managed application_name.
+CREDENTIAL_QUERY_KEYS=frozenset({'password','sslpassword','passfile','service','sslkey','sslcert','application_name'})
 
 
 def admit_url(url,label):
@@ -139,20 +141,28 @@ def _private_directory(path,label):
 
 
 def journal_created_databases(journal):
-    """Journal every validation database before CREATE DATABASE runs, so a killed child's
-    parent can drop it. The preserved sources create them with exec_driver_sql."""
+    """Journal every validation database the preserved sources create (exec_driver_sql):
+    ``<name>.intent`` before CREATE DATABASE runs, renamed to ``<name>`` once it succeeded,
+    so a killed child's parent can drop exactly what this child created."""
     from sqlalchemy import event
     from sqlalchemy.engine import Engine
+    def sync(folder):
+        descriptor=os.open(folder,os.O_RDONLY)
+        try:os.fsync(descriptor)
+        finally:os.close(descriptor)
     def before(conn,cursor,statement,parameters,context,executemany):
         match=_CREATE.fullmatch(statement)
         if match:
-            descriptor=os.open(Path(journal)/match.group(1),os.O_WRONLY|os.O_CREAT|os.O_TRUNC|os.O_NOFOLLOW,0o600)
+            descriptor=os.open(Path(journal)/(match.group(1)+'.intent'),os.O_WRONLY|os.O_CREAT|os.O_TRUNC|os.O_NOFOLLOW,0o600)
             try:os.fsync(descriptor)
             finally:os.close(descriptor)
-            folder=os.open(journal,os.O_RDONLY)
-            try:os.fsync(folder)
-            finally:os.close(folder)
+            sync(journal)
+    def after(conn,cursor,statement,parameters,context,executemany):
+        match=_CREATE.fullmatch(statement)
+        if match:
+            os.replace(Path(journal)/(match.group(1)+'.intent'),Path(journal)/match.group(1));sync(journal)
     event.listen(Engine,'before_cursor_execute',before)
+    event.listen(Engine,'after_cursor_execute',after)
 
 
 def _sha256(path):

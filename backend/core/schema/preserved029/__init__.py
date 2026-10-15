@@ -96,8 +96,10 @@ def _bounded_child(control_path,deadline):
                 else:raise Preserved029Error('Owned preserved029 pipe close unconfirmed') from None
 
 
-# libpq parameters that carry or locate a credential, plus the ODIN-managed one.
-CREDENTIAL_QUERY_KEYS=frozenset({'password','sslpassword','passfile','application_name'})
+# libpq parameters that carry a credential or load one from a file (service= reads
+# pg_service.conf, which can hold a password; sslkey/sslcert load client keys), plus the
+# ODIN-managed application_name.
+CREDENTIAL_QUERY_KEYS=frozenset({'password','sslpassword','passfile','service','sslkey','sslcert','application_name'})
 
 
 def refuse_credential_query(url):
@@ -118,34 +120,57 @@ def _private_file(path,label):
         raise Preserved029Error('Preserved029 '+label+' is unsafe')
 
 
-def _journal_names(journal):
-    return {entry.name for entry in Path(journal).iterdir() if re.fullmatch('odin_validate_[0-9a-f]{20}',entry.name)}
+_NAME=re.compile('odin_validate_[0-9a-f]{20}')
 
 
-def _supervised(data,deadline,*,journal,work,keep,drop):
-    """Run the child; whatever happens, drop the databases it journaled and remove its files.
+def _child_journal(journal,work):
+    """The child's own journal directory: only names in it can be the child's databases."""
+    folder=Path(journal)/work.name
+    folder.mkdir(mode=0o700)
+    return folder
 
-    ``journal`` is the persistent stage journal: the child adds an entry before each
-    CREATE DATABASE. ``work`` is the child's private working directory. ``drop`` receives
-    the new journaled names (never ``keep``) and returns those it dropped.
+
+def _journaled(folder):
+    """(confirmed, intended): CREATE DATABASE succeeded, or was about to run."""
+    confirmed=set();intended=set()
+    for entry in Path(folder).iterdir():
+        if _NAME.fullmatch(entry.name):confirmed.add(entry.name)
+        elif entry.name.endswith('.intent') and _NAME.fullmatch(entry.name[:-7]):intended.add(entry.name[:-7])
+    return confirmed,intended
+
+
+def _supervised(data,deadline,*,journal,work,keep,drop,existing):
+    """Run the child; whatever happens, drop the databases it created and remove its files.
+
+    The child journals into its own directory (never another operation's names): an
+    ``<name>.intent`` entry before each CREATE DATABASE and ``<name>`` once it succeeded.
+    A confirmed name is the child's. An intended name is the child's only if no database
+    of that name existed before the child started (``existing()``), so a database this
+    code did not create is never dropped. ``drop`` returns the names it dropped.
     """
-    before=_journal_names(journal)
+    folder=_child_journal(journal,work)
+    before=set(existing())
+    data={**data,'journal':str(folder)}
     try:
-        with tempfile.TemporaryDirectory(prefix='preserved029-parent-') as folder:
-            control=Path(folder)/'control.json'
+        with tempfile.TemporaryDirectory(prefix='preserved029-parent-') as control_folder:
+            control=Path(control_folder)/'control.json'
             descriptor=os.open(control,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
             with os.fdopen(descriptor,'wb') as file:
                 file.write(json.dumps(data,separators=(',',':')).encode());file.flush();os.fsync(file.fileno())
             return _bounded_child(control,deadline)
     finally:
-        created=_journal_names(journal)-before-set(keep)
         try:
-            for name in drop(created):(Path(journal)/name).unlink(missing_ok=True)
+            confirmed,intended=_journaled(folder)
+            targets=(confirmed|{name for name in intended if name not in before})-set(keep)
+            dropped=set(drop(targets)) if targets else set()
+            for name in dropped|{name for name in intended if name in before}:
+                (folder/name).unlink(missing_ok=True);(folder/(name+'.intent')).unlink(missing_ok=True)
+            if not any(folder.iterdir()):folder.rmdir()
         finally:
             shutil.rmtree(work,ignore_errors=True)
 
 
-def restore_into_stage(engine,name,*,archive,archive_sha256,target_url,password_file,maintenance_url,maintenance_password_file,directory,journal,drop,deadline):
+def restore_into_stage(engine,name,*,archive,archive_sha256,target_url,password_file,maintenance_url,maintenance_password_file,directory,journal,drop,existing,deadline):
     """Fixed action on an exact fresh owned DB. Returns the archive's schema era (25/26/27).
 
     The caller owns and discards the stage on any failure; the child's own validation
@@ -171,7 +196,7 @@ def restore_into_stage(engine,name,*,archive,archive_sha256,target_url,password_
           'maintenance_url':maintenance_url,'maintenance_password_file':str(Path(maintenance_password_file).resolve()),
           'directory':str(work/'backups'),'journal':str(Path(journal).resolve()),'database':name,'oid':identity[1],'owner':identity[2],
           'stage_url':url.render_as_string(hide_password=True),'deadline':deadline}
-    era=_supervised(data,deadline,journal=journal,work=work,keep={name},drop=drop)
+    era=_supervised(data,deadline,journal=journal,work=work,keep={name},drop=drop,existing=existing)
     # Child stdout is insufficient: re-check package and the same owned DB identity.
     check_package()
     with engine.connect() as c:

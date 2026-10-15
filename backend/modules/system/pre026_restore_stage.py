@@ -130,6 +130,7 @@ def prepared_archive(archive,target_url,maintenance_url,password_file,maintenanc
                 password_file=password_file,maintenance_url=maintenance_url,maintenance_password_file=maintenance_password_file,
                 directory=directory,journal=artifacts.journal_dir(directory),
                 drop=lambda names:artifacts.drop_databases(maintenance_url,maintenance_password_file,names),
+                existing=lambda:artifacts.existing_databases(maintenance_url,maintenance_password_file),
                 deadline=monotonic()+STAGE_SECONDS)
         except preserved029.Preserved029Refused as refusal:
             # The preserved sources judged the archive. Their client/credential failures are
@@ -159,7 +160,8 @@ def prepared_archive(archive,target_url,maintenance_url,password_file,maintenanc
     finally:
         if engine is not None:engine.dispose()
         try:
-            with maintenance.connect() as c:c.exec_driver_sql('DROP DATABASE IF EXISTS "'+name+'" WITH (FORCE)')
+            if created:  # Only a database this code created.
+                with maintenance.connect() as c:c.exec_driver_sql('DROP DATABASE IF EXISTS "'+name+'" WITH (FORCE)')
             artifacts.forget(directory,name)
         finally:
             maintenance.dispose()

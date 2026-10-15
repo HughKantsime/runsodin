@@ -36,8 +36,18 @@ def journal_dir(backups: Path) -> Path:
 
 
 def journal_entries(backups: Path) -> dict[str, float]:
+    """Journaled names and their age, including preserved029 children's directories."""
     folder = journal_dir(backups)
-    return {entry.name: entry.lstat().st_mtime for entry in folder.iterdir() if _NAME.fullmatch(entry.name) and entry.is_file()}
+    entries = {}
+    for entry in folder.iterdir():
+        if _NAME.fullmatch(entry.name) and entry.is_file():
+            entries[entry.name] = entry.lstat().st_mtime
+        elif _STALE_DIR.fullmatch(entry.name) and entry.is_dir() and not entry.is_symlink():
+            for child in entry.iterdir():
+                name = child.name[:-7] if child.name.endswith(".intent") else child.name
+                if _NAME.fullmatch(name) and child.is_file():
+                    entries[name] = min(entries.get(name, child.lstat().st_mtime), child.lstat().st_mtime)
+    return entries
 
 
 def record(backups: Path, name: str) -> None:
@@ -57,8 +67,15 @@ def record(backups: Path, name: str) -> None:
 
 
 def forget(backups: Path, name: str) -> None:
-    if _NAME.fullmatch(name):
-        (journal_dir(backups) / name).unlink(missing_ok=True)
+    if not _NAME.fullmatch(name):
+        return
+    folder = journal_dir(backups)
+    (folder / name).unlink(missing_ok=True)
+    for child in folder.iterdir():
+        if _STALE_DIR.fullmatch(child.name) and child.is_dir() and not child.is_symlink():
+            (child / name).unlink(missing_ok=True); (child / (name + ".intent")).unlink(missing_ok=True)
+            if not any(child.iterdir()):
+                child.rmdir()
 
 
 def drop_databases(maintenance_url: str, maintenance_password_file: str | None, names) -> list[str]:
@@ -74,6 +91,19 @@ def drop_databases(maintenance_url: str, maintenance_password_file: str | None, 
     finally:
         engine.dispose()
     return names
+
+
+def existing_databases(maintenance_url: str, maintenance_password_file: str | None) -> frozenset[str]:
+    """Names of the odin_validate_* databases that exist right now."""
+    from sqlalchemy import text
+    from core.database_config import create_database_engine
+    engine = create_database_engine(maintenance_url, role="restore", password_file=maintenance_password_file)
+    try:
+        with engine.connect() as connection:
+            rows = connection.execute(text("SELECT datname FROM pg_database WHERE datname LIKE 'odin\\_validate\\_%'")).scalars()
+            return frozenset(name for name in rows if _NAME.fullmatch(name))
+    finally:
+        engine.dispose()
 
 
 def drop_and_forget(backups: Path, maintenance_url: str, maintenance_password_file: str | None, names) -> list[str]:

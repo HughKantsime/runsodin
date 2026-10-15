@@ -818,10 +818,11 @@ def _validate_current_postgres_restore(
     finally:
         if canonical_archive is not None:
             canonical_archive.unlink(missing_ok=True)
-        with maintenance_engine.connect() as connection:
-            connection.exec_driver_sql(
-                f'DROP DATABASE IF EXISTS "{validation_database}" WITH (FORCE)'
-            )
+        if created:  # Only a database this code created.
+            with maintenance_engine.connect() as connection:
+                connection.exec_driver_sql(
+                    f'DROP DATABASE IF EXISTS "{validation_database}" WITH (FORCE)'
+                )
         restore_artifacts.forget(paths.backups, validation_database)
         maintenance_engine.dispose()
     return {
