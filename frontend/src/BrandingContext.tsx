@@ -211,7 +211,8 @@ function applyBrandingCSS(b) {
   // Accent / brand — always apply (darken for contrast in light mode)
   const primary = isLight ? ensureContrast(b.primary_color) : b.primary_color
   root.style.setProperty("--brand-primary", primary)
-  root.style.setProperty("--brand-accent", b.accent_color)
+  // A per-user accent (GET /api/auth/me/theme, hooks/serverTheme.ts) wins over the branding accent.
+  root.style.setProperty("--brand-accent", root.dataset.userAccent || b.accent_color)
 
   // Fonts — always apply
   root.style.setProperty("--brand-font-display", b.font_display)

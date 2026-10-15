@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { loadServerTheme, saveServerMode, THEME_EVENT } from './serverTheme'
 
 const STORAGE_KEY = 'odin-theme'
 
@@ -17,7 +18,10 @@ function getInitialTheme() {
  * Theme hook with system color scheme detection.
  *
  * Reads from localStorage ('odin-theme'). If no stored preference exists,
- * falls back to the OS prefers-color-scheme media query.
+ * falls back to the OS prefers-color-scheme media query. The signed-in
+ * user's account copy (GET /api/auth/me/theme) is loaded once per page load
+ * and wins, and every explicit choice is saved to the account
+ * (PUT /api/auth/me/theme) so it follows the user to other devices.
  *
  * Returns { theme, setTheme, toggleTheme }.
  *
@@ -32,6 +36,14 @@ export function useTheme() {
   useEffect(() => {
     document.documentElement.classList.toggle('light', theme === 'light')
   }, [theme])
+
+  // Account theme: apply the server copy and follow changes from other hook instances.
+  useEffect(() => {
+    const onServerTheme = (e) => _setTheme(e.detail)
+    window.addEventListener(THEME_EVENT, onServerTheme)
+    loadServerTheme()
+    return () => window.removeEventListener(THEME_EVENT, onServerTheme)
+  }, [])
 
   // Listen for OS-level color scheme changes. Only respond if the user
   // has never explicitly chosen a theme (no stored preference).
@@ -51,15 +63,15 @@ export function useTheme() {
   const setTheme = useCallback((value) => {
     localStorage.setItem(STORAGE_KEY, value)
     _setTheme(value)
+    saveServerMode(value)
   }, [])
 
   const toggleTheme = useCallback(() => {
-    _setTheme(prev => {
-      const next = prev === 'dark' ? 'light' : 'dark'
-      localStorage.setItem(STORAGE_KEY, next)
-      return next
-    })
-  }, [])
+    const next = theme === 'dark' ? 'light' : 'dark'
+    localStorage.setItem(STORAGE_KEY, next)
+    _setTheme(next)
+    saveServerMode(next)
+  }, [theme])
 
   return { theme, setTheme, toggleTheme }
 }
