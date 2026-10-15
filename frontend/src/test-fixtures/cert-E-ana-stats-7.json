@@ -1,0 +1,36 @@
+{
+  "jobs": {
+    "completed_today": 0,
+    "pending": 1,
+    "printing": 0,
+    "scheduled": 0
+  },
+  "models": 3,
+  "printer_stats": [
+    {
+      "avg_job_hours": 3.0,
+      "completed_jobs": 2,
+      "failed_jobs": 0,
+      "id": 9,
+      "name": "P1S-09",
+      "success_rate": 100.0,
+      "total_hours": 6.0,
+      "utilization_pct": 0.8
+    },
+    {
+      "avg_job_hours": 3.0,
+      "completed_jobs": 1,
+      "failed_jobs": 1,
+      "id": 10,
+      "name": "P1S-10",
+      "success_rate": 50.0,
+      "total_hours": 3.0,
+      "utilization_pct": 0.4
+    }
+  ],
+  "printers": {
+    "active": 2,
+    "total": 2
+  },
+  "spoolman_connected": false
+}

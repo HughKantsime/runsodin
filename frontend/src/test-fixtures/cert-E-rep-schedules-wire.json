@@ -1,0 +1,44 @@
+{
+  "scope": "Captured from real reports router with hashed superadmin API token; delivery over local SMTP peer",
+  "list": [
+    {
+      "id": 1,
+      "name": "Cert weekly",
+      "report_type": "job_summary",
+      "frequency": "weekly",
+      "recipients": [
+        "ops@example.test"
+      ],
+      "filters": {},
+      "is_active": true,
+      "next_run_at": "2026-10-22 08:00:00.023925+00:00",
+      "last_run_at": null,
+      "created_at": "2026-10-15 00:42:42"
+    }
+  ],
+  "toggle": {
+    "status": "ok"
+  },
+  "run_sent": {
+    "status": 200,
+    "body": {
+      "status": "sent"
+    }
+  },
+  "run_partial": {
+    "status": 502,
+    "body": {
+      "detail": {
+        "message": "Report was not delivered to every recipient",
+        "sent_count": 1,
+        "failed_count": 1
+      }
+    }
+  },
+  "run_unconfigured": {
+    "status": 400,
+    "body": {
+      "detail": "Report generation failed. Check report configuration."
+    }
+  }
+}

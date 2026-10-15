@@ -1,0 +1,33 @@
+{
+  "printers_list": [
+    {
+      "id": 9001,
+      "name": "Synthetic-A",
+      "nozzle_temp": null,
+      "bed_temp": null,
+      "gcode_state": null
+    }
+  ],
+  "printer_detail": {
+    "id": 9001,
+    "name": "Synthetic-A",
+    "nozzle_temp": null,
+    "bed_temp": null,
+    "gcode_state": null
+  },
+  "frames": [
+    {
+      "type": "printer_telemetry",
+      "data": {
+        "printer_id": 9001,
+        "state": "RUNNING",
+        "progress": 9,
+        "nozzle_temp": 220.15625,
+        "bed_temp": 65.03125,
+        "remaining_min": 77,
+        "current_layer": 1,
+        "total_layers": 240
+      }
+    }
+  ]
+}

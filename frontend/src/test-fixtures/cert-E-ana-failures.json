@@ -1,0 +1,60 @@
+{
+  "by_filament": [
+    {
+      "completed": 3,
+      "failed": 2,
+      "failure_rate": 40.0,
+      "type": "unknown"
+    }
+  ],
+  "by_model": [
+    {
+      "completed": 1,
+      "failed": 2,
+      "name": "Shared model",
+      "success_rate": 33.3
+    },
+    {
+      "completed": 2,
+      "failed": 0,
+      "name": "Own model",
+      "success_rate": 100.0
+    }
+  ],
+  "by_printer": [
+    {
+      "completed": 2,
+      "failed": 0,
+      "mtbf_hours": null,
+      "name": "P1S-09",
+      "success_rate": 100.0
+    },
+    {
+      "completed": 1,
+      "failed": 2,
+      "mtbf_hours": 2.0,
+      "name": "P1S-10",
+      "success_rate": 33.3
+    }
+  ],
+  "hms_errors": [
+    {
+      "code": "0300-0100",
+      "count": 1,
+      "message": "Synthetic nozzle clog"
+    }
+  ],
+  "overall_success_rate": 60.0,
+  "top_failure_reasons": [
+    {
+      "count": 1,
+      "reason": "spaghetti"
+    },
+    {
+      "count": 1,
+      "reason": "adhesion"
+    }
+  ],
+  "total_completed": 3,
+  "total_failed": 2
+}

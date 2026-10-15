@@ -1,0 +1,19 @@
+{
+  "default_margin": 25.0,
+  "electricity_rate": 1.0,
+  "failure_rate": 10.0,
+  "hourly_rate": 12.0,
+  "monthly_rent": 500.0,
+  "other_costs": 4.0,
+  "packaging_cost": 3.0,
+  "packing_min": 10,
+  "parts_per_month": 100,
+  "post_processing_min": 10,
+  "printer_cost": 1000.0,
+  "printer_lifespan": 1000,
+  "printer_wattage": 500,
+  "spool_cost": 200.0,
+  "spool_weight": 1000.0,
+  "support_min": 10,
+  "ui_mode": "advanced"
+}

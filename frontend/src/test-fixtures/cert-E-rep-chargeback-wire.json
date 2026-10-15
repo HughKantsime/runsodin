@@ -1,0 +1,35 @@
+{
+  "request": {
+    "path": "/reports/chargebacks",
+    "start_date": "2026-09-01",
+    "end_date": "2026-09-30"
+  },
+  "rows": [
+    {
+      "user_id": 2,
+      "username": "manager",
+      "job_count": 2,
+      "total_cost": 10.0,
+      "unknown_cost_jobs": 0,
+      "currency": "EUR",
+      "cost_basis": "job_estimate_current_currency",
+      "total_hours": 7.0,
+      "total_grams": 24.0,
+      "grams_unknown": 0,
+      "grams_basis": "recorded_measured_or_file_estimate"
+    },
+    {
+      "user_id": 1,
+      "username": "student",
+      "job_count": 2,
+      "total_cost": 5.0,
+      "unknown_cost_jobs": 0,
+      "currency": "EUR",
+      "cost_basis": "job_estimate_current_currency",
+      "total_hours": 3.5,
+      "total_grams": 15.5,
+      "grams_unknown": 0,
+      "grams_basis": "recorded_measured_or_file_estimate"
+    }
+  ]
+}
