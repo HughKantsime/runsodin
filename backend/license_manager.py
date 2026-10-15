@@ -569,6 +569,31 @@ def require_feature(feature: str):
         )
 
 
+_READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def feature_gate(feature: str, *, keep_existing_records: bool = False):
+    """FastAPI dependency enforcing ``require_feature`` for a route family.
+
+    ``keep_existing_records=True`` is the downgrade/expiry policy for
+    record-keeping features (orders, products, maintenance): a license that
+    lapses must never cost an install its own data, so reads/exports (GET,
+    HEAD, OPTIONS) and deletion of existing records stay available on every
+    tier, while creating or changing records (POST, PUT, PATCH) requires the
+    entitlement. Without it every method is gated (computed features such as
+    analytics, and configuration such as branding).
+    """
+    from fastapi import Request
+
+    def dependency(request: Request) -> None:
+        if keep_existing_records and (request.method in _READ_METHODS or request.method == "DELETE"):
+            return
+        require_feature(feature)
+
+    dependency.__name__ = f"require_feature_{feature}"
+    return dependency
+
+
 def license_is_managed_externally() -> bool:
     """Whether license lifecycle is controlled by a read-only deployment mount."""
     return os.environ.get("ODIN_LICENSE_READ_ONLY", "").strip().lower() in {

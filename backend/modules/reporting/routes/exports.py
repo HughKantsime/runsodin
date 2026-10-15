@@ -18,6 +18,7 @@ import io
 from core.db import get_db
 from core.rbac import require_role, require_superadmin, get_org_scope
 from core.models import AuditLog
+from license_manager import feature_gate
 from modules.jobs.models import Job
 from modules.inventory.models import Spool, SpoolUsage
 from modules.models_library.models import Model
@@ -229,7 +230,7 @@ def _audit_projection(db):
     ])
 
 
-@router.get("/export/audit-logs")
+@router.get("/export/audit-logs", dependencies=[Depends(feature_gate("audit_export"))])
 def export_audit_logs_csv(
     entity_type: Optional[str] = None,
     action: Optional[str] = None,

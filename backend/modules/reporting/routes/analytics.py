@@ -19,7 +19,7 @@ from modules.printers.models import Printer
 from modules.models_library.models import Model
 from modules.jobs.models import Job
 from modules.reporting.education_usage import build_education_usage_report
-from license_manager import require_feature
+from license_manager import feature_gate, require_feature
 
 log = logging.getLogger("odin.api")
 
@@ -175,7 +175,7 @@ async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(
 
 # ============== Analytics ==============
 
-@router.get("/analytics")
+@router.get("/analytics", dependencies=[Depends(feature_gate("analytics"))])
 def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer", scope="read:analytics"))):
     """Get analytics data for dashboard."""
     from sqlalchemy import func
@@ -385,7 +385,7 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
 
 # ============== Failure Analytics ==============
 
-@router.get("/analytics/failures")
+@router.get("/analytics/failures", dependencies=[Depends(feature_gate("analytics"))])
 def get_failure_analytics(
     days: int = Query(default=30, ge=1, le=365),
     db: Session = Depends(get_db),
@@ -513,7 +513,7 @@ def get_failure_analytics(
 
 # ============== Time Accuracy Analytics ==============
 
-@router.get("/analytics/time-accuracy")
+@router.get("/analytics/time-accuracy", dependencies=[Depends(feature_gate("analytics"))])
 def get_time_accuracy(
     days: int = Query(default=30, ge=1, le=365),
     db: Session = Depends(get_db),
