@@ -2,15 +2,17 @@
 
 The bundle is a byte copy of the restore-stage sources at source_commit (the last
 tree whose live files the pre026 restore contract qualified). It hosts the 025, 026
-and 027-era PostgreSQL archive stages so live schema sources can evolve.
+and 027-era PostgreSQL archive stages so live schema sources can evolve. It also holds
+core/timelapse_recipes.py, which migration 019 reads by path for its own source pin
+(preserved027 lacks it).
 """
 import hashlib
 import json
 import stat
 from pathlib import Path
 
-MANIFEST_SHA256='5bd43e2f9881d8943d35c930c24c60e1f8085c9672d61fac8b32f1134172c587'
-SOURCE_COUNT=118
+MANIFEST_SHA256='98ebd420487e6e1e737ffba28af54f63c363eaab8c21f0daf842e141a0682901'
+SOURCE_COUNT=119
 SQL_COUNT=24
 LEDGER_COUNT=52
 
