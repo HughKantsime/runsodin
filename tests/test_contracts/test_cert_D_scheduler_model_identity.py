@@ -11,7 +11,10 @@ from sqlalchemy import text
 from tests.test_contracts.test_cert_D_jobsB_scheduler import fleet, run, rows  # noqa: F401
 from tests.test_contracts.test_education_review_workflow import review_db  # noqa: F401
 
-FLEET = {31: 'X1C', 32: 'X1', 33: 'X1E', 34: 'P1P', 35: 'P1S', 36: 'A1 Mini', 37: 'A1', 38: 'H2D'}
+from modules.printers.printer_models import BAMBU_MODEL_IDS as _IDS  # noqa: E402
+
+# One printer per distinct model in the single Bambu table (friendly names, as MQTT auto-detect stores them).
+FLEET = {31 + i: name for i, name in enumerate(sorted(set(_IDS.values())))}
 
 
 def _fleet(db, models=FLEET):
