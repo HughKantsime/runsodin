@@ -110,22 +110,14 @@ def test_denied_ip_is_refused_before_authentication(odin):
     assert r.status_code == 403 and r.json()["detail"] == "IP address not allowed"
 
 
-ALLOWLIST_EXEMPT_DEFECT = (
-    "DEFECT: backend/core/app.py:506-519 skips the IP allowlist (checked at :521-552) for every path ending in "
-    "'/label' or '/labels/batch', all '/api/auth*' and '/api/setup*' routes, '/api/overlay/*' and '/api/license'. "
-    "Scenario: allowlist enabled for the school LAN only; an outsider from a non-allowlisted address with a "
-    "stolen/phished password (or session token) still calls POST /api/auth/login, /api/auth/me, "
-    "/api/auth/ws-token (then the exempt /ws telemetry socket), GET /api/spools/{id}/label and "
-    "POST /api/vision/training-data/{id}/label, so the allowlist neither blocks credential use nor those APIs.")
+# The allowlist covers every /api route, including login, labels, setup and the WebSocket token mint.
 
 
-@pytest.mark.xfail(strict=True, reason=ALLOWLIST_EXEMPT_DEFECT)
 def test_denied_ip_cannot_log_in(odin):
     r = odin.login(*odin.admin, **at("192.0.2.66"))
     assert r.status_code == 403, r.status_code
 
 
-@pytest.mark.xfail(strict=True, reason=ALLOWLIST_EXEMPT_DEFECT)
 @pytest.mark.parametrize("method,path", [
     ("get", "/api/auth/me"),
     ("post", "/api/auth/ws-token"),
@@ -135,6 +127,31 @@ def test_denied_ip_cannot_log_in(odin):
 def test_denied_ip_cannot_use_exempt_authenticated_api(odin, method, path):
     r = getattr(odin, method)(path, headers=at("192.0.2.67", odin.ah), json={} if method == "post" else None)
     assert r.status_code == 403, (path, r.status_code, r.text[:200])
+
+
+def _ws_connect(odin, token, ip):
+    import asyncio
+    import websockets
+
+    async def run():
+        url = odin.url.replace("http://", "ws://") + "/ws?token=" + token
+        try:
+            async with websockets.connect(url, additional_headers={"X-Forwarded-For": ip}, open_timeout=10) as ws:
+                await ws.send("ping")
+                return await asyncio.wait_for(ws.recv(), timeout=10)
+        except websockets.exceptions.InvalidStatus as exc:
+            return exc.response.status_code
+        except websockets.exceptions.ConnectionClosed as exc:
+            return exc.rcvd.code if exc.rcvd else None
+    return asyncio.run(run())
+
+
+def test_denied_ip_cannot_open_the_telemetry_websocket(odin):
+    token = odin.post("/api/auth/ws-token", headers=at("10.20.5.5", odin.ah)).json()["token"]
+    assert _ws_connect(odin, token, "10.20.5.5") == "pong"
+    token = odin.post("/api/auth/ws-token", headers=at("10.20.5.5", odin.ah)).json()["token"]
+    refused = _ws_connect(odin, token, "192.0.2.68")
+    assert refused != "pong" and refused in (403, 4003), refused
 
 
 def test_disabling_allowlist_restores_access(odin):
