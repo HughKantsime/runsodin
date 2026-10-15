@@ -143,16 +143,22 @@ grams2, hours2 = one('SELECT grams_used, hours_used FROM quota_usage WHERE user_
 # actual_end, no attempt_key) is a no-op, and the marker is keyed on the attempt.
 assert (grams2, hours2) == (grams, hours), (grams2, hours2, grams, hours)
 assert one("SELECT COUNT(*) FROM system_config WHERE key LIKE :k", k=f'quota_attempt:job:{jid}:%')[0] == 1
-# A reset-and-reprint is a new attempt and charges again.
+# A status correction (complete -> fail -> complete) is the same attempt: one charge.
+assert client.post(f'/jobs/{jid}/fail').status_code == 200
+assert client.post(f'/jobs/{jid}/complete').status_code == 200
+grams_corr, _ = one('SELECT grams_used, hours_used FROM quota_usage WHERE user_id=3 AND period_key=:k', k=key)
+assert abs(grams_corr - grams) < 1e-6, (grams_corr, grams)
+# A reset bumps the attempt counter, so the reprint charges again.
 assert client.post(f'/jobs/{jid}/reset').status_code == 200
-assert one("SELECT COUNT(*) FROM system_config WHERE key LIKE :k", k=f'quota_attempt:job:{jid}:%')[0] == 0
+assert one("SELECT value FROM system_config WHERE key = :k", k=f'quota_attempt:seq:{jid}')[0] is not None
 assert client.post(f'/jobs/{jid}/start').status_code == 200
 assert client.post(f'/jobs/{jid}/complete').status_code == 200
 grams3, _ = one('SELECT grams_used, hours_used FROM quota_usage WHERE user_id=3 AND period_key=:k', k=key)
 assert abs(grams3 - grams - 42.5) < 1e-6, (grams3, grams)
-# Delete clears the attempt marker so a reused id cannot inherit it.
+# Delete clears the job's counter and its manual markers.
 assert client.delete(f'/jobs/{jid}').status_code == 204
-assert one("SELECT COUNT(*) FROM system_config WHERE key LIKE :k", k=f'quota_attempt:job:{jid}:%')[0] == 0
+assert one("SELECT COUNT(*) FROM system_config WHERE key LIKE :a OR key = :b",
+           a=f'quota_attempt:job:{jid}:%', b=f'quota_attempt:seq:{jid}')[0] == 0
 print('postgres-quota-charging-pass', flush=True)
 
 # 3. GDPR erasure scrubs audit details (JSON) and login attempts.
@@ -169,11 +175,13 @@ with engine.begin() as c:
     # Bystander rows (security review MED 5): a similar name and a non-ASCII name stay byte-identical.
     bystander_ids = [c.execute(text("INSERT INTO audit_logs(action,entity_type,details) VALUES('auth.login_failed','user',CAST(:d AS JSON)) RETURNING id"),
                                {'d': json.dumps(d)}).scalar_one()
-                     for d in ({'username': 'pg_operator2', 'note': 'pg_operator2 from lab'}, {'username': 'zoë_ström'})]
+                     for d in ({'username': 'pg_operator2', 'note': 'pg_operator2 from lab'}, {'username': 'zoë_ström'}, {'username': 'pg_operator-lab', 'note': 'pg_operator-lab signed in'})]
 bystanders_before = {i: one('SELECT CAST(details AS TEXT) FROM audit_logs WHERE id=:i', i=i)[0] for i in bystander_ids}
 r = client.delete('/users/3/erase')
 assert r.status_code == 200, r.text
-left = one("SELECT COUNT(*) FROM audit_logs WHERE CAST(details AS TEXT) ~ 'pg_operator([^0-9]|$)'")[0]
+# A leftover is pg_operator NOT flanked by an identifier edge char (so the kept
+# bystanders pg_operator2 and pg_operator-lab do not count).
+left = one(r"SELECT COUNT(*) FROM audit_logs WHERE CAST(details AS TEXT) ~ 'pg_operator([^0-9A-Za-z_.+@-]|$)'")[0]
 assert left == 0, left
 with engine.connect() as c:
     for (d,) in c.execute(text("SELECT CAST(details AS TEXT) FROM audit_logs WHERE details IS NOT NULL")):
