@@ -1,0 +1,113 @@
+{
+  "scope": "Owned real /api/vision/detections and /api/vision/stats HTTP responses (cert C)",
+  "detections": {
+    "items": [
+      {
+        "id": 8801,
+        "printer_id": 9,
+        "print_job_id": null,
+        "detection_type": "spaghetti",
+        "confidence": 0.9,
+        "status": "pending",
+        "frame_path": "9/8801.jpg",
+        "bbox_json": "[1,2,3,4]",
+        "metadata_json": null,
+        "reviewed_by": null,
+        "reviewed_at": null,
+        "created_at": "2026-10-14T12:00:00",
+        "printer_name": "P1S-09"
+      },
+      {
+        "id": 8802,
+        "printer_id": 9,
+        "print_job_id": null,
+        "detection_type": "detachment",
+        "confidence": 0.9,
+        "status": "confirmed",
+        "frame_path": "9/8802.jpg",
+        "bbox_json": "[1,2,3,4]",
+        "metadata_json": null,
+        "reviewed_by": null,
+        "reviewed_at": null,
+        "created_at": "2026-10-14T12:00:00",
+        "printer_name": "P1S-09"
+      },
+      {
+        "id": 8803,
+        "printer_id": 10,
+        "print_job_id": null,
+        "detection_type": "detachment",
+        "confidence": 0.9,
+        "status": "dismissed",
+        "frame_path": "10/8803.jpg",
+        "bbox_json": "[1,2,3,4]",
+        "metadata_json": null,
+        "reviewed_by": null,
+        "reviewed_at": null,
+        "created_at": "2026-10-14T12:00:00",
+        "printer_name": "P1S-10"
+      },
+      {
+        "id": 8804,
+        "printer_id": 10,
+        "print_job_id": null,
+        "detection_type": "spaghetti",
+        "confidence": 0.9,
+        "status": "auto_paused",
+        "frame_path": "10/8804.jpg",
+        "bbox_json": "[1,2,3,4]",
+        "metadata_json": null,
+        "reviewed_by": null,
+        "reviewed_at": null,
+        "created_at": "2026-10-14T12:00:00",
+        "printer_name": "P1S-10"
+      },
+      {
+        "id": 8805,
+        "printer_id": 9,
+        "print_job_id": null,
+        "detection_type": "first_layer",
+        "confidence": 0.9,
+        "status": "pending",
+        "frame_path": "9/8805.jpg",
+        "bbox_json": "[1,2,3,4]",
+        "metadata_json": null,
+        "reviewed_by": null,
+        "reviewed_at": null,
+        "created_at": "2026-10-14T12:00:00",
+        "printer_name": "P1S-09"
+      }
+    ],
+    "total": 5
+  },
+  "stats": {
+    "days": 7,
+    "by_type": {
+      "detachment": 2,
+      "first_layer": 1,
+      "spaghetti": 2
+    },
+    "by_status": {
+      "auto_paused": 1,
+      "confirmed": 1,
+      "dismissed": 1,
+      "pending": 2
+    },
+    "by_printer": [
+      {
+        "printer_id": 9,
+        "name": "P1S-09",
+        "nickname": null,
+        "count": 3
+      },
+      {
+        "printer_id": 10,
+        "name": "P1S-10",
+        "nickname": null,
+        "count": 2
+      }
+    ],
+    "accuracy_pct": 50.0,
+    "total_reviewed": 2
+  }
+}

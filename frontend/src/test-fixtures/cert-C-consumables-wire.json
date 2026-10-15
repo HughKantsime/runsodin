@@ -1,0 +1,35 @@
+{
+  "scope": "Owned real GET /consumables response (cert C)",
+  "consumables": [
+    {
+      "id": 2,
+      "name": "Cert box",
+      "sku": null,
+      "unit": "piece",
+      "cost_per_unit": 0.4,
+      "current_stock": 50.0,
+      "min_stock": 5.0,
+      "vendor": null,
+      "notes": null,
+      "status": "active",
+      "created_at": "2026-10-14T12:00:00",
+      "updated_at": "2026-10-14T12:00:00",
+      "is_low_stock": false
+    },
+    {
+      "id": 1,
+      "name": "Cert magnet",
+      "sku": "MAG-6x3",
+      "unit": "piece",
+      "cost_per_unit": 0.12,
+      "current_stock": 3.0,
+      "min_stock": 10.0,
+      "vendor": "Cert vendor",
+      "notes": null,
+      "status": "active",
+      "created_at": "2026-10-14T12:00:00",
+      "updated_at": "2026-10-14T12:00:00",
+      "is_low_stock": true
+    }
+  ]
+}
