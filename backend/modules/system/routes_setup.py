@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel as PydanticBaseModel, field_validator
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from core.db import get_db
@@ -175,6 +176,20 @@ def setup_create_admin(request: SetupAdminRequest, http_request: Request, db: Se
     if not pw_valid:
         raise HTTPException(status_code=400, detail=pw_msg)
     password_hash_val = hash_password(request.password)
+    # First-user-wins, enforced by the database: the claim row's primary key
+    # admits exactly one claiming transaction, on SQLite and PostgreSQL alike.
+    # A concurrent claimant fails on the key (after the winner commits) and
+    # creates nothing; the check above alone is racy.
+    try:
+        db.execute(text("INSERT INTO system_config (key, value) VALUES ('setup_admin_claimed', :v)"),
+                   {"v": "true"})
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=403, detail="Setup already claimed — an admin account exists. Log in to continue.")
+    if db.execute(text("SELECT COUNT(*) FROM users")).scalar():
+        db.rollback()
+        raise HTTPException(status_code=403, detail="Setup already claimed — an admin account exists. Log in to continue.")
     try:
         db.execute(text("""
             INSERT INTO users (username, email, password_hash, role)
