@@ -359,3 +359,18 @@ def test_unplugged_ams_ht_unit_slot_is_cleared(wire_monitor, review_db):
     # Four-tray units still reported keep their slots.
     assert review_db.execute(text("SELECT COUNT(*) FROM filament_slots WHERE printer_id=301 AND slot_number<=8 "
                                   "AND filament_type<>'empty'")).scalar_one() >= 7
+
+
+def test_legacy_connect_requests_get_version_without_blocking_the_network_loop():
+    """request_full_status runs inside paho's on_connect; a second blocking publish
+    there stalled the loop and made the following start command's outcome unknown."""
+    from types import SimpleNamespace
+    from modules.printers.adapters.bambu import BambuPrinter
+    printer = BambuPrinter(ip="127.0.0.1", serial="SYNTHSERIAL", access_code="")
+    published, waits = [], []
+    result = SimpleNamespace(rc=0, wait_for_publish=lambda timeout=None: waits.append(timeout), is_published=lambda: True)
+    printer._client = SimpleNamespace(publish=lambda topic, payload, *a, **k: published.append(json.loads(payload)) or result)
+    printer._connected = True
+    printer.request_full_status()
+    assert {"info": {"sequence_id": "0", "command": "get_version"}} in published
+    assert len(waits) == 1  # only the pre-existing pushall waits for the broker

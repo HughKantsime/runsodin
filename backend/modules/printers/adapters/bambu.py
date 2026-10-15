@@ -227,7 +227,14 @@ class BambuPrinter:
         self._publish(payload)
         # The model is only reported in the get_version reply
         # (info.module[name=ota].product_name), so ask for it as well.
-        self._publish({"info": {"sequence_id": "0", "command": "get_version"}})
+        # Fire-and-forget: this runs inside paho's on_connect callback, where
+        # _publish's wait_for_publish blocks the network loop (up to 5 s per
+        # call) and delays every command queued behind it.
+        try:
+            self._client.publish(self._topic_request,
+                                 json.dumps({"info": {"sequence_id": "0", "command": "get_version"}}))
+        except Exception:
+            pass
     
     def pause_print(self) -> bool:
         """Pause current print."""
