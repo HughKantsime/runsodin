@@ -157,11 +157,6 @@ def _completion_case(review_db, spoolman_id=42):  # noqa: F811
 
 # ---------------------------------------------------------------- link (14.5-01)
 
-@pytest.mark.xfail(strict=True, reason=(
-    "DEFECT: backend/modules/inventory/routes/spools.py:145-161 create_spool builds the INSERT values without "
-    "SpoolCreate.spoolman_spool_id (schemas.py:34) and core/economic_source_creation.py:_SPOOL_FIELDS omits it; "
-    "SpoolUpdate (schemas.py:40) has no such field, so POST /spools {spoolman_spool_id: 42} returns 200 and "
-    "persists NULL - no API can link an ODIN spool to a Spoolman spool"))
 def test_spool_created_with_spoolman_spool_id_is_linked(odin, review_db):  # noqa: F811
     client, binding = odin
     response = client.post("/spools", json={"filament_id": 101, "initial_weight_g": 1000, "spoolman_spool_id": 42})
@@ -172,14 +167,21 @@ def test_spool_created_with_spoolman_spool_id_is_linked(odin, review_db):  # noq
     assert client.get(f"/spools/{spool_id}").json()["spoolman_spool_id"] == 42
 
 
-def test_spool_create_accepts_but_drops_spoolman_spool_id(odin, review_db):  # noqa: F811
-    """Evidence for the DEFECT above: the request succeeds, the link is silently lost."""
+def test_spoolman_link_is_editable_unique_and_validated(odin, review_db):  # noqa: F811
+    """PATCH links/unlinks; a Spoolman spool links to at most one ODIN spool; ids must be positive ints."""
     client, binding = odin
-    response = client.post("/spools", json={"filament_id": 101, "initial_weight_g": 1000, "spoolman_spool_id": 42})
-    assert response.status_code == 200, response.text
+    first = client.post("/spools", json={"filament_id": 101, "initial_weight_g": 1000}).json()["id"]
+    assert client.patch(f"/spools/{first}", json={"spoolman_spool_id": 43}).status_code == 200
+    assert client.get(f"/spools/{first}").json()["spoolman_spool_id"] == 43
+    duplicate = client.post("/spools", json={"filament_id": 101, "initial_weight_g": 1000, "spoolman_spool_id": 43})
+    assert duplicate.status_code == 409
+    for bad in (0, -1, "43"):
+        assert client.post("/spools", json={"filament_id": 101, "spoolman_spool_id": bad}).status_code == 422
+    assert client.patch(f"/spools/{first}", json={"spoolman_spool_id": None}).status_code == 200
     with Session(binding) as fresh:
-        assert fresh.execute(text("SELECT spoolman_spool_id FROM spools WHERE id=:i"),
-                             {"i": response.json()["id"]}).scalar_one() is None
+        assert fresh.execute(text("SELECT spoolman_spool_id FROM spools WHERE id=:i"), {"i": first}).scalar_one() is None
+    listed = {row["id"]: row for row in client.get("/spools").json()}
+    assert listed[first]["spoolman_spool_id"] is None
 
 
 # ---------------------------------------------------------------- pull on demand (14.5-02)
@@ -216,21 +218,17 @@ def _complete(client, started):
     assert not started[0].is_alive()
 
 
-def test_manual_completion_sends_post_use_with_consumed_grams(odin, spoolman, review_db, monkeypatch):  # noqa: F811
+def test_manual_completion_sends_put_use_with_consumed_grams(odin, spoolman, review_db, monkeypatch):  # noqa: F811
     client, binding = odin
     _completion_case(review_db)
     started = _background_threads(monkeypatch)
     _complete(client, started)
     assert [r for r in spoolman.requests if r[1].endswith("/use")] == [
-        ("POST", "/api/v1/spool/42/use", {"use_weight": 12.75})]
+        ("PUT", "/api/v1/spool/42/use", {"use_weight": 12.75})]
     with Session(binding) as fresh:
         assert fresh.execute(text("SELECT remaining_weight_g FROM spools WHERE id=101")).scalar_one() == 87.25
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "DEFECT: backend/modules/inventory/services.py:53 _post_spoolman_usage sends POST /api/v1/spool/{id}/use, "
-    "but Spoolman's API declares /api/v1/spool/{id}/use as PUT (archive.py:175 already uses PUT); a "
-    "protocol-accurate Spoolman answers 405 and the consumption never lands in Spoolman"))
 def test_manual_completion_consumption_lands_in_spoolman(odin, spoolman, review_db, monkeypatch):  # noqa: F811
     client, binding = odin
     _completion_case(review_db)
@@ -241,11 +239,6 @@ def test_manual_completion_consumption_lands_in_spoolman(odin, spoolman, review_
         assert "Spoolman push failed" not in (fresh.execute(text("SELECT notes FROM jobs WHERE id=101")).scalar_one() or "")
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "DEFECT: backend/modules/archives/attempt_accounting.py:336 queues printer-observed consumption in "
-    "filament_delivery_outbox(state='pending') but no production code ever reads/delivers that outbox "
-    "(only the manual POST /jobs/{id}/complete path pushes); a monitor-observed completion published on the "
-    "event bus never reaches Spoolman"))
 def test_printer_observed_completion_pushes_consumption_to_spoolman(archive_case, spoolman, monkeypatch):  # noqa: F811
     archive, engine = archive_case
     monkeypatch.setattr(archive, "_sync_spoolman_consumption", REAL_ARCHIVE_SYNC)
@@ -261,32 +254,87 @@ def test_printer_observed_completion_pushes_consumption_to_spoolman(archive_case
         assert conn.execute(text("SELECT COUNT(*) FROM print_archives")).scalar_one() == 0
         conn.execute(text("UPDATE print_jobs SET status='completed' WHERE id=7099"))
     assert publish_committed_completion(9, 7099, 7099)
-    with engine.connect() as conn:
-        assert conn.execute(text("SELECT state FROM filament_delivery_outbox WHERE print_job_id=7099")).scalar_one() == "pending"
     assert spoolman.event.wait(5), "Spoolman never contacted after observed completion"
-    assert any(r[1] == "/api/v1/spool/42/use" for r in spoolman.requests)
+    assert _wait_outbox_state(engine, "sent")
+    assert [r for r in spoolman.requests if r[1].endswith("/use")] == [("PUT", "/api/v1/spool/42/use", {"use_weight": 40})]
+    assert spoolman.spools[42]["remaining_weight"] == pytest.approx(760.0)
+    # A later delivery run never resends a delivered row.
+    assert archive.deliver_filament_outbox() == {"sent": 0, "failed": 0, "pending": 0, "outcome_unknown": 0}
+    assert len([r for r in spoolman.requests if r[1].endswith("/use")]) == 1
 
 
-def test_printer_observed_completion_leaves_outbox_pending_without_delivery(archive_case, spoolman, monkeypatch):  # noqa: F811
-    """Evidence for the DEFECT above through the real event-bus -> archive chain."""
+def _wait_outbox_state(engine, state, timeout=5):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        with engine.connect() as conn:
+            if conn.execute(text("SELECT state FROM filament_delivery_outbox WHERE print_job_id=7099")).scalar_one() == state:
+                return True
+        time.sleep(0.05)
+    return False
+
+
+def test_printer_observed_completion_refused_by_spoolman_is_recorded_failed_not_dropped(archive_case, spoolman, monkeypatch, caplog):  # noqa: F811
+    """14.5-04 never a silent drop: Spoolman refusing the usage (unknown spool) is recorded on the
+    outbox row with its reason and logged; ODIN's local deduction stands."""
     archive, engine = archive_case
     monkeypatch.setattr(archive, "_sync_spoolman_consumption", REAL_ARCHIVE_SYNC)
     import core.event_bus as event_bus
     from core.committed_terminal_events import publish_committed_completion
     from modules.archives import register_subscribers
     with engine.begin() as conn:
-        conn.execute(text("UPDATE spools SET spoolman_spool_id=42 WHERE id=7099"))
-        conn.execute(text("UPDATE print_jobs SET status='running' WHERE id=7099"))  # not terminal until published
-    bus = event_bus.InMemoryEventBus(); register_subscribers(bus)  # also runs startup recovery
+        conn.execute(text("UPDATE spools SET spoolman_spool_id=999 WHERE id=7099"))  # unknown to Spoolman
+        conn.execute(text("UPDATE print_jobs SET status='running' WHERE id=7099"))
+    bus = event_bus.InMemoryEventBus(); register_subscribers(bus)
     monkeypatch.setattr(event_bus, "_bus", bus)
     with engine.begin() as conn:
-        assert conn.execute(text("SELECT COUNT(*) FROM print_archives")).scalar_one() == 0
         conn.execute(text("UPDATE print_jobs SET status='completed' WHERE id=7099"))
+    caplog.set_level("WARNING", logger="odin.archive")
     assert publish_committed_completion(9, 7099, 7099)
+    assert _wait_outbox_state(engine, "failed")
     with engine.connect() as conn:
-        rows = conn.execute(text("SELECT spoolman_spool_id,grams_used,state FROM filament_delivery_outbox")).all()
-        assert [tuple(r) for r in rows] == [(42, 40, "pending")]
+        row = conn.execute(text("SELECT spoolman_spool_id,grams_used,state,outcome_reason FROM filament_delivery_outbox")).one()
+        assert tuple(row) == (999, 40, "failed", "HTTP 404")
         assert conn.execute(text("SELECT remaining_weight_g FROM spools WHERE id=7099")).scalar_one() == 960
+    assert any("Spoolman usage failed" in r.getMessage() and "reason=HTTP 404" in r.getMessage() for r in caplog.records)
+
+
+def test_unreachable_spoolman_keeps_outbox_row_queued_for_retry(archive_case, monkeypatch):  # noqa: F811
+    """Connection never established: the row returns to pending and a later run delivers it."""
+    from core.config import settings
+    archive, engine = archive_case
+    monkeypatch.setattr(archive, "_sync_spoolman_consumption", REAL_ARCHIVE_SYNC)
+    monkeypatch.delenv("ODIN_ITAR_MODE", raising=False)
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE spools SET spoolman_spool_id=42 WHERE id=7099"))
+    assert archive.create_print_archive(7099, 9, True) is not None
+    closed = socket.socket(); closed.bind(("127.0.0.1", 0)); port = closed.getsockname()[1]; closed.close()
+    monkeypatch.setattr(settings, "spoolman_url", f"http://127.0.0.1:{port}")
+    assert archive.deliver_filament_outbox()["pending"] == 1
+    with engine.connect() as conn:
+        assert tuple(conn.execute(text("SELECT state,outcome_reason FROM filament_delivery_outbox")).one()) == (
+            "pending", "connect_failed: ConnectError")
+    peer = SpoolmanPeer()
+    try:
+        monkeypatch.setattr(settings, "spoolman_url", peer.url)
+        assert archive.deliver_filament_outbox()["sent"] == 1
+        assert peer.spools[42]["remaining_weight"] == pytest.approx(760.0)
+    finally:
+        peer.close()
+
+
+def test_interrupted_in_flight_delivery_is_recorded_unknown_not_resent(archive_case, spoolman, monkeypatch):  # noqa: F811
+    archive, engine = archive_case
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE spools SET spoolman_spool_id=42 WHERE id=7099"))
+    assert archive.create_print_archive(7099, 9, True) is not None
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE filament_delivery_outbox SET state='in_flight'"))
+    assert archive.recover_stale_outbox_claims() == 1
+    monkeypatch.setattr(archive, "_sync_spoolman_consumption", REAL_ARCHIVE_SYNC)
+    assert archive.deliver_filament_outbox()["sent"] == 0
+    with engine.connect() as conn:
+        assert tuple(conn.execute(text("SELECT state,outcome_reason FROM filament_delivery_outbox")).one()) == (
+            "outcome_unknown", "interrupted_in_flight")
     assert spoolman.requests == []
 
 
@@ -303,8 +351,7 @@ def test_push_dispatch_does_not_use_safe_post(odin, spoolman, review_db, monkeyp
     calls = []
     real = services._post_spoolman_usage
     monkeypatch.setattr(services, "_post_spoolman_usage", lambda *a: calls.append(a) or real(*a))
-    assert services.push_consumption_to_spoolman([{"spoolman_spool_id": 42, "grams": 1.5, "job_id": 1}]) == [
-        f"Spoolman spool=42 job=1 rejected push: HTTP 405"]
+    assert services.push_consumption_to_spoolman([{"spoolman_spool_id": 42, "grams": 1.5, "job_id": 1}]) == []
     assert calls == [(spoolman.url, 42, 1.5)]
 
 

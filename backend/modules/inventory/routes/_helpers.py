@@ -32,6 +32,8 @@ class SpoolCreate(PydanticBaseModel):
     lot_number: Optional[str] = None
     storage_location: Optional[str] = None
     notes: Optional[str] = None
+    # Link to a Spoolman spool (its positive id) so consumption is pushed there.
+    spoolman_spool_id: Optional[int] = Field(default=None, gt=0, strict=True)
 
 
 class SpoolUpdate(PydanticBaseModel):
@@ -55,6 +57,8 @@ class SpoolUpdate(PydanticBaseModel):
     price: Optional[float] = None
     vendor: Optional[str] = None
     lot_number: Optional[str] = None
+    # Link (positive Spoolman spool id) or unlink (null).
+    spoolman_spool_id: Optional[int] = Field(default=None, gt=0, strict=True)
 
 
 class SpoolResponse(PydanticBaseModel):

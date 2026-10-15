@@ -115,6 +115,7 @@ def list_spools(
             "location_slot": s.location_slot,
             "storage_location": s.storage_location,
             "notes": s.notes,
+            "spoolman_spool_id": s.spoolman_spool_id,
             "created_at": s.created_at,
             "filament_brand": s.filament.brand if s.filament else None,
             "filament_name": s.filament.name if s.filament else None,
@@ -129,6 +130,15 @@ def list_spools(
     return result
 
 
+def _require_unlinked_spoolman_id(db, spoolman_spool_id, *, own_spool_id=None):
+    """One ODIN spool per Spoolman spool: a second link would deduct usage twice."""
+    if spoolman_spool_id is None:
+        return
+    holder = db.query(Spool.id).filter(Spool.spoolman_spool_id == spoolman_spool_id).first()
+    if holder is not None and holder[0] != own_spool_id:
+        raise HTTPException(status_code=409, detail="Spoolman spool is already linked to another spool")
+
+
 @router.post("", tags=["Spools"])
 def create_spool(spool: SpoolCreate, current_user: dict = Depends(require_role("operator", scope="write:spools")), db: Session = Depends(get_db)):
     """Create a new spool."""
@@ -137,6 +147,8 @@ def create_spool(spool: SpoolCreate, current_user: dict = Depends(require_role("
     filament = db.query(FilamentLibrary).filter(FilamentLibrary.id == spool.filament_id).first()
     if not filament:
         raise HTTPException(status_code=404, detail="Filament not found")
+
+    _require_unlinked_spoolman_id(db, spool.spoolman_spool_id)
 
     # Generate QR code
     import uuid
@@ -156,6 +168,7 @@ def create_spool(spool: SpoolCreate, current_user: dict = Depends(require_role("
         notes=spool.notes,
         pa_profile=spool.pa_profile,
         low_stock_threshold_g=spool.low_stock_threshold_g,
+        spoolman_spool_id=spool.spoolman_spool_id,
         status=SpoolStatus.ACTIVE,
         org_id=current_user.get("group_id") if current_user else None,
     )
@@ -230,6 +243,7 @@ def get_spool(spool_id: int, current_user: dict = Depends(require_role("viewer",
         "pa_profile": spool.pa_profile,
         "low_stock_threshold_g": spool.low_stock_threshold_g,
         "is_low_stock": (spool.remaining_weight_g or 0) < (spool.low_stock_threshold_g if spool.low_stock_threshold_g is not None else 50),
+        "spoolman_spool_id": spool.spoolman_spool_id,
         "created_at": spool.created_at,
         "updated_at": spool.updated_at,
         "filament_brand": spool.filament.brand if spool.filament else None,
@@ -273,6 +287,8 @@ def update_spool(spool_id: int, updates: SpoolUpdate, current_user: dict = Depen
 
     if "status" in update_data:
         update_data["status"] = SpoolStatus(update_data["status"])
+    if "spoolman_spool_id" in update_data:
+        _require_unlinked_spoolman_id(db, update_data["spoolman_spool_id"], own_spool_id=spool_id)
 
     for field, value in update_data.items():
         setattr(spool, field, value)
