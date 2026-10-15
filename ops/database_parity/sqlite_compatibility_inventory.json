@@ -2218,7 +2218,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 161,
+      "line": 176,
       "path": "backend/modules/system/routes_admin.py",
       "pattern": "sqlite3",
       "reason": "SQLite integrity-check branch; PostgreSQL uses provider-specific health checks",
@@ -2226,7 +2226,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 226,
+      "line": 245,
       "path": "backend/modules/system/routes_admin.py",
       "pattern": "PRAGMA",
       "reason": "SQLite integrity-check branch; PostgreSQL uses provider-specific health checks",
@@ -2234,11 +2234,11 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 8,
+      "line": 9,
       "path": "backend/modules/system/sanitize.py",
       "pattern": "qmark-parameter",
       "reason": "Secret-filter regular expressions contain question marks; this utility executes no SQL",
-      "source": "re.compile(r'''(?ix)[\"']?\\b(?:password|passwd|access[_-]?code|api[_-]?key|token|secret|credential|cookie|serial(?:_number)?)\\b[\"']?\\s*[:=]\\s*(?:\"[^\"\\n]*\"|'[^'\\n]*'|[^\\s,;}]+)'''),"
+      "source": "re.compile(r'''(?ix)[\"']?\\b(?:[a-z0-9]+[_-])*(?:password|passwd|access[_-]?code|api[_-]?key|token|secret|credential|cookie|serial(?:_number)?)\\b[\"']?\\s*[:=]\\s*(?:\"[^\"\\n]*\"|'[^'\\n]*'|[^\\s,;}]+)'''),"
     },
     {
       "classification": "sqlite-provider-only",
