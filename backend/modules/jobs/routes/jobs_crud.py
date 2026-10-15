@@ -492,12 +492,11 @@ def create_job(
 
     # Stage alerts in the same transaction as job, audit and quota writes.
     from modules.notifications.alert_dispatcher import (
-        stage_alert, deliver_staged_alert, get_group_owner_id, get_operator_admin_ids,
+        stage_alert, deliver_staged_alert, get_job_approval_reviewer_ids,
     )
     alert_plan = None
     if initial_status == "submitted":
-        owner_id = get_group_owner_id(db, current_user["id"])
-        target_ids = [owner_id] if owner_id else get_operator_admin_ids(db, current_user.get("group_id"))
+        target_ids = get_job_approval_reviewer_ids(db, current_user)
         alert_plan = stage_alert(db, AlertType.JOB_SUBMITTED, AlertSeverity.INFO,
             f"Job awaiting approval: {job.item_name or 'Untitled'}",
             f"{current_user.get('display_name') or current_user.get('username', 'A user')} submitted a print job",

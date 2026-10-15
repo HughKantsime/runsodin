@@ -145,6 +145,19 @@ async def delete_org(org_id: int, current_user: dict = Depends(require_superadmi
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
     assert_org_hard_delete_allowed(db, org_id)
+    # A spool's owning organization is part of its immutable cost history
+    # (schema migration 022): it cannot be unlinked, so an organization that
+    # owns such spools cannot be hard deleted.
+    bound_spools = db.execute(
+        text("SELECT COUNT(*) FROM spools WHERE org_id = :id AND economic_uid IS NOT NULL"), {"id": org_id}
+    ).scalar() or 0
+    if bound_spools:
+        raise HTTPException(
+            status_code=409,
+            detail=(f"Organization owns {bound_spools} spool(s) with recorded cost history and cannot be "
+                    "deleted. Spool ownership is kept for cost reporting; remove the organization's members "
+                    "and printers instead."),
+        )
 
     # Unlink members
     db.execute(text("UPDATE users SET group_id = NULL WHERE group_id = :id"), {"id": org_id})

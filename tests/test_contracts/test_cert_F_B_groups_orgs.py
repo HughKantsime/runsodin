@@ -60,20 +60,21 @@ def test_group_owner_must_be_operator_or_admin(odin):
 
 
 # ------------------------------------------------------------------ F11-11.4-02 owner-targeted approval alerts
-@pytest.mark.xfail(strict=True, reason=(
-    "DEFECT: backend/modules/jobs/routes/jobs_crud.py:499-500 + backend/core/recipient_policy.py:21-22 — when a group owner "
-    "is set, the JOB_SUBMITTED alert targets only the owner, then resource scoping drops the owner unless the owner is a "
-    "member of the job's group (or a superadmin), and there is no fallback. Scenario: an admin creates 'Period 3' and picks "
-    "teacher operator T as owner (GroupManager lists every operator; POST /api/groups accepts any active operator), but T is "
-    "not a member; a student submits a job in approval mode -> zero alert rows are written, nobody is told, and the job "
-    "sits in 'submitted'."))
-def test_non_member_operator_owner_still_receives_approval_alert(odin):
+def test_owner_outside_group_falls_back_to_reviewers_who_can_approve(odin):
+    """An owner who is not a member cannot open or approve the group's jobs, so the
+    approval alert goes to the group's reviewers (admins and in-group operators)
+    instead of being written to nobody."""
     a = odin.admin_bearer
     assert odin.put("/api/config/require-job-approval", json={"enabled": True}, headers=a).status_code == 200
     r = odin.post("/api/jobs", json={"item_name": "Student bracket (owner outside group)"}, headers=odin.student["headers"])
     assert r.status_code == 201, r.text
-    assert odin.one("SELECT status FROM jobs WHERE id=:i", i=r.json()["id"]).status == "submitted"
-    assert alerts_for(odin, r.json()["id"]) == {odin.owner["id"]}
+    job = r.json()["id"]
+    assert odin.one("SELECT status FROM jobs WHERE id=:i", i=job).status == "submitted"
+    recipients = alerts_for(odin, job)
+    assert recipients == {1, odin.other_admin_id}
+    assert odin.owner["id"] not in recipients and odin.other_op["id"] not in recipients
+    # Every recipient can act on the alert.
+    assert odin.get(f"/api/jobs/{job}", headers=odin.admin_bearer).status_code == 200
 
 
 def test_member_submission_alerts_only_the_group_owner(odin):
@@ -194,16 +195,29 @@ def test_no_api_assigns_an_existing_model_or_spool_to_an_org(odin, orgs):
         assert odin.post(path, json={"model_id": model, "spool_id": odin.org_spool}, headers=a).status_code in (404, 405)
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "DEFECT: backend/modules/organizations/routes.py:152-154 — DELETE /api/orgs/{id} unlinks resources with "
-    "UPDATE spools SET org_id=NULL, which the economic-source trigger from backend/core/schema/migrations/"
-    "022_economic_source_lifetimes.py:56-62 forbids (spool org_id is immutable once born), so the request fails with "
-    "an unhandled IntegrityError -> HTTP 500. Scenario: a superadmin deletes an organization in which any member ever "
-    "created a spool; the delete always returns 'Internal server error' and the organization cannot be removed."))
+def test_org_with_cost_bound_spools_refuses_delete_with_409_and_changes_nothing(odin, orgs):
+    """A spool's owning org is immutable cost history (migration 022), so the org cannot be hard deleted."""
+    a = odin.admin_bearer
+    assert odin.one("SELECT economic_uid FROM spools WHERE id=:i", i=odin.org_spool).economic_uid is not None
+    r = odin.delete(f"/api/orgs/{orgs['a']}", headers=a)
+    assert r.status_code == 409, r.text
+    assert "spool(s) with recorded cost history" in r.json()["detail"]
+    assert odin.one("SELECT 1 FROM groups WHERE id=:i", i=orgs["a"]) is not None
+    assert odin.one("SELECT group_id FROM users WHERE id=:i", i=orgs["alpha"]["id"]).group_id == orgs["a"]
+    assert odin.one("SELECT org_id FROM spools WHERE id=:i", i=odin.org_spool).org_id == orgs["a"]
+
+
 def test_org_delete_unlinks_members_and_resources(odin, orgs):
     a = odin.admin_bearer
-    r = odin.delete(f"/api/orgs/{orgs['a']}", headers=a)
+    org = odin.post("/api/orgs", json={"name": "Org Gamma"}, headers=a).json()["id"]
+    member = odin.mkuser("org_gamma_op", "operator")
+    assert odin.post(f"/api/orgs/{org}/members", json={"user_id": member["id"]}, headers=a).status_code == 200
+    assert odin.post(f"/api/orgs/{org}/printers", json={"printer_id": orgs["p1"]}, headers=a).status_code == 200
+    model = odin.post("/api/models", json={"name": "Gamma bracket"}, headers=member["headers"]).json()["id"]
+    assert odin.one("SELECT org_id FROM models WHERE id=:i", i=model).org_id == org
+    r = odin.delete(f"/api/orgs/{org}", headers=a)
     assert r.status_code == 200, r.text
-    assert odin.one("SELECT group_id FROM users WHERE id=:i", i=orgs["alpha"]["id"]).group_id is None
+    assert odin.one("SELECT 1 FROM groups WHERE id=:i", i=org) is None
+    assert odin.one("SELECT group_id FROM users WHERE id=:i", i=member["id"]).group_id is None
     assert odin.one("SELECT org_id FROM printers WHERE id=:i", i=orgs["p1"]).org_id is None
-    assert odin.one("SELECT org_id FROM models WHERE id=:i", i=odin.org_model).org_id is None
+    assert odin.one("SELECT org_id FROM models WHERE id=:i", i=model).org_id is None
