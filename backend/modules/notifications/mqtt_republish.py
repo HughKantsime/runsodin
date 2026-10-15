@@ -100,7 +100,9 @@ def get_power_connection_snapshot(*, connection=None):
     import re
     try:
         with (nullcontext(connection) if connection is not None else engine.connect()) as conn:
-            rows = {row[0]: row[1] for row in conn.execute(text(
+            from core.system_config_values import config_text
+            # JSON column: raw SQLite text, quoted JSON strings, or PostgreSQL-decoded scalars.
+            rows = {row[0]: config_text(row[1]) for row in conn.execute(text(
                 "SELECT key,value FROM system_config WHERE key LIKE 'mqtt_republish_%'"))}
         def boolean(value):
             if not isinstance(value, str):
