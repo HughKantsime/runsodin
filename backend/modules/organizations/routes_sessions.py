@@ -395,6 +395,12 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
     audit = [dict(r._mapping) for r in db.execute(
         text("SELECT * FROM audit_logs WHERE entity_type = 'user' AND entity_id = :uid ORDER BY timestamp DESC LIMIT 1000"),
         {"uid": user_id}).fetchall()]
+    # Actions the user performed (any entity), not only entries about the account.
+    actions = [dict(r._mapping) for r in db.execute(
+        text("SELECT id, timestamp, action, entity_type, entity_id, details, ip_address FROM audit_logs "
+             "WHERE actor_user_id = :uid AND NOT (entity_type = 'user' AND entity_id = :uid) "
+             "ORDER BY timestamp DESC LIMIT 1000"),
+        {"uid": user_id}).fetchall()]
     if not _is_superadmin(current_user):
         for row in audit:
             for field in ("actor_user_id", "actor_username", "actor_auth_kind"):
@@ -409,6 +415,21 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
     quota_data = [dict(r._mapping) for r in db.execute(
         text("SELECT period_key, grams_used, hours_used, jobs_used, updated_at FROM quota_usage WHERE user_id = :uid"),
         {"uid": user_id}).fetchall()]
+    def _rows(statement):
+        return [dict(r._mapping) for r in db.execute(text(statement), {"uid": user_id}).fetchall()]
+
+    alerts_data = _rows("SELECT id, alert_type, severity, title, message, is_read, is_dismissed, printer_id, job_id, "
+                        "spool_id, created_at FROM alerts WHERE user_id = :uid ORDER BY created_at DESC")
+    push_subscriptions_data = _rows("SELECT id, endpoint, created_at FROM push_subscriptions WHERE user_id = :uid")
+    push_devices_data = _rows("SELECT id, device_id, platform, token, live_activity_token, preferences_json, "
+                              "created_at, last_seen_at FROM push_devices WHERE user_id = :uid")
+    archives_data = _rows("SELECT id, job_id, printer_id, print_name, status, started_at, completed_at, "
+                          "actual_duration_seconds, filament_used_grams, cost_estimate, notes, tags, created_at "
+                          "FROM print_archives WHERE user_id = :uid ORDER BY created_at DESC")
+    uploads_data = _rows("SELECT id, filename, original_filename, project_name, total_weight_grams, printer_model, "
+                         "storage_bytes, uploaded_at FROM print_files WHERE created_by = :uid ORDER BY uploaded_at DESC")
+    projects_data = _rows("SELECT id, name, description, status, created_at, updated_at FROM projects "
+                          "WHERE created_by = :uid ORDER BY created_at DESC")
     classroom_identity = [dict(r._mapping) for r in db.execute(
         text(
             "SELECT org_id, provider_user_id, normalized_email, state, last_seen_at, created_at "
@@ -433,6 +454,13 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
         "user": u,
         "jobs_submitted": jobs,
         "audit_log_entries": audit,
+        "audit_actions_performed": actions,
+        "alerts": alerts_data,
+        "push_subscriptions": push_subscriptions_data,
+        "push_devices": push_devices_data,
+        "print_archives": archives_data,
+        "uploaded_print_files": uploads_data,
+        "projects": projects_data,
         "active_sessions": sessions_data,
         "alert_preferences": prefs,
         "api_tokens": api_tokens_data,
@@ -496,6 +524,12 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
     db.execute(text("DELETE FROM api_tokens WHERE user_id = :uid"), {"uid": user_id})
     db.execute(text("DELETE FROM alert_preferences WHERE user_id = :uid"), {"uid": user_id})
     db.execute(text("DELETE FROM push_subscriptions WHERE user_id = :uid"), {"uid": user_id})
+    db.execute(text("DELETE FROM push_devices WHERE user_id = :uid"), {"uid": user_id})
+    # Login history keeps its rate-limit value but no longer names the user.
+    former_username = user_data.get("username")
+    if isinstance(former_username, str) and former_username:
+        db.execute(text("UPDATE login_attempts SET username = :anon WHERE LOWER(username) = LOWER(:old)"),
+                   {"anon": f"[deleted-{user_id}]", "old": former_username})
 
     # Submission/resubmission alerts are delivered to reviewers, so deleting
     # only alerts owned by this user would leave their former username or
@@ -549,6 +583,19 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
         text("UPDATE audit_logs SET details = :details WHERE entity_type = 'user' AND entity_id = :uid"),
         {"details": json.dumps({"anonymized_user_id": user_id}), "uid": user_id},
     )
+
+    # Any other audit row can still name the user in its free-text details
+    # (failed logins have no entity id; actions the user performed carry
+    # their username). Scrub the identifiers, keep the event.
+    for identifier in identifiers:
+        rows = db.execute(
+            text("SELECT id, details FROM audit_logs WHERE CAST(details AS TEXT) LIKE :pattern"),
+            {"pattern": f"%{identifier}%"},
+        ).fetchall()
+        for row in rows:
+            raw = row.details if isinstance(row.details, str) else json.dumps(row.details)
+            db.execute(text("UPDATE audit_logs SET details = :details WHERE id = :id"),
+                       {"details": raw.replace(identifier, "[deleted-user]"), "id": row.id})
 
     erasure_details = {"anonymized_user_id": user_id}
     if not actor_is_erased(db, current_user["id"]):

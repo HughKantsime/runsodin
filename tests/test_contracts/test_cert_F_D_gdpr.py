@@ -116,13 +116,6 @@ def test_export_forbidden_for_other_non_admin_user(odin, exported):
     assert r.status_code == 403
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "DEFECT: backend/modules/organizations/routes_sessions.py:375-447 export_user_data only reads users, jobs "
-    "(submitted_by), audit_logs (entity_type='user' only), active_sessions, alert_preferences, api_tokens, "
-    "quota_usage and classroom tables. The user's own alerts inbox, push subscriptions, push devices, print "
-    "archives (print_archives.user_id), uploaded print files (print_files.created_by), projects (created_by) "
-    "and audit entries where the user is the actor are omitted, so the 'full export of all user data' "
-    "(GDPR Art. 15/20) is incomplete."))
 def test_export_includes_every_user_linked_record(exported):
     _, m, _, text = exported
     missing = [k for k in ("alert", "archive", "upload", "project", "push_ep", "device", "audit") if m[k] not in text]
@@ -179,12 +172,6 @@ def test_erase_rejected_for_non_admin_and_last_admin(odin):
     assert o.delete("/api/users/1/erase", headers=o.H).status_code == 400   # sole admin
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "DEFECT: backend/modules/organizations/routes_sessions.py:449-558 erase_user_data leaves the former username "
-    "in login_attempts.username (with source IP) and in audit_logs for actions the user performed (non-'user' "
-    "entity rows), and never deletes push_devices (the user's APNs device token). Scenario: admin erases a user "
-    "under GDPR Art. 17 via DELETE /api/users/{id}/erase; anyone with DB/backup read access can still re-identify "
-    "the user (username + IPs) and push to their device."))
 def test_erase_leaves_no_former_identifier_anywhere_in_database(erased):
     o = erased["o"]
     needles = [erased["name"], erased["email"], erased["m"]["device"]]
