@@ -171,11 +171,6 @@ def test_window_end_digest_per_user_email_and_push_respect_preferences(
     assert len(smtp_peer.messages) == 1 and len(receiver.requests) == 1
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    'DEFECT: backend/modules/notifications/quiet_hours.py:369 iter_orgs_with_digest_enabled passes the raw '
-    'settings_json webhook_url to the digest, but PUT /orgs/{id}/settings (backend/modules/organizations/routes.py:266) '
-    'stores it Fernet-encrypted; report_runner._deliver_digest_webhook posts to the ciphertext, safe_post refuses it '
-    "and the per-org digest webhook is never delivered (status 'failed:webhook')"))
 def test_window_end_org_digest_webhook_configured_over_http(org_api, notif_env, receiver, synthetic_dns, monkeypatch):
     base, start, end = window()
     put_org(org_api, 1, quiet_hours_enabled=True, quiet_hours_start=start, quiet_hours_end=end,
@@ -216,9 +211,6 @@ def test_org_digest_webhook_combined_payload_with_plaintext_url(org_api, notif_e
         assert conn.execute(text('SELECT delivery_status FROM quiet_hours_org_digest_sends')).scalar_one() == 'sent'
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    'DEFECT: backend/modules/reporting/report_runner.py:548 posts the generic digest JSON to every org '
-    "webhook regardless of webhook_type; a Discord webhook requires 'content' or 'embeds' and rejects it"))
 def test_org_digest_webhook_uses_discord_payload_for_discord_org(org_api, notif_env, receiver, synthetic_dns, monkeypatch):
     base, start, end = window()
     legacy_plaintext_org(notif_env, start, end, f'{synthetic_dns}/discord', 'discord')
@@ -228,11 +220,26 @@ def test_org_digest_webhook_uses_discord_payload_for_discord_org(org_api, notif_
     run_digest(notif_env)
     body = json.loads(receiver.wait(1)[0]['body'])
     assert 'embeds' in body or 'content' in body
+    embed, = body['embeds']
+    assert '1 alert' in embed['title'] and 'Synthetic failure on 9' in embed['description']
+    with notif_env.get_bind().connect() as conn:
+        assert conn.execute(text('SELECT delivery_status FROM quiet_hours_org_digest_sends')).scalar_one() == 'sent'
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    'DEFECT: backend/modules/reporting/report_runner.py:548-549 ignores the safe_post response status, so an org '
-    "webhook that answers HTTP 500 is recorded as delivery_status 'sent' (surfaced as delivered on the Alerts page)"))
+def test_org_digest_webhook_uses_slack_payload_for_slack_org(org_api, notif_env, receiver, synthetic_dns, monkeypatch):
+    base, start, end = window()
+    put_org(org_api, 1, quiet_hours_enabled=True, quiet_hours_start=start, quiet_hours_end=end,
+            webhook_url=f'{synthetic_dns}/slack', webhook_type='slack')
+    prefs(notif_env, 1, 'print_failed')
+    dispatch_printer('daemon', 9, notif_env)
+    move_quiet_clock(monkeypatch, base + timedelta(minutes=35))
+    run_digest(notif_env)
+    request, = receiver.wait(1)
+    body = json.loads(request['body'])
+    assert request['path'] == '/slack' and body['blocks'][0]['type'] == 'header'
+    assert 'Synthetic failure on 9' in body['blocks'][1]['text']['text']
+
+
 def test_org_digest_webhook_http_error_recorded_as_failed(org_api, notif_env, receiver, synthetic_dns, monkeypatch):
     base, start, end = window()
     receiver.status = 500
@@ -264,9 +271,9 @@ def test_email_only_user_receives_digest_of_suppressed_alert(
     smtp_peer.wait(1, timeout=1)
 
 
-def test_system_scope_global_webhooks_get_no_digest(admin_api, notif_env, receiver, synthetic_dns, monkeypatch):
-    """System-wide quiet hours suppress the global webhook channels (webhooks table),
-    and no digest is ever sent to them: only per-org settings webhooks are digested."""
+def test_system_scope_global_webhooks_receive_typed_digest(admin_api, notif_env, receiver, synthetic_dns, monkeypatch):
+    """System-wide quiet hours suppress the global webhook channels (webhooks table);
+    after the window each selecting webhook receives one digest in its own payload shape."""
     base, start, end = window()
     from modules.notifications import quiet_hours
     for key, value in [('quiet_hours_enabled', 'true'), ('quiet_hours_start', start), ('quiet_hours_end', end)]:
@@ -275,13 +282,23 @@ def test_system_scope_global_webhooks_get_no_digest(admin_api, notif_env, receiv
     quiet_hours.invalidate_cache()
     assert admin_api.post('/webhooks', json={'name': 'Global', 'url': f'{synthetic_dns}/global', 'webhook_type': 'discord',
                                              'alert_types': ['print_failed']}).status_code == 200
+    # A webhook that does not select the event gets no digest.
+    assert admin_api.post('/webhooks', json={'name': 'Other', 'url': f'{synthetic_dns}/other', 'webhook_type': 'generic',
+                                             'alert_types': ['print_complete']}).status_code == 200
     prefs(notif_env, 1, 'print_failed')
     dispatch('daemon', 'print_failed', 'critical', 'Synthetic system failure', 'x', notif_env)
+    assert receiver.requests == []  # suppressed in real time
     move_quiet_clock(monkeypatch, base + timedelta(minutes=35))
     quiet_hours.invalidate_cache()
     run_digest(notif_env)
-    assert receiver.requests == []
+    run_digest(notif_env)  # same ended window: no duplicate
+    request, = receiver.wait(1)
+    assert request['path'] == '/global'
+    embed, = json.loads(request['body'])['embeds']
+    assert 'Synthetic system failure' in embed['description']
+    assert len(receiver.requests) == 1
     with notif_env.get_bind().connect() as conn:
-        assert conn.execute(text('SELECT count(*) FROM quiet_hours_org_digest_sends')).scalar_one() == 0
+        rows = conn.execute(text('SELECT org_id, scope_key, delivery_status FROM quiet_hours_org_digest_sends')).all()
+        assert [tuple(r) for r in rows] == [(None, 'webhook:1', 'sent')]
         # The suppressed alert itself was recorded in-app.
         assert conn.execute(text("SELECT count(*) FROM alerts WHERE title='Synthetic system failure'")).scalar_one() == 1

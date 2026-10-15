@@ -230,7 +230,12 @@ class TestDigestDriver:
         # Look in the helper we delegate to
         helper = _get_function_source(src, "_deliver_digest_webhook")
         assert helper, "_deliver_digest_webhook helper missing"
-        assert "safe_post(" in helper, (
+        # The digest delegates to the typed delivery helper, which posts every
+        # user-supplied URL type (generic/discord/slack/ntfy) through safe_post().
+        assert "post_typed_webhook(" in helper
+        payloads = (REPORT_RUNNER.parents[1] / "notifications" / "webhook_payloads.py").read_text()
+        typed = _get_function_source(payloads, "post_typed_webhook")
+        assert typed.count("safe_post(") >= 4, (
             "Org digest webhook must dispatch via safe_post() for SSRF "
             "defense — the org webhook URL is user-configured."
         )

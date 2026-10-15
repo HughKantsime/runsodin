@@ -463,8 +463,9 @@ def _update_digest_status(session, user_id, window_ended_at, status, org_id=None
         session.rollback()
 
 
-def _claim_org_webhook_send(session, org_id, window_ended_at):
+def _claim_org_webhook_send(session, org_id, window_ended_at, scope_key=None):
     window = window_ended_at.isoformat()
+    scope_key = scope_key or _digest_scope_key(org_id)
     try:
         legacy = session.execute(text(
             "SELECT 1 FROM quiet_hours_org_digest_sends WHERE scope_key LIKE 'legacy:%' "
@@ -475,7 +476,7 @@ def _claim_org_webhook_send(session, org_id, window_ended_at):
         session.execute(text(
             "INSERT INTO quiet_hours_org_digest_sends(org_id,scope_key,window_ended_at,delivery_status) "
             "VALUES (:org,:scope,:window,'pending')"
-        ), {"org": org_id, "scope": _digest_scope_key(org_id), "window": window})
+        ), {"org": org_id, "scope": scope_key, "window": window})
         session.commit()
         return True
     except Exception:
@@ -483,12 +484,12 @@ def _claim_org_webhook_send(session, org_id, window_ended_at):
         return False
 
 
-def _update_org_digest_status(session, org_id, window_ended_at, status):
+def _update_org_digest_status(session, org_id, window_ended_at, status, scope_key=None):
     try:
         session.execute(text(
             "UPDATE quiet_hours_org_digest_sends SET delivery_status=:status "
             "WHERE scope_key=:scope AND window_ended_at=:window"
-        ), {"status": status[:120], "scope": _digest_scope_key(org_id),
+        ), {"status": status[:120], "scope": scope_key or _digest_scope_key(org_id),
             "window": window_ended_at.isoformat()})
         session.commit()
     except Exception:
@@ -538,16 +539,29 @@ def _deliver_digest_push(session, user_id, alerts, window_end):
         return False
 
 
-def _deliver_digest_webhook(url: str, wtype: str, alerts: list, org_name: str, window_end):
-    """POST an aggregated digest payload to an org's configured webhook.
+def _digest_webhook_text(alerts: list, org_name: str, window_end):
+    count = len(alerts)
+    title = f"O.D.I.N. quiet hours digest: {count} alert{'s' if count != 1 else ''}"
+    if org_name:
+        title += f" ({org_name})"
+    lines = [f"Window ended {window_end.strftime('%Y-%m-%d %H:%M UTC')}"]
+    for alert in alerts[:50]:
+        lines.append(f"- [{alert.get('severity') or 'info'}] {alert.get('title') or ''}")
+    if count > 50:
+        lines.append(f"...and {count - 50} more")
+    return title, "\n".join(lines)
 
-    Always via safe_post — org webhook URLs are user-supplied, so the R8
-    DNS-pin SSRF defense applies.
+
+def _deliver_digest_webhook(url: str, wtype: str, alerts: list, org_name: str, window_end):
+    """POST an aggregated digest in the webhook type's payload shape.
+
+    Returns True only when the receiver accepted it (HTTP 2xx). User-supplied
+    URLs go through safe_post (R8 DNS-pin SSRF defense).
     """
     try:
-        from core.webhook_utils import safe_post, WebhookSSRFError
+        from modules.notifications.channels import post_typed_webhook
     except Exception as e:
-        log.error(f"Cannot import safe_post: {e}")
+        log.error(f"Cannot import post_typed_webhook: {e}")
         return False
 
     summary = {
@@ -566,18 +580,41 @@ def _deliver_digest_webhook(url: str, wtype: str, alerts: list, org_name: str, w
         ],
         "truncated": len(alerts) > 50,
     }
+    severities = {a.get("severity") for a in alerts}
+    severity = next((level for level in ("critical", "error", "warning") if level in severities), "info")
+    title, message = _digest_webhook_text(alerts, org_name, window_end)
+    return post_typed_webhook(url, wtype, event="quiet_hours_digest", title=title, message=message,
+                              severity=severity, generic_body=summary)
 
-    try:
-        # Generic webhook shape for now. Discord/Slack-specific formatting
-        # can be added later; most integrations accept a generic JSON body.
-        safe_post(url, json=summary, timeout=10)
-        return True
-    except WebhookSSRFError as e:
-        log.error(f"Org digest webhook SSRF-blocked: {e}")
-        return False
-    except Exception as e:
-        log.error(f"Org digest webhook failed ({wtype}): {e}")
-        return False
+
+def _deliver_global_webhook_digests(session, alerts: list, window_end):
+    """Digest system-scope alerts to the global webhook channels (webhooks table).
+
+    System-wide quiet hours suppress these channels in real time, so each
+    enabled webhook receives one digest of the suppressed alerts it selects,
+    claimed per (webhook, window) so a poll never re-sends it.
+    """
+    from core.license_manager import get_license
+    if not get_license().has_feature("webhooks"):
+        return
+    from modules.notifications.channels import selects_event
+    import core.crypto as crypto
+    hooks = session.execute(text(
+        "SELECT id, url, webhook_type, alert_types FROM webhooks WHERE is_enabled IS TRUE ORDER BY id"
+    )).fetchall()
+    for hook_id, raw_url, wtype, alert_types in hooks:
+        selected = [a for a in alerts if selects_event(alert_types, a.get("alert_type"))]
+        if not selected:
+            continue
+        scope = f"webhook:{int(hook_id)}"
+        if not _claim_org_webhook_send(session, None, window_end, scope_key=scope):
+            continue
+        try:
+            url = crypto.decrypt(raw_url)
+        except Exception:
+            url = raw_url
+        ok = _deliver_digest_webhook(url, wtype, selected, "system", window_end)
+        _update_org_digest_status(session, None, window_end, "sent" if ok else "failed:webhook", scope_key=scope)
 
 
 def process_quiet_hours_digest(session):
@@ -713,6 +750,14 @@ def process_quiet_hours_digest(session):
                 )
                 status = "sent" if webhook_ok else "failed:webhook"
                 _update_org_digest_status(session, org_id, window_end, status)
+
+        # System scope: the global webhook channels were suppressed too.
+        if org_id is None:
+            try:
+                _deliver_global_webhook_digests(session, alerts, window_end)
+            except Exception as e:
+                log.error(f"Global webhook digest failed: {type(e).__name__}")
+                session.rollback()
 
         log.info(
             f"Quiet hours digest delivered: org={org_name} "

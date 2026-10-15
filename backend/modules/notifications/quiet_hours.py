@@ -333,6 +333,17 @@ def group_suppressed_by_user(alerts: list) -> Dict[int, list]:
     return out
 
 
+def _decrypt_org_webhook_url(value):
+    """Decrypt a Fernet-encrypted org webhook URL; plaintext (legacy) passes through."""
+    if not value:
+        return value
+    try:
+        import core.crypto as crypto
+        return crypto.decrypt(value)
+    except Exception:
+        return value
+
+
 def iter_orgs_with_digest_enabled() -> list:
     """Yield orgs whose settings_json has quiet_hours_enabled=True AND
     quiet_hours_digest_enabled != False.
@@ -366,7 +377,9 @@ def iter_orgs_with_digest_enabled() -> list:
                 "start": s.get("quiet_hours_start", "22:00"),
                 "end": s.get("quiet_hours_end", "07:00"),
                 "digest_enabled": s.get("quiet_hours_digest_enabled", True),
-                "webhook_url": s.get("webhook_url"),
+                # PUT /orgs/{id}/settings stores the URL Fernet-encrypted;
+                # legacy rows may hold plaintext.
+                "webhook_url": _decrypt_org_webhook_url(s.get("webhook_url")),
                 "webhook_type": s.get("webhook_type", "generic"),
             }
             out.append({

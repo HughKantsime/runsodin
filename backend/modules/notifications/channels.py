@@ -18,6 +18,7 @@ import core.crypto as crypto
 from core.db_utils import get_db
 from modules.notifications.event_selection import selects_event
 from core.webhook_utils import safe_post, trusted_post, WebhookSSRFError
+from modules.notifications.webhook_payloads import post_typed_webhook  # noqa: F401 -- sanctioned delivery surface
 
 log = logging.getLogger("printer_events")
 
