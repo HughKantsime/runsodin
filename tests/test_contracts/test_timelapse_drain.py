@@ -154,7 +154,7 @@ def test_actual_service_process_death_and_fresh_progress_or_receipt_recovery(sta
     from pathlib import Path
     plan=staged_plan;op=saved(plan)['operation_id'];repo=Path(__file__).resolve().parents[2]
     command=[sys.executable,str(repo/'tests/fixtures/certification/run_owned_timelapse_drain.py'),str(plan[0].url.database),str(plan[1]),str(plan[2])]
-    env=dict(os.environ,PYTHONPATH=str(repo/'backend')+':'+str(repo),BASE_URL='http://127.0.0.1:1')
+    env=dict(os.environ,PYTHONPATH=str(repo/'backend')+':'+str(repo),ODIN_OWNED_TEST_ROOT=str(_pytest_owned_root()),BASE_URL='http://127.0.0.1:1')
     ended=subprocess.run(command+[target],cwd=repo,env=env,capture_output=True,text=True,timeout=30)
     assert ended.returncode==({'sync':75,'final_ack':76}.get(target,74)),{'returncode':ended.returncode,'output':ended.stdout}
     if target=='final_ack':
@@ -208,3 +208,18 @@ def test_completed_receipt_requires_original_quarantine_binding(staged_plan,dama
             db.execute(text('UPDATE timelapse_retirement_quarantine SET '+damage+'='+damage+'+1'))
         db.commit()
     with pytest.raises(DrainUnavailable):retirement_receipt(plan[0],result.operation_id,plan[3])
+
+
+
+# The child's safety guard accepts only DB/media paths inside the pytest-owned temp
+# tree; that is the session basetemp, which --basetemp may place outside $TMPDIR.
+_BASETEMP = []
+
+
+def _pytest_owned_root():
+    return _BASETEMP[0]
+
+
+@pytest.fixture(autouse=True)
+def _record_pytest_owned_root(tmp_path_factory):
+    _BASETEMP[:] = [tmp_path_factory.getbasetemp().resolve()]
