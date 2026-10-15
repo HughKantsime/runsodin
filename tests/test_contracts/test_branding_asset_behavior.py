@@ -4,6 +4,9 @@ from PIL import Image
 import pytest
 from tests.test_contracts.test_branding_behavior import branding_client,review_db
 
+# Exercises Pro/Enterprise-gated routes (cert-fix-G tier gates): run under a real signed license.
+pytestmark = pytest.mark.usefixtures("pro_license")
+
 @pytest.fixture
 def owned_branding(branding_client,tmp_path,monkeypatch):
     from modules.system import routes_settings

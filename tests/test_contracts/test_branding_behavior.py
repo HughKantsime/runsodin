@@ -5,6 +5,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 from tests.test_contracts.test_education_review_workflow import review_db
 
+# Exercises Pro/Enterprise-gated routes (cert-fix-G tier gates): run under a real signed license.
+pytestmark = pytest.mark.usefixtures("pro_license")
+
 @pytest.fixture
 def branding_client(review_db):
     from core.db import get_db

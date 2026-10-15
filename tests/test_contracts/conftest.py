@@ -54,3 +54,67 @@ def _startup_providers(monkeypatch):
                           ("TimelapseMediaProvider", TimelapseMediaService)):
         if not registry.has_provider(name):
             registry.register_provider(name, factory())
+
+
+@pytest.fixture
+def tier_license(tmp_path, monkeypatch):
+    """Install a REAL signed license through the production verifier.
+
+    A throwaway Ed25519 issuer key is generated per test and substituted for
+    the embedded vendor public key (the only seam: the vendor private key is
+    not available); the license file is written to a per-test LICENSE_DIR and
+    read back by license_manager exactly as in production. Returns
+    ``install(tier, **payload_overrides) -> LicenseInfo``; ``install(None)``
+    removes the file (Community).
+    """
+    import base64
+    import json as _json
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    import license_manager as lm
+
+    issuer = Ed25519PrivateKey.generate()
+    monkeypatch.setattr(lm, "ODIN_PUBLIC_KEY", issuer.public_key().public_bytes(
+        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode())
+    license_dir = tmp_path / "signed-license"
+    license_dir.mkdir()
+    monkeypatch.setattr(lm, "LICENSE_DIR", str(license_dir))
+    for name in ("ODIN_LICENSE_FILE", "ODIN_REQUIRE_LICENSE_BINDING", "ODIN_LICENSE_READ_ONLY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(lm, "_cached_license", None)
+    monkeypatch.setattr(lm, "_cached_mtime", 0)
+
+    def install(tier="pro", **overrides):
+        path = license_dir / lm.LICENSE_FILENAME
+        if tier is None:
+            path.unlink(missing_ok=True)
+        else:
+            payload = {"tier": tier, "licensee": f"Contract test {tier}", "expires_at": "2099-01-01", **overrides}
+            raw = _json.dumps(payload).encode()
+            lm.save_license_file(base64.urlsafe_b64encode(raw).decode() + "." +
+                                 base64.urlsafe_b64encode(issuer.sign(raw)).decode())
+        lm._cached_license = None
+        lm._cached_mtime = 0
+        info = lm.get_license()
+        assert tier is None or (info.valid and info.tier == tier), info.error
+        return info
+
+    return install
+
+
+@pytest.fixture
+def pro_license(tier_license):
+    """A signed Pro license (orders, products, analytics, maintenance, branding)."""
+    return tier_license("pro")
+
+
+@pytest.fixture
+def enterprise_license(tier_license):
+    """A signed Enterprise license (adds audit export and MQTT event republish)."""
+    return tier_license("enterprise")
+
+
+@pytest.fixture
+def education_license(tier_license):
+    """A signed Education license (multi-user, job approval, groups, quotas)."""
+    return tier_license("education")

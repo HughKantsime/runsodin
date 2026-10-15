@@ -3,6 +3,9 @@ import pytest
 from sqlalchemy import text
 from tests.test_contracts.test_api_token_delegation_behavior import token_client,review_db
 
+# Exercises Pro/Enterprise-gated routes (cert-fix-G tier gates): run under a real signed license.
+pytestmark = pytest.mark.usefixtures("pro_license")
+
 @pytest.fixture
 def branding_token_client(token_client,review_db):
     from modules.system.routes_settings import router
