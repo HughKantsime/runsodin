@@ -6,7 +6,9 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
-from pydantic import BaseModel as PydanticBaseModel
+from typing import Literal, Optional
+
+from pydantic import BaseModel as PydanticBaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -364,6 +366,21 @@ async def get_me(current_user: dict = Depends(get_current_user)):
             "role": current_user["role"], "group_id": current_user.get("group_id")}
 
 
+_DEFAULT_THEME = {"accent_color": "#6366f1", "sidebar_style": "dark", "background": "default"}
+
+
+class ThemePreferences(PydanticBaseModel):
+    """Per-user theme. Strictly validated: values are applied as CSS by the UI."""
+    model_config = ConfigDict(extra="forbid")
+    accent_color: Optional[str] = Field(None, pattern=r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
+    sidebar_style: Optional[Literal["dark", "light"]] = None
+    background: Optional[str] = Field(None, pattern=r"^[a-z0-9_-]{1,32}$")
+    mode: Optional[Literal["light", "dark"]] = None
+
+    def stored(self) -> dict:
+        return self.model_dump(exclude_unset=True, exclude_none=True)
+
+
 @router.get("/auth/me/theme", tags=["Auth"])
 async def get_theme(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Get the current user's theme preferences."""
@@ -372,24 +389,22 @@ async def get_theme(current_user: dict = Depends(get_current_user), db: Session 
     row = db.execute(text("SELECT theme_json FROM users WHERE id = :id"), {"id": current_user["id"]}).fetchone()
     if row and row[0]:
         try:
-            import json as _json
-            return _json.loads(row[0])
+            # Rows written before validation existed are re-validated, never echoed raw.
+            return {**_DEFAULT_THEME, **ThemePreferences.model_validate(json.loads(row[0])).stored()}
         except Exception as e:
-            log.debug(f"Failed to parse theme JSON: {e}")
-    return {"accent_color": "#6366f1", "sidebar_style": "dark", "background": "default"}
+            log.debug(f"Ignoring invalid stored theme JSON: {e}")
+    return dict(_DEFAULT_THEME)
 
 
 @router.put("/auth/me/theme", tags=["Auth"])
-async def set_theme(request: Request, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Set the current user's theme preferences."""
+async def set_theme(prefs: ThemePreferences, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Set the current user's theme preferences (422 for unknown keys or invalid values)."""
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    import json as _json
-    body = await request.json()
-    theme_json = _json.dumps(body)
-    db.execute(text("UPDATE users SET theme_json = :t WHERE id = :id"), {"t": theme_json, "id": current_user["id"]})
+    stored = prefs.stored()
+    db.execute(text("UPDATE users SET theme_json = :t WHERE id = :id"), {"t": json.dumps(stored), "id": current_user["id"]})
     db.commit()
-    return body
+    return stored
 
 
 @router.post("/auth/ws-token", tags=["Auth"])
