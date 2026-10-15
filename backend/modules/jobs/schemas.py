@@ -77,6 +77,8 @@ class JobUpdate(BaseModel):
     model_id: Optional[int] = None
     quantity: Optional[int] = Field(default=None, ge=1, le=10000)
     priority: Optional[int] = Field(default=None, ge=0, le=10)
+    # Accepted only so PATCH can refuse it explicitly (422): status changes go
+    # through the guarded lifecycle and approval endpoints.
     status: Optional[JobStatus] = None
     printer_id: Optional[int] = None
     scheduled_start: Optional[datetime] = None

@@ -597,6 +597,15 @@ async def update_job(job_id: int, updates: JobUpdate, request: Request, current_
                 and candidate.order_item_id is None
                 and db.execute(text('SELECT 1 FROM order_production_jobs WHERE job_id=:id'), {'id':job_id}).first() is None)
 
+    if "status" in updates.model_fields_set:
+        # Status only moves through the lifecycle routes (start/complete/fail/
+        # cancel/reset and approve/reject/resubmit), which carry the transition
+        # guards and the approval gate. A generic PATCH must not bypass them.
+        raise HTTPException(
+            422,
+            "Job status cannot be set by PATCH; use the start, complete, fail, cancel, reset, "
+            "approve, reject or resubmit endpoints",
+        )
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")

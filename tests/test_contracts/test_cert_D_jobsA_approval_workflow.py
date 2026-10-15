@@ -144,6 +144,27 @@ def test_F04_4_1_terminal_transition_requires_a_printing_lifecycle(cert, review_
     assert _status(review_db, 901) == source
 
 
+@pytest.mark.parametrize("source,target", [("cancelled", "completed"), ("submitted", "pending"), ("rejected", "pending"),
+                                           ("submitted", "completed"), ("pending", "printing"), ("printing", "failed")])
+@pytest.mark.parametrize("actor", ["operator1", "admin"])
+def test_F04_4_1_status_cannot_be_set_by_patch(cert, review_db, source, target, actor):
+    """PATCH /jobs/{id} cannot move status; only the guarded lifecycle and approval routes can."""
+    client, as_user, _ = cert
+    review_db.execute(text(
+        "INSERT INTO jobs(id,item_name,status,submitted_by,charged_to_user_id,charged_to_org_id,quantity,priority,hold,is_locked) "
+        "VALUES(902,'Synthetic patch',:s,1,1,1,1,3,0,0)"), {"s": source})
+    review_db.commit()
+    response = client.patch("/jobs/902", json={"status": target}, headers=as_user(actor))
+    assert response.status_code == 422, response.text
+    assert _status(review_db, 902) == source
+    # Other fields still edit normally; the approval gate stays on the approve route.
+    if source == "submitted":
+        assert client.patch("/jobs/902", json={"notes": "edited"}, headers=as_user(actor)).status_code == 200
+        assert _status(review_db, 902) == "submitted"
+        assert client.post("/jobs/902/approve", headers=as_user(actor)).status_code == 200
+        assert _status(review_db, 902) == "pending"
+
+
 # ---------------------------------------------------------------- F04-4.1-02 approval-mode sequence
 def test_F04_4_1_02_approval_mode_sequence_has_no_persisted_approved_state(cert, review_db):
     client, as_user, _ = cert
