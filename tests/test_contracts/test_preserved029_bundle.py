@@ -26,6 +26,9 @@ FROZEN = {
     "prepriced_restore_contract.py": "2009b49bce52e7630422bbefce007defc79b560f5bcac1e01e07606c7792d5e7",
 }
 PRESERVED027_TREE = ("1ecbc53957108027428c17cb845da4ca8a7f4795030355fe42d146c226f82cfe", 121)
+# The whole preserved029 package: parent bridge, runner, integrity, manifest and bundle.
+# The manifest pin only covers the bundle; this covers the wrapper files too.
+PRESERVED029_TREE = ("99acc46d0b337f1709b7b3a15b5a2bf076e48b88c602b7f6f1318abae7cbdfbe", 123)
 
 
 def _sha(path):
@@ -44,6 +47,26 @@ def test_frozen_restore_artifacts_are_byte_identical():
     for name, digest in FROZEN.items():
         assert _sha(SCHEMA / name) == digest, name
     assert _tree_digest(SCHEMA / "preserved027") == PRESERVED027_TREE
+    assert _tree_digest(SCHEMA / "preserved029") == PRESERVED029_TREE
+
+
+def _git_source(path):
+    """Bytes of backend/<path> at SOURCE_COMMIT, or None when history is unavailable."""
+    if shutil.which("git") is None:
+        return None
+    result = subprocess.run(["git", "-C", str(ROOT), "show", f"{SOURCE_COMMIT}:backend/{path}"], capture_output=True, timeout=30)
+    return result.stdout if result.returncode == 0 else None
+
+
+def test_every_bundle_file_is_the_source_commit_byte_for_byte():
+    _, manifest = integrity.check_package()
+    probe = _git_source("core/schema/bootstrap.py")
+    if probe is None:
+        pytest.skip(f"UNVERIFIED: git history with {SOURCE_COMMIT} is unavailable (shallow or exported checkout); "
+                    "the preserved029 bundle cannot be compared with its source commit here")
+    mismatched = [name for name in sorted(manifest["sources"])
+                  if (data := _git_source(name)) is None or hashlib.sha256(data).hexdigest() != manifest["sources"][name]]
+    assert mismatched == []
 
 
 def test_bundle_is_the_exact_source_commit_restore_stage_closure():
