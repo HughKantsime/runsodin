@@ -545,3 +545,24 @@ def test_api_and_thread_share_the_capture_interval_bound(vision_http):
     client, _ = vision_http
     assert client.patch('/api/printers/9/vision', json={'capture_interval_sec': MAX_CAPTURE_INTERVAL}).status_code == 200
     assert capture_interval(MAX_CAPTURE_INTERVAL) == MAX_CAPTURE_INTERVAL and capture_interval(MAX_CAPTURE_INTERVAL + 1) == 10
+
+
+# ------------------------------------------- cert-B gap: auto-configured Bambu RTSP cameras
+
+def test_auto_configured_bambu_camera_without_stored_url_is_monitored(daemon, camera_printers, monkeypatch):
+    """X1C/H2D cameras are derived from the access code (no stored camera_url) and must be watched."""
+    from cryptography.fernet import Fernet
+    from core import crypto
+    monkeypatch.setenv('ENCRYPTION_KEY', Fernet.generate_key().decode())
+    instance, calls = daemon
+    key = crypto.encrypt('01P00CERT0001|12345678')
+    camera_printers.execute(text(
+        "INSERT INTO printers(id,name,model,is_active,api_type,api_host,api_key,camera_enabled,camera_url,gcode_state) VALUES"
+        "(21,'X1C auto','X1C',1,'bambu','192.0.2.21',:k,1,NULL,'RUNNING'),"
+        "(22,'H2D auto','H2D',1,'bambu','192.0.2.22',:k,1,NULL,'RUNNING'),"
+        "(23,'P1S no camera url','P1S',1,'bambu','192.0.2.23',:k,1,NULL,'RUNNING'),"
+        "(24,'X1C camera off','X1C',1,'bambu','192.0.2.24',:k,0,NULL,'RUNNING')"), {'k': key})
+    camera_printers.commit()
+    instance._scan_printers()
+    assert set(instance._threads) == {9, 10, 21, 22}
+    assert _wait(lambda: 'http://127.0.0.1:1984/api/frame.jpeg?src=printer_21' in calls)

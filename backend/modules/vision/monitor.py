@@ -114,6 +114,20 @@ class VisionMonitorDaemon:
         log.info(f"Received signal {signum}, shutting down...")
         self._running = False
 
+    @staticmethod
+    def _has_effective_camera(row) -> bool:
+        if row['camera_url']:
+            return True
+        from types import SimpleNamespace
+        from modules.printers.route_utils import get_camera_url
+        try:
+            return get_camera_url(SimpleNamespace(
+                camera_url=None, api_type=row['api_type'], api_key=row['api_key'],
+                api_host=row['api_host'], model=row['model'])) is not None
+        except Exception as e:
+            log.error(f"Camera URL resolution failed for printer {row['id']}: {e}")
+            return False
+
     def _globally_enabled(self) -> bool:
         """Read the global Vigil AI switch from system_config 'vision_settings' (default on)."""
         try:
@@ -143,6 +157,7 @@ class VisionMonitorDaemon:
             with engine.connect() as conn:
                 rows = conn.execute(text("""
                     SELECT p.id, p.name, p.nickname, p.gcode_state,
+                           p.camera_url, p.api_type, p.api_key, p.api_host, p.model,
                            pj.id as print_job_id, pj.current_layer,
                            vs.enabled, vs.spaghetti_enabled, vs.spaghetti_threshold,
                            vs.first_layer_enabled, vs.first_layer_threshold,
@@ -156,7 +171,6 @@ class VisionMonitorDaemon:
                         AND pj.status = 'running'
                     WHERE p.is_active IS TRUE
                       AND p.camera_enabled IS TRUE
-                      AND p.camera_url IS NOT NULL
                       AND (p.gcode_state = 'RUNNING'
                            OR (p.gcode_state IN ('IDLE', 'FINISH', 'FINISHED')
                                AND COALESCE(vs.build_plate_empty_enabled, 0) = 1))
@@ -172,6 +186,11 @@ class VisionMonitorDaemon:
         active_ids = set()
         for row in rows:
             pid = row['id']
+
+            # Effective camera: the stored URL, else the one derived from credentials
+            # (auto-configured Bambu X1C/H2D RTSP); same resolution go2rtc sync uses.
+            if not self._has_effective_camera(row):
+                continue
 
             # Check if vision is enabled (default yes if no settings row); a disabled
             # printer is not active, so its running thread is stopped below.
