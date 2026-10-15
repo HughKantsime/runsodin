@@ -1,0 +1,73 @@
+{
+ "archive_ams_preview": {
+  "available": [
+   {
+    "color": "White",
+    "color_hex": "FFFFFF",
+    "material": "PLA",
+    "slot": 1,
+    "spool_id": null
+   },
+   {
+    "color": "Black",
+    "color_hex": "000000",
+    "material": "PLA",
+    "slot": 2,
+    "spool_id": 602
+   },
+   {
+    "color": "Red",
+    "color_hex": "FF0000",
+    "material": "ABS",
+    "slot": 3,
+    "spool_id": null
+   }
+  ],
+  "required": [
+   {
+    "color": "#000000",
+    "material": "PLA",
+    "slot": 0
+   },
+   {
+    "color": "#FFFFFF",
+    "material": "PLA",
+    "slot": 1
+   },
+   {
+    "color": "#FF0000",
+    "material": "PETG",
+    "slot": 2
+   }
+  ],
+  "suggested_mapping": [
+   {
+    "confidence": "exact",
+    "source_slot": 0,
+    "target_slot": 2
+   },
+   {
+    "confidence": "exact",
+    "source_slot": 1,
+    "target_slot": 1
+   }
+  ]
+ },
+ "overlay": {
+  "bed_target_temp": null,
+  "bed_temp": null,
+  "camera_url": "/api/overlay/9/camera",
+  "current_layer": null,
+  "gcode_state": null,
+  "job_name": null,
+  "model": "Bambu Lab P1S",
+  "nozzle_target_temp": null,
+  "nozzle_temp": null,
+  "print_progress": null,
+  "print_stage": null,
+  "printer_id": 9,
+  "printer_name": "P1S-09",
+  "time_remaining_min": null,
+  "total_layers": null
+ }
+}

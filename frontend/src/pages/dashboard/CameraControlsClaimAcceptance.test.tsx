@@ -29,10 +29,11 @@ test('F02-2.8-01/03 overlay renders from public printer-id route without an auth
  expect(screen.getByText('210°C')).toBeInTheDocument();expect(screen.getByText('60°C')).toBeInTheDocument()
 })
 test('F02-2.8-02 camera image and status panel declare full-screen 70/30 dark structure',async()=>{
- const view=await mount()
+ // The camera relay is token-guarded: the copied overlay URL carries the camera token.
+ const view=await mount('?token=odin_synthetic')
  expect(view.container.firstElementChild).toHaveClass('h-screen','w-screen','bg-black')
  const image=screen.getByRole('img',{name:'Camera stream'})
- expect(image).toHaveAttribute('src','/synthetic-camera.jpg')
+ expect(image).toHaveAttribute('src','/synthetic-camera.jpg?token=odin_synthetic')
  expect(image.parentElement).toHaveClass('flex-[7]')
  expect(screen.getByTestId('overlay-printer-name').parentElement?.parentElement).toHaveClass('flex-[3]')
 })

@@ -8,6 +8,8 @@ VALID_SCOPES = {
     "read:spools", "write:spools",
     "read:models", "write:models",
     "read:analytics",
+    # Camera images only (the OBS overlay stream); grants no other read.
+    "read:cameras",
     "read:education", "write:education",
     # Phase 2 (v1.9.0): agent-surface scopes for the MCP tool layer.
     # agent:write is strictly narrower than `write` — it grants the

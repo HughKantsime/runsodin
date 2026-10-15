@@ -314,7 +314,8 @@ def toggle_camera(printer_id: int, current_user: dict = Depends(require_role("op
         raise HTTPException(status_code=404, detail="Printer not found")
 
     # Toggle the camera_enabled flag
-    new_state = not (printer.camera_enabled if printer.camera_enabled is not None else True)
+    # NULL streams nowhere (go2rtc and /cameras select TRUE only), so it is "off".
+    new_state = not bool(printer.camera_enabled)
     db.execute(text("UPDATE printers SET camera_enabled = :enabled WHERE id = :id"),
                {"enabled": new_state, "id": printer_id})
     db.commit()
@@ -397,3 +398,77 @@ async def camera_webrtc(printer_id: int, request: Request, db: Session = Depends
         raise HTTPException(status_code=502, detail="go2rtc is not reachable")
     except (httpx.TimeoutException, httpx.RemoteProtocolError):
         raise HTTPException(status_code=504, detail="go2rtc not ready — try again")
+
+
+# ====================================================================
+# OBS overlay camera (public route, token required)
+# ====================================================================
+
+GO2RTC_API = "http://127.0.0.1:1984"
+# Scopes that may read a camera image: the narrow overlay scope, or the
+# printer read scope every camera route already requires.
+OVERLAY_CAMERA_SCOPES = ("read:cameras", "read:printers")
+
+
+def overlay_camera_principal(db: Session, token: Optional[str], printer: Optional[Printer]) -> dict:
+    """Authorize an overlay camera stream from a scoped API token.
+
+    OBS browser sources cannot log in or send headers, so the copied overlay
+    URL carries a per-user scoped API token (``?token=odin_...``, revocable
+    and expirable in Settings > API Tokens). The token's user must be able to
+    see the printer, exactly as for /cameras/{id}/webrtc.
+    """
+    from core.dependencies import resolve_user_api_token
+    principal = resolve_user_api_token(token, db) if token else None
+    if not principal:
+        raise HTTPException(status_code=401, detail="A camera token is required")
+    scopes = principal.get("_token_scopes") or []
+    if not any(token_scope_granted(scopes, scope) for scope in OVERLAY_CAMERA_SCOPES):
+        raise HTTPException(status_code=403, detail="Token lacks camera read scope")
+    if printer is None or not (check_org_access(principal, printer.org_id) or printer.shared):
+        raise HTTPException(status_code=404, detail="Printer not found")
+    if not printer.is_active or not printer.camera_enabled or not get_camera_url(printer):
+        raise HTTPException(status_code=404, detail="Camera not found")
+    return principal
+
+
+@router.get("/overlay/{printer_id}/camera", tags=["Overlay"])
+async def overlay_camera_stream(printer_id: int, token: Optional[str] = Query(None), db: Session = Depends(get_db)):
+    """MJPEG camera stream for the OBS overlay <img> (multipart/x-mixed-replace)."""
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    overlay_camera_principal(db, token, printer)
+    stream_name = f"printer_{printer_id}"
+    try:
+        async with httpx.AsyncClient() as probe:
+            listed = await probe.get(f"{GO2RTC_API}/api/streams", timeout=2.0)
+        if listed.status_code == 200 and stream_name not in listed.json():
+            sync_go2rtc_config(db)
+    except (httpx.HTTPError, ValueError):
+        sync_go2rtc_config(db)
+    # Never hold a database connection for the life of a video stream.
+    db.close()
+
+    client = httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=30.0))
+    try:
+        upstream = await client.send(client.build_request("GET", f"{GO2RTC_API}/api/stream.mjpeg", params={"src": stream_name}), stream=True)
+    except httpx.HTTPError:
+        await client.aclose()
+        raise HTTPException(status_code=502, detail="go2rtc is not reachable")
+    content_type = upstream.headers.get("content-type", "")
+    if upstream.status_code != 200 or not content_type.startswith("multipart/"):
+        await upstream.aclose()
+        await client.aclose()
+        raise HTTPException(status_code=502, detail="Camera stream unavailable")
+
+    async def relay():
+        try:
+            async for chunk in upstream.aiter_raw():
+                yield chunk
+        except httpx.HTTPError:
+            return
+        finally:
+            await upstream.aclose()
+            await client.aclose()
+
+    return StreamingResponse(relay(), media_type=content_type,
+                             headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})

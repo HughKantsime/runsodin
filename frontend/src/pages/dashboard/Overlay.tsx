@@ -30,6 +30,9 @@ export default function Overlay() {
   const { printerId } = useParams()
   const [searchParams] = useSearchParams()
   const showCamera = searchParams.get('camera') !== 'false'
+  // The camera stream needs the scoped camera token carried by the copied
+  // overlay URL; without it the overlay shows status only.
+  const cameraToken = searchParams.get('token') || ''
   const theme = searchParams.get('theme') || 'dark'
   const isDark = theme !== 'light'
 
@@ -91,7 +94,9 @@ export default function Overlay() {
     : data.gcode_state === 'FINISH' ? 'text-[var(--status-printing)]'
     : mutedText
 
-  const cameraUrl = data.camera_url
+  const cameraUrl = data.camera_url && cameraToken
+    ? `${data.camera_url}?token=${encodeURIComponent(cameraToken)}`
+    : null
   const showCameraPanel = showCamera && cameraUrl
 
   return (

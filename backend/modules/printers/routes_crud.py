@@ -248,11 +248,14 @@ def update_printer(
 
     if 'camera_url' in update_data:
         from modules.printers.route_utils import resolve_masked_camera_url
-        if update_data['camera_url'] and resolve_masked_camera_url(update_data['camera_url'], printer.camera_url) is None:
+        # GET returns the effective URL masked (stored, or generated from the
+        # printer's credentials), so masked values resolve against that.
+        effective = printer.effective_camera_url
+        if update_data['camera_url'] and resolve_masked_camera_url(update_data['camera_url'], effective) is None:
             # The masked URL from GET sent back unchanged: keep the stored value.
             del update_data['camera_url']
         elif update_data['camera_url']:
-            update_data['camera_url'] = resolve_masked_camera_url(update_data['camera_url'], printer.camera_url)
+            update_data['camera_url'] = resolve_masked_camera_url(update_data['camera_url'], effective)
             update_data['camera_url'] = _validate_camera_url(update_data['camera_url'])
             if '@' in update_data['camera_url']:
                 update_data['camera_url'] = crypto.encrypt(update_data['camera_url'])
@@ -379,10 +382,13 @@ def get_overlay_data(printer_id: int, db: Session = Depends(get_db)):
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
     # Public endpoint: never expose a stored camera URL (it can embed credentials
-    # and may be stored encrypted); point at the proxied stream instead.
+    # and may be stored encrypted). Point at the overlay MJPEG relay, which is
+    # public in path only: it requires the scoped camera token the copied
+    # overlay URL carries (?token=), checked per stream.
+    from modules.printers.route_utils import get_camera_url
     camera_url = None
-    if (printer.api_type == "bambu" and printer.api_host) or printer.camera_url:
-        camera_url = f"/api/cameras/{printer_id}/stream"
+    if printer.is_active and printer.camera_enabled and get_camera_url(printer):
+        camera_url = f"/api/overlay/{printer_id}/camera"
     job_row = db.execute(
         text(
             "SELECT job_name, progress_percent, current_layer, total_layers, remaining_minutes "

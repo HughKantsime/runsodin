@@ -12,6 +12,7 @@ const AVAILABLE_SCOPES = [
   { value: 'read:models', label: 'Read Models' },
   { value: 'write:models', label: 'Write Models' },
   { value: 'read:analytics', label: 'Read Analytics' },
+  { value: 'read:cameras', label: 'Read Cameras (OBS overlay)' },
   { value: 'read:education', label: 'Read Education' },
   { value: 'write:education', label: 'Write Education' },
   { value: 'admin', label: 'Full Admin' },

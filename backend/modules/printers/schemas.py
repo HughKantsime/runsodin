@@ -4,7 +4,7 @@ modules/printers/schemas.py — Pydantic schemas for the printers domain.
 
 from datetime import datetime
 from typing import Optional, List
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import AliasChoices, BaseModel, Field, ConfigDict, field_validator
 
 from core.base import FilamentType
 
@@ -41,6 +41,7 @@ class FilamentSlotResponse(FilamentSlotBase):
     printer_id: int
     loaded_at: Optional[datetime] = None
     remaining: Optional[float] = None
+    remaining_weight: Optional[float] = None  # grams left on the assigned spool
     material_type: Optional[str] = None
 
 
@@ -125,6 +126,17 @@ class PrinterResponse(PrinterBase):
     shared: bool = False
     org_id: Optional[int] = None
     has_api_key: bool = False  # Safe boolean — never exposes the actual credential
+    # NULL is reported as disabled: go2rtc and /cameras only stream TRUE.
+    camera_enabled: bool = True
+    # The camera actually streamed: the configured URL, or the one generated
+    # from the printer's credentials (Bambu X1C/X1E/H2D RTSPS). Always masked.
+    camera_url: Optional[str] = Field(default=None, validation_alias=AliasChoices("effective_camera_url", "camera_url"))
+    camera_source: Optional[str] = None  # 'configured' | 'auto' | None
+
+    @field_validator('camera_enabled', mode='before')
+    @classmethod
+    def _camera_enabled_flag(cls, v):
+        return bool(v)
 
     @field_validator('camera_url', mode='before')
     @classmethod
