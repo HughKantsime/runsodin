@@ -434,8 +434,9 @@ def _ip_allowlist_denial(session_factory, client_ip):
         config = json.loads(row[0]) if isinstance(row[0], str) else row[0]
         if not (config and config.get("enabled") and config.get("cidrs")):
             return None
+        from core.net_identity import is_loopback
         client_ip = client_ip or "127.0.0.1"
-        if client_ip in ("127.0.0.1", "::1"):
+        if is_loopback(client_ip):
             return None
         address = ipaddress.ip_address(client_ip)
         if any(address in ipaddress.ip_network(c, strict=False) for c in config["cidrs"]):
@@ -647,7 +648,6 @@ def _mount_static_assets(app,static_dir):
     app.mount('/static',StaticFiles(directory=static_dir),name='static')
 
 
-def create_app() -> FastAPI:
 def _revoke_legacy_biometric_tokens(engine) -> None:
     """Delete all biometric refresh tokens once, on first start of this version.
 
@@ -676,6 +676,7 @@ def _revoke_legacy_biometric_tokens(engine) -> None:
             log.warning("Revoked %d pre-2.0 biometric refresh token(s); affected devices must re-enrol.", deleted)
 
 
+def create_app() -> FastAPI:
     """Create and fully configure the ODIN FastAPI application.
 
     1. Discover all modules under backend/modules/.
@@ -762,7 +763,6 @@ def _revoke_legacy_biometric_tokens(engine) -> None:
 
         _check_schema_drift(engine, Base)
 
-        # v1.8.9 codex pass 4: second ITAR audit, now that DB is
         # 2.0 one-time data cleanup: biometric refresh tokens minted before the
         # credential-route hardening (a scoped token could create one) are
         # revoked once, so every device re-enrols under the interactive-only
@@ -772,6 +772,7 @@ def _revoke_legacy_biometric_tokens(engine) -> None:
         except Exception as e:
             log.warning("One-time biometric token revocation did not complete: %s", e)
 
+        # v1.8.9 codex pass 4: second ITAR audit, now that DB is
         # populated. The early `create_app`-level check only sees
         # static settings (license_server_url). DB-configured
         # webhooks / update URLs are only visible after migrations

@@ -71,9 +71,10 @@ async def set_ip_allowlist(request: Request, body: IPAllowlistRequest, current_u
                 raise ValueError("Unsupported scoped identity")
         except ValueError:
             raise HTTPException(status_code=400, detail="Cannot enforce allowlist for this client identity")
+        from core.net_identity import is_loopback
         client_in_list = any(client_address in network for network in networks)
-        # Loopback is always admitted by the allowlist middleware.
-        if not client_in_list and not client_address.is_loopback:
+        # Loopback is always admitted by the allowlist middleware (shared definition).
+        if not client_in_list and not is_loopback(str(client_address)):
             raise HTTPException(
                 status_code=400,
                 detail=(f"This server sees your address as {client_address}, which the allowlist does not "

@@ -25,7 +25,7 @@ def _is_lan_host(host: str) -> bool:
     return address.is_private or address.is_loopback or address.is_link_local
 
 
-def validate_base_url(base):
+def validate_base_url(base, *, enforce_https=True):
     """Return the normalized application URL used in emailed links, or raise ValueError.
 
     Admins set it in Settings > Notifications (PUT /api/smtp-config base_url);
@@ -37,13 +37,34 @@ def validate_base_url(base):
     if parsed.scheme.lower() not in {'http','https'} or not parsed.hostname or parsed.username is not None or parsed.password is not None or parsed.query or parsed.fragment:
         raise ValueError('Invalid base URL')
     parsed.port  # Validate a supplied port without emitting the configured value.
-    if parsed.scheme.lower() == 'http':
-        # Plain http is the documented LAN setup (http://<server-ip>:8000); a
-        # public host must use https so reset links are not sent in clear.
-        if not _is_lan_host(parsed.hostname):
+    if parsed.scheme.lower() == 'http' and not _is_lan_host(parsed.hostname):
+        # Plain http is the documented LAN setup (http://<server-ip>:8000). A
+        # public host must use https on NEW writes so reset links are not sent
+        # in clear; an already-stored value keeps working on read (upgrade
+        # safety) and is surfaced as an admin health warning instead.
+        if enforce_https:
             raise ValueError('Plain http is only allowed for LAN hosts')
-        log.warning("Application URL uses plain http on a LAN host; reset links travel unencrypted")
+        log.warning("Application URL uses plain http on a public host (%s); reset links travel unencrypted", parsed.hostname)
     return base.rstrip('/')
+
+
+def base_url_is_insecure_public(base) -> bool:
+    if not isinstance(base, str) or not base:
+        return False
+    try:
+        parsed = urlsplit(base)
+    except ValueError:
+        return False
+    return parsed.scheme.lower() == 'http' and bool(parsed.hostname) and not _is_lan_host(parsed.hostname)
+
+
+def base_url_health_warning(db):
+    """Admin health warning when the stored reset-link URL is public plain http."""
+    base = configured_base_url(db)
+    if base_url_is_insecure_public(base):
+        return ("Application URL uses plain http on a public host; password-reset links "
+                "are sent unencrypted. Set an https URL in Settings > Notifications.")
+    return None
 
 
 def configured_base_url(db):

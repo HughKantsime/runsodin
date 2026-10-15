@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel as PydanticBaseModel, field_validator
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from core.db import get_db
@@ -187,6 +187,10 @@ def setup_create_admin(request: SetupAdminRequest, http_request: Request, db: Se
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=403, detail="Setup already claimed — an admin account exists. Log in to continue.")
+    except OperationalError:
+        # A concurrent claimant holds the write lock; this one lost the race.
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Setup is being claimed by another request. Try again.")
     if db.execute(text("SELECT COUNT(*) FROM users")).scalar():
         db.rollback()
         raise HTTPException(status_code=403, detail="Setup already claimed — an admin account exists. Log in to continue.")
