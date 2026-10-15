@@ -77,6 +77,8 @@ T["unknown_key_put"] = op.put("/api/auth/me/theme", json={"accent_color": "#ef44
 T["bad_mode_put"] = op.put("/api/auth/me/theme", json={"mode": "sepia"}).status_code
 sql("UPDATE users SET theme_json=:t WHERE id=:i", t=json.dumps({"accent_color": "red;background:url(https://evil.example/x)"}), i=op_id)
 T["legacy_invalid_get"] = body(op.get("/api/auth/me/theme"))
+sql("UPDATE users SET theme_json=:t WHERE id=:i", t=json.dumps({"accent_color": "#123456", "mode": "light", "css": "x", "sidebar_style": 42}), i=op_id)
+T["legacy_mixed_get"] = body(op.get("/api/auth/me/theme"))
 
 # ---- fleet data (sidebar derives counts from GET /api/printers) ----
 now = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -244,6 +246,8 @@ def test_theme_mode_roundtrip_and_strict_schema(ux):
     assert t["unknown_key_put"] == 422 and t["bad_mode_put"] == 422
     # A row stored before validation existed is never echoed to the UI.
     assert t["legacy_invalid_get"] == {"accent_color": "#6366f1", "sidebar_style": "dark", "background": "default"}
+    # Reads drop unknown/invalid legacy fields but keep the valid ones (writes stay strict).
+    assert t["legacy_mixed_get"] == {"accent_color": "#123456", "sidebar_style": "dark", "background": "default", "mode": "light"}
 
 
 # ---------- F16-16.2-02 fleet data ----------

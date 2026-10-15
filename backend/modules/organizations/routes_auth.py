@@ -380,6 +380,18 @@ class ThemePreferences(PydanticBaseModel):
     def stored(self) -> dict:
         return self.model_dump(exclude_unset=True, exclude_none=True)
 
+    @classmethod
+    def lenient(cls, raw) -> dict:
+        """Read path: keep each valid known field of a stored row, drop the rest."""
+        kept = {}
+        for key, value in (raw.items() if isinstance(raw, dict) else ()):
+            if key in cls.model_fields:
+                try:
+                    kept.update(cls.model_validate({key: value}).stored())
+                except Exception:
+                    pass
+        return kept
+
 
 @router.get("/auth/me/theme", tags=["Auth"])
 async def get_theme(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -389,8 +401,8 @@ async def get_theme(current_user: dict = Depends(get_current_user), db: Session 
     row = db.execute(text("SELECT theme_json FROM users WHERE id = :id"), {"id": current_user["id"]}).fetchone()
     if row and row[0]:
         try:
-            # Rows written before validation existed are re-validated, never echoed raw.
-            return {**_DEFAULT_THEME, **ThemePreferences.model_validate(json.loads(row[0])).stored()}
+            # Rows written before validation existed are re-validated field by field, never echoed raw.
+            return {**_DEFAULT_THEME, **ThemePreferences.lenient(json.loads(row[0]))}
         except Exception as e:
             log.debug(f"Ignoring invalid stored theme JSON: {e}")
     return dict(_DEFAULT_THEME)
