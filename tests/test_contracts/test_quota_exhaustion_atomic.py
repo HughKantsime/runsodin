@@ -56,8 +56,11 @@ def test_one_captured_period_and_rollback(quota_engine, monkeypatch):
     with quota_engine.connect() as conn:
         assert conn.scalar(text('SELECT count(*) FROM jobs')) == 0
 
-def test_utc_legacy_weekly_keys():
-    assert _get_period_key('weekly', now=datetime(2026,1,1,tzinfo=timezone.utc)) == '2026-W00'
+def test_utc_weekly_keys_are_iso_weeks():
+    # F11-11.8-02: ISO 8601 weeks (%G-W%V); the old %Y-W%W key split the week that spans 1 January.
+    assert _get_period_key('weekly', now=datetime(2026,1,1,tzinfo=timezone.utc)) == '2026-W01'
+    assert _get_period_key('weekly', now=datetime(2025,12,29,tzinfo=timezone.utc)) == '2026-W01'
+    assert _get_period_key('weekly', now=datetime(2026,1,5,tzinfo=timezone.utc)) == '2026-W02'
 
 @pytest.mark.parametrize('existing', [False, True])
 def test_concurrent_one_allowance(quota_engine, existing):

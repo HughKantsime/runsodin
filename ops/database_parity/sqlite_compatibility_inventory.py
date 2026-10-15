@@ -228,6 +228,10 @@ CLASSIFICATIONS: dict[str, tuple[str, str]] = {
         "dialect-neutral",
         "Qmark statements execute through the dialect-aware shared DBAPI adapter",
     ),
+    "backend/core/quota.py": (
+        "dialect-neutral",
+        "qmark_runner binds named parameters as qmarks for the dialect-aware shared DBAPI adapter",
+    ),
     "backend/modules/notifications/job_events.py": (
         "dialect-neutral",
         "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",

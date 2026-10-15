@@ -15,6 +15,7 @@ from tests.test_contracts.test_education_review_workflow import review_db
 from tests.test_contracts.test_education_monitor_policy import monitor_db
 
 ROOT=Path(__file__).resolve().parents[2]
+QUOTA_CHARGE_BLOCK='                if success:\n                    # Charge the print\'s material and measured time to the\n                    # owner\'s grams/hours quota in the completion transaction.\n                    from core.quota import record_print_consumption, qmark_runner\n                    cur.execute("SAVEPOINT quota_consumption")\n                    try:\n                        record_print_consumption(\n                            qmark_runner(cur), scheduled_job_id,\n                            measured_hours=(duration_seconds / 3600.0) if duration_seconds else None)\n                        cur.execute("RELEASE SAVEPOINT quota_consumption")\n                    except Exception:\n                        # Never drop an observed completion over accounting;\n                        # the failure is logged loudly for reconciliation.\n                        cur.execute("ROLLBACK TO SAVEPOINT quota_consumption")\n                        log.exception("Quota consumption for job %s could not be recorded", scheduled_job_id)\n'
 
 
 def test_same_object_and_exact_pre_extraction_body():
@@ -28,6 +29,10 @@ def test_same_object_and_exact_pre_extraction_body():
     new='from core.committed_terminal_events import publish_committed_completion'
     old='from modules.printers.committed_terminal_events import publish_committed_completion'
     assert current.count(new)==1
+    # The only later change to job_completed: quota charging inside the completion
+    # transaction (F11-11.8-01/03). Everything else stays byte-identical.
+    assert current.count(QUOTA_CHARGE_BLOCK)==1
+    current=current.replace(QUOTA_CHARGE_BLOCK,'')
     # Byte hash is interpreter-independent; ast.dump schemas differ3.11/3.14.
     assert hashlib.sha256(current.replace(new,old).encode()).hexdigest()==before['job_events_sha256']
 
