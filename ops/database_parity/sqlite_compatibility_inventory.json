@@ -2250,7 +2250,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 8,
+      "line": 10,
       "path": "backend/modules/system/sanitize.py",
       "pattern": "qmark-parameter",
       "reason": "Secret-filter regular expressions contain question marks; this utility executes no SQL",
