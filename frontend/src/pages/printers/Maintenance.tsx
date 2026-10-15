@@ -201,6 +201,14 @@ function PrinterCard({ printer, onLogMaintenance }) {
         </div>
         <div className="flex items-center gap-3">
           <span className="text-xs text-[var(--brand-text-secondary)] font-mono">{printer.total_print_hours}h printed</span>
+          {printer.total_print_count != null && (
+            <span className="text-xs text-[var(--brand-text-secondary)] font-mono hidden sm:inline">{printer.total_print_count} prints</span>
+          )}
+          {printer.prints_since_maintenance != null && (
+            <span className="text-xs text-[var(--brand-text-secondary)] font-mono" title="Care counter: prints and print hours since the last logged maintenance">
+              {printer.prints_since_maintenance} prints · {printer.hours_since_maintenance ?? 0}h since service
+            </span>
+          )}
           <StatusBadge status={printer.overall_status} />
         </div>
       </div>
@@ -222,6 +230,14 @@ function PrinterCard({ printer, onLogMaintenance }) {
                   )}
                   {task.interval_days != null && (
                     <span className="text-xs text-[var(--brand-text-muted)]">{task.days_since_service}d / {task.interval_days}d</span>
+                  )}
+                  {(task.next_due_print_hours != null || task.next_due_date) && (
+                    <span className="text-xs text-[var(--brand-text-muted)]" title="Next due point from the last service">
+                      Next due: {[
+                        task.next_due_print_hours != null ? `${task.next_due_print_hours}h` : null,
+                        task.next_due_date ? new Date(task.next_due_date).toLocaleDateString() : null,
+                      ].filter(Boolean).join(' or ')}
+                    </span>
                   )}
                   {task.last_serviced ? (
                     <span className="text-xs text-[var(--brand-text-muted)]">
