@@ -22,11 +22,8 @@ GITLEAKS = shutil.which("gitleaks")
 pytestmark = pytest.mark.skipif(GITLEAKS is None, reason="gitleaks CLI not installed")
 
 
-DEFECT_RULES = ("DEFECT: .gitleaks.toml:1-21 defines only an [allowlist] - no [[rules]] and no [extend] useDefault=true - "
-                "so every gitleaks run that loads it (pre-commit hook via auto-discovered .gitleaks.toml, Makefile:196 "
-                "security-secrets, CI CV03 security-structured `--config .gitleaks.toml`) has ZERO rules. Scenario: a "
-                "contributor stages a real GitHub PAT/AWS key; the hook and the Trusted Validation secret gate both "
-                "report 'no leaks found' and the credential is committed/pushed into history.")
+# .gitleaks.toml extends the default rules ([extend] useDefault = true); the tests below prove detection.
+
 
 def _precommit_hook():
     cfg = yaml.safe_load((ROOT / ".pre-commit-config.yaml").read_text())
@@ -70,7 +67,6 @@ def test_positive_control_default_gitleaks_rules_detect_synthetic_token(tmp_path
     assert r.returncode == 1
 
 
-@pytest.mark.xfail(strict=True, reason=DEFECT_RULES)
 def test_gitleaks_hook_command_blocks_staged_synthetic_secret(tmp_path):
     repo = _repo(tmp_path)
     token = "ghp_" + "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(36))
@@ -86,7 +82,6 @@ def test_gitleaks_hook_command_passes_clean_staged_change(tmp_path):
     assert _hook_scan(repo) == 0
 
 
-@pytest.mark.xfail(strict=True, reason=DEFECT_RULES)
 def test_hook_with_autodiscovered_repo_config_blocks_staged_secret(tmp_path):
     """pre-commit runs gitleaks in the repo root, where gitleaks auto-loads .gitleaks.toml."""
     repo = _repo(tmp_path)
@@ -98,7 +93,6 @@ def test_hook_with_autodiscovered_repo_config_blocks_staged_secret(tmp_path):
     assert r.returncode == 1
 
 
-@pytest.mark.xfail(strict=True, reason=DEFECT_RULES)
 def test_repository_allowlist_config_loads_and_still_detects(tmp_path):
     """The repo .gitleaks.toml allowlist must not neuter detection outside its allowlisted paths."""
     d = tmp_path / "scan"
