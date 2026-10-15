@@ -119,7 +119,12 @@ TIERS = ("community", "pro", "education", "enterprise")
 @pytest.fixture(scope="module")
 def tiers(tmp_path_factory):
     root = tmp_path_factory.mktemp("cert-g-tiers")
-    return {t: run_probe(f"tier-{t}", PROBE, root, {"CERT_G_TIER": t}) for t in TIERS}
+    out = {}
+    for t in TIERS:
+        branding = root / f"branding-{t}"  # logo uploads stay inside the probe's tmp dir
+        branding.mkdir()
+        out[t] = run_probe(f"tier-{t}", PROBE, root, {"CERT_G_TIER": t, "ODIN_BRANDING_DIRECTORY": str(branding)})
+    return out
 
 
 def ok(result):
