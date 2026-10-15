@@ -648,6 +648,34 @@ def _mount_static_assets(app,static_dir):
 
 
 def create_app() -> FastAPI:
+def _revoke_legacy_biometric_tokens(engine) -> None:
+    """Delete all biometric refresh tokens once, on first start of this version.
+
+    v1.9.24 and earlier let a scoped API token mint a biometric refresh token
+    (SEC HIGH-1). Any such token already issued keeps working until it expires,
+    so on the first start after upgrade every biometric token is revoked and
+    users re-enrol through an interactive session. A system_config marker makes
+    it run exactly once; it is not a schema change.
+    """
+    from sqlalchemy import text
+    from core.db_compat import sql
+    marker = "biometric_revoked_2_0"
+    with engine.begin() as connection:
+        done = connection.execute(
+            text("SELECT 1 FROM system_config WHERE key = :k"), {"k": marker}
+        ).first()
+        if done:
+            return
+        deleted = connection.execute(text("DELETE FROM biometric_tokens")).rowcount
+        connection.execute(
+            text(f"{sql.insert_or_ignore_prefix()} system_config (key, value) "
+                 f"VALUES (:k, :v){sql.on_conflict_ignore('key')}"),
+            {"k": marker, "v": True},
+        )
+        if deleted:
+            log.warning("Revoked %d pre-2.0 biometric refresh token(s); affected devices must re-enrol.", deleted)
+
+
     """Create and fully configure the ODIN FastAPI application.
 
     1. Discover all modules under backend/modules/.
@@ -735,6 +763,15 @@ def create_app() -> FastAPI:
         _check_schema_drift(engine, Base)
 
         # v1.8.9 codex pass 4: second ITAR audit, now that DB is
+        # 2.0 one-time data cleanup: biometric refresh tokens minted before the
+        # credential-route hardening (a scoped token could create one) are
+        # revoked once, so every device re-enrols under the interactive-only
+        # rule. Guarded by a system_config flag — no schema change.
+        try:
+            _revoke_legacy_biometric_tokens(engine)
+        except Exception as e:
+            log.warning("One-time biometric token revocation did not complete: %s", e)
+
         # populated. The early `create_app`-level check only sees
         # static settings (license_server_url). DB-configured
         # webhooks / update URLs are only visible after migrations
