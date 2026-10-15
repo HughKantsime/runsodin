@@ -275,22 +275,47 @@ def generate_failure_analysis(session, filters):
 
 
 def generate_chargeback_summary(session, filters):
-    """Reuse query pattern from /api/reports/chargebacks."""
+    """Reuse query pattern from /api/reports/chargebacks.
+
+    Rows are per user and charged organization so each cost carries that
+    organization's configured finance currency (no currency is presumed and
+    none is converted). Jobs without an estimated cost are counted and labeled
+    as unpriced; they are never valued as 0.
+    """
+    from core.finance_currency import read_currency
     # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
     rows = session.execute(text(f"""
         SELECT u.username, COUNT(j.id) as job_count,
-               COALESCE(SUM(j.estimated_cost), 0) as total_cost,
+               SUM(j.estimated_cost) as total_cost,
                COALESCE(SUM(j.duration_hours), 0) as total_hours,
-               COALESCE(SUM(pa.grams), 0) as total_grams
+               COALESCE(SUM(pa.grams), 0) as total_grams,
+               SUM(CASE WHEN j.estimated_cost IS NULL THEN 1 ELSE 0 END) as unpriced_jobs,
+               j.charged_to_org_id as org_id
         FROM jobs j
         LEFT JOIN users u ON j.charged_to_user_id = u.id
         LEFT JOIN ({ARCHIVE_GRAMS_BY_JOB_SQL}) pa ON pa.job_id = j.id
         WHERE j.charged_to_user_id IS NOT NULL
           AND j.status IN ('completed', 'failed')
           AND j.created_at >= {sql.now_offset('-30 days')}
-        GROUP BY j.charged_to_user_id, u.username
+        GROUP BY j.charged_to_user_id, u.username, j.charged_to_org_id
         ORDER BY total_cost DESC
     """)).fetchall()
+
+    currencies = {}
+
+    def _currency(org_id):
+        if type(org_id) is not int or org_id <= 0:
+            return None
+        if org_id not in currencies:
+            currencies[org_id] = read_currency(session, owner_scope='org', owner_key=org_id)
+        return currencies[org_id]
+
+    def _cost_cell(total, unpriced, org_id):
+        if total is None:
+            return "Unknown"
+        currency = _currency(org_id)
+        amount = f"{currency} {total:.2f}" if currency else f"{total:.2f}"
+        return amount + (f" (+{int(unpriced)} unpriced)" if unpriced else "")
 
     table_rows = ""
     for r in rows:
@@ -298,13 +323,13 @@ def generate_chargeback_summary(session, filters):
         <tr style="border-bottom: 1px solid #333;">
             <td style="padding: 8px; font-size: 14px;">{escape(str(r[0] or 'Unknown'))}</td>
             <td style="padding: 8px; font-size: 14px; text-align: right;">{r[1]}</td>
-            <td style="padding: 8px; font-size: 14px; text-align: right;">${round(r[2], 2)}</td>
+            <td style="padding: 8px; font-size: 14px; text-align: right;">{escape(_cost_cell(r[2], r[5], r[6]))}</td>
             <td style="padding: 8px; font-size: 14px; text-align: right;">{round(r[3], 1)}h</td>
             <td style="padding: 8px; font-size: 14px; text-align: right;">{round(r[4])}g</td>
         </tr>"""
 
     content = f"""
-    <p style="color: #888; margin-bottom: 12px;">Last 30 days chargebacks by user</p>
+    <p style="color: #888; margin-bottom: 12px;">Last 30 days chargebacks by user. Costs are job estimates in the charged organization's configured currency (no currency shown when none is configured); unpriced jobs are counted, not valued.</p>
     <table style="width: 100%; border-collapse: collapse; background: #33312d; border-radius: 4px;">
         <thead><tr style="border-bottom: 2px solid #47453d;">
             <th style="padding: 8px; text-align: left; color: #8a8679; font-size: 12px;">USER</th>
