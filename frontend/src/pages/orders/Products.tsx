@@ -261,7 +261,7 @@ export default function Products() {
                   </button>
                   <div className="flex gap-1">
                     {canDo('products.edit') && (
-                      <button
+                      <button aria-label="Edit product"
                         onClick={() => openEditModal(product)}
                         className="p-1 md:p-1.5 text-[var(--brand-muted)] hover:bg-[var(--brand-input-bg)] rounded-md transition-colors"
                       >
@@ -269,7 +269,7 @@ export default function Products() {
                       </button>
                     )}
                     {canDo('products.delete') && (
-                      <button
+                      <button aria-label="Delete product"
                         onClick={() => handleDelete(product.id)}
                         className="p-1 md:p-1.5 text-[var(--brand-muted)] hover:text-red-400 hover:bg-red-900/50 rounded-md transition-colors"
                       >
@@ -309,7 +309,7 @@ export default function Products() {
                     {(expandedProduct.consumables || []).map(c => (
                       <div key={c.id} className="flex items-center justify-between text-sm text-[var(--brand-text-secondary)] py-1">
                         <span><span className="px-2 py-0.5 rounded-md bg-amber-600/20 text-amber-400">{c.quantity_per_product}x</span> {c.consumable_name || `Consumable #${c.consumable_id}`}</span>
-                        <button onClick={() => handleRemoveConsumable(product.id, c.id)} className="p-1 text-[var(--brand-muted)] hover:text-red-400"><X size={12} /></button>
+                        <button aria-label="Remove consumable" onClick={() => handleRemoveConsumable(product.id, c.id)} className="p-1 text-[var(--brand-muted)] hover:text-red-400"><X size={12} /></button>
                       </div>
                     ))}
                     {addingConsumable === product.id && (
@@ -415,7 +415,7 @@ export default function Products() {
                                   <span className="px-2 py-0.5 rounded-md bg-amber-600/20 text-amber-400">{c.quantity_per_product}x</span>
                                   <span>{c.consumable_name || `Consumable #${c.consumable_id}`}</span>
                                 </span>
-                                <button onClick={() => handleRemoveConsumable(product.id, c.id)} className="p-1 text-[var(--brand-muted)] hover:text-red-400 hover:bg-red-900/30 rounded-md transition-colors"><Trash2 size={12} /></button>
+                                <button aria-label="Remove consumable" onClick={() => handleRemoveConsumable(product.id, c.id)} className="p-1 text-[var(--brand-muted)] hover:text-red-400 hover:bg-red-900/30 rounded-md transition-colors"><Trash2 size={12} /></button>
                               </li>
                             ))}
                           </ul>
@@ -443,13 +443,13 @@ export default function Products() {
       {/* Create/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={closeModal}>
-          <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <div role="dialog" aria-modal="true" aria-labelledby="product-modal-title" className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="p-4 border-b border-[var(--brand-card-border)] flex justify-between items-center">
-              <h2 className="text-lg font-semibold text-[var(--brand-text)]">
+              <h2 id="product-modal-title" className="text-lg font-semibold text-[var(--brand-text)]">
                 {editingProduct ? 'Edit Product' : 'New Product'}
               </h2>
-              <button onClick={closeModal} className="p-1 text-[var(--brand-muted)] hover:text-[var(--brand-text-secondary)] hover:bg-[var(--brand-input-bg)] rounded-md transition-colors">
-                <X size={18} />
+              <button onClick={closeModal} aria-label={editingProduct ? 'Close edit product dialog' : 'Close new product dialog'} className="p-1 text-[var(--brand-muted)] hover:text-[var(--brand-text-secondary)] hover:bg-[var(--brand-input-bg)] rounded-md transition-colors">
+                <X size={18} aria-hidden="true" />
               </button>
             </div>
             <form onSubmit={handleSubmit} className="p-4 space-y-4">
@@ -532,7 +532,7 @@ export default function Products() {
                           className="w-16 rounded-md px-2 py-1.5 text-sm bg-[var(--brand-content-bg)] border border-[var(--brand-card-border)] text-[var(--brand-text)]"
                           placeholder="Qty"
                         />
-                        <button
+                        <button aria-label="Remove component"
                           type="button"
                           onClick={() => removeComponent(i)}
                           className="p-2 text-[var(--brand-muted)] hover:text-red-400 hover:bg-red-900/30 rounded-md transition-colors"

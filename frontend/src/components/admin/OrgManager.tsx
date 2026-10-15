@@ -92,7 +92,7 @@ export default function OrgManager() {
       {showCreate && (
         <div className="mb-4 p-3 bg-[var(--brand-input-bg)] rounded-md border border-[var(--brand-card-border)]">
           <div className="flex items-center gap-2">
-            <Input
+            <Input aria-label="Organization name"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -108,7 +108,7 @@ export default function OrgManager() {
             >
               Create
             </Button>
-            <Button variant="ghost" size="icon" icon={X} onClick={() => setShowCreate(false)} />
+            <Button aria-label="Close new organization form" variant="ghost" size="icon" icon={X} onClick={() => setShowCreate(false)} />
           </div>
         </div>
       )}
@@ -200,7 +200,7 @@ function OrgCard({ org, userList, printerList, addMemberId, setAddMemberId,
       <div className="flex gap-2 flex-wrap">
         <div className="flex items-center gap-1.5">
           <UserPlus size={12} className="text-[var(--brand-text-secondary)]" />
-          <select
+          <select aria-label={`Add member to ${org.name}`}
             value={addMemberId[org.id] || ''}
             onChange={(e) => setAddMemberId(p => ({ ...p, [org.id]: e.target.value }))}
             className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1 text-xs"
@@ -219,7 +219,7 @@ function OrgCard({ org, userList, printerList, addMemberId, setAddMemberId,
 
         <div className="flex items-center gap-1.5">
           <Printer size={12} className="text-[var(--brand-text-secondary)]" />
-          <select
+          <select aria-label={`Assign printer to ${org.name}`}
             value={addPrinterId[org.id] || ''}
             onChange={(e) => setAddPrinterId(p => ({ ...p, [org.id]: e.target.value }))}
             className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1 text-xs"

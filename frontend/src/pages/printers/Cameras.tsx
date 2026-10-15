@@ -194,7 +194,7 @@ export default function Cameras() {
         subtitle={`${filteredCameras.length} camera${filteredCameras.length !== 1 ? 's' : ''} available`}
       >
         <Link to="/timelapses" className="flex items-center gap-2 text-sm"><Film size={16} />Timelapses</Link>
-        <input
+        <input aria-label="Filter cameras"
           type="text"
           placeholder="Filter cameras..."
           value={filter}
@@ -308,7 +308,7 @@ export default function Cameras() {
 
       {/* Control Room Mode Overlay */}
       {controlRoom && (
-        <div className="fixed inset-0 z-50 bg-black">
+        <div role="dialog" aria-modal="true" aria-label="Control room camera wall" className="fixed inset-0 z-50 bg-black">
           {/* Top bar with clock and exit button */}
           <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between p-3 bg-gradient-to-b from-black/80 to-transparent">
             <div className="flex items-center gap-3 text-white">

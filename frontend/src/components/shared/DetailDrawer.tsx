@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useId, type ReactNode } from 'react'
 import { X } from 'lucide-react'
 
 interface DetailDrawerProps {
@@ -9,6 +9,7 @@ interface DetailDrawerProps {
 }
 
 export default function DetailDrawer({ open, onClose, title, children }: DetailDrawerProps) {
+  const titleId = useId()
   useEffect(() => {
     if (!open) return
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -23,23 +24,28 @@ export default function DetailDrawer({ open, onClose, title, children }: DetailD
       {/* Backdrop */}
       <div
         className={`fixed inset-0 bg-black/50 z-50 transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        aria-hidden="true"
         onClick={onClose}
       />
 
       {/* Panel */}
       <div
+        role={open ? 'dialog' : undefined}
+        aria-modal={open ? true : undefined}
+        aria-labelledby={open ? titleId : undefined}
+        aria-hidden={open ? undefined : true}
         className={`fixed inset-y-0 right-0 w-full sm:w-[420px] bg-[var(--brand-card-bg)] z-50 flex flex-col transition-transform duration-300 ${open ? 'translate-x-0' : 'translate-x-full'}`}
         style={{ boxShadow: 'var(--brand-card-shadow)' }}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--brand-card-border)]">
-          <h2 className="text-lg font-semibold text-[var(--brand-text-primary)] truncate">{title}</h2>
+          <h2 id={titleId} className="text-lg font-semibold text-[var(--brand-text-primary)] truncate">{title}</h2>
           <button
             aria-label="Close"
             onClick={onClose}
             className="p-1.5 hover:bg-[var(--brand-card-border)] rounded-md text-[var(--brand-text-secondary)] hover:text-[var(--brand-text-primary)]"
           >
-            <X size={18} />
+            <X size={18} aria-hidden="true" />
           </button>
         </div>
 

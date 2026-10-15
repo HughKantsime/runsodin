@@ -66,7 +66,7 @@ export default function ReportScheduleManager() {
         <div className="mb-4 p-4 bg-[var(--brand-input-bg)] rounded-md border border-[var(--brand-card-border)] space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-[var(--brand-text-primary)]">New Report Schedule</span>
-            <button onClick={() => setShowCreate(false)} className="p-1 text-[var(--brand-text-secondary)] hover:text-[var(--brand-text-primary)]"><X size={14} /></button>
+            <button aria-label="Close new schedule form" onClick={() => setShowCreate(false)} className="p-1 text-[var(--brand-text-secondary)] hover:text-[var(--brand-text-primary)]"><X size={14} /></button>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>

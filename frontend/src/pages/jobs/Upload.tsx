@@ -62,7 +62,7 @@ function DropZone({ onFileSelect, isUploading, uploadProgress }) {
                 <p className="text-base md:text-lg font-medium">Uploading...</p>
                 {uploadProgress != null && (
                   <div className="mt-3 w-48 mx-auto">
-                    <div className="bg-[var(--brand-input-bg)] rounded-full h-2 overflow-hidden">
+                    <div className="bg-[var(--brand-input-bg)] rounded-full h-2 overflow-hidden" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-label="Upload progress" aria-valuenow={Math.round(uploadProgress)}>
                       <div className="bg-[var(--brand-primary)] h-full rounded-full transition-all duration-300" style={{ width: `${uploadProgress}%` }} />
                     </div>
                     <p className="text-sm text-[var(--brand-text-secondary)] mt-1">{uploadProgress}%</p>

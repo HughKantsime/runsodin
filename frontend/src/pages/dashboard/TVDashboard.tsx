@@ -87,7 +87,7 @@ function TVPrinterCard({ printer }: { printer: any }) {
               <span data-testid="tv-printer-progress" className="text-2xl font-bold font-mono text-[var(--status-completed)] tabular-nums">{progress}%</span>
               {remaining && <span className="text-sm text-[var(--brand-text-muted)]">ETA {formatTime(remaining)}</span>}
             </div>
-            <div className="w-full bg-[var(--brand-input-bg)] rounded-full h-3">
+            <div className="w-full bg-[var(--brand-input-bg)] rounded-full h-3" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-label="Print progress" aria-valuenow={Math.round(Math.min(Number(progress) || 0, 100))}>
               <div className="bg-[var(--status-completed)] h-3 rounded-full transition-all duration-500" style={{ width: `${progress}%` }} />
             </div>
           </div>
@@ -234,8 +234,8 @@ export default function TVDashboard() {
         <div className="flex items-center gap-3">
           {totalPages > 1 && (
             <div className="flex items-center gap-2">
-              <button onClick={() => { setPage(p => (p - 1 + totalPages) % totalPages); resetAutoPage() }} className="p-1 text-[var(--brand-text-muted)] hover:text-[var(--brand-text-secondary)]">
-                <ChevronLeft size={16} />
+              <button onClick={() => { setPage(p => (p - 1 + totalPages) % totalPages); resetAutoPage() }} aria-label="Previous page of printers" className="p-1 text-[var(--brand-text-muted)] hover:text-[var(--brand-text-secondary)]">
+                <ChevronLeft size={16} aria-hidden="true" />
               </button>
               <div className="flex items-center gap-1">
                 {Array.from({ length: totalPages }).map((_, i) => (
@@ -245,8 +245,8 @@ export default function TVDashboard() {
                   />
                 ))}
               </div>
-              <button onClick={() => { setPage(p => (p + 1) % totalPages); resetAutoPage() }} className="p-1 text-[var(--brand-text-muted)] hover:text-[var(--brand-text-secondary)]">
-                <ChevronRight size={16} />
+              <button onClick={() => { setPage(p => (p + 1) % totalPages); resetAutoPage() }} aria-label="Next page of printers" className="p-1 text-[var(--brand-text-muted)] hover:text-[var(--brand-text-secondary)]">
+                <ChevronRight size={16} aria-hidden="true" />
               </button>
             </div>
           )}

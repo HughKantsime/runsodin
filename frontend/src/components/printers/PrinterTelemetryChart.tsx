@@ -59,7 +59,7 @@ export default function PrinterTelemetryChart({ printerId, onClose }: PrinterTel
             </button>
           ))}
           {onClose && (
-            <button onClick={onClose} className="ml-2 text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] text-xs"><X size={12} /></button>
+            <button aria-label="Close telemetry chart" onClick={onClose} className="ml-2 text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] text-xs"><X size={12} /></button>
           )}
         </div>
       </div>

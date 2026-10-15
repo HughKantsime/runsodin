@@ -177,13 +177,13 @@ export default function Profiles({ filterPrinterId, filterSlicer } = {}) {
         ))}
         <div className="flex items-center gap-1 ml-auto bg-[var(--brand-input-bg)] rounded-md px-3 py-1.5 border border-[var(--brand-card-border)]">
           <Search size={12} className="text-[var(--brand-muted)]" />
-          <input
+          <input aria-label="Search profiles"
             value={search}
             onChange={e => { setSearch(e.target.value); setPage(1) }}
             placeholder="Search profiles..."
             className="bg-transparent text-sm text-[var(--brand-text)] outline-hidden w-40"
           />
-          {search && <button onClick={() => setSearch('')}><X size={12} className="text-[var(--brand-muted)]" /></button>}
+          {search && <button aria-label="Clear search" onClick={() => setSearch('')}><X size={12} className="text-[var(--brand-muted)]" /></button>}
         </div>
       </div>
 
@@ -309,8 +309,8 @@ export default function Profiles({ filterPrinterId, filterSlicer } = {}) {
       {/* Apply modal */}
       {applyProfile && (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setApplyProfile(null)}>
-          <div className="bg-[var(--brand-card-bg)] rounded-xl border border-[var(--brand-card-border)] p-6 max-w-md w-full" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-medium mb-4">Apply "{applyProfile.name}"</h3>
+          <div role="dialog" aria-modal="true" aria-labelledby="apply-profile-modal-title" className="bg-[var(--brand-card-bg)] rounded-xl border border-[var(--brand-card-border)] p-6 max-w-md w-full" onClick={e => e.stopPropagation()}>
+            <h3 id="apply-profile-modal-title" className="text-lg font-medium mb-4">Apply "{applyProfile.name}"</h3>
             <p className="text-sm text-[var(--brand-muted)] mb-4">Select a Klipper printer. This sends GCode immediately.</p>
             <select
               aria-label="Apply to printer"

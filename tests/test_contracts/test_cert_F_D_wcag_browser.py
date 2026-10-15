@@ -231,23 +231,11 @@ def test_at_least_50_distinct_icon_only_buttons_carry_aria_label(census):
     assert s["distinct_icon_only_buttons_with_aria_label"] >= 50, s["distinct_icon_only_buttons_with_aria_label"]
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "DEFECT: rendered icon-only buttons with no accessible name (no aria-label/labelledby/title): "
-    "frontend/src/pages/jobs/Timeline.tsx:422,429 (prev/next week), components/auth/SessionManager.tsx:97 "
-    "(revoke session); static AST census lists 43 such JSX buttons (e.g. pages/admin/Admin.tsx:47, "
-    "pages/models/Projects.tsx:45 modal close X). Scenario: a screen-reader user hears only 'button' and cannot "
-    "tell 'revoke session' from 'next week' (WCAG 4.1.2 Level A)."))
 def test_every_rendered_icon_only_button_has_accessible_name(census):
     _, s = census
     assert s["icon_only_unnamed"] == []
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "DEFECT: page-local modals render as plain 'div.fixed.inset-0' overlays without role=dialog/aria-modal; opened "
-    "in Chromium: frontend/src/pages/models/Projects.tsx:41 (New Project), pages/inventory/Consumables.tsx:252 "
-    "(Add Consumable), pages/orders/Products.tsx:445 (New Product); static census adds Admin.tsx:43,163, "
-    "Consumables.tsx:320, Projects.tsx:126, Profiles.tsx:311, Cameras.tsx:311, Maintenance.tsx:61, Detections.tsx:60. "
-    "Scenario: screen-reader users are not told a modal opened and can browse/act behind it (WCAG 4.1.2)."))
 def test_every_opened_modal_exposes_dialog_role(census):
     _, s = census
     bad = {rt: v for rt, v in s["opened_dialogs"].items() if v.get("overlays") and not v.get("dialogs")}
@@ -266,10 +254,6 @@ def test_rendered_form_fields_mostly_labelled(census):
     assert s["fields_total"] > 20
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "DEFECT: rendered form controls without any programmatic label (no <label for>, wrapping label, "
-    "aria-label/labelledby or title); exact list in D-wcag-browser-census.json unlabelled_fields. "
-    "Scenario: screen-reader user tabs into an unnamed edit field (WCAG 1.3.1/4.1.2)."))
 def test_every_rendered_form_field_has_label(census):
     _, s = census
     assert s["unlabelled_fields"] == []
@@ -282,12 +266,6 @@ def test_table_headers_census(census):
     assert RECEIPT_TH["th_scope_col"] < RECEIPT_TH["th_total"]   # documents: not all table headers carry scope=col
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "DEFECT: rendered progress-style bars with no role=progressbar/value: frontend/src/components/shared/"
-    "OnboardingTour.tsx:145 (tour progress) and components/layout/Sidebar.tsx:307 (printers-online meter) on every "
-    "page; source also has pages/jobs/Upload.tsx:66 (upload progress), pages/jobs/Timeline.tsx:738, "
-    "pages/dashboard/TVDashboard.tsx:91, pages/dashboard/Overlay.tsx:129, components/orders/OrderModals.tsx:297. "
-    "Scenario: a screen-reader user uploading a file gets no progress information (WCAG 4.1.2/1.3.1)."))
 def test_every_rendered_progress_bar_has_progressbar_role(census):
     _, s = census
     assert s["bars_without_role"] == []

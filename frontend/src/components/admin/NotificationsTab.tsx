@@ -272,7 +272,7 @@ export default function NotificationsTab() {
                       <div className="mt-3 pt-3 border-t border-[var(--brand-border)] ml-6 md:ml-0">
                         <div className="flex items-center gap-3">
                           <label className="text-xs text-[var(--brand-text-secondary)] whitespace-nowrap">Low spool threshold:</label>
-                          <input
+                          <input aria-label="Low spool threshold"
                             type="range"
                             min="50"
                             max="500"
@@ -367,7 +367,7 @@ export default function NotificationsTab() {
                 <div>
                   <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Password</label>
                   <div className="relative">
-                    <Input
+                    <Input aria-label="SMTP password"
                       type={showSmtpPassword ? 'text' : 'password'}
                       value={smtp.password}
                       onChange={(e) => setSmtp(s => ({ ...s, password: e.target.value }))}

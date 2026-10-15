@@ -41,7 +41,10 @@ function Highlight({ text, query }: HighlightProps) {
   )
 }
 
-export default function GlobalSearch() {
+// Rendered twice (desktop header and MobileHeader): each instance needs its own ids so its
+// label and results list stay associated with its own input.
+export default function GlobalSearch({ id = 'global-search' }: { id?: string } = {}) {
+  const resultsId = `${id}-results`
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResults | null>(null)
   const [isOpen, setIsOpen] = useState(false)
@@ -131,9 +134,9 @@ export default function GlobalSearch() {
       {/* Search Input */}
       <div className="relative" role="search">
         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--brand-text-muted)]" aria-hidden="true" />
-        <label htmlFor="global-search" className="sr-only">Search printers, jobs, models, spools, orders, products</label>
+        <label htmlFor={id} className="sr-only">Search printers, jobs, models, spools, orders, products</label>
         <input
-          id="global-search"
+          id={id}
           ref={inputRef}
           type="text"
           value={query}
@@ -143,7 +146,7 @@ export default function GlobalSearch() {
           role="combobox"
           aria-autocomplete="list"
           aria-expanded={isOpen && query.length >= 2}
-          aria-controls="global-search-results"
+          aria-controls={resultsId}
           aria-haspopup="listbox"
           className="w-44 md:w-64 bg-transparent border-b border-[var(--brand-card-border)] rounded-none pl-9 pr-8 py-1.5 text-sm placeholder-farm-500 focus:outline-hidden focus:border-[var(--brand-primary)]"
         />
@@ -160,7 +163,7 @@ export default function GlobalSearch() {
 
       {/* Results Dropdown */}
       {isOpen && query.length >= 2 && (
-        <div id="global-search-results" role="listbox" aria-label="Search results" className="absolute top-full left-0 right-0 md:w-80 mt-2 bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md shadow-xl z-50 max-h-96 overflow-auto">
+        <div id={resultsId} role="listbox" aria-label="Search results" className="absolute top-full left-0 right-0 md:w-80 mt-2 bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md shadow-xl z-50 max-h-96 overflow-auto">
           {loading ? (
             <div className="p-4 text-center text-[var(--brand-text-muted)] text-sm">Searching...</div>
           ) : totalResults === 0 ? (

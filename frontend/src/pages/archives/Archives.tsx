@@ -50,7 +50,7 @@ function TagEditor({ tags, onChange }) {
         {tags.map(t => (
           <span key={t} className="flex items-center gap-1 px-2 py-0.5 bg-[var(--brand-primary)]/20 text-[var(--brand-primary)] rounded text-xs">
             {t}
-            <button onClick={() => onChange(tags.filter(x => x !== t))} className="hover:text-red-400">
+            <button aria-label={`Remove tag ${t}`} onClick={() => onChange(tags.filter(x => x !== t))} className="hover:text-red-400">
               <X size={10} />
             </button>
           </span>
@@ -448,7 +448,7 @@ export default function ArchivesPage() {
           placeholder="Search prints..."
           className="flex-1 min-w-[200px] max-w-xs"
         />
-        <select
+        <select aria-label="Filter by printer"
           value={filterPrinter}
           onChange={e => { setFilterPrinter(e.target.value); setPage(1) }}
           className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-2 text-sm"
@@ -458,7 +458,7 @@ export default function ArchivesPage() {
             <option key={p.id} value={p.id}>{p.nickname || p.name}</option>
           ))}
         </select>
-        <select
+        <select aria-label="Filter by status"
           value={filterStatus}
           onChange={e => { setFilterStatus(e.target.value); setPage(1) }}
           className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-2 text-sm"
@@ -568,7 +568,7 @@ export default function ArchivesPage() {
             <div className="flex items-center justify-between mt-4">
               <span className="text-xs text-[var(--brand-text-muted)]">{total} results</span>
               <div className="flex items-center gap-2">
-                <Button
+                <Button aria-label="Previous page"
                   variant="secondary"
                   size="icon"
                   icon={ChevronLeft}
@@ -576,7 +576,7 @@ export default function ArchivesPage() {
                   disabled={page === 1}
                 />
                 <span className="text-sm text-[var(--brand-text-muted)]">{page} / {totalPages}</span>
-                <Button
+                <Button aria-label="Next page"
                   variant="secondary"
                   size="icon"
                   icon={ChevronRight}

@@ -58,7 +58,7 @@ function FrameModal({ detection, audience, onClose, onReview, onLabel }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={onClose}>
-      <div className="bg-[var(--brand-content-bg)] rounded-xl border border-[var(--brand-card-border)] max-w-3xl w-full mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
+      <div role="dialog" aria-modal="true" aria-label={`Detection details: ${TYPE_META[detection.detection_type]?.label || detection.detection_type}`} className="bg-[var(--brand-content-bg)] rounded-xl border border-[var(--brand-card-border)] max-w-3xl w-full mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
         {/* Frame */}
         <div className="relative bg-black aspect-video">
           {detection.frame_path ? (
@@ -88,8 +88,8 @@ function FrameModal({ detection, audience, onClose, onReview, onLabel }) {
                 {detection.confidence != null ? (detection.confidence * 100).toFixed(0) + '%' : '-'}
               </span>
             </div>
-            <button onClick={onClose} className="text-[var(--brand-text-muted)] hover:text-white">
-              <X size={20} />
+            <button onClick={onClose} aria-label="Close detection details" className="text-[var(--brand-text-muted)] hover:text-white">
+              <X size={20} aria-hidden="true" />
             </button>
           </div>
 
@@ -298,7 +298,7 @@ export default function Detections() {
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
-        <select
+        <select aria-label="Filter by detection type"
           value={typeFilter}
           onChange={e => { setTypeFilter(e.target.value); setPage(0) }}
           className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-1.5 text-sm focus:outline-hidden focus:border-[var(--brand-text-muted)]"
@@ -310,7 +310,7 @@ export default function Detections() {
           <option value="build_plate_empty">Plate ready</option>
         </select>
 
-        <select
+        <select aria-label="Filter by status"
           value={statusFilter}
           onChange={e => { setStatusFilter(e.target.value); setPage(0) }}
           className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-1.5 text-sm focus:outline-hidden focus:border-[var(--brand-text-muted)]"
@@ -322,7 +322,7 @@ export default function Detections() {
           <option value="auto_paused">Auto-Paused</option>
         </select>
 
-        <select
+        <select aria-label="Filter by printer"
           value={printerFilter}
           onChange={e => { setPrinterFilter(e.target.value); setPage(0) }}
           className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-1.5 text-sm focus:outline-hidden focus:border-[var(--brand-text-muted)]"

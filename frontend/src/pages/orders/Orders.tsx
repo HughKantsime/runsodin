@@ -287,7 +287,7 @@ export default function Orders() {
   return (
     <div className="p-4 md:p-6">
       <PageHeader icon={ShoppingCart} title="Orders">
-        <select
+        <select aria-label="Filter by status"
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
           className="rounded-md px-3 py-2 bg-[var(--brand-content-bg)] border border-[var(--brand-card-border)] text-[var(--brand-text)] text-sm"

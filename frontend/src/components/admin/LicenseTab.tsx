@@ -209,7 +209,7 @@ export default function LicenseTab() {
           Enter your license key to activate online. The license will be bound to this installation.
         </p>
         <div className="flex gap-2">
-          <Input
+          <Input aria-label="License key"
             type="text"
             value={licenseKey}
             onChange={e => setLicenseKey(e.target.value)}

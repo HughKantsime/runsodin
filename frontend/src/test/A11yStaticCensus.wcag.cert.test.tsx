@@ -113,15 +113,21 @@ afterEach(cleanup)
 
 it('F12-12.7-03 census: at least 50 icon-only buttons carry aria-label (exact count in receipt)', () => {
   expect(summary.icon_only_with_aria_label).toBeGreaterThanOrEqual(50)
-  expect(summary.icon_only_with_aria_label).toBe(64)
+  expect(summary.icon_only_with_aria_label).toBe(107)
 })
 
-it('F12-12.7-04 census: dialog-role modal surfaces are 34 shared-Modal call sites + 7 custom, not 17', () => {
+it('F12-12.7-03 census: every icon-only button has an accessible name (aria-label, aria-labelledby or title)', () => {
+  expect(summary.icon_only_unnamed).toEqual([])
+})
+
+it('F12-12.7-04 census: dialog-role modal surfaces are 34 shared-Modal call sites + 19 custom dialogs, not 17', () => {
   expect(summary.shared_modal_call_sites).toBe(34)
   expect(summary.shared_modal_alertdialog_call_sites).toBe(3)
-  expect(summary.custom_dialog_role_elements).toHaveLength(8)
+  // 19 static role="dialog", 1 alertdialog (SystemTab) and DetailDrawer's role that is 'dialog' while open.
+  expect(summary.custom_dialog_role_elements).toHaveLength(21)
   const dialogOnly = summary.custom_dialog_role_elements.filter(d => d.endsWith(' dialog')).length
-  expect(summary.shared_modal_call_sites - summary.shared_modal_alertdialog_call_sites + dialogOnly).toBe(38)
+  expect(dialogOnly).toBe(19)
+  expect(summary.shared_modal_call_sites - summary.shared_modal_alertdialog_call_sites + dialogOnly).toBe(50)
   expect(summary.shared_modal_call_sites - summary.shared_modal_alertdialog_call_sites + dialogOnly).not.toBe(17)
 })
 
@@ -139,7 +145,10 @@ it('F12-12.7-06 census: scope="col" exists only on a minority of table headers',
   expect(summary.th_scope_col_files).toEqual(['components/admin/ChargebackReport.tsx', 'components/jobs/JobTableHeader.tsx'])
 })
 
-it('F12-12.7-07 census: role="progressbar" is on exactly two components', () => {
-  expect(summary.progressbar_role_elements.map(p => p.split(':')[0]).sort())
-    .toEqual(['components/printers/PrintProgress.tsx', 'components/ui/ProgressBar.tsx'])
+it('F12-12.7-07 census: role="progressbar" is on every progress-style bar', () => {
+  expect(summary.progressbar_role_elements.map(p => p.split(':')[0]).sort()).toEqual([
+    'components/layout/Sidebar.tsx', 'components/orders/OrderModals.tsx', 'components/printers/PrintProgress.tsx',
+    'components/shared/OnboardingTour.tsx', 'components/ui/ProgressBar.tsx', 'pages/dashboard/Overlay.tsx',
+    'pages/dashboard/TVDashboard.tsx', 'pages/jobs/Timeline.tsx', 'pages/jobs/Upload.tsx',
+  ])
 })

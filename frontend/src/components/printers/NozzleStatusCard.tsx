@@ -121,7 +121,7 @@ export default function NozzleStatusCard({ printerId, onClose }: NozzleStatusCar
         <h4 className="text-sm font-semibold" style={{ color: 'var(--brand-text-primary)' }}>Nozzle Lifecycle</h4>
         <div className="flex items-center gap-2">
           {onClose && (
-            <button onClick={onClose} className="text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] text-xs"><X size={12} /></button>
+            <button aria-label="Close nozzle status" onClick={onClose} className="text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] text-xs"><X size={12} /></button>
           )}
         </div>
       </div>
@@ -219,7 +219,7 @@ export default function NozzleStatusCard({ printerId, onClose }: NozzleStatusCar
         <div className="mt-3 pt-3 border-t border-[var(--brand-card-border)]">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-[var(--brand-text-secondary)]">Nozzle History</span>
-            <button onClick={() => setShowHistory(false)} className="text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] text-xs"><X size={12} /></button>
+            <button aria-label="Close nozzle history" onClick={() => setShowHistory(false)} className="text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] text-xs"><X size={12} /></button>
           </div>
           <div className="space-y-1 max-h-40 overflow-y-auto">
             {history.map(n => (

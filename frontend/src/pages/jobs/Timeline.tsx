@@ -419,14 +419,14 @@ export default function Timeline() {
       {/* Toolbar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 md:p-4 border-b border-[var(--brand-card-border)] bg-[var(--brand-content-bg)]">
         <div className="flex items-center gap-2">
-          <button onClick={goToPrevWeek} className="p-1.5 md:p-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md">
+          <button aria-label="Previous week" onClick={goToPrevWeek} className="p-1.5 md:p-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md">
             <ChevronLeft size={18} />
           </button>
           <button onClick={goToToday} className="px-3 py-1.5 md:px-4 md:py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md flex items-center gap-2 text-sm">
             <CalendarIcon size={14} />
             Today
           </button>
-          <button onClick={goToNextWeek} className="p-1.5 md:p-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md">
+          <button aria-label="Next week" onClick={goToNextWeek} className="p-1.5 md:p-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md">
             <ChevronRight size={18} />
           </button>
           <span className="ml-2 text-[var(--brand-text-secondary)] text-xs md:text-sm sm:hidden">
@@ -440,7 +440,7 @@ export default function Timeline() {
         <div className="flex items-center gap-2">
           {dragUI.active && <span className="text-xs text-[var(--brand-primary)] mr-2 hidden md:inline">{dragUI.label}</span>}
           <div className="hidden md:flex items-center gap-2">
-            <button
+            <button aria-label="Zoom out"
               onClick={() => setSlotWidth(w => Math.max(ZOOM_MIN, w - 5))}
               disabled={slotWidth <= ZOOM_MIN}
               className={clsx("p-1.5 md:p-2 rounded-md", slotWidth <= ZOOM_MIN ? "bg-[var(--brand-card-bg)] text-[var(--brand-text-muted)] cursor-not-allowed" : "bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)]")}
@@ -448,7 +448,7 @@ export default function Timeline() {
               <ZoomOut size={16} />
             </button>
             <span className="text-xs text-[var(--brand-text-muted)] tabular-nums w-6 text-center">{Math.round(((slotWidth - ZOOM_MIN) / (ZOOM_MAX - ZOOM_MIN)) * 100)}%</span>
-            <button
+            <button aria-label="Zoom in"
               onClick={() => setSlotWidth(w => Math.min(ZOOM_MAX, w + 5))}
               disabled={slotWidth >= ZOOM_MAX}
               className={clsx("p-1.5 md:p-2 rounded-md", slotWidth >= ZOOM_MAX ? "bg-[var(--brand-card-bg)] text-[var(--brand-text-muted)] cursor-not-allowed" : "bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)]")}
@@ -456,7 +456,7 @@ export default function Timeline() {
               <ZoomIn size={16} />
             </button>
           </div>
-          <select value={days} onChange={(e) => setDays(Number(e.target.value))} className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1.5 text-sm">
+          <select aria-label="Days shown" value={days} onChange={(e) => setDays(Number(e.target.value))} className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1.5 text-sm">
             <option value={3}>3 days</option>
             <option value={7}>1 week</option>
             <option value={14}>2 weeks</option>
@@ -732,7 +732,7 @@ function MqttJobDetail({ block }) {
       {/* Progress */}
       <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
         <h4 className="text-[var(--brand-text-secondary)] text-xs uppercase tracking-wide mb-2">Progress</h4>
-        <div className="w-full bg-[var(--brand-input-bg)] rounded-full h-2.5 mb-2">
+        <div className="w-full bg-[var(--brand-input-bg)] rounded-full h-2.5 mb-2" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-label="Job progress" aria-valuenow={Math.round(Math.min(Number(progress) || 0, 100))}>
           <div
             className="bg-[var(--brand-primary)] h-2.5 rounded-full transition-all"
             style={{ width: `${Math.min(progress, 100)}%` }}

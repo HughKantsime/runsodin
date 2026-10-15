@@ -59,10 +59,10 @@ function LogMaintenanceModal({ printer, task, onClose, onSave, saving }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md p-6 w-full max-w-md">
+      <div role="dialog" aria-modal="true" aria-labelledby="log-maintenance-modal-title" className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md p-6 w-full max-w-md">
         <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-display font-bold text-[var(--brand-text-primary)]">Log Maintenance</h3>
-          <button onClick={onClose} className="text-[var(--brand-text-secondary)] hover:text-[var(--brand-text-primary)]"><X size={20} /></button>
+          <h3 id="log-maintenance-modal-title" className="text-lg font-display font-bold text-[var(--brand-text-primary)]">Log Maintenance</h3>
+          <button onClick={onClose} aria-label="Close log maintenance dialog" className="text-[var(--brand-text-secondary)] hover:text-[var(--brand-text-primary)]"><X size={20} aria-hidden="true" /></button>
         </div>
         <div className="text-sm text-[var(--brand-text-secondary)] mb-4">
           <span className="text-[var(--brand-text-primary)] font-medium">{printer.printer_name}</span> — {task?.task_name || 'Custom task'}
@@ -478,9 +478,9 @@ export default function Maintenance() {
                       <td className="px-4 py-3 text-right text-[var(--brand-text-secondary)] hidden sm:table-cell">{task.estimated_cost ? `$${task.estimated_cost}` : '—'}</td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center gap-1 justify-end">
-                          <button onClick={() => { setEditingTask(task); setShowTaskForm(false) }}
+                          <button aria-label="Edit task" onClick={() => { setEditingTask(task); setShowTaskForm(false) }}
                             className="text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] p-1"><Edit2 size={14} /></button>
-                          <button onClick={() => setDeleteTaskTarget(task)}
+                          <button aria-label="Delete task" onClick={() => setDeleteTaskTarget(task)}
                             className="text-[var(--brand-text-muted)] hover:text-red-400 p-1"><Trash2 size={14} /></button>
                         </div>
                       </td>
@@ -507,7 +507,7 @@ export default function Maintenance() {
         <div className="space-y-4">
           <div className="flex flex-wrap justify-between items-center gap-3">
             <div className="flex flex-wrap items-center gap-2">
-              <select value={historyFilter} onChange={e => setHistoryFilter(e.target.value)}
+              <select aria-label="Filter history by printer" value={historyFilter} onChange={e => setHistoryFilter(e.target.value)}
                 className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-1.5 text-[var(--brand-text-primary)] text-sm">
                 <option value="">All Printers</option>
                 {statusData.map(p => <option key={p.printer_id} value={p.printer_id}>{p.printer_name}</option>)}
@@ -554,7 +554,7 @@ export default function Maintenance() {
                       <td className="px-4 py-3 text-right text-[var(--brand-text-secondary)] hidden sm:table-cell">{log.downtime_minutes ? `${log.downtime_minutes}m` : '—'}</td>
                       <td className="px-4 py-3 text-right text-[var(--brand-text-secondary)] font-mono text-xs">{log.print_hours_at_service}h</td>
                       <td className="px-4 py-2 text-right">
-                        <button onClick={() => setDeleteLogTarget(log)}
+                        <button aria-label="Delete log entry" onClick={() => setDeleteLogTarget(log)}
                           className="text-[var(--brand-text-muted)] hover:text-red-400 p-1"><Trash2 size={13} /></button>
                       </td>
                     </tr>

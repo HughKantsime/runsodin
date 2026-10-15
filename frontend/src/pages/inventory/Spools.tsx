@@ -280,7 +280,7 @@ export default function Spools() {
 
             <div className="flex gap-3 items-center sm:ml-auto">
               <span className="text-xs md:text-sm text-[var(--brand-text-muted)]">Sort:</span>
-              <select
+              <select aria-label="Sort spools"
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
                 className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 md:px-3 py-1 md:py-1.5 text-xs md:text-sm text-[var(--brand-text-secondary)]"

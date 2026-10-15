@@ -161,12 +161,12 @@ export default function Consumables() {
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3 mb-4">
-        <input
+        <input aria-label="Search name or SKU"
           type="text" placeholder="Search name or SKU..." value={searchText}
           onChange={e => setSearchText(e.target.value)}
           className="px-3 py-2 bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md text-sm w-64 text-[var(--brand-text-primary)]"
         />
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+        <select aria-label="Filter by status" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
           className="px-3 py-2 bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md text-sm text-[var(--brand-text-primary)]">
           <option value="">All Status</option>
           <option value="active">Active</option>
@@ -250,12 +250,12 @@ export default function Consumables() {
       {/* Create/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="rounded-md p-6 w-full max-w-md border border-[var(--brand-card-border)]" style={{ background: 'var(--brand-content-bg)' }}>
+          <div role="dialog" aria-modal="true" aria-labelledby="consumable-modal-title" className="rounded-md p-6 w-full max-w-md border border-[var(--brand-card-border)]" style={{ background: 'var(--brand-content-bg)' }}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold">
+              <h3 id="consumable-modal-title" className="text-lg font-semibold">
                 {editingItem ? 'Edit Consumable' : 'Add Consumable'}
               </h3>
-              <button onClick={handleCloseModal} className="text-[var(--brand-text-muted)] hover:text-[var(--brand-text-secondary)]"><X size={20} /></button>
+              <button onClick={handleCloseModal} aria-label={editingItem ? 'Close edit consumable dialog' : 'Close add consumable dialog'} className="text-[var(--brand-text-muted)] hover:text-[var(--brand-text-secondary)]"><X size={20} aria-hidden="true" /></button>
             </div>
             <form onSubmit={handleSubmit} className="space-y-3">
               <div>
@@ -318,10 +318,10 @@ export default function Consumables() {
       {/* Stock Adjustment Modal */}
       {showAdjustModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="rounded-md p-6 w-full max-w-sm border border-[var(--brand-card-border)]" style={{ background: 'var(--brand-content-bg)' }}>
+          <div role="dialog" aria-modal="true" aria-labelledby="adjust-stock-modal-title" className="rounded-md p-6 w-full max-w-sm border border-[var(--brand-card-border)]" style={{ background: 'var(--brand-content-bg)' }}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold">Adjust Stock</h3>
-              <button onClick={() => { setShowAdjustModal(null); setConfirmLargeAdjust(false) }} className="text-[var(--brand-text-muted)] hover:text-[var(--brand-text-secondary)]"><X size={20} /></button>
+              <h3 id="adjust-stock-modal-title" className="text-lg font-semibold">Adjust Stock</h3>
+              <button onClick={() => { setShowAdjustModal(null); setConfirmLargeAdjust(false) }} aria-label="Close adjust stock dialog" className="text-[var(--brand-text-muted)] hover:text-[var(--brand-text-secondary)]"><X size={20} aria-hidden="true" /></button>
             </div>
             <p className="text-sm text-[var(--brand-text-muted)] mb-3">{showAdjustModal.name} — current: {showAdjustModal.current_stock} {showAdjustModal.unit}s</p>
             <form onSubmit={handleAdjust} className="space-y-3">

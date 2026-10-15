@@ -123,17 +123,17 @@ export default function AuditLogs() {
           placeholder="Search logs..."
           className="w-48"
         />
-        <Select value={entityType} onChange={e => { setEntityType(e.target.value); resetPagination() }} className="w-auto">
+        <Select aria-label="Entity type" value={entityType} onChange={e => { setEntityType(e.target.value); resetPagination() }} className="w-auto">
           <option value="">All Types</option>
           {ENTITY_TYPES.map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
         </Select>
-        <Select value={action} onChange={e => { setAction(e.target.value); resetPagination() }} className="w-auto">
+        <Select aria-label="Action" value={action} onChange={e => { setAction(e.target.value); resetPagination() }} className="w-auto">
           <option value="">All Actions</option>
           {ACTIONS.map(a => <option key={a} value={a}>{a.charAt(0).toUpperCase() + a.slice(1)}</option>)}
         </Select>
-        <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); resetPagination() }} className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder="From" />
-        <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); resetPagination() }} className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder="To" />
-        <Select value={limit} onChange={e => { setLimit(Number(e.target.value)); resetPagination() }} className="w-auto">
+        <input aria-label="From date" type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); resetPagination() }} className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder="From" />
+        <input aria-label="To date" type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); resetPagination() }} className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder="To" />
+        <Select aria-label="Entries per page" value={limit} onChange={e => { setLimit(Number(e.target.value)); resetPagination() }} className="w-auto">
           {PAGE_SIZES.map(s => <option key={s} value={s}>{s} / page</option>)}
         </Select>
         <Button variant="secondary" size="md" icon={Download} onClick={exportCsv} disabled={!ready || exporting} className="ml-auto">

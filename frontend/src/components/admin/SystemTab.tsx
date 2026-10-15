@@ -67,7 +67,7 @@ function NetworkTab() {
         <div>
           <label className="block text-sm font-medium text-[var(--brand-text-secondary)] mb-1.5">Host IP Address</label>
           <div className="flex gap-2">
-            <Input
+            <Input aria-label="Host IP address"
               type="text"
               value={hostIp}
               onChange={e => { setHostIp(e.target.value); setSaved(false) }}

@@ -271,7 +271,7 @@ export default function WebhookSettings() {
                 >
                   {webhook.is_enabled ? 'Enabled' : 'Disabled'}
                 </button>
-                <button
+                <button aria-label="Delete webhook"
                   onClick={() => deleteWebhook(webhook.id)}
                   className="p-2 text-[var(--brand-text-secondary)] hover:text-red-400 hover:bg-red-900/50 rounded-md transition-colors"
                 >

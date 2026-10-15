@@ -86,17 +86,17 @@ export default function QuotaManager() {
               <tr key={u.user_id} className="border-b border-[var(--brand-card-border)]">
                 <td className="py-2 pr-3 font-medium">{u.username}</td>
                 <td className="py-2 px-2">
-                  <input type="number" min="0" className="w-16 bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded px-2 py-1 text-xs"
+                  <input aria-label={`Job quota for ${u.username}`} type="number" min="0" className="w-16 bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded px-2 py-1 text-xs"
                     value={getVal(u, 'quota_jobs')} placeholder="--"
                     onChange={e => handleEdit(u.user_id, 'quota_jobs', e.target.value)} />
                 </td>
                 <td className="py-2 px-2">
-                  <input type="number" min="0" className="w-20 bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded px-2 py-1 text-xs"
+                  <input aria-label={`Filament quota in grams for ${u.username}`} type="number" min="0" className="w-20 bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded px-2 py-1 text-xs"
                     value={getVal(u, 'quota_grams')} placeholder="--"
                     onChange={e => handleEdit(u.user_id, 'quota_grams', e.target.value)} />
                 </td>
                 <td className="py-2 px-2">
-                  <input type="number" min="0" className="w-16 bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded px-2 py-1 text-xs"
+                  <input aria-label={`Print-hours quota for ${u.username}`} type="number" min="0" className="w-16 bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded px-2 py-1 text-xs"
                     value={getVal(u, 'quota_hours')} placeholder="--"
                     onChange={e => handleEdit(u.user_id, 'quota_hours', e.target.value)} />
                 </td>
@@ -120,7 +120,7 @@ export default function QuotaManager() {
                 </td>
                 <td className="py-2 pl-2">
                   {edits[u.user_id] && (
-                    <button onClick={() => handleSave(u.user_id)} disabled={saving === u.user_id}
+                    <button aria-label="Save quota" onClick={() => handleSave(u.user_id)} disabled={saving === u.user_id}
                       className="p-1.5 rounded bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)] text-white disabled:opacity-50">
                       {saving === u.user_id ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
                     </button>

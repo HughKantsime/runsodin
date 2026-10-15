@@ -104,7 +104,7 @@ export default function Utilization() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <select value={timeRange} onChange={e => setTimeRange(e.target.value)}
+          <select aria-label="Time range" value={timeRange} onChange={e => setTimeRange(e.target.value)}
             className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-1.5 text-sm text-[var(--brand-text-secondary)]">
             <option value="7">Last 7 days</option>
             <option value="14">Last 14 days</option>
