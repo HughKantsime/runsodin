@@ -204,6 +204,20 @@ def _database_info() -> dict:
         return {"error": str(e)}
 
 
+def _spoolman_link_conflicts() -> list | dict:
+    """Spoolman spools linked to more than one ODIN spool (1.9.x data); reported, never rewritten."""
+    from core.db import SessionLocal
+    from modules.inventory.routes.spools import spoolman_link_conflicts
+    try:
+        db = SessionLocal()
+        try:
+            return spoolman_link_conflicts(db)
+        finally:
+            db.close()
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @router.get("/system/diagnostics")
 async def get_diagnostics(current_user: dict = Depends(require_role("admin"))):
     """Admin-only diagnostics bundle for troubleshooting."""
@@ -293,5 +307,7 @@ async def get_diagnostics(current_user: dict = Depends(require_role("admin"))):
         result["database"] = _database_info()
     except Exception as e:
         result["database"] = {"error": str(e)}
+
+    result["spoolman_link_conflicts"] = _spoolman_link_conflicts()
 
     return sanitize_structure(result)

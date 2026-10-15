@@ -5,13 +5,13 @@ from ops.database_parity.run_ams_adoption import IMAGE, run
 root = Path.cwd().resolve()
 suffix = secrets.token_hex(4)
 network, database, runtime = f'certfixC_net_{suffix}', f'certfixC_pg_{suffix}', f'certfixC_runtime_{suffix}'
-paths = ['backend/core/schema/migrations/030_spoolman_link_uniqueness.py', 'backend/modules/inventory/routes/spools.py',
+paths = ['backend/modules/inventory/routes/spools.py',
          'backend/modules/inventory/routes/_helpers.py', 'backend/modules/inventory/routes/drying_logs.py',
          'backend/modules/models_library/services.py', 'backend/modules/orders/product_costing.py',
          'backend/modules/vision/routes/detections.py', 'backend/modules/vision/monitor.py', 'backend/modules/vision/frame_storage.py',
-         'backend/core/errors.py', 'ops/database_parity/certc_fixes_native.py', 'ops/database_parity/run_certc_fixes.py']
+         'backend/core/errors.py', 'backend/modules/vision/detection_thread.py', 'ops/database_parity/certc_fixes_native.py', 'ops/database_parity/run_certc_fixes.py']
 out_dir = Path(sys.argv[1]).resolve()
-receipt = {'passed': False, 'scope': 'Owned current PostgreSQL bootstrap; cert-C fixes over real inventory and vision routers: migration 030 partial unique index (apply, idempotence, shape, duplicate refusal, enforcement), 409 mapping of the unique violation, int32 bound, superadmin rate/vision gates, deterministic finite material rate, per-piece COGS, vision_settings JSON persistence, global switch and retention cleanup',
+receipt = {'passed': False, 'scope': 'Owned current PostgreSQL bootstrap; cert-C fixes over real inventory and vision routers: Spoolman-link advisory-lock serialisation (parallel creates/updates: one winner), 409 naming the holder, duplicates kept and reported, int32 bound, superadmin rate/vision gates, deterministic finite material rate, per-piece COGS, vision_settings JSON persistence, global switch and retention cleanup',
            'source_sha256': {p: hashlib.sha256((root / p).read_bytes()).hexdigest() for p in paths}, 'postgres_image': IMAGE,
            'runtime_provenance': 'Worktree interpreter (.venv-stress, psycopg) against the pinned PostgreSQL image on 127.0.0.1; shared Docker VM had no memory for an emulated runtime',
            'external_stubs': 'Principal injected at get_current_user; no hardware, no network'}

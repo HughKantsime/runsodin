@@ -1,8 +1,7 @@
 """Owned PostgreSQL probe for the cert-C fixes whose DB semantics matter.
 
-Covers: unregistered migration 030 (partial unique index on spools.spoolman_spool_id:
-apply, idempotent re-apply, shape validation, duplicate refusal, enforcement), the
-spool routes' 409 mapping of the PostgreSQL unique violation, deterministic and
+Covers: Spoolman-link uniqueness serialised by pg_advisory_xact_lock (parallel creates and
+updates have exactly one winner; no index; 1.9.x duplicates kept, editable and reported), deterministic and
 finite-only material rate lookup (ORDER BY id over double precision incl. Infinity),
 system_config JSON round-trips for global Vigil AI settings (second PATCH persists,
 monitor global switch, retention-driven frame cleanup), and per-piece filament COGS.
@@ -72,15 +71,12 @@ from core.errors import request_validation_response
 app.add_exception_handler(RequestValidationError, lambda request, exc: request_validation_response(exc))
 client = TestClient(app)
 
-# --- migration 030 on PostgreSQL
-m = importlib.import_module('core.schema.migrations.030_spoolman_link_uniqueness')
-from core.schema.migrator import _ALLOWED_PYTHON_MIGRATIONS
-assert 'core.schema.migrations.030_spoolman_link_uniqueness' not in _ALLOWED_PYTHON_MIGRATIONS
-with engine.begin() as c:
-    m.apply(c)
-    m.apply(c)
-    m.validate(c)
-print('migration030 apply/validate idempotent ok', flush=True)
+# --- Spoolman link uniqueness: advisory-lock serialisation, no index, duplicates kept
+import threading
+import time as _time
+from concurrent.futures import ThreadPoolExecutor
+with engine.connect() as c:
+    assert c.execute(text("SELECT count(*) FROM pg_indexes WHERE tablename='spools' AND indexdef ILIKE '%spoolman_spool_id%'")).scalar_one() == 0
 
 
 def spool(**extra):
@@ -90,50 +86,51 @@ def spool(**extra):
 
 
 a, b, c3 = spool(spoolman_spool_id=42), spool(), spool()
-assert client.post('/api/spools', json={'filament_id': 990, 'spoolman_spool_id': 42}).status_code == 409
+refused = client.post('/api/spools', json={'filament_id': 990, 'spoolman_spool_id': 42})
+assert refused.status_code == 409 and f'#{a}' in refused.json()['detail'], refused.text
 assert client.patch(f'/api/spools/{b}', json={'spoolman_spool_id': 42}).status_code == 409
-original = spool_routes._refuse_taken_spoolman_link
-spool_routes._refuse_taken_spoolman_link = lambda *args, **kwargs: None
-try:
-    raced = client.patch(f'/api/spools/{b}', json={'spoolman_spool_id': 42})
-    assert raced.status_code == 409, raced.text
-finally:
-    spool_routes._refuse_taken_spoolman_link = original
-assert client.get(f'/api/spools/{b}').json()['spoolman_spool_id'] is None
 assert client.patch(f'/api/spools/{b}', json={'spoolman_spool_id': 2_147_483_648}).status_code == 422
 assert client.patch(f'/api/spools/{b}', json={'spoolman_spool_id': 2_147_483_647}).status_code == 200
+original = spool_routes._refuse_taken_spoolman_link
+
+
+def slow_check(*args, **kwargs):
+    original(*args, **kwargs)
+    _time.sleep(0.4)  # widen the check-then-write window
+spool_routes._refuse_taken_spoolman_link = slow_check
+
+
+def race(requests):
+    barrier = threading.Barrier(len(requests))
+
+    def send(request):
+        method, url, body = request
+        local = TestClient(app)
+        barrier.wait()
+        return getattr(local, method)(url, json=body).status_code
+    with ThreadPoolExecutor(len(requests)) as pool:
+        return sorted(pool.map(send, requests))
+
+
 try:
-    with engine.begin() as c:
-        c.execute(text('UPDATE spools SET spoolman_spool_id=42 WHERE id=:id'), {'id': c3})
-    raise AssertionError('duplicate link accepted by PostgreSQL')
-except IntegrityError:
-    pass
-print('spoolman link 409 (precheck + unique violation), int32 bound, DB enforcement ok', flush=True)
+    assert race([('post', '/api/spools', {'filament_id': 990, 'spoolman_spool_id': 64})] * 4) == [200, 409, 409, 409]
+    targets = [spool() for _ in range(3)]
+    assert race([('patch', f'/api/spools/{sid}', {'spoolman_spool_id': 65}) for sid in targets]) == [200, 409, 409]
+finally:
+    spool_routes._refuse_taken_spoolman_link = original
+with engine.connect() as c:
+    assert c.execute(text('SELECT count(*) FROM spools WHERE spoolman_spool_id=64')).scalar_one() == 1
+    assert c.execute(text('SELECT count(*) FROM spools WHERE spoolman_spool_id=65')).scalar_one() == 1
+print('spoolman link 409 names holder, int32 bound, parallel creates/updates exactly one winner ok', flush=True)
 
 with engine.begin() as c:
-    c.execute(text(f'DROP INDEX {m.INDEX}'))
-    c.execute(text('UPDATE spools SET spoolman_spool_id=42 WHERE id=:id'), {'id': c3})
-try:
-    with engine.begin() as c:
-        m.apply(c)
-    raise AssertionError('duplicates not refused')
-except MigrationError as error:
-    assert 'unlink all but one' in str(error) and '42' in str(error)
-with engine.begin() as c:
-    assert c.execute(text("SELECT count(*) FROM pg_indexes WHERE indexname=:n"), {'n': m.INDEX}).scalar_one() == 0
-    c.execute(text('UPDATE spools SET spoolman_spool_id=NULL WHERE id=:id'), {'id': c3})
-    c.execute(text(f'CREATE UNIQUE INDEX {m.INDEX} ON spools (spoolman_spool_id)'))
-try:
-    with engine.begin() as c:
-        m.validate(c)
-    raise AssertionError('non-partial index accepted')
-except MigrationError as error:
-    assert 'shape mismatch' in str(error)
-with engine.begin() as c:
-    c.execute(text(f'DROP INDEX {m.INDEX}'))
-    m.apply(c)
-    m.validate(c)
-print('migration030 duplicate refusal (no partial DDL) and shape validation ok', flush=True)
+    c.execute(text('UPDATE spools SET spoolman_spool_id=42 WHERE id=:id'), {'id': c3})  # 1.9.x-style duplicate
+assert client.patch(f'/api/spools/{c3}', json={'notes': 'still editable', 'spoolman_spool_id': 42}).status_code == 200
+conflicts = client.get('/api/spools/spoolman-link-conflicts').json()
+assert [(x['spoolman_spool_id'], [s['id'] for s in x['spools']]) for x in conflicts] == [(42, [a, c3])]
+with engine.connect() as c:
+    assert c.execute(text('SELECT count(*) FROM spools WHERE spoolman_spool_id=42')).scalar_one() == 2
+print('existing duplicate kept, still editable, reported to admins ok', flush=True)
 
 # --- filament rate: superadmin write, finite bound, deterministic lookup
 assert client.post('/api/filaments', content='{"brand":"C","name":"Bad","material":"PLA","cost_per_gram":Infinity}',

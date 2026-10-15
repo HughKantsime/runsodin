@@ -37,3 +37,13 @@ it('spool edit links, rejects an invalid id, and unlinks a Spoolman spool', () =
   fireEvent.submit(form)
   expect(onSave).toHaveBeenLastCalledWith(expect.objectContaining({ spoolman_spool_id: null }))
 })
+
+it('an unchanged (possibly duplicated) Spoolman link is not re-sent with other edits', () => {
+  const onSave = vi.fn()
+  const view = render(<EditSpoolModal spool={{ ...spool, spoolman_spool_id: 42 }} onClose={() => {}} onSave={onSave} />)
+  fireEvent.change(screen.getByPlaceholderText('Any notes...'), { target: { value: 'edited' } })
+  fireEvent.submit(view.container.ownerDocument.querySelector('form')!)
+  expect(onSave).toHaveBeenCalledTimes(1)
+  expect(onSave.mock.calls[0][0]).not.toHaveProperty('spoolman_spool_id')
+  expect(onSave.mock.calls[0][0]).toMatchObject({ id: spool.id, notes: 'edited' })
+})

@@ -13,6 +13,7 @@ import SpoolGrid from '../../components/inventory/SpoolGrid'
 import { CreateSpoolModal, LoadSpoolModal, UseSpoolModal, DryingModal } from '../../components/inventory/SpoolModals'
 import { purchaseAudience, type PurchasePrincipal } from '../../components/inventory/PurchaseEvidenceModal'
 import { EditSpoolModal } from '../../components/inventory/SpoolEditModals'
+import SpoolmanLinkConflicts from '../../components/inventory/SpoolmanLinkConflicts'
 
 export default function Spools() {
   const org = useOrg()
@@ -244,6 +245,7 @@ export default function Spools() {
             />
           </div>
 
+          <SpoolmanLinkConflicts />
           {/* Low warning */}
           {lowSpools.length > 0 && (
             <button

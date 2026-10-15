@@ -28,7 +28,8 @@ export function EditSpoolModal({ spool, onClose, onSave }: { spool: any; onClose
     }
     onSave({
       id: spool.id,
-      spoolman_spool_id: spoolmanId,
+      // Only a changed link is sent: an existing (possibly duplicate) link is not re-written.
+      ...(spoolmanId !== (spool.spoolman_spool_id ?? null) ? { spoolman_spool_id: spoolmanId } : {}),
       pa_profile: form.pa_profile || null,
       low_stock_threshold_g: threshold,
       remaining_weight_g: parseFloat(form.remaining_weight_g),

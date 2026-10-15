@@ -14,7 +14,11 @@ import type {
 } from '../types'
 
 // QR code spool scanning + full CRUD
+export interface SpoolmanLinkConflict { spoolman_spool_id: number; spools: { id: number; qr_code: string | null; org_id: number | null }[] }
+
 export const spools = {
+  /** Admin-only: Spoolman spools linked to more than one ODIN spool (403 for other roles). */
+  linkConflicts: (): Promise<SpoolmanLinkConflict[]> => fetchAPI('/spools/spoolman-link-conflicts'),
   list: (filters: SpoolListFilters = {}): Promise<Spool[]> => {
     const params = new URLSearchParams()
     if (filters.status) params.append('status', filters.status)
