@@ -552,6 +552,28 @@ def install_portal_license(license_content) -> "LicenseInfo":
     return get_license()
 
 
+def quarantine_installed_license() -> Optional[str]:
+    """Atomically move the installed license aside (offline unactivation hand-over).
+
+    The license file is renamed (same directory, atomic) to
+    ``odin.license.unactivated-<UTC timestamp>``, which the loader never reads,
+    so this install reverts to Community at once. An aborted hand-over is
+    recovered only by re-activating with the licensing server; the quarantined
+    copy is kept for the operator's records. Returns the quarantine path, or
+    None when no license file was installed.
+    """
+    global _cached_license, _cached_mtime
+    path = _find_license_file()
+    if not path:
+        return None
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    target = f"{path}.unactivated-{stamp}"
+    os.replace(path, target)
+    _cached_license = None
+    _cached_mtime = 0
+    return target
+
+
 # ── Cached license (reloaded when file changes) ──
 _cached_license: Optional[LicenseInfo] = None
 _cached_mtime: float = 0

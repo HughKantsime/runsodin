@@ -53,6 +53,7 @@ test('activation request is POSTed with the license key and the portal challenge
 })
 
 test('unactivation request is POSTed with the challenge code and offered only for an installed license', async () => {
+  const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
   const view = render({ tier: 'pro', valid: true, managed_externally: false })
   const button = await screen.findByRole('button', { name: 'Download unactivation request' })
   fireEvent.change(screen.getByRole('textbox', { name: 'Challenge code' }), { target: { value: 'n2' } })
@@ -62,6 +63,9 @@ test('unactivation request is POSTed with the challenge code and offered only fo
   expect(init.method).toBe('POST')
   expect(JSON.parse(init.body as string)).toEqual({ nonce: 'n2' })
   expect(downloads).toEqual(['odin-unactivation-request.json'])
+  expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('removes the license from this server'))
+  // The removed license is reflected at once (GET /api/license re-read).
+  await waitFor(() => expect(calls('/api/license').length).toBe(2))
   view.unmount()
 
   render({ tier: 'community', valid: false, managed_externally: false })
@@ -77,5 +81,15 @@ test('a rejected request shows the backend reason and downloads nothing', async 
   fireEvent.change(screen.getByRole('textbox', { name: 'Challenge code' }), { target: { value: 'n1' } })
   fireEvent.click(screen.getByRole('button', { name: 'Download activation request' }))
   await waitFor(() => expect(screen.getByText(/Failed to export activation request: A license key and a challenge nonce/)).toBeInTheDocument())
+  expect(downloads).toEqual([])
+})
+
+test('declining the confirmation sends no unactivation request', async () => {
+  vi.spyOn(window, 'confirm').mockReturnValue(false)
+  render({ tier: 'pro', valid: true, managed_externally: false })
+  const button = await screen.findByRole('button', { name: 'Download unactivation request' })
+  fireEvent.change(screen.getByRole('textbox', { name: 'Challenge code' }), { target: { value: 'n2' } })
+  fireEvent.click(button)
+  expect(calls('/api/license/unactivation-request')).toHaveLength(0)
   expect(downloads).toEqual([])
 })

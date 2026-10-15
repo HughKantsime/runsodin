@@ -134,12 +134,14 @@ export default function LicenseTab() {
 
   const handleExportUnactivationRequest = async () => {
     if (!challengeCode.trim()) return
+    if (!confirm('Generating the unactivation request removes the license from this server now (it reverts to Community). Continue?')) return
     setExporting('unactivation')
     setMessage(null)
     try {
       const data = await licenseApi.getUnactivationRequest(challengeCode.trim())
       saveJson(data, 'odin-unactivation-request.json')
-      setMessage({ type: 'success', text: 'Unactivation request downloaded. Upload it on the license portal to free the grant.' })
+      setMessage({ type: 'success', text: 'Unactivation request downloaded and the license was removed from this server. Upload the file on the license portal to free the grant.' })
+      loadLicense()
     } catch (err) {
       setMessage({ type: 'error', text: 'Failed to export unactivation request: ' + (err instanceof Error ? err.message : 'Unknown error') })
     } finally {

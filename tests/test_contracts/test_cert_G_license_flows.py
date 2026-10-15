@@ -358,3 +358,63 @@ def test_default_license_server_url_used_by_real_route(flow):
 def test_configured_license_server_url_used_by_real_route(custom_url):
     assert custom_url["status"] == 200
     assert custom_url["urls"] == ["http://localhost:18999/api/v1/activate"]
+
+
+# ---------- F20-20.2-06 / 20.3-05 offline seat hand-over A -> B (cert-fix-G review HIGH 1) ----------
+HANDOVER = PORTAL_STUB + r'''
+import shutil
+seed_user("cert-g-admin", "admin"); a = login("cert-g-admin")
+dir_a = LM.LICENSE_DIR
+r = a.post("/api/license/activate", json={"key": PRO_KEY})
+OUT["a_activate"] = r.status_code
+inst_a = a.get("/api/license/installation-id").json()["installation_id"]
+# The admin fetches a challenge for A from the portal (portal stub mints it).
+nonce = secrets.token_hex(16); PORTAL["nonces"].add(nonce)
+r = a.post("/api/license/unactivation-request", json={"nonce": nonce})
+OUT["request_status"] = r.status_code
+req = r.json()
+LM._cached_license = None; LM._cached_mtime = 0
+OUT["a_after_request"] = body(client().get("/api/license"))
+OUT["a_license_file_exists"] = Path(dir_a, LM.LICENSE_FILENAME).exists()
+OUT["a_quarantined"] = sorted(p.name for p in Path(dir_a).glob(LM.LICENSE_FILENAME + ".unactivated-*"))
+OUT["a_printers"] = [a.post("/api/printers", json={"name": f"A {i}", "model": "X1C", "api_type": "bambu", "slot_count": 1}).status_code for i in range(6)]
+# A second request on A (no license any more) cannot mint another hand-over.
+OUT["second_request"] = a.post("/api/license/unactivation-request", json={"nonce": "n2"}).status_code
+# Portal (api/v1/offline.js semantics): frees the grant only for a valid PoP over key/installation/nonce.
+OUT["portal_freed"] = _verify_pop("unactivate", req["key"], req["installation_id"], req["nonce"], req["signature"])
+if OUT["portal_freed"]:
+    PORTAL["activations"][req["key"]].pop(req["installation_id"], None)
+OUT["replay_refused"] = not _verify_pop("unactivate", req["key"], req["installation_id"], req["nonce"], req["signature"])
+# Installation B (its own LICENSE_DIR => own installation id + device key) takes the seat.
+dir_b = str(WORK / "license-b"); os.makedirs(dir_b, exist_ok=True)
+LM.LICENSE_DIR = dir_b; LM._cached_license = None; LM._cached_mtime = 0
+r = a.post("/api/license/activate", json={"key": PRO_KEY})
+OUT["b_activate"] = r.status_code
+OUT["b_tier"] = body(client().get("/api/license"))["tier"]
+OUT["b_installation_differs"] = a.get("/api/license/installation-id").json()["installation_id"] != inst_a
+# A cannot silently come back: its seat is gone, re-activation is refused while B holds it.
+LM.LICENSE_DIR = dir_a; LM._cached_license = None; LM._cached_mtime = 0
+OUT["a_reactivate_while_b_holds"] = a.post("/api/license/activate", json={"key": PRO_KEY}).status_code
+OUT["a_tier_end"] = body(client().get("/api/license"))["tier"]
+'''
+
+
+@pytest.fixture(scope="module")
+def handover(tmp_path_factory):
+    return run_probe("license-handover", HANDOVER, tmp_path_factory.mktemp("cert-g-handover"))
+
+
+def test_offline_unactivation_request_removes_the_local_license(handover):
+    assert handover["a_activate"] == 200 and handover["request_status"] == 200
+    a = handover["a_after_request"]
+    assert a["tier"] == "community" and a["valid"] is False and a["max_printers"] == 5
+    assert handover["a_license_file_exists"] is False and len(handover["a_quarantined"]) == 1
+    assert handover["a_printers"] == [201] * 5 + [403]
+    assert handover["second_request"] == 400
+
+
+def test_offline_seat_moves_from_a_to_b_exactly_once(handover):
+    assert handover["portal_freed"] is True and handover["replay_refused"] is True
+    assert handover["b_activate"] == 200 and handover["b_tier"] == "pro" and handover["b_installation_differs"] is True
+    assert handover["a_reactivate_while_b_holds"] == 409 and handover["a_tier_end"] == "community"
+    assert handover["_net_attempts"] == []

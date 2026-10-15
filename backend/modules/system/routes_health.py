@@ -24,6 +24,7 @@ from core.config import settings
 from license_manager import (
     get_license, save_license_file, verify_license_text, normalize_license_upload, get_installation_id,
     get_device_keypair, sign_license_challenge, require_license_mutation_enabled, install_portal_license,
+    quarantine_installed_license,
 )
 
 log = logging.getLogger("odin.api")
@@ -471,14 +472,11 @@ async def unactivate_license(
         detail = resp.json().get("error", "Unactivation failed") if resp.headers.get("content-type", "").startswith("application/json") else f"License server returned {resp.status_code}"
         raise HTTPException(status_code=resp.status_code, detail=detail)
 
-    # Remove local license file
+    # Remove local license file and clear the cache
     from license_manager import LICENSE_DIR, LICENSE_FILENAME
-    license_path = os.path.join(LICENSE_DIR, LICENSE_FILENAME)
-    if os.path.exists(license_path):
-        os.remove(license_path)
-
-    # Clear cache
     import license_manager
+    if os.path.exists(license_path := os.path.join(LICENSE_DIR, LICENSE_FILENAME)):
+        os.remove(license_path)
     license_manager._cached_license = None
     license_manager._cached_mtime = 0
 
@@ -553,6 +551,8 @@ class OfflineUnactivationRequestBody(PydanticBaseModel):
 def get_unactivation_request(
     body: OfflineUnactivationRequestBody,
     current_user: dict = Depends(require_superadmin(scope="write")),
+    db: Session = Depends(get_db),
+    license_mutation_allowed: None = Depends(require_license_mutation_enabled),
 ):
     """Signed offline unactivation request over a portal challenge nonce (proof of possession). Admin only."""
     import socket
@@ -576,6 +576,12 @@ def get_unactivation_request(
         "signature": sign_license_challenge("unactivate", current_license.key, installation_id, nonce),
     }
     content = json.dumps(payload, indent=2)
+    try:  # hands the seat over: this install stops using the license now (as online /unactivate)
+        quarantined = quarantine_installed_license()
+    except OSError:
+        raise HTTPException(status_code=503, detail="License could not be removed; no unactivation request was issued")
+    log_audit(db, "license.offline_unactivation_requested", "system", details={"quarantined": os.path.basename(quarantined or "")})
+    db.commit()
     return _Response(
         content=content,
         media_type="application/json",
