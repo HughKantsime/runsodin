@@ -1,0 +1,32 @@
+[
+  {
+    "build_time_hours": 2.0,
+    "category": null,
+    "color_requirements": {
+      "slot1": {
+        "color": "black",
+        "filament_type": null,
+        "grams": 100.0
+      }
+    },
+    "cost_per_item": 2.5,
+    "default_filament_type": null,
+    "filament_per_item": 50.0,
+    "id": 101,
+    "is_favorite": null,
+    "markup_percent": 200.0,
+    "name": "Own model",
+    "notes": null,
+    "quantity_per_bed": null,
+    "required_colors": [
+      "black"
+    ],
+    "thumbnail_b64": null,
+    "thumbnail_url": null,
+    "time_per_item": 1.0,
+    "total_filament_grams": 100.0,
+    "units_per_bed": 2,
+    "value_per_bed": 10.0,
+    "value_per_hour": 5.0
+  }
+]

@@ -1,0 +1,107 @@
+{
+  "jobs_by_date": {
+    "2026-10-11": {
+      "completed": 1,
+      "cost": 8.0,
+      "created": 1,
+      "revenue": 20.0
+    },
+    "2026-10-12": {
+      "completed": 2,
+      "cost": 3.0,
+      "created": 4,
+      "revenue": 11.0
+    }
+  },
+  "printer_stats": [
+    {
+      "avg_job_hours": 2.0,
+      "completed_jobs": 2,
+      "failed_jobs": 0,
+      "has_plug": false,
+      "id": 9,
+      "name": "P1S-09",
+      "success_rate": 100.0,
+      "total_hours": 4.0,
+      "utilization_pct": 7.8
+    },
+    {
+      "avg_job_hours": 2.0,
+      "completed_jobs": 1,
+      "failed_jobs": 1,
+      "has_plug": false,
+      "id": 10,
+      "name": "P1S-10",
+      "success_rate": 50.0,
+      "total_hours": 2.0,
+      "utilization_pct": 8.0
+    }
+  ],
+  "summary": {
+    "avg_value_per_hour": 2.75,
+    "completed_jobs": 3,
+    "jobs_uncosted": 0,
+    "jobs_unpriced": 0,
+    "jobs_with_cost_data": 3,
+    "jobs_with_unknown_quantity": 0,
+    "margin_percent": 64.5,
+    "pending_jobs": 1,
+    "pending_scope": "current_queue",
+    "pending_uncosted": 0,
+    "pending_unpriced": 0,
+    "projected_cost": 3.0,
+    "projected_revenue": 7.0,
+    "total_cost": 11.0,
+    "total_jobs": 6,
+    "total_margin": 20.0,
+    "total_models": 3,
+    "total_print_hours": 6.0,
+    "total_revenue": 31.0
+  },
+  "top_by_hour": [
+    {
+      "build_time_hours": 1.0,
+      "id": 103,
+      "name": "Shared model",
+      "units_per_bed": 1,
+      "value_per_bed": 3.0,
+      "value_per_hour": 3.0
+    },
+    {
+      "build_time_hours": 2.0,
+      "id": 101,
+      "name": "Own model",
+      "units_per_bed": 1,
+      "value_per_bed": 5.0,
+      "value_per_hour": 2.5
+    }
+  ],
+  "top_by_jobs": [
+    {
+      "id": 101,
+      "job_count": 2,
+      "name": "Own model"
+    },
+    {
+      "id": 103,
+      "job_count": 1,
+      "name": "Shared model"
+    }
+  ],
+  "worst_performers": [
+    {
+      "build_time_hours": 2.0,
+      "id": 101,
+      "name": "Own model",
+      "value_per_bed": 5.0,
+      "value_per_hour": 2.5
+    },
+    {
+      "build_time_hours": 1.0,
+      "id": 103,
+      "name": "Shared model",
+      "value_per_bed": 3.0,
+      "value_per_hour": 3.0
+    }
+  ]
+}

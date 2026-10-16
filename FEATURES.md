@@ -351,7 +351,7 @@
 
 ### 6.6 Spoolman Integration
 - `spoolman_spool_id` field for linking O.D.I.N. spools to external Spoolman instance
-- Bidirectional sync: pull spool inventory from an external Spoolman instance; push consumption back on job completion via `POST /api/v1/spool/{id}/use`
+- Bidirectional sync: pull spool inventory from an external Spoolman instance; push consumption back on job completion (manual and printer-observed) via `PUT /api/v1/spool/{id}/use`
 - **Auto-deduction** — filament consumption auto-deducted from the assigned spool on print completion; consumption_json stored in the archive; pushed back to Spoolman when the spool is linked (fails loud via job.notes if Spoolman is unreachable, no silent drops)
 - **Filament usage tracking** — Bambu: AMS remain percentage delta × initial_weight_g; Moonraker: Klipper `print_stats.filament_used` (mm→grams conversion); multi-filament deductions use per-material evidence; ambiguous total-only measurements remain unresolved
 
@@ -623,7 +623,7 @@
 
 ### 14.5 Spoolman
 - Link O.D.I.N. spools to external Spoolman instance via `spoolman_spool_id`
-- Bidirectional sync (v1.8.5): pull inventory from Spoolman on demand; push consumption back on job completion via `POST /api/v1/spool/{id}/use`
+- Bidirectional sync (v1.8.5): pull inventory from Spoolman on demand; push consumption back on job completion (manual and printer-observed) via `PUT /api/v1/spool/{id}/use`
 - SSRF-safe dispatch via `safe_post()` (user-configured Spoolman URL gets DNS-pin validation)
 - Unreachable Spoolman instance is a loud failure — logged + appended to `job.notes` — never a silent drop
 

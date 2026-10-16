@@ -9,7 +9,7 @@ def spoolman_peer(monkeypatch):
     from modules.inventory import services
     received=[];status=[200]
     class Handler(BaseHTTPRequestHandler):
-        def do_POST(self):
+        def do_PUT(self):  # Spoolman declares PUT /api/v1/spool/{id}/use
             received.append((self.path,json.loads(self.rfile.read(int(self.headers['Content-Length'])))))
             self.send_response(status[0])
             if status[0]==302:self.send_header('Location','/redirected-must-not-receive')

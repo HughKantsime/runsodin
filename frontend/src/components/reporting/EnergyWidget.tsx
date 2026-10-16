@@ -53,15 +53,32 @@ export default function EnergyWidget({ jobs }: { jobs?: any[] }) {
   // Aggregate energy data from jobs that have kWh data
   const jobsWithEnergy = (jobs || []).filter(j => j.energy_kwh > 0)
   const totalKwh = jobsWithEnergy.reduce((sum, j) => sum + (j.energy_kwh || 0), 0)
-  const totalCost = rate === null ? null : totalKwh * rate
+  // A job's cost is the energy_cost recorded when it finished (rate at that time);
+  // only jobs without a recorded cost are valued at the current rate.
+  const recordedCost = (j: any): number | null => (typeof j.energy_cost === 'number' && Number.isFinite(j.energy_cost) ? j.energy_cost : null)
+  const jobCost = (j: any): number | null => recordedCost(j) ?? (rate === null ? null : (j.energy_kwh || 0) * rate)
+  const costs = jobsWithEnergy.map(jobCost)
+  const totalCost = costs.some(c => c === null) ? null : costs.reduce((sum: number, c) => sum + (c as number), 0)
 
-  // Group by day for chart
-  const byDay = {}
+  // Group by the UTC day the print ended (/print-jobs ended_at, stored as UTC).
+  const endDay = (value: unknown): string | null => {
+    if (typeof value !== 'string' || !value) return null
+    const iso = value.includes('T') ? value : value.replace(' ', 'T')
+    const parsed = new Date(/(Z|[+-]\d\d:?\d\d)$/.test(iso) ? iso : `${iso}Z`)
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10)
+  }
+  const byDay: Record<string, { kwh: number; cost: number | null }> = {}
   jobsWithEnergy.forEach(j => {
-    const day = j.completed_at ? new Date(j.completed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Unknown'
-    byDay[day] = (byDay[day] || 0) + (j.energy_kwh || 0)
+    const day = endDay(j.ended_at) ?? 'Unknown'
+    const bucket = byDay[day] ?? (byDay[day] = { kwh: 0, cost: 0 })
+    bucket.kwh += j.energy_kwh || 0
+    const cost = jobCost(j)
+    bucket.cost = bucket.cost === null || cost === null ? null : bucket.cost + cost
   })
-  const chartData = Object.entries(byDay).map(([day, kwh]) => ({ day, kwh: parseFloat(kwh.toFixed(2)), cost: rate === null ? null : parseFloat((kwh * rate).toFixed(2)) }))
+  const label = (day: string) => day === 'Unknown' ? day : new Date(`${day}T00:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+  const chartData = Object.entries(byDay)
+    .sort(([a], [b]) => (a === 'Unknown' ? 1 : b === 'Unknown' ? -1 : a.localeCompare(b)))
+    .map(([day, v]) => ({ day: label(day), kwh: parseFloat(v.kwh.toFixed(2)), cost: v.cost === null ? null : parseFloat(v.cost.toFixed(2)) }))
 
   return (
     <div className="rounded-md p-5" style={{ backgroundColor: 'var(--brand-card-bg)', border: '1px solid var(--brand-card-border)' }}>

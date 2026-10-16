@@ -40,6 +40,9 @@ def _validated_schedule_fields(body, *, partial=False):
             normalized['recipients']=normalize_recipients(body.get('recipients'))
         except ValueError:
             raise HTTPException(400,'Each report recipient must contain one mailbox') from None
+    if not partial or 'report_type' in body:
+        if body.get('report_type') not in REPORT_TYPES:
+            raise HTTPException(400,f"Invalid report type. Valid: {', '.join(REPORT_TYPES)}")
     if 'is_active' in body and not isinstance(body['is_active'],bool):
         raise HTTPException(400,'Active must be a boolean')
     if 'filters' in body and not isinstance(body['filters'],dict):
@@ -202,13 +205,16 @@ async def update_report_schedule(schedule_id: int, body: dict, current_user: dic
     body = _validated_schedule_fields(body, partial=True)
     sets = []
     params = {"id": schedule_id}
-    for field in ["name", "frequency", "is_active"]:
+    for field in ["name", "report_type", "frequency", "is_active"]:
         if field in body:
             sets.append(f"{field} = :{field}")
             params[field] = body[field]
     if "recipients" in body:
         sets.append("recipients = :recipients")
         params["recipients"] = json.dumps(body["recipients"])
+    if "filters" in body:
+        sets.append("filters = :filters")
+        params["filters"] = json.dumps(body["filters"])
     if sets:
         db.execute(text(f"UPDATE report_schedules SET {', '.join(sets)} WHERE id = :id"), params)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
         db.commit()

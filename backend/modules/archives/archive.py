@@ -143,41 +143,109 @@ def create_print_archive(print_job_id: int, printer_id: int, success: bool,
 
 
 def _sync_spoolman_consumption(spoolman_spool_id: int, grams_used: float):
-    """Sync filament consumption to Spoolman via its API.
+    """Deliver one consumption record to Spoolman; return (state, reason).
 
-    v1.8.10 (codex pass 21): route through the same guarded stack
-    every other Spoolman caller uses. The previous implementation
-    read a separate `SPOOLMAN_URL` env var and called urlopen()
-    directly — that bypassed both the ITAR boot audit (which checks
-    `settings.spoolman_url`) AND the runtime pin/proxy-bypass
-    guards. Under ITAR this path could still ship spool usage data
-    to a public Spoolman endpoint on every archive sync.
-
-    Fix: read from `settings.spoolman_url` (single source of truth,
-    already boot-audited) and wrap the httpx call in
-    `pin_for_request` + `trust_env=should_trust_env()` so it inherits
-    the full ITAR posture — DNS pinning, no proxy bypass, and an
-    `ItarOutboundBlocked` refusal on public destinations.
+    Delegates to the inventory module's single guarded Spoolman client
+    (DNS pinning, no proxies/redirects, ITAR refusal, PUT /use).
     """
-    import json
-    import httpx
+    from modules.inventory.services import deliver_spoolman_usage
+    return deliver_spoolman_usage(spoolman_spool_id, grams_used)
+
+
+_OUTBOX_STATES = ("sent", "failed", "pending", "outcome_unknown")
+# Per-process claim token, recorded on rows this process holds in flight.
+import uuid as _uuid  # noqa: E402
+_PROCESS_CLAIM = "claim:" + _uuid.uuid4().hex
+# A delivery attempt takes at most a few seconds (5 s HTTP timeout); an in-flight
+# claim older than this belongs to a process that stopped mid-delivery.
+STALE_CLAIM_MINUTES = 15
+
+
+def deliver_filament_outbox(limit: int = 100) -> dict:
+    """Deliver queued printer-observed consumption (filament_delivery_outbox) to Spoolman.
+
+    Runs after the archive transaction committed, never inside it. Each row is
+    claimed atomically (pending -> in_flight) so concurrent runners never send
+    a row twice; the result is recorded on the row and logged, so a failure is
+    never silent. Rows that may have reached Spoolman become 'outcome_unknown'
+    and are not resent.
+    """
+    counts = {state: 0 for state in _OUTBOX_STATES}
+    counts["skipped"] = 0
     from core.config import settings
-    from core.itar import pin_for_request, should_trust_env, ItarOutboundBlocked
+    if not (settings.spoolman_url or "").strip():
+        # Integration not configured: leave rows pending, untouched, until it is.
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM filament_delivery_outbox WHERE state='pending'")
+            counts["skipped"] = cur.fetchone()[0]
+        return counts
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT id, spoolman_spool_id, grams_used, print_job_id FROM filament_delivery_outbox "
+                    "WHERE state='pending' ORDER BY created_at, id LIMIT ?", (limit,))
+        rows = cur.fetchall()
+    for outbox_id, spoolman_id, grams, print_job_id in rows:
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute("UPDATE filament_delivery_outbox SET state='in_flight', attempt_started_at=CURRENT_TIMESTAMP, "
+                        "outcome_reason=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND state='pending'",
+                        (_PROCESS_CLAIM, outbox_id))
+            claimed = cur.rowcount == 1
+            conn.commit()
+        if not claimed:
+            continue
+        try:
+            outcome = _sync_spoolman_consumption(spoolman_id, grams)
+        except Exception as exc:
+            outcome = ("outcome_unknown", f"delivery_error: {type(exc).__name__}")
+        state, reason = outcome if (isinstance(outcome, tuple) and len(outcome) == 2
+                                    and outcome[0] in _OUTBOX_STATES) else ("outcome_unknown", "no_delivery_result")
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute("UPDATE filament_delivery_outbox SET state=?, outcome_reason=?, updated_at=CURRENT_TIMESTAMP "
+                        "WHERE id=? AND state='in_flight' AND outcome_reason=?", (state, reason, outbox_id, _PROCESS_CLAIM))
+            conn.commit()
+        counts[state] += 1
+        if state == "sent":
+            log.info("Spoolman usage delivered: print_job=%s spoolman_spool=%s grams=%s", print_job_id, spoolman_id, grams)
+        else:
+            log.warning("Spoolman usage %s: print_job=%s spoolman_spool=%s grams=%s reason=%s",
+                        state, print_job_id, spoolman_id, grams, reason)
+    return counts
 
-    base_url = (settings.spoolman_url or "").rstrip("/")
-    if not base_url:
-        return
 
-    url = f"{base_url}/api/v1/spool/{spoolman_spool_id}/use"
-    try:
-        with pin_for_request(url):
-            with httpx.Client(timeout=10, trust_env=should_trust_env()) as client:
-                resp = client.put(url, json={"use_weight": grams_used})
-                resp.raise_for_status()
-    except ItarOutboundBlocked as exc:
-        log.warning("archive: ITAR blocked Spoolman sync: %s", exc)
-    except Exception as exc:
-        log.warning("archive: Spoolman sync failed for spool %s: %s", spoolman_spool_id, exc)
+def _deliver_outbox_in_background():
+    import threading
+
+    def run():
+        try:
+            deliver_filament_outbox()
+        except Exception as exc:
+            log.error("Spoolman outbox delivery run failed (%s); rows stay queued", type(exc).__name__)
+    threading.Thread(target=run, daemon=True, name="spoolman-outbox").start()
+
+
+def recover_stale_outbox_claims(max_age_minutes: int = STALE_CLAIM_MINUTES) -> int:
+    """A row left 'in_flight' by a stopped process may or may not have reached
+    Spoolman: record it as 'outcome_unknown' (visible, never resent).
+
+    Only claims older than ``max_age_minutes`` (or without a start time) and not
+    held by this process are touched, so a starting worker never steals the live
+    claim of a sibling process that is delivering right now.
+    """
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("UPDATE filament_delivery_outbox SET state='outcome_unknown', "
+                    "outcome_reason='interrupted_in_flight', updated_at=CURRENT_TIMESTAMP "
+                    "WHERE state='in_flight' AND (outcome_reason IS NULL OR outcome_reason<>?) "
+                    f"AND (attempt_started_at IS NULL OR attempt_started_at < {sql.now_offset(f'-{int(max_age_minutes)} minutes')})",
+                    (_PROCESS_CLAIM,))
+        count = cur.rowcount or 0
+        conn.commit()
+    if count:
+        log.warning("Spoolman outbox: %s interrupted deliveries recorded as outcome_unknown", count)
+    return count
 
 
 # ---------------------------------------------------------------------------
@@ -195,6 +263,9 @@ def _on_job_completed_event(event) -> None:
             create_print_archive(print_job_id, printer_id, success)
         except Exception as e:
             log.warning(f"Print archive capture failed via event bus: {e}")
+        # The archive transaction has committed: deliver its queued consumption
+        # (and any earlier retryable rows) to Spoolman off the monitor thread.
+        _deliver_outbox_in_background()
 
 
 def _on_job_cancelled_event(event) -> None:
@@ -208,6 +279,7 @@ def _on_job_cancelled_event(event) -> None:
                                  result_status="cancelled")
         except Exception as e:
             log.warning(f"Print archive capture (cancelled) failed via event bus: {e}")
+        _deliver_outbox_in_background()
 
 
 def register_subscribers(bus) -> None:
@@ -230,6 +302,11 @@ def register_subscribers(bus) -> None:
             log.warning("Archive recovery backlog: %s attempts; next cursor %s", recovered["pending_count"], recovered["next_after_id"])
     except Exception as exc:
         log.error("Archive startup recovery unavailable (%s); terminal attempts retained", type(exc).__name__)
+    try:
+        recover_stale_outbox_claims()
+        _deliver_outbox_in_background()
+    except Exception as exc:
+        log.error("Spoolman outbox startup delivery unavailable (%s); rows stay queued", type(exc).__name__)
 
 
 def recover_missing_archives(limit: int = 100, *, after_attempt_id: int = 0):

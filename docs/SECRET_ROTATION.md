@@ -46,6 +46,7 @@ The encryption key (Fernet) protects sensitive fields in the database:
 - OIDC client secrets (`oidc_config.client_secret_encrypted`)
 - SMTP passwords
 - OIDC access tokens
+- The Web Push (VAPID) private key (`system_config['vapid_keys'].private_key`)
 
 Rotating requires re-encrypting all encrypted fields with the new key.
 
@@ -102,6 +103,24 @@ docker compose up -d
 ```
 
 **Impact:** Brief downtime during re-encryption. No data loss. All encrypted fields are migrated to the new key.
+
+---
+
+## 2a. Web Push (VAPID) keys
+
+Precedence: an explicit `VAPID_PRIVATE_KEY` environment variable (raw base64url P-256
+key or PEM; optional `VAPID_PUBLIC_KEY` when the public half cannot be derived) wins
+for both the key served to browsers and push signing. Without it, ODIN uses the pair
+stored in `system_config['vapid_keys']` (private half encrypted with `ENCRYPTION_KEY`),
+generating one on first use.
+
+Rotate the stored pair as a superadmin: Settings → Notifications → **Rotate push keys**
+(`POST /api/push/vapid-key/rotate`). Every push subscription is deleted; each browser
+re-registers automatically on its next visit while notification permission is granted.
+Rotation is refused (409) while `VAPID_PRIVATE_KEY` is set — change the environment
+value instead and restart (existing subscriptions then stop working until browsers
+re-register). If `ENCRYPTION_KEY` is rotated without re-encrypting the stored VAPID
+private key, push stays disabled (logged) until a superadmin rotates the push keys.
 
 ---
 

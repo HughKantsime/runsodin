@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import type { AnalyticsSummary } from '../../api/reporting'
 import { analytics, printJobs } from '../../api'
 import { useState } from 'react'
 import {
@@ -14,9 +15,12 @@ import { PageHeader, StatCard, ProgressBar as SharedProgressBar, Button } from '
 
 const COLORS = ['#3B82F6', '#22C55E', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#EC4899', '#F97316']
 
+// Unknown (null) money — a counted job has no price/cost — is shown as Unknown, never $0.00.
+const money = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? `$${value.toFixed(2)}` : 'Unknown')
+
 const CHART_TOOLTIP = { backgroundColor: 'var(--chart-tooltip-bg)', border: 'none', borderRadius: '6px', boxShadow: 'var(--chart-tooltip-shadow)', color: 'var(--brand-text-primary)' }
 
-function JobsOverTimeChart({ data }) {
+function JobsOverTimeChart({ data, days = 30 }) {
   if (!data || Object.keys(data).length === 0) {
     return (
       <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
@@ -38,7 +42,7 @@ function JobsOverTimeChart({ data }) {
     <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)]">Job Activity</h3>
-        <span className="text-xs text-[var(--brand-text-muted)]">Last 30 days</span>
+        <span className="text-xs text-[var(--brand-text-muted)]">Last {days} days</span>
       </div>
       <ResponsiveContainer width="100%" height={220}>
         <AreaChart data={chartData}>
@@ -199,7 +203,7 @@ function FleetOverview({ summary }) {
 }
 
 
-function CostRevenueChart({ data }) {
+function CostRevenueChart({ data, days = 30 }) {
   const knownDailyMoney = (row: unknown): row is { revenue: number; cost: number } =>
     typeof row === 'object' && row !== null && 'revenue' in row && 'cost' in row
     && typeof row.revenue === 'number' && Number.isFinite(row.revenue)
@@ -224,7 +228,7 @@ function CostRevenueChart({ data }) {
     <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)]">Revenue vs Cost</h3>
-        <span className="text-xs text-[var(--brand-text-muted)]">Last 30 days</span>
+        <span className="text-xs text-[var(--brand-text-muted)]">Last {days} days</span>
       </div>
       {dailyMoneyUnavailable && chartData.length > 0 && <p>Some daily revenue and cost values are unavailable.</p>}
       {chartData.length > 0 ? (
@@ -394,7 +398,9 @@ export default function Analytics() {
     )
   }
 
-  const { summary, top_by_hour, worst_performers, printer_stats, jobs_by_date } = data
+  const { top_by_hour, worst_performers, printer_stats, jobs_by_date } = data
+  // Money totals are null when a counted job has no price/cost (rendered as Unknown).
+  const summary = data.summary as AnalyticsSummary
 
   return (
     <div className="p-4 md:p-6 space-y-6">
@@ -415,15 +421,15 @@ export default function Analytics() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard
           label="Revenue"
-          value={`$${summary.total_revenue.toFixed(2)}`}
-          subtitle={`${summary.completed_jobs} completed jobs`}
+          value={money(summary.total_revenue)}
+          subtitle={`${summary.completed_jobs} completed jobs${summary.jobs_unpriced ? ` · ${summary.jobs_unpriced} unpriced` : ''}`}
           icon={DollarSign}
           color="green"
         />
         <StatCard
           label="Pipeline"
-          value={`$${summary.projected_revenue.toFixed(2)}`}
-          subtitle={`${summary.pending_jobs} pending jobs`}
+          value={money(summary.projected_revenue)}
+          subtitle={`${summary.pending_jobs} pending jobs in the current queue${summary.pending_unpriced ? ` · ${summary.pending_unpriced} unpriced` : ''}`}
           icon={Target}
           color="amber"
         />
@@ -444,26 +450,26 @@ export default function Analytics() {
       </div>
 
       {/* Margin Stats (only show if we have cost data) */}
-      {(summary.total_cost > 0 || summary.total_margin > 0) && (
+      {(summary.total_cost === null || summary.total_cost > 0 || summary.total_margin > 0) && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <StatCard
             label="Total Cost"
-            value={`$${(summary.total_cost || 0).toFixed(2)}`}
-            subtitle="materials + overhead"
+            value={money(summary.total_cost)}
+            subtitle={summary.jobs_uncosted ? `${summary.jobs_uncosted} jobs without a cost estimate` : 'materials + overhead'}
             icon={DollarSign}
             color="red"
           />
           <StatCard
             label="Net Margin"
-            value={`$${(summary.total_margin || 0).toFixed(2)}`}
-            subtitle={`${(summary.margin_percent || 0).toFixed(1)}% margin`}
+            value={money(summary.total_margin)}
+            subtitle={summary.margin_percent === null || summary.margin_percent === undefined ? 'margin unknown' : `${summary.margin_percent.toFixed(1)}% margin`}
             icon={TrendingUp}
             color="green"
           />
           <StatCard
             label="Projected Cost"
-            value={`$${(summary.projected_cost || 0).toFixed(2)}`}
-            subtitle="pending pipeline"
+            value={money(summary.projected_cost)}
+            subtitle="current queue"
             icon={Target}
             color="red"
           />
@@ -479,8 +485,8 @@ export default function Analytics() {
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <JobsOverTimeChart data={jobs_by_date} />
-        <CostRevenueChart data={jobs_by_date} />
+        <JobsOverTimeChart data={jobs_by_date} days={days} />
+        <CostRevenueChart data={jobs_by_date} days={days} />
         <FleetOverview summary={summary} />
       </div>
 

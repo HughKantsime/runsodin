@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 
 from core.config import settings
+from core.redaction import redact_urls
 from core.webhook_utils import _pin_dns, WebhookSSRFError
 from sqlalchemy import text
 
@@ -23,7 +24,13 @@ log = logging.getLogger("odin.api")
 
 
 def _post_spoolman_usage(base: str, spool_id: int, grams: float):
-    """Direct, DNS-pinned administrator-configured integration. No redirects/proxies."""
+    """Direct, DNS-pinned administrator-configured integration. No redirects/proxies.
+
+    Spoolman declares the usage endpoint as ``PUT /api/v1/spool/{id}/use``
+    with body ``{"use_weight": grams}`` (the same verb archive delivery used);
+    any other method is answered 405. Hardware acceptance: confirm against
+    the deployed Spoolman version (HARDWARE_ACCEPTANCE_CHECKLIST).
+    """
     import ipaddress
     import socket
     from urllib.parse import urlsplit
@@ -54,10 +61,10 @@ def _post_spoolman_usage(base: str, spool_id: int, grams: float):
     url = base.rstrip('/') + f"/api/v1/spool/{spool_id}/use"
     with _pin_dns(parsed.hostname, port, addresses):
         with httpx.Client(trust_env=False, follow_redirects=False, timeout=5) as client:
-            return client.post(url, json={"use_weight": grams})
+            return client.put(url, json={"use_weight": grams})
 
 def push_consumption_to_spoolman(deductions: list) -> list:
-    """POST usage records to the configured Spoolman instance.
+    """PUT usage records to the configured Spoolman instance.
 
     Ships bidirectional sync (v1.8.5): ODIN already owns the authoritative
     local spool count; this pushes the consumption delta back to Spoolman
@@ -112,11 +119,11 @@ def push_consumption_to_spoolman(deductions: list) -> list:
                 )
         except WebhookSSRFError as e:
             errors.append(
-                f"Spoolman URL blocked by SSRF check (spool={spoolman_id}): {e}"
+                f"Spoolman URL blocked by SSRF check (spool={spoolman_id}): {redact_urls(e)}"
             )
         except Exception as e:
             errors.append(
-                f"Spoolman push failed (spool={spoolman_id} job={d.get('job_id')}): {e}"
+                f"Spoolman push failed (spool={spoolman_id} job={d.get('job_id')}): {redact_urls(e)}"
             )
 
     return errors
@@ -153,3 +160,30 @@ def visible_spoolman_link_conflicts(db, current_user: dict) -> list:
         if any(member["id"] is not None for member in members):
             visible.append({"spoolman_spool_id": conflict["spoolman_spool_id"], "spools": members})
     return visible
+
+
+def deliver_spoolman_usage(spoolman_spool_id: int, grams: float):
+    """Deliver one usage record; return (state, reason) for a durable outbox row.
+
+    States: 'sent' (Spoolman answered 2xx), 'failed' (refused: HTTP error,
+    invalid identity/URL, SSRF/ITAR block), 'pending' (not delivered and safe
+    to retry: integration disabled or the connection was never established),
+    'outcome_unknown' (the request may have reached Spoolman; never resent,
+    which would double-deduct).
+    """
+    import httpx
+    base = (settings.spoolman_url or "").rstrip("/")
+    if not base:
+        return "pending", "spoolman_not_configured"
+    try:
+        resp = _post_spoolman_usage(base, spoolman_spool_id, grams)
+    except (ValueError, WebhookSSRFError) as exc:
+        return "failed", f"refused: {redact_urls(exc)}"[:500]
+    except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+        return "pending", f"connect_failed: {type(exc).__name__}"
+    except Exception as exc:
+        return "outcome_unknown", f"transport: {type(exc).__name__}"
+    status = getattr(resp, "status_code", None)
+    if isinstance(status, int) and 200 <= status < 300:
+        return "sent", None
+    return "failed", f"HTTP {status}"

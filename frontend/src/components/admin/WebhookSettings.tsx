@@ -15,13 +15,15 @@ export default function WebhookSettings() {
   const [testing, setTesting] = useState(null);
   const [testResult, setTestResult] = useState(null);
 
+  // Canonical dispatched event ids (backend AlertType values).
   const alertTypes = [
-    { id: 'PRINT_COMPLETE', label: 'Print Complete' },
-    { id: 'PRINT_FAILED', label: 'Print Failed' },
-    { id: 'SPOOL_LOW', label: 'Low Spool' },
-    { id: 'MAINTENANCE_OVERDUE', label: 'Maintenance Due' },
-    { id: 'HMS_ERROR', label: 'Printer Errors' },
+    { id: 'print_complete', label: 'Print Complete' },
+    { id: 'print_failed', label: 'Print Failed' },
+    { id: 'spool_low', label: 'Low Spool' },
+    { id: 'maintenance_overdue', label: 'Maintenance Due' },
+    { id: 'printer_error', label: 'Printer Errors' },
   ];
+  const labelFor = (type) => alertTypes.find(t => t.id === String(type).toLowerCase())?.label || type;
 
   useEffect(() => {
     loadWebhooks();
@@ -38,7 +40,8 @@ export default function WebhookSettings() {
         const data = await res.json();
         setWebhooks(data.map(w => ({
           ...w,
-          alert_types: w.alert_types ? JSON.parse(w.alert_types) : []
+          // null = no selection stored = every alert
+          alert_types: w.alert_types ? JSON.parse(w.alert_types) : null
         })));
       }
     } catch (err) {
@@ -54,12 +57,17 @@ export default function WebhookSettings() {
         method: 'POST',
         headers: getHeaders(),
         credentials: 'include',
-        body: JSON.stringify(newWebhook)
+        // No selected event means "receive all alerts": send no selection (null),
+        // because an explicit empty list selects nothing.
+        body: JSON.stringify({ ...newWebhook, alert_types: newWebhook.alert_types.length ? newWebhook.alert_types : null })
       });
       if (res.ok) {
         setShowAdd(false);
         setNewWebhook({ name: '', url: '', webhook_type: 'discord', alert_types: [] });
         loadWebhooks();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        toast.error('Failed to create webhook: ' + (typeof err.detail === 'string' ? err.detail : `HTTP ${res.status}`));
       }
     } catch (err) {
       toast.error('Failed to create webhook');
@@ -161,6 +169,11 @@ export default function WebhookSettings() {
               >
                 <option value="discord">Discord</option>
                 <option value="slack">Slack</option>
+                <option value="ntfy">ntfy</option>
+                <option value="telegram">Telegram</option>
+                <option value="pushover">Pushover</option>
+                <option value="whatsapp">WhatsApp</option>
+                <option value="generic">Generic JSON</option>
               </select>
             </div>
           </div>
@@ -176,6 +189,8 @@ export default function WebhookSettings() {
                 newWebhook.webhook_type === 'slack' ? 'https://hooks.slack.com/services/...' :
                 newWebhook.webhook_type === 'ntfy' ? 'https://ntfy.sh/your-topic' :
                 newWebhook.webhook_type === 'telegram' ? 'bot_token|chat_id' :
+                newWebhook.webhook_type === 'pushover' ? 'user_key|api_token' :
+                newWebhook.webhook_type === 'whatsapp' ? 'phone_number_id|recipient_phone|access_token' :
                 'https://...'
               }
               className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm font-mono"
@@ -186,8 +201,11 @@ export default function WebhookSettings() {
             {newWebhook.webhook_type === 'telegram' && (
               <p className="text-xs text-[var(--brand-text-muted)] mt-1">Format: <code className="text-[var(--brand-primary)]">bot_token|chat_id</code> — Get a bot token from <code className="text-[var(--brand-primary)]">@BotFather</code>, chat ID from <code className="text-[var(--brand-primary)]">@userinfobot</code></p>
             )}
-            {newWebhook.webhook_type === 'telegram' && (
-              <p className="text-xs text-[var(--brand-text-muted)] mt-1">Format: <code className="text-[var(--brand-primary)]">bot_token|chat_id</code> — Get a bot token from <code className="text-[var(--brand-primary)]">@BotFather</code>, and chat ID from <code className="text-[var(--brand-primary)]">@userinfobot</code></p>
+            {newWebhook.webhook_type === 'pushover' && (
+              <p className="text-xs text-[var(--brand-text-muted)] mt-1">Format: <code className="text-[var(--brand-primary)]">user_key|api_token</code> — your Pushover user key and an application API token.</p>
+            )}
+            {newWebhook.webhook_type === 'whatsapp' && (
+              <p className="text-xs text-[var(--brand-text-muted)] mt-1">Format: <code className="text-[var(--brand-primary)]">phone_number_id|recipient_phone|access_token</code> — from your Meta WhatsApp Business (Cloud API) app.</p>
             )}
           </div>
 
@@ -279,14 +297,18 @@ export default function WebhookSettings() {
                 </button>
               </div>
             </div>
-            {webhook.alert_types?.length > 0 && (
+            {webhook.alert_types === null ? (
+              <div className="mt-2 text-xs text-[var(--brand-text-muted)]">All alerts</div>
+            ) : webhook.alert_types?.length > 0 ? (
               <div className="mt-2 flex flex-wrap gap-1">
                 {webhook.alert_types.map(type => (
                   <span key={type} className="px-2 py-0.5 bg-[var(--brand-input-bg)] rounded-md text-xs text-[var(--brand-text-secondary)]">
-                    {alertTypes.find(t => t.id === type)?.label || type}
+                    {labelFor(type)}
                   </span>
                 ))}
               </div>
+            ) : (
+              <div className="mt-2 text-xs text-[var(--brand-text-muted)]">No alerts selected</div>
             )}
           </div>
         ))}

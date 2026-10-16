@@ -108,9 +108,14 @@ def calculate_model_cost(
     config_row = db.query(SystemConfig).filter(SystemConfig.key == "pricing_config").first()
     config = config_row.value if config_row else DEFAULT_PRICING_CONFIG
 
-    # Calculate costs
-    filament_grams = model.total_filament_grams or 0
-    print_hours = model.build_time_hours if model.build_time_hours is not None else 1.0
+    # Calculate costs per sellable item. Filament and print time are recorded per
+    # bed, so material, electricity and machine depreciation divide by the bed's
+    # unit count; labour, packaging, overhead and other costs are per item.
+    units_per_bed = model.units_per_bed if model.units_per_bed and model.units_per_bed > 0 else 1
+    bed_filament_grams = model.total_filament_grams or 0
+    bed_print_hours = model.build_time_hours if model.build_time_hours is not None else 1.0
+    filament_grams = bed_filament_grams / units_per_bed
+    print_hours = bed_print_hours / units_per_bed
 
     # Try to get per-material cost from FilamentLibrary
     material_type = model.default_filament_type.value if model.default_filament_type else "PLA"
@@ -155,6 +160,7 @@ def calculate_model_cost(
     return {
         "model_id": model_id,
         "model_name": model.name,
+        "units_per_bed": units_per_bed,
         "filament_grams": filament_grams,
         "print_hours": print_hours,
         "material_type": material_type,

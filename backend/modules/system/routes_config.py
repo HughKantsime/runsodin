@@ -1,6 +1,7 @@
 """System config routes — IP allowlist, retention, quiet hours, MQTT republish, metrics, HMS lookup."""
 
 import json
+import time
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -8,6 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
+
+from core.system_config_values import config_text, write_config_text
 from starlette.responses import Response
 
 from core.db import get_db
@@ -233,7 +236,7 @@ async def get_quiet_hours_config(db: Session = Depends(get_db), current_user: di
         row = db.execute(text("SELECT value FROM system_config WHERE key = :k"), {"k": key}).fetchone()
         short_key = key.replace("quiet_hours_", "")
         if row:
-            val = row[0]
+            val = config_text(row[0])
             if short_key in ("enabled", "digest"):
                 config[short_key] = val.lower() in ("true", "1", "yes")
             else:
@@ -250,11 +253,7 @@ async def update_quiet_hours_config(request: Request, current_user: dict = Depen
     for short_key, value in body.items():
         db_key = f"quiet_hours_{short_key}"
         str_val = str(value).lower() if isinstance(value, bool) else str(value)
-        existing = db.execute(text("SELECT 1 FROM system_config WHERE key = :k"), {"k": db_key}).fetchone()
-        if existing:
-            db.execute(text("UPDATE system_config SET value = :v WHERE key = :k"), {"v": str_val, "k": db_key})
-        else:
-            db.execute(text("INSERT INTO system_config (key, value) VALUES (:k, :v)"), {"k": db_key, "v": str_val})
+        write_config_text(db, db_key, str_val)
     db.commit()
     try:
         from modules.notifications.quiet_hours import invalidate_cache
@@ -285,7 +284,7 @@ async def get_mqtt_republish_config(db: Session = Depends(get_db), current_user:
         row = db.execute(text("SELECT value FROM system_config WHERE key = :k"), {"k": key}).fetchone()
         short_key = key.replace("mqtt_republish_", "")
         if row:
-            val = row[0]
+            val = config_text(row[0])
             if short_key in ("enabled", "use_tls"):
                 config[short_key] = val.lower() in ("true", "1", "yes")
             elif short_key == "port":
@@ -318,11 +317,7 @@ async def update_mqtt_republish_config(request: Request, current_user: dict = De
             str_val = crypto.encrypt(str(value))
         else:
             str_val = str(value).lower() if isinstance(value, bool) else str(value)
-        existing = db.execute(text("SELECT 1 FROM system_config WHERE key = :k"), {"k": db_key}).fetchone()
-        if existing:
-            db.execute(text("UPDATE system_config SET value = :v WHERE key = :k"), {"v": str_val, "k": db_key})
-        else:
-            db.execute(text("INSERT INTO system_config (key, value) VALUES (:k, :v)"), {"k": db_key, "v": str_val})
+        write_config_text(db, db_key, str_val)
     db.commit()
     if mqtt_republish:
         mqtt_republish.invalidate_cache()
@@ -347,6 +342,18 @@ async def test_mqtt_republish(request: Request, current_user: dict = Depends(req
 
 
 # ============== Prometheus Metrics ==============
+
+_PROCESS_STARTED = time.monotonic()
+
+
+def _odin_version() -> str:
+    """Same source as the API's advertised version (core/app.py): the repo VERSION file."""
+    from pathlib import Path
+    try:
+        return (Path(__file__).resolve().parents[3] / "VERSION").read_text().strip() or "unknown"
+    except OSError:
+        return "unknown"
+
 
 @router.get("/metrics", tags=["Monitoring"])
 async def prometheus_metrics(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer", scope="read:analytics"))):
@@ -426,6 +433,15 @@ async def prometheus_metrics(db: Session = Depends(get_db), current_user: dict =
     lines.append("# HELP odin_printer_print_count_total Lifetime print count")
     lines.append("# TYPE odin_printer_print_count_total counter")
 
+    # Live progress lives on the printer's running print_jobs row (monitor-updated
+    # progress_percent); printers has no progress column.
+    running_progress = {}
+    for row in db.execute(text(
+        "SELECT printer_id, progress_percent FROM print_jobs WHERE status = 'running' "
+        "AND progress_percent IS NOT NULL ORDER BY started_at, id"
+    )).fetchall():
+        running_progress[row.printer_id] = row.progress_percent
+
     for p in printers_all:
         pm = dict(p._mapping)
         name = pm.get("nickname") or pm.get("name", f"printer_{pm['id']}")
@@ -433,7 +449,7 @@ async def prometheus_metrics(db: Session = Depends(get_db), current_user: dict =
         labels = f'printer="{label_value(name)}",printer_id="{pid}"'
         nozzle = pm.get("nozzle_temp")
         bed = pm.get("bed_temp")
-        progress = pm.get("print_progress")
+        progress = running_progress.get(pm["id"])
         total_hours = pm.get("total_print_hours", 0) or 0
         total_prints = pm.get("total_print_count", 0) or 0
         if nozzle is not None:
@@ -485,6 +501,18 @@ async def prometheus_metrics(db: Session = Depends(get_db), current_user: dict =
     lines.append("# HELP odin_alerts_unread Unread alerts")
     lines.append("# TYPE odin_alerts_unread gauge")
     lines.append(f"odin_alerts_unread {dict(unread._mapping)['cnt']}")
+
+    # System health: this scrape answered from a live database query, the
+    # running build, and process uptime.
+    lines.append("# HELP odin_database_up Database answered this scrape's queries (1 = up)")
+    lines.append("# TYPE odin_database_up gauge")
+    lines.append(f"odin_database_up {1 if db.execute(text('SELECT 1')).scalar() == 1 else 0}")
+    lines.append("# HELP odin_build_info Running O.D.I.N. build")
+    lines.append("# TYPE odin_build_info gauge")
+    lines.append(f'odin_build_info{{version="{label_value(_odin_version())}"}} 1')
+    lines.append("# HELP odin_process_uptime_seconds Seconds since this API process started")
+    lines.append("# TYPE odin_process_uptime_seconds gauge")
+    lines.append(f"odin_process_uptime_seconds {round(time.monotonic() - _PROCESS_STARTED, 3)}")
 
     return Response(content="\n".join(lines) + "\n", media_type="text/plain; version=0.0.4; charset=utf-8")
 

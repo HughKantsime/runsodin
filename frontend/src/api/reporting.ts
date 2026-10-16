@@ -6,6 +6,29 @@ export interface AnalyticsData {
   [key: string]: unknown;
 }
 
+/** GET /analytics summary; money fields are null when a counted job has no price/cost. */
+export interface AnalyticsSummary {
+  total_models: number;
+  total_jobs: number;
+  completed_jobs: number;
+  pending_jobs: number;
+  total_revenue: number | null;
+  total_cost: number | null;
+  total_margin: number | null;
+  margin_percent: number | null;
+  projected_revenue: number | null;
+  projected_cost: number | null;
+  total_print_hours: number;
+  avg_value_per_hour: number;
+  jobs_with_cost_data: number;
+  jobs_with_unknown_quantity: number;
+  jobs_unpriced?: number;
+  jobs_uncosted?: number;
+  pending_unpriced?: number;
+  pending_uncosted?: number;
+  pending_scope?: 'current_queue';
+}
+
 export interface TimeAccuracyData {
   [key: string]: unknown;
 }
@@ -69,7 +92,7 @@ export interface ReportScheduleUpdate {
 }
 
 export const analytics = {
-  get: (): Promise<AnalyticsData> => fetchAPI('/analytics'),
+  get: (days?: number): Promise<AnalyticsData> => fetchAPI('/analytics' + (days ? `?days=${days}` : '')),
   timeAccuracy: (days = 30): Promise<TimeAccuracyData> => fetchAPI(`/analytics/time-accuracy?days=${days}`),
   failures: (days = 30): Promise<FailureAnalyticsData> => fetchAPI(`/analytics/failures?days=${days}`),
 }

@@ -123,6 +123,29 @@ def dispatch_alert(
         except Exception:
             suppress = False
 
+        if suppress:
+            # Quiet hours: record what was suppressed so the digest of the scope
+            # that caused it delivers it once: external channels of recipients
+            # without an in-app row, and one webhook row per alert.
+            deferred = {}
+            for uid in _email_users:
+                if uid not in in_app_users:
+                    deferred.setdefault(uid, set()).add("email")
+            for uid in _push_users:
+                if uid not in in_app_users:
+                    deferred.setdefault(uid, set()).add("push")
+            try:
+                from modules.notifications.deferred_deliveries import record_suppressed, webhook_destination_exists
+                from modules.notifications.quiet_hours import governing_scope
+                with engine.begin() as conn:
+                    record_suppressed(conn, org_id=resource_org_id, scope=governing_scope(resource_org_id, conn),
+                                      recipients=deferred,
+                                      webhook=webhook_destination_exists(conn, resource_org_id, alert_type),
+                                      alert_type=alert_type, severity=severity, title=title, message=message,
+                                      printer_id=printer_id, job_id=job_id, spool_id=spool_id)
+            except Exception as e:
+                log.error(f"Failed to defer quiet-hours deliveries: {type(e).__name__}")
+
         if not suppress:
             # Webhooks (system-wide, not per-user)
             try:

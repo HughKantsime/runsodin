@@ -9,7 +9,7 @@ vi.mock('recharts', () => ({
   BarChart: ({children}: any) => <div>{children}</div>,
   Bar: () => null, XAxis: () => null, YAxis: () => null, CartesianGrid: () => null, Tooltip: () => null,
 }))
-const jobs = [{energy_kwh: 2, completed_at:'2026-10-11T12:00:00Z'}]
+const jobs = [{energy_kwh: 2, ended_at:'2026-10-11 12:00:00'}]
 beforeEach(() => {
   vi.mocked(getEnergyRate).mockReset().mockResolvedValue({energy_cost_per_kwh:0.12})
   vi.mocked(setEnergyRate).mockReset().mockResolvedValue({energy_cost_per_kwh:0})

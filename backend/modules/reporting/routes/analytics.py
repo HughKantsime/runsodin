@@ -19,6 +19,7 @@ from modules.printers.models import Printer
 from modules.models_library.models import Model
 from modules.jobs.models import Job
 from modules.reporting.education_usage import build_education_usage_report
+from modules.reporting.analytics_window import _ended_in_range, _job_in_window, _job_price, _job_revenue, _span_hours  # noqa: F401
 from license_manager import require_feature
 
 log = logging.getLogger("odin.api")
@@ -27,15 +28,6 @@ router = APIRouter(tags=["Analytics"])
 
 
 # ============== Stats ==============
-
-def _ended_in_range(ended_at, range_start):
-    from core.db_compat import as_utc_datetime
-    try:
-        ended = as_utc_datetime(ended_at)
-    except (TypeError, ValueError, OverflowError):
-        return False
-    return ended is not None and ended.replace(tzinfo=None) >= range_start
-
 
 @router.get("/stats")
 async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer", scope="read:analytics")), days: int = Query(default=30, ge=1, le=365)):
@@ -113,37 +105,55 @@ async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(
     # window when it ended inside it (or, with no recorded end, was created in it).
     range_start = (datetime.now(timezone.utc) - timedelta(days=days)).replace(tzinfo=None)
     in_range = or_(Job.actual_end >= range_start, and_(Job.actual_end.is_(None), Job.created_at >= range_start))
+    window_hours = days * 24
     for p in all_printers:
         # Count completed and failed jobs for this printer
-        completed_jobs = job_query.filter(
+        completed_rows = job_query.filter(
             Job.printer_id == p.id,
             Job.status == JobStatus.COMPLETED,
             in_range,
-        ).count()
-        # Also count MQTT-tracked jobs. ended_at is stored in mixed text formats
-        # by different monitors, so compare parsed UTC values, not strings.
-        mqtt_terminal = db.execute(
-            text("SELECT status, ended_at FROM print_jobs WHERE printer_id = :pid AND status IN ('completed', 'failed')"),
-            {"pid": p.id}
-        ).fetchall()
-        mqtt_in_range = [row.status for row in mqtt_terminal if _ended_in_range(row.ended_at, range_start)]
-        completed_jobs += mqtt_in_range.count('completed')
-
-        failed_jobs = job_query.filter(
+        ).all()
+        failed_rows = job_query.filter(
             Job.printer_id == p.id,
             Job.status == JobStatus.FAILED,
             in_range,
-        ).count()
-        mqtt_failed = mqtt_in_range.count('failed')
-        failed_jobs += mqtt_failed
+        ).all()
+        completed_jobs = len(completed_rows)
+        failed_jobs = len(failed_rows)
+        # Also count MQTT-tracked jobs. ended_at is stored in mixed text formats
+        # by different monitors, so compare parsed UTC values, not strings.
+        mqtt_terminal = db.execute(
+            text("SELECT status, started_at, ended_at, scheduled_job_id FROM print_jobs "
+                 "WHERE printer_id = :pid AND status IN ('completed', 'failed')"),
+            {"pid": p.id}
+        ).fetchall()
+        # A printer-observed run linked to a scheduled job is that job's attempt and
+        # is already counted through the job row: count only unlinked runs.
+        mqtt_rows = [row for row in mqtt_terminal
+                     if row.scheduled_job_id is None and _ended_in_range(row.ended_at, range_start)]
+        completed_jobs += sum(row.status == 'completed' for row in mqtt_rows)
+        failed_jobs += sum(row.status == 'failed' for row in mqtt_rows)
 
-        total_hours = round(p.total_print_hours or 0, 1)
+        # Print hours in the window: measured start→end when recorded, else the
+        # job's duration for completed jobs. Printer-observed runs linked to a
+        # scheduled job are already represented by that job's row.
+        window_print_hours = 0.0
+        for job in completed_rows + failed_rows:
+            measured = _span_hours(job.actual_start, job.actual_end)
+            if measured is not None:
+                window_print_hours += measured
+            elif job.status == JobStatus.COMPLETED and job.duration_hours:
+                window_print_hours += job.duration_hours
+        for row in mqtt_rows:
+            window_print_hours += _span_hours(row.started_at, row.ended_at) or 0
+
+        total_hours = round(window_print_hours, 1)
         total_jobs = completed_jobs + failed_jobs
         success_rate = round((completed_jobs / total_jobs * 100), 1) if total_jobs > 0 else 100.0
         avg_job_hours = round(total_hours / completed_jobs, 1) if completed_jobs > 0 else 0
 
-        # Utilization: hours printed / hours available (assume 24h/day over last 30 days = 720h)
-        utilization_pct = round(min(total_hours / 720 * 100, 100), 1) if total_hours > 0 else 0
+        # Utilization: hours printed in the window / hours in the window.
+        utilization_pct = round(min(window_print_hours / window_hours * 100, 100), 1) if window_print_hours > 0 else 0
 
         printer_stats.append({
             "id": p.id,
@@ -176,11 +186,22 @@ async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(
 # ============== Analytics ==============
 
 @router.get("/analytics")
-def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer", scope="read:analytics"))):
-    """Get analytics data for dashboard."""
-    from sqlalchemy import func
+def get_analytics(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_role("viewer", scope="read:analytics")),
+    days: Optional[int] = Query(default=None, ge=1, le=365),
+):
+    """Get analytics data for dashboard.
 
+    ``days`` restricts revenue, cost, margin, completed/failed counts, print hours,
+    per-printer stats and the daily series to jobs that ended (or, with no recorded
+    end, were created) in the last ``days`` days. Without it, totals are lifetime
+    and the daily series covers 30 days. Pending/scheduled pipeline values are the
+    current queue and are never windowed.
+    """
     org = get_org_scope(current_user)
+    now = datetime.now(timezone.utc)
+    range_start = (now - timedelta(days=days)).replace(tzinfo=None) if days else None
 
     # Get all models with profitability data
     model_query = db.query(Model)
@@ -222,9 +243,13 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
     job_query = db.query(Job)
     if should_filter_org(current_user, org):
         job_query = job_query.filter((Job.charged_to_org_id == org) | (Job.charged_to_org_id == None))
-    all_jobs = job_query.all()
+    tenant_jobs = job_query.all()
+    pending_jobs = [j for j in tenant_jobs if j.status in (JobStatus.PENDING, JobStatus.SCHEDULED)]
+    if range_start is not None:
+        all_jobs = [j for j in tenant_jobs if _job_in_window(j, range_start)]
+    else:
+        all_jobs = tenant_jobs
     completed_jobs = [j for j in all_jobs if j.status == JobStatus.COMPLETED]
-    pending_jobs = [j for j in all_jobs if j.status in (JobStatus.PENDING, JobStatus.SCHEDULED)]
     # Count completed job rows, independently of price/hour rankings. Both
     # the jobs and model names have already passed their tenant predicates.
     completed_counts = {}
@@ -242,6 +267,7 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
     total_cost = 0
     total_print_hours = 0
     jobs_with_cost_data = 0
+    jobs_unpriced = jobs_uncosted = 0
     jobs_with_unknown_quantity = sum(
         job.quantity is None or job.quantity <= 0
         for job in completed_jobs + pending_jobs
@@ -253,41 +279,56 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
             if job.duration_hours:
                 total_print_hours += job.duration_hours
             continue
-        # Use job's stored cost data if available
+        # Use job's stored cost data if available (model catalog fallback for older jobs).
+        # An unpriced / uncosted job makes the total unknown (None), never a fabricated 0.
         if job.suggested_price is not None:
-            total_revenue += job.suggested_price * job.quantity
             jobs_with_cost_data += 1
-        elif job.model_id:
-            # Fallback to model data for older jobs
-            model = db.query(Model).filter(Model.id == job.model_id).first()
-            if model and model.cost_per_item:
-                total_revenue += model.cost_per_item * (model.markup_percent if model.markup_percent is not None else 300) / 100 * job.quantity
+        revenue = _job_revenue(db, job)
+        if revenue is None:
+            jobs_unpriced += 1
+        else:
+            total_revenue += revenue
 
         if job.estimated_cost is not None:
             total_cost += job.estimated_cost * job.quantity
+        else:
+            jobs_uncosted += 1
 
         if job.duration_hours:
             total_print_hours += job.duration_hours
 
+    if jobs_unpriced:
+        total_revenue = None
+    if jobs_uncosted:
+        total_cost = None
     # Calculate margin
-    total_margin = total_revenue - total_cost
-    margin_percent = (total_margin / total_revenue * 100) if total_revenue > 0 else 0
+    if total_revenue is None or total_cost is None:
+        total_margin = margin_percent = None
+    else:
+        total_margin = total_revenue - total_cost
+        margin_percent = (total_margin / total_revenue * 100) if total_revenue > 0 else 0
 
-    # Projected revenue from pending jobs
+    # Projected revenue from pending jobs (the current queue; never windowed)
     projected_revenue = 0
     projected_cost = 0
+    pending_unpriced = pending_uncosted = 0
     for job in pending_jobs:
         if job.quantity is None or job.quantity <= 0:
             continue
-        if job.suggested_price is not None:
-            projected_revenue += job.suggested_price * job.quantity
-        elif job.model_id:
-            model = db.query(Model).filter(Model.id == job.model_id).first()
-            if model and model.cost_per_item:
-                projected_revenue += model.cost_per_item * (model.markup_percent if model.markup_percent is not None else 300) / 100 * job.quantity
+        revenue = _job_revenue(db, job)
+        if revenue is None:
+            pending_unpriced += 1
+        else:
+            projected_revenue += revenue
 
         if job.estimated_cost is not None:
             projected_cost += job.estimated_cost * job.quantity
+        else:
+            pending_uncosted += 1
+    if pending_unpriced:
+        projected_revenue = None
+    if pending_uncosted:
+        projected_cost = None
 
     # Printer utilization
     printer_q = db.query(Printer).filter(Printer.is_active.is_(True))
@@ -295,8 +336,8 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
         printer_q = printer_q.filter((Printer.org_id == org) | (Printer.org_id == None) | (Printer.shared == True))
     printers = printer_q.all()
     printer_stats = []
-    # Calculate time window for utilization (since first completed job or 30 days)
-    now = datetime.now(timezone.utc)
+    # Calculate time window for utilization (since first completed job, capped at the window)
+    max_available_hours = (days or 30) * 24
     for printer in printers:
         printer_jobs = [j for j in completed_jobs if j.printer_id == printer.id]
         hours = sum(j.duration_hours or 0 for j in printer_jobs)
@@ -305,7 +346,7 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
             earliest = min(j.created_at for j in printer_jobs if j.created_at)
             if earliest.tzinfo is None:
                 earliest = earliest.replace(tzinfo=timezone.utc)
-            available_hours = min((now - earliest).total_seconds() / 3600, 30 * 24)
+            available_hours = min((now - earliest).total_seconds() / 3600, max_available_hours)
             utilization_pct = round((hours / available_hours * 100), 1) if available_hours > 0 else 0
         else:
             available_hours = 0
@@ -329,24 +370,47 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
             "has_plug": bool(getattr(printer, 'plug_type', None)),
         })
 
-    # Jobs over time (last 30 days)
-    thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
-    recent_jobs_q = db.query(Job).filter(Job.created_at >= thirty_days_ago)
+    # Daily series over the window (default 30 days). Activity counts group by
+    # creation day; revenue and cost of completed jobs group by completion day,
+    # valued exactly like the summary totals (unknown quantities are not valued).
+    series_days = days or 30
+    series_start = (now - timedelta(days=series_days)).replace(tzinfo=None)
+    recent_jobs_q = db.query(Job).filter(Job.created_at >= series_start)
     if should_filter_org(current_user, org):
         recent_jobs_q = recent_jobs_q.filter((Job.charged_to_org_id == org) | (Job.charged_to_org_id == None))
     recent_jobs = recent_jobs_q.all()
 
-    # Group by date
+    def _day(date_str):
+        return jobs_by_date.setdefault(date_str, {"created": 0, "completed": 0, "revenue": 0.0, "cost": 0.0})
+
     jobs_by_date = {}
     for job in recent_jobs:
         if not job.created_at:
             continue
-        date_str = job.created_at.strftime("%Y-%m-%d")
-        if date_str not in jobs_by_date:
-            jobs_by_date[date_str] = {"created": 0, "completed": 0}
-        jobs_by_date[date_str]["created"] += 1
+        row = _day(job.created_at.strftime("%Y-%m-%d"))
+        row["created"] += 1
         if job.status == JobStatus.COMPLETED:
-            jobs_by_date[date_str]["completed"] += 1
+            row["completed"] += 1
+    # A day whose completed jobs include one with no known price (or cost, or
+    # quantity) reports that series as None — unknown, never a fabricated 0.
+    for job in tenant_jobs:
+        if job.status != JobStatus.COMPLETED or not _job_in_window(job, series_start):
+            continue
+        ended = as_utc_datetime(job.actual_end if job.actual_end is not None else job.created_at)
+        row = _day(ended.strftime("%Y-%m-%d"))
+        if job.quantity is None or job.quantity <= 0:
+            continue  # unknown quantity: not valued (counted in summary.jobs_with_unknown_quantity)
+        known_quantity = True
+        revenue = _job_revenue(db, job)
+        if row["revenue"] is not None:
+            row["revenue"] = None if revenue is None else row["revenue"] + revenue
+        if row["cost"] is not None:
+            row["cost"] = (row["cost"] + job.estimated_cost * job.quantity
+                           if known_quantity and job.estimated_cost is not None else None)
+    for row in jobs_by_date.values():
+        for key in ("revenue", "cost"):
+            if row[key] is not None:
+                row[key] = round(row[key], 2)
 
     # Average $/hour across all models
     valid_models = [m for m in models if m.cost_per_item and m.build_time_hours]
@@ -367,12 +431,18 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
             "total_jobs": len(all_jobs),
             "completed_jobs": len(completed_jobs),
             "pending_jobs": len(pending_jobs),
-            "total_revenue": round(total_revenue, 2),
-            "total_cost": round(total_cost, 2),
-            "total_margin": round(total_margin, 2),
-            "margin_percent": round(margin_percent, 1),
-            "projected_revenue": round(projected_revenue, 2),
-            "projected_cost": round(projected_cost, 2),
+            "total_revenue": None if total_revenue is None else round(total_revenue, 2),
+            "total_cost": None if total_cost is None else round(total_cost, 2),
+            "total_margin": None if total_margin is None else round(total_margin, 2),
+            "margin_percent": None if margin_percent is None else round(margin_percent, 1),
+            "projected_revenue": None if projected_revenue is None else round(projected_revenue, 2),
+            "projected_cost": None if projected_cost is None else round(projected_cost, 2),
+            "jobs_unpriced": jobs_unpriced,
+            "jobs_uncosted": jobs_uncosted,
+            "pending_unpriced": pending_unpriced,
+            "pending_uncosted": pending_uncosted,
+            # pending_jobs / projected_* describe the current queue, not the selected window.
+            "pending_scope": "current_queue",
             "total_print_hours": round(total_print_hours, 1),
             "avg_value_per_hour": round(avg_value_per_hour, 2),
             "jobs_with_cost_data": jobs_with_cost_data,

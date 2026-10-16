@@ -181,14 +181,18 @@ def _deliver_browser_push(db, user_id, title, message, severity):
         return
 
     import os
-    vapid_private_key = os.environ.get("VAPID_PRIVATE_KEY")
+    # Sign with the effective pair whose public half /push/vapid-key serves:
+    # the VAPID_PRIVATE_KEY environment override when set, else the stored pair.
+    from modules.notifications.vapid import read_vapid_keys
+    effective = read_vapid_keys(db)
+    vapid_private_key = effective["private_key"] if effective else None
     vapid_email = os.environ.get("VAPID_EMAIL", "mailto:admin@example.com")
 
     # Avoid serializing a cold burst of job notifications behind pywebpush's
     # import lock when push is intentionally unconfigured (the common local
     # and self-hosted EDU case). Configuration is authoritative here.
     if not vapid_private_key:
-        logger.debug("VAPID_PRIVATE_KEY not set — skipping browser push")
+        logger.debug("No VAPID key pair stored or configured — skipping browser push")
         return
 
     try:
@@ -412,7 +416,27 @@ def stage_alert(
             push_users.append(pref.user_id)
         if pref.email:
             email_users.append(pref.user_id)
-    return StagedAlert(alerts_created, seeded_preferences or alerts_created > 0 or
+    deferred_recorded = 0
+    if _suppress_external and not (bool(preferences) and deduplicated == len(preferences)):
+        # Quiet hours: record what was suppressed so the digest of the scope that
+        # caused it delivers it once (same transaction): external channels of
+        # recipients without an in-app row, and one webhook row per alert.
+        deferred = {}
+        for uid in email_users:
+            if uid not in in_app_users:
+                deferred.setdefault(uid, set()).add("email")
+        for uid in push_users:
+            if uid not in in_app_users:
+                deferred.setdefault(uid, set()).add("push")
+        from modules.notifications.deferred_deliveries import record_suppressed, webhook_destination_exists
+        from modules.notifications.quiet_hours import governing_scope
+        atype = alert_type.value if hasattr(alert_type, "value") else alert_type
+        deferred_recorded = record_suppressed(
+            db, org_id=_printer_org_id, scope=governing_scope(_printer_org_id, db), recipients=deferred,
+            webhook=webhook_destination_exists(db, _printer_org_id, atype),
+            alert_type=atype, severity=severity.value if hasattr(severity, "value") else severity,
+            title=title, message=message, printer_id=printer_id, job_id=job_id, spool_id=spool_id)
+    return StagedAlert(alerts_created, seeded_preferences or alerts_created > 0 or deferred_recorded > 0 or
                        (job_id is not None and alert_type in (AlertType.QUEUE_SKIPPED, AlertType.QUEUE_FAILED_START)), alert_type, severity, title, message,
                        printer_id, job_id, spool_id, _printer_org_id,
                        _suppress_external or (bool(preferences) and deduplicated == len(preferences)), tuple(push_users), tuple(email_users), tuple(in_app_users))
@@ -559,9 +583,11 @@ def _send_org_webhook(url: str, wtype: str, alert_type_value: str,
                     "message": message or "", "severity": severity
                 }, timeout=10)
         except WebhookSSRFError as e:
-            logger.warning(f"Org webhook SSRF-blocked ({wtype}): {e}")
+            from core.redaction import redact_urls
+            logger.warning(f"Org webhook SSRF-blocked ({wtype}): {redact_urls(e)}")
         except Exception as e:
-            logger.error(f"Org webhook dispatch failed ({wtype}): {e}")
+            from core.redaction import redact_urls
+            logger.error(f"Org webhook dispatch failed ({wtype}): {redact_urls(e)}")
 
     thread = threading.Thread(target=_send, daemon=True)
     thread.start()

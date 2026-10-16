@@ -21,7 +21,7 @@ class CreatedSource:
 
 
 _UNKNOWN=object()
-_SPOOL_FIELDS=frozenset(('filament_id','qr_code','rfid_tag','color_hex','initial_weight_g','remaining_weight_g','spool_weight_g','price','purchase_date','vendor','lot_number','storage_location','notes','pa_profile','low_stock_threshold_g','status','org_id','location_printer_id','location_slot'))
+_SPOOL_FIELDS=frozenset(('filament_id','qr_code','rfid_tag','color_hex','initial_weight_g','remaining_weight_g','spool_weight_g','price','purchase_date','vendor','lot_number','storage_location','notes','pa_profile','low_stock_threshold_g','status','org_id','location_printer_id','location_slot','spoolman_spool_id'))
 _ATTEMPT_FIELDS=frozenset(('printer_id','job_id','filename','job_name','started_at','status','total_layers','bed_temp_target','nozzle_temp_target','observed_received_at','scheduled_job_id'))
 
 

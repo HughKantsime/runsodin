@@ -5,7 +5,7 @@ modules/notifications/schemas.py — Pydantic schemas for the notifications doma
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from enum import Enum
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from core.base import AlertType, AlertSeverity
 
@@ -91,9 +91,21 @@ class AlertPreferencesUpdate(BaseModel):
 # ============== Push Subscription Schemas ==============
 
 class PushSubscriptionCreate(BaseModel):
+    """Accepts the flat ODIN shape and the browser's PushSubscription.toJSON()
+    shape ({endpoint, expirationTime, keys: {p256dh, auth}})."""
     endpoint: str
     p256dh_key: str
     auth_key: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_browser_shape(cls, data):
+        if isinstance(data, dict) and isinstance(data.get("keys"), dict):
+            keys = data["keys"]
+            data = {k: v for k, v in data.items() if k not in ("keys", "expirationTime")}
+            data.setdefault("p256dh_key", keys.get("p256dh"))
+            data.setdefault("auth_key", keys.get("auth"))
+        return data
 
 
 # ============== SMTP Config Schemas ==============

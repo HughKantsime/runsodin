@@ -49,7 +49,8 @@ def _get_config() -> Optional[Dict[str, Any]]:
     try:
         with engine.connect() as conn:
             result = conn.execute(text("SELECT key, value FROM system_config WHERE key LIKE 'mqtt_republish_%'"))
-            rows = {r._mapping["key"]: r._mapping["value"] for r in result.fetchall()}
+            from core.system_config_values import config_text
+            rows = {r._mapping["key"]: config_text(r._mapping["value"]) for r in result.fetchall()}
 
         if rows.get("mqtt_republish_enabled", "").lower() not in ("true", "1", "yes"):
             _config_cache = None
@@ -100,7 +101,9 @@ def get_power_connection_snapshot(*, connection=None):
     import re
     try:
         with (nullcontext(connection) if connection is not None else engine.connect()) as conn:
-            rows = {row[0]: row[1] for row in conn.execute(text(
+            from core.system_config_values import config_text
+            # JSON column: raw SQLite text, quoted JSON strings, or PostgreSQL-decoded scalars.
+            rows = {row[0]: config_text(row[1]) for row in conn.execute(text(
                 "SELECT key,value FROM system_config WHERE key LIKE 'mqtt_republish_%'"))}
         def boolean(value):
             if not isinstance(value, str):
@@ -400,11 +403,23 @@ def _on_printer_state_changed(event) -> None:
         republish_telemetry(printer_id, printer_name, telemetry)
 
 
+def _printer_topic_name(printer_id):
+    """printers.name — the same name the monitors publish status under."""
+    if printer_id is None:
+        return None
+    try:
+        with engine.connect() as conn:
+            return conn.execute(text("SELECT name FROM printers WHERE id = :id"), {"id": printer_id}).scalar()
+    except Exception:
+        log.debug("Printer name lookup for MQTT job topic failed")
+        return None
+
+
 def _on_job_event(event) -> None:
-    """Republish job lifecycle events."""
+    """Republish job lifecycle events under the printer's status topic name."""
     data = event.data
     printer_id = data.get("printer_id")
-    printer_name = data.get("printer_name", f"printer_{printer_id}")
+    printer_name = data.get("printer_name") or _printer_topic_name(printer_id) or f"printer_{printer_id}"
     job_event_name = event.event_type.split(".")[-1]  # "started", "completed", "failed"
     republish_job(printer_id, printer_name, job_event_name, data)
 

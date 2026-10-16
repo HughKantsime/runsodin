@@ -28,6 +28,9 @@ _config_ts: float = 0
 CONFIG_TTL = 30  # seconds
 
 
+from core.system_config_values import config_text  # noqa: E402 -- re-exported for callers
+
+
 def _get_config() -> Dict[str, Any]:
     """Load quiet hours config from DB, cached."""
     global _config_cache, _config_ts
@@ -39,7 +42,7 @@ def _get_config() -> Dict[str, Any]:
     try:
         with engine.connect() as conn:
             result = conn.execute(text("SELECT key, value FROM system_config WHERE key LIKE 'quiet_hours_%'"))
-            rows = {r._mapping["key"]: r._mapping["value"] for r in result.fetchall()}
+            rows = {r._mapping["key"]: config_text(r._mapping["value"]) for r in result.fetchall()}
 
         _config_cache = {
             "enabled": rows.get("quiet_hours_enabled", "false").lower() in ("true", "1"),
@@ -83,6 +86,44 @@ def _is_quiet_time_for_config(config: Dict, now: datetime = None) -> bool:
         return start<=minute<end if start<end else minute>=start or minute<end
     except (ValueError,TypeError,AttributeError):
         return False
+
+
+def _org_quiet_hours_enabled(conn, org_id) -> bool:
+    row = conn.execute(text("SELECT settings_json FROM groups WHERE id = :oid"), {"oid": org_id}).mappings().fetchone()
+    if not row or not row["settings_json"]:
+        return False
+    raw = row["settings_json"]
+    try:
+        settings = json.loads(raw) if isinstance(raw, str) else raw
+    except ValueError:
+        return False
+    return bool(isinstance(settings, dict) and settings.get("quiet_hours_enabled"))
+
+
+def governing_scope(org_id=None, conn=None) -> str:
+    """Digest scope whose quiet hours govern a resource owned by ``org_id``:
+    'org:<id>' when that org has its own quiet hours enabled, else 'system'
+    (the same precedence should_suppress_notification applies)."""
+    if not org_id:
+        return "system"
+    try:
+        if conn is not None:
+            return f"org:{int(org_id)}" if _org_quiet_hours_enabled(conn, org_id) else "system"
+        with engine.connect() as own:
+            return f"org:{int(org_id)}" if _org_quiet_hours_enabled(own, org_id) else "system"
+    except Exception as e:
+        log.debug(f"Error resolving quiet-hours scope: {e}")
+        return "system"
+
+
+def governed_by(owner, digest_org_id, conn=None) -> bool:
+    """Whether an alert owned by ``owner`` belongs to the digest of ``digest_org_id``
+    (None = system digest). Org digests exist only for orgs with their own quiet
+    hours, so they take their own alerts; the system digest takes unscoped alerts
+    and alerts of orgs without their own quiet hours."""
+    if digest_org_id is not None:
+        return owner == digest_org_id
+    return owner is None or governing_scope(owner, conn) == "system"
 
 
 def should_suppress_notification(org_id: int = None) -> bool:
@@ -315,7 +356,10 @@ def get_suppressed_alerts_for_window(
                         job_id=row['job_id'], spool_id=row['spool_id'])
                 except ValueError:
                     continue
-                if owner == org_id and row['user_id'] in eligible:
+                # The alert belongs to this digest when this scope's quiet hours
+                # governed it: its own org's, or the system's for unscoped alerts
+                # and for orgs without their own quiet hours.
+                if row['user_id'] in eligible and governed_by(owner, org_id, conn):
                     result.append(dict(row))
             return result
     except Exception:
@@ -332,6 +376,17 @@ def group_suppressed_by_user(alerts: list) -> Dict[int, list]:
             continue
         out.setdefault(int(uid), []).append(a)
     return out
+
+
+def _decrypt_org_webhook_url(value):
+    """Decrypt a Fernet-encrypted org webhook URL; plaintext (legacy) passes through."""
+    if not value:
+        return value
+    try:
+        import core.crypto as crypto
+        return crypto.decrypt(value)
+    except Exception:
+        return value
 
 
 def iter_orgs_with_digest_enabled() -> list:
@@ -367,7 +422,9 @@ def iter_orgs_with_digest_enabled() -> list:
                 "start": s.get("quiet_hours_start", "22:00"),
                 "end": s.get("quiet_hours_end", "07:00"),
                 "digest_enabled": s.get("quiet_hours_digest_enabled", True),
-                "webhook_url": s.get("webhook_url"),
+                # PUT /orgs/{id}/settings stores the URL Fernet-encrypted;
+                # legacy rows may hold plaintext.
+                "webhook_url": _decrypt_org_webhook_url(s.get("webhook_url")),
                 "webhook_type": s.get("webhook_type", "generic"),
             }
             out.append({

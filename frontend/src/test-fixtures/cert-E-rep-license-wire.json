@@ -1,0 +1,52 @@
+{
+  "scope": "Real Ed25519-signed ephemeral licenses (features=[] -> tier defaults) via public /license; digest omitted",
+  "bodies": {
+    "community": {
+      "valid": true,
+      "tier": "community",
+      "tier_name": "Community",
+      "issued_at": "",
+      "expires_at": "2099-01-01",
+      "expired": false,
+      "max_printers": 5,
+      "max_users": 1,
+      "features": [],
+      "managed_externally": false,
+      "binding_present": false,
+      "binding_matches_current": false
+    },
+    "pro": {
+      "valid": true,
+      "tier": "pro",
+      "tier_name": "Pro",
+      "issued_at": "",
+      "expires_at": "2099-01-01",
+      "expired": false,
+      "max_printers": null,
+      "max_users": null,
+      "features": [
+        "analytics",
+        "bom",
+        "branding",
+        "care_counters",
+        "cost_calculator",
+        "csv_export",
+        "email_notifications",
+        "maintenance",
+        "multi_user",
+        "orders",
+        "permissions",
+        "products",
+        "push_notifications",
+        "rbac",
+        "sso",
+        "usage_reports",
+        "webhooks",
+        "white_label"
+      ],
+      "managed_externally": false,
+      "binding_present": false,
+      "binding_matches_current": false
+    }
+  }
+}

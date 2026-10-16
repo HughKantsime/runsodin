@@ -18,7 +18,8 @@ def test_alert_summary_counts_only_current_principal_active_categories(token_cli
 
     unread = client.get('/alerts/unread-count', headers={'Authorization':'Bearer '+create_access_token(data={'sub':'admin'})})
     assert unread.status_code == 200
-    assert unread.json() == {'unread_count':4}
+    # Consistent with the summary and the default alert list: the dismissed (unread) row is not counted.
+    assert unread.json() == {'unread_count':3}
 
 
 def test_analytics_producer_retains_zero_success_rate(token_client, review_db):
@@ -34,7 +35,7 @@ def test_analytics_producer_retains_zero_success_rate(token_client, review_db):
     assert row['success_rate']==0 and row['failed_jobs']==1
 
 
-def test_analytics_daily_activity_does_not_supply_monetary_fields(token_client, review_db):
+def test_analytics_daily_money_is_unknown_not_zero_for_unpriced_jobs(token_client, review_db):
     from core.auth import create_access_token
     from modules.reporting.routes import analytics
     client, _ = token_client
@@ -45,4 +46,7 @@ def test_analytics_daily_activity_does_not_supply_monetary_fields(token_client, 
     assert response.status_code == 200
     daily = response.json()['jobs_by_date']
     assert daily
-    assert all(set(row)=={'created','completed'} for row in daily.values())
+    assert all(set(row)=={'created','completed','revenue','cost'} for row in daily.values())
+    # The completed job has no price, model or cost: its day's money is unknown, never a fabricated 0.
+    priced_days = [row for row in daily.values() if row['completed']]
+    assert priced_days and all(row['revenue'] is None and row['cost'] is None for row in priced_days)

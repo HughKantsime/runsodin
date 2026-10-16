@@ -196,7 +196,10 @@ class TestDigestDriver:
         poll re-sent the same digest webhook for the duration of the
         next quiet period."""
         src = REPORT_RUNNER.read_text()
+        # The driver delegates webhook routing to _deliver_webhook_digests.
         fn = _get_function_source(src, "process_quiet_hours_digest")
+        assert "_deliver_webhook_digests(" in fn
+        fn = _get_function_source(src, "_deliver_webhook_digests")
         assert "_claim_org_webhook_send" in fn, (
             "Org webhook digest must go through _claim_org_webhook_send() "
             "for idempotency. Without it, every 60s poll re-fires the "
@@ -230,7 +233,12 @@ class TestDigestDriver:
         # Look in the helper we delegate to
         helper = _get_function_source(src, "_deliver_digest_webhook")
         assert helper, "_deliver_digest_webhook helper missing"
-        assert "safe_post(" in helper, (
+        # The digest delegates to the typed delivery helper, which posts every
+        # user-supplied URL type (generic/discord/slack/ntfy) through safe_post().
+        assert "post_typed_webhook(" in helper
+        payloads = (REPORT_RUNNER.parents[1] / "notifications" / "webhook_payloads.py").read_text()
+        typed = _get_function_source(payloads, "post_typed_webhook")
+        assert typed.count("safe_post(") >= 4, (
             "Org digest webhook must dispatch via safe_post() for SSRF "
             "defense — the org webhook URL is user-configured."
         )

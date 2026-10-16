@@ -38,7 +38,8 @@ def test_chargeback_report_current_stored_values(review_db):
     # Isolate the known-value sample from the shared Education fixture's submitted job.
     review_db.execute(text('UPDATE jobs SET charged_to_user_id=NULL'))
     review_db.execute(text("INSERT INTO jobs(item_name,status,quantity,estimated_cost,duration_hours,charged_to_user_id,created_at) VALUES('Synthetic charged','completed',1,5,2,1,CURRENT_TIMESTAMP),('Synthetic charged','completed',1,7,3,1,CURRENT_TIMESTAMP)"));review_db.commit()
-    assert 'student 2 $12.0 5.0h' in plain(generate_chargeback_summary(review_db,{}))
+    # No charged org / configured currency: the amount carries no presumed '$' (F10-10.9-02).
+    assert 'student 2 12.00 5.0h' in plain(generate_chargeback_summary(review_db,{}))
 
 
 

@@ -19,6 +19,10 @@ import core.crypto as crypto
 from core.db_utils import live_get_db as get_db
 from modules.notifications.event_selection import selects_event
 from core.webhook_utils import safe_post, trusted_post, WebhookSSRFError
+from modules.notifications.webhook_payloads import post_typed_webhook  # noqa: F401 -- sanctioned delivery surface
+from modules.notifications.deferred_deliveries import (  # noqa: F401 -- digest delivery surface
+    available as deferred_available, mark as mark_deferred, pending_for_window, purge as purge_deferred)
+from modules.notifications.quiet_hours import governed_by, governing_scope  # noqa: F401 -- digest scope surface
 
 log = logging.getLogger("printer_events")
 
@@ -38,14 +42,16 @@ def send_push_notification(user_id: int, alert_type: str, title: str, message: s
             if not subscriptions:
                 return False
 
-            # Get VAPID keys
-            cur.execute("SELECT value FROM system_config WHERE key = 'vapid_keys'")
-            vapid_row = cur.fetchone()
-            if not vapid_row:
+            # Effective VAPID pair: env override, else the stored (encrypted) pair.
+            from modules.notifications.vapid import env_override, keys_from_stored_value
+            vapid_keys = env_override()
+            if vapid_keys is None:
+                cur.execute("SELECT value FROM system_config WHERE key = 'vapid_keys'")
+                vapid_row = cur.fetchone()
+                vapid_keys = keys_from_stored_value(vapid_row[0]) if vapid_row else None
+            if not vapid_keys:
                 log.warning("VAPID keys not configured, skipping push")
                 return False
-
-            vapid_keys = json.loads(vapid_row[0])
 
             # Build notification payload
             payload = json.dumps({
@@ -250,7 +256,8 @@ def send_webhook(alert_type: str, title: str, message: str, severity: str = "inf
                 log.debug(f"Webhook sent to {wtype}")
 
             except Exception as e:
-                log.error(f"Webhook dispatch failed ({wtype}): {e}")
+                from core.redaction import redact_urls
+                log.error(f"Webhook dispatch failed ({wtype}): {redact_urls(e)}")
 
         threading.Thread(target=_send, daemon=True).start()
 
@@ -270,8 +277,9 @@ def send_email(user_id: int, alert_type: str, title: str, message: str,
                 log.debug("SMTP not configured, skipping email")
                 return
 
-            smtp_config = json.loads(smtp_row[0])
-            if not smtp_config.get("enabled"):
+            from modules.notifications.vapid import decode_config_value
+            smtp_config = decode_config_value(smtp_row[0])
+            if not isinstance(smtp_config, dict) or not smtp_config.get("enabled"):
                 return
 
             # Get user email

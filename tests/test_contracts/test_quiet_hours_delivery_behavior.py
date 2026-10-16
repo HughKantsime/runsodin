@@ -81,6 +81,9 @@ def test_digest_resource_scope_and_half_open_boundaries(review_db,monkeypatch):
     review_db.execute(text("INSERT INTO filament_library(id,brand,name) VALUES(201,'Synthetic','PLA')"))
     review_db.execute(text('INSERT INTO spools(id,filament_id,org_id) VALUES(201,201,1)'))
     review_db.execute(text('UPDATE users SET is_active=0 WHERE id=4'))
+    # Orgs 1 and 2 have their own quiet hours, so their alerts belong to their own digests;
+    # an org without them would be governed (and digested) by the system scope.
+    review_db.execute(text('''UPDATE groups SET settings_json='{"quiet_hours_enabled": true}' WHERE id IN (1,2)'''))
     cases=[(1,3,None,201,None,start+timedelta(minutes=1)),
         (2,3,None,None,201,start+timedelta(minutes=2)),(3,3,11,None,None,start),
         (4,3,12,None,None,start),

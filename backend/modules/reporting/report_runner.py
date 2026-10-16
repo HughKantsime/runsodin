@@ -275,22 +275,47 @@ def generate_failure_analysis(session, filters):
 
 
 def generate_chargeback_summary(session, filters):
-    """Reuse query pattern from /api/reports/chargebacks."""
+    """Reuse query pattern from /api/reports/chargebacks.
+
+    Rows are per user and charged organization so each cost carries that
+    organization's configured finance currency (no currency is presumed and
+    none is converted). Jobs without an estimated cost are counted and labeled
+    as unpriced; they are never valued as 0.
+    """
+    from core.finance_currency import read_currency
     # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
     rows = session.execute(text(f"""
         SELECT u.username, COUNT(j.id) as job_count,
-               COALESCE(SUM(j.estimated_cost), 0) as total_cost,
+               SUM(j.estimated_cost) as total_cost,
                COALESCE(SUM(j.duration_hours), 0) as total_hours,
-               COALESCE(SUM(pa.grams), 0) as total_grams
+               COALESCE(SUM(pa.grams), 0) as total_grams,
+               SUM(CASE WHEN j.estimated_cost IS NULL THEN 1 ELSE 0 END) as unpriced_jobs,
+               j.charged_to_org_id as org_id
         FROM jobs j
         LEFT JOIN users u ON j.charged_to_user_id = u.id
         LEFT JOIN ({ARCHIVE_GRAMS_BY_JOB_SQL}) pa ON pa.job_id = j.id
         WHERE j.charged_to_user_id IS NOT NULL
           AND j.status IN ('completed', 'failed')
           AND j.created_at >= {sql.now_offset('-30 days')}
-        GROUP BY j.charged_to_user_id, u.username
+        GROUP BY j.charged_to_user_id, u.username, j.charged_to_org_id
         ORDER BY total_cost DESC
     """)).fetchall()
+
+    currencies = {}
+
+    def _currency(org_id):
+        if type(org_id) is not int or org_id <= 0:
+            return None
+        if org_id not in currencies:
+            currencies[org_id] = read_currency(session, owner_scope='org', owner_key=org_id)
+        return currencies[org_id]
+
+    def _cost_cell(total, unpriced, org_id):
+        if total is None:
+            return "Unknown"
+        currency = _currency(org_id)
+        amount = f"{currency} {total:.2f}" if currency else f"{total:.2f}"
+        return amount + (f" (+{int(unpriced)} unpriced)" if unpriced else "")
 
     table_rows = ""
     for r in rows:
@@ -298,13 +323,13 @@ def generate_chargeback_summary(session, filters):
         <tr style="border-bottom: 1px solid #333;">
             <td style="padding: 8px; font-size: 14px;">{escape(str(r[0] or 'Unknown'))}</td>
             <td style="padding: 8px; font-size: 14px; text-align: right;">{r[1]}</td>
-            <td style="padding: 8px; font-size: 14px; text-align: right;">${round(r[2], 2)}</td>
+            <td style="padding: 8px; font-size: 14px; text-align: right;">{escape(_cost_cell(r[2], r[5], r[6]))}</td>
             <td style="padding: 8px; font-size: 14px; text-align: right;">{round(r[3], 1)}h</td>
             <td style="padding: 8px; font-size: 14px; text-align: right;">{round(r[4])}g</td>
         </tr>"""
 
     content = f"""
-    <p style="color: #888; margin-bottom: 12px;">Last 30 days chargebacks by user</p>
+    <p style="color: #888; margin-bottom: 12px;">Last 30 days chargebacks by user. Costs are job estimates in the charged organization's configured currency (no currency shown when none is configured); unpriced jobs are counted, not valued.</p>
     <table style="width: 100%; border-collapse: collapse; background: #33312d; border-radius: 4px;">
         <thead><tr style="border-bottom: 2px solid #47453d;">
             <th style="padding: 8px; text-align: left; color: #8a8679; font-size: 12px;">USER</th>
@@ -438,8 +463,9 @@ def _update_digest_status(session, user_id, window_ended_at, status, org_id=None
         session.rollback()
 
 
-def _claim_org_webhook_send(session, org_id, window_ended_at):
+def _claim_org_webhook_send(session, org_id, window_ended_at, scope_key=None):
     window = window_ended_at.isoformat()
+    scope_key = scope_key or _digest_scope_key(org_id)
     try:
         legacy = session.execute(text(
             "SELECT 1 FROM quiet_hours_org_digest_sends WHERE scope_key LIKE 'legacy:%' "
@@ -450,7 +476,7 @@ def _claim_org_webhook_send(session, org_id, window_ended_at):
         session.execute(text(
             "INSERT INTO quiet_hours_org_digest_sends(org_id,scope_key,window_ended_at,delivery_status) "
             "VALUES (:org,:scope,:window,'pending')"
-        ), {"org": org_id, "scope": _digest_scope_key(org_id), "window": window})
+        ), {"org": org_id, "scope": scope_key, "window": window})
         session.commit()
         return True
     except Exception:
@@ -458,12 +484,12 @@ def _claim_org_webhook_send(session, org_id, window_ended_at):
         return False
 
 
-def _update_org_digest_status(session, org_id, window_ended_at, status):
+def _update_org_digest_status(session, org_id, window_ended_at, status, scope_key=None):
     try:
         session.execute(text(
             "UPDATE quiet_hours_org_digest_sends SET delivery_status=:status "
             "WHERE scope_key=:scope AND window_ended_at=:window"
-        ), {"status": status[:120], "scope": _digest_scope_key(org_id),
+        ), {"status": status[:120], "scope": scope_key or _digest_scope_key(org_id),
             "window": window_ended_at.isoformat()})
         session.commit()
     except Exception:
@@ -513,16 +539,29 @@ def _deliver_digest_push(session, user_id, alerts, window_end):
         return False
 
 
-def _deliver_digest_webhook(url: str, wtype: str, alerts: list, org_name: str, window_end):
-    """POST an aggregated digest payload to an org's configured webhook.
+def _digest_webhook_text(alerts: list, org_name: str, window_end):
+    count = len(alerts)
+    title = f"O.D.I.N. quiet hours digest: {count} alert{'s' if count != 1 else ''}"
+    if org_name:
+        title += f" ({org_name})"
+    lines = [f"Window ended {window_end.strftime('%Y-%m-%d %H:%M UTC')}"]
+    for alert in alerts[:50]:
+        lines.append(f"- [{alert.get('severity') or 'info'}] {alert.get('title') or ''}")
+    if count > 50:
+        lines.append(f"...and {count - 50} more")
+    return title, "\n".join(lines)
 
-    Always via safe_post — org webhook URLs are user-supplied, so the R8
-    DNS-pin SSRF defense applies.
+
+def _deliver_digest_webhook(url: str, wtype: str, alerts: list, org_name: str, window_end):
+    """POST an aggregated digest in the webhook type's payload shape.
+
+    Returns True only when the receiver accepted it (HTTP 2xx). User-supplied
+    URLs go through safe_post (R8 DNS-pin SSRF defense).
     """
     try:
-        from core.webhook_utils import safe_post, WebhookSSRFError
+        from modules.notifications.channels import post_typed_webhook
     except Exception as e:
-        log.error(f"Cannot import safe_post: {e}")
+        log.error(f"Cannot import post_typed_webhook: {e}")
         return False
 
     summary = {
@@ -541,18 +580,132 @@ def _deliver_digest_webhook(url: str, wtype: str, alerts: list, org_name: str, w
         ],
         "truncated": len(alerts) > 50,
     }
+    severities = {a.get("severity") for a in alerts}
+    severity = next((level for level in ("critical", "error", "warning") if level in severities), "info")
+    title, message = _digest_webhook_text(alerts, org_name, window_end)
+    return post_typed_webhook(url, wtype, event="quiet_hours_digest", title=title, message=message,
+                              severity=severity, generic_body=summary)
 
+
+def _dedupe_alerts(session, alerts: list) -> list:
+    """One entry per alert from per-recipient in-app rows, with its owning org."""
+    from core.recipient_policy import resolve_alert_scope
+    seen, out = set(), []
+    for alert in alerts:
+        key = (alert.get("alert_type"), alert.get("title"), alert.get("printer_id"), alert.get("job_id"),
+               alert.get("spool_id"), str(alert.get("created_at"))[:19])
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            _eligible, owner = resolve_alert_scope(session, printer_id=alert.get("printer_id"),
+                                                   job_id=alert.get("job_id"), spool_id=alert.get("spool_id"))
+        except ValueError:
+            continue
+        out.append({**alert, "org_id": owner})
+    return out
+
+
+def _org_webhook_settings(session, org_id):
+    """(url, type, name) of an org's settings webhook, URL decrypted; None when unset."""
+    import json
+    row = session.execute(text("SELECT name, settings_json FROM groups WHERE id=:id"), {"id": org_id}).fetchone()
+    if not row or not row[1]:
+        return None
     try:
-        # Generic webhook shape for now. Discord/Slack-specific formatting
-        # can be added later; most integrations accept a generic JSON body.
-        safe_post(url, json=summary, timeout=10)
-        return True
-    except WebhookSSRFError as e:
-        log.error(f"Org digest webhook SSRF-blocked: {e}")
-        return False
-    except Exception as e:
-        log.error(f"Org digest webhook failed ({wtype}): {e}")
-        return False
+        settings = json.loads(row[1]) if isinstance(row[1], str) else row[1]
+    except ValueError:
+        return None
+    from modules.notifications.quiet_hours import _decrypt_org_webhook_url
+    url = _decrypt_org_webhook_url(settings.get("webhook_url")) if isinstance(settings, dict) else None
+    return (url, settings.get("webhook_type", "generic"), row[0]) if url else None
+
+
+def _deliver_webhook_digests(session, org_id, org_name, config, window_end, entries: list, *, from_rows: bool):
+    """Route each suppressed alert to the webhook(s) it would have reached in real
+    time: its owning org's settings webhook, or the global webhooks for unscoped
+    alerts. One claimed digest per destination per window; rows marked once."""
+    from modules.notifications.channels import mark_deferred
+    by_owner = {}
+    for entry in entries:
+        by_owner.setdefault(entry.get("org_id"), []).append(entry)
+    for owner, items in sorted(by_owner.items(), key=lambda kv: (kv[0] is not None, kv[0] or 0)):
+        if owner is None:
+            outcome = _deliver_global_webhook_digests(session, items, window_end)
+            # A system-level target that carries its own digest webhook URL also gets them.
+            if org_id is None and config.get("webhook_url") and _claim_org_webhook_send(session, None, window_end):
+                ok = _deliver_digest_webhook(config["webhook_url"], config.get("webhook_type", "generic"),
+                                             items, org_name, window_end)
+                _update_org_digest_status(session, None, window_end, "sent" if ok else "failed:webhook")
+                for item in items:
+                    previous = outcome.get(id(item))
+                    if previous != "claimed_elsewhere":
+                        outcome[id(item)] = ok if previous is None else (previous and ok)
+        else:
+            if owner == org_id and config.get("webhook_url"):
+                destination = (config["webhook_url"], config.get("webhook_type", "generic"), org_name)
+            else:
+                destination = _org_webhook_settings(session, owner)
+            outcome = None
+            if destination and _claim_org_webhook_send(session, owner, window_end):
+                ok = _deliver_digest_webhook(destination[0], destination[1], items, destination[2], window_end)
+                _update_org_digest_status(session, owner, window_end, "sent" if ok else "failed:webhook")
+                outcome = {id(item): ok for item in items}
+            elif not destination:
+                outcome = {id(item): None for item in items}
+        if from_rows and outcome:
+            for item in items:
+                result = outcome.get(id(item), "claimed_elsewhere")
+                if result == "claimed_elsewhere":
+                    continue
+                if result is True:
+                    mark_deferred(session, [item["id"]], "sent")
+                else:
+                    mark_deferred(session, [item["id"]], "failed",
+                                  "webhook:no_destination" if result is None else "webhook:not_delivered")
+            session.commit()
+
+
+def _deliver_global_webhook_digests(session, alerts: list, window_end):
+    """Digest system-scope alerts to the global webhook channels (webhooks table).
+
+    System-wide quiet hours suppress these channels in real time, so each
+    enabled webhook receives one digest of the suppressed alerts it selects,
+    claimed per (webhook, window) so a poll never re-sends it.
+
+    Returns {id(alert): True | False | None | "claimed_elsewhere"} (None = no
+    selecting destination).
+    """
+    from core.license_manager import get_license
+    outcome = {id(a): None for a in alerts}
+    if not get_license().has_feature("webhooks"):
+        return outcome
+    from modules.notifications.channels import selects_event
+    import core.crypto as crypto
+    hooks = session.execute(text(
+        "SELECT id, url, webhook_type, alert_types FROM webhooks WHERE is_enabled IS TRUE ORDER BY id"
+    )).fetchall()
+    for hook_id, raw_url, wtype, alert_types in hooks:
+        selected = [a for a in alerts if selects_event(alert_types, a.get("alert_type"))]
+        if not selected:
+            continue
+        scope = f"webhook:{int(hook_id)}"
+        if not _claim_org_webhook_send(session, None, window_end, scope_key=scope):
+            for a in selected:
+                outcome[id(a)] = "claimed_elsewhere"
+            continue
+        try:
+            url = crypto.decrypt(raw_url)
+        except Exception:
+            url = raw_url
+        ok = _deliver_digest_webhook(url, wtype, selected, "system", window_end)
+        _update_org_digest_status(session, None, window_end, "sent" if ok else "failed:webhook", scope_key=scope)
+        for a in selected:
+            previous = outcome[id(a)]
+            if previous == "claimed_elsewhere":
+                continue
+            outcome[id(a)] = ok if previous is None else (previous and ok)
+    return outcome
 
 
 def process_quiet_hours_digest(session):
@@ -587,6 +740,15 @@ def process_quiet_hours_digest(session):
         log.error(f"Cannot import quiet_hours helpers: {e}")
         return
 
+    from modules.notifications.channels import (deferred_available, governed_by, mark_deferred,
+                                                pending_for_window, purge_deferred)
+    try:
+        if purge_deferred(session):
+            session.commit()
+    except Exception as e:
+        session.rollback()
+        log.error(f"Deferred delivery retention purge failed: {type(e).__name__}")
+
     targets = iter_orgs_with_digest_enabled()
     if not targets:
         return
@@ -605,7 +767,18 @@ def process_quiet_hours_digest(session):
 
         window_start, _ = compute_window_bounds(config, window_end)
         alerts = get_suppressed_alerts_for_window(window_start, window_end, org_id=org_id)
-        if not alerts:
+        scope = _digest_scope_key(org_id)
+        # Deliveries deferred under this scope (032): external channels of
+        # recipients without an in-app row, and one webhook row per alert.
+        try:
+            deferred = pending_for_window(session, scope, window_start, window_end)
+            webhook_rows = pending_for_window(session, scope, window_start, window_end, channels=("webhook",))
+            table_present = deferred_available(session)
+        except Exception as e:
+            session.rollback()
+            log.error(f"Deferred delivery read failed: {type(e).__name__}")
+            deferred, webhook_rows, table_present = [], [], False
+        if not alerts and not deferred and not webhook_rows:
             continue
 
         # Per-user fan-out (email + push)
@@ -613,6 +786,10 @@ def process_quiet_hours_digest(session):
         # sends. Two workers can both pass a check-then-act guard and both
         # deliver before either records the send. Atomic claim closes that.
         by_user = group_suppressed_by_user(alerts)
+        deferred_by_user = {}
+        for row in deferred:
+            deferred_by_user.setdefault(int(row["user_id"]), []).append(row)
+            by_user.setdefault(int(row["user_id"]), [])
         for user_id, user_alerts in by_user.items():
             if not _claim_digest_send(session, user_id, org_id, window_end):
                 continue  # another worker won the race; they own delivery
@@ -621,14 +798,26 @@ def process_quiet_hours_digest(session):
             active = session.execute(text("SELECT 1 FROM users WHERE id=:id AND is_active IS TRUE"),
                                      {"id": user_id}).first()
             authorized = []
+            authorized_deferred = []
             if active:
+                for alert in deferred_by_user.get(user_id, []):
+                    try:
+                        eligible, owner = resolve_alert_scope(session, printer_id=alert.get("printer_id"),
+                            job_id=alert.get("job_id"), spool_id=alert.get("spool_id"))
+                    except ValueError:
+                        continue
+                    # The row's owning org was recorded at suppression time.
+                    if user_id in eligible and owner == alert.get("org_id"):
+                        authorized_deferred.append(alert)
                 for alert in user_alerts:
                     try:
                         eligible, owner = resolve_alert_scope(session, printer_id=alert.get("printer_id"),
                             job_id=alert.get("job_id"), spool_id=alert.get("spool_id"))
                     except ValueError:
                         continue
-                    if user_id in eligible and owner == org_id:
+                    # Governed by this digest's quiet hours: the owning org's own, or
+                    # the system's for unscoped alerts and orgs without their own.
+                    if user_id in eligible and governed_by(owner, org_id, session):
                         authorized.append(alert)
             preferences = session.execute(text(
                 "SELECT alert_type,email,browser_push FROM alert_preferences WHERE user_id=:id"
@@ -636,7 +825,11 @@ def process_quiet_hours_digest(session):
             prefs = {row["alert_type"]: row for row in preferences}
             email_alerts = [a for a in authorized if prefs.get(a.get("alert_type"),{}).get("email")]
             push_alerts = [a for a in authorized if prefs.get(a.get("alert_type"),{}).get("browser_push")]
+            # Deferred rows already name their channel (the preference at suppression time).
+            email_alerts += [a for a in authorized_deferred if a["channel"] == "email"]
+            push_alerts += [a for a in authorized_deferred if a["channel"] == "push"]
             email_on,push_on = bool(email_alerts),bool(push_alerts)
+            email_ok = push_ok = None
 
             # Delivery is best-effort post-claim. A failure here logs ERROR
             # but does NOT undo the claim — undoing would re-open the
@@ -652,7 +845,8 @@ def process_quiet_hours_digest(session):
                 failure_reasons.append("email:unconfigured")
             if email_on and smtp_config:
                 try:
-                    if _deliver_digest_email(session, smtp_config, user_id, email_alerts, window_end) is not True:
+                    email_ok = _deliver_digest_email(session, smtp_config, user_id, email_alerts, window_end) is True
+                    if not email_ok:
                         delivery_ok = False
                         failure_reasons.append("email:rejected")
                 except Exception as e:
@@ -661,7 +855,8 @@ def process_quiet_hours_digest(session):
                     failure_reasons.append(f"email:{type(e).__name__}")
             if push_on:
                 try:
-                    if _deliver_digest_push(session, user_id, push_alerts, window_end) is not True:
+                    push_ok = _deliver_digest_push(session, user_id, push_alerts, window_end) is True
+                    if not push_ok:
                         delivery_ok = False
                         failure_reasons.append("push:rejected")
                 except Exception as e:
@@ -670,24 +865,33 @@ def process_quiet_hours_digest(session):
                     failure_reasons.append(f"push:{type(e).__name__}")
             status = "sent" if delivery_ok else f"failed:{','.join(failure_reasons)}"
             _update_digest_status(session, user_id, window_end, status, org_id=org_id)
+            # Record each deferred row's outcome; this claim owns them, so a later
+            # poll never re-sends them.
+            try:
+                outcome = {"email": email_ok, "push": push_ok}
+                authorized_ids = {a["id"] for a in authorized_deferred}
+                for row in deferred_by_user.get(user_id, []):
+                    if row["id"] not in authorized_ids:
+                        mark_deferred(session, [row["id"]], "failed", "recipient_not_authorized")
+                    elif outcome[row["channel"]] is True:
+                        mark_deferred(session, [row["id"]], "sent")
+                    else:
+                        mark_deferred(session, [row["id"]], "failed", f"{row['channel']}:not_delivered")
+                session.commit()
+            except Exception as e:
+                session.rollback()
+                log.error(f"Deferred delivery outcome update failed for user {user_id}: {type(e).__name__}")
 
-        # Per-org webhook (one combined digest per org).
-        # Codex pass 4 (2026-04-14): the org webhook had NO idempotency
-        # before — every 60s poll re-sent the same digest until the next
-        # quiet period. Now claimed atomically against the new
-        # quiet_hours_org_digest_sends table.
-        webhook_url = config.get("webhook_url")
-        if webhook_url:
-            if _claim_org_webhook_send(session, org_id, window_end):
-                webhook_ok = _deliver_digest_webhook(
-                    webhook_url,
-                    config.get("webhook_type", "generic"),
-                    alerts,
-                    org_name,
-                    window_end,
-                )
-                status = "sent" if webhook_ok else "failed:webhook"
-                _update_org_digest_status(session, org_id, window_end, status)
+        # Webhook digests: one entry per suppressed alert. With 032 present the
+        # per-alert webhook rows are authoritative (they also cover alerts that
+        # had no in-app recipient); otherwise in-app rows are deduplicated.
+        try:
+            _deliver_webhook_digests(session, org_id, org_name, config, window_end,
+                                     webhook_rows if table_present else _dedupe_alerts(session, alerts),
+                                     from_rows=table_present)
+        except Exception as e:
+            session.rollback()
+            log.error(f"Webhook digest failed: {type(e).__name__}")
 
         log.info(
             f"Quiet hours digest delivered: org={org_name} "

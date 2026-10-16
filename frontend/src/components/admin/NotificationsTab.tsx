@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
 import { Bell, Mail, Save, CheckCircle, AlertTriangle, RefreshCw, XCircle, Wrench, FileText, XOctagon, Thermometer, ListPlus, SkipForward } from 'lucide-react'
 import usePushNotifications from '../../hooks/usePushNotifications'
-import { alertPreferences, smtpConfig } from '../../api'
+import { alertPreferences, smtpConfig, pushKeys } from '../../api'
+import { getCurrentUser } from '../../permissions'
+import toast from 'react-hot-toast'
 import { useLicense } from '../../LicenseContext'
 import { Button, Input, Card } from '../ui'
 
@@ -154,6 +156,23 @@ export default function NotificationsTab() {
     }
   }
 
+  const currentUser = getCurrentUser()
+  const isSuperadmin = currentUser?.role === 'admin' && !currentUser?.group_id
+  const [rotating, setRotating] = useState(false)
+  const rotatePushKeys = async () => {
+    if (!window.confirm('Rotate the Web Push keys? Every browser must re-enable push.')) return
+    setRotating(true)
+    try {
+      const result = await pushKeys.rotate()
+      toast.success(`Push keys rotated; ${result.subscriptions_invalidated} subscription(s) reset`)
+      if (pushSubscribed) await subscribePush()
+    } catch (err: any) {
+      toast.error('Push key rotation failed: ' + (err?.message || 'Unknown error'))
+    } finally {
+      setRotating(false)
+    }
+  }
+
   return (
     <div className="max-w-4xl">
       {/* Push Notification Status */}
@@ -179,6 +198,12 @@ export default function NotificationsTab() {
               {pushSubscribed ? 'Disable Push' : 'Enable Push'}
             </Button>
           </div>
+          {isSuperadmin && (
+            <div className="mt-3 flex items-center justify-between border-t border-[var(--brand-card-border)] pt-3">
+              <p className="text-xs text-[var(--brand-text-muted)]">Rotating the push keys signs out every browser from push; browsers re-register on their next visit.</p>
+              <Button variant="tertiary" size="sm" loading={rotating} onClick={rotatePushKeys}>Rotate push keys</Button>
+            </div>
+          )}
         </div>
       )}
 

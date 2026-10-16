@@ -49,27 +49,35 @@ it('F10-10.2-04 loads the dedicated Calculator page and model-derived inputs', a
   await loadCalculator(); expect(input('Print Time')).toHaveValue(2); expect(input('Quantity')).toHaveValue(2)
   expect(screen.getByRole('heading', { name: 'Final Pricing' })).toBeInTheDocument()
 })
+// Per-item arithmetic for the 2-up model (100 g and 2 h per bed; config: $200/1000 g, $12/h labour for
+// 10+10+10 min, 500 W at $1/kWh, $1000 printer over 1000 h, $3 packaging, $4 other, $500 rent / 100 parts):
+//   per-bed quantities divide by 2 units: material 100 g x $0.20 / 2 = $10.00, electricity 0.5 kW x 2 h x $1 / 2 = $0.50,
+//   depreciation $1/h x 2 h / 2 = $1.00; per-item costs do not: labour 0.5 h x $12 = $6.00, packaging $3.00, other $4.00,
+//   overhead $500 / 100 = $5.00. Base 10 + 6 + 0.5 + 1 + 3 + 4 = $24.50; failure buffer 10% = $2.45; subtotal $31.95.
 it('F10-10.2-01 computes each displayed per-model cost component from saved inputs', async () => {
   await loadCalculator()
-  for (const [label, value] of [['Material Cost:', '$20.00'], ['Labor Cost:', '$6.00'], ['Electricity:', '$1.00'], ['Printer Depreciation:', '$2.00'], ['Packaging:', '$3.00'], ['Failure Buffer (10%):', '$3.60'], ['Overhead:', '$5.00'], ['Other Costs:', '$4.00']]) expect(moneyRow(label)).toHaveTextContent(value)
+  for (const [label, value] of [['Material Cost:', '$10.00'], ['Labor Cost:', '$6.00'], ['Electricity:', '$0.50'], ['Printer Depreciation:', '$1.00'], ['Packaging:', '$3.00'], ['Failure Buffer (10%):', '$2.45'], ['Overhead:', '$5.00'], ['Other Costs:', '$4.00']]) expect(moneyRow(label)).toHaveTextContent(value)
 })
 it('F10-10.2-01 CLAIM GAP: subtotal includes monetary costs only, without adding the failure percentage as dollars', async () => {
-  await loadCalculator(); expect(moneyRow('Subtotal:')).toHaveTextContent('$44.60')
+  await loadCalculator(); expect(moneyRow('Subtotal:')).toHaveTextContent('$31.95')
 })
 it('F10-10.2-02 edits and saves manufacturing margin and recomputes price with zero failure rate', async () => {
+  // No failure buffer: subtotal $24.50 + $5.00 overhead = $29.50; x 1.25 = $36.875 -> $36.88.
   api.config.mockResolvedValue({ ...config, failure_rate: 0 }); await loadCalculator(); change('Margin', 25)
-  expect(moneyRow('Recommended Price (per unit)')).toHaveTextContent('$51.25')
+  expect(moneyRow('Recommended Price (per unit)')).toHaveTextContent('$36.88')
   fireEvent.click(screen.getByRole('button', { name: 'Save Config' }))
   await waitFor(() => expect(api.save).toHaveBeenCalledWith(expect.objectContaining({ default_margin: 25, failure_rate: 0 }), expect.anything()))
 })
 it('F10-10.2-03 computes per-unit and bulk prices with zero failure rate', async () => {
   api.config.mockResolvedValue({ ...config, failure_rate: 0 }); await loadCalculator(); change('Quantity', 3)
-  expect(moneyRow('Recommended Price (per unit)')).toHaveTextContent('$61.50')
-  expect(moneyRow('Total for 3 units')).toHaveTextContent('$184.50')
+  // $29.50 x 1.50 = $44.25 per item; 3 items = $132.75.
+  expect(moneyRow('Recommended Price (per unit)')).toHaveTextContent('$44.25')
+  expect(moneyRow('Total for 3 units')).toHaveTextContent('$132.75')
 })
 it('F10-10.2-03 CLAIM GAP: nonzero failure buffer produces correct per-unit and bulk prices', async () => {
+  // $31.95 x 1.50 = $47.925 -> $47.92 (binary float); 3 items = $143.775 -> $143.77.
   await loadCalculator(); change('Quantity', 3)
-  expect([moneyRow('Recommended Price (per unit)').textContent, moneyRow('Total for 3 units').textContent]).toEqual(['Recommended Price (per unit)$66.90', 'Total for 3 units$200.70'])
+  expect([moneyRow('Recommended Price (per unit)').textContent, moneyRow('Total for 3 units').textContent]).toEqual(['Recommended Price (per unit)$47.92', 'Total for 3 units$143.77'])
 })
 it('F10-10.1-02 renders actual cost/revenue bars and chronological date ticks', async () => {
   show(<Analytics />); await screen.findByRole('heading', { name: 'Revenue vs Cost' })

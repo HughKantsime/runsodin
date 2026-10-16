@@ -53,6 +53,9 @@ export interface AlertListParams {
   severity?: AlertSeverity;
   alert_type?: AlertType;
   is_read?: boolean;
+  /** true = only dismissed, false = only not dismissed; omitted = not dismissed unless include_dismissed */
+  is_dismissed?: boolean;
+  include_dismissed?: boolean;
   limit?: number;
   offset?: number;
 }
