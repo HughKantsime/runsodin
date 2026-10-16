@@ -36,6 +36,7 @@ claims on separate keys. Both live in `system_config`, and neither reads or writ
 | `quota_attempt:filament:job:<job>:print:<print_job>` | D ledger | filament deducted for that physical print |
 | `quota_attempt:filament:print:<print_job>` | D ledger | the same, for a print with no job |
 | `quota_attempt:print_seq:<print_job>` | D | the job attempt a physical print belongs to, `{"job_id", "seq"}`; bound when the print is created or linked |
+| `quota_attempt:filament:job:<job>:reconcile:print:<print_job>` | D ledger | the print's filament could not be attributed (`{"reason", "source", "at"}`); written by Moonraker, which has no archive row |
 
 - **One claim does not imply the other.** A quota charge without a deduction is correct, for example
   when the spool balance is unknown (the ledger claims nothing then). So is a deduction without a quota
@@ -48,10 +49,18 @@ claims on separate keys. Both live in `system_config`, and neither reads or writ
   attempt with `core.filament_ledger.print_attempt(run, job_id, print_job_id)`: the `print_seq` binding,
   else the reset window around `print_jobs.started_at`. Do not use `attempt_seq(run, job_id)`. This
   matters to F wherever a print-scoped quota charge falls back to a job-attempt key.
+- **A bound print uses its bound attempt's own window**, from `started:<J>:<seq>` to the next anchor, not a
+  window around its `started_at`. If F compares quota rows with times, use the same windows, through
+  `core.print_attempts.moment()`: UTC, truncated to whole seconds, inclusive below and exclusive above.
+  PostgreSQL sessions are now pinned to `TimeZone=UTC` (`core.database_config`), so server-default
+  `now()` columns are UTC.
+- **Link-print refuses a print that started before the job's last reset** (409). F's link-time hooks, if
+  any, should not run for a refused link.
 - **Lock order.** The ledger locks spool rows in id order and then claims keys; it never takes a spool
   lock after a claim. Keep F's quota writes (the claim, then the `quota_usage` upsert) after the ledger
   call in the same transaction. Never interleave them before it, or the archive and operator paths
-  can deadlock on PostgreSQL again.
+  can deadlock on PostgreSQL again. Any writer that touches several spools (for example,
+  `bulk_update_spools`) processes them in ascending id order.
 - **Values must be valid JSON.** `system_config.value` is a JSON column on PostgreSQL, and a bare word
   there raises InvalidTextRepresentation. F's `"true"` is fine. Keep any new value JSON.
 - **F's quota grams.** If F's `record_print_consumption` should charge what was actually deducted
@@ -61,7 +70,8 @@ claims on separate keys. Both live in `system_config`, and neither reads or writ
   runs on the shared AST+SQL scanner (`tests/test_contracts/job_census.py`, targets `SPOOLS` and
   `SPOOL_USAGE`). It fails on any new `spool_usage` insert or spool weight write outside the ledger.
   F's quota code writes neither. If F adds a dynamic-table SQL helper, the census lists it per call
-  site, and it needs a checked allowance proving it never addresses spools or `spool_usage`.
+  site, and it needs a checked allowance proving it never addresses spools or `spool_usage`. Allowances
+  pin exact per-site counts, so a second write in an allowed function also fails.
 
 ## 2. Keep both delete hooks
 
