@@ -269,7 +269,9 @@ def test_long_lived_modules_resolve_the_engine_at_use_time(monkeypatch, module_n
 
 
 @pytest.mark.parametrize("module_name", [
-    "modules.archives.archive", "modules.notifications.printer_health", "modules.notifications.job_events",
+    # modules.notifications.job_events is byte-pinned by test_committed_completion_boundary
+    # and keeps its plain import; the cert-A harness rebinds it.
+    "modules.archives.archive", "modules.notifications.printer_health",
     "modules.notifications.error_handling", "modules.notifications.channels",
     "modules.printers.monitors.mqtt_job_lifecycle", "modules.printers.monitors.mqtt_printer",
 ])

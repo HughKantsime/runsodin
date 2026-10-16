@@ -378,14 +378,35 @@ def test_legacy_connect_requests_status_and_version_without_waiting_for_the_brok
     assert waits == []
 
 
-def test_legacy_request_full_status_logs_unqueued_publish(caplog):
+def _capture_logger(monkeypatch, name):
+    """Records from one named logger, independent of root/propagation state left by other tests."""
+    import logging
+    records = []
+
+    class Collect(logging.Handler):
+        def emit(self, record):
+            records.append(record.getMessage())
+    logger = logging.getLogger(name)
+    handler = Collect(level=logging.DEBUG)
+    logger.addHandler(handler)
+    monkeypatch.setattr(logger, "disabled", False)
+    monkeypatch.setattr(logger, "level", logging.DEBUG)
+    monkeypatch.setattr(logging.root.manager, "disable", 0)
+    return records, handler, logger
+
+
+def test_legacy_request_full_status_logs_unqueued_publish(monkeypatch):
     from types import SimpleNamespace
     from modules.printers.adapters.bambu import BambuPrinter
     printer = BambuPrinter(ip="127.0.0.1", serial="SYNTHSERIAL", access_code="")
     printer._client = SimpleNamespace(publish=lambda *a, **k: SimpleNamespace(rc=4))
     printer._connected = True
-    assert printer.request_full_status() is False
-    assert "not queued (rc=4)" in caplog.text
+    records, handler, logger = _capture_logger(monkeypatch, "bambu_adapter")
+    try:
+        assert printer.request_full_status() is False
+    finally:
+        logger.removeHandler(handler)
+    assert any("not queued (rc=4)" in r for r in records)
 
 
 def test_command_right_after_connect_completes_well_under_its_timeout(tls_mqtt, monkeypatch):
@@ -459,7 +480,7 @@ def test_empty_ams_list_clears_unplugged_ht_slots(wire_monitor, review_db):
         "SELECT filament_type FROM filament_slots WHERE printer_id=301 AND slot_number=17")).scalar_one()).split(".")[-1].lower() == "empty"
 
 
-def test_failing_ams_sync_backs_off_then_drops_report_with_error(wire_monitor, monkeypatch, caplog):
+def test_failing_ams_sync_backs_off_then_drops_report_with_error(wire_monitor, monkeypatch):
     import modules.printers.monitors.ams_inventory as ams_inventory
     import modules.printers.monitors.mqtt_printer as mqtt_printer
     monitor, sock, clock, events = wire_monitor
@@ -474,14 +495,18 @@ def test_failing_ams_sync_backs_off_then_drops_report_with_error(wire_monitor, m
     clock[0] += 11
     sock.deliver(report)
     heartbeat = {"print": {"gcode_state": "IDLE"}}
-    for _ in range(80):  # 800 s of heartbeats
-        clock[0] += 10
-        sock.deliver(heartbeat)
+    records, handler, logger = _capture_logger(monkeypatch, mqtt_printer.log.name)
+    try:
+        for _ in range(80):  # 800 s of heartbeats
+            clock[0] += 10
+            sock.deliver(heartbeat)
+    finally:
+        logger.removeHandler(handler)
     assert len(calls) == mqtt_printer.AMS_SYNC_MAX_ATTEMPTS
     gaps = [b - a for a, b in zip(calls, calls[1:])]
     assert gaps == sorted(gaps) and gaps[0] >= mqtt_printer.AMS_SYNC_RETRY_BASE_SECONDS
     assert monitor._pending_ams_report is None
-    assert "dropping the reported AMS list" in caplog.text
+    assert any("dropping the reported AMS list" in r for r in records)
 
 
 def test_reconnect_resets_pending_ams_report(wire_monitor):

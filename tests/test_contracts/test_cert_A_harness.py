@@ -197,7 +197,7 @@ def bind_engine(monkeypatch, engine):
     """Point every daemon-side DB entry point at the owned real-schema engine."""
     import sys
     import core.db as core_db
-    import core.db_utils  # noqa: F401
+    import core.db_utils as core_db_utils
     import modules.notifications.event_dispatcher  # noqa: F401
     import modules.notifications.alert_dispatch  # noqa: F401
     import modules.notifications.quiet_hours  # noqa: F401
@@ -218,6 +218,15 @@ def bind_engine(monkeypatch, engine):
         held = module.__dict__.get("engine")
         if isinstance(held, Engine) and held is not engine:
             monkeypatch.setattr(module, "engine", engine)
+        # A module that bound core.db_utils.get_db at import while another
+        # fixture had replaced it (job_events is byte-pinned and keeps a plain
+        # import) is pointed back at the real call-time get_db.
+        held_get_db = module.__dict__.get("get_db")
+        # Only fakes defined by test modules count as stale; a module's own
+        # get_db (core.db, core.db_utils, ...) is never replaced.
+        if (callable(held_get_db) and module is not core_db_utils
+                and str(getattr(held_get_db, "__module__", "")).startswith(("tests.", "test_"))):
+            monkeypatch.setattr(module, "get_db", core_db_utils.live_get_db)
 
 
 def load_frames(name):
