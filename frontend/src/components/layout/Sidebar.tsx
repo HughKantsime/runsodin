@@ -31,6 +31,8 @@ import {
   Archive,
   SlidersHorizontal,
   GraduationCap,
+  FolderKanban,
+  ScrollText,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useBranding } from '../../BrandingContext'
@@ -240,6 +242,8 @@ export default function Sidebar({ mobileOpen, onMobileClose }) {
           {canAccessPage('cameras') && <NavItem collapsed={collapsed && !mobileOpen} to="/cameras" icon={Video} onClick={handleNavClick}>{t('nav.cameras')}</NavItem>}
           {canAccessPage('cameras') && <NavItem collapsed={collapsed && !mobileOpen} to="/timelapses" icon={Film} onClick={handleNavClick}>Timelapses</NavItem>}
           <NavItem collapsed={collapsed && !mobileOpen} to="/archives" icon={Archive} onClick={handleNavClick}>Archives</NavItem>
+          <NavItem collapsed={collapsed && !mobileOpen} to="/projects" icon={FolderKanban} onClick={handleNavClick}>Projects</NavItem>
+          <NavItem collapsed={collapsed && !mobileOpen} to="/print-log" icon={ScrollText} onClick={handleNavClick}>Print Log</NavItem>
           <NavItem collapsed={collapsed && !mobileOpen} to="/alerts" icon={BellIcon} onClick={handleNavClick}>{t('nav.alerts')}</NavItem>
           <NavItem collapsed={collapsed && !mobileOpen} to="/detections" icon={Eye} onClick={handleNavClick}>Detections</NavItem>
 

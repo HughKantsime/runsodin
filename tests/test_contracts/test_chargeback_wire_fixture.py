@@ -3,6 +3,10 @@ import json
 from pathlib import Path
 from sqlalchemy import text
 from tests.test_contracts.test_api_token_delegation_behavior import token_client, review_db
+import pytest
+
+# Exercises Pro/Enterprise-gated routes (cert-fix-G tier gates): run under a real signed license.
+pytestmark = pytest.mark.usefixtures("pro_license")
 
 
 def test_capture_chargeback_wire_from_real_scoped_http(token_client, review_db):

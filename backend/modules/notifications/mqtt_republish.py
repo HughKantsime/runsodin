@@ -221,6 +221,12 @@ def _get_client():
 
 def _publish(topic_suffix: str, payload: dict):
     """Publish a message to the external broker."""
+    # Event republishing is an Enterprise entitlement. The broker settings stay
+    # configurable on every tier because MQTT smart-plug commands
+    # (publish_power_command) use the same connection.
+    from license_manager import get_license
+    if not get_license().has_feature("mqtt_republish"):
+        return
     client = _get_client()
     if not client:
         return

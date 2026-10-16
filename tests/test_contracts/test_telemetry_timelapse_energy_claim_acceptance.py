@@ -116,6 +116,7 @@ def test_print_jobs_api_exposes_archive_energy_for_the_energy_widget(metered,rev
     assert row['energy_kwh']==.5 and row['energy_cost']==.1
 
 
+@pytest.mark.usefixtures("pro_license")  # chargebacks are a Pro analytics feature (cert-fix-G)
 def test_chargeback_actual_http_dates_and_users_and_advertised_grams(analytics_client,review_db):
     from core.dependencies import get_current_user
     analytics_client.app.dependency_overrides[get_current_user]=lambda:{"id":3,"role":"admin","group_id":1,"is_active":True}

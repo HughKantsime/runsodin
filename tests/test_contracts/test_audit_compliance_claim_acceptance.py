@@ -9,6 +9,9 @@ from sqlalchemy import text
 from tests.test_contracts.test_education_review_workflow import review_db
 from tests.test_contracts.test_audit_actor_requests import client as actor_client
 
+# Exercises Pro/Enterprise-gated routes (cert-fix-G tier gates): run under a real signed license.
+pytestmark = pytest.mark.usefixtures("enterprise_license")
+
 
 @pytest.fixture
 def audit_client(review_db, monkeypatch):

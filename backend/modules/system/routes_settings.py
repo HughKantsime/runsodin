@@ -14,7 +14,8 @@ from core.db import get_db
 from core.db_compat import sql
 from core.dependencies import log_audit
 from core.rbac import require_role, require_superadmin
-from modules.organizations.branding import get_or_create_branding, branding_to_dict, UPDATABLE_FIELDS
+from modules.organizations.branding import get_or_create_branding, branding_to_dict, effective_branding, UPDATABLE_FIELDS
+from license_manager import feature_gate
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -49,8 +50,8 @@ def _branding_directory():
 
 @router.get("/branding", tags=["Branding"])
 async def get_branding(db: Session = Depends(get_db)):
-    """Get branding config. PUBLIC - no auth required."""
-    return branding_to_dict(get_or_create_branding(db))
+    """Get the effective branding. PUBLIC - no auth required (stock branding without the Pro entitlement)."""
+    return effective_branding(db)
 
 
 class BrandingUpdateRequest(PydanticBaseModel):
@@ -122,7 +123,7 @@ class BrandingUpdateRequest(PydanticBaseModel):
     support_url: Optional[str] = None
 
 
-@router.put("/branding", tags=["Branding"])
+@router.put("/branding", tags=["Branding"], dependencies=[Depends(feature_gate("branding"))])
 async def update_branding(data: BrandingUpdateRequest, current_user: dict = Depends(require_superadmin(scope="write")), db: Session = Depends(get_db)):
     """Update branding config. Admin only."""
     branding = get_or_create_branding(db)
@@ -135,7 +136,7 @@ async def update_branding(data: BrandingUpdateRequest, current_user: dict = Depe
     return branding_to_dict(branding)
 
 
-@router.post("/branding/logo", tags=["Branding"])
+@router.post("/branding/logo", tags=["Branding"], dependencies=[Depends(feature_gate("branding"))])
 async def upload_logo(file: UploadFile = File(...), current_user: dict = Depends(require_superadmin(scope="write")), db: Session = Depends(get_db)):
     """Upload brand logo. Admin only."""
     import shutil
@@ -157,7 +158,7 @@ async def upload_logo(file: UploadFile = File(...), current_user: dict = Depends
     return {"logo_url": branding.logo_url}
 
 
-@router.post("/branding/favicon", tags=["Branding"])
+@router.post("/branding/favicon", tags=["Branding"], dependencies=[Depends(feature_gate("branding"))])
 async def upload_favicon(file: UploadFile = File(...), current_user: dict = Depends(require_superadmin(scope="write")), db: Session = Depends(get_db)):
     """Upload favicon. Admin only."""
     content = await file.read(_MAX_UPLOAD_BYTES + 1)

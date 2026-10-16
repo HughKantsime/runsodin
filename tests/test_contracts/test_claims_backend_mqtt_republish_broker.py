@@ -14,6 +14,9 @@ from pathlib import Path
 
 import pytest
 
+# Exercises Pro/Enterprise-gated routes (cert-fix-G tier gates): run under a real signed license.
+pytestmark = pytest.mark.usefixtures("enterprise_license")
+
 ROOT = Path(__file__).resolve().parents[2]
 RECEIPTS = ROOT / 'artifacts' / 'application-certification' / 'claims-protocols-backend'
 

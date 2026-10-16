@@ -6,6 +6,9 @@ from core.base import AlertType
 from modules.notifications.models import AlertPreference
 from tests.test_contracts.test_education_review_workflow import review_db
 
+# Exercises Pro/Enterprise-gated routes (cert-fix-G tier gates): run under a real signed license.
+pytestmark = pytest.mark.usefixtures("enterprise_license")
+
 
 @pytest.fixture
 def quiet_outcomes(review_db,monkeypatch):

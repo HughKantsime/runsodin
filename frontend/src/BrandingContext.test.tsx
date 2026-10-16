@@ -8,12 +8,12 @@ const globalBrand={app_name:'Synthetic global',logo_url:'/static/branding/logo-g
 const response=(data:any,ok=true)=>({ok,json:async()=>data})
 
 test('organization identity overlays global branding only for the current authenticated group',async()=>{
- const fetcher=vi.fn(async(url:any)=>url==='/api/branding'?response(globalBrand):url==='/api/auth/me'?response({group_id:7}):url==='/api/orgs/7/settings'?response({branding_app_name:'Synthetic own org',branding_logo_url:'/static/branding/logo-own.png'}):Promise.reject(new Error('Unexpected cross-organization request')))
+ const fetcher=vi.fn(async(url:any)=>url==='/api/branding'?response(globalBrand):url==='/api/auth/me'?response({group_id:7}):url==='/api/license'?response({tier:'pro',features:['branding']}):url==='/api/orgs/7/settings'?response({branding_app_name:'Synthetic own org',branding_logo_url:'/static/branding/logo-own.png'}):Promise.reject(new Error('Unexpected cross-organization request')))
  vi.stubGlobal('fetch',fetcher)
  render(<BrandingProvider><Probe /></BrandingProvider>)
  await waitFor(()=>expect(screen.getByTestId('name')).toHaveTextContent('Synthetic own org'))
  expect(screen.getByTestId('logo')).toHaveTextContent('/static/branding/logo-own.png')
- expect(fetcher.mock.calls.map(call=>call[0])).toEqual(['/api/branding','/api/auth/me','/api/orgs/7/settings'])
+ expect(fetcher.mock.calls.map(call=>call[0])).toEqual(['/api/branding','/api/auth/me','/api/license','/api/orgs/7/settings'])
  expect(document.title).toBe('Synthetic own org Synthetic subtitle')
 })
 
@@ -113,7 +113,7 @@ test('a delayed initial response cannot overwrite a confirmed update',async()=>{
 
 test('partial asset updates preserve confirmed theme settings and organization overlay',async()=>{
  const {fireEvent}=await import('@testing-library/react')
- vi.stubGlobal('fetch',vi.fn(async(url:any)=>url==='/api/branding'?response({...globalBrand,primary_color:'#112233'}):url==='/api/auth/me'?response({group_id:7}):response({branding_app_name:'Synthetic own org'})))
+ vi.stubGlobal('fetch',vi.fn(async(url:any)=>url==='/api/branding'?response({...globalBrand,primary_color:'#112233'}):url==='/api/auth/me'?response({group_id:7}):url==='/api/license'?response({tier:'pro',features:['branding']}):response({branding_app_name:'Synthetic own org'})))
  render(<BrandingProvider><ConfirmedUpdateProbe patch={{favicon_url:'/static/branding/favicon-confirmed.png'}} /></BrandingProvider>)
  await waitFor(()=>expect(screen.getByTestId('name')).toHaveTextContent('Synthetic own org'))
  fireEvent.click(screen.getByRole('button',{name:'Apply confirmed response'}))
@@ -159,4 +159,13 @@ test('page-loaded favicon upload survives delayed provider settings and theme to
  document.documentElement.classList.remove('light')
  await waitFor(()=>expect(document.documentElement.style.getPropertyValue('--brand-primary')).toBe('#112233'))
  expect(document.querySelector('link[rel="icon"]')).toHaveAttribute('href','/static/branding/favicon-confirmed.png')
+})
+
+test.each([['community',[]],['expired pro',[]],['pro without branding entitlement',['orders']]])('stored org branding is ignored without the branding entitlement (%s)',async(_label,features)=>{
+ const fetcher=vi.fn(async(url:any)=>url==='/api/branding'?response(globalBrand):url==='/api/auth/me'?response({group_id:7}):url==='/api/license'?response({tier:'community',features}):url==='/api/orgs/7/settings'?response({branding_app_name:'Downgraded white label',branding_logo_url:'/static/branding/logo-own.png'}):Promise.reject(new Error('unexpected')))
+ vi.stubGlobal('fetch',fetcher)
+ render(<BrandingProvider><Probe /></BrandingProvider>)
+ await waitFor(()=>expect(fetcher.mock.calls.map(call=>call[0])).toEqual(['/api/branding','/api/auth/me','/api/license']))
+ await waitFor(()=>expect(screen.getByTestId('name')).toHaveTextContent('Synthetic global'))
+ expect(screen.getByTestId('logo')).toHaveTextContent('/static/branding/logo-global.png')
 })

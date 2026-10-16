@@ -93,3 +93,21 @@ it('F09-9.5-01 failed list refresh preserves committed shipping status and track
   expect(screen.queryByTitle('Mark Shipped')).not.toBeInTheDocument()
   expect(api.ship).toHaveBeenCalledTimes(1)
 })
+
+// F16-16.3-03: the real N shortcut (useKeyboardShortcuts) opens the real Orders create dialog.
+import useKeyboardShortcuts from '../../hooks/useKeyboardShortcuts'
+function Shortcuts() { useKeyboardShortcuts(); return null }
+function mountWithShortcuts() { return render(<MemoryRouter initialEntries={['/orders']}><Shortcuts /><Orders /></MemoryRouter>) }
+it('F16-16.3-03 N on /orders opens the New Order dialog for a user who can create orders', async () => {
+  api.role = 'operator'; mountWithShortcuts(); await screen.findAllByTitle('View Details')
+  expect(screen.queryByRole('dialog')).toBeNull()
+  fireEvent.keyDown(document, { key: 'n' })
+  expect(await screen.findByRole('button', { name: 'Create Order' })).toBeInTheDocument()
+  expect(screen.getByRole('dialog')).toBeInTheDocument()
+})
+it('F16-16.3-03 N does nothing for a user without order create permission', async () => {
+  api.role = 'viewer'; mountWithShortcuts(); await screen.findAllByTitle('View Details')
+  fireEvent.keyDown(document, { key: 'n' })
+  await new Promise(r => setTimeout(r, 50))
+  expect(screen.queryByRole('dialog')).toBeNull()
+})

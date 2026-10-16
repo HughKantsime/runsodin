@@ -119,3 +119,28 @@ def branding_to_dict(b: "Branding") -> dict:
         "support_url": b.support_url,
         "updated_at": str(b.updated_at) if b.updated_at else None,
     }
+
+
+def default_branding_dict() -> dict:
+    """The stock O.D.I.N. branding (column defaults; no logo, favicon or support URL)."""
+    out = {}
+    for column in Branding.__table__.columns:
+        if column.name in ("id", "updated_at"):
+            continue
+        default = column.default.arg if column.default is not None else None
+        out[column.name] = default if not callable(default) else None
+    out["updated_at"] = None
+    return {key: out.get(key) for key in branding_to_dict(Branding()).keys()}
+
+
+def effective_branding(db: Session) -> dict:
+    """Branding every surface must render (GET /api/branding, login page, invoices).
+
+    Branding is the Pro "branding" entitlement: without it (Community, expired or
+    removed license) the stock branding is used. The stored values are left
+    untouched so they reappear as soon as the install is licensed again.
+    """
+    from license_manager import get_license
+    if not get_license().has_feature("branding"):
+        return default_branding_dict()
+    return branding_to_dict(get_or_create_branding(db))

@@ -14,6 +14,7 @@ from core.db import get_db
 from modules.reporting.recipient_policy import normalize_recipients
 from core.db_compat import execute_insert_returning_id, sql
 from core.rbac import require_role, require_superadmin, get_org_scope
+from license_manager import feature_gate, require_feature
 
 log = logging.getLogger("odin.api")
 
@@ -65,7 +66,7 @@ def _chargeback_date(value):
         raise HTTPException(422, "Invalid calendar date") from None
 
 
-@router.get("/reports/chargebacks")
+@router.get("/reports/chargebacks", dependencies=[Depends(feature_gate("analytics"))])
 async def chargeback_report(
     start_date: str = None, end_date: str = None,
     current_user: dict = Depends(require_role("admin", scope="read:analytics")),
@@ -159,6 +160,9 @@ async def create_report_schedule(body: dict, current_user: dict = Depends(requir
         raise HTTPException(status_code=400, detail="Report name is required")
     if report_type not in REPORT_TYPES:
         raise HTTPException(status_code=400, detail=f"Invalid report type. Valid: {', '.join(REPORT_TYPES)}")
+    from modules.reporting.report_runner import ANALYTICS_REPORT_TYPES
+    if report_type in ANALYTICS_REPORT_TYPES:
+        require_feature("analytics")
     if not recipients:
         raise HTTPException(status_code=400, detail="At least one recipient email is required")
     if frequency not in ("daily", "weekly", "monthly"):
@@ -228,7 +232,9 @@ async def run_report_now(schedule_id: int, current_user: dict = Depends(require_
     row = db.execute(text("SELECT * FROM report_schedules WHERE id = :id"), {"id": schedule_id}).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Schedule not found")
-    from modules.reporting.report_runner import run_report, ReportDeliveryError
+    from modules.reporting.report_runner import run_report, ReportDeliveryError, ANALYTICS_REPORT_TYPES
+    if row._mapping["report_type"] in ANALYTICS_REPORT_TYPES:
+        require_feature("analytics")
     try:
         run_report(dict(row._mapping))
     except ReportDeliveryError as e:

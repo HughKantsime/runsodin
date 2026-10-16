@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Bell, Settings as SettingsIcon, Users, Shield, Palette, Key, Webhook, Database, Eye, ScrollText, FileText } from 'lucide-react'
+import { Bell, Settings as SettingsIcon, Users, Shield, Palette, Key, Webhook, Database, Eye, ScrollText, FileText, Lock } from 'lucide-react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import Admin from './Admin'
 import Permissions from './Permissions'
@@ -44,6 +44,16 @@ function AccessAccordion({ title, icon: Icon, children, defaultOpen = false }: {
   )
 }
 
+// Inline upsell for a Pro-only section inside a tab that is otherwise free.
+function RequiresLicense({ tier = 'Pro', what }: { tier?: string; what: string }) {
+  return (
+    <p className="flex items-center gap-2 text-sm text-[var(--brand-text-secondary)]">
+      <Lock size={14} className="text-[var(--brand-primary)]" />
+      <span>{what} requires an O.D.I.N. <span className="text-[var(--brand-primary)] font-medium">{tier}</span> license.</span>
+    </p>
+  )
+}
+
 export default function Settings() {
   // Deep links such as the system-notice banner's /settings?tab=system#backups.
   const [searchParams] = useSearchParams()
@@ -59,7 +69,9 @@ export default function Settings() {
   })
   const uiMode = pricingData?.ui_mode || 'advanced'
 
-  const PRO_TABS = ['access', 'integrations', 'branding']
+  // Access stays open on every tier: MFA, API tokens, sessions, IP allowlist and
+  // organizations are free; its Pro-only sections are gated individually below.
+  const PRO_TABS = ['integrations', 'branding']
   const ALL_TABS = [
     { id: 'general', label: 'General', icon: SettingsIcon },
     { id: 'notifications', label: 'Notifications', icon: Bell },
@@ -107,10 +119,10 @@ export default function Settings() {
           </div>
         </AccessAccordion>
         <AccessAccordion title="Permissions" icon={Shield}>
-          <Permissions />
+          {lic.hasFeature('permissions') ? <Permissions /> : <RequiresLicense what="Custom role permissions" />}
         </AccessAccordion>
         <AccessAccordion title="Authentication (OIDC & MFA)" icon={Key}>
-          <OIDCSettings />
+          {lic.hasFeature('sso') ? <OIDCSettings /> : <RequiresLicense what="Single sign-on (OIDC)" />}
           <div className="border-t border-[var(--brand-card-border)] pt-6 mt-6">
             <MFASetup key={getCurrentUser()?.id} principalKey={getCurrentUser()?.id} />
           </div>

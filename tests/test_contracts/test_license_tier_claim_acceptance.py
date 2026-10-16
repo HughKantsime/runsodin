@@ -19,12 +19,13 @@ def test_pro_advertised_unlimited_users_does_not_reject_at_ten_thousand(signed_l
 
 @pytest.mark.parametrize('tier,required',[
     ('education',{'job_approval','user_groups','print_quotas'}),
-    ('enterprise',{'multi_user','rbac','orders','products','audit_export','sqlcipher'}),
+    ('enterprise',{'multi_user','rbac','orders','products','audit_export','mqtt_republish'}),
 ])
 def test_signed_tier_effective_features(signed_license,tier,required):
     _,info=signed_license(tier=tier,features=[])
     assert info.valid
     assert required<=set(info.to_public_dict()['features'])
+    assert not {'opcua','sqlcipher'}&set(info.to_public_dict()['features'])
 
 
 def test_classroom_workflow_requires_explicit_signed_entitlement(signed_license):

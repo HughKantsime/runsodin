@@ -12,6 +12,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session
 
+# Exercises Pro/Enterprise-gated routes (cert-fix-G tier gates): run under a real signed license.
+pytestmark = pytest.mark.usefixtures("education_license")
+
 
 ROOT = Path(__file__).resolve().parents[2]
 BACKEND = ROOT / "backend"

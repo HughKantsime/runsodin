@@ -7,7 +7,7 @@ import OrgManager from './OrgManager'
 import Settings from '../../pages/admin/Settings'
 const boundary = vi.hoisted(() => ({ role: 'admin', failMember: false, fetch: vi.fn() }))
 vi.mock('../../permissions', () => ({ canDo: () => boundary.role === 'admin', getCurrentUser: () => ({ id: 99, role: boundary.role, group_id: null }), clearSensitiveBrowserState: vi.fn() }))
-vi.mock('../../LicenseContext', () => ({ useLicense: () => ({ isPro: true, hasFeature: (name: string) => name === 'user_groups', atUserLimit: () => false, maxUsers: 0 }) }))
+vi.mock('../../LicenseContext', () => ({ useLicense: () => ({ isPro: true, hasFeature: (name: string) => ['user_groups', 'sso', 'permissions'].includes(name), atUserLimit: () => false, maxUsers: 0 }) }))
 vi.mock('../../BrandingContext', () => ({ useBrandingUpdate: () => vi.fn(), applyBrandingFavicon: vi.fn() }))
 const org = { id: 17, name: 'Fixture organization', member_count: 1, is_org: true }
 const users = [{ id: 3, username: 'Existing member', email: 'existing@example.test', role: 'viewer', group_id: 17, is_active: true }, { id: 4, username: 'Unassigned user', email: 'unassigned@example.test', role: 'operator', group_id: null, is_active: true }]

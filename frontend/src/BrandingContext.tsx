@@ -97,7 +97,12 @@ export function BrandingProvider({ children }) {
           const meRes = await fetch(`${API_BASE}/auth/me`, { credentials: 'include' })
           if (meRes.ok) {
             const me = await meRes.json()
-            if (me.group_id) {
+            // Org white-labelling is the Pro "branding" entitlement: values stored
+            // before a downgrade/expiry must not keep white-labelling this install.
+            const licenseRes = me.group_id ? await fetch(`${API_BASE}/license`, { credentials: 'include' }) : null
+            const license = licenseRes?.ok ? await licenseRes.json() : null
+            const brandingLicensed = Array.isArray(license?.features) && license.features.includes('branding')
+            if (me.group_id && brandingLicensed) {
               const settingsRes = await fetch(`${API_BASE}/orgs/${me.group_id}/settings`, { credentials: 'include' })
               if (settingsRes.ok) {
                 const orgSettings = await settingsRes.json()
@@ -211,7 +216,8 @@ function applyBrandingCSS(b) {
   // Accent / brand — always apply (darken for contrast in light mode)
   const primary = isLight ? ensureContrast(b.primary_color) : b.primary_color
   root.style.setProperty("--brand-primary", primary)
-  root.style.setProperty("--brand-accent", b.accent_color)
+  // A per-user accent (GET /api/auth/me/theme, hooks/serverTheme.ts) wins over the branding accent.
+  root.style.setProperty("--brand-accent", root.dataset.userAccent || b.accent_color)
 
   // Fonts — always apply
   root.style.setProperty("--brand-font-display", b.font_display)

@@ -5,6 +5,9 @@ import pytest
 from sqlalchemy import text
 from tests.test_contracts.test_education_review_workflow import review_db
 
+# Exercises Pro/Enterprise-gated routes (cert-fix-G tier gates): run under a real signed license.
+pytestmark = pytest.mark.usefixtures("enterprise_license")
+
 @pytest.fixture
 def republisher(review_db,monkeypatch):
     from modules.notifications import mqtt_republish

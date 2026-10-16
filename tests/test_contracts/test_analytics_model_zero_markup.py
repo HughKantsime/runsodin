@@ -3,6 +3,9 @@ import pytest
 from sqlalchemy import text
 from tests.test_contracts.test_api_token_delegation_behavior import token_client, review_db
 
+# Exercises Pro/Enterprise-gated routes (cert-fix-G tier gates): run under a real signed license.
+pytestmark = pytest.mark.usefixtures("pro_license")
+
 
 @pytest.mark.parametrize('markup,factor', [(0,0),(None,300),(50,50)])
 def test_analytics_model_rankings_preserve_explicit_zero_markup(token_client, review_db, markup, factor):

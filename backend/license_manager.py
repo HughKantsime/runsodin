@@ -83,7 +83,7 @@ TIERS = {
             "maintenance", "care_counters",
             "job_approval", "user_groups", "print_quotas", "usage_reports",
             "education_workflows",
-            "opcua", "mqtt_republish", "audit_export", "sqlcipher",
+            "mqtt_republish", "audit_export",
         ],
     },
 }
@@ -210,6 +210,7 @@ class LicenseInfo:
         self.binding_present = False
         self.binding_matches_current = False
         self.license_sha256 = ""
+        self.expiry_deadline: Optional[datetime] = None  # set for valid licenses
 
     def has_feature(self, feature: str) -> bool:
         """Check if the current license includes a feature.
@@ -452,6 +453,17 @@ def verify_license_text(raw: str, installation_id_reader=None) -> LicenseInfo:
             info.features = TIERS["community"]["features"]
             return info
 
+        # The license portal signs "features": null when the admin leaves the
+        # feature list blank; null means "tier default", exactly like an
+        # absent field. Any other non-list value is malformed.
+        payload_features = payload.get("features")
+        if payload_features is not None and not (
+            isinstance(payload_features, list)
+            and all(isinstance(feature, str) for feature in payload_features)
+        ):
+            info.error = "License contains an invalid feature list"
+            return info
+
         # Valid license
         tier = payload["tier"]
         tier_def = TIERS.get(tier, TIERS["community"])
@@ -463,14 +475,15 @@ def verify_license_text(raw: str, installation_id_reader=None) -> LicenseInfo:
         info.email = payload.get("email", "")
         info.issued_at = payload.get("issued_at", "")
         info.expires_at = payload["expires_at"]
+        info.expiry_deadline = expires
         max_printers = payload.get("max_printers")
         info.max_printers = tier_def["max_printers"] if max_printers is None else max_printers
         # The activation service uses null for an unspecified tier-default cap.
         # Preserve explicit numeric limits, including zero.
         max_users = payload.get("max_users")
         info.max_users = tier_def["max_users"] if max_users is None else max_users
-        if "features" in payload:
-            info.features = payload["features"]
+        if payload_features is not None:
+            info.features = payload_features
         else:
             info.features = [
                 feature
@@ -521,6 +534,48 @@ def save_license_file(content: str, directory: str = None) -> str:
     return path
 
 
+def install_portal_license(license_content) -> "LicenseInfo":
+    """Verify a portal-issued license and install it only if it is valid.
+
+    The candidate is checked with the runtime rules (signature, binding,
+    expiry, payload) BEFORE it touches LICENSE_DIR, so an invalid portal
+    response can never replace or delete the installed license.
+    """
+    from fastapi import HTTPException
+    if not isinstance(license_content, str):
+        raise HTTPException(status_code=502, detail="License server returned an invalid license file")
+    candidate = verify_license_text(license_content.strip())
+    if not candidate.valid or candidate.error:
+        raise HTTPException(status_code=400, detail=candidate.error or "License server returned an invalid license")
+    try:
+        save_license_file(license_content)
+    except OSError:
+        raise HTTPException(status_code=503, detail="License installation could not be confirmed; check current license status")
+    return get_license()
+
+
+def quarantine_installed_license() -> Optional[str]:
+    """Atomically move the installed license aside (offline unactivation hand-over).
+
+    The license file is renamed (same directory, atomic) to
+    ``odin.license.unactivated-<UTC timestamp>``, which the loader never reads,
+    so this install reverts to Community at once. An aborted hand-over is
+    recovered only by re-activating with the licensing server; the quarantined
+    copy is kept for the operator's records. Returns the quarantine path, or
+    None when no license file was installed.
+    """
+    global _cached_license, _cached_mtime
+    path = _find_license_file()
+    if not path:
+        return None
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    target = f"{path}.unactivated-{stamp}"
+    os.replace(path, target)
+    _cached_license = None
+    _cached_mtime = 0
+    return target
+
+
 # ── Cached license (reloaded when file changes) ──
 _cached_license: Optional[LicenseInfo] = None
 _cached_mtime: float = 0
@@ -533,7 +588,14 @@ def get_license() -> LicenseInfo:
     license_path = _find_license_file()
     current_mtime = os.path.getmtime(license_path) if license_path else 0
 
-    if _cached_license is None or current_mtime != _cached_mtime:
+    # A valid license that reaches its expiry instant while cached is re-read
+    # (and so reverts to Community) without waiting for a file change or restart.
+    expired_in_cache = (
+        _cached_license is not None and _cached_license.valid
+        and _cached_license.expiry_deadline is not None
+        and datetime.now(timezone.utc) >= _cached_license.expiry_deadline
+    )
+    if _cached_license is None or current_mtime != _cached_mtime or expired_in_cache:
         _cached_license = load_license()
         _cached_mtime = current_mtime
 
@@ -556,6 +618,31 @@ def require_feature(feature: str):
             status_code=403,
             detail=f"Feature '{feature}' requires {requirement}. Current tier: {tier}"
         )
+
+
+_READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def feature_gate(feature: str, *, keep_existing_records: bool = False):
+    """FastAPI dependency enforcing ``require_feature`` for a route family.
+
+    ``keep_existing_records=True`` is the downgrade/expiry policy for
+    record-keeping features (orders, products, maintenance): a license that
+    lapses must never cost an install its own data, so reads/exports (GET,
+    HEAD, OPTIONS) and deletion of existing records stay available on every
+    tier, while creating or changing records (POST, PUT, PATCH) requires the
+    entitlement. Without it every method is gated (computed features such as
+    analytics, and configuration such as branding).
+    """
+    from fastapi import Request
+
+    def dependency(request: Request) -> None:
+        if keep_existing_records and (request.method in _READ_METHODS or request.method == "DELETE"):
+            return
+        require_feature(feature)
+
+    dependency.__name__ = f"require_feature_{feature}"
+    return dependency
 
 
 def license_is_managed_externally() -> bool:

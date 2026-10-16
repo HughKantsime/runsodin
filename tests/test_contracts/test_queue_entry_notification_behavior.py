@@ -7,6 +7,9 @@ from modules.notifications.models import AlertPreference
 from tests.test_contracts.test_job_approval_notification_behavior import approval_client, review_db, signed_license
 from tests.test_contracts.test_mqtt_protocol_peer_behavior import mqtt_peer
 
+# Exercises Pro/Enterprise-gated routes (cert-fix-G tier gates): run under a real signed license.
+pytestmark = pytest.mark.usefixtures("enterprise_license")
+
 
 def configure_creator(review_db, user, enabled=True):
     user.update(id=3, role='operator', username='Synthetic operator')
@@ -51,7 +54,8 @@ def test_each_generic_queue_entry_honors_creator_preferences(approval_client, re
     assert all(e["_ws_user_ids"]==[3] for e in events)
 
 
-def test_actual_pending_http_alert_reaches_owned_mqtt_protocol_peer(approval_client, review_db, mqtt_peer, monkeypatch):
+def test_actual_pending_http_alert_reaches_owned_mqtt_protocol_peer(approval_client, review_db, mqtt_peer, monkeypatch, signed_license):
+    signed_license(tier='enterprise', features=[])  # MQTT event republish is an Enterprise entitlement
     from core import event_bus
     from core.event_bus import InMemoryEventBus
     from modules.notifications import mqtt_republish
@@ -130,7 +134,8 @@ def test_other_queue_entries_rollback_atomically_without_event_replay(approval_c
 
 
 @pytest.mark.parametrize('quiet',[False,True])
-def test_configured_quiet_hours_keep_http_in_app_event_but_suppress_mqtt(approval_client,review_db,monkeypatch,quiet):
+def test_configured_quiet_hours_keep_http_in_app_event_but_suppress_mqtt(approval_client,review_db,monkeypatch,quiet,signed_license):
+    signed_license(tier='enterprise', features=[])  # MQTT event republish is an Enterprise entitlement
     from datetime import datetime,timezone
     from types import SimpleNamespace
     from core import event_bus

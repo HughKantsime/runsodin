@@ -23,7 +23,8 @@ from modules.system.schemas import HealthCheck
 from core.config import settings
 from license_manager import (
     get_license, save_license_file, verify_license_text, normalize_license_upload, get_installation_id,
-    get_device_keypair, sign_license_challenge, require_license_mutation_enabled,
+    get_device_keypair, sign_license_challenge, require_license_mutation_enabled, install_portal_license,
+    quarantine_installed_license,
 )
 
 log = logging.getLogger("odin.api")
@@ -360,15 +361,7 @@ async def activate_license(
     if not license_content:
         raise HTTPException(status_code=502, detail="License server returned no license file")
 
-    path = save_license_file(license_content)
-    import license_manager
-    license_manager._cached_license = None
-    license_manager._cached_mtime = 0
-    license_info = get_license()
-
-    if license_info.error:
-        os.remove(path)
-        raise HTTPException(status_code=400, detail=license_info.error)
+    license_info = install_portal_license(license_content)
 
     return {
         "status": "activated", "tier": license_info.tier,
@@ -404,6 +397,9 @@ def build_activation_request(
     import socket
     from starlette.responses import Response as _Response
 
+    if not body.key.strip() or not body.nonce.strip():
+        raise HTTPException(status_code=400, detail="A license key and a challenge nonce from the licensing server are required.")
+    body = OfflineActivationRequestBody(key=body.key.strip(), nonce=body.nonce.strip())
     installation_id = get_installation_id()
     _priv, device_pubkey = get_device_keypair()
     bootstrap_signature = sign_license_challenge(
@@ -479,14 +475,11 @@ async def unactivate_license(
         detail = resp.json().get("error", "Unactivation failed") if resp.headers.get("content-type", "").startswith("application/json") else f"License server returned {resp.status_code}"
         raise HTTPException(status_code=resp.status_code, detail=detail)
 
-    # Remove local license file
+    # Remove local license file and clear the cache
     from license_manager import LICENSE_DIR, LICENSE_FILENAME
-    license_path = os.path.join(LICENSE_DIR, LICENSE_FILENAME)
-    if os.path.exists(license_path):
-        os.remove(license_path)
-
-    # Clear cache
     import license_manager
+    if os.path.exists(license_path := os.path.join(LICENSE_DIR, LICENSE_FILENAME)):
+        os.remove(license_path)
     license_manager._cached_license = None
     license_manager._cached_mtime = 0
 
@@ -541,15 +534,7 @@ async def reactivate_license(
     if not license_content:
         raise HTTPException(status_code=502, detail="License server returned no license file")
 
-    path = save_license_file(license_content)
-    import license_manager
-    license_manager._cached_license = None
-    license_manager._cached_mtime = 0
-    license_info = get_license()
-
-    if license_info.error:
-        os.remove(path)
-        raise HTTPException(status_code=400, detail=license_info.error)
+    license_info = install_portal_license(license_content)
 
     log_audit(db, "license.reactivated", "system", details={"tier": license_info.tier, "licensee": license_info.licensee})
     db.commit()
@@ -561,24 +546,45 @@ async def reactivate_license(
     }
 
 
-@router.get("/license/unactivation-request", tags=["License"])
-def get_unactivation_request(current_user: dict = Depends(require_superadmin())):
-    """Generate a downloadable unactivation request file for offline unactivation. Admin only."""
+class OfflineUnactivationRequestBody(PydanticBaseModel):
+    nonce: str  # issued by GET /api/v1/challenge on the licensing server
+
+
+@router.post("/license/unactivation-request", tags=["License"])
+def get_unactivation_request(
+    body: OfflineUnactivationRequestBody,
+    current_user: dict = Depends(require_superadmin(scope="write")),
+    db: Session = Depends(get_db),
+    license_mutation_allowed: None = Depends(require_license_mutation_enabled),
+):
+    """Signed offline unactivation request over a portal challenge nonce (proof of possession). Admin only."""
     import socket
     from starlette.responses import Response as _Response
 
     current_license = get_license()
     if not current_license.key:
         raise HTTPException(status_code=400, detail="Current license has no key. Cannot generate unactivation request.")
+    nonce = body.nonce.strip()
+    if not nonce:
+        raise HTTPException(status_code=400, detail="A challenge nonce from the licensing server is required.")
 
+    installation_id = get_installation_id()
     payload = {
-        "installation_id": get_installation_id(),
+        "installation_id": installation_id,
         "hostname": socket.gethostname(),
         "key": current_license.key,
         "odin_version": __version__,
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "nonce": nonce,
+        "signature": sign_license_challenge("unactivate", current_license.key, installation_id, nonce),
     }
     content = json.dumps(payload, indent=2)
+    try:  # hands the seat over: this install stops using the license now (as online /unactivate)
+        quarantined = quarantine_installed_license()
+    except OSError:
+        raise HTTPException(status_code=503, detail="License could not be removed; no unactivation request was issued")
+    log_audit(db, "license.offline_unactivation_requested", "system", details={"quarantined": os.path.basename(quarantined or "")})
+    db.commit()
     return _Response(
         content=content,
         media_type="application/json",

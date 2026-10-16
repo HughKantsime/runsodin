@@ -11,7 +11,9 @@ Sub-router responsibilities:
 """
 
 import logging
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from license_manager import feature_gate
 
 log = logging.getLogger("odin.api")
 
@@ -34,7 +36,8 @@ router.include_router(routes_config.router)
 router.include_router(routes_setup.router)
 router.include_router(routes_backup.router)
 router.include_router(routes_settings.router)
-router.include_router(routes_maintenance.router)
+# Pro maintenance tracking; existing tasks/logs stay readable/deletable on every tier.
+router.include_router(routes_maintenance.router, dependencies=[Depends(feature_gate("maintenance", keep_existing_records=True))])
 router.include_router(routes_admin.router)
 router.include_router(diagnostics.router)
 router.include_router(troubleshooting.router)

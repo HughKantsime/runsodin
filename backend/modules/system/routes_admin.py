@@ -7,6 +7,7 @@ import json
 import collections
 import logging
 import os
+import re
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -45,6 +46,20 @@ _LOG_FILES = {
 
 # Bound each returned line even when a process writes without newlines.
 _MAX_LOG_LINE_BYTES = 16384
+
+# The level of a log line is its first level token (Python logging "LEVEL" or
+# "[LEVEL]", supervisord, zerolog's INF/WRN/ERR/DBG). Matching the token, not a
+# substring of the whole line, keeps "[INFO] ... transient error" out of ERROR.
+_LEVEL_TOKEN = re.compile(r"\b(DEBUG|DBG|INFO|INF|WARNING|WARN|WRN|ERROR|ERR|CRITICAL|CRIT|FATAL|FTL)\b")
+_LEVEL_ALIASES = {"DBG": "DEBUG", "INF": "INFO", "WARN": "WARNING", "WRN": "WARNING", "ERR": "ERROR",
+                  "CRITICAL": "ERROR", "CRIT": "ERROR", "FATAL": "ERROR", "FTL": "ERROR"}
+
+
+def _line_level(line: str) -> Optional[str]:
+    if line[:1].isspace():
+        return None  # traceback/continuation line: it carries no level of its own
+    match = _LEVEL_TOKEN.search(line)
+    return _LEVEL_ALIASES.get(match.group(1), match.group(1)) if match else None
 
 
 @router.get("/admin/logs", tags=["Admin"])
@@ -99,7 +114,7 @@ def get_logs(
             stripped = chunk.rstrip(b"\r\n").decode("utf-8", errors="replace")
             if truncated:
                 stripped += " [line truncated]"
-            if level_upper and level_upper not in stripped.upper():
+            if level_upper and _line_level(stripped) != level_upper:
                 continue
             if search and search.lower() not in stripped.lower():
                 continue
@@ -142,7 +157,7 @@ async def stream_logs(
                     await asyncio.sleep(0.5)
                     continue
                 stripped = line.rstrip("\n")
-                if level_upper and level_upper not in stripped.upper():
+                if level_upper and _line_level(stripped) != level_upper:
                     continue
                 if search and search.lower() not in stripped.lower():
                     continue
@@ -167,8 +182,9 @@ def download_support_bundle(user=Depends(require_superadmin()), db: Session = De
     now = datetime.now(timezone.utc).isoformat()
 
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        db_path = "/data/odin.db"
-        db_size = os.path.getsize(db_path) if os.path.isfile(db_path) else 0
+        # The configured database (DATABASE_URL), not a hard-coded Docker path.
+        db_path = db.get_bind().url.database if sql.is_sqlite else None
+        db_size = os.path.getsize(db_path) if db_path and os.path.isfile(db_path) else 0
         printer_count = db.execute(text("SELECT COUNT(*) FROM printers")).scalar() or 0
         user_count = db.execute(text("SELECT COUNT(*) FROM users")).scalar() or 0
         job_count = db.execute(text("SELECT COUNT(*) FROM print_jobs")).scalar() or 0
@@ -222,7 +238,10 @@ def download_support_bundle(user=Depends(require_superadmin()), db: Session = De
         health = {}
         if sql.is_sqlite:
             try:
-                conn = sqlite3.connect(db_path)
+                if not db_path or not os.path.isfile(db_path):
+                    raise FileNotFoundError("configured SQLite database file not found")
+                # Read-only: diagnostics must never create or modify the database.
+                conn = sqlite3.connect(Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)
                 integrity = conn.execute("PRAGMA integrity_check").fetchone()
                 health["integrity"] = integrity[0] if integrity else "unknown"
                 tables = conn.execute(

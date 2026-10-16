@@ -8,6 +8,9 @@ from tests.test_contracts.test_audit_compliance_claim_acceptance import audit_cl
 from tests.test_contracts.test_education_review_workflow import review_db
 from tests.test_contracts.test_api_token_delegation_behavior import token_client
 
+# Exercises Pro/Enterprise-gated routes (cert-fix-G tier gates): run under a real signed license.
+pytestmark = pytest.mark.usefixtures("enterprise_license")
+
 
 def test_history_search_precedes_pagination_and_csv_matches(audit_client, review_db):
     client, _ = audit_client

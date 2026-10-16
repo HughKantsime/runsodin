@@ -7,6 +7,7 @@ import TroubleshootingPanel from './TroubleshootingPanel'
 import DataRetentionSettings from './DataRetentionSettings'
 import ReportScheduleManager from './ReportScheduleManager'
 import ChargebackReport from './ChargebackReport'
+import { useLicense } from '../../LicenseContext'
 import toast from 'react-hot-toast'
 import { Button, Card, Input } from '../ui'
 import { clearSensitiveBrowserState } from '../../permissions'
@@ -279,6 +280,7 @@ function AuditLogLink() {
 }
 
 export default function SystemTab() {
+  const analyticsLicensed = useLicense().hasFeature('analytics')
   const [bundlePending, setBundlePending] = useState(false)
   const [bundleError, setBundleError] = useState('')
   const bundleInFlight = useRef(false)
@@ -527,10 +529,10 @@ export default function SystemTab() {
         <ReportScheduleManager />
       </Card>
 
-      {/* Cost Chargebacks */}
-      <Card padding="lg" className="mb-4 md:mb-6">
+      {/* Cost Chargebacks (Pro analytics; backend 403 below Pro) */}
+      {analyticsLicensed && <Card padding="lg" className="mb-4 md:mb-6">
         <ChargebackReport />
-      </Card>
+      </Card>}
 
       <InstallAppCard />
       <AuditLogLink />

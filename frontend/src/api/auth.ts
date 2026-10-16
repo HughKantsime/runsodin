@@ -153,7 +153,12 @@ export const license = {
   remove: (): Promise<void> => fetchAPI('/license', { method: 'DELETE' }),
   activate: (key: string): Promise<License> => fetchAPI('/license/activate', { method: 'POST', body: JSON.stringify({ key }) }),
   getInstallationId: (): Promise<{ installation_id: string }> => fetchAPI('/license/installation-id'),
-  getActivationRequest: (): Promise<unknown> => fetchAPI('/license/activation-request'),
+  // Offline (air-gapped) exchange: the nonce is the challenge code the license
+  // portal issues for this installation ID; ODIN signs it with the device key.
+  getActivationRequest: (key: string, nonce: string): Promise<unknown> =>
+    fetchAPI('/license/activation-request', { method: 'POST', body: JSON.stringify({ key, nonce }) }),
+  getUnactivationRequest: (nonce: string): Promise<unknown> =>
+    fetchAPI('/license/unactivation-request', { method: 'POST', body: JSON.stringify({ nonce }) }),
 }
 
 export const permissions = {

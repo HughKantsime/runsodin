@@ -355,6 +355,8 @@ def _odin_version() -> str:
         return "unknown"
 
 
+# Operational monitoring (Prometheus scrape): deliberately free on every tier;
+# it is not the Pro "analytics" entitlement (cert-G tier decision 2026-10-14).
 @router.get("/metrics", tags=["Monitoring"])
 async def prometheus_metrics(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer", scope="read:analytics"))):
     """Tenant-scoped metrics; scoped alerts count the current recipient only."""

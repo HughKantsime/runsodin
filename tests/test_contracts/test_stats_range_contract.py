@@ -7,6 +7,9 @@ from tests.test_contracts.test_education_review_workflow import review_db
 from tests.test_contracts.test_product_bom_integrity import bom_client
 from tests.test_contracts.test_api_token_delegation_behavior import token_client
 
+# Exercises Pro/Enterprise-gated routes (cert-fix-G tier gates): run under a real signed license.
+pytestmark = pytest.mark.usefixtures("pro_license")
+
 
 def test_selected_stats_range_excludes_older_completed_job(analytics_client, review_db):
     finished = datetime.now(timezone.utc) - timedelta(days=10)

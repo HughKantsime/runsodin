@@ -1,6 +1,10 @@
 """Owned HTTP completed-model ranking, independent of monetary rankings."""
 from sqlalchemy import text
 from tests.test_contracts.test_analytics_financial_behavior import analytics_client, review_db, bom_client
+import pytest
+
+# Exercises Pro/Enterprise-gated routes (cert-fix-G tier gates): run under a real signed license.
+pytestmark = pytest.mark.usefixtures("pro_license")
 
 def test_completed_job_counts_rank_unpriced_models_and_filter_foreign_rows(analytics_client,review_db):
     for mid,org,status,copies in [(101,1,'completed',99),(103,None,'completed',1),(103,1,'completed',1),(103,2,'completed',1),(101,1,'pending',1),(102,1,'completed',1)]:

@@ -2290,7 +2290,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 161,
+      "line": 176,
       "path": "backend/modules/system/routes_admin.py",
       "pattern": "sqlite3",
       "reason": "SQLite integrity-check branch; PostgreSQL uses provider-specific health checks",
@@ -2298,7 +2298,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 226,
+      "line": 245,
       "path": "backend/modules/system/routes_admin.py",
       "pattern": "PRAGMA",
       "reason": "SQLite integrity-check branch; PostgreSQL uses provider-specific health checks",
@@ -2306,11 +2306,19 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 8,
+      "line": 16,
       "path": "backend/modules/system/sanitize.py",
       "pattern": "qmark-parameter",
       "reason": "Secret-filter regular expressions contain question marks; this utility executes no SQL",
-      "source": "re.compile(r'''(?ix)[\"']?\\b(?:password|passwd|access[_-]?code|api[_-]?key|token|secret|credential|cookie|serial(?:_number)?)\\b[\"']?\\s*[:=]\\s*(?:\"[^\"\\n]*\"|'[^'\\n]*'|[^\\s,;}]+)'''),"
+      "source": "re.compile(r\"\"\"(?ix)[\"']?(?<![A-Za-z0-9])"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 27,
+      "path": "backend/modules/system/sanitize.py",
+      "pattern": "qmark-parameter",
+      "reason": "Secret-filter regular expressions contain question marks; this utility executes no SQL",
+      "source": "r'|(?=[0-9A-Fa-f:]*[0-9A-Fa-f]{3})(?:' + _HEX4 + r':){0,6}(?:' + _HEX4 + r')?::(?:' + _HEX4 + r':){0,6}(?:' + _HEX4 + r')?)'"
     },
     {
       "classification": "sqlite-provider-only",

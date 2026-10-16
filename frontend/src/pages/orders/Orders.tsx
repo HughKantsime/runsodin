@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useNewItemShortcut } from '../../hooks/useNewItemShortcut'
 import { orders, products, orderInvoice } from '../../api'
 import { ShoppingCart, Plus, RefreshCw, Clock, TrendingUp, Package, Truck, DollarSign } from 'lucide-react'
 import { canDo } from '../../permissions'
@@ -104,6 +105,7 @@ export default function Orders() {
   }
 
   const openCreateModal = () => { setFormData(EMPTY_ORDER_FORM); setItems([]); setShowModal(true) }
+  useNewItemShortcut('/orders', openCreateModal, canDo('orders.create'))
 
   const openDetailModal = async (order) => {
     try {

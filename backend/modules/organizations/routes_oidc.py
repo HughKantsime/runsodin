@@ -210,6 +210,14 @@ def _resolve_oidc_user(
     if not valid_group:
         raise OIDCIdentityError("oidc_default_tenant_required")
 
+    # Auto-provisioning creates a user like POST /api/users does, so it is
+    # bound by the same license user cap (Community: 1 user).
+    from license_manager import check_user_limit
+    try:
+        check_user_limit(db.execute(text("SELECT COUNT(*) FROM users")).scalar())
+    except HTTPException as exc:
+        raise OIDCIdentityError("license_user_limit_reached") from exc
+
     username = email.split("@", 1)[0]
     base_username = username
     counter = 1

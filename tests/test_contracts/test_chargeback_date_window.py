@@ -3,6 +3,9 @@ import pytest
 from sqlalchemy import text
 from tests.test_contracts.test_api_token_delegation_behavior import token_client, review_db
 
+# Exercises Pro/Enterprise-gated routes (cert-fix-G tier gates): run under a real signed license.
+pytestmark = pytest.mark.usefixtures("pro_license")
+
 
 def test_chargeback_end_day_includes_midnight_and_final_second(token_client, review_db):
     from modules.reporting.routes import reports

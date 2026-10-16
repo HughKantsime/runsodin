@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react'
+import { useNewItemShortcut } from '../../hooks/useNewItemShortcut'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Package, Trash2, Pencil, X, AlertTriangle, ArrowUpDown } from 'lucide-react'
 import clsx from 'clsx'
@@ -64,6 +65,8 @@ export default function Consumables() {
     setEditingItem(null)
     setFormData({ name: '', sku: '', unit: 'piece', cost_per_unit: '', current_stock: '', min_stock: '', vendor: '', notes: '', status: 'active' })
   }
+
+  useNewItemShortcut('/consumables', () => { handleCloseModal(); setShowModal(true) }, canDo('models.create'))
 
   const handleEdit = (item) => {
     setEditingItem(item)

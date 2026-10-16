@@ -6,6 +6,9 @@ from sqlalchemy import text
 from tests.test_contracts.test_education_review_workflow import review_db
 from tests.test_contracts.test_product_bom_integrity import bom_client
 
+# Exercises Pro/Enterprise-gated routes (cert-fix-G tier gates): run under a real signed license.
+pytestmark = pytest.mark.usefixtures("pro_license")
+
 
 def create_invoice_order(client, **extra):
     data={'order_number':'Synthetic invoice', 'items':[{'product_id':101,'quantity':2}]}

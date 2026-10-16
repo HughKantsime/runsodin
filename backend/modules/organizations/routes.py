@@ -19,6 +19,7 @@ from core.db_compat import execute_insert_returning_id, sql
 from core.rbac import require_role, require_superadmin, get_org_scope
 from core.dependencies import log_audit
 from core.webhook_utils import _validate_webhook_url
+from license_manager import require_feature
 from modules.organizations.education_policy import (
     assert_org_hard_delete_allowed,
     assert_printer_tenant_change_or_delete_allowed,
@@ -42,6 +43,8 @@ DEFAULT_ORG_SETTINGS = {
 }
 
 ALLOWED_SETTINGS_KEYS = set(DEFAULT_ORG_SETTINGS.keys())
+# Org-level white-labelling is the Pro "branding" entitlement; clearing stays free.
+BRANDING_SETTINGS_KEYS = {key for key in ALLOWED_SETTINGS_KEYS if key.startswith("branding_")}
 
 
 def _get_org_settings(db, org_id: int) -> dict:
@@ -261,6 +264,9 @@ async def update_org_settings(org_id: int, body: dict, current_user: dict = Depe
     org = db.execute(text("SELECT name, settings_json FROM groups WHERE id = :id AND is_org IS TRUE"), {"id": org_id}).fetchone()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
+
+    if any(body.get(key) not in (None, "") for key in BRANDING_SETTINGS_KEYS if key in body):
+        require_feature("branding")
 
     # SSRF validation and encryption for webhook URL before persisting
     if "webhook_url" in body and body["webhook_url"]:

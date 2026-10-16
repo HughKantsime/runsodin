@@ -11,7 +11,8 @@ vi.mock('../../api', () => ({
  getEducationMode: vi.fn().mockResolvedValue({enabled:false}), setEducationMode: vi.fn(),
  getApprovalSetting: vi.fn().mockResolvedValue({}), setApprovalSetting: vi.fn(),
 }))
-vi.mock('../../LicenseContext', () => ({ useLicense: () => ({ isPro: api.pro, hasFeature: () => false }) }))
+// License fixture: a Pro license carries the Pro tier features; Community carries none.
+vi.mock('../../LicenseContext', () => ({ useLicense: () => ({ isPro: api.pro, hasFeature: (f: string) => api.pro && ['permissions', 'sso', 'branding', 'webhooks'].includes(f) }) }))
 vi.mock('../../permissions', () => ({ getCurrentUser: () => ({ id: 1 }) }))
 vi.mock('./Admin', () => ({ default: () => <div>Users boundary</div> }))
 vi.mock('./Permissions', () => ({ default: () => <div>Permissions boundary</div> }))
@@ -67,12 +68,34 @@ test('F16-16.7-03 Access accordion mounts default Users then toggles Permissions
  fireEvent.click(screen.getByRole('button',{name:'Permissions',exact:true}))
  expect(screen.queryByText('Permissions boundary')).not.toBeInTheDocument()
 })
-test('F16-16.7-03 Community prevents opening Pro Access, Integrations and Branding', async () => {
+test('F16-16.7-03 Community prevents opening Pro Integrations and Branding', async () => {
  api.pro = false; mount()
- for (const label of ['Access','Integrations','Branding']) {
+ for (const label of ['Integrations','Branding']) {
   fireEvent.click(screen.getByRole('button',{name:label,exact:true}))
   expect(screen.getByRole('heading',{name:'Interface Mode'})).toBeInTheDocument()
  }
+})
+test('F20-20.1-04 Community opens Access: free security sections mount, Pro sections are locked', async () => {
+ api.pro = false; mount()
+ fireEvent.click(screen.getByRole('button',{name:'Access'}))
+ expect(screen.getByText('Users boundary')).toBeInTheDocument()
+ for (const [section, boundary] of [['Authentication (OIDC & MFA)','MFA boundary'],['Tokens & Sessions','Tokens boundary'],['Quotas & Restrictions','Allowlist boundary'],['Organizations','Organizations boundary']] as const) {
+  fireEvent.click(screen.getByRole('button',{name:section}))
+  expect(screen.getByText(boundary)).toBeInTheDocument()
+ }
+ expect(screen.getByText('Sessions boundary')).toBeInTheDocument()
+ expect(screen.queryByText('OIDC boundary')).not.toBeInTheDocument()
+ expect(screen.getByText(/Single sign-on \(OIDC\) requires an O\.D\.I\.N\./)).toBeInTheDocument()
+ fireEvent.click(screen.getByRole('button',{name:'Permissions'}))
+ expect(screen.queryByText('Permissions boundary')).not.toBeInTheDocument()
+ expect(screen.getByText(/Custom role permissions requires an O\.D\.I\.N\./)).toBeInTheDocument()
+})
+test('F20-20.1-04 Pro license mounts the Pro Access sections', async () => {
+ mount()
+ fireEvent.click(screen.getByRole('button',{name:'Access'}))
+ fireEvent.click(screen.getByRole('button',{name:'Authentication (OIDC & MFA)'}))
+ expect(screen.getByText('OIDC boundary')).toBeInTheDocument()
+ expect(screen.getByText('MFA boundary')).toBeInTheDocument()
 })
 test('F16-16.7-01 Advanced exposes the nine documented tabs', async () => {
  mount()
