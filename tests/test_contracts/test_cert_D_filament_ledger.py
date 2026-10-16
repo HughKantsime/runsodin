@@ -529,6 +529,15 @@ def _filament_writes(source):
     "def f(x, v):\n    setattr(x, 'remaining_weight_g', v)\n",
     "def f(u):\n    u.weight_used_g = 3\n",
     "def f(db):\n    found = find_spool_by_rfid('t')\n    setattr(found, 'notes', 'x')\n    setattr(found, k, 1)\n",
+    "q = 'INSERT INTO spools VALUES (1, 2, 3)'",
+    "q = 'MERGE INTO spools s USING x ON s.id=x.id WHEN MATCHED THEN UPDATE SET remaining_weight_g=x.w'",
+    "q = 'MERGE INTO spool_usage u USING x ON 1=0 WHEN NOT MATCHED THEN INSERT (spool_id) VALUES (x.id)'",
+    "q = 'UPDATE spools SET (status, remaining_weight_g) = (:s, :w) WHERE id=:id'",
+    "def f(db, g):\n    db.execute(text('UPDATE spools SET remaining_weight_g={} WHERE id=1'.format(g)))",
+    "def f(cur, g):\n    cur.execute('INSERT INTO spool_usage (spool_id, weight_used_g) VALUES (1, %s)' % g)",
+    "q = 'UPDATE spools /* adjust */ SET remaining_weight_g=0'",
+    "from modules.inventory.models import SpoolUsage as U\ndef f(db):\n    db.add(U(spool_id=1))",
+    "import modules.inventory.models as m\ndef f(db):\n    db.query(m.Spool).filter(m.Spool.id == 1).update({'x': 0})",
 ])
 def test_census_catches_planted_writers(planted):
     assert _filament_writes(planted), planted

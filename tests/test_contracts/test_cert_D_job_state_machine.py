@@ -144,6 +144,16 @@ PLANTED = [
     "def f(db):\n    (db.query(Job)\n       .filter(Job.id == 1)\n       .update({'status': 'failed'}))",
     "def f(db):\n    jobs = Job.__table__\n    db.execute(jobs.update().values(status='x'))",
     "def f(db):\n    found = get_job(db, 5)\n    found.status = 'failed'",
+    "def f(db, i):\n    db.execute(text('UPDATE jobs SET status={} WHERE id={}'.format(':s', i)))",
+    "def f(db, t):\n    db.execute(text('UPDATE {} SET status=:s'.format(t)))",
+    "def f(cur, t):\n    cur.execute('UPDATE %s SET status=?' % t)",
+    "q = 'UPDATE jobs SET (status, actual_end) = (:s, :e) WHERE id=:id'",
+    "q = 'UPDATE jobs /* why */ SET status=:s'",
+    "q = 'UPDATE jobs -- note\\n SET status=:s'",
+    "q = 'MERGE INTO jobs j USING src s ON j.id=s.id WHEN MATCHED THEN UPDATE SET status=s.status'",
+    "from modules.jobs.models import Job as J\ndef f(db):\n    db.query(J).filter(J.id == 1).update({'status': 'x'})",
+    "import modules.jobs.models as m\ndef f(db):\n    db.execute(update(m.Job).values(status='x'))",
+    "from modules.jobs.models import Job as J\ndef f(db):\n    row = db.get(J, 1)\n    row.status = 'x'",
 ]
 
 
@@ -159,6 +169,8 @@ def test_census_scanner_ignores_lock_noops_reads_and_other_tables():
     assert not _violations("def f(print_job):\n    print_job.status = 'completed'")
     assert not _violations("def f(order):\n    order.status = 'shipped'")
     assert not _violations("def f(db):\n    row = db.get(Job, 5)\n    setattr(row, 'notes', 'x')")
+    assert not _violations("q = 'UPDATE jobs /* status=1 */ SET notes=:n'")       # a comment is not a write
+    assert [w.kind for w in job_census.scan({'backend/modules/p.py': "q = 'UPDATE jobs SET status={}'.format(s)"})[0]] == ['sql update']
 
 
 def test_census_reports_each_call_site_not_each_file():

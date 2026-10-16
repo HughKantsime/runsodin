@@ -28,6 +28,10 @@ quoted, e.g. public."spools") and <c> a target column:
            query(Model)...update(...) across multi-line chains / bulk_update_mappings(Model, ...)
            <session>.delete(<inst>) / delete(Model) / sa_delete(Model) / Model.__table__.delete()
            query(Model)...delete() / <table var>.delete()
+  SQL may also be built with "...{}".format(...) or "...%s" % (...); comments are
+  ignored; row-value SET (a, <c>) = (...), MERGE INTO <t> ... UPDATE SET/INSERT and
+  column-less INSERT INTO <t> VALUES are writes. The model may be imported under
+  another name (from ... import Job as J) or qualified (models.Job).
   where <inst> is any name bound to the model: a parameter annotated with it (or
   named by the target's naming pattern), a variable assigned from
   query(Model)/get(Model, ...)/Model(...)/select(Model), or a loop variable over
@@ -82,6 +86,29 @@ def _string_value(node):
         # (a lock no-op) is told apart from {column}={value}.
         return "".join(part.value if isinstance(part, ast.Constant)
                        else f"{DYNAMIC}{ast.unparse(part.value)}{DYNAMIC}" for part in node.values)
+    if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "format"
+            and isinstance(node.func.value, ast.Constant) and isinstance(node.func.value.value, str)):
+        # "...{}...".format(x) / "{table}".format(table=t): each field becomes an interpolation
+        arguments = [ast.unparse(a) for a in node.args]
+        keywords = {k.arg: ast.unparse(k.value) for k in node.keywords if k.arg}
+        position = iter(range(len(arguments)))
+
+        def field(match):
+            name = match.group(1).split("!")[0].split(":")[0]
+            if name == "":
+                index = next(position, None)
+                source = arguments[index] if index is not None else "?"
+            elif name.isdigit():
+                source = arguments[int(name)] if int(name) < len(arguments) else "?"
+            else:
+                source = keywords.get(name, name)
+            return f"{DYNAMIC}{source}{DYNAMIC}"
+        return re.sub(r"\{([^{}]*)\}", field, node.func.value.value)
+    if (isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod)
+            and isinstance(node.left, ast.Constant) and isinstance(node.left.value, str)):
+        # "... %s ..." % x / "%(name)s" % {...}: each conversion becomes an interpolation
+        right = ast.unparse(node.right)
+        return re.sub(r"%(?:\((\w+)\))?[sdrif]", lambda m: f"{DYNAMIC}{m.group(1) or right}{DYNAMIC}", node.left.value)
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
         left, right = _string_value(node.left), _string_value(node.right)
         if left is None and right is None:
@@ -103,6 +130,9 @@ def _sets_column(clause, target, alias=None):
         # <c>=<c> (or =<table>.<c>) is a lock no-op; <c>=excluded.<c> or any other value writes.
         if re.search(rf"(?<![\w.]){name}\s*=\s*(?!{name}\s*(?:[,)]|$))", clause, re.I):
             return True
+        # Row-value form: SET (a, <c>, b) = (...)
+        if re.search(rf"\([^()]*(?<![\w.]){name}(?![\w])[^()]*\)\s*=", clause, re.I):
+            return True
     return False
 
 
@@ -111,8 +141,13 @@ def _dynamic_assignments(clause):
             and not re.fullmatch(rf"({DYNAMIC}[^{DYNAMIC}]+{DYNAMIC})\s*=\s*\1", a)]
 
 
+def _without_comments(sql):
+    return re.sub(r"--[^\n]*", " ", re.sub(r"/\*.*?\*/", " ", sql, flags=re.S))
+
+
 def sql_writes(sql, target=JOBS):
     """Write kinds a SQL text performs on the target's columns (or rows, for insert targets)."""
+    sql = _without_comments(sql)
     table = target.table_re()
     alias = r"(?:\s+(?:AS\s+)?(?!SET\b|WHERE\b)(\w+))?"
     kinds = []
@@ -132,11 +167,18 @@ def sql_writes(sql, target=JOBS):
             kinds.append("sql upsert")
     if re.search(rf"\b(?:INSERT\s+OR\s+REPLACE|REPLACE)\s+INTO\s+{table}", sql, re.I):
         kinds.append("sql replace")
+    for match in re.finditer(rf"\bMERGE\s+INTO\s+{table}", sql, re.I):
+        body = sql[match.end():match.end() + 2000]
+        updates = [m.end() for m in re.finditer(r"\bUPDATE\s+SET\b", body, re.I)]
+        if any(_sets_column(_set_clause(body, end), target) for end in updates) or (
+                (target.inserts or target.creation) and re.search(r"\bTHEN\s+INSERT\b", body, re.I)):
+            kinds.append("sql merge")
     for match in re.finditer(rf"\bINSERT\s+(?:OR\s+(?:IGNORE|ABORT|FAIL|ROLLBACK)\s+)?INTO\s+{table}\s*(\([^)]*\))?",
                              sql, re.I):
         columns = match.group(1) or ""
+        # No column list (INSERT INTO t VALUES / SELECT) writes every column.
         if target.inserts or (target.creation and (
-                any(re.search(rf"\b{c}\b", columns) for c in target.columns) or DYNAMIC in columns)):
+                not columns or any(re.search(rf"\b{c}\b", columns) for c in target.columns) or DYNAMIC in columns)):
             kinds.append("sql insert")
     if (target.inserts or target.creation) and re.search(rf"\bINSERT\s+INTO\s+{DYNAMIC}", sql, re.I):
         kinds.append("sql insert (dynamic table)")
@@ -263,6 +305,12 @@ class _Scanner(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Call(self, node):
+        if (isinstance(node.func, ast.Attribute) and node.func.attr == "format"
+                and isinstance(node.func.value, ast.Constant) and isinstance(node.func.value.value, str)):
+            self._strings(node)
+            for child in [*node.args, *(k.value for k in node.keywords)]:
+                self.visit(child)
+            return
         func = ast.unparse(node.func)
         model = self.t.model
         first = ast.unparse(node.args[0]) if node.args else ""
@@ -320,6 +368,8 @@ class _Scanner(ast.NodeVisitor):
     def visit_BinOp(self, node):
         if not self._strings(node):
             self.generic_visit(node)
+        elif isinstance(node.op, ast.Mod):
+            self.visit(node.right)
 
     def visit_JoinedStr(self, node):
         self._strings(node)
@@ -337,6 +387,24 @@ def backend_sources(skip_files=()):
     return sources
 
 
+class _ModelAliases(ast.NodeTransformer):
+    """Rewrite `from x import Job as J` uses (J) and qualified uses (models.Job) to the model's name."""
+
+    def __init__(self, model, tree):
+        self.model = model
+        self.aliases = {alias.asname for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
+                        for alias in node.names if alias.name == model and alias.asname}
+
+    def visit_Name(self, node):
+        return ast.copy_location(ast.Name(id=self.model, ctx=node.ctx), node) if node.id in self.aliases else node
+
+    def visit_Attribute(self, node):
+        self.generic_visit(node)
+        if node.attr == self.model and isinstance(node.value, (ast.Name, ast.Attribute)):
+            return ast.copy_location(ast.Name(id=self.model, ctx=node.ctx), node)
+        return node
+
+
 def scan(sources=None, target=JOBS):
     """(writes, deletes, clearing functions) over the backend or ``{path: source}``."""
     if sources is None:
@@ -344,7 +412,8 @@ def scan(sources=None, target=JOBS):
     writes, deletes, clearing = [], [], {}
     for rel, source in sources.items():
         scanner = _Scanner(rel, target)
-        scanner.visit(ast.parse(source))
+        tree = ast.parse(source)
+        scanner.visit(ast.fix_missing_locations(_ModelAliases(target.model, tree).visit(tree)))
         writes += scanner.writes
         deletes += scanner.deletes
         clearing.update({(rel, name): value for name, value in scanner.clearing.items()})
