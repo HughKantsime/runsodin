@@ -22,12 +22,18 @@ export default function VisionSettingsTab() {
     if (managesGlobalModels) vision.getModels().then(setModels).catch(() => setMsg('Model registry could not be loaded'))
     // Load printers with vision settings
     printers.list().then(async (printerList) => {
+      // Same effective-camera rule as the monitor: a stored URL, or one derived from the
+      // printer's credentials (auto-configured Bambu X1C/X1E/H2D), reported by the server.
+      let sources = new Map()
+      try {
+        sources = new Map((await vision.cameraPrinters()).map(item => [item.printer_id, item.camera_source]))
+      } catch { /* older server or no access: stored camera URLs only */ }
       const withVision = await Promise.all(
-        printerList.filter(p => p.camera_url).map(async (p) => {
+        printerList.filter(p => p.camera_url || sources.has(p.id)).map(async (p) => {
           try {
             const vs = await vision.getPrinterSettings(p.id)
-            return { ...p, vision: vs }
-          } catch { return { ...p, vision: null } }
+            return { ...p, vision: vs, camera_source: sources.get(p.id) }
+          } catch { return { ...p, vision: null, camera_source: sources.get(p.id) } }
         })
       )
       setPrinterSettings(withVision)
@@ -131,7 +137,10 @@ export default function VisionSettingsTab() {
             return (
               <div key={p.id} className="bg-[var(--brand-input-bg)] rounded-md p-3">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="font-medium text-sm">{p.nickname || p.name}</span>
+                  <span className="font-medium text-sm">
+                    {p.nickname || p.name}
+                    {p.camera_source === 'auto' && <span className="ml-2 text-xs font-normal text-[var(--brand-text-muted)]">built-in camera (auto)</span>}
+                  </span>
                   <label className="flex items-center gap-2 text-xs">
                     <input
                       type="checkbox"

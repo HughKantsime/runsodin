@@ -647,3 +647,29 @@ def test_global_disable_joins_all_threads_against_one_deadline(daemon, camera_pr
     release.set()
     assert instance._threads == {} and elapsed < 1.2, elapsed  # sequential joins would take >= 1.5 s
     assert set(instance._stopping) == {10, 33, 34}
+
+
+def test_vision_printer_list_includes_auto_cameras_with_the_monitor_rule(vision_http, camera_printers, monkeypatch):
+    """Settings gap: per-printer tuning lists the same printers the monitor would watch."""
+    from cryptography.fernet import Fernet
+    from core import crypto
+    from modules.vision.monitor import VisionMonitorDaemon
+    monkeypatch.setenv('ENCRYPTION_KEY', Fernet.generate_key().decode())
+    client, principal = vision_http
+    key = crypto.encrypt('01P00CERT0001|12345678')
+    camera_printers.execute(text(
+        "INSERT INTO printers(id,name,model,is_active,api_type,api_host,api_key,camera_enabled,camera_url,gcode_state) VALUES"
+        "(21,'X1C auto','X1C',1,'bambu','192.0.2.21',:k,1,NULL,'IDLE'),"
+        "(23,'P1S no camera url','P1S',1,'bambu','192.0.2.23',:k,1,NULL,'IDLE'),"
+        "(24,'X1C camera off','X1C',1,'bambu','192.0.2.24',:k,0,NULL,'IDLE')"), {'k': key})
+    camera_printers.commit()
+    listed = client.get('/api/vision/printers').json()
+    assert listed == [{'printer_id': 9, 'camera_source': 'configured'}, {'printer_id': 10, 'camera_source': 'configured'},
+                      {'printer_id': 21, 'camera_source': 'auto'}]
+    rows = camera_printers.execute(text('SELECT id,camera_url,api_type,api_key,api_host,model FROM printers WHERE id IN (21,23)')).mappings().all()
+    assert {r['id']: VisionMonitorDaemon._has_effective_camera(r) for r in rows} == {21: True, 23: False}
+    assert client.patch('/api/printers/21/vision', json={'spaghetti_threshold': 0.8}).status_code == 200
+    principal.update(group_id=2)
+    assert [p['printer_id'] for p in client.get('/api/vision/printers').json()] == [21]  # org-less printers stay visible; org 1 printers do not
+    principal.update(role='operator', group_id=None)
+    assert client.get('/api/vision/printers').status_code == 403

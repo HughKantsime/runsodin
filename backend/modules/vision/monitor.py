@@ -116,17 +116,8 @@ class VisionMonitorDaemon:
 
     @staticmethod
     def _has_effective_camera(row) -> bool:
-        if row['camera_url']:
-            return True
-        from types import SimpleNamespace
-        from modules.printers.route_utils import get_camera_url
-        try:
-            return get_camera_url(SimpleNamespace(
-                camera_url=None, api_type=row['api_type'], api_key=row['api_key'],
-                api_host=row['api_host'], model=row['model'])) is not None
-        except Exception as e:
-            log.error(f"Camera URL resolution failed for printer {row['id']}: {e}")
-            return False
+        from modules.vision.camera_source import camera_source
+        return camera_source(row) is not None
 
     def _global_settings(self) -> dict:
         """Global Vigil AI settings from system_config 'vision_settings' ({} when unset/unreadable)."""

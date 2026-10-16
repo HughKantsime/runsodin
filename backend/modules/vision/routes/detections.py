@@ -331,6 +331,24 @@ async def update_global_vision_settings(
     return updates
 
 
+@router.get("/vision/printers", tags=["Vigil AI"])
+async def list_vision_camera_printers(
+    current_user: dict = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    """Printers with a camera for Vigil AI (stored URL or auto-derived), for per-printer tuning.
+    Same effective-camera rule as the monitor (modules.vision.camera_source)."""
+    from modules.vision.camera_source import camera_source
+    result = []
+    for printer in db.query(Printer).filter(Printer.is_active.is_(True), Printer.camera_enabled.is_(True)).order_by(Printer.id).all():
+        if not check_org_access(current_user, printer.org_id):
+            continue
+        source = camera_source(printer)
+        if source:
+            result.append({"printer_id": printer.id, "camera_source": source})
+    return result
+
+
 @router.get("/vision/monitor-status", tags=["Vigil AI"])
 async def get_vision_monitor_status(
     current_user: dict = Depends(require_role("admin")),
