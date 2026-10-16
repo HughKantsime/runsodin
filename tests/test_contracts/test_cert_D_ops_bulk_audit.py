@@ -14,6 +14,9 @@ from tests.test_contracts.test_api_token_delegation_behavior import token_client
 from tests.test_contracts.test_printer_tag_behavior import tag_client, stored
 from tests.test_contracts.cert_D_capture import mask_timestamps, publish
 
+# Exercises Enterprise-gated routes (cert-fix-G tier gates): run under a real signed license.
+pytestmark = pytest.mark.usefixtures("enterprise_license")
+
 FIXTURES = Path(__file__).resolve().parents[2] / 'frontend/src/test-fixtures'
 BULK = FIXTURES / 'certDops-bulk-jobs-wire.json'
 AUDIT = FIXTURES / 'certDops-audit-wire.json'

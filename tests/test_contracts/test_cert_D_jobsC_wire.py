@@ -18,6 +18,9 @@ from tests.test_contracts.test_education_review_workflow import review_db  # noq
 from tests.test_contracts.test_recent_terminal_jobs import picture
 from tests.test_contracts.cert_D_capture import publish
 
+# Exercises Pro-gated routes (cert-fix-G tier gates): run under a real signed license.
+pytestmark = pytest.mark.usefixtures("pro_license")
+
 FIXTURE = Path(__file__).resolve().parents[2] / 'frontend/src/test-fixtures/certD-jobsC-wire.json'
 CREATED = '2026-10-01 08:00:00'
 

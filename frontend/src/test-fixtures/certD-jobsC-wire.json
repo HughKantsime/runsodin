@@ -3,7 +3,21 @@
   "jobs_by_date": {
    "2026-10-01": {
     "completed": 7,
-    "created": 16
+    "cost": null,
+    "created": 16,
+    "revenue": null
+   },
+   "2026-10-10": {
+    "completed": 0,
+    "cost": null,
+    "created": 0,
+    "revenue": null
+   },
+   "2026-10-11": {
+    "completed": 0,
+    "cost": null,
+    "created": 0,
+    "revenue": null
    }
   },
   "printer_stats": [
@@ -16,7 +30,7 @@
     "name": "P1S-09",
     "success_rate": 70.0,
     "total_hours": 7.0,
-    "utilization_pct": 2.0
+    "utilization_pct": 1.9
    },
    {
     "avg_job_hours": 0,
@@ -33,18 +47,23 @@
   "summary": {
    "avg_value_per_hour": 0,
    "completed_jobs": 7,
+   "jobs_uncosted": 7,
+   "jobs_unpriced": 7,
    "jobs_with_cost_data": 0,
    "jobs_with_unknown_quantity": 0,
-   "margin_percent": 0,
+   "margin_percent": null,
    "pending_jobs": 3,
-   "projected_cost": 0,
-   "projected_revenue": 0,
-   "total_cost": 0,
+   "pending_scope": "current_queue",
+   "pending_uncosted": 3,
+   "pending_unpriced": 3,
+   "projected_cost": null,
+   "projected_revenue": null,
+   "total_cost": null,
    "total_jobs": 16,
-   "total_margin": 0,
+   "total_margin": null,
    "total_models": 2,
    "total_print_hours": 7.0,
-   "total_revenue": 0
+   "total_revenue": null
   },
   "top_by_hour": [],
   "top_by_jobs": [
@@ -122,10 +141,10 @@
   "suggested_price": null,
   "target_filter": "9",
   "target_type": "specific",
-  "updated_at": "2026-10-16T04:11:04"
+  "updated_at": "2026-10-16T16:50:13"
  },
  "fail_printing_response": {
-  "actual_end": "2026-10-16T04:11:04.438488Z",
+  "actual_end": "2026-10-16T16:50:13.217877Z",
   "actual_start": "2026-10-12T06:00:00",
   "approved_at": null,
   "approved_by": null,
@@ -605,7 +624,7 @@
    "suggested_price": null,
    "target_filter": "9",
    "target_type": "specific",
-   "updated_at": "2026-10-16T04:11:04"
+   "updated_at": "2026-10-16T16:50:13"
   },
   {
    "actual_end": null,
@@ -3253,7 +3272,7 @@
   "charged_to_org_id": 1,
   "colors_list": [],
   "colors_required": null,
-  "created_at": "2026-10-16T04:11:04",
+  "created_at": "2026-10-16T16:50:13",
   "due_date": null,
   "duration_hours": 1.0,
   "effective_duration": 1.0,
@@ -3288,7 +3307,7 @@
   "suggested_price": null,
   "target_filter": "10",
   "target_type": "specific",
-  "updated_at": "2026-10-16T04:11:04"
+  "updated_at": "2026-10-16T16:50:13"
  },
  "printers": [
   {
@@ -3299,8 +3318,10 @@
    "bed_x_mm": 256.0,
    "bed_y_mm": 256.0,
    "camera_discovered": null,
+   "camera_enabled": false,
+   "camera_source": null,
    "camera_url": null,
-   "created_at": "2026-10-16T04:11:04",
+   "created_at": "2026-10-16T16:50:12",
    "fan_speed": null,
    "filament_slots": [
     {
@@ -3309,10 +3330,11 @@
      "color_hex": null,
      "filament_type": "PLA",
      "id": 1,
-     "loaded_at": "2026-10-16T04:11:04",
+     "loaded_at": "2026-10-16T16:50:12",
      "material_type": "PLA",
      "printer_id": 9,
      "remaining": null,
+     "remaining_weight": null,
      "slot_number": 1,
      "spool_confirmed": null,
      "spoolman_spool_id": null
@@ -3347,7 +3369,7 @@
    "timelapse_enabled": false,
    "total_print_count": null,
    "total_print_hours": null,
-   "updated_at": "2026-10-16T04:11:04"
+   "updated_at": "2026-10-16T16:50:12"
   },
   {
    "api_host": null,
@@ -3357,8 +3379,10 @@
    "bed_x_mm": 256.0,
    "bed_y_mm": 256.0,
    "camera_discovered": null,
+   "camera_enabled": false,
+   "camera_source": null,
    "camera_url": null,
-   "created_at": "2026-10-16T04:11:04",
+   "created_at": "2026-10-16T16:50:12",
    "fan_speed": null,
    "filament_slots": [
     {
@@ -3367,10 +3391,11 @@
      "color_hex": null,
      "filament_type": "PLA",
      "id": 2,
-     "loaded_at": "2026-10-16T04:11:04",
+     "loaded_at": "2026-10-16T16:50:12",
      "material_type": "PLA",
      "printer_id": 10,
      "remaining": null,
+     "remaining_weight": null,
      "slot_number": 1,
      "spool_confirmed": null,
      "spoolman_spool_id": null
@@ -3405,7 +3430,7 @@
    "timelapse_enabled": false,
    "total_print_count": null,
    "total_print_hours": null,
-   "updated_at": "2026-10-16T04:11:04"
+   "updated_at": "2026-10-16T16:50:12"
   }
  ],
  "recent_terminal": [

@@ -49,7 +49,8 @@ Site = namedtuple("Site", "path site kind line detail")
 
 ROOT = Path(__file__).resolve().parents[2]
 BACKEND = ROOT / "backend"
-SKIP = ("preserved027", "__pycache__")
+# Frozen byte copies of released restore-stage sources (run only in the isolated restore child).
+SKIP = ("preserved027", "preserved029/bundle/", "__pycache__")
 DYNAMIC = "\x00"  # brackets an interpolated or concatenated non-literal part
 _Q = r"[\"'`\[\]]?"
 
