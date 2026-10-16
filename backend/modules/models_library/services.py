@@ -36,6 +36,28 @@ DEFAULT_PRICING_CONFIG = {
 }
 
 
+def material_cost_per_gram(db: Session, material: str):
+    """Per-material filament rate ($/g) from the filament library, or None.
+
+    Models carry only a material type (no specific filament), so the rate is the
+    lowest-id filament_library row of that material whose cost_per_gram is finite and
+    non-negative. ORDER BY id makes the choice identical on SQLite and PostgreSQL, and a
+    corrupt (non-finite/negative) row is skipped instead of poisoning every estimate.
+    """
+    rows = db.query(FilamentLibrary.cost_per_gram).filter(
+        FilamentLibrary.material == material,
+        FilamentLibrary.cost_per_gram.isnot(None),
+    ).order_by(FilamentLibrary.id).all()
+    for (value,) in rows:
+        try:
+            rate = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(rate) and rate >= 0:
+            return rate
+    return None
+
+
 def calculate_job_cost(
     db: Session,
     model_id: int = None,
@@ -66,14 +88,8 @@ def calculate_job_cost(
     print_hours = 1.0 if print_hours is None else print_hours
 
     # Try to get per-material cost
-    filament_entry = db.query(FilamentLibrary).filter(
-        FilamentLibrary.material == material_type,
-        FilamentLibrary.cost_per_gram.isnot(None)
-    ).first()
-
-    if filament_entry and filament_entry.cost_per_gram is not None:
-        cost_per_gram = filament_entry.cost_per_gram
-    else:
+    cost_per_gram = material_cost_per_gram(db, material_type)
+    if cost_per_gram is None:
         cost_per_gram = config["spool_cost"] / config["spool_weight"]
 
     # Calculate costs

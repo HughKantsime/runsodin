@@ -7,6 +7,7 @@ from typing import Optional
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
@@ -122,11 +123,93 @@ def list_spools(
             "filament_color_hex": s.color_hex or (s.filament.color_hex if s.filament else None),
             "pa_profile": s.pa_profile,
             "low_stock_threshold_g": s.low_stock_threshold_g,
+            "spoolman_spool_id": s.spoolman_spool_id,
             "is_low_stock": (s.remaining_weight_g or 0) < (s.low_stock_threshold_g if s.low_stock_threshold_g is not None else 50),
         }
         result.append(spool_dict)
 
     return result
+
+
+SPOOLMAN_LINK_LOCK_CLASS = 1330071887  # pg_advisory_xact_lock(class, spoolman_spool_id) namespace
+
+
+def _serialize_spoolman_link(db: Session, spoolman_spool_id) -> None:
+    """Serialise check-then-write for one Spoolman spool id until this transaction ends.
+
+    PostgreSQL: a transaction-scoped advisory lock keyed by the (int32) Spoolman id.
+    SQLite: BEGIN IMMEDIATE takes the single writer lock before the check (a transaction
+    that already wrote holds it). There is deliberately no unique index: 1.9.x data may
+    hold duplicates, which are reported to admins and never rewritten.
+    """
+    if spoolman_spool_id is None:
+        return
+    connection = db.connection()
+    dialect = connection.dialect.name
+    if dialect == "postgresql":
+        connection.execute(text("SELECT pg_advisory_xact_lock(:lock_class, :key)"),
+                           {"lock_class": SPOOLMAN_LINK_LOCK_CLASS, "key": int(spoolman_spool_id)})
+    elif dialect == "sqlite":
+        raw = connection.connection.driver_connection
+        if not raw.in_transaction:
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
+    else:
+        raise HTTPException(status_code=500, detail="Unsupported database for Spoolman link serialisation")
+
+
+def _refuse_taken_spoolman_link(db: Session, spoolman_spool_id, own_id=None, current_user=None) -> None:
+    """A Spoolman spool links to at most one ODIN spool install-wide (one Spoolman per install).
+    Call after _serialize_spoolman_link in the same transaction; 409 names the holder."""
+    if spoolman_spool_id is None:
+        return
+    query = db.query(Spool.id, Spool.qr_code, Spool.org_id).filter(Spool.spoolman_spool_id == spoolman_spool_id)
+    if own_id is not None:
+        query = query.filter(Spool.id != own_id)
+    holder = query.order_by(Spool.id).first()
+    if holder is None:
+        return
+    if current_user is not None and check_org_access(current_user, holder.org_id):
+        where = f"spool #{holder.id} ({holder.qr_code})"
+    else:
+        where = OTHER_ORG_SPOOL
+    raise HTTPException(status_code=409, detail=f"Spoolman spool {spoolman_spool_id} is already linked to {where}")
+
+
+def spoolman_link_conflicts(db) -> list:
+    """Existing duplicate links (possible in 1.9.x data), for the admin warning. Never rewritten."""
+    rows = db.execute(text(
+        "SELECT spoolman_spool_id, id, qr_code, org_id FROM spools WHERE spoolman_spool_id IN ("
+        "SELECT spoolman_spool_id FROM spools WHERE spoolman_spool_id IS NOT NULL "
+        "GROUP BY spoolman_spool_id HAVING COUNT(*) > 1) ORDER BY spoolman_spool_id, id")).all()
+    conflicts = {}
+    for spoolman_id, spool_id, qr_code, org_id in rows:
+        conflicts.setdefault(spoolman_id, []).append({"id": spool_id, "qr_code": qr_code, "org_id": org_id})
+    return [{"spoolman_spool_id": key, "spools": value} for key, value in conflicts.items()]
+
+
+OTHER_ORG_SPOOL = "a spool in another organization"
+
+
+def visible_spoolman_link_conflicts(db, current_user: dict) -> list:
+    """Conflicts touching a spool the caller can see; spools they cannot see are masked
+    exactly like the 409 detail (no id, QR or org)."""
+    visible = []
+    for conflict in spoolman_link_conflicts(db):
+        members = []
+        for member in conflict["spools"]:
+            if check_org_access(current_user, member["org_id"]):
+                members.append({**member, "label": f"#{member['id']} ({member['qr_code']})"})
+            else:
+                members.append({"id": None, "qr_code": None, "org_id": None, "label": OTHER_ORG_SPOOL})
+        if any(member["id"] is not None for member in members):
+            visible.append({"spoolman_spool_id": conflict["spoolman_spool_id"], "spools": members})
+    return visible
+
+
+@router.get("/spoolman-link-conflicts", tags=["Spools"])
+def get_spoolman_link_conflicts(current_user: dict = Depends(require_role("admin", scope="read:spools")), db: Session = Depends(get_db)):
+    """Admin warning: Spoolman spools linked to more than one ODIN spool (usage would be pushed twice)."""
+    return visible_spoolman_link_conflicts(db, current_user)
 
 
 @router.post("", tags=["Spools"])
@@ -137,6 +220,9 @@ def create_spool(spool: SpoolCreate, current_user: dict = Depends(require_role("
     filament = db.query(FilamentLibrary).filter(FilamentLibrary.id == spool.filament_id).first()
     if not filament:
         raise HTTPException(status_code=404, detail="Filament not found")
+
+    _serialize_spoolman_link(db, spool.spoolman_spool_id)
+    _refuse_taken_spoolman_link(db, spool.spoolman_spool_id, current_user=current_user)
 
     # Generate QR code
     import uuid
@@ -183,6 +269,9 @@ def create_spool(spool: SpoolCreate, current_user: dict = Depends(require_role("
     db_spool = db.get(Spool, created.id)
     if db_spool is None:
         raise RuntimeError("Fresh spool could not be loaded")
+    if spool.spoolman_spool_id is not None:
+        # Not an economic birth field; linked after the factory INSERT in the same transaction.
+        db_spool.spoolman_spool_id = spool.spoolman_spool_id
 
     log_audit(db, "create", "spool", db_spool.id, {"filament_id": spool.filament_id, "qr_code": db_spool.qr_code})
     db.commit()
@@ -229,6 +318,7 @@ def get_spool(spool_id: int, current_user: dict = Depends(require_role("viewer",
         "notes": spool.notes,
         "pa_profile": spool.pa_profile,
         "low_stock_threshold_g": spool.low_stock_threshold_g,
+        "spoolman_spool_id": spool.spoolman_spool_id,
         "is_low_stock": (spool.remaining_weight_g or 0) < (spool.low_stock_threshold_g if spool.low_stock_threshold_g is not None else 50),
         "created_at": spool.created_at,
         "updated_at": spool.updated_at,
@@ -259,6 +349,15 @@ def update_spool(spool_id: int, updates: SpoolUpdate, current_user: dict = Depen
         raise HTTPException(status_code=404, detail="Spool not found")
 
     update_data = updates.model_dump(exclude_unset=True)
+    # Lock order on every spool write path: the Spoolman-link lock first, then the
+    # purchase/financial locks (write_purchase, require_financial_owner).
+    if "spoolman_spool_id" in update_data:
+        if update_data["spoolman_spool_id"] == spool.spoolman_spool_id:
+            # Unchanged link (even an existing duplicate): not a link write.
+            del update_data["spoolman_spool_id"]
+        else:
+            _serialize_spoolman_link(db, update_data["spoolman_spool_id"])
+            _refuse_taken_spoolman_link(db, update_data["spoolman_spool_id"], spool.id, current_user)
     purchase_operation = "purchase_evidence" in update_data
     purchase = update_data.pop("purchase_evidence", None)
     expected = update_data.pop("expected_purchase_revision", None)

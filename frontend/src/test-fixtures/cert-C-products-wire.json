@@ -1,0 +1,49 @@
+{
+  "scope": "Owned real GET /products response (cert C)",
+  "products": [
+    {
+      "name": "Own product",
+      "sku": "OWN-1",
+      "price": 20.0,
+      "description": null,
+      "id": 101,
+      "created_at": "2026-10-14T12:00:00",
+      "updated_at": "2026-10-14T12:00:00",
+      "components": [
+        {
+          "model_id": 101,
+          "quantity_needed": 2,
+          "notes": null,
+          "id": 1,
+          "product_id": 101,
+          "model_name": null
+        }
+      ],
+      "consumables": [
+        {
+          "id": 1,
+          "product_id": 101,
+          "consumable_id": 201,
+          "quantity_per_product": 4.0,
+          "notes": null,
+          "consumable_name": "Cert insert"
+        }
+      ],
+      "estimated_cogs": 8.0,
+      "component_count": 1
+    },
+    {
+      "name": "Cert empty",
+      "sku": null,
+      "price": 12.0,
+      "description": null,
+      "id": 103,
+      "created_at": "2026-10-14T12:00:00",
+      "updated_at": "2026-10-14T12:00:00",
+      "components": [],
+      "consumables": [],
+      "estimated_cogs": null,
+      "component_count": 0
+    }
+  ]
+}

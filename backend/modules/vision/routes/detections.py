@@ -18,7 +18,7 @@ import os
 import re
 
 from core.db import get_db
-from core.rbac import require_role, get_org_scope, check_org_access
+from core.rbac import require_role, require_superadmin, get_org_scope, check_org_access
 from core.config import settings
 from core.models import SystemConfig
 from modules.printers.models import Printer
@@ -255,6 +255,16 @@ async def update_printer_vision_settings(
     updates = {k: v for k, v in body.items() if k in allowed}
     if not updates:
         raise HTTPException(status_code=400, detail="No valid fields to update")
+    for key, value in updates.items():
+        if key.endswith("_threshold") and (
+            isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 1
+        ):
+            raise HTTPException(status_code=422, detail=f"{key} must be a number between 0 and 1")
+    if "capture_interval_sec" in updates:
+        MAX_CAPTURE_INTERVAL = 86400  # mirrors detection_thread.MAX_CAPTURE_INTERVAL (no cv2 import here)
+        interval = updates["capture_interval_sec"]
+        if type(interval) is not int or not 1 <= interval <= MAX_CAPTURE_INTERVAL:
+            raise HTTPException(status_code=422, detail=f"capture_interval_sec must be a whole number from 1 to {MAX_CAPTURE_INTERVAL}")
 
     row = db.query(VisionSettings).filter(VisionSettings.printer_id == printer_id).first()
     if row:
@@ -290,23 +300,91 @@ async def get_global_vision_settings(
 @router.patch("/vision/settings", tags=["Vigil AI"])
 async def update_global_vision_settings(
     request: Request,
-    current_user: dict = Depends(require_role("admin")),
+    # One install-wide row: org-scoped admins may not change it.
+    current_user: dict = Depends(require_superadmin()),
     db: Session = Depends(get_db),
 ):
     """Update global vision settings."""
     body = await request.json()
-    allowed = {"enabled", "retention_days"}
+    allowed = {"enabled", "retention_days", "max_threads"}
     updates = {k: v for k, v in body.items() if k in allowed}
+    if "max_threads" in updates and (type(updates["max_threads"]) is not int or not 1 <= updates["max_threads"] <= 256):
+        # mirrors detection_thread.MAX_VISION_THREADS_LIMIT (no cv2 import here)
+        raise HTTPException(status_code=422, detail="max_threads must be a whole number from 1 to 256")
+    if "enabled" in updates and not isinstance(updates["enabled"], bool):
+        raise HTTPException(status_code=422, detail="enabled must be a boolean")
+    if "retention_days" in updates and (
+        isinstance(updates["retention_days"], bool)
+        or not isinstance(updates["retention_days"], int)
+        or updates["retention_days"] < 1
+    ):
+        raise HTTPException(status_code=422, detail="retention_days must be a positive integer")
 
     row = db.query(SystemConfig).filter(SystemConfig.key == "vision_settings").first()
     if row:
         existing = json.loads(row.value) if isinstance(row.value, str) else (row.value or {})
-        existing.update(updates)
-        row.value = existing
+        # Assign a new object: mutating the loaded JSON in place is invisible to SQLAlchemy.
+        row.value = {**existing, **updates}
     else:
         db.add(SystemConfig(key="vision_settings", value=updates))
     db.commit()
     return updates
+
+
+@router.get("/vision/printers", tags=["Vigil AI"])
+async def list_vision_camera_printers(
+    current_user: dict = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    """Printers with a camera for Vigil AI (stored URL or auto-derived), for per-printer tuning.
+    Same effective-camera rule as the monitor (modules.vision.camera_source)."""
+    from modules.vision.camera_source import camera_source
+    result = []
+    for printer in db.query(Printer).filter(Printer.is_active.is_(True), Printer.camera_enabled.is_(True)).order_by(Printer.id).all():
+        if not check_org_access(current_user, printer.org_id):
+            continue
+        source = camera_source(printer)
+        if source:
+            result.append({"printer_id": printer.id, "camera_source": source})
+    return result
+
+
+@router.get("/vision/monitor-status", tags=["Vigil AI"])
+async def get_vision_monitor_status(
+    current_user: dict = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    """Concurrent vision-thread cap as last reported by the monitor daemon.
+
+    capped_printer_ids lists printers that want monitoring but wait for a free slot
+    (limited to printers the caller can see; capped_count is install-wide).
+    """
+    def _json(row):
+        value = row.value if row else None
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except ValueError:
+                value = None
+        return value if isinstance(value, dict) else {}
+    settings = _json(db.query(SystemConfig).filter(SystemConfig.key == "vision_settings").first())
+    status = _json(db.query(SystemConfig).filter(SystemConfig.key == "vision_monitor_status").first())
+    configured = settings.get("max_threads")
+    configured = configured if type(configured) is int and 1 <= configured <= 256 else 16
+    capped = [pid for pid in status.get("capped_printer_ids", []) if type(pid) is int]
+    visible = []
+    if capped:
+        for printer in db.query(Printer).filter(Printer.id.in_(capped)).all():
+            if check_org_access(current_user, printer.org_id):
+                visible.append(printer.id)
+    return {
+        "max_threads": configured,
+        "reported": bool(status),
+        "active_threads": status.get("active_threads"),
+        "capped": bool(capped),
+        "capped_count": len(capped),
+        "capped_printer_ids": sorted(visible),
+    }
 
 
 def _not_training():

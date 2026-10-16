@@ -62,7 +62,12 @@ export interface VisionDetectionListParams {
   [key: string]: unknown;
 }
 
+export interface VisionMonitorStatus { max_threads: number; reported: boolean; active_threads: number | null; capped: boolean; capped_count: number; capped_printer_ids: number[] }
+
 export const vision = {
+  monitorStatus: (): Promise<VisionMonitorStatus> => fetchAPI('/vision/monitor-status'),
+  /** Printers with a camera for Vigil AI: stored URL ('configured') or derived from credentials ('auto'). */
+  cameraPrinters: (): Promise<{ printer_id: number; camera_source: 'configured' | 'auto' }[]> => fetchAPI('/vision/printers'),
   getDetections: (params: VisionDetectionListParams): Promise<{ items: VisionDetection[]; total: number }> => fetchAPI('/vision/detections?' + new URLSearchParams(params as Record<string, string>)),
   getDetection: (id: number): Promise<VisionDetection> => fetchAPI('/vision/detections/' + id),
   reviewDetection: (id: number, status: string): Promise<VisionDetection> => fetchAPI(`/vision/detections/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),

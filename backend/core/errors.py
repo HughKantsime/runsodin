@@ -141,3 +141,45 @@ class OdinError(Exception):
         }
         error_obj.update(self.extra)
         return {"detail": self.detail, "error": error_obj}
+
+
+def _json_safe(value: Any) -> Any:
+    """Replace non-finite floats (JSON cannot carry them) with their string form."""
+    import math
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
+
+
+def request_validation_response(exc):
+    """422 envelope for a RequestValidationError.
+
+    The echoed ``input`` may be Infinity/NaN (Python's JSON parser accepts them);
+    those are stringified so the rejection itself can never become a 500.
+    """
+    from fastapi.encoders import jsonable_encoder
+    from fastapi.responses import JSONResponse
+    errors = _json_safe(jsonable_encoder(exc.errors()))
+    fields = sorted(
+        {
+            ".".join(str(part) for part in item.get("loc", ()) if part != "body")
+            for item in errors
+            if item.get("loc")
+        }
+    )
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": errors,
+            "error": {
+                "code": ErrorCode.validation_failed.value,
+                "detail": "Request validation failed",
+                "retriable": False,
+                "fields": fields,
+            },
+        },
+    )

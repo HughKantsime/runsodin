@@ -5,7 +5,8 @@ import ModelUpload from './VisionModelUpload'
 import { getCurrentUser } from '../../permissions'
 
 export default function VisionSettingsTab() {
-  const [globalSettings, setGlobalSettings] = useState({ enabled: true, retention_days: 30 })
+  const [globalSettings, setGlobalSettings] = useState<{ enabled: boolean; retention_days: number; max_threads?: number }>({ enabled: true, retention_days: 30 })
+  const [monitorStatus, setMonitorStatus] = useState(null)
   const [printerSettings, setPrinterSettings] = useState([])
   const [models, setModels] = useState([])
   const [saving, setSaving] = useState(false)
@@ -15,17 +16,24 @@ export default function VisionSettingsTab() {
 
   useEffect(() => {
     // Load global settings
-    vision.getSettings().then(setGlobalSettings).catch(() => {})
+    vision.getSettings().then(s => setGlobalSettings(prev => ({ ...prev, ...s }))).catch(() => {})
+    vision.monitorStatus?.()?.then(setMonitorStatus).catch(() => {})
     // Load models
     if (managesGlobalModels) vision.getModels().then(setModels).catch(() => setMsg('Model registry could not be loaded'))
     // Load printers with vision settings
     printers.list().then(async (printerList) => {
+      // Same effective-camera rule as the monitor: a stored URL, or one derived from the
+      // printer's credentials (auto-configured Bambu X1C/X1E/H2D), reported by the server.
+      let sources = new Map()
+      try {
+        sources = new Map((await vision.cameraPrinters()).map(item => [item.printer_id, item.camera_source]))
+      } catch { /* older server or no access: stored camera URLs only */ }
       const withVision = await Promise.all(
-        printerList.filter(p => p.camera_url).map(async (p) => {
+        printerList.filter(p => p.camera_url || sources.has(p.id)).map(async (p) => {
           try {
             const vs = await vision.getPrinterSettings(p.id)
-            return { ...p, vision: vs }
-          } catch { return { ...p, vision: null } }
+            return { ...p, vision: vs, camera_source: sources.get(p.id) }
+          } catch { return { ...p, vision: null, camera_source: sources.get(p.id) } }
         })
       )
       setPrinterSettings(withVision)
@@ -92,6 +100,21 @@ export default function VisionSettingsTab() {
             <span className="text-sm w-16">{globalSettings.retention_days} days</span>
           </div>
 
+          <div className="flex items-center gap-3">
+            <label htmlFor="vision-max-threads" className="text-sm text-[var(--brand-text-secondary)]">Max printers monitored at once:</label>
+            <input
+              id="vision-max-threads" type="number" min="1" max="256" step="1"
+              value={globalSettings.max_threads ?? monitorStatus?.max_threads ?? 16}
+              onChange={e => setGlobalSettings(s => ({ ...s, max_threads: parseInt(e.target.value) }))}
+              className="w-20 bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1 text-sm"
+            />
+          </div>
+          {monitorStatus?.capped && (
+            <p role="alert" className="text-sm text-yellow-300">
+              Vision thread cap reached ({monitorStatus.active_threads ?? monitorStatus.max_threads} of {monitorStatus.max_threads} running): {monitorStatus.capped_count} printer{monitorStatus.capped_count === 1 ? '' : 's'} waiting{monitorStatus.capped_printer_ids.length ? ` (IDs ${monitorStatus.capped_printer_ids.join(', ')})` : ''}. Raise the limit to monitor them.
+            </p>
+          )}
+
           <div className="flex items-center gap-2">
             <button onClick={saveGlobal} disabled={saving} className="px-4 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)] rounded-md text-sm font-medium transition-colors disabled:opacity-50">
               <Save size={14} className="inline mr-1.5" />
@@ -114,7 +137,10 @@ export default function VisionSettingsTab() {
             return (
               <div key={p.id} className="bg-[var(--brand-input-bg)] rounded-md p-3">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="font-medium text-sm">{p.nickname || p.name}</span>
+                  <span className="font-medium text-sm">
+                    {p.nickname || p.name}
+                    {p.camera_source === 'auto' && <span className="ml-2 text-xs font-normal text-[var(--brand-text-muted)]">built-in camera (auto)</span>}
+                  </span>
                   <label className="flex items-center gap-2 text-xs">
                     <input
                       type="checkbox"

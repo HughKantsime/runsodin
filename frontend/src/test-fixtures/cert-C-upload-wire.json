@@ -1,0 +1,101 @@
+{
+  "scope": "Owned real POST /print-files/upload response for the cert C 3-plate 3MF",
+  "upload": {
+    "id": 12,
+    "filename": "Cert bracket.3mf",
+    "project_name": "Cert bracket",
+    "print_time_seconds": 5430,
+    "print_time_formatted": "1h 30m",
+    "total_weight_grams": 41.37,
+    "layer_count": 120,
+    "filaments": [
+      {
+        "slot": 1,
+        "type": "PLA",
+        "color": "#FF0000",
+        "used_grams": 29.25
+      },
+      {
+        "slot": 2,
+        "type": "PETG",
+        "color": "#000000",
+        "used_grams": 12.12
+      }
+    ],
+    "thumbnail_b64": "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAQUlEQVQoFZXBAQEAAADBMIrI+YhiyWBziR4u0cMlerhED5fo4RI9XKKHS/RwiR4u0cMlerhED5fo4RI9XKKHS/QYlPUV8XrjFQAAAAAASUVORK5CYII=",
+    "is_sliced": true,
+    "model_id": 13,
+    "is_new_model": true,
+    "quantity_per_bed": 3,
+    "printer_model": "Bambu Lab A1",
+    "objects": [
+      {
+        "name": "Cert bracket",
+        "is_wipe_tower": false,
+        "checked": true
+      },
+      {
+        "name": "Cert bracket",
+        "is_wipe_tower": false,
+        "checked": true
+      },
+      {
+        "name": "Cert clip",
+        "is_wipe_tower": false,
+        "checked": true
+      },
+      {
+        "name": "wipe_tower",
+        "is_wipe_tower": true,
+        "checked": false
+      }
+    ],
+    "has_mesh": false,
+    "bed_x_mm": null,
+    "bed_y_mm": null,
+    "compatible_api_types": "bambu",
+    "compatibility_facts": {
+      "api_types": {
+        "present": true,
+        "recognized": true,
+        "source_member": "Metadata/project_settings.config",
+        "source_key": "printer_model",
+        "value": [
+          "bambu"
+        ]
+      },
+      "machine": {
+        "present": true,
+        "recognized": true,
+        "source_member": "Metadata/project_settings.config",
+        "source_key": "printer_model",
+        "value": "Bambu Lab A1"
+      },
+      "bed": {
+        "present": false,
+        "recognized": false,
+        "source_member": null,
+        "source_key": null,
+        "value": null
+      },
+      "nozzle": {
+        "present": true,
+        "recognized": true,
+        "source_member": "Metadata/slice_info.config",
+        "source_key": "nozzle_diameters",
+        "value": 0.4
+      },
+      "materials": {
+        "present": true,
+        "recognized": true,
+        "source_member": "Metadata/project_settings.config",
+        "source_key": "filament_type",
+        "value": [
+          "PLA",
+          "PETG"
+        ]
+      }
+    },
+    "duplicate": null
+  }
+}

@@ -204,6 +204,21 @@ def _database_info() -> dict:
         return {"error": str(e)}
 
 
+def _spoolman_link_conflicts(current_user: dict) -> list | dict:
+    """Spoolman spools linked to more than one ODIN spool (1.9.x data); reported, never rewritten.
+    Org admins see other orgs' spools masked, as in the 409 and the conflicts endpoint."""
+    from core.db import SessionLocal
+    from modules.inventory.routes.spools import visible_spoolman_link_conflicts
+    try:
+        db = SessionLocal()
+        try:
+            return visible_spoolman_link_conflicts(db, current_user)
+        finally:
+            db.close()
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @router.get("/system/diagnostics")
 async def get_diagnostics(current_user: dict = Depends(require_role("admin"))):
     """Admin-only diagnostics bundle for troubleshooting."""
@@ -300,5 +315,7 @@ async def get_diagnostics(current_user: dict = Depends(require_role("admin"))):
         result["database"] = _database_info()
     except Exception as e:
         result["database"] = {"error": str(e)}
+
+    result["spoolman_link_conflicts"] = _spoolman_link_conflicts(current_user)
 
     return sanitize_structure(result)

@@ -19,6 +19,9 @@ log = logging.getLogger("odin.api")
 # Inline Pydantic models
 # ====================================================================
 
+MAX_SPOOLMAN_ID = 2_147_483_647  # spools.spoolman_spool_id is a 32-bit INTEGER
+
+
 class SpoolCreate(PydanticBaseModel):
     purchase_evidence: Optional[PurchaseInput] = None
     pa_profile: Optional[str] = Field(default=None, max_length=50)
@@ -32,6 +35,7 @@ class SpoolCreate(PydanticBaseModel):
     lot_number: Optional[str] = None
     storage_location: Optional[str] = None
     notes: Optional[str] = None
+    spoolman_spool_id: Optional[int] = Field(default=None, strict=True, ge=1, le=MAX_SPOOLMAN_ID)  # Spoolman link (usage push)
 
 
 class SpoolUpdate(PydanticBaseModel):
@@ -55,6 +59,7 @@ class SpoolUpdate(PydanticBaseModel):
     price: Optional[float] = None
     vendor: Optional[str] = None
     lot_number: Optional[str] = None
+    spoolman_spool_id: Optional[int] = Field(default=None, strict=True, ge=1, le=MAX_SPOOLMAN_ID)  # null unlinks
 
 
 class SpoolResponse(PydanticBaseModel):
@@ -113,11 +118,16 @@ class SpoolWeighRequest(PydanticBaseModel):
     gross_weight_g: float  # Total weight including spool
 
 
+MAX_COST_PER_GRAM = 100.0  # $/g; far above any real filament, rejects typos and overflow
+
+
 class FilamentCreateRequest(PydanticBaseModel):
     brand: str
     name: str
     material: str = "PLA"
     color_hex: Optional[str] = None
+    # Per-material rate ($/g); null = global default. Global across orgs: superadmin-only write.
+    cost_per_gram: Optional[float] = Field(default=None, ge=0, le=MAX_COST_PER_GRAM, allow_inf_nan=False)
 
 
 class FilamentUpdateRequest(PydanticBaseModel):
@@ -125,6 +135,7 @@ class FilamentUpdateRequest(PydanticBaseModel):
     name: Optional[str] = None
     material: Optional[str] = None
     color_hex: Optional[str] = None
+    cost_per_gram: Optional[float] = Field(default=None, ge=0, le=MAX_COST_PER_GRAM, allow_inf_nan=False)  # null clears
 
 
 class ScanAssignRequest(PydanticBaseModel):

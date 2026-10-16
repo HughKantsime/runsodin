@@ -114,13 +114,9 @@ def calculate_model_cost(
 
     # Try to get per-material cost from FilamentLibrary
     material_type = model.default_filament_type.value if model.default_filament_type else "PLA"
-    filament_entry = db.query(FilamentLibrary).filter(
-        FilamentLibrary.material == material_type,
-        FilamentLibrary.cost_per_gram.isnot(None)
-    ).first()
-
-    if filament_entry and filament_entry.cost_per_gram is not None:
-        cost_per_gram = filament_entry.cost_per_gram
+    from modules.models_library.services import material_cost_per_gram
+    cost_per_gram = material_cost_per_gram(db, material_type)
+    if cost_per_gram is not None:
         cost_source = f"per-material ({material_type})"
     else:
         cost_per_gram = config["spool_cost"] / config["spool_weight"]

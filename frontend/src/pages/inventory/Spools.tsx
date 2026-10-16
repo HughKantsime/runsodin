@@ -13,6 +13,7 @@ import SpoolGrid from '../../components/inventory/SpoolGrid'
 import { CreateSpoolModal, LoadSpoolModal, UseSpoolModal, DryingModal } from '../../components/inventory/SpoolModals'
 import { purchaseAudience, type PurchasePrincipal } from '../../components/inventory/PurchaseEvidenceModal'
 import { EditSpoolModal } from '../../components/inventory/SpoolEditModals'
+import SpoolmanLinkConflicts from '../../components/inventory/SpoolmanLinkConflicts'
 
 export default function Spools() {
   const org = useOrg()
@@ -189,7 +190,8 @@ export default function Spools() {
 
   // Summary stats
   const activeSpools = allSpools?.filter(s => s.status === 'active') || []
-  const lowSpools = activeSpools.filter(s => s.percent_remaining < 20)
+  // Low = below the spool's server-side threshold (is_low_stock) or under 20% remaining.
+  const lowSpools = activeSpools.filter(s => s.is_low_stock === true || s.percent_remaining < 20)
   const loadedSpools = activeSpools.filter(s => s.location_printer_id)
 
   return (
@@ -243,6 +245,7 @@ export default function Spools() {
             />
           </div>
 
+          <SpoolmanLinkConflicts />
           {/* Low warning */}
           {lowSpools.length > 0 && (
             <button

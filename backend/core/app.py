@@ -873,26 +873,8 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(RequestValidationError)
     async def _request_validation_handler(request: Request, exc: RequestValidationError):
-        errors = jsonable_encoder(exc.errors())
-        fields = sorted(
-            {
-                ".".join(str(part) for part in item.get("loc", ()) if part != "body")
-                for item in errors
-                if item.get("loc")
-            }
-        )
-        return JSONResponse(
-            status_code=422,
-            content={
-                "detail": errors,
-                "error": {
-                    "code": ErrorCode.validation_failed.value,
-                    "detail": "Request validation failed",
-                    "retriable": False,
-                    "fields": fields,
-                },
-            },
-        )
+        from core.errors import request_validation_response
+        return request_validation_response(exc)
 
     # Global exception handler — capture unhandled exceptions into ring buffer
     @app.exception_handler(Exception)

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Upload as UploadIcon, FileUp, Clock, Scale, Layers, Check, Printer, Trash2, ArrowRight, Calendar, CheckSquare, Square, Zap } from 'lucide-react'
 import { useNavigate, Link } from 'react-router-dom'
@@ -177,6 +177,9 @@ function UploadSuccess({ data, onUploadAnother, onViewLibrary, onScheduleNow, on
                 <p className="text-xs text-[var(--brand-text-secondary)]">
                   Sellable pieces: <span className="text-green-400 font-medium">{data.objects.filter(o => o.checked).length}</span>
                 </p>
+                {data.is_new_model === false && (
+                  <p className="text-xs text-[var(--brand-text-muted)]">Variant: the model keeps its saved pieces per plate ({data.quantity_per_bed ?? 1}).</p>
+                )}
               </div>
               <div className="bg-[var(--brand-input-bg)]/50 rounded-md p-2 max-h-32 overflow-y-auto space-y-1">
                 {data.objects.map((obj, i) => (
@@ -295,6 +298,33 @@ export default function Upload() {
   const [uploadedFile, setUploadedFile] = useState(null)
   const [uploadProgress, setUploadProgress] = useState(null)
 
+  // Sellable pieces (checked objects) persist as models.quantity_per_bed for a NEW model only.
+  // The server stores the default checked count; toggles re-save, coalesced into one PATCH,
+  // and a pending save is flushed on unmount. Variant uploads never overwrite the model.
+  const pendingQuantity = useRef(null)
+  const quantityTimer = useRef(null)
+  const flushQuantity = useCallback(() => {
+    clearTimeout(quantityTimer.current)
+    const pending = pendingQuantity.current
+    pendingQuantity.current = null
+    if (!pending) return
+    modelsApi.update(pending.modelId, { quantity_per_bed: pending.count })
+      .catch(e => toast.error('Failed to save sellable pieces: ' + (e?.message || 'Unknown error')))
+  }, [])
+  const saveQuantity = useCallback((modelId, objects) => {
+    if (!modelId) return
+    const count = (objects || []).filter(o => o.checked).length
+    clearTimeout(quantityTimer.current)
+    if (count < 1) {
+      pendingQuantity.current = null
+      toast.error('Select at least one sellable object')
+      return
+    }
+    pendingQuantity.current = { modelId, count }
+    quantityTimer.current = setTimeout(flushQuantity, 250)
+  }, [flushQuantity])
+  useEffect(() => flushQuantity, [flushQuantity])
+
   const { data: approvalSetting } = useQuery({
     queryKey: ['approval-setting'],
     queryFn: getApprovalSetting,
@@ -335,6 +365,11 @@ export default function Upload() {
     },
     onSuccess: (data) => {
       setUploadedFile(data)
+      // Only a new model takes its sellable pieces from this upload; the server already stored the
+      // default checked count, so save only if the stored value differs. Variants never overwrite.
+      const upload = data as { model_id?: number; is_new_model?: boolean; quantity_per_bed?: number | null; objects?: { checked?: boolean }[] }
+      const checked = (upload?.objects || []).filter(o => o.checked).length
+      if (upload?.is_new_model === true && checked > 0 && upload.quantity_per_bed !== checked) saveQuantity(upload.model_id, upload.objects)
       setUploadProgress(null)
       queryClient.invalidateQueries({ queryKey: ['print-files'] })
       queryClient.invalidateQueries({ queryKey: ['models'] })
@@ -367,11 +402,7 @@ export default function Upload() {
           onViewLibrary={() => navigate('/models')}
           onUpdateObjects={(newObjects) => {
             setUploadedFile(prev => ({ ...prev, objects: newObjects }))
-            const checkedCount = newObjects.filter(o => o.checked).length
-            if (uploadedFile?.model_id) {
-              modelsApi.update(uploadedFile.model_id, { quantity_per_bed: checkedCount })
-                .catch(e => console.error('Failed to save quantity_per_bed:', e))
-            }
+            if (uploadedFile?.is_new_model === true) saveQuantity(uploadedFile?.model_id, newObjects)
           }}
           onScheduleNow={() => navigate(`/models?schedule=${uploadedFile.model_id}`)}
           submitForApproval={showSubmitForApproval}
