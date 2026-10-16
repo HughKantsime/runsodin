@@ -60,7 +60,7 @@ _BACKEND = Path(__file__).resolve().parents[2]
 _POLL_SECONDS = 0.02
 # Test hooks the parent forwards; nothing else from its environment reaches the child.
 _FORWARDED_TEST_VARIABLES = ("ODIN_MESH_WORKER_TEST_SLEEP", "ODIN_MESH_WORKER_TEST_GRANDCHILD")
-_STATUSES = frozenset({"ok", "too_large", "too_many_members", "bad_zip", "unparsed", "no_plate"})
+_STATUSES = frozenset({"ok", "too_large", "too_many_members", "bad_zip", "unparsed", "no_plate", "plate_json_too_large"})
 
 # The only executor 3MF work runs on: every admitted caller (one wait slot) has a thread.
 EXECUTOR = ThreadPoolExecutor(max_workers=MAX_WORKERS + MAX_WAITERS, thread_name_prefix="odin-3mf")
@@ -86,6 +86,7 @@ class Analysis:
     plate_count: int = 1
     file_meta: Optional[dict] = None
     mesh: Optional[dict] = None
+    plates: Optional[list] = None
 
 
 # --------------------------------------------------------------------------- mesh wire format
@@ -453,9 +454,34 @@ def validate_analysis(parsed) -> Analysis:
     return Analysis(status="ok", metadata=metadata, plate_objects=objects, plate_count=count, file_meta=file_meta)
 
 
+def _plate_summary(value):
+    return (type(value) is dict and set(value) == {"plate_index", "sellable_pieces", "filament_grams", "print_time_seconds"}
+            and _integer(value["plate_index"], 0, 1023)
+            and (value["sellable_pieces"] is None or _integer(value["sellable_pieces"], 0, 10**6))
+            and _number(value["filament_grams"], 0, 1e7, optional=True)
+            and (value["print_time_seconds"] is None or _integer(value["print_time_seconds"], 0, 10**8)))
+
+
+def validate_plates(parsed) -> Analysis:
+    """The child's plates payload, schema-checked; any violation is 'failed'."""
+    if type(parsed) is not dict or parsed.get("status") not in _STATUSES:
+        return Analysis(status="failed")
+    if parsed["status"] != "ok":
+        return Analysis(status=parsed["status"]) if set(parsed) == {"status"} else Analysis(status="failed")
+    plates = parsed.get("plates")
+    if set(parsed) != {"status", "plates"} or type(plates) is not list or len(plates) > 1024 \
+            or not all(_plate_summary(p) for p in plates):
+        return Analysis(status="failed")
+    return Analysis(status="ok", plates=plates)
+
+
 def _decode(blob: bytes, mode: str, clean_exit: bool) -> Analysis:
     try:
         frames = _frames(blob)
+        if mode == "plates":
+            if not clean_exit or b"P" not in frames or len(frames[b"P"]) > ANALYSIS_LIMIT_BYTES:
+                return Analysis(status="failed")
+            return validate_plates(json.loads(frames[b"P"]))
         if mode == "mesh":
             analysis = Analysis(status="ok")
         elif b"A" in frames and len(frames[b"A"]) <= ANALYSIS_LIMIT_BYTES:
@@ -545,3 +571,9 @@ async def extract_mesh_isolated(path, *, timeout: float = TIMEOUT_SECONDS, memor
         return (await analyze_3mf_isolated(path, mode="mesh", timeout=timeout, memory_limit=memory_limit)).mesh
     except Busy:
         return None
+
+
+def plate_summaries_blocking(path, *, timeout: float = TIMEOUT_SECONDS) -> Analysis:
+    """Per-plate summaries of a stored package, parsed in the bounded child (same pool,
+    admission and deadline as uploads). Blocking: for sync routes. Raises Busy."""
+    return analyze_blocking(path, mode="plates", timeout=timeout)

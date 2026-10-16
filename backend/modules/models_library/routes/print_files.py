@@ -184,6 +184,8 @@ async def upload_3mf(
                 raise HTTPException(status_code=400, detail="File rejected: decompressed size exceeds the 500 MB limit (400 MB per member).")
             if analysis.status == "too_many_members":
                 raise HTTPException(status_code=400, detail="File rejected: the .3mf has too many archive members.")
+            if analysis.status == "plate_json_too_large":
+                raise HTTPException(status_code=400, detail="File rejected: a plate description (Metadata/plate_N.json) exceeds 4 MB.")
             if analysis.status == "bad_zip":
                 raise HTTPException(status_code=400, detail="Invalid .3mf file (bad zip structure).")
             if analysis.status != "ok" or not analysis.metadata:

@@ -21,7 +21,7 @@ Output frames on stdout for mesh_isolation:
 
 Modes: ``upload`` (analysis + mesh), ``metadata`` (analysis only), ``education``
 (analysis + the Education rule: exactly one nonempty Metadata/plate_1.gcode),
-``mesh`` (mesh only).
+``mesh`` (mesh only), ``plates`` (a ``P`` frame: per-plate summaries of a stored package).
 """
 import json
 import os
@@ -66,13 +66,15 @@ def _analysis(path: str, name: str, mode: str) -> dict:
     import re
     import zipfile
     from core.zip_bounds import ArchiveRefused, check_expansion, open_bounded
-    from modules.models_library.threemf_parser import parse_3mf, extract_objects_from_plate
+    from modules.models_library.threemf_parser import parse_3mf, extract_objects_from_plate, plate_json_too_large
     from modules.models_library.print_file_meta import extract_print_file_meta
     try:
         with open_bounded(path) as package:
             check_expansion(package)
             entries = package.infolist()
             names = [entry.filename for entry in entries]
+            if plate_json_too_large(package):  # every plate, not only plate_1
+                return {"status": "plate_json_too_large"}
             if mode == "education":
                 printable = [entry for entry in entries if entry.filename == "Metadata/plate_1.gcode"]
                 if len(printable) != 1 or printable[0].is_dir() or printable[0].file_size <= 0:
@@ -88,6 +90,23 @@ def _analysis(path: str, name: str, mode: str) -> dict:
     plate_count = len({n for n in names if re.fullmatch(r"Metadata/plate_[1-9][0-9]*\.gcode", n)}) or 1
     return {"status": "ok", "metadata": dataclasses.asdict(metadata), "plate_objects": plate_objects,
             "plate_count": plate_count, "file_meta": extract_print_file_meta(path, ".3mf")}
+
+
+def _plates(path: str) -> dict:
+    """Per-plate summaries of a stored package (GET /models/{id}/plates, plate>0 scheduling)."""
+    import zipfile
+    from core.zip_bounds import ArchiveRefused, check_expansion, open_bounded
+    from modules.models_library.threemf_parser import plate_json_too_large, plate_summaries
+    try:
+        with open_bounded(path) as package:
+            check_expansion(package)
+            if plate_json_too_large(package):
+                return {"status": "plate_json_too_large"}
+            return {"status": "ok", "plates": plate_summaries(package)}
+    except ArchiveRefused as refused:
+        return {"status": "too_large" if refused.reason in ("too_large", "member_too_large") else "too_many_members"}
+    except zipfile.BadZipFile:
+        return {"status": "bad_zip"}
 
 
 def _mesh_frame(path: str) -> None:
@@ -124,6 +143,9 @@ def main() -> int:
         with open(spawn, "w") as marker:
             marker.write(str(child.pid))
     try:
+        if mode == "plates":
+            _frame(b"P", json.dumps(_plates(INPUT)).encode())
+            return 0
         if mode != "mesh":
             result = _analysis(INPUT, name, mode)
             _frame(b"A", json.dumps(result, default=str).encode())

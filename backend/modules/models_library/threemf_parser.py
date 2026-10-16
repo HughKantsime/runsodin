@@ -245,6 +245,8 @@ def parse_slice_info(zf: zipfile.ZipFile) -> Optional[dict]:
 
 def parse_plate_json(zf: zipfile.ZipFile) -> Optional[dict]:
     """Parse Metadata/plate_1.json file."""
+    if not _plate_json_member_ok(zf, 'Metadata/plate_1.json'):
+        return None
     try:
         with zf.open('Metadata/plate_1.json') as f:
             data = json.load(f)
@@ -372,8 +374,29 @@ if __name__ == '__main__':
             print("Failed to parse file")
 
 
+# A plate_N.json is a few KB in real Bambu Studio / Orca exports. json.load of a large
+# member expands to many times its size in Python objects (a ~60 MB member exceeds 4 GB),
+# so a plate JSON larger than this is never parsed.
+MAX_PLATE_JSON_BYTES = 4 * 2**20
+
+
+def plate_json_too_large(zf: zipfile.ZipFile) -> bool:
+    """True when any Metadata/plate_N.json declares more than MAX_PLATE_JSON_BYTES."""
+    return any(re.fullmatch(r"Metadata/plate_[1-9][0-9]*\.json", info.filename)
+               and info.file_size > MAX_PLATE_JSON_BYTES for info in zf.infolist())
+
+
+def _plate_json_member_ok(zf: zipfile.ZipFile, name: str) -> bool:
+    try:
+        return zf.getinfo(name).file_size <= MAX_PLATE_JSON_BYTES
+    except KeyError:
+        return False
+
+
 def extract_objects_from_plate(zf: zipfile.ZipFile, plate_number: int = 1) -> list:
     """Extract object names from plate_N.json (default plate 1) for quantity counting."""
+    if not _plate_json_member_ok(zf, f'Metadata/plate_{plate_number}.json'):
+        return []
     try:
         with zf.open(f'Metadata/plate_{plate_number}.json') as f:
             data = json.load(f)

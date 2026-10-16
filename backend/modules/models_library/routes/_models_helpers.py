@@ -46,18 +46,19 @@ def _new_revision_file(model_id, number, filename, state):
 def _plate_summaries(path, indices=None):
     """Per-plate sellable pieces / grams / print time from the staged 3MF bytes (model-level
     fields describe plate 1). Restricted to the validated plate indices when given."""
-    import zipfile
-    from core.zip_bounds import check_expansion, open_bounded
-    from modules.models_library.threemf_parser import plate_summaries
-    # Stored packages are opened bounded (cert-fix-B): member count and directory size from
-    # the end record before zipfile lists them, and declared decompressed sizes capped.
+    from modules.models_library.mesh_isolation import Busy, plate_summaries_blocking
+    # Parsed in the bounded 3MF child (memory, CPU and deadline caps; same pool as uploads):
+    # a hostile plate JSON can never exhaust the API process.
     try:
-        with open_bounded(path) as archive:
-            check_expansion(archive)
-            summaries = plate_summaries(archive)
-    except (OSError, zipfile.BadZipFile):
-        raise HTTPException(400, "Original file is not a readable sliced Bambu 3MF") from None
-    return [s for s in summaries if indices is None or s["plate_index"] in indices]
+        analysis = plate_summaries_blocking(path)
+    except Busy as busy:
+        raise HTTPException(status_code=429, detail="3MF analysis is busy; try again shortly",
+                            headers={"Retry-After": str(busy.retry_after)}) from None
+    if analysis.status == "plate_json_too_large":
+        raise HTTPException(400, "A plate description in this 3MF is too large to read")
+    if analysis.status != "ok" or analysis.plates is None:
+        raise HTTPException(400, "Original file is not a readable sliced Bambu 3MF")
+    return [s for s in analysis.plates if indices is None or s["plate_index"] in indices]
 
 
 def _locked_revision_model(db, model_id, current_user):

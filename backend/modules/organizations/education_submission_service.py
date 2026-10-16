@@ -850,6 +850,8 @@ def finalize_staged_3mf_submission(
         status, metadata = _analyze_3mf_isolated(staging_path, threemf_ticket)
         if status == "too_large":
             raise OdinError(ErrorCode.validation_failed, "Expanded .3mf exceeds 500 MiB", status=400)
+        if status == "plate_json_too_large":
+            raise OdinError(ErrorCode.validation_failed, "A plate description in the .3mf exceeds 4 MB", status=400)
         if status in ("bad_zip", "too_many_members"):
             raise OdinError(ErrorCode.validation_failed, "Invalid .3mf container", status=400)
         if status == "no_plate":
