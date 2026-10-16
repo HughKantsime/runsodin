@@ -180,10 +180,10 @@ def job_completed(
 
             reconcile_job_write(conn, production_orders)
             conn.commit()
-            # The completion event describes a job completion only when one applied
-            # (or when the print had no job: the event is the print's own outcome).
-            committed_completion = success is True and (job_applied or not scheduled_job_id)
-            completion_job_id = scheduled_job_id
+            # The physical print completion is always published (keyed by the print);
+            # job-scoped effects only see the job when this end actually completed it.
+            committed_completion = success is True
+            completion_job_id = scheduled_job_id if job_applied else None
             completion_metadata = {'job_name': job_name, 'duration_seconds': duration_seconds}
 
         # Increment care counters if successful

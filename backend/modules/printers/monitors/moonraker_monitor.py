@@ -548,6 +548,7 @@ class MoonrakerMonitor:
                 row = conn.execute(text("""
                     SELECT scheduled_job_id FROM print_jobs WHERE id = :jid
                 """), {"jid": self._current_job_db_id}).fetchone()
+                ended = False
                 if row and row[0]:
                     sched_status = end_status if end_status in ('completed','failed','cancelled') else 'failed'
                     duration_hours = round(duration_seconds / 3600, 4) if duration_seconds else None
@@ -563,8 +564,9 @@ class MoonrakerMonitor:
                     if end_status == "completed" and ended:
                         self._auto_deduct_filament(conn, row[0], observed_grams=filament_used_g)
                 reconcile_job_write(conn, production_orders)
+            # Physical completion always; the job only when its transition applied.
             committed_completion = end_status == 'completed'
-            completion_job_id = row[0] if row else None
+            completion_job_id = row[0] if row and row[0] and ended else None
             log.info(f"[{self.name}] Job {end_status}: DB id {self._current_job_db_id}")
 
             # Increment care counters on successful completion

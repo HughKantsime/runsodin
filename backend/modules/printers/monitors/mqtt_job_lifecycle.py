@@ -484,10 +484,11 @@ def record_job_ended(
 
             reconcile_job_write(conn, production_orders)
             conn.commit()
-            # Publish the completion event only when this print end actually
-            # completed a job (its transition applied, or a new job was recorded).
-            committed_completion = status == 'completed' and job_applied
-            completion_job_id = linked_job_id
+            # The physical print completion is always published (archive capture,
+            # energy recording, auto power-off are keyed by the print). Job-scoped
+            # effects only see the job when this print end actually completed it.
+            committed_completion = status == 'completed'
+            completion_job_id = linked_job_id if job_applied else None
 
         log.info(f"[{printer_name}] Job {status}: DB id {current_job_id}")
 

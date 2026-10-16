@@ -186,7 +186,9 @@ def monitor_boundary(review_db, monkeypatch):
 
 
 @pytest.mark.parametrize('job_status', ['cancelled', 'submitted', 'rejected', 'failed'])
-def test_prusalink_elegoo_print_end_never_overwrites_and_publishes_nothing(review_db, monitor_boundary, job_status):
+def test_prusalink_elegoo_print_end_never_overwrites_but_still_publishes_the_physical_print(review_db, monitor_boundary, job_status):
+    """Physical-print effects (archive, energy, auto power-off) still run, keyed by the print;
+    job-scoped effects do not (the event carries no scheduled job)."""
     from modules.notifications import job_events
     _job(review_db, 705, job_status)
     review_db.execute(text("INSERT INTO print_jobs(id,printer_id,filename,job_name,started_at,status,scheduled_job_id) "
@@ -194,7 +196,7 @@ def test_prusalink_elegoo_print_end_never_overwrites_and_publishes_nothing(revie
     review_db.commit()
     job_events.job_completed(9, 7705, success=True, duration_seconds=60)
     assert _status(review_db, 705) == job_status
-    assert monitor_boundary == []  # no JOB_COMPLETED for a job that did not complete
+    assert [args[:3] for args in monitor_boundary] == [(9, 7705, None)]
 
 
 def test_prusalink_elegoo_print_end_completes_a_live_job_and_publishes(review_db, monitor_boundary):
@@ -205,7 +207,7 @@ def test_prusalink_elegoo_print_end_completes_a_live_job_and_publishes(review_db
     review_db.commit()
     job_events.job_completed(9, 7706, success=True, duration_seconds=60)
     assert _status(review_db, 706) == 'completed'
-    assert len(monitor_boundary) == 1
+    assert [args[:3] for args in monitor_boundary] == [(9, 7706, 706)]
 
 
 @pytest.mark.parametrize('job_status', ['cancelled', 'completed', 'submitted'])
@@ -248,3 +250,34 @@ def test_plate_cleared_releases_by_priority_then_position_through_the_state_mach
     response = client.post('/api/v1/printers/9/plate-cleared')
     assert response.status_code == 200, response.text
     assert (_status(fleet, 711), _status(fleet, 710)) == ('pending', 'waiting_plate_clear')
+
+
+
+@pytest.mark.parametrize('job_status,expected_job', [('failed', None), ('printing', 712)])
+def test_mqtt_print_end_publishes_the_physical_print_and_the_job_only_when_it_applied(review_db, monkeypatch, job_status, expected_job):
+    from contextlib import contextmanager
+    from core.db_utils import _ConnectionAdapter
+    import modules.printers.committed_terminal_events as committed
+    from modules.printers.monitors import mqtt_job_lifecycle
+    from modules.notifications import alert_dispatch
+    engine = review_db.get_bind()
+
+    @contextmanager
+    def isolated_db():
+        connection = engine.raw_connection()
+        try:
+            yield _ConnectionAdapter(connection, False)
+        finally:
+            connection.close()
+    monkeypatch.setattr(mqtt_job_lifecycle, 'get_db', isolated_db)
+    published = []
+    monkeypatch.setattr(committed, 'publish_committed_completion', lambda *a, **k: published.append(a))
+    monkeypatch.setattr(alert_dispatch, 'dispatch_alert', lambda **kwargs: None)
+    monkeypatch.setattr(alert_dispatch, '_start_bed_cooled_monitor', lambda *args: None)
+    _job(review_db, 712, job_status)
+    review_db.execute(text("INSERT INTO print_jobs(id,printer_id,filename,job_name,started_at,status,scheduled_job_id) "
+                           "VALUES(7712,9,'x.3mf','x',CURRENT_TIMESTAMP,'running',712)"))
+    review_db.commit()
+    mqtt_job_lifecycle.record_job_ended(9, 'P', 7712, 712, 'completed', {'subtask_name': 'x'}, {}, lambda **k: None)
+    assert _status(review_db, 712) == ('failed' if job_status == 'failed' else 'completed')
+    assert [args[:3] for args in published] == [(9, 7712, expected_job)]
