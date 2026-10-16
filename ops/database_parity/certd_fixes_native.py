@@ -2,14 +2,14 @@
 
 Covers: job lifecycle guard (enum NOT IN inside the atomic completion UPDATE);
 the filament ledger (claims, pre-upgrade rows, archive qmark runner, a real
-claim race); printer-delete pin marking; retention purge marker cleanup;
+claim race, lock order under a real archive/operator race, attempt binding); printer-delete pin marking; retention purge marker cleanup;
 queue_position ordering (boolean NULLS-last ORDER BY) in GET /jobs and the
 scheduler, named priority persisted as INTEGER, specific-printer pin, ship
 guard on orders, and the maintenance care-counter reset. Real routers and the
 real bootstrap schema; the authenticated principal is injected at the
 get_current_user boundary (auth is not the DB semantic under test).
 """
-import os, stat, secrets
+import json, os, stat, secrets
 from pathlib import Path
 private = Path(os.environ['CALLBACK_NATIVE_PASSWORD_FILE'])
 assert os.getuid() == 10001 and stat.S_IMODE(private.stat().st_mode) == 0o600
@@ -306,5 +306,82 @@ with engine.connect() as c:
     assert c.execute(text("SELECT COUNT(*) FROM jobs WHERE id=:id"), {'id': old}).scalar_one() == 0
     assert c.execute(text("SELECT COUNT(*) FROM system_config WHERE key LIKE :p"), {'p': f'quota_attempt:%:{old}%'}).scalar_one() == 0
 print('postgres-retention-attempt-cleanup-pass', flush=True)
+
+# 11. One lock order on PostgreSQL: account_archive and operator /complete race for
+#     the same job and spool. The archive pauses after its spool locks, before
+#     claiming; the operator then runs into it. Spool locks always precede claims,
+#     so the operator waits on the spool lock (never holding a claim the archive
+#     needs): no deadlock, exactly one deduction, and attempt binding resolves the
+#     print's own attempt.
+import time
+from contextlib import contextmanager
+from core.db_utils import _ConnectionAdapter
+from modules.archives import archive as archive_module
+from modules.archives.attempt_accounting import capture_attempt_spools
+with engine.begin() as c:
+    c.execute(text("INSERT INTO printers(id,name,api_type,slot_count,is_active,tags,timelapse_enabled,shared,org_id) "
+                   "VALUES(15,'PG-15','bambu',1,TRUE,'[]',FALSE,FALSE,1)"))
+    c.execute(text("INSERT INTO filament_library(id,brand,name,material) VALUES(1501,'PG','Race','PLA')"))
+    c.execute(text("INSERT INTO spools(id,filament_id,status,location_printer_id,location_slot,remaining_weight_g,"
+                   "initial_weight_g,org_id) VALUES(1501,1501,'active',15,1,1000,1000,1)"))
+    c.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type,assigned_spool_id) VALUES(15,1,'PLA',1501)"))
+    race_job = c.execute(text("INSERT INTO jobs(item_name,status,charged_to_org_id,charged_to_user_id,submitted_by,quantity,"
+                              "priority,hold,is_locked,printer_id,ams_mapping) VALUES('PG race print','printing',1,3,3,1,3,"
+                              "FALSE,FALSE,15,'[0]') RETURNING id")).scalar_one()
+    c.execute(text("INSERT INTO print_files(id,filename,stored_path,job_id,filament_weight_grams,plate_count,thumbnail_b64,org_id,"
+                   "filaments_json) VALUES(1501,'race.3mf','/opaque/race.3mf',:j,40,1,'t',1,:m)"),
+              {'j': race_job, 'm': json.dumps([{'slot': 0, 'used_grams': 40}])})
+    c.execute(text("UPDATE jobs SET print_file_id=1501 WHERE id=:j"), {'j': race_job})
+    race_print = c.execute(text("INSERT INTO print_jobs(printer_id,scheduled_job_id,job_name,status,started_at) "
+                                "VALUES(15,:j,'PG race print','running',NOW()) RETURNING id"), {'j': race_job}).scalar_one()
+    assert capture_attempt_spools(c, race_print, 15, source='pg-probe-race-start')
+    c.execute(text("UPDATE print_jobs SET status='completed',ended_at=NOW() WHERE id=:p"), {'p': race_print})
+
+@contextmanager
+def pg_raw_db():
+    raw = engine.raw_connection()
+    try:
+        yield _ConnectionAdapter(raw, True)
+    finally:
+        raw.close()
+archive_module.get_db = pg_raw_db
+archive_module._sync_spoolman_consumption = lambda *args: None
+archive_locked, original_claim = threading.Event(), filament_ledger._claim
+def paused_claim(run, key, value):
+    if threading.current_thread().name == 'archive' and not archive_locked.is_set():
+        archive_locked.set()
+        time.sleep(1.5)  # the operator now runs into the archive's spool lock
+    return original_claim(run, key, value)
+filament_ledger._claim = paused_claim
+outcomes = {}
+def archive_side():
+    outcomes['archive'] = archive_module.create_print_archive(race_print, 15, True)
+def operator_side():
+    archive_locked.wait(10)
+    outcomes['operator'] = client.post(f'/jobs/{race_job}/complete').status_code
+threads = [threading.Thread(target=archive_side, name='archive'), threading.Thread(target=operator_side, name='operator')]
+for worker in threads: worker.start()
+for worker in threads: worker.join(60)
+filament_ledger._claim = original_claim
+assert not any(worker.is_alive() for worker in threads), 'ledger race did not finish'
+assert outcomes.get('archive') is not None and outcomes.get('operator') == 200, outcomes
+assert one('SELECT remaining_weight_g FROM spools WHERE id=1501')[0] == 960        # exactly one deduction
+state = tuple(one('SELECT accounting_state,accounting_reason FROM print_archives WHERE print_job_id=:p', p=race_print))
+assert state == ('accounted', None), state
+with engine.connect() as c:
+    keys = set(c.execute(text("SELECT key FROM system_config WHERE key LIKE :k"), {'k': f'quota_attempt:filament:job:{race_job}:%'}).scalars())
+assert keys == {f'quota_attempt:filament:job:{race_job}:0', f'quota_attempt:filament:job:{race_job}:print:{race_print}'}, keys
+# Attempt binding on PostgreSQL: after a reset, a late archive of an attempt-0 print
+# claims attempt 0, and the reprint (attempt 1) deducts its own.
+with engine.begin() as c:
+    late_print = c.execute(text("INSERT INTO print_jobs(printer_id,scheduled_job_id,job_name,status,started_at) "
+                                "VALUES(15,:j,'PG late print','running',NOW()) RETURNING id"), {'j': race_job}).scalar_one()
+    from core.print_attempts import bind_print_attempt
+    bind_print_attempt(sqlalchemy_runner(c), late_print, race_job)
+assert client.post(f'/jobs/{race_job}/reset').status_code == 200
+with engine.connect() as c:
+    view = filament_ledger.print_attempt(sqlalchemy_runner(c), race_job, late_print)
+assert view.seq == 0, view
+print('postgres-ledger-lock-order-and-attempt-binding-pass', flush=True)
 print('certd-fixes-native-pass', flush=True)
 engine.dispose()
