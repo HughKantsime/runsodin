@@ -29,11 +29,16 @@ _ACK=re.compile(rb'preserved029-validated:(25|26|27)\n')
 _REFUSAL=re.compile(r'preserved029-refused:([A-Za-z0-9_]+)(?::(.*))?\n?')
 
 
+# The child's exit code (runner.exit_code_for) is the failure category.
+CATEGORIES={65:'archive',75:'retry'}
+
+
 class Preserved029Refused(Preserved029Error):
-    """Child refusal; ``kind`` and ``detail`` are source-authored, never driver text."""
-    def __init__(self,kind,detail):
+    """Child refusal. ``category`` comes from the exit code ('archive', 'retry' or
+    'environment'); ``kind`` and ``detail`` are source-authored text, never driver text."""
+    def __init__(self,kind,detail,category='environment'):
         super().__init__(detail or 'Preserved029 child refused: '+kind)
-        self.kind=kind;self.detail=detail
+        self.kind=kind;self.detail=detail;self.category=category
 
 
 def ledger_ids():
@@ -75,7 +80,8 @@ def _bounded_child(control_path,deadline):
         match=_ACK.fullmatch(out)
         if process.returncode==0 and match and not err:return int(match.group(1))
         refusal=_REFUSAL.fullmatch(err.decode('ascii','replace'))
-        if process.returncode!=0 and not out and refusal:raise Preserved029Refused(refusal.group(1),refusal.group(2))
+        if process.returncode not in (0,None) and not out and refusal:
+            raise Preserved029Refused(refusal.group(1),refusal.group(2),CATEGORIES.get(process.returncode,'environment'))
         raise Preserved029Error('Preserved029 child did not validate')
     except BaseException as error:
         failure=error

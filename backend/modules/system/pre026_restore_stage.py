@@ -65,8 +65,8 @@ def _pg_restore_lines(arguments,url,password_file,directory,*,limit):
         except subprocess.TimeoutExpired:
             process.kill();returncode=process.wait()
     # A timeout is not a judgement of the archive: classify it as retryable.
-    if expired.is_set():raise b.PostgreSQLClientFailed('PostgreSQL client operation timed out: pg_restore',connects=True)
-    if returncode:raise b.PostgreSQLClientFailed('PostgreSQL client operation failed: pg_restore',connects=False)
+    if expired.is_set():raise b.PostgreSQLClientFailed('PostgreSQL client operation timed out: pg_restore',retryable=True)
+    if returncode:raise b.PostgreSQLClientFailed('PostgreSQL client operation failed: pg_restore',retryable=False)
 
 
 def archive_ledger_ids(archive,url,password_file,directory):
@@ -144,13 +144,11 @@ def prepared_archive(archive,target_url,maintenance_url,password_file,maintenanc
                 existing=lambda:artifacts.existing_databases(maintenance_url,maintenance_password_file),
                 deadline=monotonic()+STAGE_SECONDS)
         except preserved029.Preserved029Refused as refusal:
-            # The preserved sources judged the archive. Their client/credential failures are
-            # environment problems; every other typed refusal is about the archive itself.
-            detail=refusal.detail or ''
-            archive_kind=refusal.kind in ('BackupValidationError','MigrationError') and detail and not detail.startswith(('PostgreSQL client operation failed','PostgreSQL password file','Required PostgreSQL client','PostgreSQL backup validation requires','PostgreSQL maintenance password file'))
-            archive_kind=archive_kind or (refusal.kind=='Preserved029Error' and detail.startswith(('Preserved029 stage tables differ','Preserved029 stage ledger differs')))
-            if archive_kind:raise b.ArchiveRefused(detail) from None
-            raise b.RestoreEnvironmentError('Historical PostgreSQL archive stage could not run ('+refusal.kind+(': '+detail[:200] if detail else '')+')') from None
+            # The child's exit code says whether the preserved sources judged the archive.
+            detail=(refusal.detail or '')[:300]
+            if refusal.category=='archive':raise b.ArchiveRefused(detail or 'Historical PostgreSQL archive refused ('+refusal.kind+')') from None
+            if refusal.category=='retry':raise b.PostgreSQLClientFailed('Historical PostgreSQL archive stage hit a retryable failure'+(': '+detail if detail else ''),retryable=True) from None
+            raise b.RestoreEnvironmentError('Historical PostgreSQL archive stage could not run ('+refusal.kind+(': '+detail if detail else '')+')') from None
         except preserved029.Preserved029Error as error:
             # Parent-side refusals are source-authored text (never driver output).
             if str(error).startswith('Preserved029 stage ledger differs'):raise b.ArchiveRefused(str(error)) from None

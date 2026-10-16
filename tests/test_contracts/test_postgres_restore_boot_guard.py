@@ -83,7 +83,7 @@ def test_transient_errors_are_retried_with_bounded_backoff_then_apply(tmp_path, 
     from modules.system.postgres_backup_service import PostgreSQLClientFailed
     paths = _stage(tmp_path)
     transient = [OperationalError("SELECT 1", {}, Exception("could not translate host name")),
-                 PostgreSQLClientFailed("PostgreSQL client operation failed: pg_dump", connects=True)]
+                 PostgreSQLClientFailed("PostgreSQL client operation failed: pg_dump", retryable=True)]
     code, calls = _run(monkeypatch, tmp_path, *transient, result={"status": "restored", "candidate_sha256": "a" * 64})
     assert code == 0 and len(calls) == 3
     assert "retrying" in capsys.readouterr().err
@@ -112,8 +112,8 @@ def test_archive_phase_classifies_only_archive_judgements():
     from modules.system import postgres_backup_service as b
     assert isinstance(b._as_archive_refusal(b.BackupValidationError("Archive schema differs")), b.ArchiveRefused)
     assert isinstance(b._as_archive_refusal(MigrationError("Migration history mismatch: x")), b.ArchiveRefused)
-    assert isinstance(b._as_archive_refusal(b.PostgreSQLClientFailed("pg_restore", connects=False)), b.ArchiveRefused)
-    for kept in (b.PostgreSQLClientFailed("pg_dump", connects=True), b.RestoreEnvironmentError("x"),
+    assert isinstance(b._as_archive_refusal(b.PostgreSQLClientFailed("pg_restore", retryable=False)), b.ArchiveRefused)
+    for kept in (b.PostgreSQLClientFailed("pg_dump", retryable=True), b.RestoreEnvironmentError("x"),
                  b.RestoreAcknowledgementRequired("x"), ConnectionError("x")):
         assert b._as_archive_refusal(kept) is kept
 
@@ -132,3 +132,22 @@ def test_a_staged_archive_that_changed_is_an_archive_refusal(tmp_path, monkeypat
     with pytest.raises(b.ArchiveRefused, match="does not match its manifest"):
         b.apply_pending_postgres_restore("postgresql://o@pg/odin", "postgresql://m@pg/postgres", acknowledgement="a" * 64,
                                          password_file="/a", maintenance_password_file="/b", base_dir=tmp_path)
+
+
+def test_a_pg_restore_list_timeout_is_retryable_not_an_archive_refusal(tmp_path, monkeypatch):
+    import subprocess
+    from modules.system import postgres_backup_service as b
+    secret = tmp_path / "s"; secret.write_text("x"); secret.chmod(0o600)
+    def timeout(*a, **k):
+        raise subprocess.TimeoutExpired(cmd=["pg_restore", "--list"], timeout=300)
+    monkeypatch.setattr(b.shutil, "which", lambda name: "/usr/bin/" + name)
+    monkeypatch.setattr(b.subprocess, "run", timeout)
+    with pytest.raises(b.PostgreSQLClientFailed) as failed:
+        b._run_pg_tool(["pg_restore", "--list", "/x.dump"], "postgresql://o@pg/odin", str(secret), tmp_path)
+    assert failed.value.retryable and not isinstance(b._as_archive_refusal(failed.value), b.ArchiveRefused)
+    def unreadable(*a, **k):
+        raise subprocess.CalledProcessError(1, ["pg_restore", "--list", "/x.dump"])
+    monkeypatch.setattr(b.subprocess, "run", unreadable)
+    with pytest.raises(b.PostgreSQLClientFailed) as failed:
+        b._run_pg_tool(["pg_restore", "--list", "/x.dump"], "postgresql://o@pg/odin", str(secret), tmp_path)
+    assert not failed.value.retryable and isinstance(b._as_archive_refusal(failed.value), b.ArchiveRefused)

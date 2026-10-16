@@ -78,11 +78,12 @@ class RestoreAcknowledgementRequired(BackupValidationError):
 
 
 class PostgreSQLClientFailed(BackupValidationError):
-    """A pg_dump/pg_restore run failed. ``connects`` says whether it talked to a server."""
+    """A pg_dump/pg_restore run failed. ``retryable``: it talked to a server or timed out,
+    so a later attempt can succeed; otherwise it failed reading the archive itself."""
 
-    def __init__(self, message: str, *, connects: bool):
+    def __init__(self, message: str, *, retryable: bool):
         super().__init__(message)
-        self.connects = connects
+        self.retryable = retryable
 
 
 def _as_archive_refusal(error: BaseException) -> BaseException:
@@ -91,7 +92,7 @@ def _as_archive_refusal(error: BaseException) -> BaseException:
     if isinstance(error, (ArchiveRefused, RestoreEnvironmentError, RestoreAcknowledgementRequired)):
         return error
     if isinstance(error, PostgreSQLClientFailed):
-        if error.connects:
+        if error.retryable:
             return error
         refused = ArchiveRefused(str(error)); refused.__cause__ = error
         return refused
@@ -300,10 +301,15 @@ def _run_pg_tool(command: list[str], database_url: str, password_file: str | Non
             stderr=subprocess.PIPE,
             timeout=300,
         )
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+    except subprocess.TimeoutExpired as exc:
+        # A timeout (also of pg_restore --list) is not a judgement of the archive.
+        raise PostgreSQLClientFailed(
+            f"PostgreSQL client operation timed out: {Path(command[0]).name}", retryable=True
+        ) from exc
+    except subprocess.CalledProcessError as exc:
         raise PostgreSQLClientFailed(
             f"PostgreSQL client operation failed: {Path(command[0]).name}",
-            connects=any(item == "--dbname" or item.startswith("--dbname=") for item in command),
+            retryable=any(item == "--dbname" or item.startswith("--dbname=") for item in command),
         ) from exc
     return result.stdout
 

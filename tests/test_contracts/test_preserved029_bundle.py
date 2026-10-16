@@ -145,7 +145,7 @@ def test_unisolated_runner_and_early_backend_import_refuse():
 def test_unknown_action_control_refuses_without_connecting(tmp_path):
     control = tmp_path / "control"; control.write_text(json.dumps({"action": "executeSQL"})); control.chmod(0o600)
     result = subprocess.run([sys.executable, "-I", str(BASE / "runner.py"), str(control)], capture_output=True, text=True, timeout=30)
-    assert result.returncode == 1 and result.stdout == ""
+    assert result.returncode == 78 and result.stdout == ""  # EX_CONFIG: an environment refusal
     assert result.stderr.startswith("preserved029-refused:Preserved029Error:")
 
 
@@ -467,3 +467,53 @@ def test_startup_sweep_drops_only_stale_journaled_databases_and_files(tmp_path):
     assert asked == [old] and result["databases"] == [old]
     assert set(restore_artifacts.journal_entries(backups)) == {fresh}
     assert not stale_dump.exists() and not stale_dir.exists() and keep_dump.exists() and real_backup.exists()
+
+
+@pytest.mark.parametrize("code,category", [(65, "archive"), (75, "retry"), (78, "environment"), (70, "environment"), (3, "environment")])
+def test_child_failure_category_comes_from_its_exit_code(tmp_path, monkeypatch, code, category):
+    actual_popen = subprocess.Popen
+    child = tmp_path / "owned_child.py"
+    child.write_text("import sys;print('preserved029-refused:BackupValidationError:PostgreSQL client operation failed: pg_dump',file=sys.stderr);"
+                     f"raise SystemExit({code})")
+    monkeypatch.setattr(p.subprocess, "Popen", lambda argv, **kw: actual_popen([sys.executable, "-I", str(child)], **kw))
+    control = tmp_path / "control"; control.write_text("{}")
+    with pytest.raises(p.Preserved029Refused) as refused:
+        p._bounded_child(control, monotonic() + 5)
+    assert refused.value.category == category
+
+
+@pytest.mark.parametrize("make,code", [
+    ("BackupValidationError('Archive schema differs')", 65),
+    ("MigrationError('Migration history mismatch: x')", 65),
+    ("Preserved029Error('Preserved029 stage tables differ')", 65),
+    ("_client_failure(['pg_dump','--dbname','postgresql://x'])", 75),
+    ("_client_failure(['pg_restore','--list','/a.dump'])", 65),
+    ("_client_timeout(['pg_restore','--list','/a.dump'])", 75),
+    ("_password_failure()", 78),
+    ("Preserved029Error('Preserved029 credential is unsafe')", 78),
+    ("RuntimeError('unexpected')", 70),
+])
+def test_child_classifies_its_own_failures_by_type(make, code):
+    script = runner_code(
+        "import subprocess\n"
+        "class BackupValidationError(RuntimeError):pass\n"
+        "class MigrationError(RuntimeError):pass\n"
+        "Preserved029Error=r.Preserved029Error\n"
+        "def _client_failure(cmd):\n"
+        "  try:raise subprocess.CalledProcessError(1,cmd)\n"
+        "  except subprocess.CalledProcessError as e:\n"
+        "    try:raise BackupValidationError('PostgreSQL client operation failed: '+cmd[0]) from e\n"
+        "    except BackupValidationError as x:return x\n"
+        "def _client_timeout(cmd):\n"
+        "  try:raise subprocess.TimeoutExpired(cmd,300)\n"
+        "  except subprocess.TimeoutExpired as e:\n"
+        "    try:raise BackupValidationError('PostgreSQL client operation failed: '+cmd[0]) from e\n"
+        "    except BackupValidationError as x:return x\n"
+        "def _password_failure():\n"
+        "  try:raise OSError('denied')\n"
+        "  except OSError as e:\n"
+        "    try:raise BackupValidationError('PostgreSQL password file is not readable') from e\n"
+        "    except BackupValidationError as x:return x\n"
+        f"print(r.exit_code_for({make}))")
+    result = isolated(script)
+    assert result.returncode == 0 and result.stdout.strip() == str(code), result.stderr
