@@ -155,6 +155,29 @@ def _stored_http_camera_url(printer_id: int):
     return url
 
 
+_SNIFF_BYTES = 64 * 1024
+
+
+def _body_matches(content_type: str, head: bytes) -> bool:
+    """The body really is what the camera declared: a multipart stream starts with its
+    boundary delimiter, an image with a JPEG start-of-image marker. Anything else (an HLS
+    playlist, HTML, another container format) is refused before ffmpeg sees a byte."""
+    kind = (content_type or "").split(";", 1)[0].strip().lower()
+    if kind.startswith("multipart/"):
+        import re
+        match = re.search(r'(?i)boundary="?([^";\s]+)"?', content_type or "")
+        stripped = head.lstrip(b"\r\n")
+        if not stripped.startswith(b"--"):
+            return False
+        if match:
+            boundary = match.group(1).encode("latin-1", "replace")
+            if boundary.startswith(b"--"):
+                boundary = boundary[2:]
+            return stripped[2:].startswith(boundary) or stripped.startswith(boundary)
+        return True
+    return head.startswith(b"\xff\xd8")
+
+
 def _allowed_content_type(value: str) -> bool:
     kind = (value or "").split(";", 1)[0].strip().lower()
     return kind.startswith("multipart/") or kind.startswith("image/")
@@ -180,9 +203,29 @@ def camera_source(printer_id: int, token: str, request: Request):
         upstream.close()
         raise HTTPException(status_code=502)
 
+    chunks = upstream.iter_content(_CHUNK)
+    head = b""
+    try:
+        while len(head) < _SNIFF_BYTES:
+            chunk = next(chunks, None)
+            if chunk is None:
+                break
+            head += chunk
+            if len(head) >= 256 or head.startswith(b"\xff\xd8"):
+                break
+    except requests.RequestException:
+        upstream.close()
+        raise HTTPException(status_code=502)
+    if not _body_matches(content_type, head):
+        upstream.close()
+        log.warning("Camera relay refused printer %s: body is not the declared MJPEG/JPEG", printer_id)
+        raise HTTPException(status_code=502)
+
     def body():
         try:
-            for chunk in upstream.iter_content(_CHUNK):
+            if head:
+                yield head
+            for chunk in chunks:
                 if chunk:
                     yield chunk
         except requests.RequestException:
