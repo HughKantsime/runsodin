@@ -100,9 +100,14 @@ test('F10-10.5-01 failure analytics charts success/failure per printer and top f
   const reasons = panel('Top Failure Reasons')
   expect(reasons).toHaveTextContent('spaghetti'); expect(reasons).toHaveTextContent('adhesion')
 })
-test('F10-10.5-01 wording: per-model failure rates are API-only (not rendered on the Analytics page)', async () => {
-  show(<Analytics />); await screen.findByRole('heading', { name: 'Top Failure Reasons' })
-  expect(document.body).not.toHaveTextContent('33.3%')
+// Claim corrected (2026-10-16): per-model failure rates are shown in the Analytics UI
+// (cert-fix-D's "Failures by Model" table, from the producer's by_model counts).
+test('F10-10.5-01 wording: per-model failure rates are rendered on the Analytics page', async () => {
+  show(<Analytics />)
+  const table = (await screen.findByRole('heading', { name: 'Failures by Model' })).parentElement!.querySelector('table')!
+  const rows = within(table).getAllByRole('row').slice(1).map(row => within(row).getAllByRole('cell').map(cell => cell.textContent))
+  // Producer: Shared model 1 completed / 2 failed (success_rate 33.3) -> failure rate 66.7%; Own model 2 / 0 -> 0%.
+  expect(rows).toEqual([['Shared model', '1', '2', '66.7%'], ['Own model', '2', '0', '0%']])
 })
 
 // ---------- F10.4 Energy ----------
