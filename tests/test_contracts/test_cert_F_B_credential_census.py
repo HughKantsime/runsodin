@@ -148,6 +148,8 @@ def _guarded_signals(fn, src, helpers, _depth=0):
 
 def _collect():
     guarded, enforced = {}, {}
+    interactive = _interactive_routes()
+    seen_routes = set()
     for module in MODULES:
         src = module.read_text()
         tree = ast.parse(src)
@@ -160,14 +162,47 @@ def _collect():
                 continue
             method, path = _method_path(dec, src)
             signals = _guarded_signals(fn, src, helpers)
-            fn_src = ast.get_source_segment(src, fn) or ""
-            has_guard = ("require_interactive_session" in (_decorator_text(dec, src) + fn_src)
-                         or "is_interactive_session" in fn_src)
             if signals:
                 guarded[(method, path)] = sorted(signals)
-            if has_guard:
-                enforced[(method, path)] = True
+            seen_routes.add((method, path))
+    # Enforcement is read from the real app's dependency tree, not from source text
+    # (a comment naming the guard must not count). Routers mount under different
+    # prefixes, so a router-relative path matches the mounted path's suffix.
+    for method, path in seen_routes:
+        if any(m == method and full.endswith(path) for m, full in interactive):
+            enforced[(method, path)] = True
     return guarded, enforced
+
+
+def _interactive_routes():
+    """(method, router-relative path) for every app route whose dependant tree includes
+    require_interactive_session's checker, or whose handler calls is_interactive_session."""
+    from fastapi.routing import APIRoute
+    from core.app import create_app
+    from core.rbac import _SCOPE_MARK
+
+    def interactive(dependant, seen):
+        for dep in dependant.dependencies:
+            if getattr(dep.call, _SCOPE_MARK, None) == "interactive":
+                return True
+            if id(dep) not in seen and (seen.add(id(dep)) or interactive(dep, seen)):
+                return True
+        return False
+
+    found = set()
+    for route in create_app().routes:
+        if not isinstance(route, APIRoute):
+            continue
+        handler_src = ""
+        try:
+            import inspect
+            handler_src = inspect.getsource(route.endpoint)
+        except (OSError, TypeError):
+            pass
+        if interactive(route.dependant, set()) or "is_interactive_session(" in handler_src:
+            for method in route.methods - {"HEAD"}:
+                found.add((method, route.path))
+    return found
 
 
 def test_every_credential_write_or_bulk_read_route_is_interactive_only():
@@ -198,6 +233,11 @@ def test_the_census_actually_found_the_known_guarded_routes():
     guarded, enforced = _collect()
     for route in [("POST", "/auth/biometric-token"), ("PUT", "/smtp-config"),
                   ("POST", "/tokens"), ("PATCH", "/users/{user_id}"),
-                  ("PUT", "/admin/oidc"), ("POST", "/backups/restore")]:
-        assert route in guarded or route in enforced, route
+                  ("PUT", "/admin/oidc")]:
+        # Each known credential route must be *detected* by the static signals (an
+        # empty or broken census fails here) and enforced on the real app.
+        assert route in guarded, route
         assert route in enforced or route in REVIEWED_PUBLIC, route
+    assert ("POST", "/backups/restore") in enforced  # no static signal; pinned directly
+    assert len(guarded) >= 25, len(guarded)
+    assert len(enforced) >= 25, len(enforced)

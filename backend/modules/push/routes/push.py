@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.dependencies import get_current_user
+from core.rbac import require_interactive_session
 from modules.push.apns import get_provider
 from modules.push.models import PushDevice
 from modules.push.schemas import (
@@ -32,7 +33,7 @@ log = logging.getLogger("push.routes")
 router = APIRouter(tags=["Push Notifications"])
 
 
-@router.post("/push/register", response_model=DeviceRegisterResponse, status_code=201)
+@router.post("/push/register", response_model=DeviceRegisterResponse, status_code=201, dependencies=[Depends(require_interactive_session())])
 async def register_device(
     body: DeviceRegisterRequest,
     current_user: dict = Depends(get_current_user),

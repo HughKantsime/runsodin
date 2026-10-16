@@ -8,6 +8,7 @@ import logging
 
 from core.db import get_db
 from core.dependencies import get_current_user
+from core.rbac import require_interactive_session
 from modules.notifications.models import PushSubscription
 from modules.notifications.schemas import PushSubscriptionCreate
 
@@ -31,7 +32,7 @@ async def get_vapid_key(db: Session = Depends(get_db)):
         return {"public_key": None, "enabled": False}
 
 
-@router.post("/push/subscribe")
+@router.post("/push/subscribe", dependencies=[Depends(require_interactive_session())])
 async def subscribe_push(
     data: PushSubscriptionCreate,
     current_user: dict = Depends(get_current_user),
