@@ -6,7 +6,7 @@ from core.registry import registry
 from core.interfaces.education_policy import generic_archive_audience_sql
 
 _PROJECTION = """(SELECT operation_id,timelapse_id,printer_id,scheduled_job_id AS job_id,
-    filename,owner_state,owner_org_id AS org_id,print_file_id,education_submission_id,created_at
+    filename,owner_state,owner_org_id AS org_id,print_file_id,education_submission_id
     FROM timelapse_ownership_anchors) a"""
 _TUPLE = """a.operation_id=timelapses.ownership_operation_id
     AND a.timelapse_id=timelapses.id AND a.printer_id=timelapses.printer_id
@@ -82,3 +82,5 @@ def inherit_timelapse_owner(db,source,derived,principal):
                   scheduled_job_id=derived.print_job_id,filename=derived.filename)
     derived.ownership_operation_id=nonce
     db.execute(anchors.insert(),values)
+    from core import timelapse_capture_tenancy_schema as capture_tenancy
+    capture_tenancy.copy(db.connection(),source.ownership_operation_id,nonce)

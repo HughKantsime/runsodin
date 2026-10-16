@@ -58,7 +58,8 @@ def test_single_tenant_capture_is_owned_by_the_install_only_while_no_organizatio
     review_db.rollback()
     # ...and once organizations exist (created after the capture), the recording is
     # admin-only and capture stops.
-    review_db.execute(text("UPDATE groups SET is_org=1,created_at=datetime('now','+1 minute')"))
+    # Same second as the capture: the stored fact decides, not timestamps.
+    review_db.execute(text("UPDATE groups SET is_org=1,created_at=CURRENT_TIMESTAMP"))
     review_db.commit()
     assert _visible(review_db, foreign) == [] and _visible(review_db, viewer) == []
     assert _visible(review_db, {"id": 3, "role": "admin", "group_id": None}) == [ticket.timelapse_id]
@@ -69,7 +70,6 @@ def test_single_tenant_capture_is_owned_by_the_install_only_while_no_organizatio
 
 def test_capture_of_an_explicitly_shared_printer_keeps_its_audience(review_db, capture):
     review_db.execute(text("UPDATE printers SET shared=1 WHERE id=31"))
-    review_db.execute(text("UPDATE groups SET created_at=datetime('now','-1 day')"))
     review_db.commit()
     tid = capture.get_or_create_timelapse(review_db, 31, 431)  # multi-org install, explicitly shared printer
     foreign = {"id": 4, "role": "viewer", "group_id": 2}
@@ -96,3 +96,47 @@ def test_daemon_selects_printing_printers_of_every_protocol(review_db, capture):
     assert sorted(p["id"] for p in capture.get_active_printers(review_db) if p["id"] >= 31) == [31, 32]
 
 
+
+
+def _fact(db, nonce):
+    return db.execute(text("SELECT captured_single_tenant FROM timelapse_capture_tenancy WHERE operation_id=:n"), {"n": nonce}).scalar()
+
+
+def test_capture_records_the_tenancy_fact_once(review_db, capture):
+    single = capture.get_or_create_timelapse(review_db, 31, 431, return_ticket=True)
+    assert _fact(review_db, single.nonce) in (0, False)  # this install has organizations
+    no_organizations(review_db)
+    review_db.execute(text("UPDATE jobs SET status='completed' WHERE id=431"))
+    review_db.execute(text("INSERT INTO jobs(id,item_name,printer_id,print_file_id,status,quantity,hold) VALUES(432,'B2',31,131,'printing',1,0)"))
+    review_db.commit()
+    later = capture.get_or_create_timelapse(review_db, 31, 432, return_ticket=True)
+    assert _fact(review_db, later.nonce) in (1, True)
+    assert review_db.execute(text("SELECT COUNT(*) FROM timelapse_capture_tenancy")).scalar_one() == 2
+
+
+def test_anchor_without_a_fact_fails_closed_once_organizations_exist(review_db, capture):
+    """Captures from before migration 033 have no row: install-wide only without organizations."""
+    no_organizations(review_db)
+    ticket = capture.get_or_create_timelapse(review_db, 31, 431, return_ticket=True)
+    review_db.execute(text("DELETE FROM timelapse_capture_tenancy")); review_db.commit()
+    viewer = {"id": 1, "role": "viewer", "group_id": 1}
+    assert _visible(review_db, viewer) == [ticket.timelapse_id]
+    review_db.execute(text("UPDATE groups SET is_org=1")); review_db.commit()
+    assert _visible(review_db, viewer) == []
+    assert _visible(review_db, {"id": 3, "role": "admin", "group_id": None}) == [ticket.timelapse_id]
+
+
+def test_inherit_copies_the_fact_to_the_derived_anchor(review_db, capture):
+    from core.timelapse_access import inherit_timelapse_owner
+    from modules.archives.models import Timelapse
+    no_organizations(review_db)
+    ticket = capture.get_or_create_timelapse(review_db, 31, 431, return_ticket=True)
+    source = review_db.get(Timelapse, ticket.timelapse_id)
+    derived = Timelapse(printer_id=31, print_job_id=431, filename="printer_31/derived.mp4", status="encoding", frame_count=0)
+    review_db.add(derived); review_db.flush()
+    inherit_timelapse_owner(review_db, source, derived, {"id": 3, "role": "admin", "group_id": None})
+    review_db.commit()
+    assert _fact(review_db, derived.ownership_operation_id) in (1, True)
+    # The derived media follows the source's audience once organizations exist.
+    review_db.execute(text("UPDATE groups SET is_org=1")); review_db.commit()
+    assert _visible(review_db, {"id": 4, "role": "viewer", "group_id": 2}) == []

@@ -137,6 +137,10 @@ def get_or_create_timelapse(session, printer_id: int, job_id: int, *, return_tic
             'education_submission_id':source.get('education_submission_id'),
             'capture_printer_org_id':printer[0],'capture_printer_shared':shared,
         })
+        # The capture-time tenancy fact the audience rule reads (migration 033).
+        from core.tenancy_mode import install_has_organizations
+        from core import timelapse_capture_tenancy_schema as capture_tenancy
+        capture_tenancy.record(session.connection(), nonce, not install_has_organizations(session.connection()))
         session.commit()
         return CaptureTicket(tid,nonce,job_id) if return_ticket else tid
     except Exception:

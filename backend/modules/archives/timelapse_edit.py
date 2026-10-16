@@ -92,6 +92,8 @@ class EditJournal(FrameJournal):
             copied={k:v for k,v in owner.items() if k!='created_at'}
             copied.update(operation_id=nonce,timelapse_id=result_tid,filename=destination)
             db.execute(anchors.insert().values(**copied))
+            from core import timelapse_capture_tenancy_schema as capture_tenancy
+            capture_tenancy.copy(db.connection(),self.nonce,nonce)
             if recipe.kind=='speed':
                 life={k:v for k,v in snapshot['life'].items() if k!='created_at'}
                 life.update(lifetime_nonce=nonce,original_timelapse_id=result_tid)

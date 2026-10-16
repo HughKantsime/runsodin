@@ -194,6 +194,8 @@ class EncodeJournal(FrameJournal):
             result_owner={key:value for key,value in owner.items() if key!='created_at'}
             result_owner.update(operation_id=result_nonce,filename=destination)
             db.execute(anchors.insert().values(**result_owner))
+            from core import timelapse_capture_tenancy_schema as capture_tenancy
+            capture_tenancy.copy(db.connection(),self.nonce,result_nonce)
             db.execute(versions.insert().values(version_nonce=result_nonce,lifetime_nonce=self.nonce))
             values=dict(operation_id=identifier,source_nonce=self.nonce,source_lifetime=self.nonce,kind='encode',
                 source_timelapse_id=self.tid,source_printer_id=self.pid,source_filename=current['filename'],source_status='encoding',
