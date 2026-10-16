@@ -589,3 +589,61 @@ def test_stop_arriving_while_interval_is_read_is_not_lost(daemon, camera_printer
     thread._wake.set()  # finish the current wait so the loop reaches the interval read
     thread.join(timeout=3)
     assert not thread.is_alive()
+
+
+# ------------------------------------------- final review MEDIUM-3 / LOW-5: thread cap, shared join deadline
+
+def _more_camera_printers(db, ids):
+    for pid in ids:
+        db.execute(text("INSERT INTO printers(id,name,model,is_active,api_type,camera_enabled,camera_url,gcode_state) "
+                        "VALUES(:id,:n,'P1S',1,'bambu',1,'rtsp://cert.invalid/s','RUNNING')"), {'id': pid, 'n': f'Cam {pid}'})
+    db.commit()
+
+
+def test_vision_threads_are_capped_logged_and_reported(daemon, camera_printers, vision_http, caplog):
+    instance, _ = daemon
+    client, _ = vision_http
+    _more_camera_printers(camera_printers, [31, 32])
+    assert client.get('/api/vision/monitor-status').json()['max_threads'] == 16
+    for bad in (0, 257, 'many', True):
+        assert client.patch('/api/vision/settings', json={'max_threads': bad}).status_code == 422
+    assert client.patch('/api/vision/settings', json={'max_threads': 3}).status_code == 200
+    with caplog.at_level('WARNING', logger='vision_monitor'):
+        instance._scan_printers()
+    assert set(instance._threads) == {9, 10, 31}
+    assert 'Vision thread cap 3 reached' in caplog.text and '[32]' in caplog.text
+    status = client.get('/api/vision/monitor-status').json()
+    assert status == {'max_threads': 3, 'reported': True, 'active_threads': 3, 'capped': True, 'capped_count': 1, 'capped_printer_ids': [32]}
+    # A freed slot goes to the waiting printer on the next scan.
+    camera_printers.execute(text("UPDATE printers SET gcode_state='IDLE' WHERE id=10"))
+    camera_printers.commit()
+    instance._scan_printers()
+    assert set(instance._threads) == {9, 31, 32}
+    assert client.get('/api/vision/monitor-status').json()['capped'] is False
+
+
+def test_global_disable_joins_all_threads_against_one_deadline(daemon, camera_printers, vision_http, monkeypatch):
+    import threading
+    from modules.vision import monitor
+    instance, _ = daemon
+    client, _ = vision_http
+    _more_camera_printers(camera_printers, [33, 34])
+    instance._scan_printers()
+    stuck = [instance._threads[pid] for pid in (10, 33, 34)]
+    release = threading.Event()
+    entered = []
+    for thread in stuck:
+        def blocking(thread=thread):
+            entered.append(thread.printer_id)
+            release.wait(10)
+        monkeypatch.setattr(thread, '_capture_and_analyze', blocking)
+        thread._wake.set()
+    assert _wait(lambda: len(entered) >= 3)
+    monkeypatch.setattr(monitor, 'THREAD_JOIN_TIMEOUT', 0.5)
+    assert client.patch('/api/vision/settings', json={'enabled': False}).status_code == 200
+    started = time.monotonic()
+    instance._scan_printers()
+    elapsed = time.monotonic() - started
+    release.set()
+    assert instance._threads == {} and elapsed < 1.2, elapsed  # sequential joins would take >= 1.5 s
+    assert set(instance._stopping) == {10, 33, 34}

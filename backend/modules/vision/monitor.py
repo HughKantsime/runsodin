@@ -41,7 +41,7 @@ except ImportError:
 
 from core.db import engine
 from modules.vision.inference_engine import VisionInferenceEngine
-from modules.vision.detection_thread import PrinterVisionThread, capture_interval
+from modules.vision.detection_thread import PrinterVisionThread, capture_interval, max_vision_threads
 from modules.vision import frame_storage
 
 # Setup logging
@@ -128,8 +128,8 @@ class VisionMonitorDaemon:
             log.error(f"Camera URL resolution failed for printer {row['id']}: {e}")
             return False
 
-    def _globally_enabled(self) -> bool:
-        """Read the global Vigil AI switch from system_config 'vision_settings' (default on)."""
+    def _global_settings(self) -> dict:
+        """Global Vigil AI settings from system_config 'vision_settings' ({} when unset/unreadable)."""
         try:
             with engine.connect() as conn:
                 row = conn.execute(
@@ -137,19 +137,40 @@ class VisionMonitorDaemon:
                 ).fetchone()
         except Exception as e:
             log.error(f"Failed to read global vision settings: {e}")
-            return True
-        if not row or row[0] is None:
-            return True
-        value = row[0]
+            return {}
+        value = row[0] if row else None
         if isinstance(value, str):
             try:
                 value = json.loads(value)
             except ValueError:
-                log.error("Global vision settings are not valid JSON; keeping monitoring enabled")
-                return True
-        if not isinstance(value, dict):
-            return True
-        return value.get('enabled', True) is not False
+                log.error("Global vision settings are not valid JSON; using defaults")
+                return {}
+        return value if isinstance(value, dict) else {}
+
+    def _globally_enabled(self) -> bool:
+        """The global Vigil AI switch (default on)."""
+        return self._global_settings().get('enabled', True) is not False
+
+    def _max_threads(self) -> int:
+        """Configured cap on concurrent vision threads (vision_settings.max_threads, default 16)."""
+        return max_vision_threads(self._global_settings().get('max_threads'))
+
+    def _publish_monitor_status(self, max_threads: int, waiting: list) -> None:
+        """Record the thread cap state for GET /api/vision/monitor-status (written on change only)."""
+        status = {'max_threads': max_threads, 'active_threads': len(self._threads), 'capped_printer_ids': waiting}
+        if status == getattr(self, '_last_status', None):
+            return
+        try:
+            payload = json.dumps(status)
+            with engine.begin() as conn:
+                updated = conn.execute(text("UPDATE system_config SET value = :v WHERE key = 'vision_monitor_status'"),
+                                       {'v': payload}).rowcount
+                if not updated:
+                    conn.execute(text("INSERT INTO system_config (key, value) VALUES ('vision_monitor_status', :v)"),
+                                 {'v': payload})
+            self._last_status = status
+        except Exception as e:
+            log.error(f"Failed to publish vision monitor status: {e}")
 
     def _scan_printers(self):
         """Query DB for printers that should have vision monitoring."""
@@ -184,7 +205,8 @@ class VisionMonitorDaemon:
             rows = []
 
         active_ids = set()
-        for row in rows:
+        wanted = []
+        for row in sorted(rows, key=lambda item: item['id']):
             pid = row['id']
 
             # Effective camera: the stored URL, else the one derived from credentials
@@ -198,8 +220,7 @@ class VisionMonitorDaemon:
                 continue
             active_ids.add(pid)
 
-            printer_name = row['nickname'] or row['name']
-            def flag(name, default):
+            def flag(name, default, row=row):
                 return row[name] if row[name] is not None else default
 
             # Explicit None checks: a stored 0 / 0.0 is a real setting, not "unset".
@@ -216,13 +237,31 @@ class VisionMonitorDaemon:
                 'capture_interval_sec': capture_interval(row['capture_interval_sec']),
                 'collect_training_data': flag('collect_training_data', 0),
             }
+            wanted.append((pid, row, settings))
 
+        # Stop threads for printers no longer active first (frees cap slots): signal every
+        # thread, then join them all against one shared deadline so the loop never stalls
+        # for THREAD_JOIN_TIMEOUT per printer.
+        stopping = [(pid, self._threads.pop(pid)) for pid in list(self._threads) if pid not in active_ids]
+        for _, thread in stopping:
+            thread.stop()
+        deadline = time.monotonic() + THREAD_JOIN_TIMEOUT
+        for pid, thread in stopping:
+            thread.join(timeout=max(0.0, deadline - time.monotonic()))
+            if thread.is_alive():
+                self._stopping[pid] = thread
+                log.warning(f"Vision thread for printer {pid} did not exit within {THREAD_JOIN_TIMEOUT}s")
+            log.info(f"Stopped vision thread for printer {pid}")
+
+        max_threads = self._max_threads()
+        waiting = []
+        for pid, row, settings in wanted:
             if pid in self._threads and not self._threads[pid].is_alive():
                 log.warning(f"Vision thread for printer {pid} died; restarting it")
                 del self._threads[pid]
-            stopping = self._stopping.get(pid)
-            if stopping is not None:
-                if stopping.is_alive():
+            previous = self._stopping.get(pid)
+            if previous is not None:
+                if previous.is_alive():
                     log.warning(f"Previous vision thread for printer {pid} still exiting; not starting another")
                     continue
                 del self._stopping[pid]
@@ -234,32 +273,29 @@ class VisionMonitorDaemon:
                     row['current_layer'], row['print_job_id'], row['gcode_state']
                 )
                 self._threads[pid].update_settings(settings)
-            else:
-                # Start new thread
-                thread = PrinterVisionThread(
-                    printer_id=pid,
-                    printer_name=printer_name,
-                    engine=self._engine,
-                    settings=settings,
-                    current_layer=row['current_layer'],
-                    print_job_id=row['print_job_id'],
-                    gcode_state=row['gcode_state'],
-                )
-                thread.start()
-                self._threads[pid] = thread
-                log.info(f"Started vision thread for {printer_name} (id={pid})")
+                continue
+            if len(self._threads) >= max_threads:
+                waiting.append(pid)
+                continue
+            printer_name = row['nickname'] or row['name']
+            thread = PrinterVisionThread(
+                printer_id=pid,
+                printer_name=printer_name,
+                engine=self._engine,
+                settings=settings,
+                current_layer=row['current_layer'],
+                print_job_id=row['print_job_id'],
+                gcode_state=row['gcode_state'],
+            )
+            thread.start()
+            self._threads[pid] = thread
+            log.info(f"Started vision thread for {printer_name} (id={pid})")
 
-        # Stop threads for printers no longer active
-        for pid in list(self._threads.keys()):
-            if pid not in active_ids:
-                thread = self._threads.pop(pid)
-                thread.stop()
-                thread.join(timeout=THREAD_JOIN_TIMEOUT)
-                if thread.is_alive():
-                    self._stopping[pid] = thread
-                    log.warning(f"Vision thread for printer {pid} did not exit within {THREAD_JOIN_TIMEOUT}s")
-                log.info(f"Stopped vision thread for printer {pid}")
-
+        if waiting and waiting != getattr(self, '_last_waiting', []):
+            log.warning(f"Vision thread cap {max_threads} reached; not monitoring printers {waiting} "
+                        "(raise vision_settings.max_threads)")
+        self._last_waiting = waiting
+        self._publish_monitor_status(max_threads, waiting)
 
 if __name__ == '__main__':
     daemon = VisionMonitorDaemon()

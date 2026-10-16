@@ -306,8 +306,11 @@ async def update_global_vision_settings(
 ):
     """Update global vision settings."""
     body = await request.json()
-    allowed = {"enabled", "retention_days"}
+    allowed = {"enabled", "retention_days", "max_threads"}
     updates = {k: v for k, v in body.items() if k in allowed}
+    if "max_threads" in updates and (type(updates["max_threads"]) is not int or not 1 <= updates["max_threads"] <= 256):
+        # mirrors detection_thread.MAX_VISION_THREADS_LIMIT (no cv2 import here)
+        raise HTTPException(status_code=422, detail="max_threads must be a whole number from 1 to 256")
     if "enabled" in updates and not isinstance(updates["enabled"], bool):
         raise HTTPException(status_code=422, detail="enabled must be a boolean")
     if "retention_days" in updates and (
@@ -326,6 +329,44 @@ async def update_global_vision_settings(
         db.add(SystemConfig(key="vision_settings", value=updates))
     db.commit()
     return updates
+
+
+@router.get("/vision/monitor-status", tags=["Vigil AI"])
+async def get_vision_monitor_status(
+    current_user: dict = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    """Concurrent vision-thread cap as last reported by the monitor daemon.
+
+    capped_printer_ids lists printers that want monitoring but wait for a free slot
+    (limited to printers the caller can see; capped_count is install-wide).
+    """
+    def _json(row):
+        value = row.value if row else None
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except ValueError:
+                value = None
+        return value if isinstance(value, dict) else {}
+    settings = _json(db.query(SystemConfig).filter(SystemConfig.key == "vision_settings").first())
+    status = _json(db.query(SystemConfig).filter(SystemConfig.key == "vision_monitor_status").first())
+    configured = settings.get("max_threads")
+    configured = configured if type(configured) is int and 1 <= configured <= 256 else 16
+    capped = [pid for pid in status.get("capped_printer_ids", []) if type(pid) is int]
+    visible = []
+    if capped:
+        for printer in db.query(Printer).filter(Printer.id.in_(capped)).all():
+            if check_org_access(current_user, printer.org_id):
+                visible.append(printer.id)
+    return {
+        "max_threads": configured,
+        "reported": bool(status),
+        "active_threads": status.get("active_threads"),
+        "capped": bool(capped),
+        "capped_count": len(capped),
+        "capped_printer_ids": sorted(visible),
+    }
 
 
 def _not_training():

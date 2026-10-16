@@ -39,6 +39,17 @@ DEFAULT_CAPTURE_INTERVAL = 10
 MAX_CAPTURE_INTERVAL = 86400  # same bound as PATCH /api/printers/{id}/vision
 
 
+DEFAULT_MAX_VISION_THREADS = 16
+MAX_VISION_THREADS_LIMIT = 256  # same bound as PATCH /api/vision/settings max_threads
+
+
+def max_vision_threads(value) -> int:
+    """A valid concurrent-thread cap (1..256), else the default 16."""
+    if type(value) is int and 1 <= value <= MAX_VISION_THREADS_LIMIT:
+        return value
+    return DEFAULT_MAX_VISION_THREADS
+
+
 def capture_interval(value) -> int:
     """A valid capture interval in seconds (1..86400), else the default."""
     if type(value) is int and 1 <= value <= MAX_CAPTURE_INTERVAL:
