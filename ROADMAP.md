@@ -139,7 +139,7 @@ Updated - see CHANGELOG for current version.
 - ~~Archive data completeness~~ — `print_file_id`, `cost_estimate`, `plate_count` now captured on archive creation; unblocks AMS preview and 3D viewer
 - ~~3D model viewer in archives~~ — interactive Three.js preview from archive detail modal via existing mesh endpoint
 - ~~Cancelled print archiving~~ — JOB_CANCELLED event subscription; dedicated status instead of misreporting as "failed"
-- ~~Multi-filament deduction~~ — consumption distributed across all assigned spools instead of only slot 0
+- ~~Multi-filament deduction~~ — each assigned spool deducts its sliced per-slot estimate instead of only slot 0 (a single measured total is never split across spools)
 - ~~FEATURES.md corrections~~ — fixed inaccurate API paths and feature descriptions for archives
 
 ## Shipped in v1.4.6
@@ -185,7 +185,7 @@ Updated - see CHANGELOG for current version.
 ## Shipped in v1.3.75
 
 - ~~Multi-plate reprint~~ — plate selector in archive reprint and model schedule modals
-- ~~H2D external spools~~ — Ext-L/Ext-R parsed from vt_tray MQTT, displayed on printer cards
+- ~~H2D external spools~~ — Ext-L/Ext-R parsed from the vir_slot MQTT field, displayed on printer cards
 - ~~Scheduler target types~~ — specific/model/protocol targeting with filament compatibility check
 - ~~Bed cooled + queue notifications~~ — BED_COOLED, QUEUE_ADDED, QUEUE_SKIPPED, QUEUE_FAILED_START alert types
 - ~~Filament auto-deduction~~ — deduct from spool on print completion, sync to Spoolman
@@ -208,7 +208,7 @@ Updated - see CHANGELOG for current version.
 
 ## Shipped in v1.3.70
 
-- ~~500+ HMS error codes~~ (expanded from 42), clear HMS errors from UI, skip objects mid-print, print speed adjustment (25%–200%)
+- ~~597 HMS and print-action error codes~~ (331 HMS plus 266 print-action codes, expanded from 42), clear HMS errors from UI, skip objects mid-print, print speed mode switching (Silent / Standard / Sport / Ludicrous)
 - ~~Resizable printer cards~~ (S/M/L/XL with persistent preference)
 - ~~OBS streaming overlay~~ (`/overlay/:printerId` — no-auth page for OBS browser source)
 - ~~Live application log viewer~~ (9 sources, level filter, search, SSE streaming)
@@ -269,7 +269,7 @@ Updated - see CHANGELOG for current version.
 - ~~Scheduled Reports~~
 - ~~Curl-pipe-bash installer with preflight checks~~
 - ~~Self-updating updater with version diffing and rollback~~
-- ~~Installer test suite (59 unit + integration tests)~~
+- ~~Installer test suite (43 unit/static checks plus 17 Docker integration checks)~~
 - ~~Job matching improvements (time-window strategy, stale cleanup, deadlock/race fixes)~~
 - ~~Auto-create jobs on print completion~~
 - ~~Setup endpoint hardening (500 error fix)~~
