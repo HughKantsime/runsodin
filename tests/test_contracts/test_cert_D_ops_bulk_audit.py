@@ -12,7 +12,7 @@ from tests.test_contracts.test_audit_compliance_claim_acceptance import audit_cl
 from tests.test_contracts.test_audit_actor_requests import client as actor_client
 from tests.test_contracts.test_api_token_delegation_behavior import token_client
 from tests.test_contracts.test_printer_tag_behavior import tag_client, stored
-from tests.test_contracts.cert_D_capture import publish
+from tests.test_contracts.cert_D_capture import mask_timestamps, publish
 
 FIXTURES = Path(__file__).resolve().parents[2] / 'frontend/src/test-fixtures'
 BULK = FIXTURES / 'certDops-bulk-jobs-wire.json'
@@ -27,8 +27,8 @@ UI_REQUESTS = {
 }
 
 
-def _merge(path, key, value):
-    publish(path, value, key=key)
+def _merge(path, key, value, **options):
+    publish(path, value, key=key, **options)
 
 
 def _rows(review_db):
@@ -109,7 +109,7 @@ def test_capture_default_permissions_and_authenticated_audit_history(actor_clien
     assert exported.status_code == 200 and 'text/csv' in exported.headers['content-type']
     lines = exported.text.strip().splitlines()
     assert len(lines) == 2 and 'bulk_cancel' in lines[1] and '198.51.100.7' in lines[1] and ',admin,' in lines[1]
-    _merge(AUDIT, 'export_csv', exported.text)
+    _merge(AUDIT, 'export_csv', exported.text, normalize=mask_timestamps)
     permissions = client.get('/permissions')
     assert permissions.status_code == 200
     # The /audit viewer's RoleGate key is in the default map, admin-only.

@@ -82,7 +82,7 @@ def test_admin_creates_lists_downloads_and_deletes_point_in_time_snapshot(backup
                'create': body,
                'list': listing.json(),
                'download_prefix_hex': download.content[:16].hex()}
-    publish(FIXTURE, fixture, key='backup')
+    publish(FIXTURE, fixture, key='backup', volatile={'filename'})  # odin_backup_<timestamp>.db
 
 
 @pytest.mark.parametrize('role,group', [('operator', None), ('viewer', None), ('admin', 1)])
@@ -155,7 +155,8 @@ def test_ui_restore_upload_stages_db_with_safety_backup_then_restart_overwrites(
     assert finished and finished['status'] == 'restored'
     assert _marker(live) == 'restored'
     assert _marker(safety) == 'before'
-    publish(FIXTURE, {k: body[k] for k in ('status', 'message', 'restart_required', 'pre_restore_backup')}, key='restore')
+    publish(FIXTURE, {k: body[k] for k in ('status', 'message', 'restart_required', 'pre_restore_backup')}, key='restore',
+            volatile={'pre_restore_backup'})  # pre_restore_<timestamp>.db
 
 
 def test_restore_refuses_non_db_and_invalid_upload_without_staging(backup_client):
