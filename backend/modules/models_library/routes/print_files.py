@@ -116,6 +116,16 @@ def _studio_print_notes(note: Optional[str], profile_metadata: Optional[dict]) -
 MESH_EXTRACTION_TIMEOUT_SECONDS = 30
 
 
+async def _analyze_3mf_upload(path):
+    """Isolated analysis of an uploaded 3MF; 429 with Retry-After when the install is busy."""
+    from modules.models_library.mesh_isolation import Busy, analyze_3mf_isolated
+    try:
+        return await analyze_3mf_isolated(path, timeout=MESH_EXTRACTION_TIMEOUT_SECONDS)
+    except Busy as busy:
+        raise HTTPException(status_code=429, detail="3MF analysis is busy; try again shortly",
+                            headers={"Retry-After": str(busy.retry_after)}) from None
+
+
 async def _extract_preview_mesh(path):
     """Mesh preview or None. Runs in a bounded child process (time, memory, pool)."""
     from modules.models_library.mesh_isolation import extract_mesh_isolated
@@ -165,36 +175,24 @@ async def upload_3mf(
     try:
         if ext == ".3mf":
             # --- .3mf path: full metadata parse ---
-            from modules.models_library.threemf_parser import parse_3mf, extract_objects_from_plate, extract_mesh_from_3mf
-
-            # Zip bomb check: reject files where uncompressed size exceeds 500 MB
-            import zipfile as _zf
-            MAX_UNCOMPRESSED = 500 * 1024 * 1024
-            try:
-                with _zf.ZipFile(tmp_path, 'r') as _z:
-                    total_size = sum(e.file_size for e in _z.infolist())
-                    if total_size > MAX_UNCOMPRESSED:
-                        raise HTTPException(status_code=400, detail="File rejected: decompressed size exceeds 500 MB limit.")
-            except _zf.BadZipFile:
+            # The API process never parses the untrusted package: the zip directory,
+            # XML, plate JSON and preview mesh are read by a bounded child process.
+            analysis = await _analyze_3mf_upload(tmp_path)
+            if analysis.status == "too_large":
+                raise HTTPException(status_code=400, detail="File rejected: decompressed size exceeds 500 MB limit.")
+            if analysis.status == "bad_zip":
                 raise HTTPException(status_code=400, detail="Invalid .3mf file (bad zip structure).")
-
-            metadata = parse_3mf(tmp_path)
-            if not metadata:
+            if analysis.status != "ok" or not analysis.metadata:
                 raise HTTPException(status_code=400, detail="Failed to parse .3mf file")
-
-            # Extract objects for quantity counting
-            import zipfile
-            with zipfile.ZipFile(tmp_path, 'r') as zf:
-                plate_objects = extract_objects_from_plate(zf)
-                # Sliced plates are the Metadata/plate_N.gcode members (same rule as schedule-options).
-                plate_count = len({name for name in zf.namelist()
-                                   if re.fullmatch(r"Metadata/plate_[1-9][0-9]*\.gcode", name)}) or 1
+            from modules.models_library.threemf_parser import metadata_from_dict
+            metadata = metadata_from_dict(analysis.metadata)
+            plate_objects = analysis.plate_objects
+            plate_count = analysis.plate_count
             # Default sellable pieces = objects checked by default (wipe towers excluded).
-            default_quantity = sum(1 for obj in plate_objects if obj.get("checked")) or 1
-
-            # Extract 3D mesh for viewer: CPU-bound and attacker-shaped, so it runs off the
-            # event loop with a deadline (the parser also enforces an expansion budget).
-            mesh_data = await _extract_preview_mesh(tmp_path)
+            default_quantity = sum(1 for obj in plate_objects if isinstance(obj, dict) and obj.get("checked")) or 1
+            mesh_data = analysis.mesh
+            if mesh_data is None:
+                log.info("3MF mesh preview not produced (refused, too large or too slow)")
             mesh_json = json.dumps(mesh_data, allow_nan=False) if mesh_data else None
 
             current_user = await _fresh_upload_actor(db, current_user)
@@ -298,8 +296,8 @@ async def upload_3mf(
             db.execute(text("UPDATE print_files SET stored_path = :p, original_filename = :fn WHERE id = :id"),
                        {"p": stored_path, "fn": file.filename, "id": file_id})
 
-            # Extract bed/compatibility metadata and persist
-            meta = pfm.extract_print_file_meta(stored_path, ext)
+            # Bed/compatibility metadata, read by the isolated 3MF analysis
+            meta = analysis.file_meta
             db.execute(text(
                 "UPDATE print_files SET bed_x_mm = :x, bed_y_mm = :y, "
                 "compatible_api_types = :types, compatibility_facts_json = :facts WHERE id = :id"

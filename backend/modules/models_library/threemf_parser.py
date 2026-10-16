@@ -86,6 +86,13 @@ class PrintFileMetadata:
         return d
 
 
+def metadata_from_dict(data: dict) -> PrintFileMetadata:
+    """Rebuild metadata sent by the isolated 3MF worker (plain data, no parsing)."""
+    values = dict(data)
+    values["filaments"] = [FilamentInfo(**item) for item in values.get("filaments") or []]
+    return PrintFileMetadata(**values)
+
+
 def parse_3mf(file_path: str) -> Optional[PrintFileMetadata]:
     """
     Parse a Bambu Studio sliced .3mf file and extract metadata.

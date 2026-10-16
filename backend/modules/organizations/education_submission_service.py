@@ -21,8 +21,23 @@ from core.db_compat import execute_insert_returning_id
 from core.errors import ErrorCode, OdinError
 from core.economic_identity import _add_created
 from modules.jobs.models import Job
-from modules.models_library.threemf_parser import parse_3mf
+from modules.models_library.threemf_parser import metadata_from_dict
 from modules.organizations.education_storage import MIN_FREE_BYTES, StorageConfigurationError, required_free_bytes
+
+
+def _parse_3mf_isolated(path):
+    """Parse the untrusted package in the bounded 3MF child process (never in the API
+    process); 429 with Retry-After when the install's 3MF workers are busy."""
+    from fastapi import HTTPException
+    from modules.models_library.mesh_isolation import Busy, analyze_blocking
+    try:
+        analysis = analyze_blocking(str(path), mode="metadata")
+    except Busy as busy:
+        raise HTTPException(status_code=429, detail="3MF analysis is busy; try again shortly",
+                            headers={"Retry-After": str(busy.retry_after)}) from None
+    if analysis.status != "ok" or not analysis.metadata:
+        return None
+    return metadata_from_dict(analysis.metadata)
 
 
 CHUNK_BYTES = 1024 * 1024
@@ -847,7 +862,7 @@ def finalize_staged_3mf_submission(
                     )
         except zipfile.BadZipFile as exc:
             raise OdinError(ErrorCode.validation_failed, "Invalid .3mf container", status=400) from exc
-        metadata = parse_3mf(str(staging_path))
+        metadata = _parse_3mf_isolated(staging_path)
         if not metadata or metadata.print_time_seconds <= 0:
             raise OdinError(ErrorCode.validation_failed, "Education upload must be a sliced .3mf", status=400)
         compatibility_meta = _compatibility_meta_from_parsed(metadata)

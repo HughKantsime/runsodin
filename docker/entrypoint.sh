@@ -80,7 +80,7 @@ else
     echo "  ✓ Installation ID present"
 fi
 
-mkdir -p /data/backups /data/uploads /data/static/branding /data/vision_frames /data/vision_models
+mkdir -p /data/backups /data/uploads /data/static/branding /data/vision_frames /data/vision_models /data/run
 
 if [ -d /app/backend/vision_models_default ]; then
     for model in /app/backend/vision_models_default/*.onnx; do
