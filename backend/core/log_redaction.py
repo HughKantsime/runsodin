@@ -26,6 +26,9 @@ _SECRET_PARAMS = ("token", "access_token", "api_key", "apikey", "key", "ws_token
                   "private_key")
 # Credential-bearing query parameters, in a URL or a logged request line.
 _QUERY_SECRET = re.compile(r"(?i)([?&](?:" + "|".join(_SECRET_PARAMS) + r")=)[^&\s\"'#]+")
+# The same parameters URL-encoded inside another value (?next=%2Fcb%3Fcode%3D...):
+# %3F is '?', %26 is '&', %3D is '='.
+_ENCODED_QUERY_SECRET = re.compile(r"(?i)((?:%3F|%26)(?:" + "|".join(_SECRET_PARAMS) + r")%3D)(?:(?!%26|%23)[^&\s\"'#])+")
 # Userinfo of any URL: scheme://user:pass@ or scheme://token@.
 _USERINFO = re.compile(r"(?i)\b([a-z][a-z0-9+.-]{0,31}+://)[^\s/@\"']{1,512}+@")
 # Authorization (any scheme) and X-API-Key header values, as logged in dicts or lines.
@@ -37,12 +40,12 @@ _API_KEY_HEADER = re.compile(r"(?i)(\bx-api-key\b" + _QUOTE + r"\s*[:=]\s*" + _Q
 _API_TOKEN = re.compile(r"\bodin_[A-Za-z0-9_-]{40,}")
 # UniFi Protect RTSP(S) path tokens (rtsps://host:7441/<token>, also :7447), as
 # camera URLs carry them (modules/printers/route_utils.py _PATH_TOKEN_RE).
-_UNIFI_PATH_TOKEN = re.compile(r"(?i)(\brtsps?://(?:[^\s/?#\"'@]{1,512}+@)?+[^\s/?#\"':@]{1,255}+:(?:7441|7447)/)[A-Za-z0-9]{8,}+")
+_UNIFI_PATH_TOKEN = re.compile(r"(?i)(\brtsp[sx]?://(?:[^\s/?#\"'@]{1,512}+@)?+[^\s/?#\"':@]{1,255}+:(?:7441|7447)/)[A-Za-z0-9]{8,}+")
 # Any rtsp(s) URL whose single path segment is a long opaque token (UniFi Protect
 # shares, with or without an explicit port; logs cannot tell which host is a UniFi
 # source, so every such URL is treated as one). Ordinary stream paths (stream1,
 # live/ch0, h264Preview_01_main) are short or segmented and stay readable.
-_RTSP_OPAQUE_PATH = re.compile(r"(?i)(\brtsps?://(?:[^\s/?#\"'@]{1,512}+@)?+[^\s/?#\"'@]{1,255}+/)[A-Za-z0-9]{16,}+(?=$|[?#\s\"'])")
+_RTSP_OPAQUE_PATH = re.compile(r"(?i)(\brtsp[sx]?://(?:[^\s/?#\"'@]{1,512}+@)?+[^\s/?#\"'@]{1,255}+/)[A-Za-z0-9]{16,}+(?=$|[?#\s\"'])")
 # The internal camera relay's per-printer HMAC token travels in its path (go2rtc's
 # ffmpeg and native HTTP sources cannot send headers): /internal/camera-source/<id>/<token>.
 _RELAY_PATH_TOKEN = re.compile(r"(/internal/camera-source/\d{1,20}+/)[^\s/?#\"']{1,256}+")
@@ -72,6 +75,7 @@ def redact_text(value: str) -> str:
     value = _COOKIE_HEADER.sub(lambda m: m.group(1) + REDACTED, value)
     value = _KEY_VALUE_SECRET.sub(lambda m: m.group(1) + REDACTED, value)
     value = _QUERY_SECRET.sub(lambda m: m.group(1) + REDACTED, value)
+    value = _ENCODED_QUERY_SECRET.sub(lambda m: m.group(1) + REDACTED, value)
     value = _USERINFO.sub(lambda m: m.group(1) + REDACTED + "@", value)
     value = _AUTH_HEADER.sub(lambda m: m.group(1) + REDACTED, value)
     value = _API_KEY_HEADER.sub(lambda m: m.group(1) + REDACTED, value)

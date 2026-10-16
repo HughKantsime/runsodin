@@ -45,6 +45,11 @@ _RELAY_PATH_TOKEN = re.compile(r'(/internal/camera-source/\d{1,20}/)[^\s/?#"\']{
 
 
 def sanitize_log_line(line: str) -> str:
+    # One rule set on both sides: the write-side redaction (core.log_redaction) first, so
+    # text that never went through a redacting handler (go2rtc.log, supervisord.log,
+    # captured stdout) is cleaned by the same rules, then the read-side extras.
+    from core.log_redaction import redact_text
+    line = redact_text(line)
     line = _RELAY_PATH_TOKEN.sub(r'\1[REDACTED]', line)
     line = _URL_SECRET_PARAMS.sub(r'\1[REDACTED]', line)
     for pattern in _PATTERNS:
