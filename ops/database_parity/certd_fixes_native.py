@@ -1,7 +1,8 @@
 """Owned PostgreSQL probe for the cert-D fixes whose DB semantics changed.
 
-Covers: job lifecycle guard; atomic per-attempt filament claim incl. pre-upgrade
-spool_usage; printer-delete pin marking; retention purge marker cleanup; (enum NOT IN inside the atomic completion UPDATE),
+Covers: job lifecycle guard (enum NOT IN inside the atomic completion UPDATE);
+the filament ledger (claims, pre-upgrade rows, archive qmark runner, a real
+claim race); printer-delete pin marking; retention purge marker cleanup;
 queue_position ordering (boolean NULLS-last ORDER BY) in GET /jobs and the
 scheduler, named priority persisted as INTEGER, specific-printer pin, ship
 guard on orders, and the maintenance care-counter reset. Real routers and the
@@ -211,28 +212,62 @@ assert client.post(f'/jobs/{fj}/complete').status_code == 200
 assert one('SELECT remaining_weight_g FROM spools WHERE id=901')[0] == 80
 with engine.connect() as c:
     keys = set(c.execute(text("SELECT key FROM system_config WHERE key LIKE :p"), {'p': f'quota_attempt:%:{fj}%'}).scalars())
-assert keys == {f'quota_attempt:seq:{fj}', f'quota_attempt:filament:job:{fj}:0', f'quota_attempt:filament:job:{fj}:1'}, keys
+assert keys == {f'quota_attempt:seq:{fj}', f'quota_attempt:started:{fj}:1',
+                f'quota_attempt:filament:job:{fj}:0', f'quota_attempt:filament:job:{fj}:1'}, keys
 print('postgres-print-attempt-markers-pass', flush=True)
 
-# 8. Atomic filament claim (INSERT ... ON CONFLICT DO NOTHING + rowcount) and pre-upgrade
-#    deductions (spool_usage row, no marker) counted as attempt 0 on PostgreSQL.
-from core.print_attempts import filament_already_deducted, mark_filament_deducted, sqlalchemy_runner, clear_job_attempts
+# 8. The filament ledger on PostgreSQL (JSON system_config values, timestamp used_at):
+#    a marker-less pre-upgrade automatic row is this attempt's deduction; nothing
+#    deducted claims nothing; a print-scoped deduction through the archive's qmark
+#    runner covers a later operator correction; and two real connections racing
+#    for one claim serialise on the unique key -- the loser deducts nothing.
+import threading
+from core import filament_ledger
+from core.print_attempts import sqlalchemy_runner, clear_job_attempts
+from modules.archives.attempt_accounting import _ledger_runner
 with engine.begin() as c:
     legacy = c.execute(text("INSERT INTO jobs(item_name,model_id,status,charged_to_org_id,quantity,priority,hold,is_locked,printer_id) "
                             "VALUES('PG legacy',901,'printing',1,1,3,FALSE,FALSE,9) RETURNING id")).scalar_one()
-    c.execute(text("INSERT INTO spool_usage(spool_id,job_id,weight_used_g) VALUES(901,:j,5)"), {'j': legacy})
-with Session(engine) as db:
-    run = sqlalchemy_runner(db)
-    assert filament_already_deducted(run, legacy) is True
-    fresh = db.execute(text("INSERT INTO jobs(item_name,status,charged_to_org_id,quantity,priority,hold,is_locked) "
-                            "VALUES('PG claim','completed',1,1,3,FALSE,FALSE) RETURNING id")).scalar_one()
-    assert mark_filament_deducted(run, fresh) is True
-    assert mark_filament_deducted(run, fresh) is False                      # second claim loses, no error
-    db.commit()
+    c.execute(text("INSERT INTO spool_usage(spool_id,job_id,weight_used_g,notes) VALUES(901,:j,5,:n)"),
+              {'j': legacy, 'n': f'Auto-deducted on job #{legacy} complete (PG legacy)'})
 assert client.post(f'/jobs/{legacy}/complete').status_code == 200          # applied completion, no second deduction
 assert one('SELECT status FROM jobs WHERE id=:id', id=legacy)[0] == 'completed'
 assert one('SELECT remaining_weight_g FROM spools WHERE id=901')[0] == 80
-print('postgres-atomic-filament-claim-pass', flush=True)
+with engine.begin() as c:
+    unknown = c.execute(text("INSERT INTO jobs(item_name,model_id,status,charged_to_org_id,quantity,priority,hold,is_locked,printer_id) "
+                             "VALUES('PG unknown',901,'printing',1,1,3,FALSE,FALSE,9) RETURNING id")).scalar_one()
+    c.execute(text("UPDATE spools SET remaining_weight_g=NULL WHERE id=901"))
+assert client.post(f'/jobs/{unknown}/complete').status_code == 200
+assert one("SELECT COUNT(*) FROM system_config WHERE key LIKE :p", p=f'quota_attempt:filament:job:{unknown}:%')[0] == 0
+with engine.begin() as c:
+    c.execute(text("UPDATE spools SET remaining_weight_g=80 WHERE id=901"))
+    pj = c.execute(text("INSERT INTO print_jobs(printer_id,scheduled_job_id,job_name,status,started_at) "
+                        "VALUES(9,:j,'PG print','completed',NOW()) RETURNING id"), {'j': unknown}).scalar_one()
+with engine.begin() as c:                                                  # archive path: SQLAlchemy exec_driver_sql + qmark
+    outcome = filament_ledger.record_job_filament(_ledger_runner(c), unknown, source='archive', print_job_id=pj,
+                                                  grams_by_spool={901: 10})
+    assert outcome.deducted and outcome.deductions[0]['remaining_g'] == 70, outcome
+with engine.begin() as c:
+    c.execute(text("UPDATE jobs SET status='failed' WHERE id=:j"), {'j': unknown})
+assert client.post(f'/jobs/{unknown}/complete').status_code == 200          # operator correction: same print
+assert one('SELECT remaining_weight_g FROM spools WHERE id=901')[0] == 70
+with engine.begin() as c:
+    race = c.execute(text("INSERT INTO jobs(item_name,status,charged_to_org_id,quantity,priority,hold,is_locked) "
+                          "VALUES('PG race','completed',1,1,3,FALSE,FALSE) RETURNING id")).scalar_one()
+first = engine.connect(); first_tx = first.begin()
+assert filament_ledger.record_job_filament(sqlalchemy_runner(first), race, source='operator_complete',
+                                           grams_by_spool={901: 10}).deducted
+seen = {}
+def contender():
+    with engine.begin() as c:
+        seen['state'] = filament_ledger.record_job_filament(sqlalchemy_runner(c), race, source='moonraker',
+                                                           grams_by_spool={901: 10}).state
+worker = threading.Thread(target=contender); worker.start(); worker.join(1.0)
+assert worker.is_alive()                                                   # waits on the uncommitted claim
+first_tx.commit(); first.close(); worker.join(30)
+assert seen == {'state': 'already_deducted'}, seen
+assert one('SELECT remaining_weight_g FROM spools WHERE id=901')[0] == 60
+print('postgres-filament-ledger-pass', flush=True)
 
 # 9. Printer delete: chunked expanding IN marks every pin to the printer (any status);
 #    only the still-schedulable jobs are reported as live (their owners get the alert).
