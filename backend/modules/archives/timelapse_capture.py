@@ -113,8 +113,12 @@ def get_or_create_timelapse(session, printer_id: int, job_id: int, *, return_tic
         # capture_printer_shared records the printer's install-wide audience at
         # capture time: shared, or org-less on an install without organizations
         # (single-tenant: the install owns it). Multi-org installs are unchanged.
-        from core.tenancy_mode import printer_visible_install_wide
-        shared = printer_visible_install_wide(session.connection(), printer[0], shared)
+        # One observation of the tenancy mode decides both the owner state and the
+        # stored capture-time fact (migration 033), so an organization created
+        # between them cannot split the decision.
+        from core import tenancy_mode
+        has_orgs = tenancy_mode.install_has_organizations(session.connection())
+        shared = tenancy_mode.printer_visible_install_wide(session.connection(), printer[0], shared, has_organizations=has_orgs)
         org = source.get('org_id')
         state = 'unresolved'
         if source.get('state') == 'known':
@@ -138,9 +142,8 @@ def get_or_create_timelapse(session, printer_id: int, job_id: int, *, return_tic
             'capture_printer_org_id':printer[0],'capture_printer_shared':shared,
         })
         # The capture-time tenancy fact the audience rule reads (migration 033).
-        from core.tenancy_mode import install_has_organizations
         from core import timelapse_capture_tenancy_schema as capture_tenancy
-        capture_tenancy.record(session.connection(), nonce, not install_has_organizations(session.connection()))
+        capture_tenancy.record(session.connection(), nonce, not has_orgs)
         session.commit()
         return CaptureTicket(tid,nonce,job_id) if return_ticket else tid
     except Exception:

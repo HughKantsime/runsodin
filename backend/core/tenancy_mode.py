@@ -17,12 +17,17 @@ def install_has_organizations(connection) -> bool:
     return connection.execute(text("SELECT 1 FROM groups WHERE is_org IS TRUE LIMIT 1")).first() is not None
 
 
-def printer_visible_install_wide(connection, printer_org_id, printer_shared: bool) -> bool:
+def printer_visible_install_wide(connection, printer_org_id, printer_shared: bool, *, has_organizations=None) -> bool:
     """A printer's content audience is install-wide when it is shared, or when it
-    has no organization on an install that has no organizations."""
+    has no organization on an install that has no organizations.
+
+    Pass `has_organizations` when the caller records the same tenancy mode
+    elsewhere in one decision, so both use one observation."""
     if printer_shared:
         return True
-    return printer_org_id is None and not install_has_organizations(connection)
+    if has_organizations is None:
+        has_organizations = install_has_organizations(connection)
+    return printer_org_id is None and not has_organizations
 
 
 # 'shared' capture ownership is published media's install-wide audience. The

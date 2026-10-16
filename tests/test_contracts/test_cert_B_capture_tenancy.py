@@ -140,3 +140,30 @@ def test_inherit_copies_the_fact_to_the_derived_anchor(review_db, capture):
     # The derived media follows the source's audience once organizations exist.
     review_db.execute(text("UPDATE groups SET is_org=1")); review_db.commit()
     assert _visible(review_db, {"id": 4, "role": "viewer", "group_id": 2}) == []
+
+
+def test_organization_created_between_the_two_decisions_cannot_split_them(review_db, capture, monkeypatch):
+    """The owner state and the stored fact come from one tenancy observation."""
+    from core import tenancy_mode
+    no_organizations(review_db)
+    real = tenancy_mode.install_has_organizations
+    calls = []
+
+    def observe_then_create_org(connection):
+        seen = real(connection)
+        calls.append(seen)
+        if len(calls) == 1:  # an organization appears right after the first observation
+            connection.execute(text("UPDATE groups SET is_org=1 WHERE id=1"))
+        return seen
+
+    monkeypatch.setattr(tenancy_mode, "install_has_organizations", observe_then_create_org)
+    ticket = capture.get_or_create_timelapse(review_db, 31, 431, return_ticket=True)
+    monkeypatch.setattr(tenancy_mode, "install_has_organizations", real)
+    assert calls == [False]
+    # 'shared' because the install was single-tenant when observed, and the fact agrees.
+    assert _anchor(review_db, ticket.timelapse_id)[0] == "shared"
+    fact = review_db.execute(text("SELECT captured_single_tenant FROM timelapse_capture_tenancy WHERE operation_id=:n"),
+                             {"n": ticket.nonce}).scalar_one()
+    assert fact in (True, 1)
+    # Organizations now exist, so the single-tenant capture is admin-only (fail closed).
+    assert _visible(review_db, {"id": 4, "role": "viewer", "group_id": 2}) == []
