@@ -118,12 +118,16 @@ def test_capture_jobs_queue_timeline_recent_and_failure_wire(wire_client):
     # EditJobModal.handleSubmit body for job 202 after: name, priority 1, printer 9, notes changed.
     wire['edit_request'] = {'item_name': 'CertC adhoc pending B edited', 'quantity': 2, 'priority': 1, 'duration_hours': 1.5,
                             'colors_required': None, 'filament_type': 'PLA', 'notes': 'Synthetic edited notes',
-                            'due_date': '2026-10-21', 'printer_id': 9}
+                            'due_date': '2026-10-21', 'pinned_printer_id': 9}
     wire['edit_response'] = ok(client.patch('/jobs/202', json=wire['edit_request']))
     db.execute(text("UPDATE jobs SET updated_at=:c"), {'c': CREATED}); db.commit()
-    saved = db.execute(text('SELECT item_name,quantity,priority,duration_hours,filament_type,notes,due_date,printer_id,status FROM jobs WHERE id=202')).one()
+    saved = db.execute(text('SELECT item_name,quantity,priority,duration_hours,filament_type,notes,due_date,target_filter,status FROM jobs WHERE id=202')).one()
     assert tuple(saved)[:6] == ('CertC adhoc pending B edited', 2, 1, 1.5, 'PLA', 'Synthetic edited notes')
-    assert str(saved.due_date).startswith('2026-10-21') and saved.printer_id == 9 and saved.status == 'pending'
+    assert str(saved.due_date).startswith('2026-10-21') and saved.target_filter == '9' and saved.status == 'pending'
+    # Clearing the pin from the edit modal (null = any printer) is honoured.
+    cleared = ok(client.patch('/jobs/202', json={'pinned_printer_id': None}))
+    assert cleared['pinned_printer_id'] is None
+    ok(client.patch('/jobs/202', json={'pinned_printer_id': 9}))
     wire['jobs_after'] = ok(client.get('/jobs'))
 
     wire['timeline'] = ok(client.get('/timeline', params={'start_date': '2026-10-12T00:00:00', 'days': 1}))

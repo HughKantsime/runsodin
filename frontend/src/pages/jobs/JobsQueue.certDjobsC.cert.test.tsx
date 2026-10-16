@@ -114,14 +114,14 @@ it('F04-4.3-04 Edit job modal prefills from the wire row and submits the exact b
   fireEvent.change(field('Item Name *'), { target: { value: 'CertC adhoc pending B edited' } })
   fireEvent.change(field('Priority'), { target: { value: '1' } })
   fireEvent.change(screen.getByLabelText('Quantity'), { target: { value: '2' } })
-  fireEvent.change(field('Assign Printer'), { target: { value: '9' } })
+  fireEvent.change(field('Pinned Printer'), { target: { value: '9' } })
   fireEvent.change(field('Due Date'), { target: { value: '2026-10-21' } })
   fireEvent.change(field('Notes'), { target: { value: 'Synthetic edited notes' } })
   fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
   await waitFor(() => expect(api.update).toHaveBeenCalledExactlyOnceWith(202, wire.edit_request))
   await screen.findAllByText('CertC adhoc pending B edited')
   const r = row('CertC adhoc pending B edited')
-  expect(within(r).getByText('P1')).toBeInTheDocument(); expect(within(r).getByText('P1S-09')).toBeInTheDocument(); expect(within(r).getByText('Synthetic edited notes')).toBeInTheDocument()
+  expect(within(r).getByText('P1')).toBeInTheDocument(); expect(within(r).getByTitle('Only scheduled on this printer')).toHaveTextContent('Pinned: P1S-09'); expect(within(r).getByText('Synthetic edited notes')).toBeInTheDocument()
 })
 
 // ---- F04-4.4 Print Again ----
@@ -205,4 +205,26 @@ it('F04-4.2-02 a job pinned to an inactive printer shows the pin and why it stay
   expect(within(r).getByTitle('Only scheduled on this printer')).toHaveTextContent(`Pinned: ${printer.name}`)
   expect(within(r).getByRole('status')).toHaveTextContent('Pinned printer is inactive — job stays queued')
   expect(within(row('CertC adhoc pending A')).queryByTitle('Only scheduled on this printer')).not.toBeInTheDocument()
+})
+
+// ---- edit modal clears a pin: null = any printer ----
+it('F04-4.2-02 edit modal clears the pin by sending pinned_printer_id null', async () => {
+  current = wire.jobs_after
+  await mount()
+  fireEvent.click(within(row('CertC adhoc pending B edited')).getByRole('button', { name: 'Edit job' }))
+  expect(field('Pinned Printer')).toHaveValue('9')
+  fireEvent.change(field('Pinned Printer'), { target: { value: '' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+  await waitFor(() => expect(api.update.mock.calls[0][1]).toMatchObject({ pinned_printer_id: null }))
+  expect(api.update.mock.calls[0][1]).not.toHaveProperty('printer_id')
+})
+
+// ---- drag only in queue order ----
+it('F04-4.3-01 rows are draggable only while the list is in queue order', async () => {
+  await mount()
+  expect(row('CertC adhoc pending B')).toHaveAttribute('draggable', 'true')
+  fireEvent.click(screen.getByText('Pri', { selector: 'div' }).closest('th')!)
+  expect(row('CertC adhoc pending B')).not.toHaveAttribute('draggable')
+  fireEvent.click(screen.getByRole('button', { name: 'Sort by queue order' }))
+  expect(row('CertC adhoc pending B')).toHaveAttribute('draggable', 'true')
 })

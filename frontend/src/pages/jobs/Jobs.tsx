@@ -45,7 +45,8 @@ export default function Jobs() {
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [statusFilter, _setStatusFilter] = useState(() => searchParams.get('status') || '')
   const [searchQuery, _setSearchQuery] = useState(() => searchParams.get('q') || '')
-  // Default 'queue' order = server queue order (drag-and-drop position, then priority, then age).
+  // Default 'queue' order = server queue order: priority, then drag-and-drop position
+  // within the priority (unplaced last), then age.
   const [sortField, setSortField] = useState('queue')
   const [sortDirection, setSortDirection] = useState('asc')
   const [jobTypeFilter, _setJobTypeFilter] = useState(() => searchParams.get('type') || 'all')
@@ -249,7 +250,7 @@ export default function Jobs() {
         case 'status': return dir * ((statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99))
         case 'item_name': return dir * (a.item_name || '').localeCompare(b.item_name || '')
         case 'queue': return dir * queueCompare(a, b)
-        case 'priority': return dir * ((a.priority || 99) - (b.priority || 99))
+        case 'priority': return dir * ((a.priority ?? 99) - (b.priority ?? 99))
         case 'printer': return dir * ((a.printer?.name || '').localeCompare(b.printer?.name || ''))
         case 'duration_hours': return dir * ((a.duration_hours || 0) - (b.duration_hours || 0))
         case 'scheduled_start': return dir * (new Date(a.scheduled_start || 0) - new Date(b.scheduled_start || 0))
@@ -380,7 +381,8 @@ export default function Jobs() {
               ) : (
                 filteredJobs.map(job => (
                   <JobRow key={job.id} job={job} pinnedPrinterName={job.pinned_printer_id != null ? (printersData || []).find(p => p.id === job.pinned_printer_id)?.name : undefined} correctionPrincipal={recentPrincipal} onAction={handleAction} isSelected={selectedJobs.has(job.id)} onToggleSelect={toggleJobSelect} isDispatching={dispatchJob.isPending && dispatchJob.variables === job.id}
-                    dragProps={canDo('jobs.edit') && (job.status === 'pending' || job.status === 'scheduled') ? {
+                    // Drag only in queue order: positions written from another sort would be meaningless.
+                    dragProps={canDo('jobs.edit') && sortField === 'queue' && (job.status === 'pending' || job.status === 'scheduled') ? {
                       draggable: true,
                       onDragStart: (e) => handleDragStart(e, job.id),
                       onDragEnd: handleDragEnd,

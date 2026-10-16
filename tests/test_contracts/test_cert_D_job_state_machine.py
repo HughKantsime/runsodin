@@ -236,3 +236,15 @@ def test_transition_table_refuses_widening_and_unknown_moves(review_db):
     with pytest.raises(TransitionError):
         transition_job(review_db, 709, 'printing', 'approval')
     assert _status(review_db, 709) == 'pending'
+
+
+def test_plate_cleared_releases_by_priority_then_position_through_the_state_machine(fleet, signed_license, monkeypatch):
+    from modules.printers import routes_controls
+    client = _pin_client(fleet, signed_license, monkeypatch)
+    client.app.include_router(routes_controls.router, prefix='/api/v1')
+    _job(fleet, 710, 'waiting_plate_clear', queue_position=0)          # placed, normal priority
+    _job(fleet, 711, 'waiting_plate_clear', queue_position=None)       # unplaced ...
+    fleet.execute(text('UPDATE jobs SET priority=1 WHERE id=711')); fleet.commit()  # ... but urgent
+    response = client.post('/api/v1/printers/9/plate-cleared')
+    assert response.status_code == 200, response.text
+    assert (_status(fleet, 711), _status(fleet, 710)) == ('pending', 'waiting_plate_clear')

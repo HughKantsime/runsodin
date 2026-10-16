@@ -307,13 +307,13 @@ export function EditJobModal({ isOpen, onClose, onSubmit, job, printersData, mod
       setFormData({
         item_name: job.item_name || '',
         quantity: job.quantity ?? '',
-        priority: job.priority || 3,
+        priority: job.priority ?? 3,
         duration_hours: job.duration_hours || '',
         colors_required: job.colors_list?.join(', ') || '',
         filament_type: job.filament_type || '',
         notes: job.notes || '',
         due_date: job.due_date ? job.due_date.split('T')[0] : '',
-        printer_id: job.pinned_printer_id ?? job.printer_id ?? '',
+        pinned_printer_id: job.pinned_printer_id ?? '',
       })
     }
   }, [job])
@@ -329,7 +329,8 @@ export function EditJobModal({ isOpen, onClose, onSubmit, job, printersData, mod
       filament_type: formData.filament_type || null,
       notes: formData.notes || null,
       due_date: formData.due_date || null,
-      printer_id: formData.printer_id ? Number(formData.printer_id) : null,
+      // Explicit pin: a printer id, or null for any printer (clears an existing pin).
+      pinned_printer_id: formData.pinned_printer_id ? Number(formData.pinned_printer_id) : null,
     })
     onClose()
   }
@@ -363,16 +364,16 @@ export function EditJobModal({ isOpen, onClose, onSubmit, job, printersData, mod
             <input type="number" step="0.5" value={formData.duration_hours} onChange={(e) => setFormData(prev => ({ ...prev, duration_hours: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" />
           </div>
           <div>
-            <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Assign Printer</label>
-            <select value={formData.printer_id} onChange={(e) => setFormData(prev => ({ ...prev, printer_id: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm">
-              <option value="">Unassigned</option>
+            <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Pinned Printer</label>
+            <select value={formData.pinned_printer_id} onChange={(e) => setFormData(prev => ({ ...prev, pinned_printer_id: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm">
+              <option value="">Any printer</option>
               {printersData?.map(p => (
                 <option key={p.id} value={p.id}>{p.nickname || p.name}</option>
               ))}
             </select>
             <BedMismatchWarning
               modelId={job?.model_id}
-              printerId={formData.printer_id}
+              printerId={formData.pinned_printer_id}
               modelsData={modelsData}
               printersData={printersData}
             />
