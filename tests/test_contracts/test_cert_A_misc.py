@@ -289,3 +289,33 @@ def test_modules_resolve_get_db_at_call_time(monkeypatch, module_name):
     monkeypatch.setattr(db_utils, "get_db", replacement)
     with module.get_db() as conn:
         assert conn is marker
+
+
+def test_live_engine_stays_out_of_engine_type_checks():
+    """core.db.live_engine is an internal proxy: it fails isinstance(Engine)/inspect,
+    so modules that type-check their engine must never import or receive it."""
+    import re
+    from pathlib import Path
+    from sqlalchemy.engine import Engine
+    import core.db as core_db
+    assert not isinstance(core_db.live_engine, Engine)
+    assert isinstance(core_db.current_engine(), Engine)
+    backend = Path(__file__).resolve().parents[2] / "backend"
+    users, checkers = set(), set()
+    for path in backend.rglob("*.py"):
+        if "preserved" in path.parts:
+            continue
+        source = path.read_text(errors="ignore")
+        name = str(path.relative_to(backend))
+        if "live_engine" in source and name != "core/db.py":
+            users.add(name)
+        if re.search(r"isinstance\(\s*engine\s*,\s*Engine\s*\)|inspect\(\s*engine\s*\)", source):
+            checkers.add(name)
+    assert users and not users & checkers, users & checkers
+    assert not any("timelapse" in name for name in users)
+    # Long-lived modules only hand the proxy to helpers that use it through attributes.
+    for name in users:
+        source = (backend / name).read_text(errors="ignore")
+        for call in re.findall(r"(\w+)\(engine\b", source):
+            assert call in {"bind_generic_observation", "retire_observed_terminal", "Session"}, (name, call)
+

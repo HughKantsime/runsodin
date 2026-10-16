@@ -53,6 +53,13 @@ class _CurrentEngine:
     module imported while core.db.engine was temporarily replaced never keeps
     a stale engine. Works wherever an Engine is used through its attributes
     (connect, begin, raw_connection, dialect, Session(bind=...)).
+
+    INTERNAL PROXY: it is not an Engine instance, so isinstance(x, Engine)
+    and sqlalchemy.inspect() reject it. Code that validates its engine
+    argument that way (the timelapse modules) must be given
+    current_engine(), never this handle; tests/test_contracts/
+    test_cert_A_misc.py::test_live_engine_stays_out_of_engine_type_checks
+    guards that.
     """
     __slots__ = ()
 
