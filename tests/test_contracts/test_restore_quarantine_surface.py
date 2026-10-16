@@ -162,3 +162,11 @@ def test_orphan_quarantine_records_are_swept_and_never_counted(quarantined, monk
     removed = restore_artifacts.sweep_stale(paths.backups, "unused", None, drop=lambda names: [])
     assert removed["files"] == [Path(record["archive"]).with_suffix(".json").name]
     assert b.quarantined_restores() == []
+
+
+def test_restore_staging_routes_are_marked_for_the_interactive_session_guard():
+    """require_interactive_session lives on cert-fix-F; the merge must add it to these routes."""
+    marked = routes_backup.BACKUP_ROUTES_REQUIRING_INTERACTIVE
+    assert ("POST", "/backups/{filename}/stage") in marked and ("POST", "/backups/restore") in marked
+    registered = {(method, route.path) for route in routes_backup.router.routes for method in getattr(route, "methods", ())}
+    assert set(marked) <= registered
