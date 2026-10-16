@@ -250,7 +250,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 70,
+      "line": 72,
       "path": "backend/core/ams_source_inspection.py",
       "pattern": "qmark-parameter",
       "reason": "G-code header regular expression contains a qmark-like fragment; this bounded archive parser has no database operations or SQL.",
@@ -495,6 +495,22 @@
       "pattern": "PRAGMA",
       "reason": "SQLite catalog, enforcement PRAGMAs and writer promotion are dialect guarded; PostgreSQL uses explicit native catalog and relation-lock validation.",
       "source": "if c.exec_driver_sql('PRAGMA foreign_key_check('+table+')').first(): raise MigrationError('Global provenance foreign data differs')"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 52,
+      "path": "backend/core/log_redaction.py",
+      "pattern": "qmark-parameter",
+      "reason": "Credential-redaction regular expressions (Set-Cookie headers, optional quotes) contain qmark-like fragments; this logging helper performs no database operations or SQL.",
+      "source": "+ r\")[\\\"']?\\s*[:=]\\s*[\\\"']?)[^\\s\\\"',;&}]+\")"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 54,
+      "path": "backend/core/log_redaction.py",
+      "pattern": "qmark-parameter",
+      "reason": "Credential-redaction regular expressions (Set-Cookie headers, optional quotes) contain qmark-like fragments; this logging helper performs no database operations or SQL.",
+      "source": "_COOKIE_HEADER = re.compile(r\"(?i)(\\b(?:set-)?cookie[\\\"']?\\s*[:=]\\s*[\\\"']?)[^\\r\\n\\\"']+\")"
     },
     {
       "classification": "dialect-neutral",
@@ -962,7 +978,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 75,
+      "line": 96,
       "path": "backend/core/schema/migrations/033_timelapse_capture_tenancy.py",
       "pattern": "PRAGMA",
       "reason": "The foreign-key PRAGMA that reads ON DELETE and the BEGIN IMMEDIATE write lock are guarded by dialect; PostgreSQL validates the reflected constraint options.",

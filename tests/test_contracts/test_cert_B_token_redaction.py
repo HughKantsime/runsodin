@@ -187,9 +187,12 @@ def _emit(logger_name, *log_args, exc=False, **log_kw):
 
 def test_placeholders_survive_redaction():
     out = _emit("odin.t.placeholders", "printer %s camera %d of %s", "token=abc", 3, "x")
-    assert "printer token=abc camera 3 of x" in out  # nothing secret here: formatting intact
-    out = _emit("odin.t.placeholders2", "%(name)s=%(value)s", {"name": "token", "value": "plain"})
-    assert "token=plain" in out
+    # Formatting stays intact; a bare token=... value is redacted wherever it appears (round 6).
+    assert "printer token=[REDACTED] camera 3 of x" in out
+    out = _emit("odin.t.placeholders2", "%(name)s=%(value)s", {"name": "printer", "value": "plain"})
+    assert "printer=plain" in out
+    out = _emit("odin.t.placeholders3", "%(name)s=%(value)s", {"name": "token", "value": "plain"})
+    assert "token=[REDACTED]" in out
 
 
 def test_non_str_args_are_redacted_after_formatting():
@@ -334,7 +337,7 @@ def test_hostile_containers_fall_back_to_redacted_text(redacting_logger):
     assert token not in str(redact_structure(Exploding(note=f"?token={token}")))
     strict = redact_structure(Strict(f"?token={token}", 1))
     assert token not in repr(strict)
-    assert redact_structure([Unprintable()])[0].__class__ is Unprintable
+    assert redact_structure([Unprintable()]) == ["[REDACTED]"]  # str() raises: the placeholder, never an error
     logger, stream = redacting_logger
     logger.info(Exploding(note=f"?token={token}"))
     logger.info(Strict(f"?token={token}", 1))
@@ -370,3 +373,53 @@ def test_unifi_protect_path_tokens_are_redacted_in_logs(redacting_logger):
     assert path_token not in out and out.count("7441/[REDACTED]") == 1 and "7447/[REDACTED]" in out
     logger.info("plain %s", "rtsp://cam.local:554/stream1")
     assert "rtsp://cam.local:554/stream1" in stream.getvalue()
+
+
+# --------------------------------------------------------------------------- round 6 gaps
+
+@pytest.mark.parametrize("line,secret", [
+    ("login failed password: {s} for ada", "{s}"),
+    ("password={s}", "{s}"),
+    ("Cookie: session={s}; csrftoken=abc", "{s}"),
+    ("Set-Cookie: sid={s}; Path=/; HttpOnly", "{s}"),
+    ("Authorization: Bearer {s}", "{s}"),
+    ("Proxy-Authorization: Basic {s}", "{s}"),
+    ("retrying with token={s} now", "{s}"),
+    ("{{'access_token': '{s}', 'user': 'ada'}}", "{s}"),
+    ("client_secret = {s}", "{s}"),
+])
+def test_plain_text_credential_lines_are_redacted(redacting_logger, line, secret):
+    logger, stream = redacting_logger
+    value = "Zq" + secrets.token_hex(10)
+    logger.info(line.format(s=value))
+    out = stream.getvalue()
+    assert value not in out and "[REDACTED]" in out, out
+
+
+def test_ordinary_key_values_stay_readable(redacting_logger):
+    logger, stream = redacting_logger
+    logger.info("token_prefix=odin_abcd camera.token_count=3 printer=7 status=ok")
+    assert stream.getvalue().strip() == "token_prefix=odin_abcd camera.token_count=3 printer=7 status=ok"
+
+
+def test_non_string_objects_in_structures_are_redacted_through_str():
+    from core.log_redaction import redact_structure
+    token = _token()
+
+    class Carrier:
+        def __str__(self):
+            return f"GET /api/overlay/1/camera?token={token}"
+    redacted = redact_structure({"request": Carrier(), "count": 3, "ok": True, "none": None, "ratio": 0.5})
+    assert token not in redacted["request"] and "[REDACTED]" in redacted["request"]
+    assert (redacted["count"], redacted["ok"], redacted["none"], redacted["ratio"]) == (3, True, None, 0.5)
+
+
+def test_unifi_style_opaque_rtsp_paths_without_a_port_are_redacted(redacting_logger):
+    logger, stream = redacting_logger
+    share = "AbCdEf" + secrets.token_hex(8)
+    logger.info("camera %s down", f"rtsps://nvr.local/{share}?enableSrtp")
+    logger.info("camera %s down", f"rtsp://admin:pw@10.0.0.2/{share}")
+    logger.info("camera %s down", "rtsp://cam.local/live/ch0 and rtsp://cam.local:554/stream1")
+    out = stream.getvalue()
+    assert share not in out and "nvr.local/[REDACTED]?enableSrtp" in out and "10.0.0.2/[REDACTED]" in out
+    assert "rtsp://cam.local/live/ch0" in out and "rtsp://cam.local:554/stream1" in out

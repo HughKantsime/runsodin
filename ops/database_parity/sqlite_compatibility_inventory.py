@@ -59,6 +59,10 @@ CLASSIFICATIONS: dict[str, tuple[str, str]] = {
         "sqlite-provider-only",
         "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
     ),
+    "backend/core/log_redaction.py": (
+        "dialect-neutral",
+        "Credential-redaction regular expressions (Set-Cookie headers, optional quotes) contain qmark-like fragments; this logging helper performs no database operations or SQL.",
+    ),
     "backend/modules/archives/project_zip_manifest.py": (
         "dialect-neutral",
         "The bounded UTC timestamp regular expression contains a qmark-like fragment; this closed ZIP metadata parser performs no database operations or SQL.",

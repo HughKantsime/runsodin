@@ -38,6 +38,20 @@ _API_TOKEN = re.compile(r"\bodin_[A-Za-z0-9_-]{40,}")
 # UniFi Protect RTSP(S) path tokens (rtsps://host:7441/<token>, also :7447), as
 # camera URLs carry them (modules/printers/route_utils.py _PATH_TOKEN_RE).
 _UNIFI_PATH_TOKEN = re.compile(r"(?i)(\brtsps?://(?:[^\s/?#\"'@]{1,512}+@)?+[^\s/?#\"':@]{1,255}+:(?:7441|7447)/)[A-Za-z0-9]{8,}+")
+# Any rtsp(s) URL whose single path segment is a long opaque token (UniFi Protect
+# shares, with or without an explicit port; logs cannot tell which host is a UniFi
+# source, so every such URL is treated as one). Ordinary stream paths (stream1,
+# live/ch0, h264Preview_01_main) are short or segmented and stay readable.
+_RTSP_OPAQUE_PATH = re.compile(r"(?i)(\brtsps?://(?:[^\s/?#\"'@]{1,512}+@)?+[^\s/?#\"'@]{1,255}+/)[A-Za-z0-9]{16,}+(?=$|[?#\s\"'])")
+# key=value / key: value pairs naming a credential, anywhere in a line (bare
+# token=..., password: ..., a dict repr's 'token': '...').
+_KEY_VALUE_NAMES = ("password", "passwd", "pwd", "secret", "token", "access_token", "refresh_token", "id_token",
+                    "client_secret", "private_key", "api_key", "apikey", "access_code", "session", "csrf_token",
+                    "ws_token", "oidc_code")
+_KEY_VALUE_SECRET = re.compile(r"(?i)(?<![A-Za-z0-9_-])((?:" + "|".join(_KEY_VALUE_NAMES)
+                               + r")[\"']?\s*[:=]\s*[\"']?)[^\s\"',;&}]+")
+# Cookie / Set-Cookie header values: everything to the end of the value.
+_COOKIE_HEADER = re.compile(r"(?i)(\b(?:set-)?cookie[\"']?\s*[:=]\s*[\"']?)[^\r\n\"']+")
 # JWTs; possessive quantifiers keep matching linear on hostile input.
 _JWT = re.compile(r"\beyJ[A-Za-z0-9_-]++\.eyJ[A-Za-z0-9_-]++\.[A-Za-z0-9_-]++")
 _SECRET_KEY_NAMES = ("authorization", "proxy-authorization", "x-api-key", "cookie", "set-cookie", "password", "token",
@@ -50,6 +64,9 @@ def redact_text(value: str) -> str:
     if not isinstance(value, str):
         value = _safe_str(value)
     value = _UNIFI_PATH_TOKEN.sub(lambda m: m.group(1) + REDACTED, value)
+    value = _RTSP_OPAQUE_PATH.sub(lambda m: m.group(1) + REDACTED, value)
+    value = _COOKIE_HEADER.sub(lambda m: m.group(1) + REDACTED, value)
+    value = _KEY_VALUE_SECRET.sub(lambda m: m.group(1) + REDACTED, value)
     value = _QUERY_SECRET.sub(lambda m: m.group(1) + REDACTED, value)
     value = _USERINFO.sub(lambda m: m.group(1) + REDACTED + "@", value)
     value = _AUTH_HEADER.sub(lambda m: m.group(1) + REDACTED, value)
@@ -71,8 +88,11 @@ _MAX_DEPTH = 32
 def _rebuild(value, depth, active):
     if isinstance(value, str):
         return redact_text(value)
-    if not isinstance(value, (dict, list, tuple)):
+    if value is None or type(value) in (bool, int, float):
         return value
+    if not isinstance(value, (dict, list, tuple)):
+        # Any other object is stringified when logged or serialized: redact that text.
+        return redact_text(_safe_str(value))
     if depth > _MAX_DEPTH or id(value) in active:
         return REDACTED  # cycle or absurd nesting: never recurse without bound
     active.add(id(value))
