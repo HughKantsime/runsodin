@@ -26,8 +26,8 @@ it('lists an auto-camera X1C next to a configured camera and saves its settings'
   const auto = await screen.findByText('built-in camera (auto)')
   expect(screen.getByText('Configured cam')).toBeInTheDocument()
   expect(screen.queryByText('P1S no camera')).toBeNull()
-  await waitFor(() => expect(api.printerGet.mock.calls.map(c => c[0]).sort()).toEqual([21, 9]))
+  await waitFor(() => expect(api.printerGet.mock.calls.map((call: unknown[]) => Number(call[0])).sort((a: number, b: number) => a - b)).toEqual([9, 21]))
   const card = auto.closest('div.rounded-md') as HTMLElement
-  fireEvent.click(within(card).getByRole('checkbox', { name: 'Enabled', exact: true }))
+  fireEvent.click(within(card).getByRole('checkbox', { name: 'Enabled' }))
   await waitFor(() => expect(api.printerSet).toHaveBeenCalledExactlyOnceWith(21, { enabled: 0 }))
 })
