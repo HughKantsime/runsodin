@@ -27,7 +27,9 @@ def _integration_checks() -> set[str]:
 def test_installer_suite_unit_half_passes_and_counts():
     result = subprocess.run(["bash", str(SUITE), "--unit"], capture_output=True, text=True, timeout=300)
     out = ANSI.sub("", result.stdout)
-    (ROOT / "artifacts/application-certification/cert-H/test_installer_unit.log").write_text(out)
+    log = ROOT / "artifacts/application-certification/cert-H/test_installer_unit.log"
+    log.parent.mkdir(parents=True, exist_ok=True)  # artifacts/ is gitignored: absent in a clean checkout
+    log.write_text(out)
     assert result.returncode == 0, out[-2000:]
     unit = int(re.search(r"Results: (\d+) tests", out).group(1))
     assert re.search(rf"✓ {unit} passed", out)
