@@ -35,6 +35,7 @@ claims on separate keys. Both live in `system_config`, and neither reads or writ
 | `quota_attempt:filament:job:<job>:<seq>` | D ledger | filament deducted for the job attempt; value `{"source", "print_job_id"}` |
 | `quota_attempt:filament:job:<job>:print:<print_job>` | D ledger | filament deducted for that physical print |
 | `quota_attempt:filament:print:<print_job>` | D ledger | the same, for a print with no job |
+| `quota_attempt:print_seq:<print_job>` | D | the job attempt a physical print belongs to, `{"job_id", "seq"}`; bound when the print is created or linked |
 
 - **One claim does not imply the other.** A quota charge without a deduction is correct, for example
   when the spool balance is unknown (the ledger claims nothing then). So is a deduction without a quota
@@ -42,14 +43,25 @@ claims on separate keys. Both live in `system_config`, and neither reads or writ
 - **Use the same scope on both sides.** The ledger claims per physical print when the print is known
   (archive, Moonraker), and per job attempt otherwise (operator `/complete`). F already uses the same
   split (`print:<id>` from monitors, `job:<id>:<seq>` from completion).
+- **A print's attempt is the print's own, not the job's current one.** A late end or archive of a
+  print, including `recover_missing_archives` at startup, can run after the job was reset. Resolve the
+  attempt with `core.filament_ledger.print_attempt(run, job_id, print_job_id)`: the `print_seq` binding,
+  else the reset window around `print_jobs.started_at`. Do not use `attempt_seq(run, job_id)`. This
+  matters to F wherever a print-scoped quota charge falls back to a job-attempt key.
+- **Lock order.** The ledger locks spool rows in id order and then claims keys; it never takes a spool
+  lock after a claim. Keep F's quota writes (the claim, then the `quota_usage` upsert) after the ledger
+  call in the same transaction. Never interleave them before it, or the archive and operator paths
+  can deadlock on PostgreSQL again.
 - **Values must be valid JSON.** `system_config.value` is a JSON column on PostgreSQL, and a bare word
   there raises InvalidTextRepresentation. F's `"true"` is fine. Keep any new value JSON.
 - **F's quota grams.** If F's `record_print_consumption` should charge what was actually deducted
   rather than the estimate, pass `sum(entry["grams"] for entry in outcome.deductions)` from the ledger's
   `LedgerResult` in `complete_job`. Today D passes nothing, and F's `job_material_grams` estimate applies.
 - **Census.** `test_cert_D_filament_ledger.py::test_census_no_filament_stock_writer_outside_the_ledger`
-  fails on any new `spool_usage` insert or stock decrement outside the ledger. F's quota code writes
-  neither.
+  runs on the shared AST+SQL scanner (`tests/test_contracts/job_census.py`, targets `SPOOLS` and
+  `SPOOL_USAGE`). It fails on any new `spool_usage` insert or spool weight write outside the ledger.
+  F's quota code writes neither. If F adds a dynamic-table SQL helper, the census lists it per call
+  site, and it needs a checked allowance proving it never addresses spools or `spool_usage`.
 
 ## 2. Keep both delete hooks
 
