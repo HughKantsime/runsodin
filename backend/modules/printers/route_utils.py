@@ -621,6 +621,21 @@ def _go2rtc_restart_with_lock(config: Optional[dict], *, force: bool = False, _p
             lockfd.close()
 
 
+def write_go2rtc_config_before_start(config: dict, *, _path=None) -> None:
+    """Container start, before supervisord starts go2rtc: write the config and record it as
+    applied, so go2rtc boots with this boot's RTSP credentials and relay tokens and the
+    API's start-up sync finds nothing to restart."""
+    import hashlib
+    import json
+    path = _path or GO2RTC_CONFIG
+    content = yaml.safe_dump(config)
+    _go2rtc_atomic_write(path, content)
+    os.chmod(path, 0o600)
+    state = _go2rtc_read_state(path)
+    state['applied'] = hashlib.sha256(yaml.safe_dump(config, sort_keys=True).encode()).hexdigest()
+    _go2rtc_atomic_write(path + '.sync-state.json', json.dumps(state))
+
+
 def sync_go2rtc_config(db: Session, *, force: bool = False):
     """Regenerate go2rtc config from printer camera URLs.
 

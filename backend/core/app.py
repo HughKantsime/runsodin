@@ -814,7 +814,11 @@ def create_app() -> FastAPI:
         try:
             from modules.printers.camera_relay import rotate_relay_secret
             from modules.printers.route_utils import sync_go2rtc_config_standalone
-            rotate_relay_secret()  # per-boot secret for the internal camera relay
+            # Per-boot secret for the internal camera relay (and go2rtc's RTSP credentials).
+            # The container entrypoint rotates it and writes the go2rtc config before
+            # go2rtc starts; then the API keeps it, and this sync restarts nothing.
+            if os.environ.get("ODIN_CAMERA_RELAY_SECRET_ROTATED") != "1":
+                rotate_relay_secret()
             sync_go2rtc_config_standalone()
             log.info("go2rtc config synced on startup")
         except Exception as e:
