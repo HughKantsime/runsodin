@@ -497,3 +497,20 @@ def test_link_conflicts_mask_spools_the_org_admin_cannot_see(inventory_client, r
         assert foreign_qr not in json.dumps(_spoolman_link_conflicts(org_admin))
         everything = _spoolman_link_conflicts({'id': 1, 'role': 'admin', 'group_id': None})
     assert foreign_qr in json.dumps(everything)
+
+
+def test_spool_patch_takes_the_link_lock_before_purchase_and_financial_locks(inventory_client, monkeypatch):
+    """Final review LOW-6: one lock order on every spool write path (link lock first)."""
+    from modules.inventory.routes import spools as spool_routes
+    sid = _create(inventory_client, price=10.0)
+    order = []
+    for name in ('_serialize_spoolman_link', 'require_financial_owner', 'write_purchase'):
+        real = getattr(spool_routes, name)
+
+        def traced(*args, _real=real, _name=name, **kwargs):
+            order.append(_name)
+            return _real(*args, **kwargs)
+        monkeypatch.setattr(spool_routes, name, traced)
+    response = inventory_client.patch(f'/api/spools/{sid}', json={'price': 12.5, 'spoolman_spool_id': 501})
+    assert response.status_code == 200, response.text
+    assert order == ['_serialize_spoolman_link', 'require_financial_owner']

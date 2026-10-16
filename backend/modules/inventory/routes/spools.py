@@ -349,6 +349,15 @@ def update_spool(spool_id: int, updates: SpoolUpdate, current_user: dict = Depen
         raise HTTPException(status_code=404, detail="Spool not found")
 
     update_data = updates.model_dump(exclude_unset=True)
+    # Lock order on every spool write path: the Spoolman-link lock first, then the
+    # purchase/financial locks (write_purchase, require_financial_owner).
+    if "spoolman_spool_id" in update_data:
+        if update_data["spoolman_spool_id"] == spool.spoolman_spool_id:
+            # Unchanged link (even an existing duplicate): not a link write.
+            del update_data["spoolman_spool_id"]
+        else:
+            _serialize_spoolman_link(db, update_data["spoolman_spool_id"])
+            _refuse_taken_spoolman_link(db, update_data["spoolman_spool_id"], spool.id, current_user)
     purchase_operation = "purchase_evidence" in update_data
     purchase = update_data.pop("purchase_evidence", None)
     expected = update_data.pop("expected_purchase_revision", None)
@@ -363,13 +372,6 @@ def update_spool(spool_id: int, updates: SpoolUpdate, current_user: dict = Depen
 
     if "status" in update_data:
         update_data["status"] = SpoolStatus(update_data["status"])
-    if "spoolman_spool_id" in update_data:
-        if update_data["spoolman_spool_id"] == spool.spoolman_spool_id:
-            # Unchanged link (even an existing duplicate): not a link write.
-            del update_data["spoolman_spool_id"]
-        else:
-            _serialize_spoolman_link(db, update_data["spoolman_spool_id"])
-            _refuse_taken_spoolman_link(db, update_data["spoolman_spool_id"], spool.id, current_user)
 
     for field, value in update_data.items():
         setattr(spool, field, value)
