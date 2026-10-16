@@ -74,17 +74,20 @@ def archive_ledger_ids(archive,url,password_file,directory):
     from modules.system import postgres_backup_service as b
     malformed=b.BackupValidationError('PostgreSQL archive migration ledger is missing or malformed')
     ids=set();state='before'
-    for line in _pg_restore_lines(['--data-only','--table=odin_schema_migrations','--file','-',str(archive)],url,password_file,directory,limit=LEDGER_BYTE_CAP):
-        if state=='before':
-            if line.startswith('COPY '):
-                if line!=_LEDGER_COPY:raise malformed
-                state='rows'
-        elif state=='rows':
-            if line=='\\.':state='after';continue
-            match=_LEDGER_ROW.fullmatch(line)
-            if not match or match.group(1) in ids:raise malformed
-            ids.add(match.group(1))
-        elif line.startswith('COPY '):raise malformed
+    from contextlib import closing
+    # closing(): an early refusal stops (kills) pg_restore at once, not when the generator is collected.
+    with closing(_pg_restore_lines(['--data-only','--table=odin_schema_migrations','--file','-',str(archive)],url,password_file,directory,limit=LEDGER_BYTE_CAP)) as lines:
+        for line in lines:
+            if state=='before':
+                if line.startswith('COPY '):
+                    if line!=_LEDGER_COPY:raise malformed
+                    state='rows'
+            elif state=='rows':
+                if line=='\\.':state='after';continue
+                match=_LEDGER_ROW.fullmatch(line)
+                if not match or match.group(1) in ids:raise malformed
+                ids.add(match.group(1))
+            elif line.startswith('COPY '):raise malformed
     if state!='after':raise malformed
     return frozenset(ids)
 

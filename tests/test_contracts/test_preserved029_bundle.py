@@ -274,6 +274,8 @@ with open(os.environ["FAKE_LEDGER_FILE"], "rb") as source:
     head, _, tail = source.read().partition(b"\\\\.\\n")
     out = sys.stdout.buffer
     out.write(head)
+    if os.environ.get("FAKE_LEDGER_PIDFILE"):
+        open(os.environ["FAKE_LEDGER_PIDFILE"], "w").write(str(os.getpid()))
     if os.environ.get("FAKE_LEDGER_HANG"):
         out.flush(); __import__("time").sleep(60)
     for i in range(repeat - 1):
@@ -546,3 +548,30 @@ def test_sweep_never_drops_intent_only_names_and_removes_empty_child_journals(tm
     result = restore_artifacts.sweep_stale(backups, "unused", None, drop=lambda names: asked.extend(sorted(names)) or sorted(names))
     assert asked == [confirmed] and result["databases"] == [confirmed]
     assert not empty.exists() and not child.exists()  # emptied: the unprovable intent entry is forgotten, not dropped
+
+
+def test_an_early_ledger_refusal_stops_pg_restore_at_once(routed, monkeypatch, tmp_path):
+    from modules.system import pre026_restore_stage as stage
+    from modules.system.backup_service import BackupValidationError
+    archive, state = routed
+    state["ledger"] = "COPY public.odin_schema_migrations (migration_id, checksum, dialect, applied_at) FROM stdin;\nnot a ledger row\n"
+    pidfile = tmp_path / "pg_restore.pid"
+    monkeypatch.setenv("FAKE_LEDGER_PIDFILE", str(pidfile)); monkeypatch.setenv("FAKE_LEDGER_HANG", "1")
+    try:
+        stage.archive_ledger_ids(archive, "postgresql://o@pg/odin", None, archive.parent)
+    except BackupValidationError as error:
+        held = error  # keep the traceback (and its frames) alive, as a caller would
+    else:
+        raise AssertionError("malformed ledger admitted")
+    pid = int(pidfile.read_text())
+    import time
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.05)
+    else:
+        raise AssertionError("pg_restore kept running after the ledger was refused")
+    assert held
