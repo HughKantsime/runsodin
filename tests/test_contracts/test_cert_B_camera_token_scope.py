@@ -140,3 +140,42 @@ def test_camera_token_expiry_defaults_to_a_year_and_longer_is_refused(token_clie
     for days in (366, 3650):
         longer = client.post("/tokens", headers=issue(["admin"]), json={"name": "OBS long", "scopes": ["read:cameras"], "expires_days": days})
         assert longer.status_code == 422 and "365" in longer.text, longer.text
+
+
+# --------------------------------------------------------------------------- legacy combined tokens (round 6)
+from sqlalchemy import text  # noqa: E402
+
+def _store_token(db, user_id, scopes):
+    import json, secrets
+    from core.auth import hash_password
+    raw = "odin_" + secrets.token_urlsafe(32)
+    db.execute(text("INSERT INTO api_tokens(user_id,name,token_hash,token_prefix,scopes) VALUES(:u,'legacy',:h,:p,:s)"),
+               {"u": user_id, "h": hash_password(raw), "p": raw[:10], "s": json.dumps(scopes)})
+    db.commit()
+    return raw
+
+
+def test_combined_camera_tokens_are_refused_everywhere(review_db):
+    from core.dependencies import resolve_user_api_token
+    combined = _store_token(review_db, 1, ["read:cameras", "read"])
+    camera = _store_token(review_db, 1, ["read:cameras"])
+    reader = _store_token(review_db, 1, ["read"])
+    assert resolve_user_api_token(combined, review_db) is None
+    assert resolve_user_api_token(camera, review_db)["_token_scopes"] == ["read:cameras"]
+    assert resolve_user_api_token(reader, review_db)["_token_scopes"] == ["read"]
+
+
+def test_startup_revokes_combined_camera_tokens_with_an_audit_row(review_db):
+    from core.api_token_policy import revoke_legacy_camera_tokens
+    _store_token(review_db, 1, ["read:cameras", "read:printers"])
+    _store_token(review_db, 1, ["admin", "read:cameras"])
+    kept = {_store_token(review_db, 1, ["read:cameras"]), _store_token(review_db, 1, ["read:printers"])}
+    before = review_db.execute(text("SELECT COUNT(*) FROM api_tokens")).scalar_one()
+    assert revoke_legacy_camera_tokens(review_db) == 2
+    assert review_db.execute(text("SELECT COUNT(*) FROM api_tokens")).scalar_one() == before - 2
+    assert not any("read:cameras" in s and s != '["read:cameras"]'
+                   for (s,) in review_db.execute(text("SELECT scopes FROM api_tokens")).all())
+    audits = review_db.execute(text("SELECT COUNT(*) FROM audit_logs WHERE action='api_token_revoked'")).scalar_one()
+    assert audits == 2
+    assert revoke_legacy_camera_tokens(review_db) == 0  # idempotent
+    assert len(kept) == 2

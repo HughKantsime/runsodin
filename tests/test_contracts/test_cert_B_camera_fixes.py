@@ -156,9 +156,12 @@ def test_overlay_camera_refuses_missing_wrong_scope_and_foreign_tokens(overlay_c
     assert client.get("/overlay/9/camera", params={"token": tokens["jobs"]}).status_code == 403
     # Only camera-only tokens open the relay; broader ones (and combinations minted
     # before the camera-only rule) are refused.
-    for name in ("printers", "read", "admin", "legacy_combo"):
-        # (an admin-scoped token of a non-admin user is already refused at resolution: 401)
-        assert client.get("/overlay/9/camera", params={"token": tokens[name]}).status_code in (401, 403), name
+    expected = {"printers": 403,      # a valid token, but not camera-only
+                "read": 403,          # a valid token, but not camera-only
+                "admin": 401,         # admin scope of a non-admin user: refused at resolution
+                "legacy_combo": 401}  # combined read:cameras tokens are revoked
+    for name, status in expected.items():
+        assert client.get("/overlay/9/camera", params={"token": tokens[name]}).status_code == status, name
     assert client.get("/overlay/11/camera", params={"token": tokens["camera"]}).status_code == 404  # org 2 printer, org 1 token
     review_db.execute(text("UPDATE printers SET camera_enabled=0 WHERE id=9")); review_db.commit()
     assert client.get("/overlay/9/camera", params={"token": tokens["camera"]}).status_code == 404

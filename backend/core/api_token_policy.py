@@ -70,3 +70,25 @@ def camera_token_expiry_error(expires_days):
 
 def is_camera_only(scopes) -> bool:
     return bool(scopes) and set(scopes) <= CAMERA_ONLY_SCOPES
+
+
+def is_legacy_camera_combination(scopes) -> bool:
+    """read:cameras together with other scopes: mintable only before the camera-only
+    rule (never in a release). Such tokens are revoked."""
+    return bool(scopes) and "read:cameras" in scopes and set(scopes) != CAMERA_ONLY_SCOPES
+
+
+def revoke_legacy_camera_tokens(db) -> int:
+    """Delete (ODIN's token revocation) every combined read:cameras token, with an audit
+    row each. Idempotent; runs at startup. Returns how many were revoked."""
+    from sqlalchemy import text
+    from core.audit import log_audit
+    rows = db.execute(text("SELECT id, user_id, scopes FROM api_tokens WHERE scopes LIKE :pattern"),
+                      {"pattern": "%read:cameras%"}).fetchall()
+    revoked = [row for row in rows if is_legacy_camera_combination(parse_token_scopes(row.scopes) or [])]
+    for row in revoked:
+        db.execute(text("DELETE FROM api_tokens WHERE id = :id"), {"id": row.id})
+        log_audit(db, "api_token_revoked", "api_token", row.id,
+                  {"reason": "legacy_camera_token", "user_id": row.user_id})
+    db.commit()
+    return len(revoked)

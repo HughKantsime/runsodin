@@ -254,6 +254,10 @@ def resolve_user_api_token(api_key: str, db: Session) -> Optional[dict]:
     scopes = parse_token_scopes(candidate.scopes)
     if scopes is None or not user:
         return None
+    # Combined read:cameras tokens predate the camera-only rule and are revoked.
+    from core.api_token_policy import is_legacy_camera_combination
+    if is_legacy_camera_combination(scopes):
+        return None
     # Stored credentials cannot retain privileges removed from the account.
     if "admin" in scopes and user.role != "admin":
         return None

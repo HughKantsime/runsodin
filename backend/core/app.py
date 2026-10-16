@@ -771,6 +771,18 @@ def create_app() -> FastAPI:
         except Exception as e:
             log.warning(f"go2rtc config sync failed on startup: {e}")
 
+        # Revoke combined read:cameras tokens (never valid in a release; overlay
+        # URLs must carry camera-only tokens). Idempotent; never blocks startup.
+        try:
+            from core.db import SessionLocal
+            from core.api_token_policy import revoke_legacy_camera_tokens
+            with SessionLocal() as session:
+                revoked = await asyncio.to_thread(revoke_legacy_camera_tokens, session)
+            if revoked:
+                log.warning("Revoked %d legacy combined read:cameras API token(s)", revoked)
+        except Exception as e:
+            log.warning("Legacy camera token revocation failed on startup: %s", type(e).__name__)
+
         broadcast_task = asyncio.create_task(_ws_broadcaster())
         cleanup_task = asyncio.create_task(_periodic_cleanup())
         yield
