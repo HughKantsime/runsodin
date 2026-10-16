@@ -136,7 +136,8 @@ def test_mqtt_republish_password_fernet(odin):
 WEBHOOK_URLS = {
     "discord": lambda s: f"https://discord.com/api/webhooks/1234567890/{s}",
     "slack": lambda s: f"https://hooks.slack.com/services/T000/B000/{s}",
-    "telegram": lambda s: f"https://api.telegram.org/bot123456:{s}/sendMessage",
+    # cert-fix-E: Telegram stores bot_token|chat_id (the dispatcher builds the API URL).
+    "telegram": lambda s: f"123456:{s}|987654321",
     "ntfy": lambda s: f"https://ntfy.sh/{s}",
 }
 
@@ -285,7 +286,8 @@ def _extra_secrets(o):
     """Create the remaining credential kinds so the crawl covers them too."""
     tok = _sentinel("plug")
     r = o.put(f"/api/printers/{o.bambu_id}/plug", headers=o.H,
-              json={"type": "homeassistant", "host": "192.168.50.30", "entity_id": "switch.p1", "auth_token": tok})
+              json={"type": "homeassistant", "host": "http://192.168.50.30:8123",  # cert-fix-A: HA host is a base URL
+                    "entity_id": "switch.p1", "auth_token": tok})
     assert r.status_code == 200, r.text
     o.secrets["smart_plug_token"] = tok
     cs = _sentinel("oidcsecret")
