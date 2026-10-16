@@ -129,5 +129,7 @@ test('CertENotif: SMTP card shows the stored configuration and saves without res
   await waitFor(() => expect(calls.find(c => c.method === 'PUT')).toBeTruthy())
   const put = calls.find(c => c.method === 'PUT')!
   expect(put.path).toBe('/smtp-config')
-  expect(put.body).toEqual({ enabled: true, host: 'mail.cert-e.test', port: 2525, username: 'odin', from_address: 'odin@example.test' })
+  // cert-fix-F: the SMTP card also saves the reset-link base URL (stored value, else this origin).
+  expect(put.body).toEqual({ enabled: true, host: 'mail.cert-e.test', port: 2525, username: 'odin', from_address: 'odin@example.test',
+    base_url: window.location.origin })
 })

@@ -652,12 +652,12 @@ const alpha = () => WIRE.orgs_list.find((o: any) => o.name === 'Org Alpha')
 async function access() {
   const c = new QueryClient({ defaultOptions: { queries: { retry: false } } }); clients.push(c)
   render(<QueryClientProvider client={c}><LicenseProvider><MemoryRouter initialEntries={['/settings']}><Settings /></MemoryRouter></LicenseProvider></QueryClientProvider>)
-  fireEvent.click(await screen.findByRole('button', { name: 'Access', exact: true }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Access' }))
 }
 function orgRoot() { return screen.getByRole('heading', { name: 'Organizations' }).closest('div')!.parentElement!.parentElement! as HTMLElement }
 async function organizations() {
   await access()
-  fireEvent.click(await screen.findByRole('button', { name: 'Organizations', exact: true }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Organizations' }))
   await screen.findByRole('heading', { name: 'Organizations' })
   await within(orgRoot()).findByText(alpha().name)
   await waitFor(() => expect(within(orgRoot()).getAllByRole('option', { name: WIRE.printers_list[0].name }).length).toBeGreaterThan(0))
@@ -709,11 +709,11 @@ it('F11-11.5-02 adds a member and assigns a printer through the org endpoints', 
   const unassigned = WIRE.users_list_with_orgs.find((u: any) => u.group_id === null && u.role !== 'admin')
   const printer = WIRE.printers_list[0]
   fireEvent.change(memberSelect, { target: { value: String(unassigned.id) } })
-  fireEvent.click(cardScope.getByRole('button', { name: 'Add', exact: true }))
+  fireEvent.click(cardScope.getByRole('button', { name: 'Add' }))
   await waitFor(() => expect(calls(`/api/orgs/${alpha().id}/members`, 'POST')).toHaveLength(1))
   expect(JSON.parse(calls(`/api/orgs/${alpha().id}/members`, 'POST')[0][1].body)).toEqual({ user_id: unassigned.id })
   fireEvent.change(printerSelect, { target: { value: String(printer.id) } })
-  fireEvent.click(cardScope.getByRole('button', { name: 'Assign', exact: true }))
+  fireEvent.click(cardScope.getByRole('button', { name: 'Assign' }))
   await waitFor(() => expect(calls(`/api/orgs/${alpha().id}/printers`, 'POST')).toHaveLength(1))
   expect(JSON.parse(calls(`/api/orgs/${alpha().id}/printers`, 'POST')[0][1].body)).toEqual({ printer_id: printer.id })
   expect(card).toBeTruthy()
@@ -728,7 +728,7 @@ it('F11-11.5-02 removes a member through the Access user editor (group -> none)'
   const group = screen.getByText('Group', { selector: 'label', exact: true }).parentElement!.querySelector('select')!
   expect(group).toHaveValue(String(alpha().id))
   fireEvent.change(group, { target: { value: '' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Save Changes', exact: true }))
+  fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
   await waitFor(() => expect(calls(`/api/users/${member.id}`, 'PATCH')).toHaveLength(1))
   expect(JSON.parse(calls(`/api/users/${member.id}`, 'PATCH')[0][1].body)).toEqual(expect.objectContaining({ group_id: null }))
 })

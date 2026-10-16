@@ -3,13 +3,16 @@
 // tests/test_contracts/test_cert_F_D_wcag_browser.py (built bundle in Chromium against a real server).
 // Receipt: artifacts/application-certification/cert-F/D-a11y-static-census.json
 // @vitest-environment jsdom
+// @ts-ignore -- node built-ins under vitest; the frontend tsconfig ships no @types/node
 import fs from 'node:fs'
+// @ts-ignore -- as above
 import path from 'node:path'
 import ts from 'typescript'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, expect, it } from 'vitest'
 import Modal from '../components/ui/Modal'
 
+declare const __dirname: string  // provided by vitest (node)
 const SRC = path.resolve(__dirname, '..')
 const RECEIPT = path.resolve(SRC, '../../artifacts/application-certification/cert-F/D-a11y-static-census.json')
 
@@ -140,9 +143,12 @@ it('F12-12.7-04 real shared Modal renders a named aria-modal dialog / alertdialo
 })
 
 it('F12-12.7-06 census: scope="col" exists only on a minority of table headers', () => {
-  expect(summary.th_scope_col).toBe(9)
-  expect(summary.th_total).toBe(114)
-  expect(summary.th_scope_col_files).toEqual(['components/admin/ChargebackReport.tsx', 'components/jobs/JobTableHeader.tsx'])
+  // Merged tree: cert-fix-D's Analytics failure tables add 8 scoped headers (still a minority).
+  expect(summary.th_scope_col).toBe(17)
+  expect(summary.th_total).toBe(122)
+  expect(summary.th_scope_col * 2).toBeLessThan(summary.th_total)
+  expect(summary.th_scope_col_files).toEqual(['components/admin/ChargebackReport.tsx', 'components/jobs/JobTableHeader.tsx',
+    'pages/analytics/Analytics.tsx'])
 })
 
 it('F12-12.7-07 census: role="progressbar" is on every progress-style bar', () => {

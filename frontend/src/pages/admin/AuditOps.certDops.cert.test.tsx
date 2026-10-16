@@ -11,6 +11,8 @@ import RoleGate from '../../components/auth/RoleGate'
 import { refreshPermissions } from '../../permissions'
 import wire from '../../test-fixtures/certDops-audit-wire.json'
 
+// cert-fix-G: audit CSV export is the Enterprise audit_export entitlement.
+vi.mock('../../LicenseContext', () => ({ useLicense: () => ({ hasFeature: (feature: string) => feature === 'audit_export' }) }))
 vi.mock('../../api', async () => {
   const real = await vi.importActual<typeof import('../../api/auth')>('../../api/auth')
   return { auditLogs: real.auditLogs, auth: { me: vi.fn() } }

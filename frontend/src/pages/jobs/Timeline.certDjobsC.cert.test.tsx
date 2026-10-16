@@ -20,6 +20,7 @@ function mount() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(<QueryClientProvider client={client}><MemoryRouter><Timeline /></MemoryRouter></QueryClientProvider>)
 }
+declare const process: { env: Record<string, string | undefined> }  // vitest runs under node
 beforeEach(() => {
   // Local midnight == UTC midnight so the page's startOfDay(now) matches the captured window start.
   process.env.TZ = 'UTC'
