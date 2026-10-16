@@ -136,6 +136,10 @@ CLASSIFICATIONS: dict[str, tuple[str, str]] = {
         "dialect-neutral",
         "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
     ),
+    "backend/modules/printers/camera_relay.py": (
+        "dialect-neutral",
+        "Single read-only qmark lookup through the shared get_db DBAPI adapter, which binds qmark SQL on both providers; IS TRUE boolean predicates are valid on SQLite and PostgreSQL",
+    ),
     "backend/modules/printers/monitors/light_state.py": (
         "dialect-neutral",
         "Caller-owned shared DBAPI qmark bindings; PostgreSQL timestamp cast and SQLite exact snapshot comparison protect concurrent light commands",

@@ -282,7 +282,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 44,
+      "line": 87,
       "path": "backend/core/db.py",
       "pattern": "PRAGMA",
       "reason": "SQLite connection event hooks guarded by the configured provider",
@@ -290,7 +290,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 45,
+      "line": 88,
       "path": "backend/core/db.py",
       "pattern": "PRAGMA",
       "reason": "SQLite connection event hooks guarded by the configured provider",
@@ -298,7 +298,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 46,
+      "line": 89,
       "path": "backend/core/db.py",
       "pattern": "PRAGMA",
       "reason": "SQLite connection event hooks guarded by the configured provider",
@@ -306,7 +306,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 52,
+      "line": 95,
       "path": "backend/core/db.py",
       "pattern": "PRAGMA",
       "reason": "SQLite connection event hooks guarded by the configured provider",
@@ -346,7 +346,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 35,
+      "line": 36,
       "path": "backend/core/db_utils.py",
       "pattern": "qmark-parameter",
       "reason": "Shared DBAPI adapter conditionally applies SQLite PRAGMAs and adapts PostgreSQL SQL",
@@ -354,7 +354,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 117,
+      "line": 118,
       "path": "backend/core/db_utils.py",
       "pattern": "PRAGMA",
       "reason": "Shared DBAPI adapter conditionally applies SQLite PRAGMAs and adapts PostgreSQL SQL",
@@ -1042,7 +1042,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 31,
+      "line": 32,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1050,7 +1050,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 36,
+      "line": 37,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1058,7 +1058,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 41,
+      "line": 42,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1066,7 +1066,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 57,
+      "line": 58,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1074,7 +1074,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 62,
+      "line": 63,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1082,7 +1082,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 70,
+      "line": 71,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1090,7 +1090,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 73,
+      "line": 74,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1098,7 +1098,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 116,
+      "line": 117,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1106,7 +1106,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 124,
+      "line": 125,
       "path": "backend/modules/archives/archive.py",
       "pattern": "lastrowid",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1114,7 +1114,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 131,
+      "line": 132,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1122,7 +1122,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 245,
+      "line": 246,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1346,7 +1346,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 34,
+      "line": 35,
       "path": "backend/modules/notifications/channels.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1354,7 +1354,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 104,
+      "line": 105,
       "path": "backend/modules/notifications/channels.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1362,7 +1362,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 277,
+      "line": 278,
       "path": "backend/modules/notifications/channels.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1370,7 +1370,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 65,
+      "line": 66,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1378,7 +1378,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 77,
+      "line": 78,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1386,7 +1386,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 82,
+      "line": 83,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1394,7 +1394,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 111,
+      "line": 112,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1402,7 +1402,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 185,
+      "line": 186,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1410,7 +1410,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 188,
+      "line": 189,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1418,7 +1418,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 223,
+      "line": 224,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1426,7 +1426,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 255,
+      "line": 256,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1434,7 +1434,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 267,
+      "line": 268,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1442,7 +1442,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 325,
+      "line": 326,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1450,7 +1450,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 343,
+      "line": 344,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1458,7 +1458,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 349,
+      "line": 350,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1578,7 +1578,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 59,
+      "line": 60,
       "path": "backend/modules/notifications/printer_health.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1586,7 +1586,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 68,
+      "line": 69,
       "path": "backend/modules/notifications/printer_health.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1594,7 +1594,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 82,
+      "line": 83,
       "path": "backend/modules/notifications/printer_health.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1602,7 +1602,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 96,
+      "line": 97,
       "path": "backend/modules/notifications/printer_health.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1610,7 +1610,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 125,
+      "line": 128,
       "path": "backend/modules/notifications/printer_health.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1618,7 +1618,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 155,
+      "line": 158,
       "path": "backend/modules/notifications/printer_health.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1626,7 +1626,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 180,
+      "line": 183,
       "path": "backend/modules/notifications/printer_health.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1634,7 +1634,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 202,
+      "line": 205,
       "path": "backend/modules/notifications/printer_health.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1642,7 +1642,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 222,
+      "line": 225,
       "path": "backend/modules/notifications/printer_health.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1666,6 +1666,14 @@
     },
     {
       "classification": "dialect-neutral",
+      "line": 109,
+      "path": "backend/modules/printers/camera_relay.py",
+      "pattern": "qmark-parameter",
+      "reason": "Single read-only qmark lookup through the shared get_db DBAPI adapter, which binds qmark SQL on both providers; IS TRUE boolean predicates are valid on SQLite and PostgreSQL",
+      "source": "\"SELECT camera_url FROM printers WHERE id = ? AND is_active IS TRUE AND camera_enabled IS TRUE\","
+    },
+    {
+      "classification": "dialect-neutral",
       "line": 26,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
@@ -1682,7 +1690,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 65,
+      "line": 64,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1690,7 +1698,15 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 95,
+      "line": 74,
+      "path": "backend/modules/printers/monitors/ams_inventory.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
+      "source": "conn.execute('UPDATE printers SET name=name WHERE id=?', (printer_id,))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 104,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1698,7 +1714,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 99,
+      "line": 108,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1706,7 +1722,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 105,
+      "line": 114,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1714,7 +1730,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 108,
+      "line": 117,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1722,7 +1738,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 110,
+      "line": 119,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1730,7 +1746,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 112,
+      "line": 121,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1738,7 +1754,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 113,
+      "line": 122,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1746,7 +1762,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 117,
+      "line": 126,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1754,7 +1770,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 131,
+      "line": 140,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1762,11 +1778,35 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 133,
+      "line": 142,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
       "source": "conn.execute('UPDATE spools SET location_printer_id=?,location_slot=?,remaining_weight_g=? WHERE id=?', (printer_id, number, weight, spool_id))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 159,
+      "path": "backend/modules/printers/monitors/ams_inventory.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
+      "source": "f'SELECT id,assigned_spool_id,slot_number FROM filament_slots WHERE printer_id=? AND slot_number>=? ORDER BY id{suffix}',"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 164,
+      "path": "backend/modules/printers/monitors/ams_inventory.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
+      "source": "conn.execute('UPDATE filament_slots SET filament_type=?,color_hex=NULL,color=NULL,assigned_spool_id=NULL,spool_confirmed=? WHERE id=?',"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 167,
+      "path": "backend/modules/printers/monitors/ams_inventory.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
+      "source": "conn.execute('UPDATE spools SET location_printer_id=NULL,location_slot=NULL'"
     },
     {
       "classification": "dialect-neutral",
@@ -1778,7 +1818,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 35,
+      "line": 36,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1786,7 +1826,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 45,
+      "line": 46,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1794,7 +1834,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 56,
+      "line": 57,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1802,7 +1842,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 64,
+      "line": 65,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1810,7 +1850,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 138,
+      "line": 139,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1818,7 +1858,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 152,
+      "line": 153,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1826,7 +1866,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 154,
+      "line": 155,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1834,7 +1874,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 170,
+      "line": 171,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1842,7 +1882,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 243,
+      "line": 244,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1850,7 +1890,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 256,
+      "line": 257,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1858,7 +1898,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 269,
+      "line": 270,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1866,7 +1906,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 271,
+      "line": 272,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1874,7 +1914,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 360,
+      "line": 361,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1882,7 +1922,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 370,
+      "line": 371,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1890,7 +1930,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 412,
+      "line": 413,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1898,7 +1938,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 435,
+      "line": 436,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1906,7 +1946,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 448,
+      "line": 449,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1914,7 +1954,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 455,
+      "line": 456,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1922,7 +1962,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 464,
+      "line": 465,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "lastrowid",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1930,7 +1970,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 465,
+      "line": 466,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1938,7 +1978,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 495,
+      "line": 496,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1946,7 +1986,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 145,
+      "line": 171,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1954,7 +1994,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 179,
+      "line": 205,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1962,7 +2002,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 199,
+      "line": 225,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1970,7 +2010,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 266,
+      "line": 292,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1978,7 +2018,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 312,
+      "line": 338,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1986,7 +2026,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 372,
+      "line": 429,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1994,7 +2034,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 393,
+      "line": 450,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2002,7 +2042,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 400,
+      "line": 457,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2010,7 +2050,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 411,
+      "line": 468,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2018,7 +2058,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 421,
+      "line": 478,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2026,7 +2066,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 595,
+      "line": 664,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2034,7 +2074,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 628,
+      "line": 697,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2042,7 +2082,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 635,
+      "line": 704,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2050,7 +2090,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 641,
+      "line": 710,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2058,7 +2098,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 653,
+      "line": 727,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2066,7 +2106,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 666,
+      "line": 739,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2074,7 +2114,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 695,
+      "line": 768,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2082,7 +2122,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 712,
+      "line": 785,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2090,7 +2130,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 746,
+      "line": 838,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2098,7 +2138,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 787,
+      "line": 879,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2106,7 +2146,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 856,
+      "line": 948,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2114,7 +2154,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 915,
+      "line": 1007,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2122,7 +2162,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 964,
+      "line": 1056,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2130,7 +2170,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 1008,
+      "line": 1100,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
