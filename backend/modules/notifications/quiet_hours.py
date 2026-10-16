@@ -18,7 +18,8 @@ from typing import Optional, Dict, Any, Tuple
 
 from sqlalchemy import text
 
-from core.db import engine
+# Resolved at use time: never a stale engine bound at import.
+from core.db import live_engine as engine
 
 log = logging.getLogger("quiet_hours")
 

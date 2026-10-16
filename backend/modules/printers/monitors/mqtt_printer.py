@@ -21,7 +21,8 @@ from typing import Dict, Optional, Any
 
 import core.crypto as crypto
 from modules.printers.adapters.bambu import BambuPrinter
-from core.db_utils import get_db
+# Resolved at call time: never a stale get_db bound at import.
+from core.db_utils import live_get_db as get_db
 from core.db_compat import sql
 from modules.printers.monitors.mqtt_telemetry import (
     resolve_stage_label,

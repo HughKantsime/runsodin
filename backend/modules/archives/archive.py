@@ -8,7 +8,8 @@ Called from printer_events.job_completed().
 import logging
 
 from core.db_compat import sql
-from core.db_utils import get_db
+# Resolved at call time: never a stale get_db bound at import.
+from core.db_utils import live_get_db as get_db
 
 log = logging.getLogger("odin.archive")
 

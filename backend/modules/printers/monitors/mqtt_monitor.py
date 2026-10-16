@@ -19,7 +19,8 @@ from typing import Dict
 from sqlalchemy import text
 
 import core.crypto as crypto
-from core.db import engine
+# Resolved at use time: never a stale engine bound at import.
+from core.db import live_engine as engine
 from modules.printers.monitors.mqtt_printer import PrinterMonitor
 
 # Moonraker support (Klipper printers like Kobra S1 w/ Rinkhals)

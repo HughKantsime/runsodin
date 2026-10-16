@@ -19,7 +19,8 @@ from typing import List, Tuple
 
 from sqlalchemy import inspect, text
 
-from core.db import engine
+# Resolved at use time: never a stale engine bound at import.
+from core.db import live_engine as engine
 
 log = logging.getLogger("ws_hub")
 

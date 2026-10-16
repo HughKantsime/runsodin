@@ -23,7 +23,8 @@ from datetime import datetime, timezone
 
 from sqlalchemy import text
 
-from core.db import engine
+# Resolved at use time: never a stale engine bound at import.
+from core.db import live_engine as engine
 from core.db_compat import sql
 
 # WebSocket push (same as mqtt_monitor / moonraker_monitor)

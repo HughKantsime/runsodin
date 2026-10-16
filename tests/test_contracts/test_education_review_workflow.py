@@ -6,7 +6,7 @@ import uuid
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session
 
 
@@ -45,6 +45,16 @@ def review_db(tmp_path: Path):
     from core.schema import bootstrap_database
 
     engine = create_engine(f"sqlite:///{tmp_path / 'review.db'}")
+
+    # Production SQLite engines (core.database_config) enforce foreign keys on
+    # every connection; without this only connections that happened to run the
+    # pragma enforced them, so results depended on pool checkout order.
+    @event.listens_for(engine, "connect")
+    def _enforce_foreign_keys(dbapi_connection, _record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
     bootstrap_database(engine, BACKEND)
     with engine.begin() as connection:
         connection.execute(

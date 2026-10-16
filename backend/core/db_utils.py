@@ -11,7 +11,8 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import Any, Iterable
 
-from core.db import engine
+# Resolved at use time: never a stale engine bound at import.
+from core.db import live_engine as engine
 
 
 def _postgres_placeholders(statement: str) -> str:
@@ -118,3 +119,14 @@ def get_db(row_factory=None):
         yield connection
     finally:
         raw.close()
+
+
+def live_get_db(*args, **kwargs):
+    """get_db resolved at call time.
+
+    Modules import this as `get_db` so they never keep a get_db captured at
+    import while core.db_utils.get_db was temporarily replaced (a stale
+    replacement would point at a foreign database for the rest of the run).
+    """
+    return get_db(*args, **kwargs)
+

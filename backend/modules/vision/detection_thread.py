@@ -17,7 +17,8 @@ import cv2
 import numpy as np
 from sqlalchemy import text
 
-from core.db import engine
+# Resolved at use time: never a stale engine bound at import.
+from core.db import live_engine as engine
 from core.db_compat import execute_insert_returning_id, sql
 from modules.vision.inference_engine import VisionInferenceEngine
 from modules.vision import frame_storage

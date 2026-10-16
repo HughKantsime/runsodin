@@ -39,7 +39,8 @@ except ImportError:
     )
     sys.exit(0)  # Exit cleanly so supervisor doesn't restart
 
-from core.db import engine
+# Resolved at use time: never a stale engine bound at import.
+from core.db import live_engine as engine
 from modules.vision.inference_engine import VisionInferenceEngine
 from modules.vision.detection_thread import PrinterVisionThread
 from modules.vision import frame_storage

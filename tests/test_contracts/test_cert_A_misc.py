@@ -248,3 +248,42 @@ def test_slot_count_shrink_keeps_ams_ht_slots(cert_app, review_db):
     assert [r[0] for r in review_db.execute(text(
         "SELECT slot_number FROM filament_slots WHERE printer_id=301 ORDER BY slot_number"))] == [1, 2, 3, 4, 17]
 
+
+
+@pytest.mark.parametrize("module_name", [
+    "core.db_utils", "core.ws_hub", "modules.notifications.alert_dispatch", "modules.notifications.mqtt_republish",
+    "modules.notifications.quiet_hours", "modules.printers.smart_plug", "modules.printers.monitors.mqtt_monitor",
+    "modules.printers.monitors.moonraker_monitor", "modules.printers.monitors.prusalink_monitor",
+    "modules.printers.monitors.elegoo_monitor",
+])
+def test_long_lived_modules_resolve_the_engine_at_use_time(monkeypatch, module_name):
+    """A module must not keep the Engine that core.db.engine named when it was imported."""
+    import importlib
+    from sqlalchemy import create_engine
+    import core.db as core_db
+    module = importlib.import_module(module_name)
+    replacement = create_engine("sqlite://")
+    monkeypatch.setattr(core_db, "engine", replacement)
+    with module.engine.connect() as conn:
+        assert conn.engine is replacement
+
+
+@pytest.mark.parametrize("module_name", [
+    "modules.archives.archive", "modules.notifications.printer_health", "modules.notifications.job_events",
+    "modules.notifications.error_handling", "modules.notifications.channels",
+    "modules.printers.monitors.mqtt_job_lifecycle", "modules.printers.monitors.mqtt_printer",
+])
+def test_modules_resolve_get_db_at_call_time(monkeypatch, module_name):
+    """A module must not keep the get_db that core.db_utils exposed when it was imported."""
+    import importlib
+    from contextlib import contextmanager
+    import core.db_utils as db_utils
+    module = importlib.import_module(module_name)
+    marker = object()
+
+    @contextmanager
+    def replacement(*args, **kwargs):
+        yield marker
+    monkeypatch.setattr(db_utils, "get_db", replacement)
+    with module.get_db() as conn:
+        assert conn is marker

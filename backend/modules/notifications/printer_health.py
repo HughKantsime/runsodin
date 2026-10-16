@@ -9,7 +9,8 @@ Called by all monitor daemons on state updates.
 import logging
 from typing import Optional
 
-from core.db_utils import get_db
+# Resolved at call time: never a stale get_db bound at import.
+from core.db_utils import live_get_db as get_db
 from core.db_compat import sql
 
 log = logging.getLogger("printer_events")

@@ -206,9 +206,17 @@ def bind_engine(monkeypatch, engine):
     import modules.printers.monitors.moonraker_monitor  # noqa: F401
     import modules.printers.monitors.prusalink_monitor  # noqa: F401
     import modules.printers.monitors.elegoo_monitor  # noqa: F401
-    original = core_db.engine
+    from sqlalchemy.engine import Engine
+    # Modules that import core.db.live_engine follow core.db.engine. Also
+    # rebind any module still holding a concrete Engine — the real one or a
+    # stale one captured at import while another fixture had replaced
+    # core.db.engine — so test order cannot leak a foreign database in.
+    monkeypatch.setattr(core_db, "engine", engine)
     for name, module in list(sys.modules.items()):
-        if (name.startswith("modules.") or name.startswith("core.")) and getattr(module, "engine", None) is original:
+        if not (name.startswith("modules.") or name.startswith("core.")) or module is core_db:
+            continue
+        held = module.__dict__.get("engine")
+        if isinstance(held, Engine) and held is not engine:
             monkeypatch.setattr(module, "engine", engine)
 
 

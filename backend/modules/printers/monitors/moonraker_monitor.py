@@ -31,7 +31,8 @@ from sqlalchemy import text
 from modules.printers.adapters.moonraker import MoonrakerPrinter, MoonrakerState
 from core.order_production import (prepare_job_write, reconcile_job_write, prepare_print_job_write,
                                    ProductionLinkageChanged, retry_production_linkage)
-from core.db import engine
+# Resolved at use time: never a stale engine bound at import.
+from core.db import live_engine as engine
 from core.db_compat import as_utc_datetime, execute_insert_returning_id, sql
 
 # WebSocket push (same as mqtt_monitor)
