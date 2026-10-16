@@ -801,6 +801,14 @@
       "source": "if db.exec_driver_sql('PRAGMA foreign_key_check('+table+')').first():_fail()"
     },
     {
+      "classification": "dialect-neutral",
+      "line": 46,
+      "path": "backend/core/print_attempts.py",
+      "pattern": "qmark-parameter",
+      "reason": "qmark_runner translates named parameters for the shared DBAPI cursor adapter, which rewrites them for PostgreSQL",
+      "source": "return cursor.execute(re.sub(r\"(?<!:):([A-Za-z_]\\w*)\", bind, statement), tuple(values))"
+    },
+    {
       "classification": "sqlite-provider-only",
       "line": 3,
       "path": "backend/core/project_import_transaction.py",
@@ -1186,7 +1194,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 74,
+      "line": 85,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1194,7 +1202,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 81,
+      "line": 92,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1202,7 +1210,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 87,
+      "line": 98,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1210,7 +1218,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 91,
+      "line": 102,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1218,7 +1226,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 94,
+      "line": 105,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1226,7 +1234,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 108,
+      "line": 119,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1234,7 +1242,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 129,
+      "line": 140,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1242,7 +1250,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 137,
+      "line": 148,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1250,7 +1258,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 153,
+      "line": 164,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1258,7 +1266,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 201,
+      "line": 212,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1266,23 +1274,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 300,
-      "path": "backend/modules/archives/attempt_accounting.py",
-      "pattern": "qmark-parameter",
-      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
-      "source": "'SELECT id FROM spool_usage WHERE job_id=? AND print_job_id IS NULL LIMIT 1',"
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 303,
-      "path": "backend/modules/archives/attempt_accounting.py",
-      "pattern": "qmark-parameter",
-      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
-      "source": "if execute(connection, 'SELECT id FROM spool_usage WHERE print_job_id=? LIMIT 1',"
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 310,
+      "line": 327,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1290,7 +1282,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 314,
+      "line": 331,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1298,23 +1290,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 329,
-      "path": "backend/modules/archives/attempt_accounting.py",
-      "pattern": "qmark-parameter",
-      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
-      "source": "'UPDATE spools SET remaining_weight_g=CASE WHEN remaining_weight_g>? THEN remaining_weight_g-? ELSE 0 END WHERE id=?',"
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 332,
-      "path": "backend/modules/archives/attempt_accounting.py",
-      "pattern": "qmark-parameter",
-      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
-      "source": "'INSERT INTO spool_usage(spool_id,job_id,print_job_id,weight_used_g,notes) VALUES(?,?,?,?,?)',"
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 336,
+      "line": 358,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1322,7 +1298,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 343,
+      "line": 365,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1490,14 +1466,6 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 268,
-      "path": "backend/modules/notifications/error_handling.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
-      "source": "f\"UPDATE jobs SET status = 'failed', actual_end = {sql.now()} WHERE id = ?\","
-    },
-    {
-      "classification": "dialect-neutral",
       "line": 326,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
@@ -1522,7 +1490,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 143,
+      "line": 148,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1530,7 +1498,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 149,
+      "line": 154,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1538,7 +1506,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 158,
+      "line": 163,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1546,7 +1514,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 169,
+      "line": 174,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1554,15 +1522,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 176,
-      "path": "backend/modules/notifications/job_events.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
-      "source": "\"UPDATE jobs SET status = ?, actual_end = ? WHERE id = ?\","
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 288,
+      "line": 316,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1570,7 +1530,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 294,
+      "line": 322,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1578,7 +1538,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 302,
+      "line": 330,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1586,7 +1546,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 312,
+      "line": 340,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1594,15 +1554,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 318,
-      "path": "backend/modules/notifications/job_events.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
-      "source": "\"UPDATE jobs SET status = 'cancelled', actual_end = ? WHERE id = ?\","
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 371,
+      "line": 400,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1610,7 +1562,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 374,
+      "line": 403,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1618,7 +1570,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 377,
+      "line": 406,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1626,7 +1578,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 389,
+      "line": 418,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1714,7 +1666,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 141,
+      "line": 143,
       "path": "backend/modules/organizations/education_policy_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Static source-discovery regex contains SQL vocabulary and regex question marks; it executes no database statement",
@@ -1906,7 +1858,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 139,
+      "line": 147,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1914,23 +1866,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 153,
-      "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
-      "source": "\"UPDATE jobs SET status = 'pending', printer_id = NULL,\""
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 155,
-      "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
-      "source": "\" WHERE printer_id=? AND status='scheduled' AND id IN ({}) RETURNING id\".format(','.join('?' * len(stale_ids))),"
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 171,
+      "line": 174,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1938,15 +1874,15 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 244,
+      "line": 260,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
-      "source": "changed = cur.execute(\"\"\""
+      "source": "\"UPDATE print_jobs SET scheduled_job_id = ? WHERE id = ? AND scheduled_job_id IS NULL\","
     },
     {
       "classification": "dialect-neutral",
-      "line": 257,
+      "line": 269,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1954,23 +1890,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 270,
-      "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
-      "source": "\"UPDATE jobs SET status = 'pending', printer_id = NULL,\""
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 272,
-      "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
-      "source": "\" WHERE printer_id=? AND status='scheduled' AND id IN ({}) RETURNING id\".format(','.join('?' * len(displaced_ids))),"
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 361,
+      "line": 369,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1978,7 +1898,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 371,
+      "line": 379,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1986,7 +1906,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 413,
+      "line": 433,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1994,7 +1914,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 436,
+      "line": 456,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -2002,15 +1922,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 449,
-      "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
-      "source": "cur.execute(\"UPDATE jobs SET status = ?, actual_end = ?, duration_hours = COALESCE(?, duration_hours) WHERE id = ?\","
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 456,
+      "line": 488,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -2018,7 +1930,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 465,
+      "line": 497,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "lastrowid",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -2026,7 +1938,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 466,
+      "line": 498,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -2034,7 +1946,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 496,
+      "line": 536,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
