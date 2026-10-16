@@ -591,6 +591,27 @@ def test_moonraker_flags_an_unattributable_print_for_reconciliation(lifecycle_cl
     assert any("reconciliation required" in record.getMessage() for record in caplog.records)
 
 
+# ---------------- round 7: link-print never re-attributes an earlier attempt's print ----------------
+
+def test_link_print_refuses_a_print_that_started_before_the_last_reset(lifecycle_client):
+    from core.print_attempts import bound_print_attempt, sqlalchemy_runner
+    client, db = lifecycle_client
+    db.execute(text("INSERT INTO print_jobs(id,printer_id,job_name,status,started_at) VALUES(5105,9,'x','completed','2026-01-01 08:00:00')"))
+    db.execute(text("UPDATE jobs SET status='completed' WHERE id=111")); db.commit()
+    assert client.post("/jobs/111/reset").status_code == 200           # reset after the print started
+    db.execute(text("UPDATE jobs SET printer_id=9 WHERE id=111")); db.commit()
+    response = client.post("/jobs/111/link-print", params={"print_job_id": 5105})
+    assert response.status_code == 409, response.text
+    db.expire_all()
+    assert db.execute(text("SELECT scheduled_job_id FROM print_jobs WHERE id=5105")).scalar_one() is None
+    assert bound_print_attempt(sqlalchemy_runner(db), 5105, 111) is None
+    db.execute(text("INSERT INTO print_jobs(id,printer_id,job_name,status,started_at) VALUES(5106,9,'y','completed',:s)"),
+               {"s": datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=5)}); db.commit()
+    assert client.post("/jobs/111/link-print", params={"print_job_id": 5106}).status_code == 200
+    db.expire_all()
+    assert bound_print_attempt(sqlalchemy_runner(db), 5106, 111) == 1
+
+
 # ---------------- round 7: one precision for every window ----------------
 
 def test_times_share_one_precision_so_no_row_falls_between_windows(lifecycle_client):

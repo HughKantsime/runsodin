@@ -503,6 +503,17 @@ def link_job_to_print(job_id: int, print_job_id: int, current_user: dict = Depen
     if print_job.scheduled_job_id not in (None, job_id):
         raise HTTPException(409, 'This print is already linked to another job')
 
+    # A print belongs to the attempt in which it started. One that started before
+    # the job was last reset belongs to an earlier attempt: linking it now would
+    # account it to the current attempt, so refuse instead of mis-binding it.
+    from core.filament_ledger import current_attempt, print_attempt
+    from core.print_attempts import bind_print_attempt, sqlalchemy_runner
+    attempt_run = sqlalchemy_runner(db)
+    own_attempt = print_attempt(attempt_run, job_id, print_job_id)
+    if print_job.scheduled_job_id is None and not own_attempt.same_attempt(current_attempt(attempt_run, job_id)):
+        raise HTTPException(409, "This print started before the job was last reset; it belongs to an earlier "
+                                 "attempt and cannot be linked to the current one")
+
     # Link them
     linked = db.execute(text("UPDATE print_jobs SET scheduled_job_id = :job_id WHERE id = :id AND (scheduled_job_id IS NULL OR scheduled_job_id=:job_id) RETURNING status"),
                {"job_id": job_id, "id": print_job_id})
@@ -510,8 +521,7 @@ def link_job_to_print(job_id: int, print_job_id: int, current_user: dict = Depen
     locked_print = linked.fetchone()
     if locked_print is None:
         raise HTTPException(409, "Print linkage changed before this request")
-    from core.print_attempts import bind_print_attempt, sqlalchemy_runner
-    bind_print_attempt(sqlalchemy_runner(db), print_job_id, job_id)
+    bind_print_attempt(attempt_run, print_job_id, job_id, seq=own_attempt.seq)
 
     # Update job status based on print status
     new_status = None
