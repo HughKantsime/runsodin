@@ -16,9 +16,10 @@ from sqlalchemy.orm import Session
 from tests.test_contracts.test_print_file_upload_ownership_behavior import upload_client
 from tests.test_contracts.test_api_token_delegation_behavior import token_client, review_db
 from tests.test_contracts.test_license_user_limits import signed_license
+from tests.test_contracts.cert_D_capture import capture_path
 
 ROOT = Path(__file__).resolve().parents[2]
-WIRE = ROOT / 'frontend/src/test-fixtures/certD-jobsB-wire.json'
+WIRE = capture_path(ROOT / 'frontend/src/test-fixtures/certD-jobsB-wire.json')
 CAPTURED = {}
 
 

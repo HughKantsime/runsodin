@@ -12,10 +12,11 @@ from tests.test_contracts.test_audit_compliance_claim_acceptance import audit_cl
 from tests.test_contracts.test_audit_actor_requests import client as actor_client
 from tests.test_contracts.test_api_token_delegation_behavior import token_client
 from tests.test_contracts.test_printer_tag_behavior import tag_client, stored
+from tests.test_contracts.cert_D_capture import capture_path
 
 FIXTURES = Path(__file__).resolve().parents[2] / 'frontend/src/test-fixtures'
-BULK = FIXTURES / 'certDops-bulk-jobs-wire.json'
-AUDIT = FIXTURES / 'certDops-audit-wire.json'
+BULK = capture_path(FIXTURES / 'certDops-bulk-jobs-wire.json')
+AUDIT = capture_path(FIXTURES / 'certDops-audit-wire.json')
 
 # Exactly what Jobs.tsx toolbar sends via bulkOps.jobs(selected, action, extra)
 UI_REQUESTS = {

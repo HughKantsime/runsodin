@@ -16,8 +16,9 @@ from sqlalchemy.orm import Session
 from tests.test_contracts.test_archive_reprint_behavior import reprint_client  # noqa: F401
 from tests.test_contracts.test_education_review_workflow import review_db  # noqa: F401
 from tests.test_contracts.test_recent_terminal_jobs import picture
+from tests.test_contracts.cert_D_capture import capture_path
 
-FIXTURE = Path(__file__).resolve().parents[2] / 'frontend/src/test-fixtures/certD-jobsC-wire.json'
+FIXTURE = capture_path(Path(__file__).resolve().parents[2] / 'frontend/src/test-fixtures/certD-jobsC-wire.json')
 CREATED = '2026-10-01 08:00:00'
 
 

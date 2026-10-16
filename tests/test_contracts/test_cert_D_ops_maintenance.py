@@ -9,8 +9,9 @@ from sqlalchemy import text
 
 from tests.test_contracts.test_education_review_workflow import review_db
 from tests.test_contracts.test_maintenance_behavior import maintenance_client
+from tests.test_contracts.cert_D_capture import capture_path
 
-FIXTURE = Path(__file__).resolve().parents[2] / 'frontend/src/test-fixtures/certDops-maintenance-status-wire.json'
+FIXTURE = capture_path(Path(__file__).resolve().parents[2] / 'frontend/src/test-fixtures/certDops-maintenance-status-wire.json')
 
 
 def _status_task(client, printer_id, task_id):
