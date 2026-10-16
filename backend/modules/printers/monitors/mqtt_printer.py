@@ -57,6 +57,13 @@ AMS_SYNC_MAX_ATTEMPTS = 5
 AMS_SYNC_RETRY_BASE_SECONDS = 10
 AMS_SYNC_RETRY_MAX_SECONDS = 300
 
+
+def _ams_report_digest(report) -> str:
+    """Content hash of a reported AMS list (key order independent)."""
+    import hashlib
+    return hashlib.sha256(json.dumps(report, sort_keys=True, default=str).encode()).hexdigest()
+
+
 class PrinterMonitor:
     """Monitors a single printer's MQTT stream."""
 
@@ -345,7 +352,30 @@ class PrinterMonitor:
             return self._connection_generation
 
     def _reset_pending_ams(self, report=None):
+        """Clear the held AMS list and all retry state (new connection or committed sync)."""
         self._pending_ams_report = report
+        self._pending_ams_digest = None if report is None else _ams_report_digest(report)
+        self._ams_dropped_digest = None
+        self._ams_sync_failures = 0
+        self._ams_sync_retry_at = 0.0
+
+    def _note_ams_report(self, report):
+        """Hold a reported AMS list for the next heartbeat sync.
+
+        Identical contents (by hash) keep the current backoff state, so a
+        printer re-sending the same list cannot reset the attempt counter; a
+        list dropped after AMS_SYNC_MAX_ATTEMPTS is not retried until its
+        contents change or the connection is replaced.
+        """
+        digest = _ams_report_digest(report)
+        if digest == getattr(self, '_ams_dropped_digest', None):
+            return
+        if getattr(self, '_pending_ams_report', None) is not None and digest == getattr(self, '_pending_ams_digest', None):
+            self._pending_ams_report = report
+            return
+        self._pending_ams_report = report
+        self._pending_ams_digest = digest
+        self._ams_dropped_digest = None
         self._ams_sync_failures = 0
         self._ams_sync_retry_at = 0.0
 
@@ -490,7 +520,7 @@ class PrinterMonitor:
             if isinstance(incoming_ams_report, dict) and isinstance(incoming_ams_report.get('ams'), list):
                 # Held until the next heartbeat write: Bambu sends the AMS list
                 # only on change/pushall, usually between heartbeats.
-                self._reset_pending_ams(incoming_ams_report['ams'])
+                self._note_ams_report(incoming_ams_report['ams'])
 
             # Merge correlation and lifecycle fields before any HMS processing.
             # A first RUNNING packet may also contain a print-stopping HMS code;
@@ -785,10 +815,14 @@ class PrinterMonitor:
                             except Exception:
                                 conn.rollback()
                                 failures = getattr(self, '_ams_sync_failures', 0) + 1
-                                if failures >= AMS_SYNC_MAX_ATTEMPTS:
-                                    log.error("AMS inventory synchronization failed %s times; dropping the reported AMS list until the printer reports again",
+                                if self._pending_ams_report is not pending_ams:
+                                    pass  # a newer report replaced it; its own retry state applies
+                                elif failures >= AMS_SYNC_MAX_ATTEMPTS:
+                                    log.error("AMS inventory synchronization failed %s times; dropping the reported AMS list until its contents change",
                                               failures, exc_info=True)
+                                    dropped = self._pending_ams_digest
                                     self._reset_pending_ams()
+                                    self._ams_dropped_digest = dropped
                                 else:
                                     delay = min(AMS_SYNC_RETRY_BASE_SECONDS * 2 ** (failures - 1), AMS_SYNC_RETRY_MAX_SECONDS)
                                     self._ams_sync_failures = failures

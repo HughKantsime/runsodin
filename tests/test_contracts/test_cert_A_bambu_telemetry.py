@@ -520,3 +520,28 @@ def test_reconnect_resets_pending_ams_report(wire_monitor):
     monitor._begin_connection()
     assert (monitor._pending_ams_report, monitor._ams_sync_failures, monitor._ams_sync_retry_at) == (None, 0, 0.0)
 
+
+def test_identical_ams_reports_do_not_reset_backoff_and_dropped_report_is_not_retried(wire_monitor, monkeypatch):
+    import copy
+    import modules.printers.monitors.ams_inventory as ams_inventory
+    import modules.printers.monitors.mqtt_printer as mqtt_printer
+    monitor, sock, clock, events = wire_monitor
+    calls = []
+
+    def always_fail(conn, printer_id, units):
+        calls.append(clock[0])
+        raise RuntimeError("synthetic database failure")
+    monkeypatch.setattr(ams_inventory, "sync_ams_inventory", always_fail)
+    report = next(p for _, p in load_frames("bambu-x1c-ams-swap")
+                  if isinstance(p.get("print", {}).get("ams"), dict) and p["print"]["ams"].get("ams"))
+    clock[0] += 11
+    for _ in range(120):  # the printer re-sends the same AMS list on every 10 s packet
+        clock[0] += 10
+        sock.deliver(copy.deepcopy(report))
+    assert len(calls) == mqtt_printer.AMS_SYNC_MAX_ATTEMPTS  # counter never reset, dropped list not retried
+    changed = copy.deepcopy(report)
+    changed["print"]["ams"]["ams"][0]["tray"][0]["remain"] = 1
+    clock[0] += 10
+    sock.deliver(changed)  # new contents: a fresh attempt
+    assert len(calls) == mqtt_printer.AMS_SYNC_MAX_ATTEMPTS + 1
+
