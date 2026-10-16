@@ -442,3 +442,52 @@ def test_link_print_binds_the_print_to_the_jobs_current_attempt(lifecycle_client
     assert response.status_code == 200, response.text
     db.expire_all()
     assert bound_print_attempt(sqlalchemy_runner(db), 5102, 111) == 0
+
+
+# ---------------- round 6: one lock order on every ledger path ----------------
+
+def _ledger_statement_order(engine, action):
+    """Run ``action`` and return the ledger's lock/claim statements in order.
+
+    SQLite's statement trace sees SQLAlchemy and raw DBAPI (archive) paths alike.
+    """
+    from sqlalchemy import event
+    seen, traced = [], []
+
+    def record(statement):
+        flat = " ".join(statement.split())
+        if flat.startswith("UPDATE spools SET id = id") or flat.startswith("UPDATE spools SET id=id"):
+            seen.append("lock spool")
+        elif flat.startswith("INSERT INTO system_config") and "ON CONFLICT" in flat and "filament:" in flat:
+            seen.append("claim")
+
+    def checkout(dbapi_connection, record_, proxy):
+        dbapi_connection.set_trace_callback(record)
+        traced.append(dbapi_connection)
+    event.listen(engine, "checkout", checkout)
+    try:
+        action()
+    finally:
+        event.remove(engine, "checkout", checkout)
+        for connection in traced:
+            connection.set_trace_callback(None)
+    return seen
+
+
+def _locks_before_claims(order):
+    """No spool lock is ever taken after a claim (the order that could deadlock)."""
+    assert "lock spool" in order and "claim" in order, order
+    first_claim = order.index("claim")
+    assert "lock spool" not in order[first_claim:], order
+
+
+def test_operator_completion_locks_spools_before_claiming(lifecycle_client):
+    client, db = lifecycle_client
+    order = _ledger_statement_order(db.get_bind(), lambda: client.post("/jobs/111/complete"))
+    _locks_before_claims(order)
+
+
+def test_archive_accounting_locks_spools_before_claiming(archive_case):
+    archive, engine = archive_case
+    order = _ledger_statement_order(engine, lambda: archive.create_print_archive(7099, 9, True))
+    _locks_before_claims(order)

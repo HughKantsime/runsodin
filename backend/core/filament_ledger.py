@@ -279,10 +279,20 @@ def _clean(grams_by_spool: Mapping) -> list:
     return sorted(items)
 
 
+def _lock_spools(run, spool_ids) -> set:
+    """Row-lock spools in id order (portable: SQLite writer lock / PostgreSQL row lock).
+
+    Lock order on every ledger path: spool rows in ascending id first, then the
+    claim keys. Archive accounting locks the same spools in the same order before
+    calling the ledger, so archive and operator completion never wait on each
+    other in opposite orders.
+    """
+    return {spool_id for spool_id in sorted(set(spool_ids))
+            if getattr(run("UPDATE spools SET id = id WHERE id = :id", {"id": spool_id}), "rowcount", 0) == 1}
+
+
 def _deduct(run, spool_id, grams, *, job_id, print_job_id, notes):
-    """Lock, read and decrement one spool; insert its usage row. None when its balance is unknown."""
-    if getattr(run("UPDATE spools SET id = id WHERE id = :id", {"id": spool_id}), "rowcount", 0) != 1:
-        return None
+    """Read and decrement one (already locked) spool; insert its usage row. None when its balance is unknown."""
     row = run("SELECT remaining_weight_g, spoolman_spool_id FROM spools WHERE id = :id", {"id": spool_id}).fetchone()
     before = row[0] if row else None
     if before is None or not math.isfinite(float(before)):
@@ -312,6 +322,8 @@ def record_job_filament(run, job_id, *, source: str, grams_by_spool: Mapping, pr
     items = _clean(grams_by_spool)
     if not items:
         return LedgerResult("nothing_deducted")
+    locked = _lock_spools(run, [spool_id for spool_id, _ in items])
+    items = [(spool_id, grams) for spool_id, grams in items if spool_id in locked]
     claimed = []
     if job_id is None:
         job_key = None
@@ -353,6 +365,8 @@ def record_manual_usage(run, spool_id, grams, *, job_id=None, notes=None) -> Opt
     if not items:
         return None
     label = f"{MANUAL_PREFIX} {notes}" if notes else MANUAL_PREFIX
+    if not _lock_spools(run, [items[0][0]]):
+        return None
     return _deduct(run, items[0][0], items[0][1], job_id=int(job_id) if job_id is not None else None,
                    print_job_id=None, notes=label)
 
