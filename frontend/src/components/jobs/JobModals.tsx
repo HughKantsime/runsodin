@@ -299,6 +299,17 @@ export function RejectModal({ isOpen, onClose, onSubmit }: { isOpen: boolean; on
   )
 }
 
+const KEEP_PIN = '__keep_unresolved_pin__'
+
+// The edit field shows the current explicit pin; a deleted/invalid pin is shown as such
+// (never silently presented as "Any printer").
+function pinFieldValue(job) {
+  if (!job) return ''
+  if (job.pinned_printer_id != null) return String(job.pinned_printer_id)
+  if (job.pinned_printer_issue === 'pinned_printer_deleted' || job.pinned_printer_issue === 'pinned_target_invalid') return KEEP_PIN
+  return ''
+}
+
 export function EditJobModal({ isOpen, onClose, onSubmit, job, printersData, modelsData }: { isOpen: boolean; onClose: () => void; onSubmit: (id: number, data: any) => void; job: any; printersData?: any[]; modelsData?: any[] }) {
   const [formData, setFormData] = useState({})
 
@@ -307,13 +318,13 @@ export function EditJobModal({ isOpen, onClose, onSubmit, job, printersData, mod
       setFormData({
         item_name: job.item_name || '',
         quantity: job.quantity ?? '',
-        priority: job.priority || 3,
+        priority: job.priority ?? 3,
         duration_hours: job.duration_hours || '',
         colors_required: job.colors_list?.join(', ') || '',
         filament_type: job.filament_type || '',
         notes: job.notes || '',
         due_date: job.due_date ? job.due_date.split('T')[0] : '',
-        printer_id: job.printer_id || '',
+        pinned_printer_id: pinFieldValue(job),
       })
     }
   }, [job])
@@ -329,7 +340,12 @@ export function EditJobModal({ isOpen, onClose, onSubmit, job, printersData, mod
       filament_type: formData.filament_type || null,
       notes: formData.notes || null,
       due_date: formData.due_date || null,
-      printer_id: formData.printer_id ? Number(formData.printer_id) : null,
+      // Send a pin only when the user changed it: a printer id, or null for any printer.
+      // An untouched field (including a deleted/invalid pin) is never sent, so model and
+      // protocol targets and unresolved pins survive every other edit.
+      ...(formData.pinned_printer_id !== pinFieldValue(job)
+        ? { pinned_printer_id: formData.pinned_printer_id && formData.pinned_printer_id !== KEEP_PIN ? Number(formData.pinned_printer_id) : null }
+        : {}),
     })
     onClose()
   }
@@ -363,16 +379,19 @@ export function EditJobModal({ isOpen, onClose, onSubmit, job, printersData, mod
             <input type="number" step="0.5" value={formData.duration_hours} onChange={(e) => setFormData(prev => ({ ...prev, duration_hours: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" />
           </div>
           <div>
-            <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Assign Printer</label>
-            <select value={formData.printer_id} onChange={(e) => setFormData(prev => ({ ...prev, printer_id: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm">
-              <option value="">Unassigned</option>
+            <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Pinned Printer</label>
+            <select value={formData.pinned_printer_id} onChange={(e) => setFormData(prev => ({ ...prev, pinned_printer_id: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm">
+              <option value="">Any printer</option>
+              {pinFieldValue(job) === KEEP_PIN && (
+                <option value={KEEP_PIN}>{job.pinned_printer_issue === 'pinned_printer_deleted' ? 'Deleted printer — choose another' : 'Invalid pin — choose a printer'}</option>
+              )}
               {printersData?.map(p => (
                 <option key={p.id} value={p.id}>{p.nickname || p.name}</option>
               ))}
             </select>
             <BedMismatchWarning
               modelId={job?.model_id}
-              printerId={formData.printer_id}
+              printerId={formData.pinned_printer_id}
               modelsData={modelsData}
               printersData={printersData}
             />

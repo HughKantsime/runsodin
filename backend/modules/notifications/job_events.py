@@ -131,10 +131,15 @@ def job_completed(
                     "education_reserved"
                 ):
                     conn.commit()
-                    committed_completion = (success is True
-                        and education_result.get('authorized') is True
-                        and education_result.get('transitioned') is True)
-                    completion_job_id = education_result.get('job_id')
+                    # Physical completion whenever the print really ended (also when
+                    # Education refused the job transition); the job only if applied.
+                    applied = (education_result.get('authorized') is True
+                               and education_result.get('transitioned') is True)
+                    physical = applied or education_result.get('physical_ended') is True
+                    committed_completion = success is True and physical
+                    completion_job_id = education_result.get('job_id') if applied else None
+                    if physical:
+                        _archive_physical_end(printer_id, print_job_id, status)
                     return education_result
 
             # Update print_jobs record
@@ -170,18 +175,24 @@ def job_completed(
             prow = cur.fetchone()
             printer_name = prow[1] or prow[0] if prow else f"Printer {printer_id}"
 
-            # Update scheduled job status if linked
+            # Update the linked job through the state machine: an observed end
+            # never overwrites a terminal/unapproved/rejected job.
+            job_applied = False
             if scheduled_job_id:
-                cur.execute(
-                    "UPDATE jobs SET status = ?, actual_end = ? WHERE id = ?",
-                    (status, ended_at, scheduled_job_id)
-                )
+                from modules.jobs.services import transition_job
+                job_applied = transition_job(cur, scheduled_job_id, status, 'monitor',
+                                             extra_fields={'actual_end': ended_at})
 
             reconcile_job_write(conn, production_orders)
             conn.commit()
+            # The physical print completion is always published (keyed by the print);
+            # job-scoped effects only see the job when this end actually completed it.
             committed_completion = success is True
-            completion_job_id = scheduled_job_id
+            completion_job_id = scheduled_job_id if job_applied else None
             completion_metadata = {'job_name': job_name, 'duration_seconds': duration_seconds}
+        # Job-scoped alerts and events name the job only when this end applied to
+        # it; otherwise they are printer-scoped, like a printer-only print's.
+        alert_job_id = scheduled_job_id if job_applied else None
 
         # Increment care counters if successful
         if success and duration_seconds:
@@ -196,7 +207,7 @@ def job_completed(
                 title=f"Print Complete: {job_name}",
                 message=f"Finished on {printer_name}",
                 printer_id=printer_id,
-                job_id=scheduled_job_id,
+                job_id=alert_job_id,
             )
         else:
             dispatch_alert(
@@ -205,7 +216,7 @@ def job_completed(
                 title=f"Print Failed: {job_name}",
                 message=f"Failed on {printer_name}" + (f": {fail_reason}" if fail_reason else ""),
                 printer_id=printer_id,
-                job_id=scheduled_job_id,
+                job_id=alert_job_id,
             )
 
             # Also record as error
@@ -230,7 +241,7 @@ def job_completed(
                     "job_name": job_name,
                     "status": status,
                     "print_job_id": print_job_id,
-                    "scheduled_job_id": scheduled_job_id,
+                    "scheduled_job_id": alert_job_id,
                     "success": success,
                     "duration_seconds": duration_seconds,
                 },
@@ -254,6 +265,20 @@ def job_completed(
                 from core.committed_terminal_events import publish_committed_completion
                 publish_committed_completion(printer_id, print_job_id, completion_job_id,
                                              metadata=completion_metadata, source_module='notifications')
+
+
+def _archive_physical_end(printer_id, print_job_id, status):
+    """Archive an Education print that physically ended, as the MQTT and Moonraker paths do.
+
+    Generic prints reach the archive through the event bus; Education ends publish
+    no generic fan-out, so they are archived directly (after the commit).
+    """
+    try:
+        from modules.archives.archive import create_print_archive
+        create_print_archive(print_job_id=print_job_id, printer_id=printer_id, success=(status == 'completed'),
+                             result_status=status if status == 'cancelled' else None)
+    except Exception as failure:
+        log.warning("Failed to archive Education print %s (%s)", print_job_id, type(failure).__name__)
 
 
 @retry_production_linkage
@@ -281,6 +306,9 @@ def job_cancelled(
                     "education_reserved"
                 ):
                     conn.commit()
+                    if ((education_result.get("authorized") is True and education_result.get("transitioned") is True)
+                            or education_result.get("physical_ended") is True):
+                        _archive_physical_end(printer_id, print_job_id, "cancelled")
                     return education_result
 
             linked_id, production_orders = prepare_print_job_write(conn, print_job_id)
@@ -313,11 +341,12 @@ def job_cancelled(
             prow = cur.fetchone()
             printer_name = prow[1] or prow[0] if prow else f"Printer {printer_id}"
 
+            job_applied = False
             if scheduled_job_id:
-                cur.execute(
-                    "UPDATE jobs SET status = 'cancelled', actual_end = ? WHERE id = ?",
-                    (ended_at, scheduled_job_id)
-                )
+                from modules.jobs.services import transition_job
+                job_applied = transition_job(cur, scheduled_job_id, 'cancelled', 'monitor',
+                                             extra_fields={'actual_end': ended_at})
+            alert_job_id = scheduled_job_id if job_applied else None
 
             reconcile_job_write(conn, production_orders)
             conn.commit()
@@ -328,7 +357,7 @@ def job_cancelled(
             title=f"Print Cancelled: {job_name}",
             message=f"Cancelled on {printer_name}",
             printer_id=printer_id,
-            job_id=scheduled_job_id,
+            job_id=alert_job_id,
         )
 
         log.info(f"Job cancelled on printer {printer_id}: {job_name}")
@@ -342,7 +371,7 @@ def job_cancelled(
                 "job_name": job_name,
                 "status": "cancelled",
                 "print_job_id": print_job_id,
-                "scheduled_job_id": scheduled_job_id,
+                "scheduled_job_id": alert_job_id,
                 "success": False,
             },
         ))

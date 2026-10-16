@@ -44,7 +44,10 @@ def test_studio_real_multipart_upload_has_owned_fresh_job_identity(creators,revi
     row=job_identity(review_db,identifier)
     assert row[1]
     assert tuple(row[2:])==("org",1,"job",identifier)
-    assert_original_raw_semantics(review_db,identifier,"item_name,model_id,duration_hours,colors_required,quantity,priority,status,printer_id,hold,is_locked,notes,charged_to_user_id,charged_to_org_id,target_type")
+    # The Studio printer choice is an explicit pin (target_type='specific', target_filter=<id>):
+    # target_filter joins the columns the route sets; every other column keeps the raw-insert semantics.
+    assert review_db.execute(text("SELECT target_type,target_filter FROM jobs WHERE id=:id"),{"id":identifier}).one()==("specific","9")
+    assert_original_raw_semantics(review_db,identifier,"item_name,model_id,duration_hours,colors_required,quantity,priority,status,printer_id,hold,is_locked,notes,charged_to_user_id,charged_to_org_id,target_type,target_filter")
 
 
 

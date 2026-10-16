@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
-from sqlalchemy import text, update, or_
+from sqlalchemy import text
 from typing import Optional
 from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel as PydanticBaseModel
@@ -18,9 +18,10 @@ from core.rbac import require_role, check_org_access
 from core.base import JobStatus, AlertType, AlertSeverity
 from modules.jobs.models import Job
 from modules.printers.models import Printer
-from modules.inventory.models import Spool, SpoolUsage
+from modules.inventory.models import Spool
 from modules.models_library.models import Model
 from modules.jobs.schemas import JobResponse
+from modules.jobs.state_machine import transition_job, Expr
 from core.models import SystemConfig
 from license_manager import require_feature
 
@@ -46,6 +47,10 @@ FAILURE_REASONS = [
 ]
 
 
+def _status_value(value):
+    return value.value if hasattr(value, "value") else value
+
+
 class MoveJobRequest(PydanticBaseModel):
     printer_id: int
     scheduled_start: datetime
@@ -68,12 +73,11 @@ def start_job(job_id: int, current_user: dict = Depends(require_role("operator")
     if not job or not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(404, 'Job not found')
 
-    if job.status not in [JobStatus.SCHEDULED, JobStatus.PENDING]:
-        raise HTTPException(status_code=400, detail=f"Cannot start job in {job.status} status")
-
-    job.status = JobStatus.PRINTING
-    job.actual_start = datetime.now(timezone.utc)
-    job.is_locked = True
+    if not transition_job(db, job_id, JobStatus.PRINTING, "operator",
+                          extra_fields={"actual_start": datetime.now(timezone.utc), "is_locked": True}):
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Cannot start job in {_status_value(job.status)} status")
+    db.refresh(job)
 
     log_audit(db, "job.started", "job", job.id, {"printer_id": job.printer_id})
     reconcile_job_write(db, production_orders)
@@ -117,30 +121,25 @@ def complete_job(job_id: int, current_user: dict = Depends(require_role("operato
     if not job or not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
 
-    # R5: atomic state transition. The DB — not Python — enforces
-    # single-winner semantics. The UPDATE's WHERE clause is the lock.
-    #
-    # Codex pass 2: include `Job.status IS NULL` in the predicate. Job.status
-    # is not declared NOT NULL, so legacy/hand-written rows can have NULL
-    # status. SQL three-valued logic means `NULL != 'completed'` is NULL
-    # (not TRUE), so a bare `status != COMPLETED` would silently skip
-    # those rows and `/complete` would return them un-completed — a
-    # regression vs the previous behavior. or_(... IS NULL) covers them.
+    # R5: atomic state transition through the job state machine. The UPDATE's
+    # WHERE clause (allowed from-states) is the lock: one caller wins, a retry
+    # of an already-completed job is a no-op, and cancelled/submitted/rejected
+    # jobs are refused.
     now = datetime.now(timezone.utc)
-    result = db.execute(
-        update(Job)
-        .where(
-            Job.id == job_id,
-            or_(Job.status != JobStatus.COMPLETED, Job.status.is_(None)),
-        )
-        .values(
-            status=JobStatus.COMPLETED,
-            actual_end=now,
-            is_locked=True,
-        )
-    )
-
-    if result.rowcount == 0:
+    # Decision: a legacy row with NULL status may still be completed (as before
+    # the state machine); no other transition accepts NULL.
+    applied = transition_job(db, job_id, JobStatus.COMPLETED, "operator",
+                             extra_fields={"actual_end": now, "is_locked": True}, include_null=True)
+    if not applied:
+        current = _status_value(db.execute(
+            text("SELECT status FROM jobs WHERE id = :id"), {"id": job_id}
+        ).scalar())
+        if current != JobStatus.COMPLETED.value:
+            db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail=f"Cannot complete a job in {current} status",
+            )
         # Already completed by another request (retry, concurrent operator,
         # or whatever). Return the job as-is with no side effects.
         reconcile_job_write(db, production_orders)
@@ -190,42 +189,42 @@ def complete_job(job_id: int, current_user: dict = Depends(require_role("operato
             except (json.JSONDecodeError, TypeError):
                 pass
 
-    # Apply deductions to spools loaded on this printer
+    # Apply deductions to spools loaded on this printer through the filament
+    # ledger: at most once per print attempt (a failed->completed correction
+    # stays on the same attempt; a reset reprint deducts again), and the attempt
+    # is claimed only when something is actually deducted.
     if slot_grams and job.printer_id:
         from core.base import SpoolStatus
+        from core.filament_ledger import record_job_filament
+        from core.print_attempts import sqlalchemy_runner as _attempt_runner
         loaded_spools = db.query(Spool).filter(
             Spool.location_printer_id == job.printer_id,
             Spool.status == SpoolStatus.ACTIVE
         ).all()
-
         spool_by_slot = {s.location_slot: s for s in loaded_spools if s.location_slot}
-
+        grams_by_spool, slot_of = {}, {}
         for slot_num, grams in slot_grams.items():
             spool = spool_by_slot.get(slot_num)
-            if spool and grams > 0:
-                old_weight = spool.remaining_weight_g
-                spool.remaining_weight_g = max(0, spool.remaining_weight_g - grams)
-
-                # Create usage record for audit trail
-                usage = SpoolUsage(
-                    spool_id=spool.id,
-                    weight_used_g=grams,
-                    job_id=job.id,
-                    notes=f"Auto-deducted on job #{job.id} complete ({job.item_name})"
-                )
-                db.add(usage)
-
-                deductions.append({
-                    "spool_id": spool.id,
-                    "slot": slot_num,
-                    "deducted_g": round(grams, 1),
-                    "remaining_g": round(spool.remaining_weight_g, 1),
-                    # v1.8.5: carried through to Spoolman push-back below.
-                    # None for spools not linked to an external Spoolman row.
-                    "spoolman_spool_id": spool.spoolman_spool_id,
-                    "grams": float(grams),
-                    "job_id": job.id,
-                })
+            if spool is not None and grams > 0:
+                grams_by_spool[spool.id] = grams_by_spool.get(spool.id, 0.0) + grams
+                slot_of.setdefault(spool.id, slot_num)
+        outcome = record_job_filament(_attempt_runner(db), job.id, source="operator_complete",
+                                      grams_by_spool=grams_by_spool,
+                                      notes=f"job #{job.id} complete ({job.item_name})")
+        for spool in loaded_spools:
+            db.expire(spool)  # the ledger wrote the balances with SQL
+        for entry in outcome.deductions:
+            deductions.append({
+                "spool_id": entry["spool_id"],
+                "slot": slot_of.get(entry["spool_id"]),
+                "deducted_g": round(entry["grams"], 1),
+                "remaining_g": round(entry["remaining_g"], 1),
+                # v1.8.5: carried through to Spoolman push-back below.
+                # None for spools not linked to an external Spoolman row.
+                "spoolman_spool_id": entry["spoolman_spool_id"],
+                "grams": float(entry["grams"]),
+                "job_id": job.id,
+            })
 
     if deductions:
         deduct_summary = "; ".join(
@@ -323,12 +322,19 @@ def fail_job(job_id: int, notes: Optional[str] = None, current_user: dict = Depe
     job = db.query(Job).filter(Job.id == job_id).populate_existing().first()
     if not job or not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
-
-    job.status = JobStatus.FAILED
-    job.actual_end = datetime.now(timezone.utc)
-    job.is_locked = True
-    if notes:
-        job.notes = f"{job.notes or ''}\nFailed: {notes}".strip()
+    # Atomic transition through the state machine: the UPDATE predicate (not a
+    # Python read) decides, so a concurrent cancel/reject cannot be overwritten.
+    failed_notes = f"{job.notes or ''}\nFailed: {notes}".strip() if notes else job.notes
+    if not transition_job(db, job_id, JobStatus.FAILED, "operator",
+                          extra_fields={"actual_end": datetime.now(timezone.utc), "is_locked": True,
+                                        "notes": failed_notes}):
+        current = db.execute(text("SELECT status FROM jobs WHERE id = :id"), {"id": job_id}).scalar()
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot fail a job in {_status_value(current)} status",
+        )
+    db.refresh(job)
 
     log_audit(db, "job.failed", "job", job.id, {"printer_id": job.printer_id, "notes": notes})
     reconcile_job_write(db, production_orders)
@@ -354,14 +360,19 @@ def reset_job(job_id: int, current_user: dict = Depends(require_role("operator")
     if not job or not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
 
-    job.status = JobStatus.PENDING
-    job.printer_id = None
-    job.scheduled_start = None
-    job.scheduled_end = None
-    job.actual_start = None
-    job.actual_end = None
-    job.match_score = None
-    job.is_locked = False
+    # Reset starts a new print attempt and is only allowed from a finished
+    # outcome (completed/failed/cancelled) - never from submitted, rejected or
+    # a live print. The explicit pin (target columns) is kept.
+    if not transition_job(db, job_id, JobStatus.PENDING, "operator", extra_fields={
+            "printer_id": None, "scheduled_start": None, "scheduled_end": None,
+            "actual_start": None, "actual_end": None, "match_score": None,
+            "is_locked": False, "queue_position": None}):
+        db.rollback()
+        raise HTTPException(status_code=409,
+                            detail=f"Cannot reset a job in {_status_value(job.status)} status")
+    from core.print_attempts import bump_print_attempt, sqlalchemy_runner
+    bump_print_attempt(sqlalchemy_runner(db), job_id)
+    db.refresh(job)
 
     log_audit(db, "job.reset", "job", job.id)
     reconcile_job_write(db, production_orders)
@@ -429,10 +440,11 @@ def resubmit_job(job_id: int, db: Session = Depends(get_db), current_user: dict 
     if job.submitted_by != current_user["id"]:
         raise HTTPException(status_code=403, detail="Only the original submitter can resubmit")
 
-    job.status = "submitted"
-    job.rejected_reason = None
-    job.approved_by = None
-    job.approved_at = None
+    if not transition_job(db, job_id, JobStatus.SUBMITTED, "approval", extra_fields={
+            "rejected_reason": None, "approved_by": None, "approved_at": None},
+            where="submitted_by = :submitter", params={"submitter": current_user["id"]}):
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Job changed; reload before resubmitting")
     db.commit()
     db.refresh(job)
 
@@ -491,6 +503,17 @@ def link_job_to_print(job_id: int, print_job_id: int, current_user: dict = Depen
     if print_job.scheduled_job_id not in (None, job_id):
         raise HTTPException(409, 'This print is already linked to another job')
 
+    # A print belongs to the attempt in which it started. One that started before
+    # the job was last reset belongs to an earlier attempt: linking it now would
+    # account it to the current attempt, so refuse instead of mis-binding it.
+    from core.filament_ledger import current_attempt, print_attempt
+    from core.print_attempts import bind_print_attempt, sqlalchemy_runner
+    attempt_run = sqlalchemy_runner(db)
+    own_attempt = print_attempt(attempt_run, job_id, print_job_id)
+    if print_job.scheduled_job_id is None and not own_attempt.same_attempt(current_attempt(attempt_run, job_id)):
+        raise HTTPException(409, "This print started before the job was last reset; it belongs to an earlier "
+                                 "attempt and cannot be linked to the current one")
+
     # Link them
     linked = db.execute(text("UPDATE print_jobs SET scheduled_job_id = :job_id WHERE id = :id AND (scheduled_job_id IS NULL OR scheduled_job_id=:job_id) RETURNING status"),
                {"job_id": job_id, "id": print_job_id})
@@ -498,6 +521,7 @@ def link_job_to_print(job_id: int, print_job_id: int, current_user: dict = Depen
     locked_print = linked.fetchone()
     if locked_print is None:
         raise HTTPException(409, "Print linkage changed before this request")
+    bind_print_attempt(attempt_run, print_job_id, job_id, seq=own_attempt.seq)
 
     # Update job status based on print status
     new_status = None
@@ -510,13 +534,16 @@ def link_job_to_print(job_id: int, print_job_id: int, current_user: dict = Depen
     elif locked_print.status in ('printing', 'running'):
         new_status = 'printing'
 
+    # Through the state machine as an observed print: never moves a
+    # cancelled/submitted/rejected job and never overwrites a terminal status.
+    status_applied = None
     if new_status:
-        db.execute(text("UPDATE jobs SET status = :status WHERE id = :id"),
-                   {"status": new_status, "id": job_id})
+        status_applied = transition_job(db, job_id, new_status, "monitor")
 
     reconcile_job_write(db, production_orders)
     db.commit()
-    return {"message": "Linked", "job_id": job_id, "print_job_id": print_job_id}
+    return {"message": "Linked", "job_id": job_id, "print_job_id": print_job_id,
+            "status_applied": bool(status_applied)}
 
 
 @router.patch("/{job_id}/move", tags=["Jobs"])
@@ -566,12 +593,19 @@ def move_job(
             detail=f"Time slot conflicts with job '{conflict.item_name}'"
         )
 
-    # Update the job
-    job.printer_id = request.printer_id
-    job.scheduled_start = request.scheduled_start
-    job.scheduled_end = scheduled_end
-    if job.status == JobStatus.PENDING:
-        job.status = JobStatus.SCHEDULED
+    # Moving a job onto a printer is an explicit printer choice: a pinned job's
+    # pin follows the move (it never stays pointing at the old printer).
+    # A deleted:<id> pin is re-pinned to the printer the operator chose.
+    from modules.jobs.pinning import ISSUE_DELETED, parse_target, pin_columns
+    moved = {"printer_id": request.printer_id, "scheduled_start": request.scheduled_start,
+             "scheduled_end": scheduled_end}
+    pin, pin_problem = parse_target(job.target_type, job.target_filter)
+    if pin is not None or pin_problem == ISSUE_DELETED:
+        moved.update(pin_columns(request.printer_id))
+    if not transition_job(db, job_id, JobStatus.SCHEDULED, "operator", extra_fields=moved, retarget=True):
+        db.rollback()
+        raise HTTPException(409, 'Only pending or scheduled jobs can be moved; reset terminal work explicitly')
+    db.expire(job)
 
     reconcile_job_write(db, production_orders)
     db.commit()

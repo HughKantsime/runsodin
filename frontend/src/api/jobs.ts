@@ -29,6 +29,7 @@ export const jobs = {
   start: (id: number): Promise<Job> => fetchAPI('/jobs/' + id + '/start', { method: 'POST' }),
   complete: (id: number): Promise<Job> => fetchAPI('/jobs/' + id + '/complete', { method: 'POST' }),
   cancel: (id: number): Promise<Job> => fetchAPI('/jobs/' + id + '/cancel', { method: 'POST' }),
+  fail: (id: number): Promise<Job> => fetchAPI('/jobs/' + id + '/fail', { method: 'POST' }),
   reorder: (jobIds: number[]): Promise<void> => fetchAPI('/jobs/reorder', { method: 'PATCH', body: JSON.stringify({ job_ids: jobIds }) }),
   repeat: (id: number): Promise<Job> => fetchAPI('/jobs/' + id + '/repeat', { method: 'POST' }),
   dispatch: (id: number): Promise<Job> => fetchAPI('/jobs/' + id + '/dispatch', { method: 'POST' }),

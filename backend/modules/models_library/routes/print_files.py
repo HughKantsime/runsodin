@@ -116,11 +116,12 @@ def _studio_print_notes(note: Optional[str], profile_metadata: Optional[dict]) -
 MESH_EXTRACTION_TIMEOUT_SECONDS = 30
 
 
-async def _analyze_3mf_upload(path):
-    """Isolated analysis of an uploaded 3MF; 429 with Retry-After when the install is busy."""
+async def _analyze_3mf_upload(path, name=None):
+    """Isolated analysis of an uploaded 3MF; 429 with Retry-After when the install is busy.
+    ``name`` is the user's filename, the project-name fallback when the 3MF has no Title."""
     from modules.models_library.mesh_isolation import Busy, analyze_3mf_isolated
     try:
-        return await analyze_3mf_isolated(path, timeout=MESH_EXTRACTION_TIMEOUT_SECONDS)
+        return await analyze_3mf_isolated(path, timeout=MESH_EXTRACTION_TIMEOUT_SECONDS, name=name)
     except Busy as busy:
         raise HTTPException(status_code=429, detail="3MF analysis is busy; try again shortly",
                             headers={"Retry-After": str(busy.retry_after)}) from None
@@ -177,7 +178,8 @@ async def upload_3mf(
             # --- .3mf path: full metadata parse ---
             # The API process never parses the untrusted package: the zip directory,
             # XML, plate JSON and preview mesh are read by a bounded child process.
-            analysis = await _analyze_3mf_upload(tmp_path)
+            # The user's filename names the model when the 3MF has no Title (cert-fix-D F04-4.2-06).
+            analysis = await _analyze_3mf_upload(tmp_path, name=os.path.basename(file.filename or "") or None)
             if analysis.status == "too_large":
                 raise HTTPException(status_code=400, detail="File rejected: decompressed size exceeds the 500 MB limit (400 MB per member).")
             if analysis.status == "too_many_members":
@@ -581,6 +583,9 @@ async def submit_studio_print(
                 "payload_sha256": payload_hash, "plate_index": 0, "duration_hours": duration_hours,
                 "colors_required": ",".join(colors), "quantity": 1, "priority": 5,
                 "status": "pending", "printer_id": target_printer_id,
+                # A printer chosen in ODIN Studio is an explicit choice: pin it.
+                **({"target_type": "specific", "target_filter": str(target_printer_id)}
+                   if target_printer_id is not None else {}),
                 "hold": False, "is_locked": False, "notes": notes,
                 "charged_to_user_id": current_user.get("id") if current_user else None,
                 "charged_to_org_id": current_user.get("group_id") if current_user else None,

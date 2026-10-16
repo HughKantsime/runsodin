@@ -101,8 +101,10 @@ def _bind(conn,*,printer_id,print_job_id,key,link,expected=None,education=None):
     if link:
         changed=conn.execute(text("UPDATE print_jobs SET scheduled_job_id=:job WHERE id=:id AND printer_id=:pid AND status='running' AND (scheduled_job_id IS NULL OR scheduled_job_id=:job) RETURNING id"),{'job':claim['job_id'],'id':print_job_id,'pid':printer_id}).first()
         if changed is None:raise RuntimeError('Observation linkage changed')
-        changed=conn.execute(text("UPDATE jobs SET status='printing',actual_start=COALESCE(actual_start,CURRENT_TIMESTAMP) WHERE id=:job AND printer_id=:pid AND status IN ('pending','scheduled','printing') RETURNING id"),{'job':claim['job_id'],'pid':printer_id}).first()
-        if changed is None:raise RuntimeError('Scheduled job changed')
+        from core.print_attempts import bind_print_attempt,sqlalchemy_runner
+        bind_print_attempt(sqlalchemy_runner(conn),print_job_id,claim['job_id'])
+        from modules.jobs.services import transition_job,Expr
+        if not transition_job(conn,claim['job_id'],'printing','dispatch',extra_fields={'actual_start':Expr('COALESCE(actual_start,CURRENT_TIMESTAMP)')},where='printer_id=:pid',params={'pid':printer_id}):raise RuntimeError('Scheduled job changed')
     result=conn.execute(text("UPDATE dispatch_attempt_receipts SET observed_print_job_id=:observed WHERE claim_token=:token AND printer_id=:pid AND job_id=:job AND configuration_key=:config AND prepared_power_key=:power AND observed_filename_key=:filename AND (observed_print_job_id IS NULL OR observed_print_job_id=:observed)"),{'observed':print_job_id,'token':claim['token'],'pid':printer_id,'job':claim['job_id'],'config':receipt['configuration_key'],'power':receipt['prepared_power_key'],'filename':receipt['observed_filename_key']})
     if result.rowcount!=1:raise RuntimeError('Observation receipt changed')
     return 'matched'

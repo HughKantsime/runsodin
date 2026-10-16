@@ -156,6 +156,7 @@ def schedule_generic_file(db, file_id, printer_id, actor):
             "duration_hours": row.print_time_seconds / 3600 if row.print_time_seconds is not None else None,
             "colors_required": ','.join(f['color'] for f in filaments if f.get('color')),
             "quantity": 1, "priority": 5, "status": "pending", "printer_id": printer_id,
+            **({"target_type": "specific", "target_filter": str(printer_id)} if printer_id is not None else {}),
             "hold": False, "is_locked": False, "submitted_by": actor['id'],
             "charged_to_user_id": actor['id'], "charged_to_org_id": actor.get('group_id'),
         }, actor)

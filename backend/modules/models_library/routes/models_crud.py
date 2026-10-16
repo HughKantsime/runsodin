@@ -294,7 +294,8 @@ def _schedule_file(db, model, principal):
 
 @router.get("/{model_id}/schedule-options")
 def model_schedule_options(model_id: int,
-    current_user: dict = Depends(require_role("operator", scope="write:jobs")), db: Session = Depends(get_db)):
+    # Viewers read these payload facts to submit a model for approval (org access enforced below).
+    current_user: dict = Depends(require_role("viewer", scope="write:jobs")), db: Session = Depends(get_db)):
     from core.interfaces.education_policy import assert_generic_model_reference_allowed
     from core.print_payload_snapshot import hash_regular_payload, stage_payload, PayloadUnavailable
     from core.print_payload import validate_plate
@@ -350,10 +351,22 @@ def schedule_from_model(
     model_id: int,
     printer_id: Optional[int] = None,
     options: Optional[ModelScheduleOptions] = None,
-    current_user: dict = Depends(require_role("operator", scope="write:jobs")), db: Session = Depends(get_db)
+    current_user: dict = Depends(require_role("viewer", scope="write:jobs")), db: Session = Depends(get_db)
 ):
-    """Create a print job from a model."""
+    """Create a print job from a model.
+
+    Operators/admins queue a pending job. Viewers may only submit when the job
+    approval workflow is enabled; their job is created 'submitted' and waits
+    for an operator/admin to approve it (same rule as POST /jobs).
+    """
     from core.interfaces.queue_creation import require_queue_creation_provider
+    submission = current_user.get("role") == "viewer"
+    if submission:
+        approval = db.query(SystemConfig).filter(SystemConfig.key == "require_job_approval").first()
+        if not (approval and approval.value in (True, "true", "True", "1")):
+            raise HTTPException(status_code=403, detail="Viewers can only submit jobs for approval when approval is enabled")
+        from core.license_manager import require_feature
+        require_feature("job_approval")
     queue_creator = require_queue_creation_provider()
     model = db.query(Model).filter(Model.id == model_id).first()
     if not model:
@@ -455,18 +468,37 @@ def schedule_from_model(
         "item_name": model.name, "model_id": model.id,
         "duration_hours": duration_hours, "colors_required": ','.join(colors),
         "printer_id": printer_id, "estimated_cost": estimated_cost, "suggested_price": suggested_price,
+        # Choosing a printer in the schedule dialog is an explicit choice: pin it.
+        **({"target_type": "specific", "target_filter": str(printer_id)} if printer_id is not None else {}),
         "charged_to_user_id": current_user.get("id"), "charged_to_org_id": current_user.get("group_id"),
-        "submitted_by": current_user.get("id"), "status": "pending", "hold": False, "is_locked": False,
+        "submitted_by": current_user.get("id"), "status": "submitted" if submission else "pending",
+        "hold": False, "is_locked": False,
     }
     job = queue_creator.stage_values(db, values, current_user)
     job_id = job.id
+    alert_plan = None
+    if submission:
+        from core.base import AlertType, AlertSeverity
+        from modules.notifications.alert_dispatcher import (
+            stage_alert, get_group_owner_id, get_operator_admin_ids,
+        )
+        owner_id = get_group_owner_id(db, current_user["id"])
+        target_ids = [owner_id] if owner_id else get_operator_admin_ids(db, current_user.get("group_id"))
+        alert_plan = stage_alert(db, AlertType.JOB_SUBMITTED, AlertSeverity.INFO,
+            f"Job awaiting approval: {model.name or 'Untitled'}",
+            f"{current_user.get('display_name') or current_user.get('username', 'A user')} submitted a print job",
+            job_id=job_id, target_user_ids=target_ids)
+        log_audit(db, "job.created", "job", job_id, {"item_name": model.name, "status": "submitted"})
     db.commit()
+    if alert_plan is not None:
+        from modules.notifications.alert_dispatcher import deliver_staged_alert
+        deliver_staged_alert(db, alert_plan)
 
     return {
         "job_id": job_id,
         "model_id": model.id,
         "model_name": model.name,
-        "status": "pending",
+        "status": "submitted" if submission else "pending",
         # model = plate 1 / model-level numbers; selected_plate = that plate's numbers;
         # plate_unknown = the 3MF records no grams/time for that plate (estimate left empty).
         "estimate_basis": estimate_basis,

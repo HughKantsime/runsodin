@@ -264,9 +264,9 @@ def _fail_active_job_for_hms(printer_id: int, hms_code: str, hms_message: str, o
 
             # Mark linked scheduled job as failed
             if scheduled_job_id:
-                cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
-                    f"UPDATE jobs SET status = 'failed', actual_end = {sql.now()} WHERE id = ?",
-                    (scheduled_job_id,))
+                from modules.jobs.services import transition_job, Expr
+                transition_job(cur, scheduled_job_id, 'failed', 'monitor',
+                               extra_fields={'actual_end': Expr(sql.now())})
 
             reconcile_job_write(conn, production_orders)
             conn.commit()

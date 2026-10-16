@@ -180,11 +180,13 @@ async def run_retention_cleanup(current_user: dict = Depends(require_superadmin(
                     AND order_item_id IS NULL
                     AND NOT EXISTS (SELECT 1 FROM order_production_jobs p WHERE p.job_id=jobs.id)
                     AND NOT EXISTS (SELECT 1 FROM education_submissions e WHERE e.job_id=jobs.id)
-                    AND """ + expired("updated_at")).bindparams(bindparam("candidate_ids", expanding=True))
-                removed = db.execute(statement, {"candidate_ids": candidates, "cutoff": cutoff}).rowcount
-                if removed < 0:
-                    raise RuntimeError("Unconfirmed cleanup count")
-                count += removed
+                    AND """ + expired("updated_at") + " RETURNING id").bindparams(bindparam("candidate_ids", expanding=True))
+                removed_ids = list(db.execute(statement, {"candidate_ids": candidates, "cutoff": cutoff}).scalars())
+                # Purged jobs leave no print-attempt markers behind (SQLite id reuse is safe).
+                from core.print_attempts import clear_job_attempts, sqlalchemy_runner
+                for removed_id in removed_ids:
+                    clear_job_attempts(sqlalchemy_runner(db), removed_id)
+                count += len(removed_ids)
             deleted["completed_jobs"] = count
 
         if config["audit_logs_days"] > 0:

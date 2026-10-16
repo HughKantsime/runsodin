@@ -556,6 +556,12 @@ def ship_order(order_id: int, data: OrderShipRequest, current_user: dict = Depen
         raise HTTPException(status_code=404, detail="Order not found")
 
     order = _locked_order(db, order_id, current_user)
+    # Shipped is only reachable from the production lifecycle. Pending (never
+    # scheduled), cancelled and already-shipped orders are refused.
+    current = order.status.value if hasattr(order.status, "value") else order.status
+    if current not in (OrderStatus.IN_PROGRESS.value, OrderStatus.PARTIAL.value, OrderStatus.FULFILLED.value):
+        db.rollback()
+        raise HTTPException(status_code=409, detail=f"Cannot ship an order in {current} status")
     order.status = OrderStatus.SHIPPED
     order.tracking_number = data.tracking_number
     order.shipped_date = data.shipped_date or datetime.now(timezone.utc)

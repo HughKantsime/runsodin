@@ -486,7 +486,7 @@ class MoonrakerMonitor:
                     policy.classify_monitor_observation(
                         conn,
                         printer_id=self.printer_id,
-                        print_job_id=self._current_job_db_id,
+                        print_job_id=getattr(self, '_current_job_db_id', None),
                         observed_filename=status.filename or self._last_filename,
                     )
                     if policy
@@ -505,7 +505,7 @@ class MoonrakerMonitor:
                         return True
                     result = policy.terminal_monitor_observation(
                         conn,
-                        print_job_id=self._current_job_db_id,
+                        print_job_id=getattr(self, '_current_job_db_id', None),
                         printer_id=self.printer_id,
                         terminal_status=education_terminal_status,
                         ended_at=now_utc,
@@ -514,11 +514,22 @@ class MoonrakerMonitor:
                     )
                     if result.get("education_owned") or result.get("education_reserved"):
                         conn.commit()
-                        committed_completion = (education_terminal_status == 'completed'
-                            and result.get('authorized') is True
-                            and result.get('transitioned') is True)
-                        completion_job_id = result.get('job_id')
+                        # Physical completion whenever the print really ended (also when
+                        # Education refused the job transition); the job only if applied.
+                        applied = result.get('authorized') is True and result.get('transitioned') is True
+                        physical = applied or result.get('physical_ended') is True
+                        committed_completion = education_terminal_status == 'completed' and physical
+                        completion_job_id = result.get('job_id') if applied else None
                         log.info("[%s] Education terminal result: %s", self.name, result)
+                        if physical:
+                            try:
+                                from modules.archives.archive import create_print_archive
+                                create_print_archive(print_job_id=self._current_job_db_id, printer_id=self.printer_id,
+                                                     success=(education_terminal_status == 'completed'),
+                                                     result_status=(education_terminal_status
+                                                                    if education_terminal_status == 'cancelled' else None))
+                            except Exception as ae:
+                                log.warning(f"[{self.name}] Failed to create print archive: {ae}")
                         self._current_job_db_id = None
                         self._last_filename = ""
                         return True
@@ -549,22 +560,25 @@ class MoonrakerMonitor:
                 row = conn.execute(text("""
                     SELECT scheduled_job_id FROM print_jobs WHERE id = :jid
                 """), {"jid": self._current_job_db_id}).fetchone()
+                ended = False
                 if row and row[0]:
                     sched_status = end_status if end_status in ('completed','failed','cancelled') else 'failed'
                     duration_hours = round(duration_seconds / 3600, 4) if duration_seconds else None
-                    conn.execute(text("""
-                        UPDATE jobs SET status = :status, actual_end = :ended,
-                               duration_hours = COALESCE(:dur, duration_hours)
-                        WHERE id = :jid
-                    """), {"status": sched_status, "ended": now_utc, "dur": duration_hours, "jid": row[0]})
-                    log.info(f"[{self.name}] Scheduled job #{row[0]} marked {sched_status}")
+                    # Never overwrite an operator's terminal decision for the job.
+                    from modules.jobs.services import transition_job, Expr
+                    ended = transition_job(conn, row[0], sched_status, 'monitor', extra_fields={
+                        "actual_end": now_utc,
+                        "duration_hours": Expr("COALESCE(duration_hours, :dur)", dur=duration_hours)})
+                    log.info(f"[{self.name}] Scheduled job #{row[0]} "
+                             + (f"marked {sched_status}" if ended else "already terminal; kept operator status"))
 
                     # Auto-deduct filament if completed
-                    if end_status == "completed":
+                    if end_status == "completed" and ended:
                         self._auto_deduct_filament(conn, row[0], observed_grams=filament_used_g)
                 reconcile_job_write(conn, production_orders)
+            # Physical completion always; the job only when its transition applied.
             committed_completion = end_status == 'completed'
-            completion_job_id = row[0] if row else None
+            completion_job_id = row[0] if row and row[0] and ended else None
             log.info(f"[{self.name}] Job {end_status}: DB id {self._current_job_db_id}")
 
             # Increment care counters on successful completion
@@ -614,7 +628,7 @@ class MoonrakerMonitor:
             try:
                 from modules.archives.archive import create_print_archive
                 create_print_archive(
-                    print_job_id=self._current_job_db_id,
+                    print_job_id=getattr(self, '_current_job_db_id', None),
                     printer_id=self.printer_id,
                     success=(end_status == 'completed'),
                     result_status=end_status if end_status == 'cancelled' else None,
@@ -790,13 +804,13 @@ class MoonrakerMonitor:
         if (not current or current[0] != self.printer_id or current[2] not in ('running', 'printing')
                 or current[1] not in (None, scheduled_job_id)):
             return False
-        changed = conn.execute(text("""
-            UPDATE jobs SET status='printing' WHERE id=:id AND printer_id=:pid
-              AND status IN ('scheduled','pending')
-              AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id)
-              AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.print_file_id=jobs.print_file_id)
-            RETURNING id
-        """), {'id':scheduled_job_id,'pid':self.printer_id}).first()
+        from modules.jobs.services import transition_job
+        changed = transition_job(conn, scheduled_job_id, 'printing', 'monitor',
+            from_states=('scheduled', 'pending'),
+            where="printer_id=:pid"
+                  " AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id)"
+                  " AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.print_file_id=jobs.print_file_id)",
+            params={'pid': self.printer_id}) or None
         if changed is None:
             return False
         linked = conn.execute(text("""
@@ -806,6 +820,8 @@ class MoonrakerMonitor:
         """), {'job':scheduled_job_id,'id':self._current_job_db_id,'pid':self.printer_id}).first()
         if linked is None:
             raise RuntimeError('Print linkage changed; transaction must roll back')
+        from core.print_attempts import bind_print_attempt, sqlalchemy_runner
+        bind_print_attempt(sqlalchemy_runner(conn), self._current_job_db_id, scheduled_job_id)
         reconcile_job_write(conn, parents)
         return True
 
@@ -840,23 +856,22 @@ class MoonrakerMonitor:
         """), {'printer':self.printer_id,'org':job[1]}).fetchall()
         if len(spools) != 1:
             return
-        spool_id = spools[0][0]
-        existing = conn.execute(text('SELECT 1 FROM spool_usage WHERE job_id=:job LIMIT 1'),
-                                {'job':scheduled_job_id}).first()
-        if existing:
-            return
-        updated = conn.execute(text("""
-            UPDATE spools SET remaining_weight_g=CASE
-                WHEN remaining_weight_g > :grams THEN remaining_weight_g-:grams ELSE 0 END
-            WHERE id=:id AND remaining_weight_g IS NOT NULL RETURNING id
-        """), {'id':spool_id,'grams':grams}).first()
-        if updated is None:
-            return
-        conn.execute(text("""
-            INSERT INTO spool_usage(spool_id,job_id,weight_used_g,notes)
-            VALUES(:spool,:job,:grams,:note)
-        """), {'spool':spool_id,'job':scheduled_job_id,'grams':grams,
-                'note':'Moonraker observed extrusion' if observed_grams is not None else 'Moonraker sliced estimate'})
+        # The filament ledger: once per print attempt, shared with operator
+        # completion and archive accounting; claimed only if something is deducted.
+        from core.filament_ledger import flag_reconciliation, record_job_filament
+        from core.print_attempts import sqlalchemy_runner
+        print_job_id = getattr(self, '_current_job_db_id', None)
+        outcome = record_job_filament(sqlalchemy_runner(conn), scheduled_job_id, source="moonraker",
+                                      grams_by_spool={spools[0][0]: float(grams)}, print_job_id=print_job_id,
+                                      notes='observed extrusion' if observed_grams is not None else 'sliced estimate')
+        if outcome.unattributed and print_job_id is not None:
+            # Never silently drop it: the archive path records this as unresolved;
+            # here the ledger keeps a durable reconciliation flag.
+            log.error("[%s] Filament for print %s of job %s not deducted (%s); reconciliation required",
+                      getattr(self, 'name', self.printer_id), print_job_id, scheduled_job_id, outcome.reason)
+            flag_reconciliation(sqlalchemy_runner(conn), scheduled_job_id, print_job_id,
+                                reason=outcome.reason, source="moonraker")
+        return outcome
 
 
 # ------------------------------------------------------------------

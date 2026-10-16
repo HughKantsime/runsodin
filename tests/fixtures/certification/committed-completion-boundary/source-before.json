@@ -1,5 +1,4 @@
 {
   "publisher_sha256": "a15f82804c7946cb029e354634fc0f93895f33f59f4aeb9285cf272da8766c84",
-  "job_events_sha256": "7e47bbc19140d9d5a01d473b8ebc2cf331ae0cad8c39d916ebe56f185ae09822",
-  "job_completed_normalized_ast_sha256": "36ae35574889aa9d8a8e002efde735072e489dda4ed0b2949412a4f09ffd3d82"
+  "job_events_sha256": "7e47bbc19140d9d5a01d473b8ebc2cf331ae0cad8c39d916ebe56f185ae09822"
 }

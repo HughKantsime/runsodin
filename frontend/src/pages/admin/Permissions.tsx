@@ -44,7 +44,7 @@ const PAGE_GROUPS = [
   { label: 'Work', pages: ['jobs', 'timeline', 'upload', 'maintenance'] },
   { label: 'Library', pages: ['models', 'spools'] },
   { label: 'Analyze', pages: ['analytics', 'calculator'] },
-  { label: 'System', pages: ['settings', 'admin', 'branding'] },
+  { label: 'System', pages: ['settings', 'admin', 'branding', 'audit'] },
 ]
 
 const ACTION_GROUPS = [

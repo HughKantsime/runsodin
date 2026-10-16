@@ -108,11 +108,14 @@ def cancel_job(
     job = db.query(Job).filter(Job.id == job_id).populate_existing().first()
     if not job or not check_org_access(current_user, job.charged_to_org_id):
         raise OdinError(ErrorCode.job_not_found, f"Job {job_id} not found", status=404)
-    if job.status not in [JobStatus.PENDING, JobStatus.SCHEDULED]:
+    from modules.jobs.state_machine import transition_job
+    if not transition_job(db, job_id, JobStatus.CANCELLED, "operator",
+                          from_states=(JobStatus.PENDING, JobStatus.SCHEDULED),
+                          extra_fields={"is_locked": True}):
+        db.rollback()
         raise OdinError(ErrorCode.invalid_state_transition,
                         'Job state changed before cancellation', status=400, retriable=False)
-    job.status = JobStatus.CANCELLED
-    job.is_locked = True
+    db.refresh(job)
     log_audit(db, "job.cancelled", "job", job.id)
     reconcile_job_write(db, production_orders)
     db.commit()
@@ -164,9 +167,13 @@ def approve_job(
             notes="Would set jobs.status=pending + approved_by/at; would dispatch JOB_APPROVED alert to submitter.",
         )
 
-    job.status = JobStatus.PENDING
-    job.approved_by = current_user["id"]
-    job.approved_at = datetime.now(timezone.utc)
+    from modules.jobs.state_machine import transition_job
+    if not transition_job(db, job_id, JobStatus.PENDING, "approval", extra_fields={
+            "approved_by": current_user["id"], "approved_at": datetime.now(timezone.utc)}):
+        db.rollback()
+        raise OdinError(ErrorCode.invalid_state_transition, "Job is no longer awaiting approval",
+                        status=409, retriable=False)
+    db.refresh(job)
     log_audit(db, "job.approved", "job", job.id, {"approved_by": current_user["id"]})
     db.commit()
     db.refresh(job)
@@ -248,9 +255,13 @@ def reject_job(
             notes="Would set jobs.status=rejected + rejected_reason; would dispatch JOB_REJECTED alert to submitter.",
         )
 
-    job.status = "rejected"
-    job.approved_by = current_user["id"]
-    job.rejected_reason = reason
+    from modules.jobs.state_machine import transition_job
+    if not transition_job(db, job_id, JobStatus.REJECTED, "approval", extra_fields={
+            "approved_by": current_user["id"], "rejected_reason": reason}):
+        db.rollback()
+        raise OdinError(ErrorCode.invalid_state_transition, "Job is no longer awaiting approval",
+                        status=409, retriable=False)
+    db.refresh(job)
     log_audit(db, "job.rejected", "job", job.id, {"rejected_by": current_user["id"], "reason": reason})
     db.commit()
     db.refresh(job)

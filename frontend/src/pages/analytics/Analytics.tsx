@@ -304,6 +304,89 @@ function TopFailureReasons({ data }) {
   )
 }
 
+function FailureBreakdownTable({ title, rows, label }) {
+  if (!rows?.length) return null
+  // Rank by failed count (most failures first), then by failure share.
+  const ranked = [...rows].sort((a, b) => (b.failed - a.failed) || ((b.failed / Math.max(1, b.failed + b.completed)) - (a.failed / Math.max(1, a.failed + a.completed))))
+  return (
+    <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
+      <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)] mb-4">{title}</h3>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-xs text-[var(--brand-text-muted)] text-left">
+            <th scope="col" className="pb-2 font-medium">{label}</th>
+            <th scope="col" className="pb-2 font-medium text-right">Completed</th>
+            <th scope="col" className="pb-2 font-medium text-right">Failed</th>
+            <th scope="col" className="pb-2 font-medium text-right">Failure rate</th>
+          </tr>
+        </thead>
+        <tbody>
+          {ranked.map((r, i) => {
+            const total = r.completed + r.failed
+            const rate = total ? Math.round((r.failed / total) * 1000) / 10 : 0
+            return (
+              <tr key={i} className="border-t border-[var(--brand-card-border)]">
+                <td className="py-1.5 text-[var(--brand-text-primary)] truncate max-w-[12rem]">{r.name ?? r.type}</td>
+                <td className="py-1.5 text-right font-mono text-[var(--brand-text-muted)]">{r.completed}</td>
+                <td className="py-1.5 text-right font-mono text-red-400">{r.failed}</td>
+                <td className="py-1.5 text-right font-mono text-[var(--brand-text-muted)]">{rate}%</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function PrinterReliability({ data }) {
+  if (!data?.by_printer?.length) return null
+  const ranked = [...data.by_printer].sort((a, b) => b.failed - a.failed)
+  return (
+    <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
+      <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)] mb-4">Printers by Failures</h3>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-xs text-[var(--brand-text-muted)] text-left">
+            <th scope="col" className="pb-2 font-medium">Printer</th>
+            <th scope="col" className="pb-2 font-medium text-right">Failed</th>
+            <th scope="col" className="pb-2 font-medium text-right">Success</th>
+            <th scope="col" className="pb-2 font-medium text-right">MTBF</th>
+          </tr>
+        </thead>
+        <tbody>
+          {ranked.map((p, i) => (
+            <tr key={i} className="border-t border-[var(--brand-card-border)]">
+              <td className="py-1.5 text-[var(--brand-text-primary)]">{p.name}</td>
+              <td className="py-1.5 text-right font-mono text-red-400">{p.failed}</td>
+              <td className="py-1.5 text-right font-mono text-[var(--brand-text-muted)]">{p.success_rate}%</td>
+              <td className="py-1.5 text-right font-mono text-[var(--brand-text-muted)]">{p.mtbf_hours != null ? `${p.mtbf_hours}h` : '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function HmsErrorFrequency({ data }) {
+  if (!data?.hms_errors?.length) return null
+  return (
+    <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
+      <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)] mb-4">HMS Error Frequency</h3>
+      <div className="space-y-2">
+        {data.hms_errors.map((e, i) => (
+          <div key={i} className="flex items-center gap-3 text-sm">
+            <span className="font-mono text-[var(--brand-text-secondary)]">{e.code}</span>
+            <span className="flex-1 truncate text-[var(--brand-text-muted)]">{e.message}</span>
+            <span className="font-mono text-[var(--brand-text-muted)]">{e.count}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function TimeAccuracyChart({ data }) {
   if (!data || data.by_printer?.length === 0) {
     return (
@@ -500,10 +583,18 @@ export default function Analytics() {
           <div className="h-48 bg-[var(--brand-input-bg)]/50 rounded"></div>
         </div>
       ) : failureData && failureData.total_failed > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <FailureRateByPrinterChart data={failureData} />
-          <TopFailureReasons data={failureData} />
-        </div>
+        <>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <FailureRateByPrinterChart data={failureData} />
+            <TopFailureReasons data={failureData} />
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <PrinterReliability data={failureData} />
+            <FailureBreakdownTable title="Failures by Model" rows={failureData.by_model} label="Model" />
+            <FailureBreakdownTable title="Failures by Filament" rows={failureData.by_filament} label="Filament" />
+          </div>
+          <HmsErrorFrequency data={failureData} />
+        </>
       )}
 
       {/* Bottom Row */}

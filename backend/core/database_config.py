@@ -136,7 +136,10 @@ def create_database_engine(
         max_overflow=20,
         pool_timeout=30,
         pool_recycle=1800,
-        connect_args={"application_name": application_name(role)},
+        # Sessions run in UTC: server-default now() timestamps (audit_logs,
+        # legacy spool_usage.used_at) are then UTC, like every naive time ODIN
+        # writes and reads (core.db_compat.as_utc_datetime).
+        connect_args={"application_name": application_name(role), "options": "-c TimeZone=UTC"},
     )
     engine._odin_restore_barrier_required = role not in _RESTORE_LOCK_EXEMPT_ROLES
     if role not in _RESTORE_LOCK_EXEMPT_ROLES:

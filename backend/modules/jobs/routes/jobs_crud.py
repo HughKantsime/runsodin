@@ -44,6 +44,34 @@ router = APIRouter(prefix="/jobs", tags=["Jobs"])
 
 from modules.jobs.queue_creation import _stage_prospective_queue_job, _stage_prospective_queue_values, _stage_queue_entries, _deliver_queue_entries, JobBatchRequest, JobReorderRequest
 
+def _target_printer_id(db, current_user, printer_id, target_type, target_filter=None):
+    """Validate an explicit specific-printer choice; return the id to pin (or None).
+
+    The choice is printer_id (what the Jobs UI sends) or, for API callers, a
+    numeric target_filter with target_type 'specific'.
+    """
+    if (target_type or "specific") != "specific":
+        return None
+    if printer_id is None and target_filter is not None and str(target_filter).strip():
+        from modules.jobs.pinning import is_printer_id_text
+        if not is_printer_id_text(target_filter):  # ASCII digits only; no Unicode digits, signs or junk
+            raise HTTPException(status_code=422, detail="A specific target_filter must be a printer id")
+        printer_id = int(str(target_filter).strip())
+    if printer_id is None:
+        return None
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
+        raise HTTPException(status_code=404, detail="Printer not found")
+    return printer.id
+
+
+def _target_columns(job, pinned):
+    from modules.jobs.pinning import pin_columns
+    if (job.target_type or "specific") == "specific":
+        return pin_columns(pinned)
+    return {"target_type": job.target_type, "target_filter": job.target_filter}
+
+
 @router.get("/filament-check", tags=["Jobs"])
 def check_filament_compatibility(
     printer_id: int,
@@ -64,9 +92,15 @@ def check_filament_compatibility(
     slots = db.query(FilamentSlot).filter(FilamentSlot.printer_id == printer_id).all()
 
     if filament_type and slots:
-        loaded_types = {s.filament_type.value.upper() if s.filament_type else '' for s in slots}
-        if filament_type.upper() not in loaded_types and 'EMPTY' not in loaded_types:
-            warnings.append(f"Job requires {filament_type} but printer has {', '.join(t for t in loaded_types if t)} loaded")
+        # Empty/unknown slots carry no material; judge only the loaded ones.
+        loaded_types = {
+            s.filament_type.value.upper() for s in slots
+            if s.filament_type and s.filament_type.value.upper() != 'EMPTY'
+        }
+        if not loaded_types:
+            warnings.append(f"Job requires {filament_type} but printer has no filament loaded")
+        elif filament_type.upper() not in loaded_types:
+            warnings.append(f"Job requires {filament_type} but printer has {', '.join(sorted(loaded_types))} loaded")
 
     if colors and slots:
         required = [c.strip().lower() for c in colors.split(',') if c.strip()]
@@ -92,11 +126,13 @@ def create_jobs_bulk(jobs: List[JobCreate], current_user: dict = Depends(require
             org_settings = _org_provider.get_org_settings(db, current_user["group_id"])
 
     # Preflight every Education boundary before quota mutation or job staging.
+    pinned = []
     for job in jobs:
         assert_generic_model_reference_allowed(db, job.model_id)
+        pinned.append(_target_printer_id(db, current_user, job.printer_id, job.target_type, job.target_filter))
     charge_job_quota(db, current_user, len(jobs))
     db_jobs = []
-    for job in jobs:
+    for job, pinned_printer_id in zip(jobs, pinned):
         # Calculate cost if model is linked
         estimated_cost, suggested_price, _ = (None, None, None)
         if job.model_id:
@@ -124,6 +160,9 @@ def create_jobs_bulk(jobs: List[JobCreate], current_user: dict = Depends(require
             suggested_price=suggested_price,
             charged_to_user_id=current_user.get("id") if current_user else None,
             charged_to_org_id=current_user.get("group_id") if current_user else None,
+            due_date=job.due_date,
+            required_tags=job.required_tags or [],
+            **_target_columns(job, pinned_printer_id),
         )
         _stage_prospective_queue_job(db, db_job, current_user)
         db_jobs.append(db_job)
@@ -181,6 +220,8 @@ def create_jobs_batch(
             quantity=1,
             priority=body.priority,
             printer_id=pid,
+            # Sending a job to chosen printers is an explicit choice: pin each copy.
+            target_type="specific", target_filter=str(pid),
             duration_hours=body.duration_hours,
             colors_required=body.colors_required,
             filament_type=body.filament_type,
@@ -271,20 +312,21 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_role
                     and job.scheduled_start is None and job.scheduled_end is None
                     and job.match_score is None and not job.is_locked):
                 continue
-            changed = db.execute(text("""UPDATE jobs SET status='pending',printer_id=NULL,
-                scheduled_start=NULL,scheduled_end=NULL,match_score=NULL,is_locked=FALSE
-                WHERE id=:id AND status IN ('pending','scheduled')
-                AND NOT EXISTS(SELECT 1 FROM printer_dispatch_claims WHERE job_id=:id)"""), {'id': jid})
-            count += changed.rowcount
+            from modules.jobs.state_machine import transition_job
+            count += int(transition_job(db, jid, JobStatus.PENDING, "scheduler", extra_fields={
+                "printer_id": None, "scheduled_start": None, "scheduled_end": None,
+                "match_score": None, "is_locked": False},
+                where="NOT EXISTS(SELECT 1 FROM printer_dispatch_claims WHERE job_id=:claim_job)",
+                params={"claim_job": jid}))
     elif action == "cancel":
         for jid in job_ids:
             job = db.query(Job).filter(Job.id == jid).first()
             if not job or not check_org_access(current_user, job.charged_to_org_id):
                 continue
             assert_generic_job_mutation_allowed(db, jid)
-            changed = db.execute(text("UPDATE jobs SET status = 'cancelled' WHERE id = :id AND status IN ('pending','submitted')"),
-                       {"id": jid})
-            count += changed.rowcount
+            from modules.jobs.state_machine import transition_job
+            count += int(transition_job(db, jid, JobStatus.CANCELLED, "operator",
+                                        from_states=(JobStatus.PENDING, JobStatus.SUBMITTED)))
     elif action == "set_priority":
         for jid in job_ids:
             job = db.query(Job).filter(Job.id == jid).first()
@@ -301,6 +343,9 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_role
             assert_generic_job_mutation_allowed(db, jid)
             changed = db.execute(text("DELETE FROM jobs WHERE id = :id AND status IN ('pending','submitted','cancelled')"),
                        {"id": jid})
+            if changed.rowcount:
+                from core.print_attempts import clear_job_attempts, sqlalchemy_runner
+                clear_job_attempts(sqlalchemy_runner(db), jid)
             count += changed.rowcount
     elif action == "hold":
         for jid in job_ids:
@@ -356,7 +401,11 @@ def list_jobs(
     if should_filter_org(current_user, effective_org):
         query = query.filter((Job.charged_to_org_id == effective_org) | (Job.charged_to_org_id == None))
 
-    return query.order_by(Job.priority, Job.created_at).offset(offset).limit(limit).all()
+    # Priority first; drag-and-drop queue_position orders jobs within a
+    # priority (unplaced jobs last on SQLite and PostgreSQL alike); then age.
+    return query.order_by(
+        Job.priority, Job.queue_position.is_(None), Job.queue_position, Job.created_at, Job.id
+    ).offset(offset).limit(limit).all()
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, tags=["Jobs"])
@@ -384,6 +433,7 @@ def create_job(
     from modules.models_library.services import calculate_job_cost
 
     assert_generic_model_reference_allowed(db, job.model_id)
+    pinned_printer_id = _target_printer_id(db, current_user, job.printer_id, job.target_type, job.target_filter)
     # Calculate cost if model is linked
     estimated_cost, suggested_price, _ = (None, None, None)
     if job.model_id:
@@ -481,8 +531,7 @@ def create_job(
         charged_to_user_id=current_user["id"] if current_user else None,
         charged_to_org_id=current_user.get("group_id") if current_user else None,
         required_tags=job.required_tags or [],
-        target_type=job.target_type or "specific",
-        target_filter=job.target_filter,
+        **_target_columns(job, pinned_printer_id),
     )
     charge_job_quota(db, current_user)
     _stage_prospective_queue_job(db, db_job, current_user)
@@ -569,6 +618,15 @@ async def update_job(job_id: int, updates: JobUpdate, request: Request, current_
                 and candidate.order_item_id is None
                 and db.execute(text('SELECT 1 FROM order_production_jobs WHERE job_id=:id'), {'id':job_id}).first() is None)
 
+    if "status" in updates.model_fields_set:
+        # Status only moves through the lifecycle routes (start/complete/fail/
+        # cancel/reset and approve/reject/resubmit), which carry the transition
+        # guards and the approval gate. A generic PATCH must not bypass them.
+        raise HTTPException(
+            422,
+            "Job status cannot be set by PATCH; use the start, complete, fail, cancel, reset, "
+            "approve, reject or resubmit endpoints",
+        )
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -603,7 +661,35 @@ async def update_job(job_id: int, updates: JobUpdate, request: Request, current_
             and updates.model_id != job.model_id):
         raise HTTPException(409, "Archived payload jobs cannot change their source model")
     assert_generic_model_reference_allowed(db, updates.model_id)
-    for field, value in updates.model_dump(exclude_unset=True).items():
+    for candidate in (updates.printer_id, updates.pinned_printer_id):
+        if candidate is not None:
+            printer = db.query(Printer).filter(Printer.id == candidate).first()
+            if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
+                raise HTTPException(status_code=404, detail="Printer not found")
+    changes = updates.model_dump(exclude_unset=True)
+    # printer_id is the scheduler's assignment, never a pin. On a pinned job it
+    # must agree with the pin this PATCH leaves in place: a conflicting
+    # printer_id is refused (409) rather than silently retargeting the job --
+    # change the pin itself with pinned_printer_id (or move the job).
+    if changes.get("printer_id") is not None:
+        from modules.jobs.pinning import ISSUE_DELETED, parse_target
+        pin, pin_problem = parse_target(job.target_type, job.target_filter)
+        if "pinned_printer_id" in changes:
+            pin, pin_problem = changes["pinned_printer_id"], None
+        if pin_problem == ISSUE_DELETED:
+            raise HTTPException(409, "The job's pinned printer was deleted; choose a printer with pinned_printer_id")
+        if pin is not None and int(pin) != int(changes["printer_id"]):
+            raise HTTPException(409, f"The job is pinned to printer {int(pin)}; change the pin with "
+                                     "pinned_printer_id or move the job")
+    # A pin changes only when pinned_printer_id is sent explicitly. A printer id
+    # pins (replacing any model/protocol target: the user chose this printer);
+    # null clears an existing specific pin but never touches a model/protocol target.
+    if "pinned_printer_id" in changes:
+        from modules.jobs.pinning import pin_columns
+        chosen = changes.pop("pinned_printer_id")
+        if chosen is not None or (job.target_type or "specific") == "specific":
+            changes.update(pin_columns(chosen))
+    for field, value in changes.items():
         setattr(job, field, value)
 
     reconcile_job_write(db, production_orders)
@@ -627,6 +713,8 @@ def delete_job(job_id: int, current_user: dict = Depends(require_role("operator"
         raise HTTPException(status_code=404, detail="Job not found")
 
     log_audit(db, "job.deleted", "job", job.id, {"item_name": job.item_name})
+    from core.print_attempts import clear_job_attempts, sqlalchemy_runner
+    clear_job_attempts(sqlalchemy_runner(db), job.id)
     db.delete(job)
     reconcile_job_write(db, production_orders)
     db.commit()
@@ -674,7 +762,10 @@ async def repeat_job(job_id: int, current_user: dict = Depends(require_role("ope
         quantity=original.quantity,
         status="pending",
         priority=original.priority,
-        printer_id=original.printer_id,  # Same printer preference
+        printer_id=original.printer_id,  # Same printer preference (not a pin)
+        # Same target (an explicit pin, model or protocol target) as the original.
+        target_type=original.target_type,
+        target_filter=original.target_filter,
         duration_hours=original.duration_hours,
         colors_required=original.colors_required,
         filament_type=original.filament_type,

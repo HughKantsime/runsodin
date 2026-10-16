@@ -21,6 +21,32 @@ from modules.printers.services import evaluate_submission_compatibility
 from modules.jobs.models import Job, SchedulerRun
 
 
+def _printer_identity(printer) -> str:
+    """The printer's model identity: auto-detected machine_type wins over the
+    (possibly stale, user-entered) model; model only when machine_type is empty."""
+    machine_type = (getattr(printer, 'machine_type', None) or '').strip()
+    return machine_type or (getattr(printer, 'model', None) or '').strip()
+
+
+def _same_printer_model(printer_identity: str, required_model: str) -> bool:
+    """True only when the file's sliced-for model and the printer are the same machine.
+
+    Both sides resolve through the single Bambu model table
+    (core.printer_identity.canonical_machine over printer_models.BAMBU_MODEL_IDS).
+    Fails closed: when either side is unknown to the table it never matches a
+    different model; only a byte-identical identifier (case-insensitive) counts.
+    """
+    from core.printer_identity import canonical_machine
+    installed_raw = str(printer_identity or '').strip()
+    required_raw = str(required_model or '').strip()
+    installed, required = canonical_machine(installed_raw), canonical_machine(required_raw)
+    if installed is not None and required is not None:
+        return installed == required
+    if installed is not None or required is not None:
+        return False
+    return bool(installed_raw) and installed_raw.casefold() == required_raw.casefold()
+
+
 @dataclass
 class SchedulerConfig:
     """Configuration for the scheduler."""
@@ -248,12 +274,10 @@ class Scheduler:
 
     @staticmethod
     def _mark_reconciled_job(job: Job) -> None:
-        """Keep the ORM identity map aligned with a central-policy reconciliation."""
-        job.status = JobStatus.SUBMITTED
-        job.printer_id = None
-        job.scheduled_start = None
-        job.scheduled_end = None
-        job.match_score = None
+        """Keep the ORM identity map aligned with a central-policy reconciliation (no write)."""
+        from modules.jobs.state_machine import align_identity
+        align_identity(job, JobStatus.SUBMITTED, printer_id=None, scheduled_start=None,
+                       scheduled_end=None, match_score=None)
 
     def _cleanup_stale_schedules(self, db: Session, candidate_ids=None) -> int:
         """Reset stale schedules while preserving Education lifecycle policy."""
@@ -294,11 +318,9 @@ class Scheduler:
                         expected_revision=int(context["lifecycle_revision"]),
                     )
                     if changed:
-                        job.status = JobStatus.PENDING
-                        job.printer_id = int(printer_id)
-                        job.scheduled_start = None
-                        job.scheduled_end = None
-                        job.match_score = None
+                        from modules.jobs.state_machine import align_identity
+                        align_identity(job, JobStatus.PENDING, printer_id=int(printer_id),
+                                       scheduled_start=None, scheduled_end=None, match_score=None)
                         reset_count += 1
                     continue
 
@@ -319,15 +341,16 @@ class Scheduler:
                     reset_count += 1
                 continue
 
-            changed = db.execute(text("""
-                UPDATE jobs SET status='pending',printer_id=NULL,
-                    scheduled_start=NULL,scheduled_end=NULL,match_score=NULL
-                WHERE id=:id AND status='scheduled' AND scheduled_start < :cutoff
-                  AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id)
-                RETURNING id
-            """), {'id':job.id,'cutoff':cutoff}).first()
+            from modules.jobs.state_machine import transition_job
+            changed = transition_job(db, job.id, JobStatus.PENDING, "scheduler",
+                from_states=(JobStatus.SCHEDULED,),
+                extra_fields={"printer_id": None, "scheduled_start": None,
+                              "scheduled_end": None, "match_score": None},
+                where="scheduled_start < :cutoff AND NOT EXISTS "
+                      "(SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id)",
+                params={'cutoff': cutoff})
             db.expire(job)
-            if changed is not None:
+            if changed:
                 reset_count += 1
         if reset_count:
             db.flush()
@@ -348,6 +371,10 @@ class Scheduler:
             "compatibility_denied": "The approved printer no longer meets the submission requirements. Review compatibility and approval.",
             "revision_changed": "The approval changed during scheduling. Review its current state before scheduling again.",
             "current_state_changed": "The job changed during scheduling. Review its current state before scheduling again.",
+            "pinned_printer_inactive": "The printer this job is pinned to is inactive. Re-activate it or change the job's printer; the job remains queued.",
+            "pinned_printer_missing": "The printer this job is pinned to no longer exists. Choose another printer; the job remains queued.",
+            "pinned_printer_deleted": "The printer this job was pinned to was deleted. Choose another printer; the job remains queued.",
+            "pinned_printer_inaccessible": "Your organization can no longer use the printer this job is pinned to. Choose another printer; the job remains queued.",
         }
         for job_id, reason in sorted(skipped, key=lambda item: item[0]):
             if not lock_queue_alert(db, job_id, AlertType.QUEUE_SKIPPED):
@@ -474,7 +501,11 @@ class Scheduler:
             Job.status == JobStatus.PENDING,
             Job.hold.is_(False),
             Job.id.in_(candidates)
-        ).order_by(Job.priority, Job.created_at).populate_existing().all()
+        ).order_by(
+            # Same queue order as GET /jobs: priority, then drag position within
+            # the priority (unplaced last), then age.
+            Job.priority, Job.queue_position.is_(None), Job.queue_position, Job.created_at, Job.id
+        ).populate_existing().all()
         
         # Pre-fetch printer model requirements from uploaded print files.
         # This is the safety gate data: a job that uses an H2D file must not
@@ -567,6 +598,23 @@ class Scheduler:
                     )
                     continue
 
+            # Generic specific-printer pin, chosen explicitly by a user and kept
+            # across resets. A missing/inactive pinned printer leaves the job
+            # pending with a visible reason (never placed elsewhere).
+            # A deleted pin waits for a new choice (never retargeted onto a reused id);
+            # a legacy unparseable target is no pin. The reason is the alert reason.
+            from modules.jobs.pinning import job_pin, job_issue, BLOCKING
+            if education_context is None:
+                pin, issue = job_pin(job), job_issue(db, job)
+                if pin is not None:
+                    approved_printer_id = pin
+                if issue in BLOCKING:
+                    result.skipped_count += 1
+                    skipped.append((job.id, issue))
+                    result.errors.append(
+                        f"Could not schedule job {job.id}: pinned printer {pin if pin is not None else ''} is unavailable ({issue})")
+                    continue
+
             payload_snapshot = None
             if education_context is None:
                 from core.scheduler_payload_authority import capture, assignment_guard
@@ -611,10 +659,11 @@ class Scheduler:
                         continue
                 else:
                     payload_guard, payload_parameters = assignment_guard(payload_snapshot)
-                    changed = db.execute(text(f"""
-                        UPDATE jobs SET status='scheduled',printer_id=:printer,
-                            scheduled_start=:start,scheduled_end=:end,match_score=:score
-                        WHERE id=:id AND status='pending' AND hold IS FALSE
+                    from modules.jobs.state_machine import transition_job
+                    changed = transition_job(db, job.id, JobStatus.SCHEDULED, "scheduler",
+                        extra_fields={"printer_id": best_fit['printer_id'], "scheduled_start": best_fit['start_time'],
+                                      "scheduled_end": best_fit['end_time'], "match_score": best_fit['match_score']},
+                        where=f"""hold IS FALSE
                           AND quantity=:quantity
                           AND {payload_guard}
                           AND NOT EXISTS (SELECT 1 FROM printer_dispatch_claims dc WHERE dc.printer_id=:printer)
@@ -624,14 +673,11 @@ class Scheduler:
                             AND (p.org_id=:owner OR (p.org_id IS NULL AND CAST(:owner AS INTEGER) IS NULL))
                             AND (p.shared=:sharing OR (p.shared IS NULL AND CAST(:sharing AS BOOLEAN) IS NULL))
                             AND (p.org_id IS NULL OR p.org_id=jobs.charged_to_org_id OR p.shared=:enabled))
-                          AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id)
-                        RETURNING id
-                    """), {'printer':best_fit['printer_id'],'start':best_fit['start_time'],
-                            'end':best_fit['end_time'],'score':best_fit['match_score'],
-                            **payload_parameters, 'id':job.id,'quantity':job.quantity,
-                            'tenant':job.charged_to_org_id, 'enabled':True,
-                            'owner':printer_states[best_fit['printer_id']].authority['org_id'],
-                            'sharing':printer_states[best_fit['printer_id']].authority['stored_shared']}).first()
+                          AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id)""",
+                        params={'printer':best_fit['printer_id'], **payload_parameters, 'id': job.id,
+                                'quantity':job.quantity, 'tenant':job.charged_to_org_id, 'enabled':True,
+                                'owner':printer_states[best_fit['printer_id']].authority['org_id'],
+                                'sharing':printer_states[best_fit['printer_id']].authority['stored_shared']}) or None
                     if changed is None:
                         db.expire(job)
                         result.skipped_count += 1
@@ -643,11 +689,11 @@ class Scheduler:
                 self._apply_assignment(job=job, fit=best_fit,
                                        printer_states=printer_states, usage_map=usage_map)
                 if education_context is not None:
-                    job.status = JobStatus.SCHEDULED
-                    job.printer_id = best_fit['printer_id']
-                    job.scheduled_start = best_fit['start_time']
-                    job.scheduled_end = best_fit['end_time']
-                    job.match_score = best_fit['match_score']
+                    # The Education policy already wrote this transition in SQL.
+                    from modules.jobs.state_machine import align_identity
+                    align_identity(job, JobStatus.SCHEDULED, printer_id=best_fit['printer_id'],
+                                   scheduled_start=best_fit['start_time'], scheduled_end=best_fit['end_time'],
+                                   match_score=best_fit['match_score'])
 
                 # Track metrics
                 result.scheduled_count += 1
@@ -716,12 +762,13 @@ class Scheduler:
             if required_printer_id is not None and printer_id != required_printer_id:
                 continue
 
-            # Model constraint: skip printers whose model is known and doesn't match.
-            # If printer model is unset (not yet auto-detected), we allow it through —
-            # blocking on unknown model would exclude all non-Bambu printers.
+            # Model constraint for model-specific files: the printer's identity
+            # (auto-detected machine_type, else model) must be the same machine
+            # through the Bambu model table. Fail closed: a printer with no
+            # identity at all never receives a model-specific file.
             if required_printer_model:
-                printer_model = (state.printer.model or '').strip()
-                if printer_model and printer_model != required_printer_model:
+                identity = _printer_identity(state.printer)
+                if not identity or not _same_printer_model(identity, required_printer_model):
                     continue
 
             # Tag constraint: skip printers missing required tags
@@ -734,8 +781,9 @@ class Scheduler:
             job_target_type = getattr(job, 'target_type', 'specific') or 'specific'
             job_target_filter = getattr(job, 'target_filter', None)
             if job_target_type == 'model' and job_target_filter:
-                machine_type = getattr(state.printer, 'machine_type', None) or ''
-                if machine_type.lower() != job_target_filter.lower():
+                # Same single model table as file matching (X1C == "Bambu Lab X1 Carbon" == BL-P001).
+                identity = _printer_identity(state.printer)
+                if not identity or not _same_printer_model(identity, job_target_filter):
                     continue
             elif job_target_type == 'protocol' and job_target_filter:
                 printer_protocol = getattr(state.printer, 'api_type', None) or ''

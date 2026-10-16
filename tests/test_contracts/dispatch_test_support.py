@@ -3,6 +3,14 @@ import hashlib,secrets,zipfile
 from sqlalchemy import text
 
 
+BACKGROUND_THREADS=[]
+
+
+def join_background_threads(timeout=10.0):
+    while BACKGROUND_THREADS:
+        BACKGROUND_THREADS.pop().join(timeout)
+
+
 def configure_dispatch(db,tmp_path,monkeypatch,protocol='moonraker'):
     from core import auth,crypto,db as core_db
     from core.registry import registry
@@ -15,6 +23,15 @@ def configure_dispatch(db,tmp_path,monkeypatch,protocol='moonraker'):
     engine=db.get_bind()
     monkeypatch.setattr(core_db,'engine',engine)
     monkeypatch.setattr(smart_plug,'engine',engine)
+    # No smart-plug energy thread may outlive this test (it would read the next
+    # test's monkeypatched engine): start immediately and join at teardown.
+    monkeypatch.setattr(smart_plug,'_ENERGY_START_DELAY',0)
+    original_background=smart_plug._in_background
+    def tracked(function,*args):
+        worker=original_background(function,*args)
+        BACKGROUND_THREADS.append(worker)
+        return worker
+    monkeypatch.setattr(smart_plug,'_in_background',tracked)
     monkeypatch.setitem(registry._providers,'EducationPolicyProvider',EducationPolicyService())
     monkeypatch.setattr(dispatch,'_ws',lambda *args:None)
     monkeypatch.setattr(dispatch,'_notify_start_outcome',lambda *args:None)

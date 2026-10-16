@@ -67,6 +67,14 @@ def capture_mqtt_start_weights(conn,print_job_id,printer_id,state):
     return weights
 
 
+def _unschedule(cur, job_id, printer_id) -> bool:
+    """Bump/sweep one scheduled job back to pending through the state machine (pin kept)."""
+    from modules.jobs.services import transition_job
+    return transition_job(cur, job_id, 'pending', 'monitor', extra_fields={
+        'printer_id': None, 'scheduled_start': None, 'scheduled_end': None, 'match_score': None},
+        where='printer_id=:pid', params={'pid': printer_id})
+
+
 @retry_production_linkage
 def record_job_started(
     printer_id: int,
@@ -149,12 +157,7 @@ def record_job_started(
                 if stale_rows:
                     stale_ids = [r[0] for r in stale_rows]
                     stale_names = [r[1] or f"job #{r[0]}" for r in stale_rows]
-                    cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
-                        "UPDATE jobs SET status = 'pending', printer_id = NULL,"
-                        " scheduled_start = NULL, scheduled_end = NULL, match_score = NULL"
-                        " WHERE printer_id=? AND status='scheduled' AND id IN ({}) RETURNING id".format(','.join('?' * len(stale_ids))),
-                        [printer_id, *stale_ids])
-                    changed_ids = {row[0] for row in cur.fetchall()}
+                    changed_ids = {jid for jid in stale_ids if _unschedule(cur, jid, printer_id)}
                     stale_names = [name for row_id,name in zip(stale_ids,stale_names) if row_id in changed_ids]
                     stale_ids = sorted(changed_ids)
                     if stale_ids:
@@ -241,15 +244,24 @@ def record_job_started(
                         log.info(f"[{printer_name}] {len(window_candidates)} scheduled jobs in ±2hr window - cannot auto-link")
 
                 if linked_job_id:
-                    changed = cur.execute("""
-                        UPDATE jobs SET status='printing',actual_start=COALESCE(actual_start,?)
-                        WHERE id=? AND printer_id=? AND status IN ('scheduled','pending')
-                          AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id)
-                        RETURNING id
-                    """, (datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
-                          linked_job_id,printer_id)).fetchone()
-                    if changed is None:
+                    from modules.jobs.services import transition_job, Expr
+                    changed = transition_job(cur, linked_job_id, 'printing', 'monitor',
+                        from_states=('scheduled', 'pending'),
+                        extra_fields={'actual_start': Expr('COALESCE(actual_start, :started)',
+                            started=datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'))},
+                        where="printer_id=:pid AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id)",
+                        params={'pid': printer_id})
+                    if not changed:
                         linked_job_id = None
+                    else:
+                        # Persist the match so the print's end completes this
+                        # job instead of auto-creating a duplicate one.
+                        cur.execute(
+                            "UPDATE print_jobs SET scheduled_job_id = ? WHERE id = ? AND scheduled_job_id IS NULL",
+                            (linked_job_id, new_job_id))
+                        if cur.rowcount == 1:
+                            from core.print_attempts import bind_print_attempt, qmark_runner
+                            bind_print_attempt(qmark_runner(cur), new_job_id, linked_job_id)
 
                 # ---- Ad-hoc print: bump displaced scheduled jobs ----
                 if not linked_job_id and candidates:
@@ -266,12 +278,7 @@ def record_job_started(
                     if displaced:
                         displaced_ids = [r[0] for r in displaced]
                         displaced_names = [r[1] or f"job #{r[0]}" for r in displaced]
-                        cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
-                            "UPDATE jobs SET status = 'pending', printer_id = NULL,"
-                            " scheduled_start = NULL, scheduled_end = NULL, match_score = NULL"
-                            " WHERE printer_id=? AND status='scheduled' AND id IN ({}) RETURNING id".format(','.join('?' * len(displaced_ids))),
-                            [printer_id, *displaced_ids])
-                        changed_ids = {row[0] for row in cur.fetchall()}
+                        changed_ids = {jid for jid in displaced_ids if _unschedule(cur, jid, printer_id)}
                         displaced_names = [name for row_id,name in zip(displaced_ids,displaced_names) if row_id in changed_ids]
                         displaced_ids = sorted(changed_ids)
                         if displaced_ids:
@@ -351,6 +358,7 @@ def record_job_ended(
     error_code = state.get('print_error') if status == 'failed' else None
     committed_completion = False
     completion_job_id = None
+    job_applied = False
 
     try:
         with get_db() as conn:
@@ -396,15 +404,27 @@ def record_job_ended(
                     "education_reserved"
                 ):
                     conn.commit()
-                    committed_completion = (status == 'completed'
-                        and education_result.get('authorized') is True
-                        and education_result.get('transitioned') is True)
-                    completion_job_id = education_result.get('job_id')
+                    # The physical print completion is published whenever the print
+                    # really ended -- also when Education refused the job transition
+                    # (physical_ended) -- but names the job only when it applied.
+                    applied = (education_result.get('authorized') is True
+                               and education_result.get('transitioned') is True)
+                    physical = applied or education_result.get('physical_ended') is True
+                    committed_completion = status == 'completed' and physical
+                    completion_job_id = education_result.get('job_id') if applied else None
                     log.info(
                         "[%s] Education job terminal policy result: %s",
                         printer_name,
                         education_result,
                     )
+                    if physical:
+                        try:
+                            from modules.archives.archive import create_print_archive
+                            create_print_archive(print_job_id=current_job_id, printer_id=printer_id,
+                                                 success=(status == 'completed'),
+                                                 result_status=status if status == 'cancelled' else None)
+                        except Exception as ae:
+                            log.warning(f"[{printer_name}] Failed to create print archive: {ae}")
                     return education_result.get("job_id") or linked_job_id
 
             linked_job_id, production_orders = prepare_print_job_write(conn, current_job_id)
@@ -446,10 +466,22 @@ def record_job_ended(
             job_status = status.lower()
 
             if linked_job_id:
-                cur.execute("UPDATE jobs SET status = ?, actual_end = ?, duration_hours = COALESCE(?, duration_hours) WHERE id = ?",
-                            (job_status, now_utc, duration_hours, linked_job_id))
-                log.info(f"[{printer_name}] Updated linked job {linked_job_id} to '{job_status}' (duration={duration_hours}h)")
+                # Keep the slicer estimate in duration_hours; the actual duration
+                # is actual_end - actual_start. Only fill duration_hours when the
+                # job carried no estimate at all.
+                # An operator's terminal decision (e.g. Mark failed while the
+                # print was still running) is never overwritten by the print end.
+                from modules.jobs.services import transition_job, Expr
+                job_applied = transition_job(cur, linked_job_id, job_status, 'monitor', extra_fields={
+                    'actual_end': now_utc,
+                    'actual_start': Expr('COALESCE(actual_start, :pj_started)', pj_started=pj_row[0] if pj_row else None),
+                    'duration_hours': Expr('COALESCE(duration_hours, :measured)', measured=duration_hours)})
+                if job_applied:
+                    log.info(f"[{printer_name}] Updated linked job {linked_job_id} to '{job_status}' (duration={duration_hours}h)")
+                else:
+                    log.info(f"[{printer_name}] Linked job {linked_job_id} already terminal; kept operator status")
             else:
+                job_applied = True
                 # Create a jobs record for metrics tracking
                 actual_start = pj_row[0] if pj_row else now_utc
                 # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- values are bound and the only interpolated fragment is sql.returning_id()
@@ -465,14 +497,22 @@ def record_job_ended(
                     linked_job_id = cur.lastrowid
                 cur.execute("UPDATE print_jobs SET scheduled_job_id = ? WHERE id = ?",
                             (linked_job_id, current_job_id))
+                from core.print_attempts import bind_print_attempt, qmark_runner
+                bind_print_attempt(qmark_runner(cur), current_job_id, linked_job_id)
                 log.info(f"[{printer_name}] Created job {linked_job_id} for '{job_name}' ({job_status}, duration={duration_hours}h)")
 
             reconcile_job_write(conn, production_orders)
             conn.commit()
+            # The physical print completion is always published (archive capture,
+            # energy recording, auto power-off are keyed by the print). Job-scoped
+            # effects only see the job when this print end actually completed it.
             committed_completion = status == 'completed'
-            completion_job_id = linked_job_id
+            completion_job_id = linked_job_id if job_applied else None
 
         log.info(f"[{printer_name}] Job {status}: DB id {current_job_id}")
+        # Job-scoped alerts name the job only when this end applied to it; otherwise
+        # they are printer-scoped, like a printer-only print's.
+        alert_job_id = linked_job_id if job_applied else None
 
         # Lazy imports to avoid circular import at module load time
         from modules.notifications.alert_dispatch import dispatch_alert as _dispatch_alert_b
@@ -487,7 +527,7 @@ def record_job_ended(
                 title=f"Print Complete: {job_name} ({printer_name})",
                 message=f"Job finished successfully on {printer_name}.",
                 printer_id=printer_id,
-                job_id=linked_job_id,
+                job_id=alert_job_id,
             )
             # Increment care counters
             try:
@@ -515,7 +555,7 @@ def record_job_ended(
                 title=f"Print Failed: {job_name} ({printer_name})",
                 message=msg,
                 printer_id=printer_id,
-                job_id=linked_job_id,
+                job_id=alert_job_id,
                 metadata={"progress_percent": progress, "error_code": err}
             )
             printer_events.record_error(

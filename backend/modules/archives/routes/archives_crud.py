@@ -606,7 +606,8 @@ def reprint_archive(
         ams_mapping=mapping, printer_id=printer.id, priority=5, status="pending",
         submitted_by=identity.get("id"), charged_to_user_id=identity.get("id"),
         charged_to_org_id=identity.get("group_id"), quantity=1, hold=False,
-        is_locked=False, target_type="specific",
+        # The reprint dialog's printer (and its AMS mapping) is an explicit choice: pin it.
+        is_locked=False, target_type="specific", target_filter=str(printer.id),
     )
 
     queue_creator.stage_job(db, new_job, identity)

@@ -89,12 +89,18 @@ def _sliced_3mf() -> bytes:
     }
     model = """<model xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
     <metadata name="Title">Class Gear</metadata><resources/><build/></model>"""
+    # Fixed member timestamps: zipfile.writestr(name) stamps the current local time
+    # (2-second resolution), so two calls straddling a boundary produced different
+    # bytes and a same-token replay hit the product's correct 409 "submission_token
+    # was reused with a different file" (intermittent under load).
+    def member(name):
+        return zipfile.ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))
     with zipfile.ZipFile(output, "w") as archive:
-        archive.writestr("Metadata/slice_info.config", slice_info)
-        archive.writestr("Metadata/project_settings.config", json.dumps(project))
-        archive.writestr("Metadata/plate_1.json", json.dumps({"nozzle_diameter": 0.4}))
-        archive.writestr("Metadata/plate_1.gcode", "; sliced\nG28\n")
-        archive.writestr("3D/3dmodel.model", model)
+        archive.writestr(member("Metadata/slice_info.config"), slice_info)
+        archive.writestr(member("Metadata/project_settings.config"), json.dumps(project))
+        archive.writestr(member("Metadata/plate_1.json"), json.dumps({"nozzle_diameter": 0.4}))
+        archive.writestr(member("Metadata/plate_1.gcode"), "; sliced\nG28\n")
+        archive.writestr(member("3D/3dmodel.model"), model)
     return output.getvalue()
 
 

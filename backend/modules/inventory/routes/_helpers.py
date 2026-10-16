@@ -10,6 +10,7 @@ from PIL import Image, ImageDraw, ImageFont
 from pydantic import BaseModel as PydanticBaseModel, ConfigDict, Field, model_validator
 
 from core.spool_purchase_validation import PurchaseInput, MAX_REVISION
+from core.filament_ledger import MANUAL_NOTES_MAX
 
 import logging
 log = logging.getLogger("odin.api")
@@ -102,7 +103,8 @@ class SpoolUseRequest(PydanticBaseModel):
     weight_used_g: Optional[float] = None
     grams: Optional[float] = None
     job_id: Optional[int] = None
-    notes: Optional[str] = None
+    # Stored after the ledger's "manual: " prefix in spool_usage.notes (VARCHAR(255)).
+    notes: Optional[str] = Field(default=None, max_length=MANUAL_NOTES_MAX)
 
     @property
     def resolved_grams(self) -> float:

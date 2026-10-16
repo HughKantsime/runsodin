@@ -121,6 +121,9 @@ def parse_3mf(file_path: str, name: Optional[str] = None) -> Optional[PrintFileM
     
     Args:
         file_path: Path to the .3mf file
+        name: The user's original filename. When the 3MF carries no
+            Title, the project name falls back to this name rather than the
+            server-side temp file stem.
         
     Returns:
         PrintFileMetadata object or None if parsing fails

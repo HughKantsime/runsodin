@@ -431,11 +431,19 @@ def test_sqlite_compatibility_inventory_is_complete_and_current() -> None:
         and '"check_same_thread"' in item["source"]
         for item in payload["entries"]
     )
-    assert any(
-        path.endswith("monitors/mqtt_job_lifecycle.py")
-        and "join('?' * len(" in source
-        for path, source in qmark_sources
-    )
+    # Generated placeholder lists (','.join('?' * len(ids))) are still detected.
+    # The last live site (mqtt_job_lifecycle multi-row unschedule) now goes
+    # through the job state machine, so check the scanner on that exact shape.
+    from ops.database_parity.sqlite_compatibility_inventory import scan_source
+    try:
+        scan_source(
+            "backend/unclassified_probe.py",
+            "cur.execute('UPDATE x SET y=1 WHERE id IN ({})'.format(','.join('?' * len(ids))), ids)\n",
+        )
+    except RuntimeError as error:
+        assert "unclassified SQLite compatibility site" in str(error)
+    else:
+        raise AssertionError("generated qmark placeholder list was not detected")
 
 
 def test_sqlite_compatibility_inventory_detects_dynamic_construction_forms() -> None:

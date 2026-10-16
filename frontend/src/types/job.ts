@@ -48,6 +48,17 @@ export interface Job {
   model_revision_id: number | null;
   order_item_id: number | null;
   quantity_on_bed: number | null;
+  queue_position: number | null;
+  pinned_printer_id: number | null;
+  pinned_printer_issue: 'pinned_printer_missing' | 'pinned_printer_inactive' | 'pinned_printer_deleted'
+    | 'pinned_printer_inaccessible' | 'pinned_target_invalid' | null;
+  submitted_by: number | null;
+  approved_by: number | null;
+  approved_at: string | null;
+  rejected_reason: string | null;
+  charged_to_org_id: number | null;
+  fail_reason: string | null;
+  fail_notes: string | null;
   printer: PrinterSummary | null;
   model: ModelSummary | null;
 }
@@ -66,6 +77,7 @@ export interface JobCreate {
   required_tags?: string[];
   target_type?: string;
   target_filter?: string;
+  printer_id?: number | null;
   model_revision_id?: number;
 }
 
@@ -74,7 +86,9 @@ export interface JobUpdate {
   model_id?: number;
   quantity?: number;
   priority?: number;
+  /** Refused by PATCH (422): status moves only through the lifecycle and approval routes. */
   status?: JobStatus;
+  /** The scheduler's assignment, never a pin. On a pinned job it must equal the pin (else 409). */
   printer_id?: number;
   scheduled_start?: string;
   scheduled_end?: string;
@@ -85,6 +99,8 @@ export interface JobUpdate {
   hold?: boolean;
   is_locked?: boolean;
   due_date?: string;
+  /** The only field that changes a pin: a printer id pins, null clears a specific pin. */
+  pinned_printer_id?: number | null;
 }
 
 export interface JobSummary {

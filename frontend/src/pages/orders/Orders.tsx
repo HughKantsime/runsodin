@@ -29,8 +29,10 @@ const optionalAmount = (value) => {
 
 function OrderStatsBar({ orders: ordersList }) {
   if (!ordersList.length) return null
-  const knownRevenue = ordersList.every(order => typeof order.revenue === 'number' && Number.isFinite(order.revenue))
-  const revenueTotal = knownRevenue ? ordersList.reduce((sum, order) => sum + order.revenue, 0) : null
+  // Revenue counts only live orders: cancelled orders earned nothing (same basis as Average Margin).
+  const revenueOrders = ordersList.filter(order => order.status !== 'cancelled')
+  const knownRevenue = revenueOrders.every(order => typeof order.revenue === 'number' && Number.isFinite(order.revenue))
+  const revenueTotal = knownRevenue ? revenueOrders.reduce((sum, order) => sum + order.revenue, 0) : null
   // Revenue-weighted estimate: sum of BOM-estimated profit over sum of revenue, for
   // non-cancelled orders whose revenue and estimate are both known.
   const finite = (value) => typeof value === 'number' && Number.isFinite(value)

@@ -42,34 +42,22 @@ class TestCompleteJobAtomicTransition:
     """complete_job() must use an atomic UPDATE for the state transition."""
 
     def test_complete_job_uses_atomic_conditional_update(self):
+        """complete_job's transition is the state machine's guarded atomic UPDATE.
+
+        (Updated for the job state machine: the single-winner UPDATE ... WHERE
+        status IN (allowed) now lives in modules/jobs/state_machine.py; the
+        census test in test_cert_D_job_state_machine.py forbids any other
+        jobs.status writer.)
+        """
         source = JOBS_LIFECYCLE.read_text()
         fn_src = _get_function_source(source, "complete_job")
         assert fn_src, "complete_job function is missing from jobs_lifecycle.py"
-
-        # Must reference JobStatus.COMPLETED.
-        assert "JobStatus.COMPLETED" in fn_src
-
-        # Look for `update(Job).where(... status != JobStatus.COMPLETED ...)`
-        # The exact whitespace can vary, so use a structural regex.
-        patterns_required = [
-            re.compile(r"update\(\s*Job\s*\)", re.MULTILINE),
-            re.compile(r"\.where\([^)]*Job\.status\s*!=\s*JobStatus\.COMPLETED",
-                       re.MULTILINE | re.DOTALL),
-            re.compile(r"\.values\(", re.MULTILINE),
-            re.compile(r"result\.rowcount\s*==\s*0", re.MULTILINE),
-        ]
-        missing = [p.pattern for p in patterns_required if not p.search(fn_src)]
-        assert not missing, (
-            "complete_job no longer uses the race-safe atomic-UPDATE pattern. "
-            "R5 verification requires:\n"
-            "  result = db.execute(update(Job).where(Job.id == :id, "
-            "Job.status != JobStatus.COMPLETED).values(...))\n"
-            "  if result.rowcount == 0: return job  # already completed\n\n"
-            f"Missing pattern(s): {missing}\n\n"
-            "Why: the previous Python-level `if job.status == COMPLETED: "
-            "return` check is broken under concurrency — two threads can "
-            "both pass the guard before either commits."
-        )
+        assert re.search(r"transition_job\(\s*db,\s*job_id,\s*JobStatus\.COMPLETED", fn_src), \
+            "complete_job must transition through modules.jobs.state_machine.transition_job"
+        assert re.search(r"if not applied:", fn_src), "a lost race / retry must take the no-side-effect path"
+        machine = (BACKEND_DIR / "modules" / "jobs" / "state_machine.py").read_text()
+        assert "WHERE id=:sm_job " in machine and "AND status IN (" in machine
+        assert ".rowcount" in machine
 
     def test_no_python_level_status_guard_only(self):
         """A bare `if status == COMPLETED: return` is NOT enough on its own.

@@ -21,11 +21,11 @@ import toast from 'react-hot-toast'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import { PageHeader, SearchInput, StatCard, TabBar, Button, EmptyState, Modal } from '../../components/ui'
 
-import { models, filaments, printers } from '../../api'
+import { models, filaments, printers, getApprovalSetting } from '../../api'
 import { canDo } from '../../permissions'
 import { useOrg } from '../../contexts/OrgContext'
 
-function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onView3D, onRevisions }) {
+function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onView3D, onRevisions, submitForApproval = false }) {
   return (
     <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] overflow-hidden hover:border-[var(--brand-card-border)] transition-colors">
       <div className="h-28 md:h-32 bg-[var(--brand-content-bg)] flex items-center justify-center">
@@ -75,10 +75,10 @@ function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onV
               <Star size={14} fill={model.is_favorite ? "currentColor" : "none"} />
             </button>
 
-            {canDo('models.create') && <button
+            {(canDo('models.create') || submitForApproval) && <button
               onClick={() => onSchedule(model)}
               className="p-1.5 md:p-2 text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10 rounded-md transition-colors"
-              aria-label="Schedule print job"
+              aria-label={submitForApproval ? 'Submit for approval' : 'Schedule print job'}
             >
               <CalendarPlus size={14} />
             </button>}
@@ -621,6 +621,12 @@ export default function Models() {
   }, [updateSearchParams])
 
   const { data: modelsData, isLoading } = useQuery({ queryKey: ['models', categoryFilter, org.orgId], queryFn: () => models.listWithPricing(categoryFilter || null, org.orgId) })
+  // Viewers (students) submit library models for approval when the approval workflow is on;
+  // the backend creates the job as 'submitted' for an operator/admin to approve.
+  // Roles that cannot schedule directly (viewers by default RBAC) get the approval path.
+  const mayScheduleDirectly = canDo('models.create')
+  const { data: approvalSetting } = useQuery({ queryKey: ['approval-setting'], queryFn: () => getApprovalSetting(), enabled: !mayScheduleDirectly })
+  const submitForApproval = !mayScheduleDirectly && !!approvalSetting?.require_job_approval
 
   // Auto-open schedule modal if ?schedule=modelId is present
   useEffect(() => {
@@ -657,7 +663,7 @@ export default function Models() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['jobs'] })
       setScheduleModel(null)
-      toast.success('Print job scheduled')
+      toast.success(submitForApproval ? 'Job submitted for approval' : 'Print job scheduled')
     },
     onError: (err) => toast.error('Schedule failed: ' + err.message),
   })
@@ -789,7 +795,7 @@ export default function Models() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
           {filteredModels?.map((model) => (
-            <ModelCard key={model.id} model={model} onEdit={handleEdit} onDelete={handleDelete} onSchedule={handleScheduleClick} onToggleFavorite={handleToggleFavorite} onView3D={(m) => { setViewerModelId(m.id); setViewerModelName(m.name) }} onRevisions={(m) => setRevisionModel(m)} />
+            <ModelCard key={model.id} model={model} onEdit={handleEdit} onDelete={handleDelete} onSchedule={handleScheduleClick} onToggleFavorite={handleToggleFavorite} onView3D={(m) => { setViewerModelId(m.id); setViewerModelName(m.name) }} onRevisions={(m) => setRevisionModel(m)} submitForApproval={submitForApproval} />
           ))}
         </div>
       )}

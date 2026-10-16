@@ -4,6 +4,12 @@ import pytest
 from sqlalchemy import text
 from tests.test_contracts.test_education_review_workflow import review_db
 
+
+def _is_assignment(statement):
+    """The scheduler's guarded assignment UPDATE (issued by modules.jobs.state_machine)."""
+    sql = str(statement)
+    return sql.startswith("UPDATE jobs SET status=:sm_to") and "printer_dispatch_claims dc" in sql
+
 @pytest.mark.parametrize('tenant', [None, 2])
 def test_private_printer_does_not_schedule_uncharged_or_foreign_tenant(review_db, monkeypatch, tenant):
     from core.registry import registry
@@ -55,7 +61,7 @@ def test_assignment_rechecks_current_authority_after_candidate_selection(review_
     original = Session.execute
     observed = []
     def drift(session, statement, *args, **kwargs):
-        if not observed and "UPDATE jobs SET status='scheduled',printer_id=:printer" in str(statement):
+        if not observed and _is_assignment(statement):
             observed.append(True)
             command = {'owner':'UPDATE printers SET org_id=2', 'sharing':'UPDATE printers SET shared=FALSE',
                        'tenant':'UPDATE jobs SET charged_to_org_id=2 WHERE id=901', 'inactive':'UPDATE printers SET is_active=FALSE'}[change]
@@ -94,7 +100,7 @@ def test_claim_arriving_after_candidate_selection_rechecks_selected_printer(revi
     original=Session.execute
     observed=[]
     def execute(session,statement,*args,**kwargs):
-        if not observed and "UPDATE jobs SET status='scheduled',printer_id=:printer" in str(statement):
+        if not observed and _is_assignment(statement):
             observed.append(True)
             class Executor:
                 def execute(self,*args,**kwargs):return original(session,*args,**kwargs)
@@ -188,7 +194,7 @@ def test_scheduler_payload_final_comparison_refuses_current_drift(payload_job,mo
     original=Session.execute
     observed=[]
     def execute(session,statement,*args,**kwargs):
-        if not observed and "UPDATE jobs SET status='scheduled',printer_id=:printer" in str(statement):
+        if not observed and _is_assignment(statement):
             observed.append(True)
             command={
                 'model_owner':'UPDATE models SET org_id=2 WHERE id=51',

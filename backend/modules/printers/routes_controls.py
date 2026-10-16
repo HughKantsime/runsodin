@@ -427,7 +427,7 @@ async def plate_cleared(
         text("""
             SELECT id FROM jobs
             WHERE printer_id = :pid AND status = 'waiting_plate_clear'
-            ORDER BY queue_position ASC, id ASC LIMIT 1
+            ORDER BY priority ASC, (queue_position IS NULL) ASC, queue_position ASC, created_at ASC, id ASC LIMIT 1
         """),
         {"pid": printer_id},
     ).fetchone()
@@ -446,11 +446,9 @@ async def plate_cleared(
                        {'id':waiting[0]}).first()
     if owner is None or not check_org_access(current_user, owner[0]):
         raise HTTPException(404, 'Job not found')
-    changed = db.execute(
-        text("UPDATE jobs SET status = 'pending' WHERE id = :jid AND printer_id=:pid"
-             " AND status='waiting_plate_clear' RETURNING id"),
-        {"jid":waiting[0],"pid":printer_id},
-    ).first()
+    from modules.jobs.services import transition_job
+    changed = transition_job(db, waiting[0], "pending", "plate",
+                             where="printer_id=:pid", params={"pid": printer_id}) or None
     reconcile_job_write(db, parents)
     db.commit()
     if changed is None:

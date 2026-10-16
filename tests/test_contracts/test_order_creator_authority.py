@@ -117,6 +117,9 @@ def test_every_order_mutation_has_actual_scoped_key_boundary(creators,review_db,
     assert created.status_code==200,created.text
     oid=created.json()["id"]
     iid=review_db.execute(text("SELECT id FROM order_items WHERE order_id=:id"),{"id":oid}).scalar_one()
+    if operation=="ship":
+        # Shipping is only reachable from the production lifecycle (pending orders are refused).
+        review_db.execute(text("UPDATE orders SET status='fulfilled' WHERE id=:id"),{"id":oid});review_db.commit()
     def snapshot():
         return (tuple(review_db.execute(text("SELECT id,notes,status,tracking_number FROM orders ORDER BY id")).all()),tuple(review_db.execute(text("SELECT id,order_id,quantity,unit_price FROM order_items ORDER BY id")).all()))
     before=snapshot();review_db.commit()

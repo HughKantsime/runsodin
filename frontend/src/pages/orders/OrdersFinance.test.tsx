@@ -150,11 +150,11 @@ it('keeps global order statistics when the visible status filter changes',async(
  render(<MemoryRouter initialEntries={['/orders']}><Orders/></MemoryRouter>)
  await screen.findAllByText('Synthetic global shipped')
  const value=(text:string)=>screen.getAllByText(text,{exact:true}).find(element=>element.tagName==='SPAN')!.parentElement!.nextElementSibling!.textContent
- expect(value('Total Orders')).toBe('3');expect(value('Revenue')).toBe('$14.99')
+ expect(value('Total Orders')).toBe('3');expect(value('Revenue')).toBe('$12.99')
  fireEvent.change(screen.getByRole('option',{name:'Pending',exact:true}).closest('select')!,{target:{value:'pending'}})
  await waitFor(()=>expect(screen.queryAllByText('Synthetic global shipped')).toHaveLength(0))
  expect(screen.getAllByText('Synthetic global pending').length).toBeGreaterThan(0)
- expect(value('Total Orders')).toBe('3');expect(value('Revenue')).toBe('$14.99')
+ expect(value('Total Orders')).toBe('3');expect(value('Revenue')).toBe('$12.99')
  expect(value('Pending')).toBe('1');expect(value('Shipped')).toBe('1')
 })
 

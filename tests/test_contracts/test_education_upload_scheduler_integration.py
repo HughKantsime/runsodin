@@ -82,12 +82,31 @@ def test_explicit_hold_still_blocks_uploaded_job(review_db, tmp_path, monkeypatc
     assert review_db.execute(text('SELECT status FROM jobs WHERE id=:id'), {'id': uploaded['job_id']}).scalar_one() == 'pending'
 
 
-def test_non_education_job_retains_legacy_model_filter(review_db, tmp_path, monkeypatch):
-    uploaded = _upload_and_approve(review_db, tmp_path, 'C12')
-    review_db.execute(text('DELETE FROM education_submissions WHERE id=:id'), {'id': uploaded['id']})
+def _generic_c12_job(review_db):
+    """A non-Education, model-bound job whose library file was sliced for C12 (Bambu Studio: P1S)."""
+    review_db.execute(text("INSERT INTO models(id,name,org_id,build_time_hours) VALUES(960,'Generic C12 part',1,1)"))
+    review_db.execute(text("INSERT INTO print_files(filename,model_id,printer_model,org_id) VALUES('generic.3mf',960,'C12',1)"))
+    review_db.execute(text("INSERT INTO jobs(id,item_name,status,charged_to_org_id,charged_to_user_id,quantity,duration_hours,"
+                           "hold,priority,model_id) VALUES(960,'Generic C12 part','pending',1,1,1,1,FALSE,3,960)"))
+    review_db.commit()
+    return 960
+
+
+def test_non_education_job_schedules_on_matching_model_through_model_table(review_db, tmp_path, monkeypatch):
+    """Generic C12 job lands on a P1S (previously asserted 0 scheduled: 'C12' was compared verbatim to 'P1S')."""
+    job = _generic_c12_job(review_db)
+    result = _schedule(review_db, monkeypatch)
+    assert result.scheduled_count == 1
+    status, printer = review_db.execute(text('SELECT status,printer_id FROM jobs WHERE id=:id'), {'id': job}).one()
+    assert status == 'scheduled' and printer in (9, 10)  # both fixture printers are P1S
+
+
+def test_non_education_job_refuses_a_different_model(review_db, tmp_path, monkeypatch):
+    job = _generic_c12_job(review_db)
+    review_db.execute(text("UPDATE printers SET model='Bambu Lab X1 Carbon', machine_type='X1C'"))
     review_db.commit()
     assert _schedule(review_db, monkeypatch).scheduled_count == 0
-    assert review_db.execute(text('SELECT status FROM jobs WHERE id=:id'), {'id': uploaded['job_id']}).scalar_one() == 'pending'
+    assert review_db.execute(text('SELECT status FROM jobs WHERE id=:id'), {'id': job}).scalar_one() == 'pending'
 
 
 def test_dispatch_loads_hash_of_the_actual_uploaded_submission(review_db, tmp_path, monkeypatch):

@@ -42,6 +42,12 @@ export function useJobMutations() {
     onError: (err) => toast.error('Cancel job failed: ' + err.message),
   })
 
+  const failJob = useMutation({
+    mutationFn: jobs.fail,
+    onSuccess: () => { inv(); toast.success('Job marked failed') },
+    onError: (err) => toast.error('Mark job failed failed: ' + err.message),
+  })
+
   const deleteJob = useMutation({
     mutationFn: jobs.delete,
     onSuccess: () => { inv(); toast.success('Job deleted') },
@@ -91,6 +97,7 @@ export function useJobMutations() {
     startJob,
     completeJob,
     cancelJob,
+    failJob,
     deleteJob,
     repeatJob,
     dispatchJob,
