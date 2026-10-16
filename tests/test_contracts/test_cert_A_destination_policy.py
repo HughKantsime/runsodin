@@ -193,3 +193,19 @@ def test_percent_encoded_camera_password_is_accepted_and_masked(cert_app, review
     assert response.json()["camera_url"] == "rtsp://***@192.0.2.88:554/s"
     review_db.expire_all()
     assert crypto.decrypt(review_db.execute(text("SELECT camera_url FROM printers WHERE id=301")).scalar_one()) == url
+
+
+@pytest.mark.parametrize("url", ["rtsp://192.0.2.88:554/live@main", "rtsp://192.0.2.88/stream?user=a@b",
+                                 "rtsp://192.0.2.88/x#@frag"])
+def test_at_sign_in_camera_path_or_query_is_not_userinfo(cert_app, review_db, monkeypatch, url):
+    import modules.printers.route_utils as route_utils
+    monkeypatch.setattr(route_utils, "_go2rtc_restart_with_lock", lambda config, **kw: None)
+    if "#" in url:
+        # '#' is not valid in a stored camera URL fragment-free form; masking only.
+        assert route_utils.sanitize_camera_url(url) == url
+        return
+    response = cert_app.patch("/printers/301", headers=cert_app.roles["operator"], json={"camera_url": url})
+    assert response.status_code == 200, response.text
+    assert response.json()["camera_url"] == url  # not rejected, not over-masked
+    assert route_utils.sanitize_camera_url("rtsp://u:p@192.0.2.88/live@main") == "rtsp://***@192.0.2.88/live@main"
+

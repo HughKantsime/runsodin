@@ -163,23 +163,32 @@ _URL_SCHEME_RE = re.compile(r'^([a-z][a-z0-9+.\-]*://)', re.IGNORECASE)
 CAMERA_CREDENTIAL_MASK = '***'
 
 
+_HOST_PORT_RE = re.compile(r'^(\[[0-9A-Fa-f:.%]+\]|[^\s:@\[\]/?#]+)(:[0-9]{0,5})?$')
+
+
 def split_url_userinfo(url: str):
     """Split a URL into (scheme://, userinfo or None, text after the userinfo '@').
 
-    Uses the LAST '@' after the scheme. For a well-formed URL this is the
-    same userinfo urlsplit finds (rpartition('@') of the authority); for a
-    legacy value with an unencoded / ? # in the password it still covers
-    the whole credential, so masking never leaks part of it (a path '@'
-    is over-masked, which is safe).
+    Only the authority (up to the first / ? #, as urlsplit defines it) can
+    carry userinfo, so an '@' in the path or query is never treated as a
+    credential. The one exception is a legacy stored value whose unencoded
+    / ? # in a password makes the authority not a valid host[:port] (e.g.
+    "u:se/cret@host"): then everything up to the last '@' is treated as the
+    credential, so masking never leaks part of it.
     """
     match = _URL_SCHEME_RE.match(url or '')
     if not match:
         return None, None, url
     rest = url[match.end():]
-    at = rest.rfind('@')
-    if at < 0:
-        return match.group(1), None, rest
-    return match.group(1), rest[:at], rest[at + 1:]
+    end = min([i for i in (rest.find('/'), rest.find('?'), rest.find('#')) if i >= 0] or [len(rest)])
+    authority = rest[:end]
+    at = authority.rfind('@')
+    if at >= 0:
+        return match.group(1), rest[:at], rest[at + 1:]
+    if '@' in rest and not _HOST_PORT_RE.match(authority):
+        last = rest.rfind('@')
+        return match.group(1), rest[:last], rest[last + 1:]
+    return match.group(1), None, rest
 
 
 def sanitize_camera_url(url: str) -> str:
