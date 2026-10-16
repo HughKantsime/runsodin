@@ -1898,7 +1898,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 513,
+      "line": 514,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
