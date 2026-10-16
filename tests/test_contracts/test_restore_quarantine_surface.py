@@ -157,8 +157,7 @@ def test_orphan_quarantine_records_are_swept_and_never_counted(quarantined, monk
     (paths.backups / record["archive"]).unlink()  # the archive is gone, only the JSON record is left
     assert b.quarantined_restores()[0]["archive"] is None
     assert routes_backup.active_system_notices() == []
-    from modules.system import routes_health
-    assert routes_health._restore_quarantine_count("postgresql") == 0
+    assert b.quarantined_restore_count("postgresql") == 0
     removed = restore_artifacts.sweep_stale(paths.backups, "unused", None, drop=lambda names: [])
     assert removed["files"] == [Path(record["archive"]).with_suffix(".json").name]
     assert b.quarantined_restores() == []
