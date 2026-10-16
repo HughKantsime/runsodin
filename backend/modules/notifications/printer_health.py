@@ -109,11 +109,10 @@ def discover_camera(printer_id: int, rtsp_url: str):
     """Register an approved local discovery source, then use existing config sync.
 
     Bambu reports are presence signals only. Other protocols may discover an
-    RTSP/RTSPS camera endpoint on their configured printer host; cross-host
-    cameras need explicit configuration. HTTP(S) sources are not recorded:
-    go2rtc would hand them to ffmpeg, which follows redirects outside the
-    device destination policy (route_utils.go2rtc_stream_source). Sources
-    are encrypted before storage.
+    HTTP(S) or RTSP(S) camera endpoint on their configured printer host;
+    cross-host cameras need explicit configuration. HTTP sources are streamed
+    through ODIN's pinned loopback relay (route_utils.go2rtc_stream_source).
+    Sources are encrypted before storage.
     """
     try:
         from core import crypto
@@ -148,7 +147,7 @@ def discover_camera(printer_id: int, rtsp_url: str):
                 port = source.port
                 configured = urlsplit("//" + (configured_host or ""))
                 configured_port = configured.port
-                if (source.scheme not in {"rtsp", "rtsps"} or not host
+                if (source.scheme not in {"http", "https", "rtsp", "rtsps"} or not host
                         or source.username is not None or source.password is not None
                         or source.fragment or "#" in rtsp_url
                         or host.lower().rstrip(".") != (configured.hostname or "").lower().rstrip(".")):

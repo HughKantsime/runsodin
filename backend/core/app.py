@@ -762,7 +762,9 @@ def create_app() -> FastAPI:
 
         # Sync go2rtc camera config on startup
         try:
+            from modules.printers.camera_relay import rotate_relay_secret
             from modules.printers.route_utils import sync_go2rtc_config_standalone
+            rotate_relay_secret()  # per-boot secret for the internal camera relay
             sync_go2rtc_config_standalone()
             log.info("go2rtc config synced on startup")
         except Exception as e:

@@ -62,6 +62,9 @@ def register(app, registry) -> None:
     for router in (routes.router, camera_routes.router):
         app.include_router(router, prefix="/api")
         app.include_router(router, prefix="/api/v1")
+    # Loopback-only pinned relay for HTTP cameras (go2rtc/ffmpeg -> ODIN -> camera).
+    from modules.printers import camera_relay
+    app.include_router(camera_relay.router)
 
     registry.register_provider("PrinterStateProvider", _self)
 

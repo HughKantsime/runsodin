@@ -268,18 +268,18 @@ def _get_lan_ip():
 GO2RTC_RTSP_SCHEMES = ("rtsp", "rtsps")
 
 
-def go2rtc_stream_source(url):
+def go2rtc_stream_source(url, printer_id=None):
     """go2rtc source for a camera URL, or None when it must not be streamed.
 
-    - Only RTSP/RTSPS sources are handed to go2rtc. HTTP(S) sources would run
-      through ffmpeg, which follows redirects outside the device policy, so
-      they are not streamed (discovery no longer records them either).
-    - The camera host is resolved and validated with the device destination
-      policy, and the validated IP literal replaces the host in the source,
-      so go2rtc never resolves a name itself (no rebinding). Userinfo, port,
-      path and query are kept. go2rtc does not verify RTSPS certificates
-      (Bambu printers and most cameras are self-signed), so no hostname is
-      needed for TLS.
+    - RTSP/RTSPS: the camera host is resolved and validated with the device
+      destination policy, and the validated IP literal replaces it, so go2rtc
+      never resolves a name itself (no rebinding). Userinfo, port, path and
+      query are kept. go2rtc does not verify RTSPS certificates (Bambu printers
+      and most cameras are self-signed), so no hostname is needed for TLS.
+    - HTTP(S) (MJPEG/snapshot): go2rtc hands these to ffmpeg, which resolves
+      and follows redirects itself. The source is therefore ffmpeg reading
+      ODIN's loopback relay (modules.printers.camera_relay), which fetches the
+      camera pinned, without redirects or proxies. Needs printer_id.
     - UniFi Protect rtsps :7441 becomes rtspx without enableSrtp, as before.
     """
     import urllib.parse
@@ -287,6 +287,17 @@ def go2rtc_stream_source(url):
     if not isinstance(url, str) or not url.strip():
         return None
     prefix, userinfo, rest = split_url_userinfo(url.strip())
+    if prefix is not None and prefix[:-3].lower() in ("http", "https"):
+        if printer_id is None:
+            return None
+        try:
+            parsed = urllib.parse.urlsplit(url.strip())
+            device_connect_ip(parsed.hostname or "", parsed.port)
+        except (DeviceDestinationBlocked, ValueError):
+            log.warning("Camera source host blocked by device policy; stream omitted")
+            return None
+        from modules.printers.camera_relay import relay_url
+        return f"ffmpeg:{relay_url(printer_id)}#video=h264"
     if prefix is None or prefix[:-3].lower() not in GO2RTC_RTSP_SCHEMES:
         return None
     scheme = prefix[:-3].lower()
@@ -317,7 +328,7 @@ def _build_go2rtc_config(db: Session) -> dict:
     printers = db.query(Printer).filter(Printer.is_active.is_(True), Printer.camera_enabled.is_(True)).all()
     streams = {}
     for p in printers:
-        source = go2rtc_stream_source(get_camera_url(p))
+        source = go2rtc_stream_source(get_camera_url(p), p.id)
         if source:
             streams[f"printer_{p.id}"] = source
     db.commit()
@@ -544,7 +555,7 @@ def sync_go2rtc_config_raw():
                                 url = f"rtsps://bblp:{urlquote(parts[1], safe='')}@{api_host}:322/streaming/live/1"
                         except Exception as e:
                             log.debug(f"Failed to decrypt Bambu key for go2rtc: {e}")
-                source = go2rtc_stream_source(url)
+                source = go2rtc_stream_source(url, pid)
                 if source:
                     streams[f"printer_{pid}"] = source
 

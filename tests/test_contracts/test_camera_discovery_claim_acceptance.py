@@ -38,6 +38,7 @@ def test_bambu_actual_mqtt_camera_presence_generates_config_from_encrypted_crede
                      {'model':model,'key':crypto.encrypt('owned-serial|owned-fixture-code')})
     report=BambuPrintSection.model_validate({'command':'push_status','ipcam':{'rtsp_url':'rtsp://192.0.2.17/owned'}})
     emitters[0](BambuReportEvent('monitor-199',2000,report))
+    # LAN api_host: the device policy blocks loopback camera hosts.
     assert captured_config[-1]['streams']['printer_199']=='rtsps://bblp:owned-fixture-code@192.168.50.30:322/streaming/live/1'
     assert offline_store.execute(text('SELECT camera_url FROM printers WHERE id=199')).scalar_one() is None
     emitters[0](BambuReportEvent('monitor-199',2001,report))
@@ -88,11 +89,8 @@ def test_elegoo_port8080_candidates_are_bounded_and_only_success_is_selected(mon
     assert result==(expected[-1] if statuses[-1]==200 else None)
 
 
-# HTTP(S) camera sources are no longer streamed or discovered: go2rtc would hand
-# them to ffmpeg, which follows redirects outside the device destination policy
-# (route_utils.go2rtc_stream_source). RTSP sources on the printer host still are.
 @pytest.mark.parametrize('protocol',['moonraker','prusalink','elegoo'])
-def test_claim_nonbambu_http_discovery_is_not_streamed(offline_store,captured_config,monkeypatch,protocol):
+def test_claim_nonbambu_discovery_reaches_current_go2rtc_stream(offline_store,captured_config,monkeypatch,protocol):
     from modules.printers.monitors import moonraker_monitor,prusalink_monitor,elegoo_monitor
     url='http://192.168.50.20:8080/?action=stream'
     with offline_store.get_bind().begin() as conn:
@@ -107,26 +105,17 @@ def test_claim_nonbambu_http_discovery_is_not_streamed(offline_store,captured_co
         monitor=elegoo_monitor.ElegooMonitorThread(199,'Owned camera','192.168.50.20')
         monkeypatch.setattr(monitor.client,'get_webcam_url',lambda:url)
     monitor._discover_and_save_camera()
-    assert offline_store.execute(text('SELECT camera_url FROM printers WHERE id=199')).scalar_one() is None
-    assert not any('printer_199' in config['streams'] for config in captured_config)
+    # HTTP cameras stream through ODIN's pinned loopback relay, never directly.
+    from modules.printers.camera_relay import relay_url
+    assert captured_config[-1]['streams'].get('printer_199')=='ffmpeg:'+relay_url(199)+'#video=h264'
 
 
-@pytest.mark.parametrize('protocol',['moonraker','prusalink','elegoo'])
-def test_claim_nonbambu_rtsp_discovery_reaches_go2rtc_as_validated_literal(offline_store,captured_config,protocol):
-    from core import crypto
-    from modules.notifications.printer_health import discover_camera
-    with offline_store.get_bind().begin() as conn:
-        conn.execute(text('UPDATE printers SET api_type=:protocol,api_host=\'192.168.50.20\',camera_enabled=TRUE,camera_url=NULL WHERE id=199'),{'protocol':protocol})
-    discover_camera(199,'rtsp://192.168.50.20:8554/stream')
-    assert crypto.decrypt(offline_store.execute(text('SELECT camera_url FROM printers WHERE id=199')).scalar_one())=='rtsp://192.168.50.20:8554/stream'
-    assert captured_config[-1]['streams']['printer_199']=='rtsp://192.168.50.20:8554/stream'
-
-
-def test_explicit_http_source_is_not_streamed(offline_store,captured_config):
+def test_explicit_mjpeg_registration_uses_h264_prefix(offline_store,captured_config):
     from core import crypto
     from modules.printers.route_utils import sync_go2rtc_config_raw
-    url='http://192.168.50.22:8080/?action=stream'
+    url='http://192.168.50.22:8080/?action=stream'  # LAN camera: loopback hosts are blocked
     with offline_store.get_bind().begin() as conn:
         conn.execute(text('UPDATE printers SET api_type=\'elegoo\',camera_enabled=TRUE,camera_url=:url WHERE id=199'),{'url':crypto.encrypt(url)})
     sync_go2rtc_config_raw()
-    assert 'printer_199' not in captured_config[-1]['streams']
+    from modules.printers.camera_relay import relay_url
+    assert captured_config[-1]['streams']['printer_199']=='ffmpeg:'+relay_url(199)+'#video=h264'

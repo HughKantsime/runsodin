@@ -40,12 +40,23 @@ def test_source_uses_validated_ip_literal_and_keeps_credentials_and_path(dns):
     assert go2rtc_stream_source("rtsps://u:p@camera-room.test:7441/x?enableSrtp") == "rtspx://u:p@192.168.60.7:7441/x"
 
 
-@pytest.mark.parametrize("url", ["http://192.168.60.7/stream", "https://192.168.60.7/x", "ffmpeg:http://192.168.60.7/x",
-                                 "rtsp://127.0.0.1/x", "rtsp://169.254.169.254/x", "rtsp://loopback-camera.test/x"])
-def test_http_and_blocked_sources_are_never_streamed(dns, url):
+@pytest.mark.parametrize("url", ["ffmpeg:http://192.168.60.7/x", "file:///etc/passwd",
+                                 "rtsp://127.0.0.1/x", "rtsp://169.254.169.254/x", "rtsp://loopback-camera.test/x",
+                                 "http://127.0.0.1:8080/stream", "http://loopback-camera.test/stream"])
+def test_unsupported_and_blocked_sources_are_never_streamed(dns, url):
     from modules.printers.route_utils import go2rtc_stream_source
     dns["loopback-camera.test"] = "127.0.0.1"
-    assert go2rtc_stream_source(url) is None
+    assert go2rtc_stream_source(url, 301) is None
+
+
+def test_http_source_is_the_internal_relay_never_the_camera(dns):
+    from modules.printers.camera_relay import relay_url
+    from modules.printers.route_utils import go2rtc_stream_source
+    dns["mjpeg-camera.test"] = "192.168.60.8"
+    source = go2rtc_stream_source("http://user:pw@MJPEG-Camera.test:8080/?action=stream", 301)
+    assert source == f"ffmpeg:{relay_url(301)}#video=h264"
+    assert "mjpeg-camera" not in source and "pw" not in source and source.startswith("ffmpeg:http://127.0.0.1:")
+    assert relay_url(301) != relay_url(302)  # per-printer token
 
 
 def test_go2rtc_config_follows_dns_changes_on_resync(cert_app, review_db, dns, written, monkeypatch):
