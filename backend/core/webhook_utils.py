@@ -398,3 +398,131 @@ def resolve_and_check_webhook_url(url: str) -> str:
         )
 
     return url
+
+
+# ====================================================================
+# LAN device destinations (printers, smart plugs, cameras)
+# ====================================================================
+#
+# Devices live on private LANs, so unlike webhooks RFC-1918/ULA addresses
+# are ALLOWED. Blocked: loopback, link-local (169.254/16, fe80::/10),
+# unspecified, multicast, 0.0.0.0/8, reserved IPv4, cloud metadata, and any
+# of those embedded in IPv4-mapped / IPv4-compatible / NAT64 IPv6 forms.
+# Hostnames are resolved and EVERY address must pass; numeric IPv4 forms
+# (decimal, hex, short dotted) are normalised by the resolver and checked
+# as the address they denote. Request-time callers pin the connection to
+# the validated addresses (pinned_device_destination) so DNS rebinding
+# cannot swap the target between check and connect.
+
+class DeviceDestinationBlocked(WebhookSSRFError):
+    """A device host is malformed, unresolvable or a blocked address."""
+
+
+_METADATA_ADDRESSES = frozenset({
+    ipaddress.ip_address("169.254.169.254"),
+    ipaddress.ip_address("fd00:ec2::254"),
+})
+_IPV4_THIS_NETWORK = ipaddress.ip_network("0.0.0.0/8")
+_IPV6_COMPAT = ipaddress.ip_network("::/96")
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")
+
+
+def _embedded_ipv4(addr):
+    if addr.version != 6:
+        return None
+    if addr.ipv4_mapped is not None:
+        return addr.ipv4_mapped
+    if addr in _NAT64 or (addr in _IPV6_COMPAT and int(addr) > 1):
+        return ipaddress.IPv4Address(int(addr) & 0xFFFFFFFF)
+    return None
+
+
+def is_blocked_device_address(value) -> bool:
+    """True when `value` (an IP string or ip_address) must never be a device target."""
+    try:
+        addr = value if isinstance(value, (ipaddress.IPv4Address, ipaddress.IPv6Address)) \
+            else ipaddress.ip_address(str(value).split("%", 1)[0])
+    except ValueError:
+        return True
+    candidates = [addr]
+    embedded = _embedded_ipv4(addr)
+    if embedded is not None:
+        candidates.append(embedded)
+    for a in candidates:
+        if (a.is_loopback or a.is_link_local or a.is_unspecified or a.is_multicast
+                or a in _METADATA_ADDRESSES):
+            return True
+        if a.version == 4 and (a in _IPV4_THIS_NETWORK or a.is_reserved):
+            return True
+    return False
+
+
+def split_device_host(value: str):
+    """Parse `host`, `host:port`, `[v6]`, `[v6]:port` or a bare IPv6 literal.
+
+    Returns (hostname, port_or_None). Raises DeviceDestinationBlocked when
+    the value is not a plain authority (userinfo, path, query, bad port).
+    """
+    if not isinstance(value, str) or not value.strip():
+        raise DeviceDestinationBlocked("Empty host")
+    raw = value.strip()
+    if any(ch in raw for ch in "/?#@\\ \t"):
+        raise DeviceDestinationBlocked("Host must be host or host:port")
+    if raw.count(":") > 1 and not raw.startswith("["):
+        try:
+            return str(ipaddress.IPv6Address(raw.split("%", 1)[0])), None
+        except ValueError:
+            raise DeviceDestinationBlocked("Invalid IPv6 host; use [address]:port")
+    try:
+        parsed = urllib.parse.urlsplit("//" + raw)
+        host, port = parsed.hostname, parsed.port
+    except ValueError:
+        raise DeviceDestinationBlocked("Invalid host or port")
+    if not host:
+        raise DeviceDestinationBlocked("Invalid host")
+    return host.rstrip("."), port
+
+
+def device_destination_ips(host: str, port=None) -> list:
+    """Resolve a device host and return its validated addresses.
+
+    `host` may carry a port (see split_device_host). Raises
+    DeviceDestinationBlocked if it cannot be resolved or ANY resolved
+    address is blocked.
+    """
+    hostname, parsed_port = split_device_host(host)
+    port = port or parsed_port or 0
+    try:
+        infos = _real_getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+    except (socket.gaierror, UnicodeError, OSError) as exc:
+        raise DeviceDestinationBlocked(f"Host {hostname!r} could not be resolved") from exc
+    ips = []
+    for _fam, _type, _proto, _canon, sockaddr in infos:
+        ip = sockaddr[0]
+        if is_blocked_device_address(ip):
+            raise DeviceDestinationBlocked(f"Host {hostname!r} resolves to a blocked address")
+        if ip not in ips:
+            ips.append(ip)
+    if not ips:
+        raise DeviceDestinationBlocked(f"Host {hostname!r} returned no addresses")
+    return ips
+
+
+@contextlib.contextmanager
+def pinned_device_destination(url: str):
+    """Validate a device URL and pin its connection to the validated addresses.
+
+    Every socket.getaddrinfo for the URL's host:port inside the block
+    (urllib, requests, httpx) returns only the addresses checked here.
+    """
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        hostname, port = parsed.hostname, parsed.port
+    except ValueError as exc:
+        raise DeviceDestinationBlocked("Invalid device URL") from exc
+    if parsed.scheme.lower() not in ("http", "https") or not hostname:
+        raise DeviceDestinationBlocked("Device URL must be http(s)://host")
+    port = port or (443 if parsed.scheme.lower() == "https" else 80)
+    ips = device_destination_ips(hostname if ":" not in hostname else f"[{hostname}]", port)
+    with _pin_dns(hostname, port, ips):
+        yield ips

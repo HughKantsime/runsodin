@@ -89,10 +89,19 @@ def _validate_plug_host(plug_type, host):
         raise HTTPException(422, "Plug host must be a non-empty string")
     import urllib.parse
     if plug_type == "homeassistant":
-        parsed = urllib.parse.urlsplit(host.strip())
-        if parsed.scheme.lower() not in ("http", "https") or not parsed.hostname:
-            raise HTTPException(400, "Home Assistant URL must be http:// or https://")
-        hostname, url = parsed.hostname, host.strip()
+        try:
+            parsed = urllib.parse.urlsplit(host.strip())
+            parsed.port
+        except ValueError:
+            raise HTTPException(400, "Home Assistant URL is malformed")
+        # scheme://host[:port] only: no userinfo, path, query or fragment.
+        if (parsed.scheme.lower() not in ("http", "https") or not parsed.hostname
+                or "@" in parsed.netloc or parsed.path not in ("", "/") or parsed.query or parsed.fragment):
+            raise HTTPException(400, "Home Assistant URL must be http(s)://host[:port] with no path or query")
+        hostname = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+        if parsed.port:
+            hostname += f":{parsed.port}"
+        url = host.strip()
     else:
         if "://" in host or "/" in host:
             raise HTTPException(400, "Tasmota host must be a host or host:port")

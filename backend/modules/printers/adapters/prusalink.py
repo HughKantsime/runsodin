@@ -18,6 +18,34 @@ Architecture note:
 import logging
 import requests
 from requests.auth import HTTPDigestAuth
+
+
+class _PinnedRequests:
+    """`requests` with each call pinned to the validated device address.
+
+    The URL host is resolved and checked by the LAN device destination
+    policy (core.webhook_utils) and the connection is pinned to those
+    addresses, so DNS rebinding cannot redirect it. A blocked destination
+    surfaces as requests' ConnectionError.
+    """
+    _VERBS = frozenset({"get", "put", "post", "head", "delete"})
+
+    def __getattr__(self, name):
+        target = getattr(requests, name)
+        if name not in self._VERBS:
+            return target
+
+        def call(url, *args, **kwargs):
+            from core.webhook_utils import DeviceDestinationBlocked, pinned_device_destination
+            try:
+                with pinned_device_destination(url):
+                    return target(url, *args, **kwargs)
+            except DeviceDestinationBlocked as exc:
+                raise requests.exceptions.ConnectionError(str(exc)) from exc
+        return call
+
+
+_http = _PinnedRequests()
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional
 from enum import Enum
@@ -113,10 +141,10 @@ class PrusaLinkPrinter:
             if self.api_key:
                 # API key auth (X-Api-Key header)
                 headers["X-Api-Key"] = self.api_key
-                resp = requests.get(url, headers=headers, timeout=self.timeout)
+                resp = _http.get(url, headers=headers, timeout=self.timeout)
             else:
                 # HTTP Digest auth (username + password)
-                resp = requests.get(
+                resp = _http.get(
                     url,
                     auth=HTTPDigestAuth(self.username, self.password),
                     timeout=self.timeout
@@ -210,7 +238,7 @@ class PrusaLinkPrinter:
             else:
                 kwargs["auth"] = HTTPDigestAuth(self.username, self.password)
 
-            resp = requests.put(
+            resp = _http.put(
                 f"{self.base_url}/api/v1/job/{job_id}/pause",
                 headers=headers, timeout=self.timeout, **kwargs
             )
@@ -229,7 +257,7 @@ class PrusaLinkPrinter:
             else:
                 kwargs["auth"] = HTTPDigestAuth(self.username, self.password)
 
-            resp = requests.put(
+            resp = _http.put(
                 f"{self.base_url}/api/v1/job/{job_id}/resume",
                 headers=headers, timeout=self.timeout, **kwargs
             )
@@ -265,7 +293,7 @@ class PrusaLinkPrinter:
                 headers["X-Api-Key"] = self.api_key
             else:
                 kwargs["auth"] = HTTPDigestAuth(self.username, self.password)
-            resp = requests.head(url, headers=headers, **kwargs)
+            resp = _http.head(url, headers=headers, **kwargs)
             if resp.status_code == 200:
                 return url
         except Exception as e:
@@ -301,7 +329,7 @@ class PrusaLinkPrinter:
 
         try:
             with open(local_path, "rb") as f:
-                resp = requests.post(
+                resp = _http.post(
                     url,
                     files={"file": (remote_filename, f, "application/octet-stream")},
                     data={"select": "true", "print": "true"},
@@ -327,7 +355,7 @@ class PrusaLinkPrinter:
             else:
                 kwargs["auth"] = HTTPDigestAuth(self.username, self.password)
 
-            resp = requests.delete(
+            resp = _http.delete(
                 f"{self.base_url}/api/v1/job/{job_id}",
                 headers=headers, timeout=self.timeout, **kwargs
             )

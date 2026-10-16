@@ -49,18 +49,30 @@ class TestConnectionRequest(PydanticBaseModel):
 # ====================================================================
 
 def _check_ssrf_blocklist(host: str) -> None:
-    """Block SSRF attempts targeting localhost, metadata endpoints, or internal-only hosts."""
-    import ipaddress
-    blocked_prefixes = ("localhost", "127.", "169.254.", "0.", "::1")
-    h = (host or "").strip().lower().split(":")[0]  # strip port
-    if any(h.startswith(p) for p in blocked_prefixes):
-        raise HTTPException(status_code=400, detail="Invalid printer host")
+    """Config-time device destination policy (printers, plugs, cameras).
+
+    Delegates to core.webhook_utils.device_destination_ips: parses brackets
+    and ports, resolves hostnames and numeric IPv4 forms, and rejects
+    loopback, link-local, unspecified, multicast, metadata and IPv4-mapped
+    forms of those. Private LAN ranges are allowed. Resolver errors are 400.
+    """
+    from core.webhook_utils import DeviceDestinationBlocked, device_destination_ips
     try:
-        addr = ipaddress.ip_address(h)
-        if addr.is_loopback or addr.is_link_local:
-            raise HTTPException(status_code=400, detail="Invalid printer host")
-    except ValueError:
-        pass  # hostname — let OS resolve it
+        device_destination_ips(host)
+    except DeviceDestinationBlocked:
+        raise HTTPException(status_code=400, detail="Invalid printer host")
+
+
+def pinned_device_get(client, url: str, **kwargs):
+    """GET a device URL through the destination policy, pinned to its validated address.
+
+    `client` is the httpx module or client; env proxies are bypassed so the
+    pin cannot be sidestepped. A blocked destination raises
+    core.webhook_utils.DeviceDestinationBlocked.
+    """
+    from core.webhook_utils import pinned_device_destination
+    with pinned_device_destination(url):
+        return client.get(url, trust_env=False, **kwargs)
 
 
 _CAMERA_SHELL_METACHAR_RE = re.compile(r'[;&|$`\\]')
@@ -89,10 +101,24 @@ def _validate_camera_url(url: str) -> str:
 
     sanitized = _CAMERA_SHELL_METACHAR_RE.sub('', stripped)
 
+    # Userinfo must be unambiguous: urlsplit ends the authority at the first
+    # / ? #, so an unencoded @ / ? # in a password would make the parsed host
+    # (and the masking) disagree with what the user meant.
+    _prefix, userinfo, _rest = split_url_userinfo(sanitized)
+    if userinfo is not None and any(ch in userinfo for ch in "@/?#"):
+        raise HTTPException(status_code=400, detail=(
+            "Camera URL username/password contains @ / ? or #; percent-encode them "
+            "(%40 %2F %3F %23)"))
     try:
-        parsed = urllib.parse.urlparse(sanitized)
+        parsed = urllib.parse.urlsplit(sanitized)
         host = parsed.hostname or ""
-        _check_ssrf_blocklist(host)
+        port = parsed.port
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Camera URL is malformed")
+    if not host:
+        raise HTTPException(status_code=400, detail="Camera URL has no host")
+    try:
+        _check_ssrf_blocklist(f"[{host}]" if ":" in host else host)
     except HTTPException:
         raise HTTPException(status_code=400, detail="Camera URL points to a blocked host")
 
@@ -126,16 +152,37 @@ def get_camera_url(printer):
     return None
 
 
-# Userinfo of any URL scheme, case-insensitive (RTSP://, rtsps://, http://, ...).
-_URL_USERINFO_RE = re.compile(r'^([a-z][a-z0-9+.\-]*://)([^@/?#]*)@', re.IGNORECASE)
+_URL_SCHEME_RE = re.compile(r'^([a-z][a-z0-9+.\-]*://)', re.IGNORECASE)
 CAMERA_CREDENTIAL_MASK = '***'
+
+
+def split_url_userinfo(url: str):
+    """Split a URL into (scheme://, userinfo or None, text after the userinfo '@').
+
+    Uses the LAST '@' after the scheme. For a well-formed URL this is the
+    same userinfo urlsplit finds (rpartition('@') of the authority); for a
+    legacy value with an unencoded / ? # in the password it still covers
+    the whole credential, so masking never leaks part of it (a path '@'
+    is over-masked, which is safe).
+    """
+    match = _URL_SCHEME_RE.match(url or '')
+    if not match:
+        return None, None, url
+    rest = url[match.end():]
+    at = rest.rfind('@')
+    if at < 0:
+        return match.group(1), None, rest
+    return match.group(1), rest[:at], rest[at + 1:]
 
 
 def sanitize_camera_url(url: str) -> str:
     """Mask URL credentials for API responses, for any scheme and any case."""
     if not url:
         return url
-    return _URL_USERINFO_RE.sub(lambda m: m.group(1) + CAMERA_CREDENTIAL_MASK + '@', url.strip(), count=1)
+    prefix, userinfo, rest = split_url_userinfo(url.strip())
+    if userinfo is None:
+        return url.strip()
+    return prefix + CAMERA_CREDENTIAL_MASK + '@' + rest
 
 
 def masked_camera_url(stored):
@@ -170,18 +217,22 @@ def resolve_masked_camera_url(incoming, stored):
     or sending a masked URL with no stored credentials, is a 400 that
     requires the full credentialed URL.
     """
-    match = _URL_USERINFO_RE.match(incoming.strip()) if isinstance(incoming, str) else None
-    if not match or match.group(2) != CAMERA_CREDENTIAL_MASK:
+    if not isinstance(incoming, str):
+        return incoming
+    prefix, userinfo, rest = split_url_userinfo(incoming.strip())
+    if userinfo != CAMERA_CREDENTIAL_MASK:
         return incoming
     plain = crypto.decrypt(stored) if stored and crypto.is_encrypted(stored) else stored
-    stored_match = _URL_USERINFO_RE.match((plain or '').strip())
-    if not stored_match or crypto.is_encrypted(plain or ''):
+    stored_prefix, stored_userinfo, stored_rest = split_url_userinfo((plain or '').strip())
+    if stored_userinfo is None or crypto.is_encrypted(plain or ''):
         raise HTTPException(status_code=400, detail="Camera URL credentials are masked; enter the full URL")
-    target = _url_endpoint(incoming.strip())
-    if target is None or target != _url_endpoint(plain.strip()):
+    # Compare endpoints with the userinfo removed, so a legacy password with
+    # an unencoded / ? # cannot shift the parsed host.
+    target = _url_endpoint(prefix + rest)
+    if target is None or target != _url_endpoint(stored_prefix + stored_rest):
         raise HTTPException(status_code=400,
                             detail="Camera URL endpoint changed; enter the full URL including credentials")
-    resolved = match.group(1).lower() + stored_match.group(2) + '@' + incoming.strip()[match.end():]
+    resolved = prefix.lower() + stored_userinfo + '@' + rest
     return None if resolved == plain.strip() else resolved
 
 

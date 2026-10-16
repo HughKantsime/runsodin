@@ -485,7 +485,9 @@ class MoonrakerPrinter:
             req = Request(url)
             if self.api_key:
                 req.add_header("X-Api-Key", self.api_key)
-            with urlopen(req, timeout=timeout) as resp:  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- verified safe — connects to admin-configured printer URLs, SSRF-checked at config time
+            from core.webhook_utils import pinned_device_destination
+            # Pinned to the policy-validated address (no DNS rebinding).
+            with pinned_device_destination(url), urlopen(req, timeout=timeout) as resp:  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- verified safe — destination policy checked and pinned per request
                 return json.loads(resp.read().decode())
         except HTTPError as e:
             log.warning(f"HTTP {e.code} from {url}")
@@ -513,7 +515,9 @@ class MoonrakerPrinter:
             req.add_header("Content-Type", "application/json")
             if self.api_key:
                 req.add_header("X-Api-Key", self.api_key)
-            with urlopen(req, timeout=timeout) as resp:  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- verified safe — connects to admin-configured printer URLs, SSRF-checked at config time
+            from core.webhook_utils import pinned_device_destination
+            # Pinned to the policy-validated address (no DNS rebinding).
+            with pinned_device_destination(url), urlopen(req, timeout=timeout) as resp:  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- verified safe — destination policy checked and pinned per request
                 return json.loads(resp.read().decode())
         except HTTPError as e:
             log.warning(f"HTTP {e.code} from {url}")

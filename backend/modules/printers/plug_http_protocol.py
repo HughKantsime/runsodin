@@ -39,12 +39,22 @@ def http_request(url: str, method: str = "GET", headers: dict = None,
         if data:
             req.data = data.encode("utf-8")
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
-        with opener.open(req, timeout=timeout) as resp:
-            raw = resp.read(65537)
-            if len(raw) > 65536:
-                return 0, "HTTP response exceeds limit"
-            body = raw.decode("utf-8")
-            return resp.status, body
+        from core.webhook_utils import DeviceDestinationBlocked, pinned_device_destination
+        try:
+            pin = pinned_device_destination(url)
+            pin.__enter__()
+        except DeviceDestinationBlocked:
+            log.warning("Smart plug destination blocked by device policy")
+            return 0, "Destination blocked by local policy"
+        try:
+            # Connection pinned to the policy-validated address (no DNS rebinding).
+            with opener.open(req, timeout=timeout) as resp:
+                raw = resp.read(65537)
+                if len(raw) > 65536:
+                    return 0, "HTTP response exceeds limit"
+                return resp.status, raw.decode("utf-8")
+        finally:
+            pin.__exit__(None, None, None)
     except urllib.error.HTTPError as e:
         e.close()
         return e.code, "HTTP request was rejected"

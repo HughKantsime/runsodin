@@ -1,0 +1,20 @@
+"""TEST ONLY helper: exempt exactly 127.0.0.1 from the device destination policy.
+
+Production blocks loopback device destinations. Tests whose device double is
+a real server on 127.0.0.1 use allow_loopback_devices(monkeypatch); it patches
+this process and, through a test-only sitecustomize on PYTHONPATH, any worker
+subprocess the test starts.
+"""
+import os
+from pathlib import Path
+
+SITE_DIR = Path(__file__).resolve().parent / "loopback_device_policy"
+
+
+def allow_loopback_devices(monkeypatch):
+    import core.webhook_utils as webhook_utils
+    real_blocked = webhook_utils.is_blocked_device_address
+    monkeypatch.setattr(webhook_utils, "is_blocked_device_address",
+                        lambda ip: False if str(ip) == "127.0.0.1" else real_blocked(ip))
+    existing = os.environ.get("PYTHONPATH", "")
+    monkeypatch.setenv("PYTHONPATH", str(SITE_DIR) + (os.pathsep + existing if existing else ""))

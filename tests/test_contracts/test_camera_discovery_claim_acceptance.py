@@ -60,7 +60,8 @@ def test_moonraker_camera_list_resolves_relative_stream_and_snapshot(monkeypatch
 def test_prusalink_modern_camera_or_bounded_authenticated_snapshot_probe(monkeypatch,modern,status):
     import requests
     from modules.printers.adapters.prusalink import PrusaLinkPrinter
-    printer=PrusaLinkPrinter('127.0.0.1',api_key='owned-fixture-key');calls=[]
+    # LAN address: the device destination policy blocks loopback printers.
+    printer=PrusaLinkPrinter('192.0.2.10',api_key='owned-fixture-key');calls=[]
     monkeypatch.setattr(printer,'_get',lambda path:[{'id':'owned-camera'}] if modern else [])
     def head(url,**kwargs):calls.append((url,kwargs));return SimpleNamespace(status_code=status)
     monkeypatch.setattr(requests,'head',head)

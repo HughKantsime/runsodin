@@ -86,12 +86,12 @@ def plug_server():
 @pytest.fixture
 def plugs(cert_app, review_db, plug_server, monkeypatch):
     import modules.printers.smart_plug as smart_plug
-    import modules.printers.route_utils as route_utils
-    # The plug device of this test is a real HTTP server on loopback, which the
-    # config-time SSRF policy rejects in production. Exempt exactly that host.
-    real_check = route_utils._check_ssrf_blocklist
-    monkeypatch.setattr(route_utils, "_check_ssrf_blocklist",
-                        lambda host: None if host in ("127.0.0.1", plug_server.host) else real_check(host))
+    # The plug device of this test is a real HTTP server on 127.0.0.1, which the
+    # device destination policy rejects in production. Exempt exactly that address
+    # (also in the dispatch worker subprocess); test_cert_A_destination_policy
+    # covers the policy itself.
+    from tests.support.loopback_devices import allow_loopback_devices
+    allow_loopback_devices(monkeypatch)
     bind_engine(monkeypatch, review_db.get_bind())
     monkeypatch.setattr(smart_plug, "engine", review_db.get_bind())
     monkeypatch.setattr(smart_plug, "_cooldown_timers", {})
