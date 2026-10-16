@@ -302,7 +302,9 @@ def test_pin_survives_reset_bulk_reschedule_and_stale_cleanup(fleet, signed_lice
     assert _pin(fleet, job) == 12
     run(fleet)
     assert rows(fleet, [job])[job][:2] == ('scheduled', 12)
-    # 1. explicit reset to pending
+    # 1. explicit reset to pending (reset is only allowed from a finished outcome)
+    assert client.post(f'/api/v1/jobs/{job}/start').status_code == 200
+    assert client.post(f'/api/v1/jobs/{job}/fail').status_code == 200
     assert client.post(f'/api/v1/jobs/{job}/reset').status_code == 200
     assert rows(fleet, [job])[job][:2] == ('pending', None) and _pin(fleet, job) == 12
     run(fleet)

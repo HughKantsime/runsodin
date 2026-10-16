@@ -274,12 +274,10 @@ class Scheduler:
 
     @staticmethod
     def _mark_reconciled_job(job: Job) -> None:
-        """Keep the ORM identity map aligned with a central-policy reconciliation."""
-        job.status = JobStatus.SUBMITTED
-        job.printer_id = None
-        job.scheduled_start = None
-        job.scheduled_end = None
-        job.match_score = None
+        """Keep the ORM identity map aligned with a central-policy reconciliation (no write)."""
+        from modules.jobs.state_machine import align_identity
+        align_identity(job, JobStatus.SUBMITTED, printer_id=None, scheduled_start=None,
+                       scheduled_end=None, match_score=None)
 
     def _cleanup_stale_schedules(self, db: Session, candidate_ids=None) -> int:
         """Reset stale schedules while preserving Education lifecycle policy."""
@@ -320,11 +318,9 @@ class Scheduler:
                         expected_revision=int(context["lifecycle_revision"]),
                     )
                     if changed:
-                        job.status = JobStatus.PENDING
-                        job.printer_id = int(printer_id)
-                        job.scheduled_start = None
-                        job.scheduled_end = None
-                        job.match_score = None
+                        from modules.jobs.state_machine import align_identity
+                        align_identity(job, JobStatus.PENDING, printer_id=int(printer_id),
+                                       scheduled_start=None, scheduled_end=None, match_score=None)
                         reset_count += 1
                     continue
 
@@ -345,15 +341,16 @@ class Scheduler:
                     reset_count += 1
                 continue
 
-            changed = db.execute(text("""
-                UPDATE jobs SET status='pending',printer_id=NULL,
-                    scheduled_start=NULL,scheduled_end=NULL,match_score=NULL
-                WHERE id=:id AND status='scheduled' AND scheduled_start < :cutoff
-                  AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id)
-                RETURNING id
-            """), {'id':job.id,'cutoff':cutoff}).first()
+            from modules.jobs.state_machine import transition_job
+            changed = transition_job(db, job.id, JobStatus.PENDING, "scheduler",
+                from_states=(JobStatus.SCHEDULED,),
+                extra_fields={"printer_id": None, "scheduled_start": None,
+                              "scheduled_end": None, "match_score": None},
+                where="scheduled_start < :cutoff AND NOT EXISTS "
+                      "(SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id)",
+                params={'cutoff': cutoff})
             db.expire(job)
-            if changed is not None:
+            if changed:
                 reset_count += 1
         if reset_count:
             db.flush()
@@ -656,10 +653,11 @@ class Scheduler:
                         continue
                 else:
                     payload_guard, payload_parameters = assignment_guard(payload_snapshot)
-                    changed = db.execute(text(f"""
-                        UPDATE jobs SET status='scheduled',printer_id=:printer,
-                            scheduled_start=:start,scheduled_end=:end,match_score=:score
-                        WHERE id=:id AND status='pending' AND hold IS FALSE
+                    from modules.jobs.state_machine import transition_job
+                    changed = transition_job(db, job.id, JobStatus.SCHEDULED, "scheduler",
+                        extra_fields={"printer_id": best_fit['printer_id'], "scheduled_start": best_fit['start_time'],
+                                      "scheduled_end": best_fit['end_time'], "match_score": best_fit['match_score']},
+                        where=f"""hold IS FALSE
                           AND quantity=:quantity
                           AND {payload_guard}
                           AND NOT EXISTS (SELECT 1 FROM printer_dispatch_claims dc WHERE dc.printer_id=:printer)
@@ -669,14 +667,11 @@ class Scheduler:
                             AND (p.org_id=:owner OR (p.org_id IS NULL AND CAST(:owner AS INTEGER) IS NULL))
                             AND (p.shared=:sharing OR (p.shared IS NULL AND CAST(:sharing AS BOOLEAN) IS NULL))
                             AND (p.org_id IS NULL OR p.org_id=jobs.charged_to_org_id OR p.shared=:enabled))
-                          AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id)
-                        RETURNING id
-                    """), {'printer':best_fit['printer_id'],'start':best_fit['start_time'],
-                            'end':best_fit['end_time'],'score':best_fit['match_score'],
-                            **payload_parameters, 'id':job.id,'quantity':job.quantity,
-                            'tenant':job.charged_to_org_id, 'enabled':True,
-                            'owner':printer_states[best_fit['printer_id']].authority['org_id'],
-                            'sharing':printer_states[best_fit['printer_id']].authority['stored_shared']}).first()
+                          AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id)""",
+                        params={'printer':best_fit['printer_id'], **payload_parameters, 'id': job.id,
+                                'quantity':job.quantity, 'tenant':job.charged_to_org_id, 'enabled':True,
+                                'owner':printer_states[best_fit['printer_id']].authority['org_id'],
+                                'sharing':printer_states[best_fit['printer_id']].authority['stored_shared']}) or None
                     if changed is None:
                         db.expire(job)
                         result.skipped_count += 1
@@ -688,11 +683,11 @@ class Scheduler:
                 self._apply_assignment(job=job, fit=best_fit,
                                        printer_states=printer_states, usage_map=usage_map)
                 if education_context is not None:
-                    job.status = JobStatus.SCHEDULED
-                    job.printer_id = best_fit['printer_id']
-                    job.scheduled_start = best_fit['start_time']
-                    job.scheduled_end = best_fit['end_time']
-                    job.match_score = best_fit['match_score']
+                    # The Education policy already wrote this transition in SQL.
+                    from modules.jobs.state_machine import align_identity
+                    align_identity(job, JobStatus.SCHEDULED, printer_id=best_fit['printer_id'],
+                                   scheduled_start=best_fit['start_time'], scheduled_end=best_fit['end_time'],
+                                   match_score=best_fit['match_score'])
 
                 # Track metrics
                 result.scheduled_count += 1

@@ -309,20 +309,21 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_role
                     and job.scheduled_start is None and job.scheduled_end is None
                     and job.match_score is None and not job.is_locked):
                 continue
-            changed = db.execute(text("""UPDATE jobs SET status='pending',printer_id=NULL,
-                scheduled_start=NULL,scheduled_end=NULL,match_score=NULL,is_locked=FALSE
-                WHERE id=:id AND status IN ('pending','scheduled')
-                AND NOT EXISTS(SELECT 1 FROM printer_dispatch_claims WHERE job_id=:id)"""), {'id': jid})
-            count += changed.rowcount
+            from modules.jobs.state_machine import transition_job
+            count += int(transition_job(db, jid, JobStatus.PENDING, "scheduler", extra_fields={
+                "printer_id": None, "scheduled_start": None, "scheduled_end": None,
+                "match_score": None, "is_locked": False},
+                where="NOT EXISTS(SELECT 1 FROM printer_dispatch_claims WHERE job_id=:claim_job)",
+                params={"claim_job": jid}))
     elif action == "cancel":
         for jid in job_ids:
             job = db.query(Job).filter(Job.id == jid).first()
             if not job or not check_org_access(current_user, job.charged_to_org_id):
                 continue
             assert_generic_job_mutation_allowed(db, jid)
-            changed = db.execute(text("UPDATE jobs SET status = 'cancelled', queue_position = NULL WHERE id = :id AND status IN ('pending','submitted')"),
-                       {"id": jid})
-            count += changed.rowcount
+            from modules.jobs.state_machine import transition_job
+            count += int(transition_job(db, jid, JobStatus.CANCELLED, "operator",
+                                        from_states=(JobStatus.PENDING, JobStatus.SUBMITTED)))
     elif action == "set_priority":
         for jid in job_ids:
             job = db.query(Job).filter(Job.id == jid).first()
@@ -339,6 +340,9 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_role
             assert_generic_job_mutation_allowed(db, jid)
             changed = db.execute(text("DELETE FROM jobs WHERE id = :id AND status IN ('pending','submitted','cancelled')"),
                        {"id": jid})
+            if changed.rowcount:
+                from core.print_attempts import clear_job_attempts, sqlalchemy_runner
+                clear_job_attempts(sqlalchemy_runner(db), jid)
             count += changed.rowcount
     elif action == "hold":
         for jid in job_ids:
@@ -692,6 +696,8 @@ def delete_job(job_id: int, current_user: dict = Depends(require_role("operator"
         raise HTTPException(status_code=404, detail="Job not found")
 
     log_audit(db, "job.deleted", "job", job.id, {"item_name": job.item_name})
+    from core.print_attempts import clear_job_attempts, sqlalchemy_runner
+    clear_job_attempts(sqlalchemy_runner(db), job.id)
     db.delete(job)
     reconcile_job_write(db, production_orders)
     db.commit()
