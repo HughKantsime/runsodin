@@ -440,6 +440,9 @@ SHARED_DYNAMIC = {
         (1, "legacy enum casing repair of status columns only", _enum_repair_columns),
     ("backend/core/schema/migrations/004_quiet_hours_scoped_claims.py", "apply", "sql insert (dynamic table)"):
         (1, "quiet-hours claim tables", _quiet_hours_tables),
+    # Integration (migration 032, cert-fix-E): the module's TABLE constant is the deferral table.
+    ("backend/modules/notifications/deferred_deliveries.py", "record_suppressed", "sql insert (dynamic table)"):
+        (1, "quiet-hours deferred-delivery table", _never_filament("backend/modules/notifications/deferred_deliveries.py")),
 }
 ALLOWED = {
     "spools": {
