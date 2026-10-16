@@ -3,6 +3,15 @@ import multiprocessing
 import time
 from types import SimpleNamespace
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _loopback_device_peers(monkeypatch):
+    # Brokers/peers in this file run on loopback, which the production device
+    # destination policy blocks; exempt exactly 127.0.0.1 and ::1 here (also in
+    # spawned workers). test_cert_A_destination_policy covers the policy.
+    from tests.support.loopback_devices import allow_loopback_devices
+    allow_loopback_devices(monkeypatch)
 from modules.printers import dispatch_acquisition as module
 from tests.test_contracts.test_dispatch_http_readiness_behavior import peer
 

@@ -154,3 +154,13 @@ def test_elegoo_sdcp_udp_probe_uses_validated_ip(cert_app, monkeypatch, rebound)
 
 
 from tests.test_contracts.test_cert_A_harness import cert_app, cert_client, fernet_env, review_db  # noqa: E402,F401
+
+
+def test_replay_broker_flag_only_allows_loopback_literals(rebound, tcp_listener):
+    from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig, BambuTelemetryAdapter
+    port, hits = tcp_listener
+    adapter = BambuTelemetryAdapter(BambuAdapterConfig("p", "SYNTH", REBOUND, "", port=port, use_tls=False,
+                                                       replay_broker=True), emitter=lambda e: None)
+    with pytest.raises(ValueError):
+        adapter.start()
+    assert hits == []
