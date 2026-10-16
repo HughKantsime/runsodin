@@ -47,7 +47,7 @@ _LOG_FILES = {
 _MAX_LOG_LINE_BYTES = 16384
 
 
-@router.get("/admin/logs", tags=["Admin"])
+@router.get("/admin/logs", tags=["Admin"], dependencies=[Depends(require_interactive_session())])
 def get_logs(
     source: str = Query("backend", description="Configured application log source"),
     lines: int = Query(200, ge=1, le=5000),
@@ -114,7 +114,7 @@ def get_logs(
             "page_cursor": f"{stat.st_dev}:{stat.st_ino}:{snapshot}:{boundary}"}
 
 
-@router.get("/admin/logs/stream", tags=["Admin"])
+@router.get("/admin/logs/stream", tags=["Admin"], dependencies=[Depends(require_interactive_session())])
 async def stream_logs(
     request: Request,
     source: str = Query("backend"),

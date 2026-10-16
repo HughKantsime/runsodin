@@ -180,6 +180,19 @@ def test_every_credential_write_or_bulk_read_route_is_interactive_only():
         "REVIEWED_PUBLIC with a reason): " + repr(unguarded))
 
 
+# Bulk reads whose content can carry live login material (log lines include
+# request URLs; the bundle includes logs and config). Pinned explicitly because
+# the static signals above cannot see "reads a log file".
+REQUIRED_INTERACTIVE_READS = {
+    ("GET", "/admin/logs"), ("GET", "/admin/logs/stream"), ("GET", "/admin/support-bundle"),
+}
+
+
+def test_log_and_bundle_reads_are_interactive_only():
+    _, enforced = _collect()
+    assert REQUIRED_INTERACTIVE_READS <= set(enforced), REQUIRED_INTERACTIVE_READS - set(enforced)
+
+
 def test_the_census_actually_found_the_known_guarded_routes():
     # Guard against a silently empty census (e.g. a parse regression).
     guarded, enforced = _collect()
