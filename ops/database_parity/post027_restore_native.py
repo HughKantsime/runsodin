@@ -167,6 +167,40 @@ def main():
         assert has_index(released); released.dispose()
         print('post027-native-published-v1.9.24-database-upgraded-reordered-' + '-'.join(reordered) + '-backup-validated-restored-pass', flush=True)
 
+        # 7. Apply failures: before the restore body (its rollback dump is removed), and inside
+        #    it after the rollback (the archive is kept with a record and a superadmin notice).
+        from contextlib import contextmanager
+        from modules.system import pre026_restore_stage as stage_module
+        from modules.system import routes_backup
+        archive27 = Path(facts[27]['archive'])
+        rollbacks = lambda: sorted(p.name for p in b.postgres_paths(root).backups.glob('rollback_*.dump'))
+        b.stage_postgres_restore(archive27, target, maintenance, **args); engine.dispose()
+        before_rollbacks = rollbacks()
+        real_prepared = stage_module.prepared_archive
+        @contextmanager
+        def refusing_prepared(*a, **k):
+            raise b.ArchiveRefused('synthetic refusal after the rollback dump')
+            yield
+        stage_module.prepared_archive = refusing_prepared
+        try:
+            try:b.apply_pending_postgres_restore(target, maintenance, acknowledgement=facts[27]['sha256'], **args)
+            except b.ArchiveRefused:pass
+            else:raise AssertionError('refusal did not propagate')
+        finally:
+            stage_module.prepared_archive = real_prepared
+        assert rollbacks() == before_rollbacks and b.postgres_paths(root).manifest.exists()
+        before = marker()
+        try:b.apply_pending_postgres_restore(target, maintenance, acknowledgement=facts[27]['sha256'], fail_after_restore=True, **args)
+        except RuntimeError as error:assert 'Injected post-restore' in str(error)
+        else:raise AssertionError('post-restore failure did not fire')
+        assert marker() == before and not b.postgres_paths(root).manifest.exists()
+        kept = [r for r in b.quarantined_restores(root) if r['archive']]
+        assert kept and 'rolled back' in kept[0]['reason'], kept
+        notices = routes_backup.active_system_notices()
+        assert notices and notices[0]['archive'] == kept[0]['archive'], notices
+        for path in b.postgres_paths(root).backups.glob('failed_restore_*'):path.unlink()
+        print('post027-native-failed-attempt-removes-its-rollback-dump-rolled-back-apply-keeps-archive-and-notice-pass', flush=True)
+
         # 8. A preserved029 child killed mid-run leaves no validation database or working file.
         import signal, threading
         from modules.system import restore_artifacts
