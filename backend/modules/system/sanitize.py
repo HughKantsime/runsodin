@@ -6,7 +6,6 @@ _PATTERNS = [
     re.compile(r'eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+'),
     # Scoped tokens are odin_ + 43 url-safe characters ('-' and '_' included): the whole token.
     re.compile(r'\bodin_[A-Za-z0-9_-]{40,}'),
-    re.compile(r'(?i)([?&](?:token|access_token|api_key|apikey|key|ws_token|oidc_code|code|state|nonce|password|refresh_token|id_token|client_secret)=)[^&\s"\'#]+'),
     re.compile(r'(?i)\bx-api-key\b["\']?\s*[:=]\s*["\']?[^\s"\',;}]+'),
     re.compile(r"(?i)[\"']?\b(?:authorization|proxy-authorization)[\"']?\s*[:=]\s*[\"']?(?:bearer|basic)?\s*[^\s,;\"']+"),
     # Bearer tokens anywhere in a line, not only after an Authorization label.
@@ -33,10 +32,12 @@ _PATTERNS = [
 ]
 
 
-# One-time login material in URLs (OIDC callback ?code=&state=, ODIN's own
-# oidc_code, nonces and OAuth tokens). Keeps the parameter name for debugging.
+# Credential-bearing URL parameters: one-time login material (OIDC callback ?code=&state=,
+# ODIN's own oidc_code, nonces, OAuth tokens; cert-fix-F) and query credentials (token,
+# api key, ws token, password; cert-fix-B). Keeps the parameter name for debugging.
 _URL_SECRET_PARAMS = re.compile(
-    r'(?i)([?&#;](?:oidc_code|code|state|nonce|id_token|access_token|refresh_token|client_secret)=)[^&\s"\'#;]*')
+    r'(?i)([?&#;](?:oidc_code|code|state|nonce|id_token|access_token|refresh_token|client_secret'
+    r'|token|api_key|apikey|key|ws_token|password)=)[^&\s"\'#;]*')
 
 
 def sanitize_log_line(line: str) -> str:
