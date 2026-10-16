@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Bell, Settings as SettingsIcon, Users, Shield, Palette, Key, Webhook, Database, Eye, ScrollText, FileText } from 'lucide-react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
@@ -44,7 +45,12 @@ function AccessAccordion({ title, icon: Icon, children, defaultOpen = false }: {
 }
 
 export default function Settings() {
-  const [activeTab, setActiveTab] = useState('general')
+  // Deep links such as the system-notice banner's /settings?tab=system#backups.
+  const [searchParams] = useSearchParams()
+  const [activeTab, setActiveTab] = useState(() => {
+    const requested = searchParams.get('tab')
+    return requested && ['general', 'notifications', 'access', 'integrations', 'vision', 'branding', 'license', 'system', 'logs'].includes(requested) ? requested : 'general'
+  })
   const lic = useLicense()
   const { data: pricingData } = useQuery({
     queryKey: ['pricing-config'],

@@ -24,6 +24,7 @@ from modules.system.backup_service import (
 from modules.system.postgres_backup_service import (
     create_postgres_backup,
     postgres_paths,
+    quarantined_restores,
     stage_postgres_restore,
 )
 
@@ -162,7 +163,7 @@ def list_backups(current_user: dict = Depends(require_superadmin(scope="admin"))
     paths = _backup_paths()
     if not paths.backups.exists():
         return []
-    return [
+    entries = [
         {
             "filename": item.name,
             "size_bytes": item.stat().st_size,
@@ -176,15 +177,71 @@ def list_backups(current_user: dict = Depends(require_superadmin(scope="admin"))
             reverse=True,
         )
     ]
+    if sql.is_postgres:
+        # Staged restores the startup coordinator refused before changing the database.
+        for record in quarantined_restores():
+            if record["archive"] is None:
+                continue
+            item = paths.backups / record["archive"]
+            entries.insert(0, {
+                "filename": item.name,
+                "size_bytes": item.stat().st_size,
+                "size_mb": round(item.stat().st_size / 1048576, 2),
+                "created_at": record.get("failed_at") or datetime.fromtimestamp(item.stat().st_mtime, tz=timezone.utc).isoformat(),
+                "quarantined": True,
+                "reason": record.get("reason"),
+                "action": record.get("action"),
+            })
+    return entries
+
+
+_QUARANTINED_PREFIX = "failed_restore_"
+
+# Routes that stage a database restore. They must refuse API-token callers and require an
+# interactive superadmin session: cert-fix-F's require_interactive_session guard is added
+# to each of these at merge (recorded in the merge plan; see docs/SCHEMA_MIGRATIONS.md).
+BACKUP_ROUTES_REQUIRING_INTERACTIVE = (
+    ("POST", "/backups/restore"),
+    ("POST", "/backups/{filename}/stage"),
+)
+BACKUPS_LINK = "/settings?tab=system#backups"
+
+
+def active_system_notices() -> list[dict]:
+    """Superadmin notices derived from current state; each clears when its cause is gone."""
+    if not sql.is_postgres:
+        return []
+    notices = []
+    for record in quarantined_restores():
+        if record["archive"] is None:
+            continue
+        notices.append({
+            "kind": "restore_quarantined",
+            "severity": "critical",
+            "title": "Database restore was not applied",
+            "message": f"{record.get('reason')} {record.get('action') or ''} "
+                       "Re-stage or delete the archive in Settings > System > Backups.".replace("  ", " "),
+            "archive": record["archive"],
+            "failed_at": record.get("failed_at"),
+            "link": BACKUPS_LINK,
+        })
+    return notices
+
+
+@router.get("/system/notices", tags=["System"])
+def system_notices(current_user: dict = Depends(require_superadmin(scope="admin"))):
+    """Active system notices for superadmins (restore quarantine)."""
+    return {"notices": active_system_notices()}
 
 
 def _safe_backup_path(filename: str) -> Path:
     paths = _backup_paths()
     candidate = (paths.backups / filename).resolve()
     expected_suffix = ".dump" if sql.is_postgres else ".db"
+    allowed = filename.startswith("odin_backup_") or (sql.is_postgres and filename.startswith(_QUARANTINED_PREFIX))
     if (
         candidate.parent != paths.backups.resolve()
-        or not filename.startswith("odin_backup_")
+        or not allowed
         or candidate.suffix != expected_suffix
     ):
         raise HTTPException(status_code=400, detail="Invalid filename")
@@ -207,5 +264,43 @@ def delete_backup(
 ):
     path = _safe_backup_path(filename)
     path.unlink()
+    if path.name.startswith(_QUARANTINED_PREFIX):
+        path.with_suffix(".json").unlink(missing_ok=True)
     log_audit(db, "backup_deleted", "system", details={"filename": path.name})
     db.commit()
+
+
+@router.post("/backups/{filename}/stage", tags=["System"])
+def stage_existing_backup(
+    filename: str,
+    current_user: dict = Depends(require_superadmin(scope="admin")),
+    db: Session = Depends(get_db),
+):
+    """Validate and stage a listed PostgreSQL backup (or quarantined restore) for the next start."""
+    if not sql.is_postgres:
+        raise HTTPException(status_code=501, detail="Staging a listed backup is available for PostgreSQL")
+    path = _safe_backup_path(filename)
+    maintenance_url, password_file, maintenance_password_file = _postgres_maintenance_config()
+    try:
+        result = stage_postgres_restore(
+            path,
+            settings.database_url,
+            maintenance_url,
+            actor_id=current_user.get("id"),
+            password_file=password_file,
+            maintenance_password_file=maintenance_password_file,
+        )
+    except BackupValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if path.name.startswith(_QUARANTINED_PREFIX):
+        # The staged copy replaces the quarantined pair.
+        path.unlink(missing_ok=True)
+        path.with_suffix(".json").unlink(missing_ok=True)
+    log_audit(db, "restore_staged_from_list", "system", details={"filename": path.name, "candidate_sha256": result.get("candidate_sha256")})
+    db.commit()
+    return {
+        "status": "staged",
+        "message": "Restore validated and staged. Restart ODIN to apply it offline.",
+        "restart_required": True,
+        "candidate_sha256": result.get("candidate_sha256"),
+    }

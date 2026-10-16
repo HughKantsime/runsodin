@@ -7,6 +7,9 @@ from core.schema import pre026_restore_contract as C
 from modules.system import postgres_canonical_executables as E
 from modules.system import postgres_backup_service as B
 from core.schema.migrator import MigrationError
+from ._preserved029_target import bundle_only
+
+pytestmark = bundle_only
 
 
 def test_immutable025_oracle_and_closed026_extension():

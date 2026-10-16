@@ -10,7 +10,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel as PydanticBaseModel
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
@@ -512,6 +512,25 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
             ),
             {"identifier": identifier, "pattern": f"%{identifier}%"},
         )
+
+    # Quiet-hours deferred deliveries (migration 032): the user's own copies go; copies
+    # of the same alert held for other recipients and webhooks are kept for delivery,
+    # scrubbed with the same identifier replacement as the alerts above. (cert-fix-F's
+    # structural scrub replaces both at merge.)
+    from modules.organizations.routes_users import delete_deferred_deliveries, _DEFERRED_DELIVERIES_TABLE
+    delete_deferred_deliveries(db, user_id=user_id)
+    if inspect(db.connection()).has_table(_DEFERRED_DELIVERIES_TABLE):
+        for identifier in identifiers:
+            db.execute(
+                text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant table name; params bound
+                    f"UPDATE {_DEFERRED_DELIVERIES_TABLE} SET "
+                    "title = REPLACE(title, :identifier, '[deleted-user]'), "
+                    "message = CASE WHEN message IS NULL THEN NULL "
+                    "ELSE REPLACE(message, :identifier, '[deleted-user]') END "
+                    "WHERE title LIKE :pattern OR message LIKE :pattern"
+                ),
+                {"identifier": identifier, "pattern": f"%{identifier}%"},
+            )
 
     # Remove direct Classroom identity data and any unconsumed OAuth state.
     # Operational course mappings and cost centers remain, while grants are

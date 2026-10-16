@@ -6,6 +6,9 @@ from core.schema.pre026_restore_contract import (PRE026_RESTORE025,INVENTORY,che
 from core.schema.migrator import MigrationError
 from modules.system.postgres_canonical_executables import canonical_functions,canonical_triggers
 from modules.system import postgres_backup_service as backup
+from ._preserved029_target import bundle_only
+
+pytestmark = bundle_only
 
 
 def test_positive_closed25_inventory_and_current26_default():

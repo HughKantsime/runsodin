@@ -212,6 +212,13 @@ async def get_diagnostics(current_user: dict = Depends(require_role("admin"))):
 
     result = {}
 
+    # Staged PostgreSQL restores refused at startup (database unchanged).
+    try:
+        from modules.system.postgres_backup_service import quarantined_restores
+        result["restore_quarantine"] = quarantined_restores()
+    except Exception as e:
+        result["restore_quarantine"] = {"error": str(e)}
+
     # Version
     try:
         result["odin_version"] = _read_version()

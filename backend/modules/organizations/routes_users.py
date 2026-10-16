@@ -352,6 +352,22 @@ _USER_CREDENTIAL_TABLES = (
 )
 
 
+# Quiet-hours deferred deliveries (migration 032): cleaned up with
+# the user and the org, as a no-op while the table does not exist.
+_DEFERRED_DELIVERIES_TABLE = "quiet_hours_deferred_deliveries"
+
+
+def delete_deferred_deliveries(db, *, user_id=None, org_id=None):
+    from sqlalchemy import inspect as _inspect
+    if not _inspect(db.connection()).has_table(_DEFERRED_DELIVERIES_TABLE):
+        return 0
+    if user_id is not None:
+        return db.execute(text(f"DELETE FROM {_DEFERRED_DELIVERIES_TABLE} WHERE user_id = :uid"),
+                          {"uid": user_id}).rowcount or 0
+    return db.execute(text(f"DELETE FROM {_DEFERRED_DELIVERIES_TABLE} WHERE org_id = :oid OR scope_key = :scope"),
+                      {"oid": org_id, "scope": f"org:{int(org_id)}"}).rowcount or 0
+
+
 def _revoke_user_credentials(db, user_id):
     """Blacklist every recorded session jti, then delete all credential rows."""
     expires = datetime.now(timezone.utc) + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
@@ -364,6 +380,7 @@ def _revoke_user_credentials(db, user_id):
                    {"jti": jti, "expires": expires})
     for table, column in _USER_CREDENTIAL_TABLES:
         db.execute(text(f"DELETE FROM {table} WHERE {column} = :uid"), {"uid": user_id})
+    delete_deferred_deliveries(db, user_id=user_id)
 
 
 @router.post("/users/import", tags=["Users"], dependencies=[Depends(require_scope("admin"))])
@@ -569,6 +586,7 @@ async def delete_group(group_id: int, current_user: dict = Depends(require_super
         raise HTTPException(status_code=404, detail="Group not found")
     assert_org_hard_delete_allowed(db, group_id)
     db.execute(text("UPDATE users SET group_id = NULL WHERE group_id = :gid"), {"gid": group_id})
+    delete_deferred_deliveries(db, org_id=group_id)
     db.execute(text("DELETE FROM groups WHERE id = :id"), {"id": group_id})
     db.commit()
     return {"status": "deleted"}

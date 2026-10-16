@@ -1,0 +1,46 @@
+"""Frozen retirement-intent contract. It does not authorize filesystem deletion."""
+from sqlalchemy import (MetaData, Table, Column, String, Text, Integer, BigInteger,
+                        DateTime, ForeignKey, CheckConstraint, UniqueConstraint, func)
+
+metadata = MetaData()
+intent = Table('timelapse_retirements', metadata,
+    Column('operation_id', String(64), primary_key=True, nullable=False),
+    Column('timelapse_id', Integer, nullable=False),
+    Column('printer_id', Integer, nullable=False),
+    Column('owner_state', String(16), nullable=False),
+    Column('owner_org_id', Integer),
+    Column('filename', Text, nullable=False),
+    Column('root_device', BigInteger, nullable=False),
+    Column('root_inode', BigInteger, nullable=False),
+    Column('state', String(16), nullable=False),
+    Column('revision', Integer, nullable=False),
+    Column('reason_code', String(64)),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.current_timestamp()),
+    Column('completed_at', DateTime(timezone=True)),
+    CheckConstraint("length(operation_id) BETWEEN 1 AND 64 AND timelapse_id > 0 AND printer_id > 0 AND revision > 0", name='tr_identity'),
+    CheckConstraint("root_device >= 0 AND root_inode > 0 AND length(filename) BETWEEN 1 AND 4096", name='tr_root'),
+    CheckConstraint("(owner_state='known' AND owner_org_id IS NOT NULL AND owner_org_id > 0) OR (owner_state IN ('shared','unresolved') AND owner_org_id IS NULL)", name='tr_owner'),
+    CheckConstraint("state IN ('pending','in_flight','blocked','complete')", name='tr_state'),
+    CheckConstraint("(state='complete' AND completed_at IS NOT NULL AND reason_code IS NULL) OR (state<>'complete' AND completed_at IS NULL)", name='tr_completion'),
+    CheckConstraint("state<>'blocked' OR reason_code IS NOT NULL", name='tr_blocked'),
+    CheckConstraint("reason_code IS NULL OR reason_code IN ('unknown_authority','ownership_changed','unsafe_path','unsupported_platform','object_changed','file_io','phase_uncertain','manifest_limit','writer_active')", name='tr_reason'),
+)
+
+facts = ('device','inode','uid','gid','mode','link_count','byte_count','mtime_ns','ctime_ns')
+objects = Table('timelapse_retirement_objects', metadata,
+    Column('operation_id', String(64), ForeignKey('timelapse_retirements.operation_id', ondelete='RESTRICT'), primary_key=True, nullable=False),
+    Column('object_index', Integer, primary_key=True, nullable=False, autoincrement=False),
+    Column('relative_path', Text, nullable=False),
+    Column('kind', String(16), nullable=False),
+    *(Column(name, BigInteger) for name in facts),
+    Column('state', String(24), nullable=False),
+    Column('quarantine_name', Text),
+    Column('reason_code', String(64)),
+    UniqueConstraint('operation_id','relative_path', name='tro_relative'),
+    UniqueConstraint('quarantine_name', name='tro_quarantine'),
+    CheckConstraint("object_index >= 0 AND length(relative_path) BETWEEN 1 AND 4096 AND kind IN ('file','directory')", name='tro_identity'),
+    CheckConstraint("state IN ('planned','staged','unlink_confirmed','fsync_confirmed','retired','originally_absent','blocked')", name='tro_state'),
+    CheckConstraint("(state='originally_absent' AND " + ' AND '.join(name+' IS NULL' for name in facts) + " AND quarantine_name IS NULL) OR (state<>'originally_absent' AND " + ' AND '.join(name+' IS NOT NULL AND '+name+' >= 0' for name in facts) + " AND inode > 0 AND link_count > 0 AND quarantine_name IS NOT NULL AND length(quarantine_name) BETWEEN 1 AND 128)", name='tro_facts'),
+    CheckConstraint("state<>'blocked' OR reason_code IS NOT NULL", name='tro_blocked'),
+    CheckConstraint("reason_code IS NULL OR reason_code IN ('ownership_changed','unsafe_path','unsupported_platform','object_changed','file_io','phase_uncertain','manifest_limit','writer_active')", name='tro_reason'),
+)

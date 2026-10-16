@@ -7,6 +7,7 @@ from core.schema.bootstrap import RAW_REQUIRED_COLUMNS
 from core.schema.migrator import MigrationError
 from modules.system.postgres_backup_service import canonical_tables
 from modules.system.postgres_canonical_executables import canonical_functions,canonical_triggers
+from ._preserved029_target import bundle_only
 M=importlib.import_module('core.schema.migrations.025_spool_purchase_evidence')
 
 def test_registered_bootstrap_repeat_inventory_and_nullable_history(tmp_path):
@@ -37,6 +38,7 @@ def test_registered_source_mismatch_refuses_without_purchase_footprint(tmp_path,
         with engine.connect() as c:assert c.execute(text('SELECT count(*) FROM odin_schema_migrations WHERE migration_id=:id'),{'id':M.MIGRATION_ID}).scalar_one()==0
     finally:engine.dispose()
 
+@bundle_only
 def test_canonical_purchase_exact_union_and_shared_truncate_target():
     functions=canonical_functions();triggers=canonical_triggers()
     from core.schema.pre026_restore_contract import PRE027_RESTORE026
