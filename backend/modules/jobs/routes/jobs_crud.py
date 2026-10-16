@@ -667,14 +667,14 @@ async def update_job(job_id: int, updates: JobUpdate, request: Request, current_
             if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
                 raise HTTPException(status_code=404, detail="Printer not found")
     changes = updates.model_dump(exclude_unset=True)
-    # A user choosing a different printer is an explicit specific-printer pin
-    # (None clears it). Re-sending the current assignment is not a choice.
-    if ("printer_id" in changes and "pinned_printer_id" not in changes
-            and changes["printer_id"] != job.printer_id):
-        changes["pinned_printer_id"] = changes["printer_id"]
+    # A pin changes only when pinned_printer_id is sent explicitly. A printer id
+    # pins (replacing any model/protocol target: the user chose this printer);
+    # null clears an existing specific pin but never touches a model/protocol target.
     if "pinned_printer_id" in changes:
         from modules.jobs.pinning import pin_columns
-        changes.update(pin_columns(changes.pop("pinned_printer_id")))
+        chosen = changes.pop("pinned_printer_id")
+        if chosen is not None or (job.target_type or "specific") == "specific":
+            changes.update(pin_columns(chosen))
     for field, value in changes.items():
         setattr(job, field, value)
 

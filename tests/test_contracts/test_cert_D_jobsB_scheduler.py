@@ -275,7 +275,7 @@ def test_stale_cleanup_runs_even_when_no_printer_is_available(fleet):
 def test_specific_printer_set_by_patch_is_honoured_by_scheduler(fleet, signed_license, monkeypatch):
     client = specific_client(fleet, signed_license, monkeypatch)
     add_job(fleet, 901, target_type='specific')
-    response = client.patch('/api/v1/jobs/901', json={'printer_id': 12})
+    response = client.patch('/api/v1/jobs/901', json={'printer_id': 12, 'pinned_printer_id': 12})  # explicit pin
     assert response.status_code == 200, response.text
     assert rows(fleet, [901])[901][:2] == ('pending', 12)
     run(fleet)
@@ -353,7 +353,7 @@ def test_only_an_explicit_choice_pins(fleet, signed_license, monkeypatch):
     run(fleet)
     status, printer, *_ = rows(fleet, [free])[free]
     assert status == 'scheduled'
-    # Re-sending the scheduler's own assignment via PATCH is not a pin.
+    # Sending a printer_id (assignment) without pinned_printer_id is not a pin.
     assert client.patch(f'/api/v1/jobs/{free}', json={'printer_id': printer, 'notes': 'edit'}).status_code == 200
     assert _pin(fleet, free) is None
     # Repeat keeps the assignment hint but never invents a pin.
@@ -450,3 +450,25 @@ def test_job_list_reads_printers_once_for_pin_issues(fleet, signed_license, monk
     finally:
         event.remove(engine, 'before_cursor_execute', count)
     assert len(seen) == 1, seen
+
+
+# ---------------- round 4: edits never wipe model/protocol targets ----------------
+
+@pytest.mark.parametrize('target_type,target_filter', [('model', 'X1C'), ('protocol', 'moonraker')])
+@pytest.mark.parametrize('body', [{'notes': 'notes only'}, {'notes': 'modal save', 'pinned_printer_id': None}])
+def test_edit_keeps_model_and_protocol_targets(fleet, signed_license, monkeypatch, target_type, target_filter, body):
+    client = _pin_client(fleet, signed_license, monkeypatch)
+    add_job(fleet, 905, target_type=target_type, target_filter=target_filter)
+    assert client.patch('/api/v1/jobs/905', json=body).status_code == 200
+    fleet.expire_all()
+    assert tuple(fleet.execute(text('SELECT target_type,target_filter FROM jobs WHERE id=905')).one()) == (target_type, target_filter)
+
+
+def test_printer_id_alone_is_not_a_pin_and_explicit_pin_replaces_a_model_target(fleet, signed_license, monkeypatch):
+    client = _pin_client(fleet, signed_license, monkeypatch)
+    add_job(fleet, 906, target_type='model', target_filter='X1C')
+    assert client.patch('/api/v1/jobs/906', json={'printer_id': 11}).status_code == 200
+    fleet.expire_all()
+    assert tuple(fleet.execute(text('SELECT target_type,target_filter FROM jobs WHERE id=906')).one()) == ('model', 'X1C')
+    assert client.patch('/api/v1/jobs/906', json={'pinned_printer_id': 12}).status_code == 200
+    assert _pin(fleet, 906) == 12
