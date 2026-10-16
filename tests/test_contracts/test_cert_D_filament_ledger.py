@@ -534,19 +534,110 @@ def test_legacy_operator_rows_belong_to_the_attempt_of_their_time(archive_case, 
     assert _accounting(engine) == expected
 
 
-def test_a_bound_print_keeps_its_attempt_whatever_its_started_at(lifecycle_client):
-    from core.filament_ledger import print_attempt
+def test_a_bound_print_keeps_its_attempt_and_that_attempts_window_whatever_its_started_at(lifecycle_client):
+    """Bound to attempt 0, with a clock-skewed started_at after the reset: the print is
+    accounted against attempt 0's window, so attempt 0's marker-less legacy deduction
+    is seen (reconcile, no second deduction) -- not missed by a started_at window."""
+    from core.filament_ledger import LEGACY_JOB_USAGE, print_attempt, record_job_filament
     from core.print_attempts import bind_print_attempt, bump_print_attempt, sqlalchemy_runner
     client, db = lifecycle_client
     _print_job(db, 5101)
     run = sqlalchemy_runner(db)
     bind_print_attempt(run, 5101, 111)                                    # created in attempt 0
-    bump_print_attempt(run, 111)
+    db.execute(text("INSERT INTO spool_usage(spool_id,job_id,weight_used_g,used_at,notes) VALUES(111,111,10,:at,:n)"),
+               {"at": datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1), "n": LEGACY_NOTE})
+    db.execute(text("UPDATE spools SET remaining_weight_g=90 WHERE id=111"))
+    bump_print_attempt(run, 111)                                          # the job is reset
     db.execute(text("UPDATE print_jobs SET started_at='2099-01-01 00:00:00' WHERE id=5101"))   # skewed clock
-    assert print_attempt(run, 111, 5101).seq == 0
+    view = print_attempt(run, 111, 5101)
+    assert view.seq == 0 and view.end is not None                         # attempt 0 ends at the reset
     bind_print_attempt(run, 5101, 111)                                    # first binding wins
     assert print_attempt(run, 111, 5101).seq == 0
-    db.rollback()
+    outcome = record_job_filament(run, 111, source="archive", print_job_id=5101, grams_by_spool={111: 10})
+    assert (outcome.state, outcome.reason) == ("already_deducted", LEGACY_JOB_USAGE)
+    db.commit()
+    assert _spool(db) == (90.0, 1)                                         # no second deduction
+    keys = _keys(db)
+    assert not any(key.startswith("quota_attempt:filament:job:111:") for key in keys), keys
+
+
+def test_rows_the_ledger_wrote_are_never_taken_for_legacy_usage(lifecycle_client):
+    """A ledger row is covered by its own claim marker; only marker-less legacy rows block."""
+    from core.filament_ledger import record_job_filament
+    from core.print_attempts import sqlalchemy_runner
+    client, db = lifecycle_client
+    _print_job(db, 5103)
+    db.execute(text("INSERT INTO spool_usage(spool_id,job_id,weight_used_g,used_at,notes) VALUES(111,111,1,:at,"
+                    "'auto:operator_complete: job #111 complete (another attempt)')"),
+               {"at": datetime.now(timezone.utc).replace(tzinfo=None)})
+    db.commit()
+    outcome = record_job_filament(sqlalchemy_runner(db), 111, source="archive", print_job_id=5103, grams_by_spool={111: 10})
+    assert outcome.deducted, outcome
+    db.commit()
+    assert _spool(db)[0] == 90.0
+
+
+def test_moonraker_flags_an_unattributable_print_for_reconciliation(lifecycle_client, caplog):
+    client, db = lifecycle_client
+    assert client.post("/jobs/111/complete").status_code == 200        # job-level deduction of attempt 0
+    assert _spool(db) == (90.0, 1)
+    _print_job(db, 5104)
+    deduct = _moonraker(db, print_job_id=5104)
+    outcome = deduct()
+    assert outcome.unattributed and outcome.reason == "job_usage"
+    assert _spool(db) == (90.0, 1)
+    flag = json.loads(_keys(db)["quota_attempt:filament:job:111:reconcile:print:5104"])
+    assert flag["reason"] == "job_usage" and flag["source"] == "moonraker"
+    assert any("reconciliation required" in record.getMessage() for record in caplog.records)
+
+
+# ---------------- round 7: one precision for every window ----------------
+
+def test_times_share_one_precision_so_no_row_falls_between_windows(lifecycle_client):
+    """A reset anchor with microseconds, its audit entry and a row in the same second."""
+    from core.filament_ledger import current_attempt, print_attempt
+    from core.print_attempts import moment, sqlalchemy_runner
+    client, db = lifecycle_client
+    db.execute(text("INSERT INTO system_config(key,value) VALUES('quota_attempt:seq:111','1')"))
+    db.execute(text("INSERT INTO system_config(key,value) VALUES('quota_attempt:started:111:1',:v)"),
+               {"v": json.dumps("2026-01-02T09:00:00.700000+00:00")})
+    db.execute(text("INSERT INTO audit_logs(timestamp,action,entity_type,entity_id) VALUES('2026-01-02 09:00:00','job.reset','job',111)"))
+    db.execute(text("INSERT INTO print_jobs(id,printer_id,scheduled_job_id,job_name,status,started_at) "
+                    "VALUES(5107,9,111,'old','completed','2026-01-02 08:00:00')"))
+    db.commit()
+    run = sqlalchemy_runner(db)
+    row_time = moment("2026-01-02 09:00:00")
+    previous, current = print_attempt(run, 111, 5107), current_attempt(run, 111)
+    assert [previous.holds(row_time), current.holds(row_time)] == [False, True]   # exactly one window
+    assert previous.end == current.start == moment("2026-01-02T09:00:00Z")
+    assert moment("2026-01-02T09:00:00.999999+00:00") == moment("2026-01-02 09:00:00")
+
+
+def test_an_unparseable_anchor_is_reported_and_falls_back_to_audited_resets(lifecycle_client, caplog):
+    from core.filament_ledger import current_attempt
+    from core.print_attempts import moment, sqlalchemy_runner
+    client, db = lifecycle_client
+    db.execute(text("INSERT INTO system_config(key,value) VALUES('quota_attempt:seq:111','1')"))
+    db.execute(text("INSERT INTO system_config(key,value) VALUES('quota_attempt:started:111:1',:v)"), {"v": json.dumps("garbage")})
+    db.execute(text("INSERT INTO audit_logs(timestamp,action,entity_type,entity_id) VALUES('2026-01-02 09:00:00','job.reset','job',111)"))
+    db.commit()
+    view = current_attempt(sqlalchemy_runner(db), 111)
+    assert view.start == moment("2026-01-02 09:00:00")
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("Unparseable attempt anchor" in m for m in messages) and any("no reset anchor" in m for m in messages)
+
+
+def test_postgres_sessions_are_pinned_to_utc(monkeypatch):
+    from core import database_config
+    captured = {}
+    from sqlalchemy.engine import make_url
+    monkeypatch.setattr(database_config, "assert_postgres_restore_ready", lambda *_: None)
+    monkeypatch.setattr(database_config, "resolve_database_url", lambda url, **_: make_url(url))
+    monkeypatch.setattr(database_config, "create_engine", lambda url, **kwargs: captured.update(kwargs) or
+                        type("FakeEngine", (), {})())
+    monkeypatch.setattr(database_config.event, "listens_for", lambda *a, **k: (lambda f: f))
+    database_config.create_database_engine("postgresql+psycopg://odin@db/odin", role="api", password_file=None)
+    assert "-c TimeZone=UTC" in captured["connect_args"]["options"]
 
 
 def test_link_print_binds_the_print_to_the_jobs_current_attempt(lifecycle_client):

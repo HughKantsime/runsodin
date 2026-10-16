@@ -857,12 +857,20 @@ class MoonrakerMonitor:
             return
         # The filament ledger: once per print attempt, shared with operator
         # completion and archive accounting; claimed only if something is deducted.
-        from core.filament_ledger import record_job_filament
+        from core.filament_ledger import flag_reconciliation, record_job_filament
         from core.print_attempts import sqlalchemy_runner
-        return record_job_filament(sqlalchemy_runner(conn), scheduled_job_id, source="moonraker",
-                                   grams_by_spool={spools[0][0]: float(grams)},
-                                   print_job_id=getattr(self, '_current_job_db_id', None),
-                                   notes='observed extrusion' if observed_grams is not None else 'sliced estimate')
+        print_job_id = getattr(self, '_current_job_db_id', None)
+        outcome = record_job_filament(sqlalchemy_runner(conn), scheduled_job_id, source="moonraker",
+                                      grams_by_spool={spools[0][0]: float(grams)}, print_job_id=print_job_id,
+                                      notes='observed extrusion' if observed_grams is not None else 'sliced estimate')
+        if outcome.unattributed and print_job_id is not None:
+            # Never silently drop it: the archive path records this as unresolved;
+            # here the ledger keeps a durable reconciliation flag.
+            log.error("[%s] Filament for print %s of job %s not deducted (%s); reconciliation required",
+                      getattr(self, 'name', self.printer_id), print_job_id, scheduled_job_id, outcome.reason)
+            flag_reconciliation(sqlalchemy_runner(conn), scheduled_job_id, print_job_id,
+                                reason=outcome.reason, source="moonraker")
+        return outcome
 
 
 # ------------------------------------------------------------------

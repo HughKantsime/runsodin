@@ -57,13 +57,16 @@ qmark_runner); the caller owns the transaction.
 from __future__ import annotations
 
 import json
+import logging
 import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Mapping, Optional
 
-from core.print_attempts import (PREFIX, attempt_seq, attempt_starts, bound_print_attempt,
+from core.print_attempts import (PREFIX, attempt_seq, attempt_starts, bound_print_attempt, moment,
                                  filament_marker_for)
+
+log = logging.getLogger("odin.filament_ledger")
 
 AUTO_PREFIX = "auto:"
 MANUAL_PREFIX = "manual:"
@@ -91,6 +94,12 @@ class LedgerResult:
     def deducted(self) -> bool:
         return self.state == "deducted"
 
+    @property
+    def unattributed(self) -> bool:
+        """A print-scoped deduction refused because its attempt holds usage that cannot
+        be attributed to this print (job-level or marker-less rows): reconcile it."""
+        return self.state == "already_deducted" and self.reason in (PRINT_USAGE, JOB_USAGE, LEGACY_JOB_USAGE)
+
 
 def _now():
     # Naive UTC, microsecond precision (portable for SQLite text and PostgreSQL timestamp).
@@ -98,22 +107,19 @@ def _now():
 
 
 def _utc(value):
-    if value is None:
-        return None
-    from core.db_compat import as_utc_datetime
-    try:
-        return as_utc_datetime(value)
-    except (TypeError, ValueError):
-        return None
+    return moment(value)
 
 
 LEGACY_MANUAL_NOTES = ("Manual weigh adjustment",)
 
 
 def row_kind(notes) -> str:
-    """'auto', 'manual' or 'unknown' (a legacy row whose writer cannot be told)."""
+    """'ledger' (written here; always covered by a claim marker), 'auto' (a legacy
+    automatic deduction), 'manual', or 'unknown' (a legacy row whose writer cannot be told)."""
     text_value = notes or ""
-    if text_value.startswith(AUTO_PREFIX) or text_value.startswith(LEGACY_AUTO_NOTES):
+    if text_value.startswith(AUTO_PREFIX):
+        return "ledger"
+    if text_value.startswith(LEGACY_AUTO_NOTES):
         return "auto"
     if text_value.startswith(MANUAL_PREFIX) or text_value.startswith(LEGACY_MANUAL_NOTES):
         return "manual"
@@ -145,43 +151,66 @@ class AttemptView:
         return (lower is None or moment >= lower) and (self.end is None or moment < self.end)
 
     def same_attempt(self, other) -> bool:
-        return self.seq == other.seq and self.start == other.start
-
-
-def _boundaries(run, job_id):
-    """Every known reset of the job: counted ones (started anchors) and audited ones."""
-    return sorted(set(attempt_starts(run, job_id).values()) | set(_audit_resets(run, job_id)))
+        # A counted attempt is its seq. Only attempt 0 can hold several windows
+        # (resets from before the counter existed), told apart by their start.
+        return self.seq == other.seq and (self.seq > 0 or self.start == other.start)
 
 
 def current_attempt(run, job_id) -> AttemptView:
-    bounds = _boundaries(run, job_id)
+    seq = attempt_seq(run, job_id)
+    starts = attempt_starts(run, job_id)
+    bounds = sorted(set(starts.values()) | set(_audit_resets(run, job_id)))
+    if seq > 0 and seq in starts:
+        start = starts[seq]
+    else:
+        if seq > 0:
+            log.warning("Job %s attempt %s has no reset anchor; using its latest audited reset", job_id, seq)
+        start = bounds[-1] if bounds else None
     row = run("SELECT actual_start FROM jobs WHERE id = :jid", {"jid": int(job_id)}).fetchone()
-    return AttemptView(attempt_seq(run, job_id), bounds[-1] if bounds else None, None,
-                       _utc(row[0]) if row else None)
+    return AttemptView(seq, start, None, _utc(row[0]) if row else None)
+
+
+def _window_around(bounds, started, ceiling=None):
+    before = [b for b in bounds if b <= started]
+    after = [b for b in bounds if b > started and (ceiling is None or b < ceiling)]
+    return before[-1] if before else None, after[0] if after else ceiling
 
 
 def print_attempt(run, job_id, print_job_id) -> AttemptView:
     """The attempt a physical print belongs to -- never simply the job's current one.
 
-    The seq is the binding recorded when the print was created/linked
-    (core.print_attempts.bind_print_attempt); for an older print it is the number
-    of counted resets at or before the print's started_at. The window is the span
-    between the resets around started_at.
+    A bound print (core.print_attempts.bind_print_attempt, at create/link time)
+    belongs to its bound attempt and spans that attempt's own window:
+    [reset that began it, next reset). Attempt 0 ends at the first counted reset;
+    within it, resets from before the counter (audit only) are told apart by the
+    print's started_at. An unbound (older) print belongs to the attempt whose
+    reset window holds its started_at. A missing anchor falls back explicitly to
+    the started_at window, with a warning.
     """
     row = run("SELECT started_at FROM print_jobs WHERE id = :p", {"p": int(print_job_id)}).fetchone()
     started = _utc(row[0]) if row else None
     bound = bound_print_attempt(run, print_job_id, job_id)
     starts = attempt_starts(run, job_id)
+    audits = sorted(set(_audit_resets(run, job_id)))
+    if bound is not None:
+        later = sorted(moment_ for seq, moment_ in starts.items() if seq > bound)
+        end = later[0] if later else None
+        if bound > 0 and bound in starts:
+            return AttemptView(bound, starts[bound], end)
+        if bound == 0:
+            if started is None:
+                return AttemptView(0, None, end)
+            start, sub_end = _window_around(audits, started, end)
+            return AttemptView(0, start, sub_end)
+        log.warning("Print %s is bound to attempt %s of job %s, whose anchor is missing; "
+                    "using its started_at window", print_job_id, bound, job_id)
     if started is None:
         if bound is None:
             return current_attempt(run, job_id)
-        later = [moment for seq, moment in starts.items() if seq > bound]
-        return AttemptView(bound, starts.get(bound), min(later) if later else None)
-    bounds = _boundaries(run, job_id)
-    before = [b for b in bounds if b <= started]
-    after = [b for b in bounds if b > started]
-    seq = bound if bound is not None else sum(1 for moment in starts.values() if moment <= started)
-    return AttemptView(seq, before[-1] if before else None, after[0] if after else None)
+        return AttemptView(bound, None, None)
+    start, end = _window_around(sorted(set(starts.values()) | set(audits)), started)
+    seq = bound if bound is not None else sum(1 for moment_ in starts.values() if moment_ <= started)
+    return AttemptView(seq, start, end)
 
 
 def attempt_anchor(run, job_id):
@@ -248,8 +277,9 @@ def prior_attempt_usage(run, job_id, print_job_id=None) -> Optional[str]:
                   {"k": filament_marker_for(job_id, view.seq)}).fetchone()
         if row and _marker_print(row[0]) is None:
             return JOB_USAGE
-        # A marker-less job row of this attempt (automatic, or a legacy row whose
-        # writer is unknown) cannot be attributed to this print: reconcile.
+        # A marker-less job row of this attempt (a legacy automatic deduction, or a
+        # legacy row whose writer is unknown) cannot be attributed to this print:
+        # reconcile. Rows this ledger wrote are covered by their own claim markers.
         if any(print_job is None for print_job in _attempt_rows(run, job_id, view, ("auto", "unknown"))):
             return LEGACY_JOB_USAGE
         return None
@@ -391,3 +421,17 @@ def record_weighed_spool(run, spool_id, net_weight_g) -> Optional[dict]:
             "VALUES (:spool, NULL, NULL, :g, :at, :notes)",
             {"spool": int(spool_id), "g": before - value, "at": _now(), "notes": f"{MANUAL_PREFIX} weigh adjustment"})
     return {"spool_id": int(spool_id), "old_weight_g": before, "remaining_g": value}
+
+
+def flag_reconciliation(run, job_id, print_job_id, *, reason: str, source: str) -> None:
+    """Durably record that a print's filament needs reconciliation (first flag wins).
+
+    The archive path records the same outcome on its print_archives row
+    (accounting_state 'unresolved'); monitors that deduct without an archive row
+    record it here. The key sits under the job's filament namespace, so
+    clear_job_attempts removes it with the job.
+    """
+    key = (f"{PREFIX}filament:job:{int(job_id)}:reconcile:print:{int(print_job_id)}" if job_id is not None
+           else f"{PREFIX}filament:reconcile:print:{int(print_job_id)}")
+    run("INSERT INTO system_config (key, value) VALUES (:k, :v) ON CONFLICT (key) DO NOTHING",
+        {"k": key, "v": json.dumps({"reason": reason, "source": source, "at": _now().isoformat()})})

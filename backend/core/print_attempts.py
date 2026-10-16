@@ -21,11 +21,13 @@ All keys share the ``quota_attempt:`` prefix, which the diagnostics dump exclude
 from __future__ import annotations
 
 import json
+import logging
 import re
 
 from sqlalchemy import text
 
 PREFIX = "quota_attempt:"
+log = logging.getLogger("odin.print_attempts")
 
 
 def sqlalchemy_runner(db):
@@ -84,26 +86,15 @@ def bump_print_attempt(run, job_id) -> int:
 
 def attempt_reset_at(run, job_id, seq=None):
     """When the current attempt was started by a reset (None for attempt 0 or unknown)."""
-    from core.db_compat import as_utc_datetime
     seq = attempt_seq(run, job_id) if seq is None else seq
-    if seq <= 0:
-        return None
-    row = run("SELECT value FROM system_config WHERE key = :k", {"k": _started_key(job_id, seq)}).fetchone()
-    if not row:
-        return None
-    value = row[0]
-    try:
-        value = json.loads(value) if isinstance(value, (str, bytes, bytearray)) else value
-        return as_utc_datetime(value)
-    except (TypeError, ValueError):
-        return None
+    return attempt_starts(run, job_id).get(seq) if seq > 0 else None
 
 
 def _print_seq_key(print_job_id) -> str:
     return f"{PREFIX}print_seq:{int(print_job_id)}"
 
 
-def bind_print_attempt(run, print_job_id, job_id=None) -> None:
+def bind_print_attempt(run, print_job_id, job_id=None, *, seq=None) -> None:
     """Record which attempt of its job a physical print belongs to (first binding wins).
 
     Called wherever a print is created for, or linked to, a job, so a late end or
@@ -118,7 +109,7 @@ def bind_print_attempt(run, print_job_id, job_id=None) -> None:
         return
     run("INSERT INTO system_config (key, value) VALUES (:k, :v) ON CONFLICT (key) DO NOTHING",
         {"k": _print_seq_key(print_job_id),
-         "v": json.dumps({"job_id": int(job_id), "seq": attempt_seq(run, job_id)})})
+         "v": json.dumps({"job_id": int(job_id), "seq": attempt_seq(run, job_id) if seq is None else int(seq)})})
 
 
 def bound_print_attempt(run, print_job_id, job_id):
@@ -136,17 +127,46 @@ def bound_print_attempt(run, print_job_id, job_id):
     return None
 
 
-def attempt_starts(run, job_id) -> dict:
-    """{seq: reset time} for the job's counted attempts (seq >= 1)."""
+def moment(value):
+    """A stored time as the ledger compares it: UTC, truncated to whole seconds.
+
+    Every attempt boundary and every row time goes through this one function, so
+    times written at different precisions (SQLite CURRENT_TIMESTAMP seconds,
+    Python microseconds, PostgreSQL timestamps) fall in exactly one window
+    (windows are [start, end): inclusive below, exclusive above). Naive values are
+    UTC: PostgreSQL sessions are pinned to TimeZone=UTC (core.database_config), so
+    server-default now() columns are UTC too.
+    """
+    if value is None:
+        return None
     from core.db_compat import as_utc_datetime
+    try:
+        if isinstance(value, (bytes, bytearray)):
+            value = value.decode("utf-8")
+        return as_utc_datetime(value).replace(microsecond=0)
+    except (TypeError, ValueError, UnicodeDecodeError):
+        return None
+
+
+def attempt_starts(run, job_id) -> dict:
+    """{seq: reset time} for the job's counted attempts (seq >= 1).
+
+    An unparseable anchor is reported (logged) and left out; callers that need
+    it fall back explicitly to the job's audited resets and print times.
+    """
     found = {}
     for key, value in run("SELECT key, value FROM system_config WHERE key LIKE :p",
                           {"p": f"{PREFIX}started:{int(job_id)}:%"}).fetchall():
         try:
             parsed = json.loads(value) if isinstance(value, (str, bytes, bytearray)) else value
-            found[int(str(key).rsplit(":", 1)[1])] = as_utc_datetime(parsed)
+            seq = int(str(key).rsplit(":", 1)[1])
         except (TypeError, ValueError):
+            parsed, seq = None, None
+        when = moment(parsed)
+        if seq is None or when is None:
+            log.warning("Unparseable attempt anchor %s for job %s; falling back to audited resets", key, job_id)
             continue
+        found[seq] = when
     return found
 
 
