@@ -122,7 +122,8 @@ def _validate_camera_url(url: str) -> str:
     if not host:
         raise HTTPException(status_code=400, detail="Camera URL has no host")
     try:
-        _check_ssrf_blocklist(f"[{host}]" if ":" in host else host)
+        # With the port: ODIN's own service ports on its own addresses are refused.
+        _check_ssrf_blocklist((f"[{host}]" if ":" in host else host) + (f":{port}" if port else ""))
     except HTTPException:
         raise HTTPException(status_code=400, detail="Camera URL points to a blocked host")
 
@@ -390,6 +391,25 @@ def mjpeg_stream_name(printer_id: int) -> str:
     return f"printer_{printer_id}_mjpeg"
 
 
+GO2RTC_RTSP_LISTEN = "127.0.0.1:8554"
+
+
+def go2rtc_rtsp_credentials():
+    """Per-boot go2rtc RTSP credentials, derived from the camera relay's per-boot secret
+    (shared by every process that writes the go2rtc config)."""
+    import hashlib
+    import hmac
+    from modules.printers.camera_relay import relay_secret
+    password = hmac.new(relay_secret().encode(), b"go2rtc-rtsp", hashlib.sha256).hexdigest()
+    return "odin", password
+
+
+def go2rtc_rtsp_url(stream_name: str) -> str:
+    """ODIN's own authenticated loopback URL for a go2rtc stream."""
+    user, password = go2rtc_rtsp_credentials()
+    return f"rtsp://{user}:{password}@{GO2RTC_RTSP_LISTEN}/{stream_name}"
+
+
 def go2rtc_config_for(printers, lan_ip) -> dict:
     """The one go2rtc config builder. ``printers`` are active, camera-enabled rows
     (ORM objects or anything with id/api_type/api_host/api_key/camera_url/model).
@@ -400,6 +420,7 @@ def go2rtc_config_for(printers, lan_ip) -> dict:
     overlay) is the relay itself for HTTP cameras (it passes multipart/image
     bodies through) and an on-demand ffmpeg transcode of the main stream for RTSP.
     """
+    rtsp_user, rtsp_password = go2rtc_rtsp_credentials()
     streams = {}
     for p in printers:
         source = go2rtc_stream_source(get_camera_url(p), p.id)
@@ -411,8 +432,10 @@ def go2rtc_config_for(printers, lan_ip) -> dict:
             streams[mjpeg_stream_name(p.id)] = relay_url(p.id)
         else:
             # go2rtc does not transcode H.264 for stream.mjpeg; an on-demand
-            # ffmpeg variant (runs only while a consumer is attached) does.
-            streams[mjpeg_stream_name(p.id)] = f"ffmpeg:printer_{p.id}#video=mjpeg"
+            # ffmpeg variant (runs only while a consumer is attached) reads the
+            # main stream from go2rtc's own loopback RTSP server, with its
+            # per-boot credentials.
+            streams[mjpeg_stream_name(p.id)] = f"ffmpeg:{go2rtc_rtsp_url(f'printer_{p.id}')}#video=mjpeg"
     if not lan_ip:
         lan_ip = _get_lan_ip()
     webrtc_config = {"listen": "0.0.0.0:8555"}
@@ -420,6 +443,9 @@ def go2rtc_config_for(printers, lan_ip) -> dict:
         webrtc_config["candidates"] = [f"{lan_ip}:8555"]
     return {
         "api": {"listen": "127.0.0.1:1984"},
+        # go2rtc's RTSP server re-serves every printer stream: loopback only, and
+        # authenticated with per-boot credentials only ODIN's own sources carry.
+        "rtsp": {"listen": GO2RTC_RTSP_LISTEN, "username": rtsp_user, "password": rtsp_password},
         "webrtc": webrtc_config,
         "streams": streams,
     }

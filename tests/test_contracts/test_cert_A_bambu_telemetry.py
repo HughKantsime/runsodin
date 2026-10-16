@@ -143,10 +143,12 @@ def test_x1c_ipcam_report_registers_rtsps_camera_stream(wire_monitor, review_db,
     replay(sock, clock, load_frames("bambu-x1c-ams-swap"))
     assert monitor._camera_discovered is True
     assert len(monitor.go2rtc_configs) == 1
+    from modules.printers.route_utils import go2rtc_rtsp_url
     assert monitor.go2rtc_configs[0]["streams"] == {
         "printer_301": f"rtsps://bblp:{ACCESS}@192.0.2.31:322/streaming/live/1",
         # on-demand MJPEG variant for the OBS overlay (same builder as the API, cert-B)
-        "printer_301_mjpeg": "ffmpeg:printer_301#video=mjpeg"}
+        # transcoded on demand from go2rtc's authenticated loopback RTSP server
+        "printer_301_mjpeg": f"ffmpeg:{go2rtc_rtsp_url('printer_301')}#video=mjpeg"}
 
 
 def x1c_reported_trays(frames):

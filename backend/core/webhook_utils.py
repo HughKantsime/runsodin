@@ -25,6 +25,7 @@ Codex pass 2 (2026-04-13):
 import contextlib
 import contextvars
 import ipaddress
+import os
 import socket
 import ssl
 import urllib.parse
@@ -489,6 +490,122 @@ def is_blocked_device_address(value) -> bool:
     return False
 
 
+# ODIN's own service ports: go2rtc RTSP (8554), WebRTC (8555), go2rtc API (1984) and the
+# ODIN API (8000, or PORT). A device URL naming one of ODIN's own addresses on one of
+# these ports would make ODIN re-serve its own streams (e.g. another org's camera via
+# rtsp://<container IP>:8554/printer_<id>), so it is refused.
+_OWN_SERVICE_PORTS = (8554, 8555, 1984, 8000)
+
+
+def own_service_ports() -> frozenset:
+    ports = set(_OWN_SERVICE_PORTS)
+    for name in ("PORT", "ODIN_PORT", "ODIN_GO2RTC_PORT", "ODIN_WEBRTC_PORT"):
+        try:
+            value = int(os.environ.get(name, "") or 0)
+        except ValueError:
+            continue
+        if 0 < value < 65536:
+            ports.add(value)
+    return frozenset(ports)
+
+
+def _proc_ipv4_local():
+    found = set()
+    try:
+        with open("/proc/net/fib_trie") as handle:
+            lines = handle.read().splitlines()
+    except OSError:
+        return found
+    for previous, line in zip(lines, lines[1:]):
+        if "/32 host LOCAL" in line:
+            candidate = previous.strip().split()[-1]
+            found.add(candidate)
+    return found
+
+
+def _proc_ipv6_local():
+    found = set()
+    try:
+        with open("/proc/net/if_inet6") as handle:
+            for line in handle:
+                raw = line.split()[0] if line.split() else ""
+                if len(raw) == 32:
+                    found.add(str(ipaddress.IPv6Address(int(raw, 16))))
+    except (OSError, ValueError):
+        pass
+    return found
+
+
+def _proc_default_gateways():
+    """The container's default gateway: in Docker bridge mode the host, whose published
+    ports (8000, 8555) reach ODIN."""
+    found = set()
+    try:
+        with open("/proc/net/route") as handle:
+            for line in handle.read().splitlines()[1:]:
+                fields = line.split()
+                if len(fields) > 2 and fields[1] == "00000000":
+                    found.add(str(ipaddress.IPv4Address(int(fields[2], 16).to_bytes(4, "little"))))
+    except (OSError, ValueError):
+        pass
+    return found
+
+
+def own_interface_addresses() -> frozenset:
+    """Every address that reaches this ODIN instance, enumerated now (not cached):
+    the container's/host's interfaces, its hostname's addresses, the default gateway
+    (the Docker host) and the configured host IP (ODIN_HOST_IP / system_config host_ip)."""
+    addresses = _proc_ipv4_local() | _proc_ipv6_local() | _proc_default_gateways()
+    try:
+        for info in _real_getaddrinfo(socket.gethostname(), None):
+            addresses.add(info[4][0])
+    except (socket.gaierror, OSError, UnicodeError):
+        pass
+    try:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            probe.connect(("192.0.2.1", 9))  # no packet is sent for UDP connect
+            addresses.add(probe.getsockname()[0])
+        finally:
+            probe.close()
+    except OSError:
+        pass
+    configured = os.environ.get("ODIN_HOST_IP")
+    if configured:
+        addresses.add(configured.strip())
+    try:
+        from core.db_utils import get_db
+        with get_db() as conn:
+            row = conn.execute("SELECT value FROM system_config WHERE key = 'host_ip'").fetchone()
+        if row and row[0]:
+            value = row[0]
+            if isinstance(value, str):
+                value = value.strip().strip('"')
+            addresses.add(str(value))
+    except Exception:
+        pass
+    normalized = set()
+    for value in addresses:
+        try:
+            normalized.add(ipaddress.ip_address(str(value).split("%", 1)[0]))
+        except ValueError:
+            continue
+    return frozenset(normalized)
+
+
+def is_own_service_endpoint(ip, port) -> bool:
+    """True when (ip, port) is one of ODIN's own service ports on one of its own addresses."""
+    if not port or int(port) not in own_service_ports():
+        return False
+    try:
+        addr = ipaddress.ip_address(str(ip).split("%", 1)[0])
+    except ValueError:
+        return True
+    own = own_interface_addresses()
+    embedded = _embedded_ipv4(addr)
+    return addr in own or (embedded is not None and embedded in own)
+
+
 def split_device_host(value: str):
     """Parse `host`, `host:port`, `[v6]`, `[v6]:port` or a bare IPv6 literal.
 
@@ -554,6 +671,8 @@ def device_destination_ips(host: str, port=None) -> list:
         ip = sockaddr[0]
         if is_blocked_device_address(ip):
             raise DeviceDestinationBlocked(f"Host {hostname!r} resolves to a blocked address")
+        if is_own_service_endpoint(ip, port):
+            raise DeviceDestinationBlocked(f"Host {hostname!r} port {port} is one of ODIN's own services")
         if ip not in ips:
             ips.append(ip)
     if not ips:
