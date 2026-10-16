@@ -60,9 +60,10 @@ def test_adapter_transport_through_monitor_persists_encrypted_source(discovery_s
     monitor._discover_and_save_camera()
     stored = store.execute(text('SELECT camera_url FROM printers WHERE id=199')).scalar_one()
     assert calls
-    assert stored != expected and crypto.is_encrypted(stored)
-    assert crypto.decrypt(stored) == expected
-    assert configs[-1]['streams']['printer_199'] == 'ffmpeg:' + expected + '#video=h264'
+    # HTTP(S) sources are not recorded or streamed (ffmpeg would follow redirects
+    # outside the device policy); see route_utils.go2rtc_stream_source.
+    assert expected.startswith('http') and stored is None
+    assert not any('printer_199' in config['streams'] for config in configs)
 
 
 @pytest.mark.parametrize('source', [
@@ -137,7 +138,7 @@ def test_discovery_cannot_overwrite_explicit_source_added_after_read(discovery_s
             conn.execute(text('UPDATE printers SET camera_url=:source WHERE id=199'), {'source': explicit})
         return encrypt(source)
     monkeypatch.setattr(crypto, 'encrypt', insert_explicit)
-    discover_camera(199, 'http://192.168.50.20:8080/video')
+    discover_camera(199, 'rtsp://192.168.50.20:8554/video')
     assert store.execute(text('SELECT camera_url FROM printers WHERE id=199')).scalar_one() == explicit
     assert not configs
 

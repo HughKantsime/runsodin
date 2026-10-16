@@ -39,6 +39,9 @@ logging.basicConfig(
 log = logging.getLogger('mqtt_monitor')
 
 
+CAMERA_RESOLUTION_INTERVAL = 300  # seconds between go2rtc camera host re-resolution
+
+
 class MQTTMonitorDaemon:
     """Main daemon that monitors all printers."""
 
@@ -208,6 +211,17 @@ class MQTTMonitorDaemon:
                 if time.time() - self._last_printer_reload >= 60:
                     self._check_new_printers()
                     self._last_printer_reload = time.time()
+
+                # Every 5 min, rebuild the go2rtc config: camera hosts are
+                # written as validated IP literals, so a DNS change must reach
+                # go2rtc. Unchanged configs do not restart go2rtc.
+                if time.time() - getattr(self, '_last_camera_resolution', 0) >= CAMERA_RESOLUTION_INTERVAL:
+                    self._last_camera_resolution = time.time()
+                    try:
+                        from modules.printers.route_utils import sync_go2rtc_config_raw
+                        sync_go2rtc_config_raw()
+                    except Exception:
+                        log.warning("Camera source re-resolution failed; retry next interval")
         except KeyboardInterrupt:
             log.info("Shutting down...")
 

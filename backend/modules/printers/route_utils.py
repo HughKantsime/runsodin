@@ -265,22 +265,61 @@ def _get_lan_ip():
         return None
 
 
+GO2RTC_RTSP_SCHEMES = ("rtsp", "rtsps")
+
+
+def go2rtc_stream_source(url):
+    """go2rtc source for a camera URL, or None when it must not be streamed.
+
+    - Only RTSP/RTSPS sources are handed to go2rtc. HTTP(S) sources would run
+      through ffmpeg, which follows redirects outside the device policy, so
+      they are not streamed (discovery no longer records them either).
+    - The camera host is resolved and validated with the device destination
+      policy, and the validated IP literal replaces the host in the source,
+      so go2rtc never resolves a name itself (no rebinding). Userinfo, port,
+      path and query are kept. go2rtc does not verify RTSPS certificates
+      (Bambu printers and most cameras are self-signed), so no hostname is
+      needed for TLS.
+    - UniFi Protect rtsps :7441 becomes rtspx without enableSrtp, as before.
+    """
+    import urllib.parse
+    from core.webhook_utils import DeviceDestinationBlocked, device_connect_ip
+    if not isinstance(url, str) or not url.strip():
+        return None
+    prefix, userinfo, rest = split_url_userinfo(url.strip())
+    if prefix is None or prefix[:-3].lower() not in GO2RTC_RTSP_SCHEMES:
+        return None
+    scheme = prefix[:-3].lower()
+    end = min([i for i in (rest.find('/'), rest.find('?'), rest.find('#')) if i >= 0] or [len(rest)])
+    try:
+        parsed = urllib.parse.urlsplit(f"{scheme}://{rest[:end]}")
+        host, port = parsed.hostname, parsed.port
+    except ValueError:
+        return None
+    if not host:
+        return None
+    try:
+        address = device_connect_ip(host, port or (322 if scheme == "rtsps" else 554))
+    except DeviceDestinationBlocked:
+        log.warning("Camera source host blocked by device policy; stream omitted")
+        return None
+    shown = f"[{address}]" if ":" in address else address
+    source = f"{scheme}://" + (f"{userinfo}@" if userinfo is not None else "") + shown + (f":{port}" if port else "") + rest[end:]
+    if scheme == "rtsps" and port == 7441:
+        source = "rtspx://" + source[len("rtsps://"):]
+        source = source.split("?enableSrtp")[0].split("&enableSrtp")[0]
+    return source
+
+
 def _build_go2rtc_config(db: Session) -> dict:
     """Build go2rtc config dict from current printer state."""
     from modules.printers.models import Printer
     printers = db.query(Printer).filter(Printer.is_active.is_(True), Printer.camera_enabled.is_(True)).all()
     streams = {}
     for p in printers:
-        url = get_camera_url(p)
-        if url:
-            # UniFi Protect: rtsps + port 7441 needs rtspx (no SRTP, skip cert check)
-            if url.startswith("rtsps://") and ":7441" in url:
-                url = "rtspx://" + url[8:]
-                url = url.split("?enableSrtp")[0].split("&enableSrtp")[0]
-            if url.startswith(("http://", "https://")):
-                streams[f"printer_{p.id}"] = f"ffmpeg:{url}#video=h264"
-            else:
-                streams[f"printer_{p.id}"] = url
+        source = go2rtc_stream_source(get_camera_url(p))
+        if source:
+            streams[f"printer_{p.id}"] = source
     db.commit()
     webrtc_config = {"listen": "0.0.0.0:8555"}
     lan_ip = os.environ.get("ODIN_HOST_IP")
@@ -505,14 +544,9 @@ def sync_go2rtc_config_raw():
                                 url = f"rtsps://bblp:{urlquote(parts[1], safe='')}@{api_host}:322/streaming/live/1"
                         except Exception as e:
                             log.debug(f"Failed to decrypt Bambu key for go2rtc: {e}")
-                if url:
-                    if url.startswith("rtsps://") and ":7441" in url:
-                        url = "rtspx://" + url[8:]
-                        url = url.split("?enableSrtp")[0].split("&enableSrtp")[0]
-                    if url.startswith(("http://", "https://")):
-                        streams[f"printer_{pid}"] = f"ffmpeg:{url}#video=h264"
-                    else:
-                        streams[f"printer_{pid}"] = url
+                source = go2rtc_stream_source(url)
+                if source:
+                    streams[f"printer_{pid}"] = source
 
             lan_ip = os.environ.get("ODIN_HOST_IP")
             if not lan_ip:

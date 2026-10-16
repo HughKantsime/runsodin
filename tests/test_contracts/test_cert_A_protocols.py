@@ -187,10 +187,12 @@ def test_moonraker_job_lifecycle_from_polled_state(proto, moonraker):
     assert [tuple(j) for j in jobs] == [("completed", "benchy.gcode")]
 
 
-def test_moonraker_webcam_url_discovered_and_streamed(proto, moonraker):
-    r = row(proto.db, 401, "camera_url")
-    assert decrypt(r["camera_url"]) == "http://192.0.2.41/webcam/?action=stream"
-    assert proto.go2rtc[-1]["streams"]["printer_401"] == "ffmpeg:http://192.0.2.41/webcam/?action=stream#video=h264"
+def test_moonraker_http_webcam_is_not_recorded_or_streamed(proto, moonraker):
+    # Moonraker reports an MJPEG (HTTP) webcam. HTTP sources go through ffmpeg,
+    # which follows redirects outside the device policy, so they are not streamed.
+    assert moonraker.monitor.printer.get_webcam_urls()["stream_url"] == "http://192.0.2.41/webcam/?action=stream"
+    assert row(proto.db, 401, "camera_url")["camera_url"] is None
+    assert not any("printer_401" in config["streams"] for config in proto.go2rtc)
 
 
 def test_moonraker_uses_rest_only_and_never_requests_a_file_list(proto, moonraker):
@@ -336,10 +338,10 @@ def test_prusalink_v1_status_poll_persists_temps_progress_state(proto, prusalink
     assert all(r[2] for r in prusalink.http.requests if r[1].endswith("/api/v1/status"))  # X-Api-Key auth
 
 
-def test_prusalink_camera_snapshot_endpoint_discovered(proto, prusalink):
+def test_prusalink_http_camera_snapshot_is_not_recorded_or_streamed(proto, prusalink):
     prusalink.run(1)
-    assert decrypt(row(proto.db, 402, "camera_url")["camera_url"]) == "http://192.0.2.42:80/api/v1/cameras/snap"
-    assert proto.go2rtc[-1]["streams"]["printer_402"] == "ffmpeg:http://192.0.2.42:80/api/v1/cameras/snap#video=h264"
+    assert row(proto.db, 402, "camera_url")["camera_url"] is None
+    assert not any("printer_402" in config["streams"] for config in proto.go2rtc)
 
 
 def test_prusalink_error_state_records_hms_history_and_fails_job(proto, prusalink):
