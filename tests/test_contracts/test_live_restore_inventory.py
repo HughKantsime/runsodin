@@ -4,6 +4,8 @@ test_pre026_restore_contract.py and test_historical026_profile_extension.py run 
 the preserved029 bundle. These assertions check the same facts on the live tree, so
 the current schema keeps independent coverage in-process.
 """
+import json
+
 import pytest
 
 from core.schema.pre026_restore_contract import INVENTORY, INVENTORY026
@@ -38,3 +40,29 @@ def test_live_executable_counts():
     assert (len(functions), len(triggers)) == (21, 31)
     assert "power_target_operation_guard" in functions and "spool_purchase_evidence_guard" in functions
     assert all(value[6] == "" for value in functions.values())
+
+
+# Raw tables (and their exact columns) each registered post-027 migration adds. A new
+# migration must extend this map; the test below fails until it does.
+POST027_RAW_TABLES = {
+    "python:032-quiet-hours-deferred-deliveries": {
+        "quiet_hours_deferred_deliveries": frozenset(
+            "id user_id org_id scope_key channel alert_type severity title message printer_id job_id spool_id state "
+            "outcome_reason created_at delivered_at".split()),
+    },
+}
+
+
+def test_live_inventory_is_preserved027_plus_exactly_the_registered_post027_tables():
+    from core.schema.bootstrap import POST027_MIGRATIONS, RAW_REQUIRED_COLUMNS, RAW_REQUIRED_TABLES
+    from tests.test_contracts.test_prepriced_restore_contract import _preserved027_inventory
+    accepted = _preserved027_inventory()
+    assert set(POST027_RAW_TABLES) == {migration_id for migration_id, _ in POST027_MIGRATIONS}
+    added = {table: columns for tables in POST027_RAW_TABLES.values() for table, columns in tables.items()}
+    assert sorted(RAW_REQUIRED_TABLES) == sorted(set(accepted["raw_tables"]) | set(added))
+    live_columns = {table: sorted(columns) for table, columns in RAW_REQUIRED_COLUMNS.items()}
+    expected_columns = {**accepted["raw_columns"], **{table: sorted(columns) for table, columns in added.items()}}
+    assert live_columns == expected_columns
+    # No registered post-027 migration adds an executable: live equals the accepted 027 set.
+    assert json.loads(json.dumps(canonical_functions())) == accepted["functions"]
+    assert json.loads(json.dumps([[list(k), list(v)] for k, v in sorted(canonical_triggers().items())])) == accepted["triggers"]

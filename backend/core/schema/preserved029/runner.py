@@ -242,6 +242,30 @@ def main():
     print('preserved029-validated:%d'%era,flush=True)
 
 
+# Exit codes (sysexits) carry the failure category to the parent; the text is only detail.
+EXIT_ARCHIVE=65      # EX_DATAERR: the archive's content was judged and refused
+EXIT_RETRY=75        # EX_TEMPFAIL: a server/client failure a later attempt can clear
+EXIT_ENVIRONMENT=78  # EX_CONFIG: credentials, clients or the package are not usable
+EXIT_INTERNAL=70     # EX_SOFTWARE: anything else
+
+
+def exit_code_for(error):
+    """Classify by exception type and cause, never by message text."""
+    import subprocess
+    name=type(error).__name__
+    cause=error.__cause__
+    if name in ('BackupValidationError','MigrationError') and isinstance(cause,subprocess.TimeoutExpired):return EXIT_RETRY
+    if name in ('BackupValidationError','MigrationError') and isinstance(cause,subprocess.CalledProcessError):
+        command=[str(item) for item in (cause.cmd if isinstance(cause.cmd,(list,tuple)) else [cause.cmd])]
+        return EXIT_RETRY if any(item=='--dbname' or item.startswith('--dbname=') for item in command) else EXIT_ARCHIVE
+    if name in ('BackupValidationError','MigrationError') and isinstance(cause,OSError):return EXIT_ENVIRONMENT
+    if name in ('BackupValidationError','MigrationError'):return EXIT_ARCHIVE
+    if isinstance(error,Preserved029Error):
+        return EXIT_ARCHIVE if str(error).startswith(('Preserved029 stage tables differ','Preserved029 stage ledger differs')) else EXIT_ENVIRONMENT
+    if name in ('OperationalError','InterfaceError','DisconnectionError') or isinstance(error,(ConnectionError,TimeoutError)):return EXIT_RETRY
+    return EXIT_INTERNAL
+
+
 if __name__=='__main__':
     try:main()
     except BaseException as error:
@@ -251,4 +275,4 @@ if __name__=='__main__':
         if name in ('BackupValidationError','MigrationError','Preserved029Error'):
             detail=':'+re.sub(r'[^ -~]','?',str(error))[:300]
         print('preserved029-refused:'+name+detail,file=sys.stderr,flush=True)
-        raise SystemExit(1) from None
+        raise SystemExit(exit_code_for(error)) from None

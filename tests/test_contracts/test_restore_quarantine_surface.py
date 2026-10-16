@@ -76,8 +76,11 @@ def test_diagnostics_and_readiness_surface_it(quarantined):
 def test_quarantined_restores_are_retained_30_days(quarantined):
     paths, record, _ = quarantined
     now = time.time()
-    for path in paths.backups.glob("failed_restore_*"):
-        os.utime(path, (now - 31 * 86400, now - 31 * 86400))
+    record_path = paths.backups / Path(record["archive"]).with_suffix(".json").name
+    data = json.loads(record_path.read_text())
+    from datetime import datetime, timezone
+    data["failed_at"] = datetime.fromtimestamp(now - 31 * 86400, tz=timezone.utc).isoformat()
+    record_path.write_text(json.dumps(data))
     removed = restore_artifacts.sweep_stale(paths.backups, "unused", None, drop=lambda names: [])
     assert sorted(removed["files"]) == sorted(p for p in (record["archive"], Path(record["archive"]).with_suffix(".json").name))
     assert b.quarantined_restores() == []
@@ -127,3 +130,60 @@ def test_system_notices_endpoint_requires_a_superadmin():
         app.dependency_overrides[get_current_user] = lambda: {"id": 1, "role": "admin", "group_id": None}
         response = client.get("/system/notices")
         assert response.status_code == 200 and "notices" in response.json()
+
+
+def test_retention_ages_from_the_quarantine_not_the_staging_time(tmp_path, monkeypatch):
+    """A restore staged long ago but quarantined today is kept the full 30 days."""
+    monkeypatch.setenv("ODIN_DATA_DIR", str(tmp_path))
+    paths = b.postgres_paths(tmp_path); paths.backups.mkdir(parents=True)
+    paths.pending.write_bytes(b"x" * 200)
+    old = time.time() - 40 * 86400
+    os.utime(paths.pending, (old, old))
+    paths.manifest.write_text(json.dumps({"schema_version": 1, "dialect": "postgresql", "state": "staged", "sha256": "a" * 64,
+                                          "size_bytes": 200, "actor_id": 1, "staged_at": "2026-09-01T00:00:00+00:00"}))
+    monkeypatch.setattr(b, "_insert_postgres_restore_audit", lambda *a, **k: None)
+    record = b.quarantine_failed_pending_postgres_restore("postgresql://o@pg/odin", error=b.ArchiveRefused("x"))
+    assert restore_artifacts.sweep_stale(paths.backups, "unused", None, drop=lambda names: [])["files"] == []
+    assert b.quarantined_restores()[0]["archive"] == record["archive"]
+    # ...and its record's failed_at governs even if the files' times are touched.
+    for path in paths.backups.glob("failed_restore_*"):
+        os.utime(path, (old, old))
+    assert restore_artifacts.sweep_stale(paths.backups, "unused", None, drop=lambda names: [])["files"] == []
+    assert b.quarantined_restores()[0]["archive"] == record["archive"]
+
+
+def test_orphan_quarantine_records_are_swept_and_never_counted(quarantined, monkeypatch):
+    paths, record, _ = quarantined
+    (paths.backups / record["archive"]).unlink()  # the archive is gone, only the JSON record is left
+    assert b.quarantined_restores()[0]["archive"] is None
+    assert routes_backup.active_system_notices() == []
+    from modules.system import routes_health
+    assert routes_health._restore_quarantine_count("postgresql") == 0
+    removed = restore_artifacts.sweep_stale(paths.backups, "unused", None, drop=lambda names: [])
+    assert removed["files"] == [Path(record["archive"]).with_suffix(".json").name]
+    assert b.quarantined_restores() == []
+
+
+def test_restore_staging_routes_are_marked_for_the_interactive_session_guard():
+    """require_interactive_session lives on cert-fix-F; the merge must add it to these routes."""
+    marked = routes_backup.BACKUP_ROUTES_REQUIRING_INTERACTIVE
+    assert ("POST", "/backups/{filename}/stage") in marked and ("POST", "/backups/restore") in marked
+    registered = {(method, route.path) for route in routes_backup.router.routes for method in getattr(route, "methods", ())}
+    assert set(marked) <= registered
+
+
+def test_sweep_removes_stale_rollback_dumps_but_keeps_the_newest_and_any_in_use(tmp_path):
+    backups = tmp_path / "backups"; backups.mkdir()
+    now = time.time()
+    names = [f"rollback_20261001_00000{i}_000000.dump" for i in range(4)]
+    for age, name in zip((40, 30, 20, 10), names):
+        path = backups / name; path.write_bytes(b"x" * 200); os.utime(path, (now - age * 86400, now - age * 86400))
+    (tmp_path / "restore-pending-postgres.json").write_text(json.dumps({"state": "restore_in_progress", "rollback_backup": names[1]}))
+    removed = restore_artifacts.sweep_stale(backups, "unused", None, drop=lambda n: [])
+    assert sorted(removed["files"]) == sorted([names[0], names[2]])  # names[1] is in use, names[3] is the newest
+    assert sorted(p.name for p in backups.glob("rollback_*")) == sorted([names[1], names[3]])
+    (tmp_path / "restore-pending-postgres.json").write_text("{not json")
+    for name in names[1:]:
+        if (backups / name).exists():
+            os.utime(backups / name, (now - 50 * 86400, now - 50 * 86400))
+    assert restore_artifacts.sweep_stale(backups, "unused", None, drop=lambda n: [])["files"] == []

@@ -196,6 +196,14 @@ def list_backups(current_user: dict = Depends(require_superadmin(scope="admin"))
 
 
 _QUARANTINED_PREFIX = "failed_restore_"
+
+# Routes that stage a database restore. They must refuse API-token callers and require an
+# interactive superadmin session: cert-fix-F's require_interactive_session guard is added
+# to each of these at merge (recorded in the merge plan; see docs/SCHEMA_MIGRATIONS.md).
+BACKUP_ROUTES_REQUIRING_INTERACTIVE = (
+    ("POST", "/backups/restore"),
+    ("POST", "/backups/{filename}/stage"),
+)
 BACKUPS_LINK = "/settings?tab=system#backups"
 
 
@@ -211,8 +219,8 @@ def active_system_notices() -> list[dict]:
             "kind": "restore_quarantined",
             "severity": "critical",
             "title": "Database restore was not applied",
-            "message": f"{record.get('reason')} The current database was not changed. "
-                       "Re-stage or delete the archive in Settings > System > Backups.",
+            "message": f"{record.get('reason')} {record.get('action') or ''} "
+                       "Re-stage or delete the archive in Settings > System > Backups.".replace("  ", " "),
             "archive": record["archive"],
             "failed_at": record.get("failed_at"),
             "link": BACKUPS_LINK,

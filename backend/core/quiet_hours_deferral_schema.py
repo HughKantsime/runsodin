@@ -9,10 +9,11 @@ org_id is the alert's owning org (None = unscoped); scope_key is the quiet-hours
 scope that caused the suppression ('system' | 'org:<id>'), which is the digest that
 delivers the row. Sent rows are purged after a retention period.
 
-The table lives on its own MetaData, not core.base.Base: until migration 032 is
-registered (see .claude/specs/post027-migrations.md) the pinned ORM manifest and
-baselines must not change. Runtime code checks table presence and degrades to the
-pre-032 behaviour when it is absent.
+The table lives on its own MetaData, not core.base.Base, so the pinned ORM manifest and
+baselines do not change; bootstrap.RAW_REQUIRED_TABLES/COLUMNS list it for validation and
+the backup inventory. Migration 032 pins this module's bytes (its DDL) by SHA-256.
+Runtime code still checks table presence, so a database not yet upgraded keeps the
+pre-032 behaviour.
 """
 from sqlalchemy import (CheckConstraint, Column, DateTime, Index, Integer, MetaData, String, Table, Text,
                         inspect, text)

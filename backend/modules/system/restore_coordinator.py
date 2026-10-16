@@ -32,7 +32,7 @@ RETRY_DELAYS = (2, 4, 8, 16, 30)
 def _retryable(error: BaseException) -> bool:
     from sqlalchemy.exc import SQLAlchemyError
     if isinstance(error, PostgreSQLClientFailed):
-        return error.connects
+        return error.retryable
     return isinstance(error, (SQLAlchemyError, ConnectionError, TimeoutError)) or (
         isinstance(error, OSError) and not isinstance(error, (FileNotFoundError, PermissionError)))
 

@@ -133,3 +133,33 @@ def test_retention_purges_sent_after_7_days_and_unsent_after_30(tmp_path):
             assert sorted(c.execute(text(f"SELECT id FROM {TABLE}")).scalars()) == ["pending-new", "sent-new"]
     finally:
         engine.dispose()
+
+
+# The DDL lives in core/quiet_hours_deferral_schema.py, which the migration delegates to.
+# Its bytes are pinned like the migration's own (the 027 pattern): a change must ship as a
+# new migration, never as an edit under an already-recorded ledger checksum.
+SCHEMA_SOURCE_SHA256 = "f98ad4f69c97c1b5caf1ef8a8b66e9390ebbb1291f957419fcd0fe5b3dc56314"
+
+
+def test_the_delegated_schema_module_is_pinned_by_the_migration():
+    import hashlib
+    source = ROOT / "backend/core/quiet_hours_deferral_schema.py"
+    assert hashlib.sha256(source.read_bytes()).hexdigest() == SCHEMA_SOURCE_SHA256 == M.SOURCE_SHA256
+
+
+def test_a_changed_schema_module_refuses_before_any_ddl(tmp_path, monkeypatch):
+    engine = _pre032(tmp_path)
+    monkeypatch.setattr(M, "SOURCE_SHA256", "0" * 64)
+    try:
+        with pytest.raises(MigrationError, match="source differs"):
+            bootstrap_database(engine)
+        assert TABLE not in inspect(engine).get_table_names() and M.MIGRATION_ID not in _ids(engine)
+    finally:
+        engine.dispose()
+
+
+def test_032_sources_no_longer_say_they_are_unregistered():
+    for relative in ("backend/core/quiet_hours_deferral_schema.py", "backend/modules/notifications/deferred_deliveries.py",
+                     "backend/modules/organizations/routes_users.py", "backend/core/schema/migrations/032_quiet_hours_deferred_deliveries.py"):
+        text_ = (ROOT / relative).read_text().lower()
+        assert "not yet registered" not in text_ and "unregistered" not in text_ and "until migration 032 is" not in text_, relative

@@ -352,7 +352,7 @@ _USER_CREDENTIAL_TABLES = (
 )
 
 
-# Quiet-hours deferred deliveries (migration 032, not yet registered): cleaned up with
+# Quiet-hours deferred deliveries (migration 032): cleaned up with
 # the user and the org, as a no-op while the table does not exist.
 _DEFERRED_DELIVERIES_TABLE = "quiet_hours_deferred_deliveries"
 

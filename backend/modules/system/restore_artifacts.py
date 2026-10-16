@@ -35,8 +35,12 @@ def journal_dir(backups: Path) -> Path:
     return path
 
 
-def journal_entries(backups: Path) -> dict[str, float]:
-    """Journaled names and their age, including preserved029 children's directories."""
+def journal_entries(backups: Path, *, confirmed_only: bool = False) -> dict[str, float]:
+    """Journaled names and their age, including preserved029 children's directories.
+
+    A child's ``<name>.intent`` (CREATE DATABASE was about to run) is included unless
+    ``confirmed_only``: the sweep cannot prove such a database is this code's.
+    """
     folder = journal_dir(backups)
     entries = {}
     for entry in folder.iterdir():
@@ -44,10 +48,31 @@ def journal_entries(backups: Path) -> dict[str, float]:
             entries[entry.name] = entry.lstat().st_mtime
         elif _STALE_DIR.fullmatch(entry.name) and entry.is_dir() and not entry.is_symlink():
             for child in entry.iterdir():
-                name = child.name[:-7] if child.name.endswith(".intent") else child.name
-                if _NAME.fullmatch(name) and child.is_file():
+                intent = child.name.endswith(".intent")
+                name = child.name[:-7] if intent else child.name
+                if _NAME.fullmatch(name) and child.is_file() and not (intent and confirmed_only):
                     entries[name] = min(entries.get(name, child.lstat().st_mtime), child.lstat().st_mtime)
     return entries
+
+
+def _sweep_child_journals(backups: Path, cutoff: float) -> None:
+    """Forget stale intent-only entries (never dropped) and remove stale empty child journals.
+
+    A child journal is touched only when it and everything in it are older than ``cutoff``,
+    so a running child's fresh (possibly still empty) directory is never removed.
+    """
+    folder = journal_dir(backups)
+    for entry in folder.iterdir():
+        if not (_STALE_DIR.fullmatch(entry.name) and entry.is_dir() and not entry.is_symlink()):
+            continue
+        children = list(entry.iterdir())
+        if entry.lstat().st_mtime >= cutoff or any(child.lstat().st_mtime >= cutoff for child in children):
+            continue
+        for child in children:
+            if child.name.endswith(".intent") and child.is_file():
+                child.unlink(missing_ok=True)
+        if not any(entry.iterdir()):
+            entry.rmdir()
 
 
 def record(backups: Path, name: str) -> None:
@@ -113,23 +138,78 @@ def drop_and_forget(backups: Path, maintenance_url: str, maintenance_password_fi
     return dropped
 
 
+def _quarantined_at(record_path: Path, archive: Path) -> float | None:
+    import json
+    from datetime import datetime
+    try:
+        failed_at = json.loads(record_path.read_text(encoding="utf-8")).get("failed_at")
+        return datetime.fromisoformat(failed_at).timestamp()
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    try:
+        return archive.lstat().st_mtime
+    except OSError:
+        return None
+
+
+ROLLBACK_RETENTION_DAYS = 7
+_ROLLBACK = re.compile(r"rollback_\d{8}_\d{6}_\d{6}\.dump")
+
+
+def _sweep_rollbacks(backups: Path, cutoff: float) -> list[str]:
+    """Pre-restore rollback dumps older than ROLLBACK_RETENTION_DAYS, keeping the newest one
+    and never one an in-progress restore names for its recovery."""
+    import json
+    protected = set()
+    manifest = backups.parent / "restore-pending-postgres.json"
+    try:
+        named = json.loads(manifest.read_text(encoding="utf-8")).get("rollback_backup")
+        if isinstance(named, str):
+            protected.add(named)
+    except (OSError, ValueError, AttributeError):
+        if manifest.exists():
+            return []  # An unreadable manifest may name any of them: keep all.
+    dumps = sorted((entry for entry in backups.iterdir() if _ROLLBACK.fullmatch(entry.name) and stat.S_ISREG(entry.lstat().st_mode)),
+                   key=lambda entry: entry.lstat().st_mtime)
+    removed = []
+    for entry in dumps[:-1]:
+        if entry.name not in protected and entry.lstat().st_mtime < cutoff:
+            entry.unlink(missing_ok=True); removed.append(entry.name)
+    return removed
+
+
+def _sweep_quarantine(backups: Path, cutoff: float) -> list[str]:
+    removed = []
+    stems = {entry.name.rsplit(".", 1)[0] for entry in backups.iterdir()
+             if _QUARANTINED.fullmatch(entry.name) and stat.S_ISREG(entry.lstat().st_mode)}
+    for stem in sorted(stems):
+        record_path, archive = backups / (stem + ".json"), backups / (stem + ".dump")
+        orphan = record_path.is_file() and not archive.is_file()
+        when = _quarantined_at(record_path, archive)
+        if orphan or (when is not None and when < cutoff):
+            for path in (archive, record_path):
+                if path.is_file():
+                    path.unlink(missing_ok=True); removed.append(path.name)
+    return removed
+
+
 def sweep_stale(backups: Path, maintenance_url: str, maintenance_password_file: str | None, *, older_than: float = STALE_SECONDS, now: float | None = None, drop=None) -> dict[str, list[str]]:
     """Drop journaled stage databases and remove working files older than ``older_than``."""
     backups = Path(backups)
     if not backups.is_dir():
         return {"databases": [], "files": []}
     cutoff = (time.time() if now is None else now) - older_than
-    stale = [name for name, mtime in journal_entries(backups).items() if mtime < cutoff]
+    stale = [name for name, mtime in journal_entries(backups, confirmed_only=True).items() if mtime < cutoff]
+    _sweep_child_journals(backups, cutoff)  # before forgetting, which touches the directories
     dropped = (drop or (lambda names: drop_databases(maintenance_url, maintenance_password_file, names)))(stale) if stale else []
     for name in dropped:
         forget(backups, name)
     removed = []
-    # Retention for quarantined restores: kept QUARANTINE_RETENTION_DAYS for re-staging.
-    quarantine_cutoff = (time.time() if now is None else now) - QUARANTINE_RETENTION_DAYS * 86400
-    for entry in backups.iterdir():
-        facts = entry.lstat()
-        if _QUARANTINED.fullmatch(entry.name) and stat.S_ISREG(facts.st_mode) and facts.st_mtime < quarantine_cutoff:
-            entry.unlink(missing_ok=True); removed.append(entry.name)
+    # Quarantined restores: kept QUARANTINE_RETENTION_DAYS from the quarantine (the record's
+    # failed_at, else the archive's mtime, which the quarantine resets); orphan records
+    # whose archive is gone are removed at once.
+    removed.extend(_sweep_quarantine(backups, (time.time() if now is None else now) - QUARANTINE_RETENTION_DAYS * 86400))
+    removed.extend(_sweep_rollbacks(backups, (time.time() if now is None else now) - ROLLBACK_RETENTION_DAYS * 86400))
     for entry in backups.iterdir():
         facts = entry.lstat()
         if facts.st_mtime >= cutoff:

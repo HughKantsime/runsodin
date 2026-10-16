@@ -78,11 +78,12 @@ class RestoreAcknowledgementRequired(BackupValidationError):
 
 
 class PostgreSQLClientFailed(BackupValidationError):
-    """A pg_dump/pg_restore run failed. ``connects`` says whether it talked to a server."""
+    """A pg_dump/pg_restore run failed. ``retryable``: it talked to a server or timed out,
+    so a later attempt can succeed; otherwise it failed reading the archive itself."""
 
-    def __init__(self, message: str, *, connects: bool):
+    def __init__(self, message: str, *, retryable: bool):
         super().__init__(message)
-        self.connects = connects
+        self.retryable = retryable
 
 
 def _as_archive_refusal(error: BaseException) -> BaseException:
@@ -91,7 +92,7 @@ def _as_archive_refusal(error: BaseException) -> BaseException:
     if isinstance(error, (ArchiveRefused, RestoreEnvironmentError, RestoreAcknowledgementRequired)):
         return error
     if isinstance(error, PostgreSQLClientFailed):
-        if error.connects:
+        if error.retryable:
             return error
         refused = ArchiveRefused(str(error)); refused.__cause__ = error
         return refused
@@ -300,10 +301,15 @@ def _run_pg_tool(command: list[str], database_url: str, password_file: str | Non
             stderr=subprocess.PIPE,
             timeout=300,
         )
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+    except subprocess.TimeoutExpired as exc:
+        # A timeout (also of pg_restore --list) is not a judgement of the archive.
+        raise PostgreSQLClientFailed(
+            f"PostgreSQL client operation timed out: {Path(command[0]).name}", retryable=True
+        ) from exc
+    except subprocess.CalledProcessError as exc:
         raise PostgreSQLClientFailed(
             f"PostgreSQL client operation failed: {Path(command[0]).name}",
-            connects=any(item == "--dbname" or item.startswith("--dbname=") for item in command),
+            retryable=any(item == "--dbname" or item.startswith("--dbname=") for item in command),
         ) from exc
     return result.stdout
 
@@ -1179,6 +1185,35 @@ def _insert_postgres_restore_audit(
         engine.dispose()
 
 
+def _set_aside_failed_restore(paths, manifest, *, reason, error_type, status, action) -> dict[str, object]:
+    """Keep a failed staged archive and an actionable record in backups/ (listed, noticed, retained)."""
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+    archive = paths.backups / f"failed_restore_{stamp}.dump"
+    record_path = paths.backups / f"failed_restore_{stamp}.json"
+    record = {
+        "status": status,
+        "reason": reason,
+        "error_type": error_type,
+        "candidate_sha256": manifest.get("sha256"),
+        "staged_at": manifest.get("staged_at"),
+        "failed_at": datetime.now(timezone.utc).isoformat(),
+        "archive": archive.name if paths.pending.is_file() else None,
+        "action": action,
+    }
+    paths.backups.mkdir(parents=True, exist_ok=True)
+    temporary = record_path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(record, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    _secure(temporary)
+    os.replace(temporary, record_path)
+    if paths.pending.is_file():
+        os.replace(paths.pending, archive)
+        os.utime(archive)  # Retention ages from the quarantine, not from staging.
+    paths.manifest.unlink(missing_ok=True)
+    _fsync_directory(paths.backups)
+    _fsync_directory(paths.manifest.parent)
+    return record
+
+
 def quarantine_failed_pending_postgres_restore(
     target_url: str,
     *,
@@ -1203,30 +1238,10 @@ def quarantine_failed_pending_postgres_restore(
     if manifest.get("state") != "staged":
         return None
     reason = (str(error) or type(error).__name__)[:500]
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
-    archive = paths.backups / f"failed_restore_{stamp}.dump"
-    record_path = paths.backups / f"failed_restore_{stamp}.json"
-    record = {
-        "status": "restore_failed_target_untouched",
-        "reason": reason,
-        "error_type": type(error).__name__,
-        "candidate_sha256": manifest.get("sha256"),
-        "staged_at": manifest.get("staged_at"),
-        "failed_at": datetime.now(timezone.utc).isoformat(),
-        "archive": archive.name if paths.pending.is_file() else None,
-        "action": "The current database was not changed. Fix the reason above, then re-stage the archive "
-                  "and restart with ODIN_POSTGRES_RESTORE_ACKNOWLEDGEMENT set to its SHA-256.",
-    }
-    paths.backups.mkdir(parents=True, exist_ok=True)
-    temporary = record_path.with_suffix(".json.tmp")
-    temporary.write_text(json.dumps(record, sort_keys=True, indent=2) + "\n", encoding="utf-8")
-    _secure(temporary)
-    os.replace(temporary, record_path)
-    if paths.pending.is_file():
-        os.replace(paths.pending, archive)
-    paths.manifest.unlink(missing_ok=True)
-    _fsync_directory(paths.backups)
-    _fsync_directory(paths.manifest.parent)
+    record = _set_aside_failed_restore(paths, manifest, reason=reason, error_type=type(error).__name__,
+        status="restore_failed_target_untouched",
+        action="The current database was not changed. Fix the reason above, then re-stage the archive "
+               "and restart with ODIN_POSTGRES_RESTORE_ACKNOWLEDGEMENT set to its SHA-256.")
     try:
         _insert_postgres_restore_audit(target_url, password_file, "restore_failed",
             {"reason": reason, "candidate_sha256": manifest.get("sha256"), "target_untouched": True})
@@ -1419,79 +1434,95 @@ def apply_pending_postgres_restore(
                     base_dir=base_dir,
                     prefix="rollback_",
                 )
-                from modules.system.pre026_restore_stage import prepared_archive
-                with _archive_phase(prepared_archive(paths.pending,target_url,maintenance_url,password_file,maintenance_password_file,paths.backups)) as prepared:
-                    with restore_lock(paths.lock):
-                        _assert_no_target_sessions(
-                            maintenance_connection,
-                            target.database,
-                            excluded_pids=excluded_pids,
-                        )
-                        if _sha256(paths.pending)!=manifest['sha256'] or paths.pending.stat().st_size!=manifest['size_bytes']:raise BackupValidationError('Staged original archive changed')
-                        manifest.update(
-                            {
-                                "state": "restore_in_progress",
-                                "rollback_backup": rollback.name,
-                                "rollback_sha256": rollback_metadata["sha256"],
-                                "rollback_size_bytes": rollback_metadata["size_bytes"],
-                                "apply_started_at": datetime.now(timezone.utc).isoformat(),
-                            }
-                        )
-                        _write_pending_manifest(paths, manifest)
-                        try:
-                            _restore_postgres_archive(
-                                prepared, target_url, password_file, paths.backups
+                body_started = False
+                try:
+                    from modules.system.pre026_restore_stage import prepared_archive
+                    with _archive_phase(prepared_archive(paths.pending,target_url,maintenance_url,password_file,maintenance_password_file,paths.backups)) as prepared:
+                        with restore_lock(paths.lock):
+                            _assert_no_target_sessions(
+                                maintenance_connection,
+                                target.database,
+                                excluded_pids=excluded_pids,
                             )
-                            if fail_after_restore:
-                                raise RuntimeError("Injected post-restore failure")
-                            bootstrap_engine = create_database_engine(
-                                target_url, role="restore", password_file=password_file
-                            )
-                            try:
-                                bootstrap_database(bootstrap_engine)
-                            finally:
-                                bootstrap_engine.dispose()
-                            validate_live_postgres_objects(
-                                target_url, password_file=password_file
-                            )
-                            _insert_postgres_restore_audit(
-                                target_url,
-                                password_file,
-                                "restore_completed",
+                            if _sha256(paths.pending)!=manifest['sha256'] or paths.pending.stat().st_size!=manifest['size_bytes']:raise BackupValidationError('Staged original archive changed')
+                            body_started = True
+                            manifest.update(
                                 {
-                                    "candidate_sha256": candidate["sha256"],
-                                    "restored_at": datetime.now(timezone.utc).isoformat(),
-                                },
+                                    "state": "restore_in_progress",
+                                    "rollback_backup": rollback.name,
+                                    "rollback_sha256": rollback_metadata["sha256"],
+                                    "rollback_size_bytes": rollback_metadata["size_bytes"],
+                                    "apply_started_at": datetime.now(timezone.utc).isoformat(),
+                                }
                             )
-                        except Exception as exc:
-                            if rollback is not None:
+                            _write_pending_manifest(paths, manifest)
+                            try:
                                 _restore_postgres_archive(
-                                    rollback, target_url, password_file, paths.backups
+                                    prepared, target_url, password_file, paths.backups
                                 )
+                                if fail_after_restore:
+                                    raise RuntimeError("Injected post-restore failure")
+                                bootstrap_engine = create_database_engine(
+                                    target_url, role="restore", password_file=password_file
+                                )
+                                try:
+                                    bootstrap_database(bootstrap_engine)
+                                finally:
+                                    bootstrap_engine.dispose()
                                 validate_live_postgres_objects(
                                     target_url, password_file=password_file
                                 )
                                 _insert_postgres_restore_audit(
                                     target_url,
                                     password_file,
-                                    "restore_failed",
+                                    "restore_completed",
                                     {
-                                        "reason": type(exc).__name__,
-                                        "failed_at": datetime.now(timezone.utc).isoformat(),
+                                        "candidate_sha256": candidate["sha256"],
+                                        "restored_at": datetime.now(timezone.utc).isoformat(),
                                     },
                                 )
+                            except Exception as exc:
+                                if rollback is not None:
+                                    _restore_postgres_archive(
+                                        rollback, target_url, password_file, paths.backups
+                                    )
+                                    validate_live_postgres_objects(
+                                        target_url, password_file=password_file
+                                    )
+                                    _insert_postgres_restore_audit(
+                                        target_url,
+                                        password_file,
+                                        "restore_failed",
+                                        {
+                                            "reason": type(exc).__name__,
+                                            "failed_at": datetime.now(timezone.utc).isoformat(),
+                                        },
+                                    )
+                                    # Not only an audit row: keep the archive with a record, so
+                                    # the backups list and the superadmin notice show it.
+                                    _set_aside_failed_restore(paths, manifest,
+                                        reason=f"The restore failed while being applied ({type(exc).__name__}: {str(exc)[:300]}); "
+                                               "the database was rolled back to its pre-restore backup.",
+                                        error_type=type(exc).__name__, status="restore_failed_rolled_back",
+                                        action=f"The database was restored from {rollback.name}. Re-stage the archive once the "
+                                               "reason is fixed, or delete it.")
+                                paths.pending.unlink(missing_ok=True)
+                                paths.manifest.unlink(missing_ok=True)
+                                _fsync_directory(paths.manifest.parent)
+                                raise
                             paths.pending.unlink(missing_ok=True)
                             paths.manifest.unlink(missing_ok=True)
                             _fsync_directory(paths.manifest.parent)
-                            raise
-                        paths.pending.unlink(missing_ok=True)
-                        paths.manifest.unlink(missing_ok=True)
-                        _fsync_directory(paths.manifest.parent)
-                        return {
-                            "status": "restored",
-                            "rollback_backup": rollback.name,
-                            "candidate_sha256": candidate["sha256"],
-                        }
+                            return {
+                                "status": "restored",
+                                "rollback_backup": rollback.name,
+                                "candidate_sha256": candidate["sha256"],
+                            }
+                except BaseException:
+                    # The restore body never ran: this attempt's rollback dump is unused.
+                    if not body_started and rollback is not None:
+                        rollback.unlink(missing_ok=True)
+                    raise
             except BaseException as exc:
                 if lock_held and paths.manifest.exists() and manifest.get('state') == 'restore_in_progress':
                     recovery_incomplete = True
