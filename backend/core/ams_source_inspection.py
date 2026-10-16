@@ -31,7 +31,9 @@ def inspect_single_source_ams(payload: bytes, plate_index: int = 0) -> VerifiedS
             raise ValueError(refusal)
         if type(plate_index) is not int or plate_index != 0:
             raise ValueError(refusal)
-        with zipfile.ZipFile(io.BytesIO(payload)) as package:
+        # The member count is checked from the end record before the directory is listed.
+        from core.zip_bounds import open_bounded
+        with open_bounded(io.BytesIO(payload), max_members=512) as package:
             entries = package.infolist()
             if len(entries) > 512 or len({e.filename for e in entries}) != len(entries):
                 raise ValueError(refusal)
