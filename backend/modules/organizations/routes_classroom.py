@@ -120,7 +120,7 @@ async def classroom_status(
     return connection_status(_connection(db, effective_org))
 
 
-@router.put("/config")
+@router.put("/config", dependencies=[Depends(require_interactive_session())])
 async def save_classroom_config(
     body: ClassroomConfigInput,
     principal: dict = Depends(require_education_principal(write=True)),

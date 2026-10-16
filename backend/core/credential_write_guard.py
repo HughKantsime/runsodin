@@ -37,6 +37,9 @@ _NONINTERACTIVE: ContextVar[bool] = ContextVar("odin_noninteractive_principal", 
 GUARDED_TABLES = frozenset({
     "api_tokens", "biometric_tokens", "active_sessions", "push_devices", "push_subscriptions",
     "oidc_config", "oidc_auth_codes", "password_reset_tokens",
+    # Google Classroom OAuth client secret / refresh and access tokens, pending OAuth
+    # states, and MFA enrolment secrets.
+    "classroom_connections", "classroom_oauth_states", "mfa_enrollments",
 })
 # users: only credential / account-recovery columns (role, is_active, group_id, theme stay writable).
 USERS_CREDENTIAL_COLUMNS = frozenset({
@@ -51,7 +54,14 @@ GUARDED_CONFIG_PREFIXES = ("oidc",)
 # Deletes that change authentication behaviour itself (SSO config, setup/MFA/SMTP keys).
 _DELETE_GUARDED_TABLES = frozenset({"oidc_config", "system_config"})
 # Narrow telemetry writes the token-authentication path itself performs.
-_ALLOWED_TOKEN_TELEMETRY = {("api_tokens", frozenset({"last_used_at"}))}
+_ALLOWED_TOKEN_TELEMETRY = {
+    ("api_tokens", frozenset({"last_used_at"})),
+    # Reading Classroom data refreshes ODIN's own access token from the stored refresh
+    # token (classroom_service._access_token), or marks the link reconnect_required.
+    ("classroom_connections", frozenset({"access_token_encrypted", "access_token_expires_at", "last_success_at",
+                                         "last_error_code", "updated_at"})),
+    ("classroom_connections", frozenset({"state", "last_error_code", "updated_at"})),
+}
 
 _COMMENT = re.compile(r"--[^\n]*|/\*.*?\*/", re.S)
 _IDENT = r"[\"`\[]?\w+[\"`\]]?"
