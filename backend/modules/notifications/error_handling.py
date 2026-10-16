@@ -263,7 +263,7 @@ def _fail_active_job_for_hms(printer_id: int, hms_code: str, hms_message: str, o
 
             # Mark linked scheduled job as failed
             if scheduled_job_id:
-                from modules.jobs.state_machine import transition_job, Expr
+                from modules.jobs.services import transition_job, Expr
                 transition_job(cur, scheduled_job_id, 'failed', 'monitor',
                                extra_fields={'actual_end': Expr(sql.now())})
 

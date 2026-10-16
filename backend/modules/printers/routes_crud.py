@@ -307,7 +307,7 @@ def delete_printer(printer_id: int, current_user: dict = Depends(require_role("o
     printer_name = printer.name
     # Jobs pinned to this printer must not silently follow a reused id: mark
     # their pin deleted (they wait for a new choice) and tell their owners.
-    from modules.jobs.pinning import clear_pins_for_deleted_printer
+    from modules.jobs.services import clear_pins_for_deleted_printer
     from core.base import AlertType, AlertSeverity
     from modules.notifications.alert_dispatcher import stage_alert, deliver_staged_alert
     pins = clear_pins_for_deleted_printer(db, printer_id)

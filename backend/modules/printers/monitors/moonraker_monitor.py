@@ -553,7 +553,7 @@ class MoonrakerMonitor:
                     sched_status = end_status if end_status in ('completed','failed','cancelled') else 'failed'
                     duration_hours = round(duration_seconds / 3600, 4) if duration_seconds else None
                     # Never overwrite an operator's terminal decision for the job.
-                    from modules.jobs.state_machine import transition_job, Expr
+                    from modules.jobs.services import transition_job, Expr
                     ended = transition_job(conn, row[0], sched_status, 'monitor', extra_fields={
                         "actual_end": now_utc,
                         "duration_hours": Expr("COALESCE(duration_hours, :dur)", dur=duration_hours)})
@@ -792,7 +792,7 @@ class MoonrakerMonitor:
         if (not current or current[0] != self.printer_id or current[2] not in ('running', 'printing')
                 or current[1] not in (None, scheduled_job_id)):
             return False
-        from modules.jobs.state_machine import transition_job
+        from modules.jobs.services import transition_job
         changed = transition_job(conn, scheduled_job_id, 'printing', 'monitor',
             from_states=('scheduled', 'pending'),
             where="printer_id=:pid"

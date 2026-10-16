@@ -840,7 +840,7 @@ def _run_admitted_dispatch(job,creds,stored_path,remote_filename,print_options,e
             reconciliation_message = None
             with engine.begin() as conn:
                 parents = prepare_job_write(conn, [job_id])
-                from modules.jobs.state_machine import transition_job, Expr
+                from modules.jobs.services import transition_job, Expr
                 transitioned = transition_job(conn, job_id, "printing", "dispatch",
                     extra_fields={"actual_start": Expr("COALESCE(actual_start, :now)",
                         now=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"))},

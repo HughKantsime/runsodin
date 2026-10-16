@@ -68,7 +68,7 @@ def capture_mqtt_start_weights(conn,print_job_id,printer_id,state):
 
 def _unschedule(cur, job_id, printer_id) -> bool:
     """Bump/sweep one scheduled job back to pending through the state machine (pin kept)."""
-    from modules.jobs.state_machine import transition_job
+    from modules.jobs.services import transition_job
     return transition_job(cur, job_id, 'pending', 'monitor', extra_fields={
         'printer_id': None, 'scheduled_start': None, 'scheduled_end': None, 'match_score': None},
         where='printer_id=:pid', params={'pid': printer_id})
@@ -243,7 +243,7 @@ def record_job_started(
                         log.info(f"[{printer_name}] {len(window_candidates)} scheduled jobs in ±2hr window - cannot auto-link")
 
                 if linked_job_id:
-                    from modules.jobs.state_machine import transition_job, Expr
+                    from modules.jobs.services import transition_job, Expr
                     changed = transition_job(cur, linked_job_id, 'printing', 'monitor',
                         from_states=('scheduled', 'pending'),
                         extra_fields={'actual_start': Expr('COALESCE(actual_start, :started)',
@@ -454,7 +454,7 @@ def record_job_ended(
                 # job carried no estimate at all.
                 # An operator's terminal decision (e.g. Mark failed while the
                 # print was still running) is never overwritten by the print end.
-                from modules.jobs.state_machine import transition_job, Expr
+                from modules.jobs.services import transition_job, Expr
                 job_applied = transition_job(cur, linked_job_id, job_status, 'monitor', extra_fields={
                     'actual_end': now_utc,
                     'actual_start': Expr('COALESCE(actual_start, :pj_started)', pj_started=pj_row[0] if pj_row else None),

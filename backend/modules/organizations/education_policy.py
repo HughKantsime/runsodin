@@ -36,7 +36,7 @@ def education_token_digest(token: str) -> str:
     return hashlib.sha256(str(token).lower().encode("ascii")).hexdigest()
 
 
-from modules.jobs.state_machine import transition_job, transition_result, Expr
+from modules.jobs.services import transition_job, transition_result, Expr
 
 class _ExecutionAdapter:
     """Bound-value SQL adapter for ORM and monitor DBAPI transactions."""

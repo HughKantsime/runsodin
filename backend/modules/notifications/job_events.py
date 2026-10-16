@@ -174,7 +174,7 @@ def job_completed(
             # never overwrites a terminal/unapproved/rejected job.
             job_applied = False
             if scheduled_job_id:
-                from modules.jobs.state_machine import transition_job
+                from modules.jobs.services import transition_job
                 job_applied = transition_job(cur, scheduled_job_id, status, 'monitor',
                                              extra_fields={'actual_end': ended_at})
 
@@ -317,7 +317,7 @@ def job_cancelled(
             printer_name = prow[1] or prow[0] if prow else f"Printer {printer_id}"
 
             if scheduled_job_id:
-                from modules.jobs.state_machine import transition_job
+                from modules.jobs.services import transition_job
                 transition_job(cur, scheduled_job_id, 'cancelled', 'monitor',
                                extra_fields={'actual_end': ended_at})
 

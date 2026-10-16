@@ -446,7 +446,7 @@ async def plate_cleared(
                        {'id':waiting[0]}).first()
     if owner is None or not check_org_access(current_user, owner[0]):
         raise HTTPException(404, 'Job not found')
-    from modules.jobs.state_machine import transition_job
+    from modules.jobs.services import transition_job
     changed = transition_job(db, waiting[0], "pending", "plate",
                              where="printer_id=:pid", params={"pid": printer_id}) or None
     reconcile_job_write(db, parents)

@@ -503,7 +503,7 @@ def approve_submission(db: Session, *, submission_id: int, body, principal: dict
                 "is_admin": 1 if _tenant_admin(principal) else 0,
             },
         )
-        from modules.jobs.state_machine import transition_result, Expr
+        from modules.jobs.services import transition_result, Expr
         job_changed = transition_result(db, row.job_id, "pending", "education",
             from_states=("submitted",),
             extra_fields={"printer_id": body.printer_id, "approved_by": principal["id"],
@@ -621,7 +621,7 @@ def reject_submission(db: Session, *, submission_id: int, body, principal: dict)
                 "is_admin": 1 if _tenant_admin(principal) else 0,
             },
         )
-        from modules.jobs.state_machine import transition_result, Expr
+        from modules.jobs.services import transition_result, Expr
         job_changed = transition_result(db, row.job_id, "rejected", "education",
             from_states=("submitted",),
             extra_fields={"printer_id": None, "approved_by": None, "approved_at": None,
