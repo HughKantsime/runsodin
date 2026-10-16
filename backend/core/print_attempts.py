@@ -17,6 +17,7 @@ All keys share the ``quota_attempt:`` prefix, which the diagnostics dump exclude
 """
 from __future__ import annotations
 
+import json
 import re
 
 from sqlalchemy import text
@@ -94,7 +95,7 @@ def mark_filament_deducted(run, job_id) -> bool:
     if filament_already_deducted(run, job_id):
         # Record legacy (marker-less) attempt-0 deductions so later checks are cheap.
         run("INSERT INTO system_config (key, value) VALUES (:k, :v) ON CONFLICT (key) DO NOTHING",
-            {"k": key, "v": "legacy"})
+            {"k": key, "v": json.dumps("legacy")})
         return False
     result = run("INSERT INTO system_config (key, value) VALUES (:k, :v) ON CONFLICT (key) DO NOTHING",
                  {"k": key, "v": "true"})

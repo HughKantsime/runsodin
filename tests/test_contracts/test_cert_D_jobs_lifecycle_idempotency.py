@@ -164,8 +164,25 @@ def test_filament_claim_is_atomic_even_when_both_callers_pass_the_read_check(lif
     client, db = lifecycle_client
     monkeypatch.setattr(print_attempts, 'filament_already_deducted', lambda run, job_id: False)
     engine = db.get_bind()
-    with engine.begin() as first, engine.begin() as second:
+    with engine.begin() as first:
         a = print_attempts.mark_filament_deducted(print_attempts.sqlalchemy_runner(first), 111)
     with engine.begin() as second:
         b = print_attempts.mark_filament_deducted(print_attempts.sqlalchemy_runner(second), 111)
     assert (a, b) == (True, False)
+
+
+def test_every_attempt_marker_value_is_valid_json(lifecycle_client):
+    """system_config.value is JSON on PostgreSQL: a bare word there raises InvalidTextRepresentation."""
+    client, db = lifecycle_client
+    db.execute(text("INSERT INTO spool_usage(spool_id,job_id,weight_used_g,notes) VALUES(111,111,10,'pre-upgrade')"))
+    db.commit()
+    assert client.post("/jobs/111/complete").status_code == 200          # legacy marker written
+    assert client.post("/jobs/111/fail").status_code == 200
+    assert client.post("/jobs/111/reset").status_code == 200             # counter bumped
+    db.execute(text("UPDATE jobs SET printer_id=9, status='printing' WHERE id=111")); db.commit()
+    assert client.post("/jobs/111/complete").status_code == 200          # claimed marker written
+    db.expire_all()
+    rows = db.execute(text("SELECT key, value FROM system_config WHERE key LIKE 'quota_attempt:%'")).all()
+    assert {key.rsplit(':', 1)[0] for key, _ in rows} >= {"quota_attempt:seq", "quota_attempt:filament:job:111"}
+    for key, value in rows:
+        json.loads(value if isinstance(value, str) else json.dumps(value)), key

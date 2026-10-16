@@ -786,7 +786,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 40,
+      "line": 41,
       "path": "backend/core/print_attempts.py",
       "pattern": "qmark-parameter",
       "reason": "qmark_runner translates named parameters for the shared DBAPI cursor adapter, which rewrites them for PostgreSQL",
