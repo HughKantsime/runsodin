@@ -4,12 +4,11 @@ import json
 import logging
 import os
 import pathlib as _pathlib
-import re
 from typing import Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, UploadFile, File
-from pydantic import BaseModel as PydanticBaseModel, field_validator
+from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
@@ -19,7 +18,7 @@ from core.schema import schema_fingerprint, validate_schema
 from core.schema.bootstrap import import_all_models
 from core.dependencies import log_audit
 from core.rbac import require_role, require_superadmin
-from modules.system.schemas import HealthCheck
+from modules.system.schemas import ConfigUpdate, HealthCheck
 from core.config import settings
 from license_manager import (
     get_license, save_license_file, verify_license_text, normalize_license_upload, get_installation_id,
@@ -593,38 +592,6 @@ def get_unactivation_request(
 
 
 # ============== Config ==============
-
-class ConfigUpdate(PydanticBaseModel):
-    spoolman_url: Optional[str] = None
-    blackout_start: Optional[str] = None
-    blackout_end: Optional[str] = None
-
-    @field_validator('spoolman_url')
-    @classmethod
-    def validate_url(cls, v):
-        if v is None or v == '':
-            return v
-        url_pattern = re.compile(
-            r'^https?://'
-            r'[a-zA-Z0-9]+'
-            r'[a-zA-Z0-9.-]*'
-            r'(:\d+)?'
-            r'(/.*)?$'
-        )
-        if not url_pattern.match(v):
-            raise ValueError('Invalid URL format. Must be http:// or https://')
-        return v
-
-    @field_validator('blackout_start', 'blackout_end')
-    @classmethod
-    def validate_time(cls, v):
-        if v is None:
-            return v
-        time_pattern = re.compile(r'^([01]?[0-9]|2[0-3]):[0-5][0-9]$')
-        if not time_pattern.match(v):
-            raise ValueError('Invalid time format. Use HH:MM (e.g., 22:30)')
-        return v
-
 
 ALLOWED_CONFIG_KEYS = {'SPOOLMAN_URL', 'BLACKOUT_START', 'BLACKOUT_END'}
 

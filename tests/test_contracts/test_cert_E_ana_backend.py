@@ -17,6 +17,9 @@ from sqlalchemy.orm import Session
 from tests.test_contracts.test_education_review_workflow import review_db  # noqa: F401
 from tests.test_contracts.test_product_bom_integrity import bom_client  # noqa: F401
 
+# Exercises Pro-gated routes (cert-fix-G tier gates): run under a real signed license.
+pytestmark = pytest.mark.usefixtures("pro_license")
+
 FIXTURES = Path(__file__).resolve().parents[2] / "frontend/src/test-fixtures"
 GRAMS_100 = json.dumps({"slot1": {"color": "black", "grams": 100}})
 FIXED_NOW = datetime(2026, 10, 13, 12, 0, 0, tzinfo=timezone.utc)

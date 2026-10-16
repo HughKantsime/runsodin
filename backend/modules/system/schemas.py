@@ -4,7 +4,9 @@ modules/system/schemas.py — Pydantic schemas for the system domain.
 
 from datetime import datetime
 from typing import Optional, List, Any
-from pydantic import BaseModel, ConfigDict
+import re
+
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class MaintenanceTaskBase(BaseModel):
@@ -78,3 +80,36 @@ class PaginatedResponse(BaseModel):
     page: int
     page_size: int
     pages: int
+
+
+# PUT /config body (routes_health.update_config).
+class ConfigUpdate(BaseModel):
+    spoolman_url: Optional[str] = None
+    blackout_start: Optional[str] = None
+    blackout_end: Optional[str] = None
+
+    @field_validator('spoolman_url')
+    @classmethod
+    def validate_url(cls, v):
+        if v is None or v == '':
+            return v
+        url_pattern = re.compile(
+            r'^https?://'
+            r'[a-zA-Z0-9]+'
+            r'[a-zA-Z0-9.-]*'
+            r'(:\d+)?'
+            r'(/.*)?$'
+        )
+        if not url_pattern.match(v):
+            raise ValueError('Invalid URL format. Must be http:// or https://')
+        return v
+
+    @field_validator('blackout_start', 'blackout_end')
+    @classmethod
+    def validate_time(cls, v):
+        if v is None:
+            return v
+        time_pattern = re.compile(r'^([01]?[0-9]|2[0-3]):[0-5][0-9]$')
+        if not time_pattern.match(v):
+            raise ValueError('Invalid time format. Use HH:MM (e.g., 22:30)')
+        return v

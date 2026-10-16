@@ -17,6 +17,9 @@ from sqlalchemy.orm import Session, sessionmaker
 from tests.test_contracts.test_api_token_delegation_behavior import token_client, review_db
 from tests.test_contracts.test_cert_E_rep_smtp_peer import SmtpPeer
 
+# Exercises Pro-gated routes (cert-fix-G tier gates): run under a real signed license.
+pytestmark = pytest.mark.usefixtures("pro_license")
+
 FIXTURE = Path(__file__).resolve().parents[2] / 'frontend/src/test-fixtures/cert-E-rep-schedules-wire.json'
 TYPES = {
     'fleet_utilization': 'Fleet Utilization Report',

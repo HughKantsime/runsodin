@@ -13,6 +13,9 @@ from sqlalchemy.orm import Session
 from tests.test_contracts.test_api_token_delegation_behavior import token_client, review_db
 from tests.test_contracts.test_license_user_limits import signed_license
 
+# Exercises Pro-gated routes (cert-fix-G tier gates): run under a real signed license.
+pytestmark = pytest.mark.usefixtures("pro_license")
+
 FIXTURE = Path(__file__).resolve().parents[2] / 'frontend/src/test-fixtures/cert-E-rep-chargeback-wire.json'
 
 

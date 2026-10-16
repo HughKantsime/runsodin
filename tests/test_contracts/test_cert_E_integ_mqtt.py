@@ -22,6 +22,9 @@ from tests.test_contracts.test_claims_backend_mqtt_republish_broker import broke
 from tests.test_contracts.test_job_approval_notification_behavior import approval_client  # noqa: F401
 from tests.test_contracts.test_license_user_limits import signed_license  # noqa: F401
 
+# Exercises Enterprise-gated routes (cert-fix-G tier gates): run under a real signed license.
+pytestmark = pytest.mark.usefixtures("enterprise_license")
+
 REAL_CLIENT = _paho.Client  # captured before any fixture substitutes the printer socket
 PREFIX = "certe-integ"
 
@@ -202,9 +205,11 @@ def _queue_pref(review_db, uid, in_app):
     review_db.commit()
 
 
-def test_queue_added_event_from_real_job_creation_reaches_broker_when_in_app_enabled(approval_client, republish, review_db):  # noqa: F811
+def test_queue_added_event_from_real_job_creation_reaches_broker_when_in_app_enabled(approval_client, republish, review_db, signed_license):  # noqa: F811
     module, sub = republish
     client, user = approval_client
+    # approval_client installs Education; MQTT republish is Enterprise-gated (cert-fix-G).
+    signed_license(tier='enterprise', features=None)
     user.update(id=3, role="operator", username="Synthetic operator")
     _queue_pref(review_db, 3, True)
     response = client.post("/api/v1/jobs", json={"item_name": "Synthetic queued MQTT"})
@@ -214,10 +219,12 @@ def test_queue_added_event_from_real_job_creation_reaches_broker_when_in_app_ena
     assert len(queue) == 1 and queue[0]["title"] == "Job added to queue: Synthetic queued MQTT"
 
 
-def test_queue_added_with_default_preferences_publishes_nothing_external(approval_client, republish, review_db):  # noqa: F811
+def test_queue_added_with_default_preferences_publishes_nothing_external(approval_client, republish, review_db, signed_license):  # noqa: F811
     """Default QUEUE_ADDED preference is in_app=False; MQTT republish is gated on in-app recipients."""
     module, sub = republish
     client, user = approval_client
+    # approval_client installs Education; MQTT republish is Enterprise-gated (cert-fix-G).
+    signed_license(tier='enterprise', features=None)
     user.update(id=3, role="operator", username="Synthetic operator")
     response = client.post("/api/v1/jobs", json={"item_name": "Synthetic default queue"})
     assert response.status_code == 201, response.text
