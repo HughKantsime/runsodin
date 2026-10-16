@@ -1122,7 +1122,39 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 246,
+      "line": 185,
+      "path": "backend/modules/archives/archive.py",
+      "pattern": "qmark-parameter",
+      "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
+      "source": "cur.execute(\"SELECT id, spoolman_spool_id, grams_used, print_job_id FROM filament_delivery_outbox \""
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 191,
+      "path": "backend/modules/archives/archive.py",
+      "pattern": "qmark-parameter",
+      "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
+      "source": "cur.execute(\"UPDATE filament_delivery_outbox SET state='in_flight', attempt_started_at=CURRENT_TIMESTAMP, \""
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 206,
+      "path": "backend/modules/archives/archive.py",
+      "pattern": "qmark-parameter",
+      "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
+      "source": "cur.execute(\"UPDATE filament_delivery_outbox SET state=?, outcome_reason=?, updated_at=CURRENT_TIMESTAMP \""
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 239,
+      "path": "backend/modules/archives/archive.py",
+      "pattern": "qmark-parameter",
+      "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
+      "source": "cur.execute(\"UPDATE filament_delivery_outbox SET state='outcome_unknown', \""
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 323,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1346,7 +1378,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 35,
+      "line": 39,
       "path": "backend/modules/notifications/channels.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1354,7 +1386,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 105,
+      "line": 111,
       "path": "backend/modules/notifications/channels.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1362,7 +1394,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 278,
+      "line": 286,
       "path": "backend/modules/notifications/channels.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
