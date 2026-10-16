@@ -159,6 +159,13 @@ def _snapshot(engine):
     ("UPDATE system_config SET value = ? WHERE key = ?", ("x", "quiet_hours"), None),
     ("/* c */ UPDATE -- x\n users SET email = ?", None, "users"),
     ("UPDATE printers SET name = ?", None, None),
+    # PostgreSQL / psycopg rendering of the same statements.
+    ("UPDATE users SET email=%(email)s WHERE users.id = %(id_1)s", {"email": "x", "id_1": 1}, "users"),
+    ("UPDATE users SET theme=%(theme)s WHERE users.id = %(id_1)s", {"theme": "x", "id_1": 1}, None),
+    ("UPDATE system_config SET value=%(value)s WHERE system_config.key = %(key_1)s",
+     {"value": "x", "key_1": "base_url"}, "system_config"),
+    ("INSERT INTO push_subscriptions (user_id, endpoint) VALUES (%(user_id)s, %(endpoint)s) RETURNING push_subscriptions.id",
+     {"user_id": 1, "endpoint": "e"}, "push_subscriptions"),
 ])
 def test_classifier(sql, params, expected):
     assert guarded_write_target(sql, params) == expected
