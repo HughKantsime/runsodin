@@ -255,7 +255,10 @@ def update_printer(
 
     if 'slot_count' in update_data and update_data['slot_count'] != printer.slot_count:
         new_count = update_data['slot_count']
-        current_slots = {s.slot_number: s for s in printer.filament_slots}
+        # slot_count covers the four-tray slots 1-16 only. AMS HT slots (17+)
+        # come from AMS sync and are never created or deleted by slot_count.
+        from modules.printers.telemetry.bambu.ams_identity import AMS_HT_FIRST_SLOT
+        current_slots = {s.slot_number: s for s in printer.filament_slots if s.slot_number < AMS_HT_FIRST_SLOT}
         current_count = len(current_slots)
 
         if new_count > current_count:
@@ -269,7 +272,7 @@ def update_printer(
                     db.add(slot)
         elif new_count < current_count:
             for slot in printer.filament_slots:
-                if slot.slot_number > new_count:
+                if new_count < slot.slot_number < AMS_HT_FIRST_SLOT:
                     db.delete(slot)
 
     for field, value in update_data.items():

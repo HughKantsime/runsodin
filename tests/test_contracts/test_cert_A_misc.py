@@ -229,3 +229,22 @@ def test_plate_cleared_releases_next_waiting_job(cert_app, review_db, monkeypatc
     review_db.expire_all()
     assert dict(review_db.execute(text("SELECT id,status FROM jobs WHERE id IN (9301,9302)")).all()) == {
         9301: "waiting_plate_clear", 9302: "pending"}
+
+
+def test_slot_count_shrink_keeps_ams_ht_slots(cert_app, review_db):
+    review_db.execute(text("DELETE FROM filament_slots WHERE printer_id=301"))
+    for number in (1, 2, 3, 4, 17):
+        review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(301,:n,'PLA')"), {"n": number})
+    review_db.execute(text("UPDATE printers SET slot_count=4 WHERE id=301"))
+    review_db.commit()
+    response = cert_app.patch("/printers/301", headers=cert_app.roles["operator"], json={"slot_count": 2})
+    assert response.status_code == 200, response.text
+    review_db.expire_all()
+    assert [r[0] for r in review_db.execute(text(
+        "SELECT slot_number FROM filament_slots WHERE printer_id=301 ORDER BY slot_number"))] == [1, 2, 17]
+    grow = cert_app.patch("/printers/301", headers=cert_app.roles["operator"], json={"slot_count": 4})
+    assert grow.status_code == 200
+    review_db.expire_all()
+    assert [r[0] for r in review_db.execute(text(
+        "SELECT slot_number FROM filament_slots WHERE printer_id=301 ORDER BY slot_number"))] == [1, 2, 3, 4, 17]
+
