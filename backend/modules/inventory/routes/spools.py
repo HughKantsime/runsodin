@@ -117,7 +117,6 @@ def list_spools(
             "location_slot": s.location_slot,
             "storage_location": s.storage_location,
             "notes": s.notes,
-            "spoolman_spool_id": s.spoolman_spool_id,
             "created_at": s.created_at,
             "filament_brand": s.filament.brand if s.filament else None,
             "filament_name": s.filament.name if s.filament else None,
