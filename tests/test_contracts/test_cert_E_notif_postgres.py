@@ -259,12 +259,16 @@ def test_postgres_mqtt_republish_config_put_round_trips(pg_engine, monkeypatch):
 
 
 def test_postgres_migration_032_deferred_deliveries_table_and_outbox_logic(pg_engine):
-    """Native probe for the unregistered migration 032: additive, idempotent, constraint-enforced,
-    and the record -> window read -> mark -> purge cycle on PostgreSQL types (timestamptz)."""
+    """Native probe for migration 032: registered (bootstrap creates the table), additive onto a
+    pre-032 database, idempotent, constraint-enforced, and the record -> window read -> mark ->
+    purge cycle on PostgreSQL types (timestamptz)."""
     import importlib
     from datetime import timedelta
     from modules.notifications import deferred_deliveries as dd
     migration = importlib.import_module('core.schema.migrations.032_quiet_hours_deferred_deliveries')
+    with pg_engine.begin() as c:
+        assert dd.available(c) is True  # registered: the bootstrapped database has it
+        c.execute(text('DROP TABLE quiet_hours_deferred_deliveries'))  # model a pre-032 database
     with pg_engine.begin() as c:
         assert dd.available(c) is False
         migration.apply(c)

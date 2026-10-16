@@ -274,15 +274,26 @@ def test_digest_preferences_filter_each_channel_by_alert_type(digest_setup,revie
     assert review_db.execute(text('SELECT delivery_status FROM quiet_hours_digest_sends')).scalar_one()=='sent'
 
 
-def test_global_and_tenant_webhooks_do_not_mix_content(review_db,monkeypatch):
+@pytest.mark.parametrize('deferral_table',['absent','registered'])
+def test_global_and_tenant_webhooks_do_not_mix_content(deferral_table,review_db,monkeypatch):
+    """absent: a database not yet upgraded by 032 (webhook digests come from deduplicated in-app
+    rows). registered: 032's per-alert webhook rows are authoritative for webhook digests."""
     from modules.notifications import quiet_hours
+    from modules.notifications import deferred_deliveries
     from modules.reporting import report_runner as runner
     from datetime import timedelta
     start=END-timedelta(hours=9)
+    if deferral_table=='absent':
+        review_db.execute(text("DROP TABLE quiet_hours_deferred_deliveries"))
     review_db.execute(text("INSERT INTO printers(id,name,org_id) VALUES(12,'Global',NULL)"))
     review_db.execute(text("INSERT INTO jobs(id,item_name,charged_to_org_id) VALUES(201,'Tenant job',1)"))
-    for title,printer,job in [('Tenant secret',None,201),('Global state',12,None)]:
+    for title,printer,job,owner,scope in [('Tenant secret',None,201,1,'org:1'),('Global state',12,None,None,'system')]:
         review_db.execute(text("INSERT INTO alerts(user_id,alert_type,severity,title,printer_id,job_id,created_at) VALUES(3,'print_complete','info',:title,:printer,:job,:stamp)"),{'title':title,'printer':printer,'job':job,'stamp':(start+timedelta(hours=1)).isoformat()})
+        if deferral_table=='registered':
+            assert deferred_deliveries.record_suppressed(review_db,org_id=owner,scope=scope,recipients={},alert_type='print_complete',
+                                                         severity='info',title=title,printer_id=printer,job_id=job)==1
+    if deferral_table=='registered':
+        review_db.execute(text("UPDATE quiet_hours_deferred_deliveries SET created_at=:stamp"),{'stamp':(start+timedelta(hours=1)).replace(tzinfo=None).isoformat(sep=' ')})
     review_db.commit()
     monkeypatch.setattr(quiet_hours,'engine',review_db.get_bind())
     config={'enabled':True,'start':'22:00','end':'07:00','webhook_url':'https://synthetic.example.test/digest'}
