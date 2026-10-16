@@ -227,7 +227,8 @@ class BambuMQTTClient:
             self.client.on_connect = self._on_connect
             self.client.on_disconnect = self._on_disconnect
             self.client.on_message = self._on_message
-            self.client.connect(self.config.ip_address, self.config.port, keepalive=60)
+            from core.webhook_utils import device_connect_ip
+            self.client.connect(device_connect_ip(self.config.ip_address, self.config.port), self.config.port, keepalive=60)
             self.client.loop_start()
             
             start = time.time()

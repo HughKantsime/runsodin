@@ -184,7 +184,9 @@ class BambuPrinter:
             self._client.on_disconnect = self._on_disconnect
             
             # Connect
-            self._client.connect(self.ip, self.MQTT_PORT, keepalive=60)
+            # Policy-validated IP literal: no DNS rebinding on connect/reconnect.
+            from core.webhook_utils import device_connect_ip
+            self._client.connect(device_connect_ip(self.ip, self.MQTT_PORT), self.MQTT_PORT, keepalive=60)
             self._client.loop_start()
             
             # Wait for connection

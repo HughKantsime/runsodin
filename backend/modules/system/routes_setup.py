@@ -334,10 +334,13 @@ def setup_test_printer(
         detected_model = None
         try:
             from modules.printers.printer_models import normalize_model_name
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            # Unicast SDCP probe to the policy-validated IP literal.
+            from core.webhook_utils import device_connect_ip
+            probe_ip = device_connect_ip(request.api_host, 3000)
+            sock = socket.socket(socket.AF_INET6 if ":" in probe_ip else socket.AF_INET, socket.SOCK_DGRAM)
             sock.settimeout(3.0)
             try:
-                sock.sendto(b"M99999", (request.api_host, 3000))
+                sock.sendto(b"M99999", (probe_ip, 3000))
                 data, _ = sock.recvfrom(4096)
                 info = _json.loads(data.decode("utf-8"))
                 if "Data" in info:

@@ -620,3 +620,17 @@ def device_request(method: str, url: str, **kwargs):
         with pinned_device_destination(url):
             return session.request(method, url, **kwargs)
 
+
+def device_connect_ip(host: str, port=None) -> str:
+    """Validated IP literal to connect to for a non-HTTP device channel.
+
+    MQTT, FTPS, SDCP websocket and UDP clients connect to this literal (no
+    second DNS lookup, so no rebinding window). TLS callers keep the original
+    name for server_hostname where their certificate policy uses it.
+    Raises DeviceDestinationBlocked.
+    """
+    value = str(host or "").strip()
+    if value.count(":") > 1 and not value.startswith("["):
+        value = f"[{value}]"
+    return device_destination_ips(value, port)[0]
+

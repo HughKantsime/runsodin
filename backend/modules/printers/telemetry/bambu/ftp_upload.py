@@ -34,7 +34,12 @@ class _ImplicitFTPS(ftplib.FTP_TLS):
 
     def connect(self, host="", port=FTPS_PORT, timeout=30.0):
         self.host, self.port, self.timeout = host, port, timeout
-        raw = socket.create_connection((host, port), timeout=timeout)
+        # Connect to the policy-validated IP literal; TLS keeps the original
+        # name as server_hostname (certificate checks are off for Bambu's
+        # self-signed LAN certificates). PASV data connections use the
+        # control peer address (ftplib trust_server_pasv_ipv4_address=False).
+        from core.webhook_utils import device_connect_ip
+        raw = socket.create_connection((device_connect_ip(host, port), port), timeout=timeout)
         try:
             self.sock = self.context.wrap_socket(raw, server_hostname=host)
             self.af = self.sock.family

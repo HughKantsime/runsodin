@@ -82,7 +82,8 @@ def fresh_bambu_status_is_idle(creds: dict, deadline: float) -> bool:
             client.tls_set_context(tls)
         client.on_connect,client.on_subscribe = on_connect,on_subscribe
         client.on_message,client.on_disconnect = on_message,on_disconnect
-        client.connect(endpoint.host,endpoint.port,keepalive=30)
+        from core.webhook_utils import device_connect_ip
+        client.connect(device_connect_ip(endpoint.host,endpoint.port),endpoint.port,keepalive=30)
         client.loop_start()
         done.wait(timeout=max(0.0,deadline-time.monotonic()))
         with lock:

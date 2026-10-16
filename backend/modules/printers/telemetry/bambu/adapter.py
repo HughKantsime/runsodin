@@ -149,7 +149,11 @@ class BambuTelemetryAdapter:
         self._client = client
         # Use sync connect() to get immediate TCP setup + reliable
         # on_connect firing. The network loop runs async after loop_start().
-        client.connect(self._config.host, self._config.port, keepalive=60)
+        # Connect to the policy-validated IP literal: paho's later reconnects
+        # reuse it, so DNS cannot rebind the broker (TLS is CERT_NONE, no
+        # hostname check, so the literal changes no certificate decision).
+        from core.webhook_utils import device_connect_ip
+        client.connect(device_connect_ip(self._config.host, self._config.port), self._config.port, keepalive=60)
         client.loop_start()
 
     def stop(self) -> None:

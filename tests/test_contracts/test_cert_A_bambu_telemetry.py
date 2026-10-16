@@ -417,6 +417,8 @@ def test_command_right_after_connect_completes_well_under_its_timeout(tls_mqtt, 
     from modules.printers.adapters.bambu import BambuPrinter
     from tests.test_contracts.test_education_connected_print_workflow import SYNTHETIC_ACCESS_CODE
     port, commands = tls_mqtt
+    from tests.support.loopback_devices import allow_loopback_devices
+    allow_loopback_devices(monkeypatch)  # the test broker listens on 127.0.0.1
     monkeypatch.setattr(BambuPrinter, "MQTT_PORT", port)
     printer = BambuPrinter(ip="127.0.0.1", serial="synthetic-printer", access_code=SYNTHETIC_ACCESS_CODE)
     try:

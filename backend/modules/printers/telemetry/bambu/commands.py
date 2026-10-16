@@ -77,7 +77,9 @@ class BambuCommandAdapter:
             client.tls_set_context(tls)
         client.on_connect = self._on_connect
         client.on_disconnect = self._on_disconnect
-        client.connect(self._config.host, self._config.port, keepalive=60)
+        # Policy-validated IP literal (no rebinding on connect or reconnect).
+        from core.webhook_utils import device_connect_ip
+        client.connect(device_connect_ip(self._config.host, self._config.port), self._config.port, keepalive=60)
         client.loop_start()
 
     def stop(self) -> None:
