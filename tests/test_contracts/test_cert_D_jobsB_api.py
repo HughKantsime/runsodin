@@ -301,7 +301,7 @@ def test_quick_print_without_options_creates_pending_job_immediately(pipeline):
 
 def _pipeline_to_scheduled(pipeline, printer_model):
     client, headers, db, uploaded = pipeline
-    # Printer 20 is an A1 whose model is unset (None) or auto-detected from MQTT printer_type 'N2S' ('A1').
+    # Printer 20 is an A1 identified by its Bambu code ('N2S') or its auto-detected friendly name ('A1').
     db.execute(text("INSERT INTO printers(id,name,model,api_type,is_active,org_id) VALUES(20,'Owned A1',:m,'bambu',1,1)"),
                {'m': printer_model})
     db.commit()
@@ -324,8 +324,22 @@ def _pipeline_to_scheduled(pipeline, printer_model):
 
 
 def test_upload_library_schedule_jobs_pipeline_ends_scheduled_on_compatible_printer(pipeline):
-    """P1S printers 9/10 are refused for the A1-sliced file; the unset-model A1 receives it."""
-    _pipeline_to_scheduled(pipeline, None)
+    """P1S printers 9/10 are refused for the A1-sliced (N2S) file; the A1 identified by its code receives it."""
+    _pipeline_to_scheduled(pipeline, 'N2S')
+
+
+def test_printer_with_no_model_identity_never_receives_a_model_specific_file(pipeline):
+    """Fail closed (previously an unset-model printer accepted any model-specific file)."""
+    client, headers, db, uploaded = pipeline
+    db.execute(text("INSERT INTO printers(id,name,model,machine_type,api_type,is_active,org_id) VALUES(20,'Unknown',NULL,NULL,'bambu',1,1)"))
+    db.execute(text("UPDATE printers SET is_active=0 WHERE id IN (9,10)"))
+    db.commit()
+    options = client.get(f"/models/{uploaded['model_id']}/schedule-options", headers=headers).json()
+    options.pop('plate_indices')
+    job_id = client.post(f"/models/{uploaded['model_id']}/schedule", headers=headers,
+                         json={**options, 'quantity': 1, 'priority': 2}).json()['job_id']
+    assert client.post('/scheduler/run', headers=headers).status_code == 200
+    assert client.get(f'/jobs/{job_id}', headers=headers).json()['status'] == 'pending'
 
 
 def test_pipeline_schedules_on_auto_detected_a1(pipeline):
@@ -336,3 +350,18 @@ def test_uploaded_model_library_name_falls_back_to_uploaded_filename(pipeline):
     client, headers, db, uploaded = pipeline
     name = db.execute(text('SELECT name FROM models WHERE id=:id'), {'id': uploaded['model_id']}).scalar_one()
     assert name == 'Synthetic quick cube'
+
+
+
+def test_model_library_schedule_with_a_chosen_printer_pins_it(pipeline):
+    from modules.jobs.pinning import pinned_printer_id
+    client, headers, db, uploaded = pipeline
+    db.execute(text("INSERT INTO printers(id,name,model,machine_type,api_type,is_active,org_id) VALUES(20,'Owned A1','A1','A1','bambu',1,1)"))
+    db.commit()
+    options = client.get(f"/models/{uploaded['model_id']}/schedule-options", headers=headers).json()
+    options.pop('plate_indices')
+    made = client.post(f"/models/{uploaded['model_id']}/schedule?printer_id=20", headers=headers, json={**options, 'quantity': 1})
+    assert made.status_code == 200, made.text
+    db.expire_all()
+    row = db.execute(text('SELECT target_type,target_filter FROM jobs WHERE id=:id'), {'id': made.json()['job_id']}).one()
+    assert pinned_printer_id(*row) == 20

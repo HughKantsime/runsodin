@@ -427,7 +427,7 @@ async def plate_cleared(
         text("""
             SELECT id FROM jobs
             WHERE printer_id = :pid AND status = 'waiting_plate_clear'
-            ORDER BY queue_position ASC, id ASC LIMIT 1
+            ORDER BY priority ASC, (queue_position IS NULL) ASC, queue_position ASC, created_at ASC, id ASC LIMIT 1
         """),
         {"pid": printer_id},
     ).fetchone()

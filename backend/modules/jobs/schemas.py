@@ -178,9 +178,9 @@ class JobResponse(JobBase):
         if isinstance(data, dict) or not hasattr(data, '__table__'):
             return data
         from sqlalchemy.orm import object_session
-        from modules.jobs.pinning import job_pin, pin_issue
-        pin = job_pin(data)
-        return _PinView(data, pin, pin_issue(object_session(data), pin))
+        from modules.jobs.pinning import job_pin, cached_job_issue
+        # One printer read per session (cached), not one query per job row.
+        return _PinView(data, job_pin(data), cached_job_issue(object_session(data), data))
 
     # Approval workflow. These describe the job row itself and are only
     # served on org-scoped job routes (same visibility as the job).

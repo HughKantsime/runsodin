@@ -52,8 +52,9 @@ def _target_printer_id(db, current_user, printer_id, target_type, target_filter=
     """
     if (target_type or "specific") != "specific":
         return None
-    if printer_id is None and target_filter not in (None, ""):
-        if not str(target_filter).strip().isdigit():
+    if printer_id is None and target_filter is not None and str(target_filter).strip():
+        from modules.jobs.pinning import is_printer_id_text
+        if not is_printer_id_text(target_filter):  # ASCII digits only; no Unicode digits, signs or junk
             raise HTTPException(status_code=422, detail="A specific target_filter must be a printer id")
         printer_id = int(str(target_filter).strip())
     if printer_id is None:
@@ -219,6 +220,8 @@ def create_jobs_batch(
             quantity=1,
             priority=body.priority,
             printer_id=pid,
+            # Sending a job to chosen printers is an explicit choice: pin each copy.
+            target_type="specific", target_filter=str(pid),
             duration_hours=body.duration_hours,
             colors_required=body.colors_required,
             filament_type=body.filament_type,

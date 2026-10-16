@@ -10,7 +10,7 @@ import time
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel as PydanticBaseModel
-from sqlalchemy import text, or_
+from sqlalchemy import text, or_, bindparam
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
 
@@ -305,9 +305,28 @@ def delete_printer(printer_id: int, current_user: dict = Depends(require_role("o
         raise HTTPException(status_code=503, detail="Education policy unavailable")
     education_policy.assert_printer_tenant_change_or_delete_allowed(db, printer_id)
     printer_name = printer.name
+    # Jobs pinned to this printer must not silently follow a reused id: mark
+    # their pin deleted (they wait for a new choice) and tell their owners.
+    from modules.jobs.pinning import clear_pins_for_deleted_printer
+    from core.base import AlertType, AlertSeverity
+    from modules.notifications.alert_dispatcher import stage_alert, deliver_staged_alert
+    pinned_jobs = clear_pins_for_deleted_printer(db, printer_id)
+    plans = []
+    for row in db.execute(text("SELECT id,item_name,charged_to_user_id,submitted_by FROM jobs WHERE id IN :ids")
+                          .bindparams(bindparam("ids", expanding=True)), {"ids": pinned_jobs or [0]}).all():
+        owner = row[2] or row[3]
+        if owner is not None:
+            plan = stage_alert(db, AlertType.QUEUE_SKIPPED, AlertSeverity.WARNING,
+                f"Pinned printer deleted: {row[1] or 'Untitled'}",
+                f"{printer_name} was deleted. Choose another printer; the job remains queued.",
+                job_id=row[0], metadata={"reason": "pinned_printer_deleted"}, target_user_ids=[owner])
+            if plan is not None:
+                plans.append(plan)
     db.delete(printer)
-    log_audit(db, "printer.deleted", "printer", printer_id, {"name": printer_name})
+    log_audit(db, "printer.deleted", "printer", printer_id, {"name": printer_name, "pinned_jobs": pinned_jobs})
     db.commit()
+    for plan in plans:
+        deliver_staged_alert(db, plan)
 
 
 # ====================================================================

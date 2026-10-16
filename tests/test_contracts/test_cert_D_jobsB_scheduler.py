@@ -4,6 +4,7 @@ Claims: F04-4.2-01 (color-match scoring minimizes swaps), F04-4.2-02 (target typ
 filtering), F04-4.2-03 (availability-window search), F04-4.2-04 (proactive stale
 cleanup on every scheduler run). Competing printers, fixed clock, no device I/O.
 """
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -134,7 +135,7 @@ def test_color_match_is_preference_so_unmatched_job_is_still_scheduled(fleet):
 
 # ---------------- F04-4.2-02 target type filtering ----------------
 
-@pytest.mark.parametrize('target_filter', ['X1C', 'x1c'])
+@pytest.mark.parametrize('target_filter', ['X1C', 'x1c', 'Bambu Lab X1 Carbon', 'BL-P001'])
 def test_model_target_only_schedules_on_matching_machine_type(fleet, target_filter):
     add_job(fleet, 901, target_type='model', target_filter=target_filter)
     result = run(fleet)
@@ -321,25 +322,27 @@ def test_pin_survives_reset_bulk_reschedule_and_stale_cleanup(fleet, signed_lice
     assert rows(fleet, [job])[job][:2] == ('scheduled', 12) and _pin(fleet, job) == 12
 
 
-@pytest.mark.parametrize('state', ['inactive', 'missing'])
-def test_pinned_printer_unavailable_keeps_job_pending_with_visible_reason(fleet, signed_license, monkeypatch, state):
+@pytest.mark.parametrize('state,issue', [('inactive', 'pinned_printer_inactive'), ('missing', 'pinned_printer_missing'),
+                                         ('inaccessible', 'pinned_printer_inaccessible')])
+def test_pinned_printer_unavailable_keeps_job_pending_with_visible_reason(fleet, signed_license, monkeypatch, state, issue):
     client = _pin_client(fleet, signed_license, monkeypatch)
     job = client.post('/api/v1/jobs', json={'item_name': 'Synthetic pinned blocked', 'duration_hours': 1, 'printer_id': 12}).json()['id']
     if state == 'inactive':
         fleet.execute(text('UPDATE printers SET is_active=0 WHERE id=12'))
-    else:
+    elif state == 'inaccessible':  # the printer moved to another org and is not shared
+        fleet.execute(text('UPDATE printers SET org_id=2, shared=0 WHERE id=12'))
+    else:  # legacy row removed behind the API's back
         fleet.execute(text('DELETE FROM filament_slots WHERE printer_id=12'))
         fleet.execute(text('DELETE FROM printers WHERE id=12'))
     fleet.commit()
     result = run(fleet)
     assert rows(fleet, [job])[job][:2] == ('pending', None) and _pin(fleet, job) == 12
-    assert any('pinned printer 12 is unavailable' in e for e in result.errors)
+    assert any(f'({issue})' in e for e in result.errors)
     body = client.get(f'/api/v1/jobs/{job}').json()
-    assert body['pinned_printer_id'] == 12
-    assert body['pinned_printer_issue'] == ('pinned_printer_inactive' if state == 'inactive' else 'pinned_printer_missing')
+    assert (body['pinned_printer_id'], body['pinned_printer_issue']) == (12, issue)
     fleet.expire_all()
     alert = fleet.execute(text("SELECT metadata_json FROM alerts WHERE job_id=:id AND alert_type='queue_skipped'"), {'id': job}).scalar()
-    assert alert is not None and 'pinned_printer_unavailable' in str(alert)
+    assert alert is not None and json.loads(alert)['reason'] == issue if isinstance(alert, str) else alert['reason'] == issue
 
 
 def test_only_an_explicit_choice_pins(fleet, signed_license, monkeypatch):
@@ -364,3 +367,86 @@ def test_only_an_explicit_choice_pins(fleet, signed_license, monkeypatch):
     assert _pin(fleet, free) is None
     # Foreign/unknown printers cannot be pinned.
     assert client.patch(f'/api/v1/jobs/{free}', json={'pinned_printer_id': 9999}).status_code == 404
+
+
+
+def test_model_target_with_unknown_model_fails_closed(fleet):
+    add_job(fleet, 903, target_type='model', target_filter='BL-A001')  # not a Bambu Studio id
+    run(fleet)
+    assert rows(fleet, [903])[903][:2] == ('pending', None)
+
+
+# ---------------- explicit printer choices on other create paths ----------------
+
+def test_batch_send_pins_each_copy_to_its_printer(fleet, signed_license, monkeypatch):
+    client = _pin_client(fleet, signed_license, monkeypatch)
+    made = client.post('/api/v1/jobs/batch', json={'item_name': 'Synthetic batch', 'printer_ids': [9, 11], 'duration_hours': 1})
+    assert made.status_code == 200, made.text
+    assert sorted(_pin(fleet, j['id']) for j in made.json()) == [9, 11]
+
+
+def test_deleting_a_printer_marks_its_pins_deleted_and_never_retargets(fleet, signed_license, monkeypatch):
+    from modules.printers import routes_crud
+    client = _pin_client(fleet, signed_license, monkeypatch)
+    client.app.include_router(routes_crud.router, prefix='/api/v1')
+    job = client.post('/api/v1/jobs', json={'item_name': 'Synthetic pinned to doomed', 'duration_hours': 1, 'printer_id': 12}).json()['id']
+    fleet.execute(text('DELETE FROM filament_slots WHERE printer_id=12')); fleet.commit()
+    response = client.delete('/api/v1/printers/12')
+    assert response.status_code in (200, 204), response.text
+    body = client.get(f'/api/v1/jobs/{job}').json()
+    assert (body['pinned_printer_id'], body['pinned_printer_issue']) == (None, 'pinned_printer_deleted')
+    # SQLite may hand the id out again: the job must not follow it.
+    fleet.execute(text("INSERT INTO printers(id,name,model,machine_type,is_active,api_type,org_id) VALUES(12,'Reused id','Voron','Voron',1,'moonraker',1)"))
+    fleet.commit()
+    run(fleet)
+    assert rows(fleet, [job])[job][:2] == ('pending', None)
+    fleet.expire_all()
+    alerts = fleet.execute(text("SELECT metadata_json FROM alerts WHERE job_id=:id"), {'id': job}).scalars().all()
+    assert any('pinned_printer_deleted' in str(a) for a in alerts)
+
+
+@pytest.mark.parametrize('bad', ['١٢', '+12', '12a', ' ', '0', '-3'])
+def test_specific_target_filter_must_be_ascii_printer_id(fleet, signed_license, monkeypatch, bad):
+    client = _pin_client(fleet, signed_license, monkeypatch)
+    response = client.post('/api/v1/jobs', json={'item_name': 'Synthetic bad target', 'target_type': 'specific', 'target_filter': bad})
+    if bad.strip():
+        assert response.status_code == 422, response.text
+    else:
+        assert response.status_code == 201 and _pin(fleet, response.json()['id']) is None
+
+
+def test_legacy_unparseable_target_is_no_pin_with_a_flag_and_never_breaks_list_or_scheduler(fleet, signed_license, monkeypatch):
+    client = _pin_client(fleet, signed_license, monkeypatch)
+    add_job(fleet, 904, target_type='specific', target_filter='printer-twelve')
+    listed = client.get('/api/v1/jobs')
+    assert listed.status_code == 200
+    row = next(j for j in listed.json() if j['id'] == 904)
+    assert (row['pinned_printer_id'], row['pinned_printer_issue']) == (None, 'pinned_target_invalid')
+    result = run(fleet)
+    assert result.success and rows(fleet, [904])[904][0] == 'scheduled'
+
+
+def test_move_job_moves_its_pin_too(fleet, signed_license, monkeypatch):
+    client = _pin_client(fleet, signed_license, monkeypatch)
+    job = client.post('/api/v1/jobs', json={'item_name': 'Synthetic pinned move', 'duration_hours': 1, 'printer_id': 12}).json()['id']
+    moved = client.patch(f'/api/v1/jobs/{job}/move', json={'printer_id': 11, 'scheduled_start': '2026-10-20T12:00:00'})
+    assert moved.status_code == 200, moved.text
+    assert rows(fleet, [job])[job][:2] == ('scheduled', 11) and _pin(fleet, job) == 11
+
+
+def test_job_list_reads_printers_once_for_pin_issues(fleet, signed_license, monkeypatch):
+    from sqlalchemy import event
+    client = _pin_client(fleet, signed_license, monkeypatch)
+    for n in range(5):
+        client.post('/api/v1/jobs', json={'item_name': f'Synthetic pinned {n}', 'duration_hours': 1, 'printer_id': 9 + (n % 3)})
+    seen = []
+    def count(conn, cursor, statement, *args):
+        if 'FROM printers' in statement and 'is_active' in statement:
+            seen.append(statement)
+    engine = fleet.get_bind()
+    event.listen(engine, 'before_cursor_execute', count)
+    try:
+        assert client.get('/api/v1/jobs').status_code == 200
+    finally:
+        event.remove(engine, 'before_cursor_execute', count)
+    assert len(seen) == 1, seen

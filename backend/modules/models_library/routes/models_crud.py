@@ -427,6 +427,8 @@ def schedule_from_model(
         "item_name": model.name, "model_id": model.id,
         "duration_hours": model.build_time_hours or 0, "colors_required": ','.join(colors),
         "printer_id": printer_id, "estimated_cost": estimated_cost, "suggested_price": suggested_price,
+        # Choosing a printer in the schedule dialog is an explicit choice: pin it.
+        "target_type": "specific", "target_filter": str(printer_id) if printer_id is not None else None,
         "charged_to_user_id": current_user.get("id"), "charged_to_org_id": current_user.get("group_id"),
         "submitted_by": current_user.get("id"), "status": "submitted" if submission else "pending",
         "hold": False, "is_locked": False,

@@ -402,3 +402,13 @@ def test_timeline_places_jobs_on_printers_and_hides_foreign(wire_client):
     assert (slots[204]['printer_name'], slots[204]['start'][:19], slots[204]['end'][:19]) == ('P1S-09', '2026-10-12T06:00:00', '2026-10-12T09:00:00')
     # completed 205 is on 10-11: outside a 1-day window starting 10-12
     assert 205 not in slots
+
+
+def test_archive_reprint_pins_the_chosen_printer(reprint_client, review_db):  # noqa: F811
+    from modules.jobs.pinning import pinned_printer_id
+    client, identity, source = reprint_client
+    response = client.post('/archives/101/reprint', json={'printer_id': 9})
+    assert response.status_code == 200, response.text
+    review_db.expire_all()
+    row = review_db.execute(text('SELECT target_type,target_filter FROM jobs WHERE id=:id'), {'id': response.json()['job_id']}).one()
+    assert pinned_printer_id(*row) == 9

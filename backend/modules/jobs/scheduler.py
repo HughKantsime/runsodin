@@ -371,7 +371,10 @@ class Scheduler:
             "compatibility_denied": "The approved printer no longer meets the submission requirements. Review compatibility and approval.",
             "revision_changed": "The approval changed during scheduling. Review its current state before scheduling again.",
             "current_state_changed": "The job changed during scheduling. Review its current state before scheduling again.",
-            "pinned_printer_unavailable": "The printer this job is pinned to is inactive or no longer exists. Re-activate it or change the job's printer; the job remains queued.",
+            "pinned_printer_inactive": "The printer this job is pinned to is inactive. Re-activate it or change the job's printer; the job remains queued.",
+            "pinned_printer_missing": "The printer this job is pinned to no longer exists. Choose another printer; the job remains queued.",
+            "pinned_printer_deleted": "The printer this job was pinned to was deleted. Choose another printer; the job remains queued.",
+            "pinned_printer_inaccessible": "Your organization can no longer use the printer this job is pinned to. Choose another printer; the job remains queued.",
         }
         for job_id, reason in sorted(skipped, key=lambda item: item[0]):
             if not lock_queue_alert(db, job_id, AlertType.QUEUE_SKIPPED):
@@ -598,15 +601,18 @@ class Scheduler:
             # Generic specific-printer pin, chosen explicitly by a user and kept
             # across resets. A missing/inactive pinned printer leaves the job
             # pending with a visible reason (never placed elsewhere).
-            from modules.jobs.pinning import job_pin, pin_issue
-            pin = job_pin(job) if education_context is None else None
-            if pin is not None:
-                approved_printer_id = pin
-                if pin_issue(db, pin) is not None:
+            # A deleted pin waits for a new choice (never retargeted onto a reused id);
+            # a legacy unparseable target is no pin. The reason is the alert reason.
+            from modules.jobs.pinning import job_pin, job_issue, BLOCKING
+            if education_context is None:
+                pin, issue = job_pin(job), job_issue(db, job)
+                if pin is not None:
+                    approved_printer_id = pin
+                if issue in BLOCKING:
                     result.skipped_count += 1
-                    skipped.append((job.id, "pinned_printer_unavailable"))
+                    skipped.append((job.id, issue))
                     result.errors.append(
-                        f"Could not schedule job {job.id}: pinned printer {approved_printer_id} is unavailable")
+                        f"Could not schedule job {job.id}: pinned printer {pin if pin is not None else ''} is unavailable ({issue})")
                     continue
 
             payload_snapshot = None
@@ -756,14 +762,13 @@ class Scheduler:
             if required_printer_id is not None and printer_id != required_printer_id:
                 continue
 
-            # Model constraint: skip printers whose model is known and doesn't match.
-            # If printer model is unset (not yet auto-detected), we allow it through —
-            # blocking on unknown model would exclude all non-Bambu printers.
-            # Slicer files carry raw Bambu codes (N2S) while MQTT auto-detect
-            # stores friendly names (A1): compare canonical identities.
+            # Model constraint for model-specific files: the printer's identity
+            # (auto-detected machine_type, else model) must be the same machine
+            # through the Bambu model table. Fail closed: a printer with no
+            # identity at all never receives a model-specific file.
             if required_printer_model:
                 identity = _printer_identity(state.printer)
-                if identity and not _same_printer_model(identity, required_printer_model):
+                if not identity or not _same_printer_model(identity, required_printer_model):
                     continue
 
             # Tag constraint: skip printers missing required tags
@@ -776,8 +781,9 @@ class Scheduler:
             job_target_type = getattr(job, 'target_type', 'specific') or 'specific'
             job_target_filter = getattr(job, 'target_filter', None)
             if job_target_type == 'model' and job_target_filter:
-                machine_type = getattr(state.printer, 'machine_type', None) or ''
-                if machine_type.lower() != job_target_filter.lower():
+                # Same single model table as file matching (X1C == "Bambu Lab X1 Carbon" == BL-P001).
+                identity = _printer_identity(state.printer)
+                if not identity or not _same_printer_model(identity, job_target_filter):
                     continue
             elif job_target_type == 'protocol' and job_target_filter:
                 printer_protocol = getattr(state.printer, 'api_type', None) or ''
