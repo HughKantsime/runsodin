@@ -100,11 +100,11 @@ def _probe(tmp_path, scopes):
     return json.loads(next(l for l in result.stdout.splitlines() if l.startswith("CERTB="))[6:])
 
 
-# Routes whose declared scope a read:analytics token legitimately satisfies.
-ANALYTICS_ROUTES = ("/api/analytics", "/api/reports", "/api/stats", "/api/chargeback", "/api/education/usage",
-                    "/api/v1/analytics", "/api/v1/reports", "/api/v1/stats", "/api/v1/chargeback",
-                    # Prometheus scrape: declares read:analytics (system/routes_config.prometheus_metrics).
-                    "/api/metrics", "/api/v1/metrics")
+# Exact routes whose declared scope a read:analytics token legitimately satisfies (each
+# declares require_role(..., scope="read:analytics")), under /api and /api/v1.
+_ANALYTICS_PATHS = ("/stats", "/analytics", "/analytics/failures", "/analytics/time-accuracy",
+                    "/education/usage-report", "/reports/chargebacks", "/metrics")
+ANALYTICS_ROUTES = frozenset(prefix + path for prefix in ("/api", "/api/v1") for path in _ANALYTICS_PATHS)
 # Routes whose handler applies the token's grants itself (cert-fix-F handler_enforces_token_scope /
 # HANDLER_SCOPE): the caller's own identity, its own token list, and search filtered per category.
 HANDLER_SCOPED_ROUTES = ("/api/auth/me", "/api/v1/auth/me", "/api/tokens", "/api/v1/tokens",
@@ -117,7 +117,7 @@ def test_narrow_scoped_token_authenticates_only_routes_within_its_scope(tmp_path
     statuses = _probe(tmp_path, ["read:analytics"])
     accepted = {route: codes for route, codes in statuses.items()
                 if codes[0] not in (401, 403) and codes[0] != codes[1]
-                and not route.split(" ")[-1].startswith(ANALYTICS_ROUTES)
+                and route.split(" ")[-1] not in ANALYTICS_ROUTES
                 and route.split(" ")[-1] not in HANDLER_SCOPED_ROUTES}
     assert accepted == {}, f"{len(accepted)} routes accept a read:analytics token: {sorted(accepted)[:30]}"
 
