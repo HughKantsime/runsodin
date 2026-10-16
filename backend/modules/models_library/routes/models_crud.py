@@ -32,7 +32,10 @@ from modules.models_library.schemas import (
 from modules.inventory.models import FilamentLibrary
 from .pricing import DEFAULT_PRICING_CONFIG, calculate_job_cost
 from modules.models_library.services import material_cost_per_gram
-from ._models_helpers import _new_revision_file, _plate_summaries, _revision_directory  # noqa: F401
+from ._models_helpers import (  # noqa: F401
+    _locked_revision_model, _new_revision_file, _next_revision_number, _plate_summaries, _revision_directory,
+    _require_viewer_submission, _stage_submission_alert,
+)
 
 log = logging.getLogger("odin.api")
 
@@ -362,11 +365,7 @@ def schedule_from_model(
     from core.interfaces.queue_creation import require_queue_creation_provider
     submission = current_user.get("role") == "viewer"
     if submission:
-        approval = db.query(SystemConfig).filter(SystemConfig.key == "require_job_approval").first()
-        if not (approval and approval.value in (True, "true", "True", "1")):
-            raise HTTPException(status_code=403, detail="Viewers can only submit jobs for approval when approval is enabled")
-        from core.license_manager import require_feature
-        require_feature("job_approval")
+        _require_viewer_submission(db)
     queue_creator = require_queue_creation_provider()
     model = db.query(Model).filter(Model.id == model_id).first()
     if not model:
@@ -478,16 +477,7 @@ def schedule_from_model(
     job_id = job.id
     alert_plan = None
     if submission:
-        from core.base import AlertType, AlertSeverity
-        from modules.notifications.alert_dispatcher import (
-            stage_alert, get_group_owner_id, get_operator_admin_ids,
-        )
-        owner_id = get_group_owner_id(db, current_user["id"])
-        target_ids = [owner_id] if owner_id else get_operator_admin_ids(db, current_user.get("group_id"))
-        alert_plan = stage_alert(db, AlertType.JOB_SUBMITTED, AlertSeverity.INFO,
-            f"Job awaiting approval: {model.name or 'Untitled'}",
-            f"{current_user.get('display_name') or current_user.get('username', 'A user')} submitted a print job",
-            job_id=job_id, target_user_ids=target_ids)
+        alert_plan = _stage_submission_alert(db, current_user, model, job_id)
         log_audit(db, "job.created", "job", job_id, {"item_name": model.name, "status": "submitted"})
     db.commit()
     if alert_plan is not None:
@@ -530,15 +520,6 @@ async def list_model_revisions(model_id: int, current_user: dict = Depends(requi
     } for r in rows]
 
 
-def _locked_revision_model(db, model_id, current_user):
-    # A no-op parent write serializes numbering on SQLite and PostgreSQL.
-    db.execute(text("UPDATE models SET id=id WHERE id=:id"), {"id": model_id})
-    model = db.query(Model).filter(Model.id == model_id).populate_existing().first()
-    if not model or not check_org_access(current_user, model.org_id):
-        raise HTTPException(status_code=404, detail="Model not found")
-    return model
-
-
 @contextmanager
 def _revision_transaction(db, model_id):
     state = {"new_file": None, "commit_started": False}
@@ -575,11 +556,6 @@ def _insert_revision(db, model_id, number, file_path, changelog, user_id, action
                     "VALUES (:mid, :rev, :fp, :cl, :uid)"),
                {"mid": model_id, "rev": number, "fp": file_path, "cl": changelog, "uid": user_id})
     log_audit(db, action, "model", model_id, f"Revision v{number}")
-
-
-def _next_revision_number(db, model_id):
-    return (db.execute(text("SELECT MAX(revision_number) FROM model_revisions WHERE model_id=:mid"),
-                       {"mid": model_id}).scalar() or 0) + 1
 
 
 @router.post("/{model_id}/revisions")

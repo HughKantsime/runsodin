@@ -157,3 +157,68 @@ def clear_pins_for_deleted_printer(db, printer_id: int, *, chunk: int = 500) -> 
         db.execute(statement, {"marker": f"{DELETED_PREFIX}{int(printer_id)}", "pid": pid,
                                "ids": ids[start:start + step]})
     return DeletedPins(ids, live)
+
+
+# Validated pin helpers for the job creation routes (modules/jobs/routes/jobs_crud.py).
+
+def _target_printer_id(db, current_user, printer_id, target_type, target_filter=None):
+    """Validate an explicit specific-printer choice; return the id to pin (or None).
+
+    The choice is printer_id (what the Jobs UI sends) or, for API callers, a
+    numeric target_filter with target_type 'specific'.
+    """
+    from fastapi import HTTPException
+    from core.rbac import check_org_access
+    from modules.printers.models import Printer
+    if (target_type or "specific") != "specific":
+        return None
+    if printer_id is None and target_filter is not None and str(target_filter).strip():
+        if not is_printer_id_text(target_filter):  # ASCII digits only; no Unicode digits, signs or junk
+            raise HTTPException(status_code=422, detail="A specific target_filter must be a printer id")
+        printer_id = int(str(target_filter).strip())
+    if printer_id is None:
+        return None
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
+        raise HTTPException(status_code=404, detail="Printer not found")
+    return printer.id
+
+
+def _target_columns(job, pinned):
+    if (job.target_type or "specific") == "specific":
+        return pin_columns(pinned)
+    return {"target_type": job.target_type, "target_filter": job.target_filter}
+
+
+def _pin_checked_changes(db, current_user, job, updates):
+    """PATCH /jobs/{id}: the JobUpdate changes with printer access checked and the pin reconciled."""
+    from fastapi import HTTPException
+    from core.rbac import check_org_access
+    from modules.printers.models import Printer
+    for candidate in (updates.printer_id, updates.pinned_printer_id):
+        if candidate is not None:
+            printer = db.query(Printer).filter(Printer.id == candidate).first()
+            if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
+                raise HTTPException(status_code=404, detail="Printer not found")
+    changes = updates.model_dump(exclude_unset=True)
+    # printer_id is the scheduler's assignment, never a pin. On a pinned job it
+    # must agree with the pin this PATCH leaves in place: a conflicting
+    # printer_id is refused (409) rather than silently retargeting the job --
+    # change the pin itself with pinned_printer_id (or move the job).
+    if changes.get("printer_id") is not None:
+        pin, pin_problem = parse_target(job.target_type, job.target_filter)
+        if "pinned_printer_id" in changes:
+            pin, pin_problem = changes["pinned_printer_id"], None
+        if pin_problem == ISSUE_DELETED:
+            raise HTTPException(409, "The job's pinned printer was deleted; choose a printer with pinned_printer_id")
+        if pin is not None and int(pin) != int(changes["printer_id"]):
+            raise HTTPException(409, f"The job is pinned to printer {int(pin)}; change the pin with "
+                                     "pinned_printer_id or move the job")
+    # A pin changes only when pinned_printer_id is sent explicitly. A printer id
+    # pins (replacing any model/protocol target: the user chose this printer);
+    # null clears an existing specific pin but never touches a model/protocol target.
+    if "pinned_printer_id" in changes:
+        chosen = changes.pop("pinned_printer_id")
+        if chosen is not None or (job.target_type or "specific") == "specific":
+            changes.update(pin_columns(chosen))
+    return changes

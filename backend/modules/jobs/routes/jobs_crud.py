@@ -44,32 +44,7 @@ router = APIRouter(prefix="/jobs", tags=["Jobs"])
 
 from modules.jobs.queue_creation import _stage_prospective_queue_job, _stage_prospective_queue_values, _stage_queue_entries, _deliver_queue_entries, JobBatchRequest, JobReorderRequest
 
-def _target_printer_id(db, current_user, printer_id, target_type, target_filter=None):
-    """Validate an explicit specific-printer choice; return the id to pin (or None).
-
-    The choice is printer_id (what the Jobs UI sends) or, for API callers, a
-    numeric target_filter with target_type 'specific'.
-    """
-    if (target_type or "specific") != "specific":
-        return None
-    if printer_id is None and target_filter is not None and str(target_filter).strip():
-        from modules.jobs.pinning import is_printer_id_text
-        if not is_printer_id_text(target_filter):  # ASCII digits only; no Unicode digits, signs or junk
-            raise HTTPException(status_code=422, detail="A specific target_filter must be a printer id")
-        printer_id = int(str(target_filter).strip())
-    if printer_id is None:
-        return None
-    printer = db.query(Printer).filter(Printer.id == printer_id).first()
-    if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
-        raise HTTPException(status_code=404, detail="Printer not found")
-    return printer.id
-
-
-def _target_columns(job, pinned):
-    from modules.jobs.pinning import pin_columns
-    if (job.target_type or "specific") == "specific":
-        return pin_columns(pinned)
-    return {"target_type": job.target_type, "target_filter": job.target_filter}
+from modules.jobs.pinning import _pin_checked_changes, _target_columns, _target_printer_id  # noqa: E402,F401  (validated pin helpers)
 
 
 @router.get("/filament-check", tags=["Jobs"])
@@ -293,49 +268,7 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_role
     db.expire_all()
 
 
-    if action == 'reschedule':
-        for jid in sorted(authorized_ids):
-            # Parents were locked above. Claim creation takes this same job
-            # lock before inserting a preparation fence.
-            locked = db.execute(text('UPDATE jobs SET status=status WHERE id=:id RETURNING id'), {'id': jid}).first()
-            if locked is None:
-                continue
-            job = db.query(Job).filter(Job.id == jid).populate_existing().first()
-            if not job or not check_org_access(current_user, job.charged_to_org_id):
-                continue
-            assert_generic_job_mutation_allowed(db, jid)
-            if job.status not in (JobStatus.PENDING, JobStatus.SCHEDULED):
-                continue
-            if db.execute(text('SELECT 1 FROM printer_dispatch_claims WHERE job_id=:id'), {'id': jid}).first():
-                continue
-            if (job.status == JobStatus.PENDING and job.printer_id is None
-                    and job.scheduled_start is None and job.scheduled_end is None
-                    and job.match_score is None and not job.is_locked):
-                continue
-            from modules.jobs.state_machine import transition_job
-            count += int(transition_job(db, jid, JobStatus.PENDING, "scheduler", extra_fields={
-                "printer_id": None, "scheduled_start": None, "scheduled_end": None,
-                "match_score": None, "is_locked": False},
-                where="NOT EXISTS(SELECT 1 FROM printer_dispatch_claims WHERE job_id=:claim_job)",
-                params={"claim_job": jid}))
-    elif action == "cancel":
-        for jid in job_ids:
-            job = db.query(Job).filter(Job.id == jid).first()
-            if not job or not check_org_access(current_user, job.charged_to_org_id):
-                continue
-            assert_generic_job_mutation_allowed(db, jid)
-            from modules.jobs.state_machine import transition_job
-            count += int(transition_job(db, jid, JobStatus.CANCELLED, "operator",
-                                        from_states=(JobStatus.PENDING, JobStatus.SUBMITTED)))
-    elif action == "set_priority":
-        for jid in job_ids:
-            job = db.query(Job).filter(Job.id == jid).first()
-            if not job or not check_org_access(current_user, job.charged_to_org_id):
-                continue
-            assert_generic_job_mutation_allowed(db, jid)
-            changed = db.execute(text("UPDATE jobs SET priority = :p WHERE id = :id AND (priority IS NULL OR priority != :p)"), {"p": priority, "id": jid})
-            count += changed.rowcount
-    elif action == "delete":
+    if action == "delete":
         for jid in job_ids:
             job = db.query(Job).filter(Job.id == jid).first()
             if not job or not check_org_access(current_user, job.charged_to_org_id):
@@ -347,24 +280,9 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_role
                 from core.print_attempts import clear_job_attempts, sqlalchemy_runner
                 clear_job_attempts(sqlalchemy_runner(db), jid)
             count += changed.rowcount
-    elif action == "hold":
-        for jid in job_ids:
-            job = db.query(Job).filter(Job.id == jid).first()
-            if not job or not check_org_access(current_user, job.charged_to_org_id):
-                continue
-            assert_generic_job_mutation_allowed(db, jid)
-            changed = db.execute(text("UPDATE jobs SET hold = TRUE WHERE id = :id AND hold IS NOT TRUE"), {"id": jid})
-            count += changed.rowcount
-    elif action == "unhold":
-        for jid in job_ids:
-            job = db.query(Job).filter(Job.id == jid).first()
-            if not job or not check_org_access(current_user, job.charged_to_org_id):
-                continue
-            assert_generic_job_mutation_allowed(db, jid)
-            changed = db.execute(text("UPDATE jobs SET hold = FALSE WHERE id = :id AND hold IS NOT FALSE"), {"id": jid})
-            count += changed.rowcount
     else:
-        raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
+        from modules.jobs.bulk_actions import apply_bulk_action
+        count = apply_bulk_action(db, current_user, action, job_ids, authorized_ids, priority)
 
     log_audit(db, f"bulk_{action}", "jobs", details=f"{count} jobs")
     reconcile_job_write(db, production_orders)
@@ -661,34 +579,7 @@ async def update_job(job_id: int, updates: JobUpdate, request: Request, current_
             and updates.model_id != job.model_id):
         raise HTTPException(409, "Archived payload jobs cannot change their source model")
     assert_generic_model_reference_allowed(db, updates.model_id)
-    for candidate in (updates.printer_id, updates.pinned_printer_id):
-        if candidate is not None:
-            printer = db.query(Printer).filter(Printer.id == candidate).first()
-            if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
-                raise HTTPException(status_code=404, detail="Printer not found")
-    changes = updates.model_dump(exclude_unset=True)
-    # printer_id is the scheduler's assignment, never a pin. On a pinned job it
-    # must agree with the pin this PATCH leaves in place: a conflicting
-    # printer_id is refused (409) rather than silently retargeting the job --
-    # change the pin itself with pinned_printer_id (or move the job).
-    if changes.get("printer_id") is not None:
-        from modules.jobs.pinning import ISSUE_DELETED, parse_target
-        pin, pin_problem = parse_target(job.target_type, job.target_filter)
-        if "pinned_printer_id" in changes:
-            pin, pin_problem = changes["pinned_printer_id"], None
-        if pin_problem == ISSUE_DELETED:
-            raise HTTPException(409, "The job's pinned printer was deleted; choose a printer with pinned_printer_id")
-        if pin is not None and int(pin) != int(changes["printer_id"]):
-            raise HTTPException(409, f"The job is pinned to printer {int(pin)}; change the pin with "
-                                     "pinned_printer_id or move the job")
-    # A pin changes only when pinned_printer_id is sent explicitly. A printer id
-    # pins (replacing any model/protocol target: the user chose this printer);
-    # null clears an existing specific pin but never touches a model/protocol target.
-    if "pinned_printer_id" in changes:
-        from modules.jobs.pinning import pin_columns
-        chosen = changes.pop("pinned_printer_id")
-        if chosen is not None or (job.target_type or "specific") == "specific":
-            changes.update(pin_columns(chosen))
+    changes = _pin_checked_changes(db, current_user, job, updates)
     for field, value in changes.items():
         setattr(job, field, value)
 
