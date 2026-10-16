@@ -9,9 +9,9 @@ from sqlalchemy import text
 
 from tests.test_contracts.test_education_review_workflow import review_db
 from tests.test_contracts.test_maintenance_behavior import maintenance_client
-from tests.test_contracts.cert_D_capture import capture_path
+from tests.test_contracts.cert_D_capture import publish
 
-FIXTURE = capture_path(Path(__file__).resolve().parents[2] / 'frontend/src/test-fixtures/certDops-maintenance-status-wire.json')
+FIXTURE = Path(__file__).resolve().parents[2] / 'frontend/src/test-fixtures/certDops-maintenance-status-wire.json'
 
 
 def _status_task(client, printer_id, task_id):
@@ -124,7 +124,7 @@ def test_capture_maintenance_status_wire_for_dashboard_widget(maintenance_client
                'complete_response': {k: done.json()[k] for k in ('id', 'message', 'print_hours_at_service')},
                'status_after': [after]}
     FIXTURE.parent.mkdir(parents=True, exist_ok=True)
-    FIXTURE.write_text(json.dumps(fixture, indent=2, sort_keys=True) + '\n')
+    publish(FIXTURE, fixture)
 
 
 def test_admin_maintenance_mutations_leave_no_audit_history(maintenance_client, review_db):

@@ -16,9 +16,9 @@ from sqlalchemy.orm import Session
 from tests.test_contracts.test_archive_reprint_behavior import reprint_client  # noqa: F401
 from tests.test_contracts.test_education_review_workflow import review_db  # noqa: F401
 from tests.test_contracts.test_recent_terminal_jobs import picture
-from tests.test_contracts.cert_D_capture import capture_path
+from tests.test_contracts.cert_D_capture import publish
 
-FIXTURE = capture_path(Path(__file__).resolve().parents[2] / 'frontend/src/test-fixtures/certD-jobsC-wire.json')
+FIXTURE = Path(__file__).resolve().parents[2] / 'frontend/src/test-fixtures/certD-jobsC-wire.json'
 CREATED = '2026-10-01 08:00:00'
 
 
@@ -164,7 +164,7 @@ def test_capture_jobs_queue_timeline_recent_and_failure_wire(wire_client):
     assert (wire['pinned_blocked_job']['pinned_printer_id'], wire['pinned_blocked_job']['pinned_printer_issue']) == (10, 'pinned_printer_inactive')
     db.execute(text('UPDATE printers SET is_active=1 WHERE id=10')); db.commit()
     FIXTURE.parent.mkdir(parents=True, exist_ok=True)
-    FIXTURE.write_text(json.dumps(wire, indent=1, sort_keys=True) + '\n')
+    publish(FIXTURE, wire, indent=1)
 
 
 # ---------------- F04-4.3-01 drag-and-drop reorder (backend) ----------------

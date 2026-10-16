@@ -12,11 +12,11 @@ from tests.test_contracts.test_audit_compliance_claim_acceptance import audit_cl
 from tests.test_contracts.test_audit_actor_requests import client as actor_client
 from tests.test_contracts.test_api_token_delegation_behavior import token_client
 from tests.test_contracts.test_printer_tag_behavior import tag_client, stored
-from tests.test_contracts.cert_D_capture import capture_path
+from tests.test_contracts.cert_D_capture import publish
 
 FIXTURES = Path(__file__).resolve().parents[2] / 'frontend/src/test-fixtures'
-BULK = capture_path(FIXTURES / 'certDops-bulk-jobs-wire.json')
-AUDIT = capture_path(FIXTURES / 'certDops-audit-wire.json')
+BULK = FIXTURES / 'certDops-bulk-jobs-wire.json'
+AUDIT = FIXTURES / 'certDops-audit-wire.json'
 
 # Exactly what Jobs.tsx toolbar sends via bulkOps.jobs(selected, action, extra)
 UI_REQUESTS = {
@@ -28,10 +28,7 @@ UI_REQUESTS = {
 
 
 def _merge(path, key, value):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    data = json.loads(path.read_text()) if path.exists() else {}
-    data[key] = value
-    path.write_text(json.dumps(data, indent=2, sort_keys=True) + '\n')
+    publish(path, value, key=key)
 
 
 def _rows(review_db):

@@ -12,7 +12,7 @@ from sqlalchemy import text
 
 from tests.test_contracts.test_education_review_workflow import review_db  # noqa: F401
 from tests.test_contracts.test_product_bom_integrity import bom_client  # noqa: F401
-from tests.test_contracts.cert_D_capture import capture_path, capturing
+from tests.test_contracts.cert_D_capture import capturing
 
 FIXTURE = Path(__file__).resolve().parents[2] / 'frontend/src/pages/orders/certDorders.wire.json'
 PINNED = '2026-10-01T12:00:00'
@@ -100,4 +100,5 @@ def test_capture_orders_wire_from_real_http(bom_client, review_db, monkeypatch):
     if FIXTURE.exists() and not capturing():
         assert json.loads(FIXTURE.read_text()) == capture, 'Producer contract changed; reconcile the consumer explicitly'
     else:  # first capture, or an explicit CAPTURE=1 re-capture
-        capture_path(FIXTURE).write_text(json.dumps(capture, indent=1, sort_keys=True) + '\n')
+        assert capturing(), f'{FIXTURE.name} is missing; capture it with CAPTURE=1'
+        FIXTURE.write_text(json.dumps(capture, indent=1, sort_keys=True) + '\n')

@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from tests.test_contracts.test_education_review_workflow import review_db  # noqa: F401
 from tests.test_contracts.test_license_user_limits import signed_license  # noqa: F401
-from tests.test_contracts.cert_D_capture import capture_path
+from tests.test_contracts.cert_D_capture import publish
 
 USERS = {  # username -> (id, role); ids/roles come from review_db, operator added here
     "student": (1, "viewer"), "manager": (2, "viewer"), "admin": (3, "admin"),
@@ -422,5 +422,4 @@ def test_capture_certD_jobsA_approval_wire(cert, review_db):
     row = next(j for j in wire["jobs_operator"] if j["id"] == to_reject)
     assert row["submitted_by"] == USERS["student"][0]
     assert row["rejected_reason"] and row["charged_to_org_id"] is not None
-    path = capture_path(Path(__file__).resolve().parents[2] / "frontend/src/test-fixtures/certD-jobsA-approval-wire.json")
-    path.write_text(json.dumps(wire, indent=2, sort_keys=True) + "\n")
+    publish(Path(__file__).resolve().parents[2] / "frontend/src/test-fixtures/certD-jobsA-approval-wire.json", wire)

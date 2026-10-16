@@ -16,21 +16,22 @@ from sqlalchemy.orm import Session
 from tests.test_contracts.test_print_file_upload_ownership_behavior import upload_client
 from tests.test_contracts.test_api_token_delegation_behavior import token_client, review_db
 from tests.test_contracts.test_license_user_limits import signed_license
-from tests.test_contracts.cert_D_capture import capture_path
+from tests.test_contracts.cert_D_capture import capturing
 
 ROOT = Path(__file__).resolve().parents[2]
-WIRE = capture_path(ROOT / 'frontend/src/test-fixtures/certD-jobsB-wire.json')
+WIRE = ROOT / 'frontend/src/test-fixtures/certD-jobsB-wire.json'
 CAPTURED = {}
 
 
 def record_wire(key, value):
     """Producer contract: compare with the committed fixture, or create it on first capture."""
     existing = json.loads(WIRE.read_text()) if WIRE.exists() else {}
-    if key in existing:
-        assert existing[key] == value, f'Producer contract for {key} changed; reconcile the consumer explicitly'
-    else:
+    if capturing():
         existing[key] = value
         WIRE.write_text(json.dumps(existing, indent=2, sort_keys=True) + '\n')
+        return
+    assert key in existing, f'{WIRE.name}:{key} is not committed; capture it with CAPTURE=1'
+    assert existing[key] == value, f'Producer contract for {key} changed; reconcile the consumer explicitly'
 
 
 @pytest.fixture

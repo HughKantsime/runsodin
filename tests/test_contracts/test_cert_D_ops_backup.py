@@ -14,9 +14,9 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from tests.test_contracts.test_education_review_workflow import review_db
-from tests.test_contracts.cert_D_capture import capture_path
+from tests.test_contracts.cert_D_capture import publish
 
-FIXTURE = capture_path(Path(__file__).resolve().parents[2] / 'frontend/src/test-fixtures/certDops-backup-wire.json')
+FIXTURE = Path(__file__).resolve().parents[2] / 'frontend/src/test-fixtures/certDops-backup-wire.json'
 
 
 def _marker(path):
@@ -82,10 +82,7 @@ def test_admin_creates_lists_downloads_and_deletes_point_in_time_snapshot(backup
                'create': body,
                'list': listing.json(),
                'download_prefix_hex': download.content[:16].hex()}
-    FIXTURE.parent.mkdir(parents=True, exist_ok=True)
-    existing = json.loads(FIXTURE.read_text()) if FIXTURE.exists() else {}
-    existing['backup'] = fixture
-    FIXTURE.write_text(json.dumps(existing, indent=2, sort_keys=True) + '\n')
+    publish(FIXTURE, fixture, key='backup')
 
 
 @pytest.mark.parametrize('role,group', [('operator', None), ('viewer', None), ('admin', 1)])
@@ -158,10 +155,7 @@ def test_ui_restore_upload_stages_db_with_safety_backup_then_restart_overwrites(
     assert finished and finished['status'] == 'restored'
     assert _marker(live) == 'restored'
     assert _marker(safety) == 'before'
-    existing = json.loads(FIXTURE.read_text()) if FIXTURE.exists() else {}
-    existing['restore'] = {k: body[k] for k in ('status', 'message', 'restart_required', 'pre_restore_backup')}
-    FIXTURE.parent.mkdir(parents=True, exist_ok=True)
-    FIXTURE.write_text(json.dumps(existing, indent=2, sort_keys=True) + '\n')
+    publish(FIXTURE, {k: body[k] for k in ('status', 'message', 'restart_required', 'pre_restore_backup')}, key='restore')
 
 
 def test_restore_refuses_non_db_and_invalid_upload_without_staging(backup_client):
