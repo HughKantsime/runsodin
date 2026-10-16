@@ -393,6 +393,7 @@ def schedule_from_model(
         raise HTTPException(409, "Selected print file changed; refresh scheduling options")
     file_id = payload_hash = plate_index = None
     selected_plate = None  # per-plate grams/time when a plate other than plate 1 is scheduled
+    other_plate = False    # a 3MF plate other than plate 1 was scheduled
     if file is None:
         if opts.plate_index not in (None, 0):
             raise HTTPException(400, "Plate selection requires a concrete print file")
@@ -421,6 +422,7 @@ def schedule_from_model(
                 plate_index = opts.plate_index if opts.plate_index is not None else 0
                 validate_plate(snapshot.path, plate_index, api_type)
                 if plate_index > 0 and suffix == ".3mf":
+                    other_plate = True
                     selected_plate = next((s for s in _plate_summaries(snapshot.path) if s["plate_index"] == plate_index), None)
             # Recheck source immediately before admission; snapshot proves validated bytes.
             if hash_regular_payload(path) != payload_hash:
@@ -437,12 +439,24 @@ def schedule_from_model(
             if isinstance(slot, dict) and slot.get("color"):
                 colors.append(slot["color"])
 
-    # Calculate cost: model-level fields describe plate 1; another plate uses its own grams/time.
+    # Calculate cost: model-level fields describe plate 1; another plate uses its own grams/time
+    # and, when the archive does not record them, the estimate is unknown (never plate 1's).
     plate_grams = selected_plate.get("filament_grams") if selected_plate else None
     plate_seconds = selected_plate.get("print_time_seconds") if selected_plate else None
     plate_hours = round(plate_seconds / 3600.0, 2) if plate_seconds else None
-    estimated_cost, suggested_price, _ = calculate_job_cost(
-        db, model_id=model.id, filament_grams=plate_grams, print_hours=plate_hours)
+    if not other_plate:
+        estimate_basis = "model"
+        estimated_cost, suggested_price, _ = calculate_job_cost(db, model_id=model.id)
+        duration_hours = model.build_time_hours or 0
+    elif plate_grams is not None and plate_hours is not None:
+        estimate_basis = "selected_plate"
+        estimated_cost, suggested_price, _ = calculate_job_cost(
+            db, model_id=model.id, filament_grams=plate_grams, print_hours=plate_hours)
+        duration_hours = plate_hours
+    else:
+        estimate_basis = "plate_unknown"
+        estimated_cost = suggested_price = None
+        duration_hours = plate_hours
 
     charge_job_quota(db, current_user)
 
@@ -451,7 +465,7 @@ def schedule_from_model(
         "due_date": as_utc_datetime(opts.due_date).replace(tzinfo=None) if opts.due_date else None,
         "notes": opts.notes, "print_file_id": file_id, "payload_sha256": payload_hash, "plate_index": plate_index,
         "item_name": model.name, "model_id": model.id,
-        "duration_hours": plate_hours if plate_hours is not None else (model.build_time_hours or 0), "colors_required": ','.join(colors),
+        "duration_hours": duration_hours, "colors_required": ','.join(colors),
         "printer_id": printer_id, "estimated_cost": estimated_cost, "suggested_price": suggested_price,
         "charged_to_user_id": current_user.get("id"), "charged_to_org_id": current_user.get("group_id"),
         "submitted_by": current_user.get("id"), "status": "pending", "hold": False, "is_locked": False,
@@ -464,7 +478,10 @@ def schedule_from_model(
         "job_id": job_id,
         "model_id": model.id,
         "model_name": model.name,
-        "status": "pending"
+        "status": "pending",
+        # model = plate 1 / model-level numbers; selected_plate = that plate's numbers;
+        # plate_unknown = the 3MF records no grams/time for that plate (estimate left empty).
+        "estimate_basis": estimate_basis,
     }
 
 

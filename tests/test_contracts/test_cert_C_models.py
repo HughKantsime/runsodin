@@ -314,13 +314,16 @@ def test_upload_response_reports_the_models_stored_quantity(library):
 
 # ------------------------------------------- review MEDIUM-9: per-plate data for scheduling
 
-def per_plate_3mf():
-    """Three sliced plates with distinct objects, grams and print time (Bambu slice_info layout)."""
+def per_plate_3mf(unsliced=()):
+    """Three sliced plates with distinct objects, grams and print time (Bambu slice_info layout).
+    Plate numbers in `unsliced` get no slice_info entry (grams/time unknown)."""
     plates = [(1, 5430, [29.25, 12.12], PLATE_JSON['bbox_objects']),
               (2, 1800, [20.0], [{'name': 'Cert hinge'}, {'name': 'Cert hinge'}]),
               (3, 900, [6.0, 4.0], [{'name': 'Cert cap'}, {'name': 'wipe_tower'}])]
     info = '<?xml version="1.0" encoding="UTF-8"?><config><header/>'
     for number, seconds, grams, _ in plates:
+        if number in unsliced:
+            continue
         info += f'<plate><metadata key="index" value="{number}"/><metadata key="prediction" value="{seconds}"/>'
         info += f'<metadata key="weight" value="{sum(grams)}"/><metadata key="printer_model_id" value="N2S"/>'
         for slot, used in enumerate(grams, 1):
@@ -371,3 +374,20 @@ def test_scheduling_a_plate_uses_that_plates_grams_and_time(library, review_db):
     assert (jobs[0].estimated_cost, jobs[0].plate_index) == (pytest.approx(plate_1), 0)
     assert (jobs[2].estimated_cost, jobs[2].duration_hours, jobs[2].plate_index) == (pytest.approx(plate_3), pytest.approx(0.25), 2)
     assert plate_3 < plate_1
+
+
+
+def test_scheduling_a_plate_without_recorded_numbers_reports_unknown_not_plate_1(library, review_db):
+    """Final review LOW-7: no silent fallback to plate 1's grams/time for plate N>1."""
+    client, issue = library
+    body = _upload(client, issue(['write:models']), per_plate_3mf(unsliced=(3,)))
+    options = client.get(f"/models/{body['model_id']}/schedule-options", headers=issue(['write:jobs'])).json()
+    responses = {}
+    for plate in (0, 1, 2):
+        scheduled = client.post(f"/models/{body['model_id']}/schedule", headers=issue(['write:jobs']),
+                                json={'plate_index': plate, 'print_file_id': body['id'], 'payload_sha256': options['payload_sha256']})
+        assert scheduled.status_code == 200, scheduled.text
+        responses[plate] = scheduled.json()
+    assert [responses[p]['estimate_basis'] for p in (0, 1, 2)] == ['model', 'selected_plate', 'plate_unknown']
+    job = review_db.execute(text('SELECT estimated_cost,suggested_price,duration_hours FROM jobs WHERE id=:id'), {'id': responses[2]['job_id']}).one()
+    assert tuple(job) == (None, None, None)
