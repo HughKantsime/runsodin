@@ -22,7 +22,9 @@ SECRETS = {
     "password_label": "HunterPass-" + secrets.token_hex(3),
     "jwt": ".".join(base64.urlsafe_b64encode(part).decode().rstrip("=") for part in
                     (b'{"alg":"HS256"}', b'{"sub":"cert-g"}', secrets.token_bytes(24))),
-    "odin_token": "odin_" + secrets.token_hex(12),
+    # Real scoped-token shape (routes_sessions: odin_ + token_urlsafe(32)); cert-fix-B redacts that
+    # shape and deliberately leaves short odin_ identifiers (odin_api, odin_schema_migrations) alone.
+    "odin_token": "odin_" + secrets.token_urlsafe(32),
     "url_credentials": "CamPass-" + secrets.token_hex(3),
     "ipv6": "fd00:abcd:12::41",
     "prefixed_password_label": "SmtpSecret-" + secrets.token_hex(3),

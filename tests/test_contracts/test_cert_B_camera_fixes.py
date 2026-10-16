@@ -183,11 +183,14 @@ def test_go2rtc_config_has_on_demand_mjpeg_variant_per_camera(printers_client, r
     """go2rtc 1.9 cannot serve H.264 as stream.mjpeg; each camera gets an ffmpeg MJPEG variant."""
     review_db.execute(text("UPDATE printers SET camera_url='http://192.0.2.24:8080/webcam/?action=stream',camera_enabled=1 WHERE id=23"))
     review_db.commit()
+    from modules.printers.camera_relay import relay_url
     from modules.printers.route_utils import _build_go2rtc_config
     streams = _build_go2rtc_config(review_db)["streams"]
     assert streams["printer_21_mjpeg"] == "ffmpeg:printer_21#video=mjpeg"  # RTSPS X1C: transcode on demand
-    assert streams["printer_23"] == "ffmpeg:http://192.0.2.24:8080/webcam/?action=stream#video=h264"
-    assert streams["printer_23_mjpeg"] == "http://192.0.2.24:8080/webcam/?action=stream"  # MJPEG webcam as is
+    # HTTP cameras reach go2rtc only through cert-fix-A's pinned loopback relay, never directly.
+    assert streams["printer_23"] == f"ffmpeg:{relay_url(23)}#video=h264"
+    assert streams["printer_23_mjpeg"] == relay_url(23)  # MJPEG webcam passed through the relay as is
+    assert "192.0.2.24" not in str(streams)
     assert "printer_22" not in streams and "printer_22_mjpeg" not in streams
 
 

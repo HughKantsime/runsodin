@@ -195,7 +195,7 @@ def test_percent_encoded_camera_password_is_accepted_and_masked(cert_app, review
     assert crypto.decrypt(review_db.execute(text("SELECT camera_url FROM printers WHERE id=301")).scalar_one()) == url
 
 
-@pytest.mark.parametrize("url", ["rtsp://192.0.2.88:554/live@main", "rtsp://192.0.2.88/stream?user=a@b",
+@pytest.mark.parametrize("url", ["rtsp://192.0.2.88:554/live@main", "rtsp://192.0.2.88/stream?label=a@b",
                                  "rtsp://192.0.2.88/x#@frag"])
 def test_at_sign_in_camera_path_or_query_is_not_userinfo(cert_app, review_db, monkeypatch, url):
     import modules.printers.route_utils as route_utils
@@ -208,4 +208,6 @@ def test_at_sign_in_camera_path_or_query_is_not_userinfo(cert_app, review_db, mo
     assert response.status_code == 200, response.text
     assert response.json()["camera_url"] == url  # not rejected, not over-masked
     assert route_utils.sanitize_camera_url("rtsp://u:p@192.0.2.88/live@main") == "rtsp://***@192.0.2.88/live@main"
+    # A credential query value (cert-fix-B) is masked, but its '@' never makes the authority userinfo.
+    assert route_utils.sanitize_camera_url("rtsp://192.0.2.88/stream?user=a@b") == "rtsp://192.0.2.88/stream?user=***"
 

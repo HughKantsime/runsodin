@@ -38,6 +38,7 @@ def test_vision_monitor_watches_printing_printers_of_every_protocol(fleet, monke
     monkeypatch.setattr(monitor, "PrinterVisionThread", Recorder)
     daemon = monitor.VisionMonitorDaemon.__new__(monitor.VisionMonitorDaemon)
     daemon._engine, daemon._threads = None, {}
+    daemon._stopping = {}  # cert-fix-C: threads still exiting after a stop (see VisionMonitorDaemon.__init__)
     daemon._scan_printers()
     assert sorted(started) == [201, 202, 203, 204]  # printing on every protocol; paused/idle/error are not
     # Build-plate-empty monitoring covers idle/finished printers of every protocol.
