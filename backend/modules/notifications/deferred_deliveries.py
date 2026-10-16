@@ -6,8 +6,9 @@ quiet-hours digest delivers it after the window and marks it sent (or failed).
 Recipients with an in-app row are already covered by the alerts table.
 
 Every function accepts a SQLAlchemy Connection or Session and runs inside the
-caller's transaction. When the table is absent (032 not yet registered) recording
-is a no-op and reads return nothing, i.e. exactly the pre-032 behaviour.
+caller's transaction. When the table is absent (a database not yet upgraded by
+migration 032) recording is a no-op and reads return nothing, i.e. exactly the
+pre-032 behaviour.
 """
 import logging
 import uuid
