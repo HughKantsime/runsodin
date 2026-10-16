@@ -503,19 +503,13 @@ def approve_submission(db: Session, *, submission_id: int, body, principal: dict
                 "is_admin": 1 if _tenant_admin(principal) else 0,
             },
         )
-        job_changed = db.execute(
-            text(
-                "UPDATE jobs SET status='pending',printer_id=:printer_id,approved_by=:actor_id,"
-                "approved_at=CURRENT_TIMESTAMP,rejected_reason=NULL,updated_at=CURRENT_TIMESTAMP "
-                "WHERE id=:job_id AND charged_to_org_id=:org_id AND status='submitted'"
-            ),
-            {
-                "printer_id": body.printer_id,
-                "actor_id": principal["id"],
-                "job_id": row.job_id,
-                "org_id": row.org_id,
-            },
-        )
+        from modules.jobs.state_machine import transition_result, Expr
+        job_changed = transition_result(db, row.job_id, "pending", "education",
+            from_states=("submitted",),
+            extra_fields={"printer_id": body.printer_id, "approved_by": principal["id"],
+                          "approved_at": Expr("CURRENT_TIMESTAMP"), "rejected_reason": None,
+                          "updated_at": Expr("CURRENT_TIMESTAMP")},
+            where="charged_to_org_id=:org_id", params={"org_id": row.org_id})
         if approved_ams is not None:
             pinned = db.execute(text("UPDATE jobs SET ams_mapping=:mapping,print_file_id=:file_id,"
                 "payload_sha256=:payload_hash,plate_index=:plate WHERE id=:job_id AND charged_to_org_id=:org_id "
@@ -627,14 +621,12 @@ def reject_submission(db: Session, *, submission_id: int, body, principal: dict)
                 "is_admin": 1 if _tenant_admin(principal) else 0,
             },
         )
-        job_changed = db.execute(
-            text(
-                "UPDATE jobs SET status='rejected',printer_id=NULL,approved_by=NULL,"
-                "approved_at=NULL,rejected_reason=:reason,updated_at=CURRENT_TIMESTAMP "
-                "WHERE id=:job_id AND charged_to_org_id=:org_id AND status='submitted'"
-            ),
-            {"reason": body.reason, "job_id": row.job_id, "org_id": row.org_id},
-        )
+        from modules.jobs.state_machine import transition_result, Expr
+        job_changed = transition_result(db, row.job_id, "rejected", "education",
+            from_states=("submitted",),
+            extra_fields={"printer_id": None, "approved_by": None, "approved_at": None,
+                          "rejected_reason": body.reason, "updated_at": Expr("CURRENT_TIMESTAMP")},
+            where="charged_to_org_id=:org_id", params={"org_id": row.org_id})
         if changed.rowcount != 1 or job_changed.rowcount != 1:
             raise OdinError(
                 ErrorCode.revision_conflict, "reload_required", status=409, retriable=True

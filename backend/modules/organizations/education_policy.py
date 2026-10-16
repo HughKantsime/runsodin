@@ -36,6 +36,8 @@ def education_token_digest(token: str) -> str:
     return hashlib.sha256(str(token).lower().encode("ascii")).hexdigest()
 
 
+from modules.jobs.state_machine import transition_job, transition_result, Expr
+
 class _ExecutionAdapter:
     """Bound-value SQL adapter for ORM and monitor DBAPI transactions."""
 
@@ -413,19 +415,11 @@ def advance_schedule(
         return False
     try:
         with db.begin_nested():
-            job_changed = db.execute(
-                text(
-                    "UPDATE jobs SET status='scheduled' WHERE id=:job_id "
-                    "AND charged_to_org_id=:org_id AND status='pending' "
-                    "AND printer_id=:printer_id "
-                    "AND NOT EXISTS (SELECT 1 FROM printer_dispatch_claims dc WHERE dc.printer_id=:printer_id)"
-                ),
-                {
-                    "job_id": job_id,
-                    "org_id": context["org_id"],
-                    "printer_id": printer_id,
-                },
-            )
+            job_changed = transition_result(db, job_id, "scheduled", "education",
+                from_states=("pending",),
+                where="charged_to_org_id=:org_id AND printer_id=:printer_id "
+                      "AND NOT EXISTS (SELECT 1 FROM printer_dispatch_claims dc WHERE dc.printer_id=:printer_id)",
+                params={"org_id": context["org_id"], "printer_id": printer_id})
             if job_changed.rowcount != 1:
                 raise _ScheduleTransitionMiss
             changed = db.execute(
@@ -499,14 +493,10 @@ def reset_stale_schedule(
             )
             if changed.rowcount != 1:
                 raise _ScheduleTransitionMiss
-            job_changed = db.execute(
-                text(
-                    "UPDATE jobs SET status='pending',printer_id=:printer_id,scheduled_start=NULL,"
-                    "scheduled_end=NULL,match_score=NULL WHERE id=:job_id AND status='scheduled' "
-                    "AND printer_id=:printer_id"
-                ),
-                {"job_id": job_id, "printer_id": printer_id},
-            )
+            job_changed = transition_result(db, job_id, "pending", "education",
+                from_states=("scheduled",),
+                extra_fields={"scheduled_start": None, "scheduled_end": None, "match_score": None},
+                where="printer_id=:printer_id", params={"printer_id": printer_id})
             if job_changed.rowcount != 1:
                 raise _ScheduleTransitionMiss
             context["job_id"] = job_id
@@ -556,15 +546,13 @@ def reconcile_schedule_denial(
             )
             if changed.rowcount != 1:
                 raise _ScheduleTransitionMiss
-            job_changed = db.execute(
-                text(
-                    "UPDATE jobs SET status='submitted',printer_id=NULL,scheduled_start=NULL,"
-                    "scheduled_end=NULL,match_score=NULL,notes=CASE WHEN notes IS NULL OR notes='' "
-                    "THEN :reason ELSE notes || '\n' || :reason END WHERE id=:job_id "
-                    "AND status IN ('pending','scheduled')"
-                ),
-                {"job_id": job_id, "reason": f"Education scheduler reset: {sanitized}"},
-            )
+            job_changed = transition_result(db, job_id, "submitted", "education",
+                from_states=("pending", "scheduled"),
+                extra_fields={"printer_id": None, "scheduled_start": None, "scheduled_end": None,
+                              "match_score": None,
+                              "notes": Expr("CASE WHEN notes IS NULL OR notes='' THEN :reason "
+                                            "ELSE notes || '\n' || :reason END",
+                                            reason=f"Education scheduler reset: {sanitized}")})
             if job_changed.rowcount != 1:
                 raise _ScheduleTransitionMiss
             context["job_id"] = job_id
@@ -644,14 +632,10 @@ def reconcile_dispatch_denial(
     if result.rowcount != 1:
         db.rollback()
         return False
-    db.execute(
-        text(
-            "UPDATE jobs SET status='submitted', printer_id=NULL, "
-            "notes=CASE WHEN notes IS NULL OR notes='' THEN :reason "
-            "ELSE notes || '\n' || :reason END WHERE id=:job_id"
-        ),
-        {"job_id": job_id, "reason": f"Education dispatch reset: {sanitized_reason}"},
-    )
+    transition_job(db, job_id, "submitted", "education", extra_fields={
+        "printer_id": None,
+        "notes": Expr("CASE WHEN notes IS NULL OR notes='' THEN :reason ELSE notes || '\n' || :reason END",
+                      reason=f"Education dispatch reset: {sanitized_reason}")})
     db.commit()
     return True
 
@@ -926,16 +910,11 @@ def confirm_dispatch_started(
             )
             if submission_changed.rowcount != 1:
                 raise _MonitorTransitionMiss
-            job_changed = adapter.execute(
-                "UPDATE jobs SET status='printing',actual_start=COALESCE(actual_start,CURRENT_TIMESTAMP) "
-                "WHERE id=:job_id AND charged_to_org_id=:org_id AND status='scheduled' "
-                "AND printer_id=:printer_id",
-                {
-                    "job_id": job_id,
-                    "org_id": context["org_id"],
-                    "printer_id": printer_id,
-                },
-            )
+            job_changed = transition_result(adapter.executor, job_id, "printing", "education",
+                from_states=("scheduled",),
+                extra_fields={"actual_start": Expr("COALESCE(actual_start,CURRENT_TIMESTAMP)")},
+                where="charged_to_org_id=:org_id AND printer_id=:printer_id",
+                params={"org_id": context["org_id"], "printer_id": printer_id})
             if job_changed.rowcount != 1:
                 raise _MonitorTransitionMiss
             claim_changed = adapter.execute(
@@ -1210,12 +1189,11 @@ def claim_monitor_observation(
             if submission_changed.rowcount != 1:
                 raise _MonitorTransitionMiss
             if recovered:
-                job_changed = adapter.execute(
-                    "UPDATE jobs SET status='printing',actual_start=COALESCE(actual_start,CURRENT_TIMESTAMP) "
-                    "WHERE id=:job_id AND charged_to_org_id=:org_id AND status=:status "
-                    "AND printer_id=:printer_id",
-                    {**context, "status": expected_job_status},
-                )
+                job_changed = transition_result(adapter.executor, context["job_id"], "printing", "education",
+                    from_states=(expected_job_status,),
+                    extra_fields={"actual_start": Expr("COALESCE(actual_start,CURRENT_TIMESTAMP)")},
+                    where="charged_to_org_id=:org_id AND printer_id=:printer_id",
+                    params={"org_id": context["org_id"], "printer_id": context["printer_id"]})
             else:
                 job_changed = adapter.execute(
                     "UPDATE jobs SET status=status WHERE id=:job_id AND charged_to_org_id=:org_id "
@@ -1467,17 +1445,11 @@ def terminal_monitor_observation(
             )
             if submission_changed.rowcount != 1:
                 raise _MonitorTransitionMiss
-            job_changed = adapter.execute(
-                "UPDATE jobs SET status=:status,actual_end=COALESCE(:ended_at,CURRENT_TIMESTAMP),queue_position=NULL "
-                "WHERE id=:job_id AND charged_to_org_id=:org_id AND status='printing' "
-                "AND printer_id=:printer_id",
-                {
-                    **context,
-                    "status": terminal_status,
-                    "ended_at": ended_at,
-                    "printer_id": printer_id,
-                },
-            )
+            job_changed = transition_result(adapter.executor, context["job_id"], terminal_status, "education",
+                from_states=("printing",),
+                extra_fields={"actual_end": Expr("COALESCE(:ended_at,CURRENT_TIMESTAMP)", ended_at=ended_at)},
+                where="charged_to_org_id=:org_id AND printer_id=:printer_id",
+                params={"org_id": context["org_id"], "printer_id": printer_id})
             if job_changed.rowcount != 1:
                 raise _MonitorTransitionMiss
             claim_deleted = adapter.execute(
