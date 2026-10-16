@@ -263,7 +263,10 @@ async def bulk_update_spools(body: dict, current_user: dict = Depends(require_ro
 
     if any(type(sid) is not int or sid <= 0 for sid in spool_ids):
         raise HTTPException(status_code=400, detail="Spool IDs must be positive integers")
-    spool_ids = list(dict.fromkeys(spool_ids))
+    # Ascending id order on every multi-spool writer (the filament ledger and
+    # archive accounting lock spools the same way), so concurrent writers never
+    # wait on each other in opposite orders.
+    spool_ids = sorted(set(spool_ids))
     selected = db.query(Spool).filter(Spool.id.in_(spool_ids)).all()
     if (len(selected) != len(spool_ids)
             or any(not check_org_access(current_user, spool.org_id) for spool in selected)):

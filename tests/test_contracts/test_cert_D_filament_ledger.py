@@ -719,3 +719,29 @@ def test_archive_accounting_locks_spools_before_claiming(archive_case):
     archive, engine = archive_case
     order = _ledger_statement_order(engine, lambda: archive.create_print_archive(7099, 9, True))
     _locks_before_claims(order)
+
+
+# ---------------- round 7: every multi-spool writer locks in ascending id order ----------------
+
+def test_bulk_spool_update_writes_in_ascending_id_order(lifecycle_client):
+    from sqlalchemy import event
+    from modules.inventory.routes import spool_ops
+    client, db = lifecycle_client
+    client.app.include_router(spool_ops.router)
+    for spool_id in (112, 113):
+        db.execute(text("INSERT INTO spools(id,filament_id,status,remaining_weight_g,initial_weight_g,org_id) "
+                        "VALUES(:id,111,'archived',100,100,1)"), {"id": spool_id})
+    db.commit()
+    seen = []
+
+    def record(conn, cursor, statement, parameters, *args):
+        if statement.startswith("UPDATE spools SET status"):
+            seen.append(parameters[0] if isinstance(parameters, (list, tuple)) else parameters.get("id"))
+    engine = db.get_bind()
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        response = client.post("/spools/bulk-update", json={"spool_ids": [113, 111, 112, 113], "action": "activate"})
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+    assert response.status_code == 200, response.text
+    assert seen == [111, 112, 113]
