@@ -436,6 +436,9 @@ OVERLAY_REVALIDATE_SECONDS = 30
 OVERLAY_MAX_STREAMS_PER_TOKEN = 3
 OVERLAY_MAX_STREAMS_PER_USER_PRINTER = 3   # one user's share of a printer's camera
 OVERLAY_MAX_STREAMS_PER_PRINTER = 8        # small global ceiling per printer (per API worker)
+# These caps are kept per API worker process (in memory): with N uvicorn workers a
+# printer can serve up to N x the ceiling (and a token N x its cap). Accepted: the
+# caps bound one worker's resources, and each stream still holds one go2rtc reader.
 _overlay_streams = []  # open stream entries (dicts), oldest first
 
 
@@ -541,23 +544,44 @@ async def overlay_camera_stream(printer_id: int, token: Optional[str] = Query(No
         await client.aclose()
 
     async def relay():
+        # Each upstream read races the eviction event and the revalidation clock:
+        # an evicted or withdrawn stream ends at once, even while the camera is
+        # stalled between frames.
         next_check = _time.monotonic() + OVERLAY_REVALIDATE_SECONDS
+        chunks = upstream.aiter_raw().__aiter__()
+        evicted = asyncio.ensure_future(entry["evicted"].wait())
+        pending = None
         try:
-            async for chunk in upstream.aiter_raw():
-                if entry["evicted"].is_set():
+            while True:
+                if pending is None:
+                    pending = asyncio.ensure_future(chunks.__anext__())
+                timeout = max(0.0, next_check - _time.monotonic())
+                await asyncio.wait({pending, evicted}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+                if evicted.done():
                     log.info("Overlay camera stream for printer %s ended: slot given to a printer operator", printer_id)
                     return
                 if _time.monotonic() >= next_check:
                     try:
-                        await run_in_threadpool(_overlay_check, bind, token, printer_id)
+                        current = await run_in_threadpool(_overlay_check, bind, token, printer_id)
                     except HTTPException:
                         log.info("Overlay camera stream for printer %s ended: authorization withdrawn", printer_id)
                         return
+                    # Rights on the printer can change: a demoted viewer becomes evictable.
+                    entry["privileged"] = current["privileged"]
                     next_check = _time.monotonic() + OVERLAY_REVALIDATE_SECONDS
-                yield chunk
+                if pending.done():
+                    try:
+                        chunk = pending.result()
+                    except StopAsyncIteration:
+                        return
+                    pending = None
+                    yield chunk
         except httpx.HTTPError:
             return
         finally:
+            for task in (pending, evicted):
+                if task is not None and not task.done():
+                    task.cancel()
             await close_once()
 
     body = relay()

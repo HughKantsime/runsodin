@@ -474,3 +474,58 @@ def test_unifi_protect_path_token_is_encrypted_masked_and_restored(printers_clie
     assert printers_client.patch("/printers/23", json={"camera_url": masked}).status_code == 200  # unchanged resave
     assert crypto.decrypt(review_db.execute(text("SELECT camera_url FROM printers WHERE id=23")).scalar_one()) == url
 
+
+class _Stalled(httpx.AsyncByteStream):
+    """A camera that sends one frame and then stalls (no next chunk)."""
+
+    async def __aiter__(self):
+        import asyncio
+        yield MJPEG
+        await asyncio.Event().wait()
+
+
+def test_an_evicted_stream_ends_at_once_even_while_the_camera_stalls(overlay_client, review_db, monkeypatch):
+    import asyncio
+    from modules.printers import camera_routes
+    _, tokens, _ = overlay_client
+    _go2rtc(monkeypatch, lambda r: httpx.Response(200, json={"printer_9_mjpeg": {}}) if r.url.path == "/api/streams"
+            else httpx.Response(200, headers={"content-type": "multipart/x-mixed-replace; boundary=frame"}, stream=_Stalled()))
+    monkeypatch.setattr(camera_routes, "OVERLAY_MAX_STREAMS_PER_PRINTER", 1)
+    owner = _mint(review_db, 3, "owner-camera")  # user 3: admin of org 1
+
+    async def run():
+        viewer = await _open_stream(review_db, tokens["camera"])
+        await viewer.body_iterator.__anext__()
+        waiting = asyncio.ensure_future(viewer.body_iterator.__anext__())  # blocked on the stalled camera
+        await asyncio.sleep(0.05)
+        admitted = await _open_stream(review_db, owner)
+        await admitted.body_iterator.__anext__()
+        with pytest.raises(StopAsyncIteration):
+            await asyncio.wait_for(waiting, 1)  # ends now, not on the next upstream chunk
+        assert camera_routes.overlay_stream_count() == 1
+        await admitted.body_iterator.aclose()
+        assert camera_routes.overlay_stream_count() == 0
+    asyncio.run(run())
+
+
+def test_privilege_is_re_evaluated_at_every_revalidation(overlay_client, review_db, monkeypatch):
+    import asyncio
+    from modules.printers import camera_routes
+    _, tokens, _ = overlay_client
+    _endless_go2rtc(monkeypatch)
+    monkeypatch.setattr(camera_routes, "OVERLAY_REVALIDATE_SECONDS", 0.1)
+    owner = _mint(review_db, 3, "owner-camera")
+
+    async def run():
+        stream = await _open_stream(review_db, owner)
+        await stream.body_iterator.__anext__()
+        assert camera_routes._overlay_streams[0]["privileged"] is True
+        review_db.execute(text("UPDATE users SET role='viewer' WHERE id=3")); review_db.commit()
+        for _ in range(100):
+            await asyncio.wait_for(stream.body_iterator.__anext__(), 1)
+            if camera_routes._overlay_streams[0]["privileged"] is False:
+                break
+        assert camera_routes._overlay_streams[0]["privileged"] is False  # demoted: now evictable
+        await stream.body_iterator.aclose()
+        assert camera_routes.overlay_stream_count() == 0
+    asyncio.run(run())
