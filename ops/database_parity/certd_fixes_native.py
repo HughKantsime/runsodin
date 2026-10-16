@@ -383,5 +383,51 @@ with engine.connect() as c:
     view = filament_ledger.print_attempt(sqlalchemy_runner(c), race_job, late_print)
 assert view.seq == 0, view
 print('postgres-ledger-lock-order-and-attempt-binding-pass', flush=True)
+
+# 12. Bulk spool updates lock in ascending id order like the ledger: a bulk activation
+#     (requested as [1502, 1501]) paused after its first spool row races a ledger
+#     deduction over both spools. No deadlock; both complete.
+from sqlalchemy import event as sa_event
+from modules.inventory.routes import spool_ops
+app.include_router(spool_ops.router)
+with engine.begin() as c:
+    c.execute(text("INSERT INTO spools(id,filament_id,status,remaining_weight_g,initial_weight_g,org_id) "
+                   "VALUES(1502,1501,'active',1000,1000,1)"))
+    bulk_job = c.execute(text("INSERT INTO jobs(item_name,status,charged_to_org_id,quantity,priority,hold,is_locked) "
+                              "VALUES('PG bulk race','completed',1,1,3,FALSE,FALSE) RETURNING id")).scalar_one()
+bulk_locked = threading.Event()
+def pause_bulk(conn, cursor, statement, parameters, context, executemany):
+    if statement.startswith('UPDATE spools SET status') and not bulk_locked.is_set():
+        bulk_locked.set()
+        time.sleep(1.5)  # the ledger now runs into the bulk's first spool lock
+sa_event.listen(engine, 'after_cursor_execute', pause_bulk)
+race = {}
+def bulk_side():
+    race['bulk'] = client.post('/spools/bulk-update', json={'spool_ids': [1502, 1501], 'action': 'activate'}).status_code
+def ledger_side():
+    bulk_locked.wait(10)
+    try:
+        with engine.begin() as c:
+            race['ledger'] = filament_ledger.record_job_filament(sqlalchemy_runner(c), bulk_job, source='operator_complete',
+                                                                 grams_by_spool={1501: 5, 1502: 5}).state
+    except Exception as failure:
+        race['ledger'] = type(failure).__name__
+workers = [threading.Thread(target=bulk_side), threading.Thread(target=ledger_side)]
+for worker in workers: worker.start()
+for worker in workers: worker.join(60)
+sa_event.remove(engine, 'after_cursor_execute', pause_bulk)
+assert not any(worker.is_alive() for worker in workers), 'bulk/ledger race did not finish'
+assert race == {'bulk': 200, 'ledger': 'deducted'}, race
+assert tuple(one('SELECT (SELECT remaining_weight_g FROM spools WHERE id=1501), (SELECT remaining_weight_g FROM spools WHERE id=1502)')) == (955, 995)
+# Sessions opened the way core.database_config opens them run in UTC.
+utc_engine = create_engine(URL.create('postgresql+psycopg', username='postgres', password=private.read_text(), host='pg',
+                                      database='postgres'), connect_args={'options': '-c TimeZone=UTC'}, hide_parameters=True)
+with utc_engine.connect() as c:
+    assert c.execute(text('SHOW TimeZone')).scalar_one() == 'UTC'
+utc_engine.dispose()
+import inspect
+from core import database_config
+assert '-c TimeZone=UTC' in inspect.getsource(database_config.create_database_engine)
+print('postgres-bulk-spool-lock-order-and-utc-session-pass', flush=True)
 print('certd-fixes-native-pass', flush=True)
 engine.dispose()
