@@ -175,9 +175,51 @@ def sql_statement_sequence(sql):
     return tuple(statements)
 
 
+_CREATE_TABLE=re.compile(r'(CREATE TABLE [^ ()]+ \()(.*)\)')
+
+
+def _table_elements(body):
+    """Split a CREATE TABLE body at top-level commas; quotes and parentheses stay intact."""
+    elements=[];current=[];depth=0;position=0
+    while position<len(body):
+        character=body[position]
+        if character in ("'",'"'):
+            end=position+1
+            while end<len(body):
+                if body[end]==character:
+                    if end+1<len(body) and body[end+1]==character:end+=2;continue
+                    break
+                end+=1
+            if end>=len(body):raise BackupValidationError('Archive schema has unterminated quote')
+            current.append(body[position:end+1]);position=end+1;continue
+        if character=='(':depth+=1
+        elif character==')':
+            depth-=1
+            if depth<0:raise BackupValidationError('Archive schema table definition is malformed')
+        elif character==',' and depth==0:
+            elements.append(''.join(current).strip());current=[];position+=1;continue
+        current.append(character);position+=1
+    if depth:raise BackupValidationError('Archive schema table definition is malformed')
+    elements.append(''.join(current).strip())
+    if any(not element for element in elements):raise BackupValidationError('Archive schema table definition is malformed')
+    return elements
+
+
+def canonical_table_statement(statement):
+    """Column/constraint order inside one CREATE TABLE is not restore evidence.
+
+    In-place upgrades append ALTERed columns while a fresh create_all declares them in
+    model order; data restores use pg_dump COPY column lists. Each element (name, type,
+    nullability, default, inline constraint) keeps its exact lexical text.
+    """
+    match=_CREATE_TABLE.fullmatch(statement)
+    if not match:return statement
+    return match.group(1)+' '+', '.join(sorted(_table_elements(match.group(2))))+' )'
+
+
 def sql_statements(sql):
     # Dump DDL order is not executable evidence; archive SQL is never run.
-    return Counter(sql_statement_sequence(sql))
+    return Counter(canonical_table_statement(statement) for statement in sql_statement_sequence(sql))
 
 
 def validate_schema_sql(original,canonical):

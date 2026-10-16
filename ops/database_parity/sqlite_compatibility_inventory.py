@@ -391,14 +391,17 @@ def scan_file(path: Path) -> list[dict[str, object]]:
     return scan_source(relative, path.read_text(encoding="utf-8"))
 
 
-# Hash-pinned frozen source used only to restore pre-027 databases; not live code.
-PRESERVED_BUNDLE = BACKEND / "core/schema/preserved027/bundle"
+# Hash-pinned frozen sources used only to stage historical restores; not live code.
+PRESERVED_BUNDLES = (
+    BACKEND / "core/schema/preserved027/bundle",
+    BACKEND / "core/schema/preserved029/bundle",
+)
 
 
 def generate() -> dict[str, object]:
     entries: list[dict[str, object]] = []
     for path in sorted(BACKEND.rglob("*.py")):
-        if PRESERVED_BUNDLE in path.parents:
+        if any(bundle in path.parents for bundle in PRESERVED_BUNDLES):
             continue
         entries.extend(scan_file(path))
     return {

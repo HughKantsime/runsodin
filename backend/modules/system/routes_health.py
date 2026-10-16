@@ -194,8 +194,14 @@ def readiness_check(db: Session = Depends(get_db)):
             status_code=503,
             detail={"ready": False, "reason": f"schema:{type(e).__name__}"},
         )
+    # Public readiness carries only a count; reasons are in the admin diagnostics and backups list.
+    try:
+        from modules.system.postgres_backup_service import quarantined_restores
+        quarantined = len(quarantined_restores()) if db.bind.dialect.name == "postgresql" else 0
+    except Exception:
+        quarantined = None
     return {"ready": True, "version": __version__, "dialect": db.bind.dialect.name,
-            "schema_fingerprint": fingerprint, **validation}
+            "schema_fingerprint": fingerprint, "notices": {"restore_quarantined": quarantined}, **validation}
 
 
 # ============== License ==============

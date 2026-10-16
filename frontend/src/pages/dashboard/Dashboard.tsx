@@ -25,6 +25,7 @@ import SpoolRing from '../../components/ui/SpoolRing'
 import PrintProgress from '../../components/printers/PrintProgress'
 import { StatCard, Button, PageHeader, EmptyState, ProgressBar } from '../../components/ui'
 import SectionErrorBoundary from './SectionErrorBoundary'
+import SystemNoticesBanner from '../../components/admin/SystemNoticesBanner'
 
 import { stats, jobs, printers, printJobs, alerts as alertsApi, maintenance } from '../../api'
 import { canDo } from '../../permissions'
@@ -465,6 +466,7 @@ export default function Dashboard() {
 
   return (
     <div className="p-4 md:p-6">
+      <SystemNoticesBanner />
       <PageHeader icon={LayoutDashboard} title={t('dashboard.title')} subtitle="Print farm overview">
         <Button variant="secondary" size="md" icon={Monitor} onClick={() => navigate('/tv')}>
           TV Mode

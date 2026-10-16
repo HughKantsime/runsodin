@@ -30,7 +30,7 @@ DEPENDENCIES = BACKEND_DIR / "core" / "dependencies.py"
 AUDIT_IMPL = BACKEND_DIR / "core" / "audit.py"
 
 
-PRESERVED_BUNDLE = BACKEND_DIR / "core/schema/preserved027/bundle"
+PRESERVED_BUNDLES = (BACKEND_DIR / "core/schema/preserved027/bundle", BACKEND_DIR / "core/schema/preserved029/bundle")
 
 
 def _enumerate_log_audit_call_sites() -> list[tuple[Path, int, str]]:
@@ -40,8 +40,8 @@ def _enumerate_log_audit_call_sites() -> list[tuple[Path, int, str]]:
         # Skip the definition itself
         if py == DEPENDENCIES:
             continue
-        # Hash-pinned frozen source used only to restore pre-027 databases; not live code.
-        if PRESERVED_BUNDLE in py.parents:
+        # Hash-pinned frozen sources used only to stage historical restores; not live code.
+        if any(bundle in py.parents for bundle in PRESERVED_BUNDLES):
             continue
         try:
             source = py.read_text()

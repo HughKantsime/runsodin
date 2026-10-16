@@ -28,6 +28,7 @@ RAW_REQUIRED_TABLES = frozenset(
         "cost_global_order_origins",
         "cost_global_origin_exclusions",
         "power_target_operations",
+        "quiet_hours_deferred_deliveries",
         "cost_identities",
         "cost_order_memberships",
         "cost_job_bindings",
@@ -123,6 +124,9 @@ RAW_REQUIRED_COLUMNS = {
     "cost_obligations": frozenset("obligation_uid order_uid order_kind item_uid item_kind owner_scope owner_key source_uid source_kind allocation_key obligation_kind required_quantity evidence_state evidence_reason".split()),
     "cost_attempt_participation": frozenset("attempt_uid attempt_kind obligation_uid owner_scope owner_key state reason".split()),
     "finance_currency_settings": frozenset("owner_scope owner_key currency".split()),
+    # Post-027 032: on its own MetaData (core/quiet_hours_deferral_schema.py), so listed here
+    # for validation and the backup inventory.
+    "quiet_hours_deferred_deliveries": frozenset("id user_id org_id scope_key channel alert_type severity title message printer_id job_id spool_id state outcome_reason created_at delivered_at".split()),
 
     "ams_read_generations": frozenset("generation_id printer_id owner_org_id configuration_key runtime_incarnation started_at state completed_at invalidated_at".split()),
     "ams_current_reads": frozenset("printer_id generation_id runtime_incarnation".split()),
@@ -266,6 +270,15 @@ def _orm_checksum() -> str:
 
 
 CURRENT_ORM_BASELINE = "main_audit_20261012"
+
+# Post-027 migrations, applied in this order on the current path only. Each must be
+# additive and must never fail because of existing user data (data-dependent
+# invariants belong in the application layer). Historical PostgreSQL archives are
+# staged by core/schema/preserved029 and then upgraded through this list.
+# Procedure: docs/SCHEMA_MIGRATIONS.md.
+POST027_MIGRATIONS = (
+    ("python:032-quiet-hours-deferred-deliveries", "core.schema.migrations.032_quiet_hours_deferred_deliveries"),
+)
 
 
 def _recognized_orm_checksums() -> frozenset[str]:
@@ -525,6 +538,10 @@ def _bootstrap_database_contract(
             applied.append("python:026-global-order-origins")
         if contract is None and apply_python_migration(connection, "core.schema.migrations.027_power_target_operations"):
             applied.append("python:027-power-target-operations")
+        if contract is None:
+            for migration_id, module_name in POST027_MIGRATIONS:
+                if apply_python_migration(connection, module_name):
+                    applied.append(migration_id)
 
     with engine.begin() as connection:
         if connection.dialect.name == "postgresql":

@@ -91,6 +91,8 @@ _ALLOWED_PYTHON_MIGRATIONS = frozenset(
         "core.schema.migrations.025_spool_purchase_evidence",
         "core.schema.migrations.026_global_order_origins",
         "core.schema.migrations.027_power_target_operations",
+        # Post-027: keep in step with bootstrap.POST027_MIGRATIONS.
+        "core.schema.migrations.032_quiet_hours_deferred_deliveries",
     }
 )
 

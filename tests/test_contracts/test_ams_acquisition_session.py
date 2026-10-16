@@ -9,6 +9,16 @@ from modules.printers.telemetry.bambu.ams_acquisition_session import (
 from modules.printers.telemetry.bambu.ams_acquisition_collector import RawAMSSnapshot
 from modules.printers.telemetry.bambu.ams_evidence import RawTrayFact
 
+
+@pytest.fixture(autouse=True)
+def _restore_process_logging():
+    """_network_worker disables logging for its own worker process. Tests here call it
+    in-process, so restore logging afterwards; otherwise later tests that assert on
+    caplog records (test_bambu_ftps_transfer) fail depending on file order."""
+    import logging
+    yield
+    logging.disable(logging.NOTSET)
+
 CONFIG=BambuAdapterConfig('synthetic','synthetic','127.0.0.1','')
 KEY='a'*64
 INC='b'*32
