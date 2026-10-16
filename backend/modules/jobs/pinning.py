@@ -123,21 +123,37 @@ for _name in ("after_commit", "after_rollback", "after_soft_rollback", "after_fl
 LIVE_PIN_STATUSES = ("pending", "scheduled", "submitted")
 
 
-def clear_pins_for_deleted_printer(db, printer_id: int, *, chunk: int = 500) -> list:
-    """On printer delete: mark pins of queued jobs as deleted (never left to match a reused id).
+class DeletedPins(tuple):
+    """(marked job ids, live job ids) from clear_pins_for_deleted_printer."""
+    __slots__ = ()
 
-    Only jobs that could still be scheduled (pending/scheduled/submitted) are marked;
-    finished history keeps its record of the printer. Work is chunked so the IN
-    lists stay bounded.
+    def __new__(cls, marked, live):
+        return super().__new__(cls, (list(marked), list(live)))
+
+    marked = property(lambda self: self[0])
+    live = property(lambda self: self[1])
+
+
+def clear_pins_for_deleted_printer(db, printer_id: int, *, chunk: int = 500) -> DeletedPins:
+    """On printer delete: mark every job's pin to it as deleted:<id>, whatever the status.
+
+    target_filter is the job's *target*, not where it printed (print_jobs keeps
+    that), so marking finished jobs loses no history -- and it is
+    what stops a later reset/resubmit from reviving the pin onto a printer that
+    reuses the id. ``live`` lists the jobs that could still be scheduled
+    (pending/scheduled/submitted): only their owners are alerted. IN lists are
+    chunked so they stay bounded.
     """
     pid = str(int(printer_id))
-    ids = db.execute(text("SELECT id FROM jobs WHERE COALESCE(target_type,'specific')='specific' "
-                          "AND TRIM(COALESCE(target_filter,''))=:pid AND status IN ('pending','scheduled','submitted') "
-                          "ORDER BY id"), {"pid": pid}).scalars().all()
+    rows = db.execute(text("SELECT id, status FROM jobs WHERE COALESCE(target_type,'specific')='specific' "
+                           "AND TRIM(COALESCE(target_filter,''))=:pid ORDER BY id"), {"pid": pid}).all()
+    ids = [row[0] for row in rows]
+    live = [row[0] for row in rows if (getattr(row[1], "value", row[1]) or "") in LIVE_PIN_STATUSES]
     from sqlalchemy import bindparam
     statement = text("UPDATE jobs SET target_filter=:marker WHERE id IN :ids "
                      "AND TRIM(COALESCE(target_filter,''))=:pid").bindparams(bindparam("ids", expanding=True))
-    for start in range(0, len(ids), max(1, int(chunk))):
+    step = max(1, int(chunk))
+    for start in range(0, len(ids), step):
         db.execute(statement, {"marker": f"{DELETED_PREFIX}{int(printer_id)}", "pid": pid,
-                               "ids": list(ids[start:start + chunk])})
-    return list(ids)
+                               "ids": ids[start:start + step]})
+    return DeletedPins(ids, live)

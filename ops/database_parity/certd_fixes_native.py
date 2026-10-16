@@ -234,7 +234,8 @@ assert one('SELECT status FROM jobs WHERE id=:id', id=legacy)[0] == 'completed'
 assert one('SELECT remaining_weight_g FROM spools WHERE id=901')[0] == 80
 print('postgres-atomic-filament-claim-pass', flush=True)
 
-# 9. Printer delete: chunked expanding IN marks only live queued pins; history keeps its pin.
+# 9. Printer delete: chunked expanding IN marks every pin to the printer (any status);
+#    only the still-schedulable jobs are reported as live (their owners get the alert).
 from modules.jobs.pinning import clear_pins_for_deleted_printer
 with engine.begin() as c:
     c.execute(text("INSERT INTO printers(id,name,api_type,slot_count,is_active,tags,timelapse_enabled,shared,org_id) "
@@ -245,11 +246,12 @@ with engine.begin() as c:
     history = c.execute(text("INSERT INTO jobs(item_name,status,charged_to_org_id,quantity,priority,hold,is_locked,"
                              "target_type,target_filter) VALUES('PG pin hist','completed',1,1,3,FALSE,FALSE,'specific','14') RETURNING id")).scalar_one()
 with Session(engine) as db:
-    assert sorted(clear_pins_for_deleted_printer(db, 14, chunk=2)) == sorted(live_ids)
+    pins = clear_pins_for_deleted_printer(db, 14, chunk=2)
+    assert sorted(pins.live) == sorted(live_ids) and sorted(pins.marked) == sorted(live_ids + [history])
     db.commit()
 with engine.connect() as c:
     filters = dict(c.execute(text("SELECT id,target_filter FROM jobs WHERE id IN (" + ",".join(map(str, live_ids + [history])) + ")")).all())
-assert all(filters[j] == 'deleted:14' for j in live_ids) and filters[history] == '14', filters
+assert all(filters[j] == 'deleted:14' for j in live_ids + [history]), filters
 print('postgres-printer-delete-pins-pass', flush=True)
 
 # 10. Retention purge (DELETE ... RETURNING id) clears the purged jobs' attempt markers.

@@ -434,6 +434,14 @@ def test_move_job_moves_its_pin_too(fleet, signed_license, monkeypatch):
     assert rows(fleet, [job])[job][:2] == ('scheduled', 11) and _pin(fleet, job) == 11
 
 
+def test_moving_a_job_with_a_deleted_pin_repins_it_to_the_chosen_printer(fleet, signed_license, monkeypatch):
+    client = _pin_client(fleet, signed_license, monkeypatch)
+    add_job(fleet, 915, target_type='specific', target_filter='deleted:44')
+    moved = client.patch('/api/v1/jobs/915/move', json={'printer_id': 11, 'scheduled_start': '2026-10-20T12:00:00'})
+    assert moved.status_code == 200, moved.text
+    assert _pin(fleet, 915) == 11
+
+
 def test_job_list_reads_printers_once_for_pin_issues(fleet, signed_license, monkeypatch):
     from sqlalchemy import event
     client = _pin_client(fleet, signed_license, monkeypatch)
@@ -474,26 +482,63 @@ def test_printer_id_alone_is_not_a_pin_and_explicit_pin_replaces_a_model_target(
     assert _pin(fleet, 906) == 12
 
 
-def test_printer_delete_marks_only_live_pinned_jobs_and_alerts_once_per_owner(fleet, signed_license, monkeypatch):
+def _delete_printer_12(client, fleet):
     from modules.printers import routes_crud
-    client = _pin_client(fleet, signed_license, monkeypatch)
     client.app.include_router(routes_crud.router, prefix='/api/v1')
-    for jid, status in ((907, 'pending'), (908, 'scheduled'), (909, 'submitted'), (910, 'completed'), (911, 'failed')):
-        add_job(fleet, jid, status=status, target_type='specific', target_filter='12')
     fleet.execute(text('DELETE FROM filament_slots WHERE printer_id=12')); fleet.commit()
     assert client.delete('/api/v1/printers/12').status_code in (200, 204)
     fleet.expire_all()
-    filters = dict(fleet.execute(text('SELECT id,target_filter FROM jobs WHERE id BETWEEN 907 AND 911')).all())
-    assert filters == {907: 'deleted:12', 908: 'deleted:12', 909: 'deleted:12', 910: '12', 911: '12'}  # history untouched
+
+
+def test_printer_delete_marks_every_pinned_job_and_alerts_only_live_owners_once(fleet, signed_license, monkeypatch):
+    client = _pin_client(fleet, signed_license, monkeypatch)
+    for jid, status in ((907, 'pending'), (908, 'scheduled'), (909, 'submitted'), (910, 'completed'), (911, 'failed')):
+        add_job(fleet, jid, status=status, target_type='specific', target_filter='12', printer=12 if status in ('completed', 'failed') else None)
+    add_job(fleet, 912, status='completed', target_type='specific', target_filter='9', printer=9)   # another printer's pin
+    _delete_printer_12(client, fleet)
+    found = {r[0]: (r[1], r[2]) for r in fleet.execute(text('SELECT id,target_filter,printer_id FROM jobs WHERE id BETWEEN 907 AND 912')).all()}
+    # The target is marked on every status (it is the target, not print history: print_jobs keeps that).
+    assert {j: f for j, (f, _) in found.items()} == {907: 'deleted:12', 908: 'deleted:12', 909: 'deleted:12',
+                                                     910: 'deleted:12', 911: 'deleted:12', 912: '9'}
     alerts = fleet.execute(text("SELECT user_id,message FROM alerts WHERE title LIKE 'Pinned printer deleted%'")).all()
-    assert len(alerts) == 1 and '3 queued jobs' in alerts[0][1]  # one per owner, not per job
+    assert len(alerts) == 1 and '3 queued jobs' in alerts[0][1]  # one per owner, live jobs only
+
+
+def test_deleted_pin_never_revives_on_printer_id_reuse(fleet, signed_license, monkeypatch):
+    """Reset, resubmit and the scheduler keep deleted:<id> after a new printer reuses the id."""
+    client = _pin_client(fleet, signed_license, monkeypatch)
+    add_job(fleet, 913, status='completed', target_type='specific', target_filter='12', printer=12)
+    add_job(fleet, 914, status='rejected', target_type='specific', target_filter='12')
+    fleet.execute(text('UPDATE jobs SET submitted_by=3 WHERE id=914')); fleet.commit()
+    _delete_printer_12(client, fleet)
+    fleet.execute(text("INSERT INTO printers(id,name,model,machine_type,is_active,api_type,org_id) "
+                       "VALUES (12,'Reused-12','Voron 2.4','Voron',1,'moonraker',1)"))
+    fleet.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES (12,1,'PLA')")); fleet.commit()
+    assert client.post('/api/v1/jobs/913/reset').status_code == 200
+    signed_license(tier='pro', features=['job_approval'])
+    assert client.post('/api/v1/jobs/914/resubmit').status_code == 200
+    fleet.expire_all()
+    assert dict(fleet.execute(text('SELECT id,target_filter FROM jobs WHERE id IN (913,914)')).all()) == {913: 'deleted:12', 914: 'deleted:12'}
+    issue = client.get('/api/v1/jobs/913').json()
+    assert issue['pinned_printer_issue'] == 'pinned_printer_deleted' and issue['pinned_printer_id'] is None
+    run(fleet)
+    assert rows(fleet, [913])[913][:2] == ('pending', None)  # blocked visibly, never placed on the reused id
+
+
+def test_status_transitions_may_never_write_target_columns(review_db):
+    from modules.jobs.state_machine import TransitionError, transition_job
+    for column in ('target_type', 'target_filter'):
+        with pytest.raises(TransitionError):
+            transition_job(review_db, 1, 'pending', 'operator', extra_fields={column: None})
 
 
 def test_clear_pins_chunks_large_job_sets(fleet):
     from modules.jobs import pinning
     for jid in range(1000, 1012):
         add_job(fleet, jid, target_type='specific', target_filter='12')
-    marked = pinning.clear_pins_for_deleted_printer(fleet, 12, chunk=5)
+    for jid in range(1012, 1015):
+        add_job(fleet, jid, status='completed', target_type='specific', target_filter='12')
+    pins = pinning.clear_pins_for_deleted_printer(fleet, 12, chunk=5)
     fleet.commit()
-    assert sorted(marked) == list(range(1000, 1012))
-    assert fleet.execute(text("SELECT COUNT(*) FROM jobs WHERE target_filter='deleted:12'")).scalar_one() == 12
+    assert pins.marked == list(range(1000, 1015)) and pins.live == list(range(1000, 1012))
+    assert fleet.execute(text("SELECT COUNT(*) FROM jobs WHERE target_filter='deleted:12'")).scalar_one() == 15

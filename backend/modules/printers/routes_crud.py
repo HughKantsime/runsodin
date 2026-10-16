@@ -310,12 +310,13 @@ def delete_printer(printer_id: int, current_user: dict = Depends(require_role("o
     from modules.jobs.pinning import clear_pins_for_deleted_printer
     from core.base import AlertType, AlertSeverity
     from modules.notifications.alert_dispatcher import stage_alert, deliver_staged_alert
-    pinned_jobs = clear_pins_for_deleted_printer(db, printer_id)
-    # One alert per owner (not per job), in bounded chunks.
+    pins = clear_pins_for_deleted_printer(db, printer_id)
+    live_jobs = pins.live
+    # One alert per owner of a still-schedulable job (not per job), in bounded chunks.
     owners = {}
-    for start in range(0, len(pinned_jobs), 500):
+    for start in range(0, len(live_jobs), 500):
         for row in db.execute(text("SELECT id,charged_to_user_id,submitted_by FROM jobs WHERE id IN :ids")
-                              .bindparams(bindparam("ids", expanding=True)), {"ids": pinned_jobs[start:start + 500]}).all():
+                              .bindparams(bindparam("ids", expanding=True)), {"ids": live_jobs[start:start + 500]}).all():
             owner = row[1] or row[2]
             if owner is not None:
                 owners.setdefault(owner, []).append(row[0])
@@ -332,7 +333,8 @@ def delete_printer(printer_id: int, current_user: dict = Depends(require_role("o
         if plan is not None:
             plans.append(plan)
     db.delete(printer)
-    log_audit(db, "printer.deleted", "printer", printer_id, {"name": printer_name, "pinned_jobs": pinned_jobs})
+    log_audit(db, "printer.deleted", "printer", printer_id,
+              {"name": printer_name, "pinned_job_count": len(pins.marked), "queued_pinned_jobs": live_jobs[:200]})
     db.commit()
     for plan in plans:
         deliver_staged_alert(db, plan)

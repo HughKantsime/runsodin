@@ -586,12 +586,14 @@ def move_job(
 
     # Moving a job onto a printer is an explicit printer choice: a pinned job's
     # pin follows the move (it never stays pointing at the old printer).
-    from modules.jobs.pinning import job_pin, pin_columns
+    # A deleted:<id> pin is re-pinned to the printer the operator chose.
+    from modules.jobs.pinning import ISSUE_DELETED, parse_target, pin_columns
     moved = {"printer_id": request.printer_id, "scheduled_start": request.scheduled_start,
              "scheduled_end": scheduled_end}
-    if job_pin(job) is not None:
+    pin, pin_problem = parse_target(job.target_type, job.target_filter)
+    if pin is not None or pin_problem == ISSUE_DELETED:
         moved.update(pin_columns(request.printer_id))
-    if not transition_job(db, job_id, JobStatus.SCHEDULED, "operator", extra_fields=moved):
+    if not transition_job(db, job_id, JobStatus.SCHEDULED, "operator", extra_fields=moved, retarget=True):
         db.rollback()
         raise HTTPException(409, 'Only pending or scheduled jobs can be moved; reset terminal work explicitly')
     db.expire(job)

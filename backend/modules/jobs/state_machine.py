@@ -88,6 +88,9 @@ _IDENT = re.compile(r"^[a-z_][a-z0-9_]*$")
 _NAMED = re.compile(r"(?<!:):([A-Za-z_][A-Za-z0-9_]*)")
 
 
+_TARGET_COLUMNS = frozenset({"target_type", "target_filter"})
+
+
 class Expr:
     """A SQL expression for a SET column, e.g. Expr('COALESCE(actual_start, :start)', start=now)."""
 
@@ -121,7 +124,8 @@ def transition_job(executor, job_id: int, to, actor: str, *,
                    from_states: Optional[Iterable[str]] = None,
                    where: Optional[str] = None,
                    params: Optional[Mapping[str, Any]] = None,
-                   include_null: bool = False) -> bool:
+                   include_null: bool = False,
+                   retarget: bool = False) -> bool:
     """Atomically move one job to ``to`` if its current status allows it.
 
     ``executor`` may be a SQLAlchemy Session/Connection, a DBAPI connection or a
@@ -129,7 +133,10 @@ def transition_job(executor, job_id: int, to, actor: str, *,
     the actor's allowed from-set. ``where`` adds a predicate (named parameters
     from ``params``). ``include_null`` also admits a legacy row whose status is
     NULL (used only by the operator /complete route, as before the state
-    machine). Returns True when exactly this call changed the row.
+    machine). ``retarget`` admits target_type/target_filter in ``extra_fields``;
+    only an explicit operator printer choice (move_job) passes it, so no
+    reset/resubmit/requeue can rewrite a pin or a deleted:<id> marker.
+    Returns True when exactly this call changed the row.
     """
     to = _status_value(to)
     allowed = allowed_from(actor, to)
@@ -148,6 +155,10 @@ def transition_job(executor, job_id: int, to, actor: str, *,
     for index, (column, value) in enumerate(fields.items()):
         if column == "status" or not _IDENT.match(column):
             raise TransitionError(f"Invalid job column {column!r}")
+        if column in _TARGET_COLUMNS and not retarget:
+            # A status change never retargets a job: an explicit pin (including a
+            # deleted:<id> marker) survives every reset/resubmit/requeue.
+            raise TransitionError(f"A status transition may not write {column!r}")
         if isinstance(value, Expr):
             sets.append(f"{column}={value.sql}")
             values.update(value.params)
