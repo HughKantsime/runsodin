@@ -32,6 +32,7 @@ from modules.models_library.schemas import (
 from modules.inventory.models import FilamentLibrary
 from .pricing import DEFAULT_PRICING_CONFIG, calculate_job_cost
 from modules.models_library.services import material_cost_per_gram
+from ._models_helpers import _new_revision_file, _plate_summaries, _revision_directory  # noqa: F401
 
 log = logging.getLogger("odin.api")
 
@@ -347,16 +348,6 @@ def model_plate_summaries(model_id: int,
     return {**options, "plates": plates}
 
 
-def _plate_summaries(path, indices=None):
-    """Per-plate sellable pieces / grams / print time from the staged 3MF bytes (model-level
-    fields describe plate 1). Restricted to the validated plate indices when given."""
-    import zipfile
-    from modules.models_library.threemf_parser import plate_summaries
-    with zipfile.ZipFile(path) as archive:
-        summaries = plate_summaries(archive)
-    return [s for s in summaries if indices is None or s["plate_index"] in indices]
-
-
 @router.post("/{model_id}/schedule")
 def schedule_from_model(
     model_id: int,
@@ -519,18 +510,6 @@ def _locked_revision_model(db, model_id, current_user):
     return model
 
 
-def _revision_directory(model_id):
-    root = Path(os.environ.get("MODEL_REVISION_STORAGE_ROOT") or "/data/model_revisions")
-    if not root.is_absolute():
-        raise HTTPException(status_code=400, detail="Revision storage root must be an absolute path")
-    root = root.resolve()
-    expected = root / str(model_id)
-    directory = expected.resolve()
-    if directory != expected:
-        raise HTTPException(status_code=400, detail="Invalid revision storage path")
-    return directory
-
-
 @contextmanager
 def _revision_transaction(db, model_id):
     state = {"new_file": None, "commit_started": False}
@@ -559,19 +538,6 @@ def _revision_transaction(db, model_id):
             raise
         log.warning("Revision write failed for model %s (%s)", model_id, type(exc).__name__)
         raise HTTPException(status_code=500, detail="Unable to save model revision") from None
-
-
-def _new_revision_file(model_id, number, filename, state):
-    directory = _revision_directory(model_id)
-    directory.mkdir(parents=True, exist_ok=True)
-    # Revalidate after directory creation; reject a model directory alias outside root.
-    if directory != _revision_directory(model_id):
-        raise HTTPException(status_code=400, detail="Invalid revision storage path")
-    safe_name = re.sub(r'[^a-zA-Z0-9._-]', '_', filename or "file")
-    destination = directory / f"v{number}_{uuid.uuid4().hex}_{safe_name}"
-    stream = open(destination, "xb")
-    state["new_file"] = destination
-    return destination, stream
 
 
 def _insert_revision(db, model_id, number, file_path, changelog, user_id, action):
