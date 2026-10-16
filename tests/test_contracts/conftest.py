@@ -54,3 +54,15 @@ def _startup_providers(monkeypatch):
                           ("TimelapseMediaProvider", TimelapseMediaService)):
         if not registry.has_provider(name):
             registry.register_provider(name, factory())
+
+
+
+@pytest.fixture(autouse=True)
+def _join_dispatch_background_threads(monkeypatch):
+    """Join smart-plug background threads started under configure_dispatch before
+    monkeypatch restores module globals, so no thread outlives its test."""
+    yield
+    import sys
+    support = sys.modules.get("tests.test_contracts.dispatch_test_support")
+    if support is not None:
+        support.join_background_threads()

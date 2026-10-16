@@ -45,6 +45,18 @@ def review_db(tmp_path: Path):
     from core.schema import bootstrap_database
 
     engine = create_engine(f"sqlite:///{tmp_path / 'review.db'}")
+
+    # Same FK semantics as core.database_config.create_database_engine on every
+    # pooled connection; without it, whichever connection a test drew decided
+    # whether FK-requiring code (economic source creation) passed or failed.
+    from sqlalchemy import event
+
+    @event.listens_for(engine, "connect")
+    def _enforce_sqlite_foreign_keys(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
     bootstrap_database(engine, BACKEND)
     with engine.begin() as connection:
         connection.execute(
