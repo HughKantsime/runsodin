@@ -1,17 +1,17 @@
 {
   "backup": {
     "create": {
-      "created_at": "2026-10-15T09:15:44.887025+00:00",
-      "filename": "odin_backup_20261015_091544_868635.db",
-      "size_bytes": 1429504,
+      "created_at": "2026-10-16T04:11:19.971307+00:00",
+      "filename": "odin_backup_20261016_041119_960068.db",
+      "size_bytes": 1425408,
       "size_mb": 1.36
     },
     "download_prefix_hex": "53514c69746520666f726d6174203300",
     "list": [
       {
-        "created_at": "2026-10-15T09:15:44.871624+00:00",
-        "filename": "odin_backup_20261015_091544_868635.db",
-        "size_bytes": 1429504,
+        "created_at": "2026-10-16T04:11:19.961805+00:00",
+        "filename": "odin_backup_20261016_041119_960068.db",
+        "size_bytes": 1425408,
         "size_mb": 1.36
       }
     ],
@@ -19,7 +19,7 @@
   },
   "restore": {
     "message": "Restore validated and staged. Restart ODIN to apply it offline.",
-    "pre_restore_backup": "pre_restore_20261015_091547_734709.db",
+    "pre_restore_backup": "pre_restore_20261016_041122_081258.db",
     "restart_required": true,
     "status": "staged"
   }
