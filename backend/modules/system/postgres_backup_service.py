@@ -1224,6 +1224,7 @@ def quarantine_failed_pending_postgres_restore(
     os.replace(temporary, record_path)
     if paths.pending.is_file():
         os.replace(paths.pending, archive)
+        os.utime(archive)  # Retention ages from the quarantine, not from staging.
     paths.manifest.unlink(missing_ok=True)
     _fsync_directory(paths.backups)
     _fsync_directory(paths.manifest.parent)

@@ -113,6 +113,35 @@ def drop_and_forget(backups: Path, maintenance_url: str, maintenance_password_fi
     return dropped
 
 
+def _quarantined_at(record_path: Path, archive: Path) -> float | None:
+    import json
+    from datetime import datetime
+    try:
+        failed_at = json.loads(record_path.read_text(encoding="utf-8")).get("failed_at")
+        return datetime.fromisoformat(failed_at).timestamp()
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    try:
+        return archive.lstat().st_mtime
+    except OSError:
+        return None
+
+
+def _sweep_quarantine(backups: Path, cutoff: float) -> list[str]:
+    removed = []
+    stems = {entry.name.rsplit(".", 1)[0] for entry in backups.iterdir()
+             if _QUARANTINED.fullmatch(entry.name) and stat.S_ISREG(entry.lstat().st_mode)}
+    for stem in sorted(stems):
+        record_path, archive = backups / (stem + ".json"), backups / (stem + ".dump")
+        orphan = record_path.is_file() and not archive.is_file()
+        when = _quarantined_at(record_path, archive)
+        if orphan or (when is not None and when < cutoff):
+            for path in (archive, record_path):
+                if path.is_file():
+                    path.unlink(missing_ok=True); removed.append(path.name)
+    return removed
+
+
 def sweep_stale(backups: Path, maintenance_url: str, maintenance_password_file: str | None, *, older_than: float = STALE_SECONDS, now: float | None = None, drop=None) -> dict[str, list[str]]:
     """Drop journaled stage databases and remove working files older than ``older_than``."""
     backups = Path(backups)
@@ -124,12 +153,10 @@ def sweep_stale(backups: Path, maintenance_url: str, maintenance_password_file: 
     for name in dropped:
         forget(backups, name)
     removed = []
-    # Retention for quarantined restores: kept QUARANTINE_RETENTION_DAYS for re-staging.
-    quarantine_cutoff = (time.time() if now is None else now) - QUARANTINE_RETENTION_DAYS * 86400
-    for entry in backups.iterdir():
-        facts = entry.lstat()
-        if _QUARANTINED.fullmatch(entry.name) and stat.S_ISREG(facts.st_mode) and facts.st_mtime < quarantine_cutoff:
-            entry.unlink(missing_ok=True); removed.append(entry.name)
+    # Quarantined restores: kept QUARANTINE_RETENTION_DAYS from the quarantine (the record's
+    # failed_at, else the archive's mtime, which the quarantine resets); orphan records
+    # whose archive is gone are removed at once.
+    removed.extend(_sweep_quarantine(backups, (time.time() if now is None else now) - QUARANTINE_RETENTION_DAYS * 86400))
     for entry in backups.iterdir():
         facts = entry.lstat()
         if facts.st_mtime >= cutoff:
