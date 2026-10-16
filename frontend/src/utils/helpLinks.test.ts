@@ -16,8 +16,11 @@ describe('getHelpLink', () => {
   })
   test('prefixes match whole segments only, and "/" never matches as a prefix', () => {
     expect(getHelpLink('/printersx')).toBeNull()
-    expect(getHelpLink('/timeline')).toBeNull()
     expect(getHelpLink('/unknown/page')).toBeNull()
+  })
+  test('Settings and Timeline link their own docs pages', () => {
+    expect(getHelpLink('/settings')?.url).toBe('https://docs.runsodin.com/configuration/settings')
+    expect(getHelpLink('/timeline')?.url).toBe('https://docs.runsodin.com/features/timeline')
   })
   test('no dead keys for routes the app does not have', () => {
     expect(HELP_LINKS['/settings/branding']).toBeUndefined()

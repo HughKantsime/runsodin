@@ -96,7 +96,7 @@ def _sections(md: Path) -> dict[str, str]:
 TOPICS = {
     "/": "quick start", "/printers": "printer", "/printers/:id": "control", "/jobs": "schedul",
     "/upload": "upload", "/spools": "spool", "/cameras": "camera", "/orders": "order", "/analytics": "analytic",
-    "/detections": "detection", "/settings": "configuration", "/branding": "brand", "/models": "model",
+    "/detections": "detection", "/settings": "settings", "/timeline": "timeline", "/branding": "brand", "/models": "model",
     "/profiles": "profile", "/products": "product", "/consumables": "consumable", "/maintenance": "maintenance",
     "/utilization": "utilization", "/alerts": "alert", "/archives": "archive", "/calculator": "calculator",
     "/audit": "audit log", "/tv": "tv dashboard",
@@ -107,7 +107,7 @@ ENTRIES = _entries() if HELP_LINKS.exists() else {}
 
 
 def test_help_links_cover_the_routes_the_app_shows():
-    assert len(ENTRIES) == 23 and "/settings" in ENTRIES and "/printers/:id" in ENTRIES
+    assert len(ENTRIES) == 24 and "/settings" in ENTRIES and "/timeline" in ENTRIES and "/printers/:id" in ENTRIES
     assert "/settings/branding" not in ENTRIES  # the app's branding route is /branding
     assert set(ENTRIES) == set(TOPICS)
 

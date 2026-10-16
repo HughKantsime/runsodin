@@ -12,10 +12,9 @@ export const HELP_LINKS: Record<string, { url: string; label: string }> = {
   '/orders': { url: 'https://docs.runsodin.com/features/orders', label: 'Orders & Invoicing' },
   '/analytics': { url: 'https://docs.runsodin.com/features/analytics', label: 'Analytics' },
   '/detections': { url: 'https://docs.runsodin.com/configuration/ai-detection', label: 'Vigil AI Setup' },
-  // Settings has no single docs page; link the docs index of configuration guides.
-  '/settings': { url: 'https://docs.runsodin.com/#browse-the-docs', label: 'Configuration Guides' },
+  '/settings': { url: 'https://docs.runsodin.com/configuration/settings', label: 'Settings' },
   '/branding': { url: 'https://docs.runsodin.com/configuration/branding', label: 'Custom Branding' },
-  // '/timeline' has no docs coverage yet (odin-site/docs has no Timeline page or section).
+  '/timeline': { url: 'https://docs.runsodin.com/features/timeline', label: 'Timeline' },
   '/models': { url: 'https://docs.runsodin.com/features/model-library', label: 'Model Library' },
   '/profiles': { url: 'https://docs.runsodin.com/features/klipper-profiles', label: 'Slicer & Printer Profiles' },
   '/products': { url: 'https://docs.runsodin.com/features/orders#products--bill-of-materials', label: 'Product Catalog' },
