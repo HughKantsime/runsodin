@@ -513,11 +513,22 @@ class MoonrakerMonitor:
                     )
                     if result.get("education_owned") or result.get("education_reserved"):
                         conn.commit()
-                        committed_completion = (education_terminal_status == 'completed'
-                            and result.get('authorized') is True
-                            and result.get('transitioned') is True)
-                        completion_job_id = result.get('job_id')
+                        # Physical completion whenever the print really ended (also when
+                        # Education refused the job transition); the job only if applied.
+                        applied = result.get('authorized') is True and result.get('transitioned') is True
+                        physical = applied or result.get('physical_ended') is True
+                        committed_completion = education_terminal_status == 'completed' and physical
+                        completion_job_id = result.get('job_id') if applied else None
                         log.info("[%s] Education terminal result: %s", self.name, result)
+                        if physical:
+                            try:
+                                from modules.archives.archive import create_print_archive
+                                create_print_archive(print_job_id=self._current_job_db_id, printer_id=self.printer_id,
+                                                     success=(education_terminal_status == 'completed'),
+                                                     result_status=(education_terminal_status
+                                                                    if education_terminal_status == 'cancelled' else None))
+                            except Exception as ae:
+                                log.warning(f"[{self.name}] Failed to create print archive: {ae}")
                         self._current_job_db_id = None
                         self._last_filename = ""
                         return True

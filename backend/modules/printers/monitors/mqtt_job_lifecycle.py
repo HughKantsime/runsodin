@@ -354,6 +354,7 @@ def record_job_ended(
     error_code = state.get('print_error') if status == 'failed' else None
     committed_completion = False
     completion_job_id = None
+    job_applied = False
 
     try:
         with get_db() as conn:
@@ -399,15 +400,27 @@ def record_job_ended(
                     "education_reserved"
                 ):
                     conn.commit()
-                    committed_completion = (status == 'completed'
-                        and education_result.get('authorized') is True
-                        and education_result.get('transitioned') is True)
-                    completion_job_id = education_result.get('job_id')
+                    # The physical print completion is published whenever the print
+                    # really ended -- also when Education refused the job transition
+                    # (physical_ended) -- but names the job only when it applied.
+                    applied = (education_result.get('authorized') is True
+                               and education_result.get('transitioned') is True)
+                    physical = applied or education_result.get('physical_ended') is True
+                    committed_completion = status == 'completed' and physical
+                    completion_job_id = education_result.get('job_id') if applied else None
                     log.info(
                         "[%s] Education job terminal policy result: %s",
                         printer_name,
                         education_result,
                     )
+                    if physical:
+                        try:
+                            from modules.archives.archive import create_print_archive
+                            create_print_archive(print_job_id=current_job_id, printer_id=printer_id,
+                                                 success=(status == 'completed'),
+                                                 result_status=status if status == 'cancelled' else None)
+                        except Exception as ae:
+                            log.warning(f"[{printer_name}] Failed to create print archive: {ae}")
                     return education_result.get("job_id") or linked_job_id
 
             linked_job_id, production_orders = prepare_print_job_write(conn, current_job_id)
@@ -491,6 +504,9 @@ def record_job_ended(
             completion_job_id = linked_job_id if job_applied else None
 
         log.info(f"[{printer_name}] Job {status}: DB id {current_job_id}")
+        # Job-scoped alerts name the job only when this end applied to it; otherwise
+        # they are printer-scoped, like a printer-only print's.
+        alert_job_id = linked_job_id if job_applied else None
 
         # Lazy imports to avoid circular import at module load time
         from modules.notifications.alert_dispatch import dispatch_alert as _dispatch_alert_b
@@ -505,7 +521,7 @@ def record_job_ended(
                 title=f"Print Complete: {job_name} ({printer_name})",
                 message=f"Job finished successfully on {printer_name}.",
                 printer_id=printer_id,
-                job_id=linked_job_id,
+                job_id=alert_job_id,
             )
             # Increment care counters
             try:
@@ -533,7 +549,7 @@ def record_job_ended(
                 title=f"Print Failed: {job_name} ({printer_name})",
                 message=msg,
                 printer_id=printer_id,
-                job_id=linked_job_id,
+                job_id=alert_job_id,
                 metadata={"progress_percent": progress, "error_code": err}
             )
             printer_events.record_error(

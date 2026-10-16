@@ -131,10 +131,13 @@ def job_completed(
                     "education_reserved"
                 ):
                     conn.commit()
-                    committed_completion = (success is True
-                        and education_result.get('authorized') is True
-                        and education_result.get('transitioned') is True)
-                    completion_job_id = education_result.get('job_id')
+                    # Physical completion whenever the print really ended (also when
+                    # Education refused the job transition); the job only if applied.
+                    applied = (education_result.get('authorized') is True
+                               and education_result.get('transitioned') is True)
+                    committed_completion = success is True and (
+                        applied or education_result.get('physical_ended') is True)
+                    completion_job_id = education_result.get('job_id') if applied else None
                     return education_result
 
             # Update print_jobs record
@@ -185,6 +188,9 @@ def job_completed(
             committed_completion = success is True
             completion_job_id = scheduled_job_id if job_applied else None
             completion_metadata = {'job_name': job_name, 'duration_seconds': duration_seconds}
+        # Job-scoped alerts and events name the job only when this end applied to
+        # it; otherwise they are printer-scoped, like a printer-only print's.
+        alert_job_id = scheduled_job_id if job_applied else None
 
         # Increment care counters if successful
         if success and duration_seconds:
@@ -199,7 +205,7 @@ def job_completed(
                 title=f"Print Complete: {job_name}",
                 message=f"Finished on {printer_name}",
                 printer_id=printer_id,
-                job_id=scheduled_job_id,
+                job_id=alert_job_id,
             )
         else:
             dispatch_alert(
@@ -208,7 +214,7 @@ def job_completed(
                 title=f"Print Failed: {job_name}",
                 message=f"Failed on {printer_name}" + (f": {fail_reason}" if fail_reason else ""),
                 printer_id=printer_id,
-                job_id=scheduled_job_id,
+                job_id=alert_job_id,
             )
 
             # Also record as error
@@ -233,7 +239,7 @@ def job_completed(
                     "job_name": job_name,
                     "status": status,
                     "print_job_id": print_job_id,
-                    "scheduled_job_id": scheduled_job_id,
+                    "scheduled_job_id": alert_job_id,
                     "success": success,
                     "duration_seconds": duration_seconds,
                 },
@@ -316,10 +322,12 @@ def job_cancelled(
             prow = cur.fetchone()
             printer_name = prow[1] or prow[0] if prow else f"Printer {printer_id}"
 
+            job_applied = False
             if scheduled_job_id:
                 from modules.jobs.services import transition_job
-                transition_job(cur, scheduled_job_id, 'cancelled', 'monitor',
-                               extra_fields={'actual_end': ended_at})
+                job_applied = transition_job(cur, scheduled_job_id, 'cancelled', 'monitor',
+                                             extra_fields={'actual_end': ended_at})
+            alert_job_id = scheduled_job_id if job_applied else None
 
             reconcile_job_write(conn, production_orders)
             conn.commit()
@@ -330,7 +338,7 @@ def job_cancelled(
             title=f"Print Cancelled: {job_name}",
             message=f"Cancelled on {printer_name}",
             printer_id=printer_id,
-            job_id=scheduled_job_id,
+            job_id=alert_job_id,
         )
 
         log.info(f"Job cancelled on printer {printer_id}: {job_name}")
@@ -344,7 +352,7 @@ def job_cancelled(
                 "job_name": job_name,
                 "status": "cancelled",
                 "print_job_id": print_job_id,
-                "scheduled_job_id": scheduled_job_id,
+                "scheduled_job_id": alert_job_id,
                 "success": False,
             },
         ))

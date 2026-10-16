@@ -328,3 +328,140 @@ def test_complete_on_a_legacy_null_status_row_is_allowed_as_before(fleet, signed
     response = client.post('/api/v1/jobs/713/complete')
     assert response.status_code == 200, response.text
     assert _status(fleet, 713) == 'completed'
+
+
+# ---------------- round 5: job-scoped alerts/events only when the job transition applied ----------------
+
+@pytest.fixture
+def alert_capture(monitor_boundary, monkeypatch):
+    from types import SimpleNamespace
+    from modules.notifications import job_events
+    alerts, events = [], []
+    monkeypatch.setattr(job_events, 'dispatch_alert', lambda **kwargs: alerts.append(kwargs))
+    monkeypatch.setattr(job_events, 'get_event_bus', lambda: SimpleNamespace(publish=events.append))
+    return alerts, events
+
+
+@pytest.mark.parametrize('job_status,expected_job', [('cancelled', None), ('printing', 720)])
+@pytest.mark.parametrize('success', [True, False])
+def test_prusalink_elegoo_alerts_and_failed_event_name_the_job_only_when_it_applied(
+        review_db, alert_capture, job_status, expected_job, success):
+    from modules.notifications import job_events
+    alerts, events = alert_capture
+    _job(review_db, 720, job_status)
+    review_db.execute(text("INSERT INTO print_jobs(id,printer_id,filename,job_name,started_at,status,scheduled_job_id) "
+                           "VALUES(7720,9,'x.3mf','x',CURRENT_TIMESTAMP,'running',720)"))
+    review_db.commit()
+    job_events.job_completed(9, 7720, success=success, duration_seconds=60)
+    assert [(a['alert_type'], a['printer_id'], a['job_id']) for a in alerts] == [
+        ('print_complete' if success else 'print_failed', 9, expected_job)]
+    from core import events as ev
+    assert [e.data['scheduled_job_id'] for e in events if e.event_type == ev.JOB_FAILED] == ([] if success else [expected_job])
+
+
+@pytest.mark.parametrize('job_status,expected_job', [('completed', None), ('printing', 721)])
+def test_prusalink_elegoo_cancel_alert_and_event_name_the_job_only_when_it_applied(
+        review_db, alert_capture, job_status, expected_job):
+    from modules.notifications import job_events
+    alerts, events = alert_capture
+    _job(review_db, 721, job_status)
+    review_db.execute(text("INSERT INTO print_jobs(id,printer_id,filename,job_name,started_at,status,scheduled_job_id) "
+                           "VALUES(7721,9,'x.3mf','x',CURRENT_TIMESTAMP,'running',721)"))
+    review_db.commit()
+    job_events.job_cancelled(9, 7721)
+    assert _status(review_db, 721) == ('cancelled' if job_status == 'printing' else job_status)
+    assert [(a['alert_type'], a['job_id']) for a in alerts] == [('print_cancelled', expected_job)]
+    assert [e.data['scheduled_job_id'] for e in events] == [expected_job]
+
+
+@pytest.mark.parametrize('job_status,expected_job', [('failed', None), ('printing', 722)])
+@pytest.mark.parametrize('end_status', ['completed', 'failed'])
+def test_mqtt_alerts_name_the_job_only_when_it_applied(review_db, monkeypatch, job_status, expected_job, end_status):
+    from contextlib import contextmanager
+    from core.db_utils import _ConnectionAdapter
+    import modules.printers.committed_terminal_events as committed
+    from modules.printers.monitors import mqtt_job_lifecycle
+    from modules.notifications import alert_dispatch
+    engine = review_db.get_bind()
+
+    @contextmanager
+    def isolated_db():
+        connection = engine.raw_connection()
+        try:
+            yield _ConnectionAdapter(connection, False)
+        finally:
+            connection.close()
+    monkeypatch.setattr(mqtt_job_lifecycle, 'get_db', isolated_db)
+    monkeypatch.setattr(committed, 'publish_committed_completion', lambda *a, **k: None)
+    alerts = []
+    monkeypatch.setattr(alert_dispatch, 'dispatch_alert', lambda **kwargs: alerts.append(kwargs))
+    monkeypatch.setattr(alert_dispatch, '_start_bed_cooled_monitor', lambda *args: None)
+    _job(review_db, 722, job_status)
+    review_db.execute(text("INSERT INTO print_jobs(id,printer_id,filename,job_name,started_at,status,scheduled_job_id) "
+                           "VALUES(7722,9,'x.3mf','x',CURRENT_TIMESTAMP,'running',722)"))
+    review_db.commit()
+    mqtt_job_lifecycle.record_job_ended(9, 'P', 7722, 722, end_status, {'subtask_name': 'x'}, {}, lambda **k: None)
+    assert [(a['alert_type'], a['job_id']) for a in alerts] == [
+        ('print_complete' if end_status == 'completed' else 'print_failed', expected_job)]
+
+
+from tests.test_contracts.test_education_monitor_policy import admitted_monitor  # noqa: E402,F401
+from tests.test_contracts.test_education_dispatch_receipt_binding import admitted_education  # noqa: E402,F401
+from tests.test_contracts.test_education_dispatch_policy import actual_education_dispatch  # noqa: E402,F401
+
+
+def test_education_print_whose_job_was_cancelled_still_ends_physically_publishes_and_archives(admitted_monitor, monkeypatch):
+    """Education refused the job transition (operator cancelled mid-print): the printer's own
+    print still ends, its physical completion is published without the job, and it is archived."""
+    from contextlib import contextmanager
+    from core.db_utils import _ConnectionAdapter
+    from core.monitor_bootstrap import bootstrap_monitor_authority
+    import modules.printers.committed_terminal_events as committed
+    from modules.archives import archive
+    from modules.printers.monitors import mqtt_job_lifecycle
+    bootstrap_monitor_authority()
+    monitor_db, uploaded, reservation = admitted_monitor
+    engine = monitor_db.get_bind()
+
+    @contextmanager
+    def owned_db():
+        raw = engine.raw_connection()
+        try:
+            yield _ConnectionAdapter(raw, False)
+        finally:
+            raw.close()
+    monkeypatch.setattr(mqtt_job_lifecycle, 'get_db', owned_db)
+    monkeypatch.setattr(archive, 'get_db', owned_db)
+    published = []
+    monkeypatch.setattr(committed, 'publish_committed_completion', lambda *a, **k: published.append(a))
+    raw_name = reservation["remote_filename"].removesuffix(".3mf")
+    state = {"subtask_name": raw_name, "gcode_file": "Metadata/plate_1.gcode",
+             "job_id": "owned-hardware-observation", "total_layer_num": 10}
+    print_job_id, linked_job_id, weights = mqtt_job_lifecycle.record_job_started(
+        printer_id=9, printer_name="Owned A1", state=state, dispatch_alert_fn=lambda **kw: None,
+        trigger_reschedule_fn=lambda: None)
+    assert linked_job_id == uploaded["job_id"]
+    with engine.begin() as conn:  # the operator cancels the school job while it prints
+        conn.execute(text("UPDATE jobs SET status='cancelled' WHERE id=:j"), {"j": uploaded["job_id"]})
+    mqtt_job_lifecycle.record_job_ended(
+        printer_id=9, printer_name="Owned A1", current_job_id=print_job_id, linked_job_id=linked_job_id,
+        status="completed", state=state, start_spool_weights=weights, dispatch_alert_fn=lambda **kw: None)
+    monitor_db.expire_all()
+    assert monitor_db.execute(text("SELECT status FROM jobs WHERE id=:j"), {"j": uploaded["job_id"]}).scalar_one() == "cancelled"
+    assert monitor_db.execute(text("SELECT status FROM education_submissions WHERE id=:s"), {"s": uploaded["id"]}).scalar_one() == "printing"
+    assert monitor_db.execute(text("SELECT status FROM print_jobs WHERE id=:p"), {"p": print_job_id}).scalar_one() == "completed"
+    assert [args[:3] for args in published] == [(9, print_job_id, None)]
+    assert monitor_db.execute(text("SELECT COUNT(*) FROM print_archives WHERE print_job_id=:p"), {"p": print_job_id}).scalar_one() == 1
+
+
+def test_education_forged_observation_still_ends_nothing(admitted_monitor):
+    """A token-digest mismatch is not the printer's print: no physical end is recorded."""
+    from modules.organizations.education_policy import terminal_monitor_observation
+    monitor_db, uploaded, reservation = admitted_monitor
+    pid = monitor_db.execute(text("INSERT INTO print_jobs(printer_id,filename,job_name,started_at,status,scheduled_job_id) "
+                                  "VALUES(9,:f,:f,CURRENT_TIMESTAMP,'running',:j) RETURNING id"),
+                             {"f": reservation["remote_filename"], "j": uploaded["job_id"]}).scalar_one()
+    result = terminal_monitor_observation(monitor_db, print_job_id=pid, printer_id=9, terminal_status="completed",
+                                          observed_filename="odin-" + "e" * 32 + ".3mf")
+    assert result["authorized"] is False and "physical_ended" not in result
+    assert monitor_db.execute(text("SELECT status FROM print_jobs WHERE id=:p"), {"p": pid}).scalar_one() == "running"

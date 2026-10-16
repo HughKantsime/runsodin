@@ -1420,6 +1420,19 @@ def terminal_monitor_observation(
             "idempotent": True,
             "authorized": True,
         }
+    def physical_end() -> bool:
+        # The job's Education authority refused this end before any change
+        # (operator cancel, revoked claim, stale revision...), but the printer's
+        # own linked print really ended: record that physical fact only. Submission, job and claim are
+        # untouched; monitors publish the physical completion without the job.
+        return adapter.execute(
+            "UPDATE print_jobs SET status=:status,ended_at=COALESCE(:ended_at,CURRENT_TIMESTAMP),"
+            "error_code=COALESCE(:error_code,error_code) WHERE id=:print_job_id "
+            "AND printer_id=:printer_id AND scheduled_job_id=:job_id AND status='running'",
+            {"status": terminal_status, "ended_at": ended_at, "error_code": sanitized_error,
+             "print_job_id": print_job_id, "printer_id": printer_id, "job_id": context["job_id"]},
+        ).rowcount == 1
+
     if (
         context.get("claim_id") is None
         or context.get("claim_state") != "running"
@@ -1433,6 +1446,7 @@ def terminal_monitor_observation(
             "transitioned": False,
             "idempotent": False,
             "authorized": False,
+            "physical_ended": physical_end(),
         }
 
     revision = int(context["lifecycle_revision"])
@@ -1524,6 +1538,8 @@ def terminal_monitor_observation(
                 "authorized": True,
                 "lifecycle_revision": final["lifecycle_revision"],
             }
+        # Authority changed concurrently (e.g. the claim digest was replaced):
+        # identity is uncertain, so nothing -- not even the physical end -- changes.
         return {
             **base_result,
             "transitioned": False,
