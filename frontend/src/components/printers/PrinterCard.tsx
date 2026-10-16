@@ -11,7 +11,7 @@ import PrintProgress from './PrintProgress'
 import { printers } from '../../api'
 import { canDo, getCurrentUser } from '../../permissions'
 import { canControlPlug } from '../../utils/plugControl'
-import { isOnline } from '../../utils/shared'
+import { isOnline, isActivePrintState, amsSlotGroup, isDualNozzle, dualNozzleModelName } from '../../utils/shared'
 import { Button, SpoolRing } from '../ui'
 
 // TODO: type this properly — runtime printer shape has extra MQTT/telemetry fields
@@ -86,7 +86,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
     if (target.org_id === undefined) return false
     const tenantAccess = (principal.role === 'admin' && !principal.group_id) || target.org_id === null || target.org_id === principal.group_id
     return tenantAccess && target.api_type === 'bambu' && !!target.api_host && target.has_api_key && isOnline(target)
-      && (!speed || ['RUNNING', 'PAUSE'].includes(target.gcode_state?.toUpperCase() || ''))
+      && (!speed || isActivePrintState(target.gcode_state))
   }
 
   const sendCardCommand = async (action: 'lights' | 'speed', level?: number) => {
@@ -154,8 +154,8 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
             <h3 className="font-display font-semibold text-base md:text-lg truncate">{printer.nickname || printer.name}</h3>
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-xs md:text-sm text-[var(--brand-text-muted)] truncate">{printer.model || 'Unknown model'}</span>
-              {printer.machine_type === 'H2D' && (
-                <span className="px-1.5 py-0.5 bg-purple-600/20 text-purple-400 text-[10px] rounded-full border border-purple-600/30 font-medium">H2D</span>
+              {isDualNozzle(printer.machine_type) && (
+                <span className="px-1.5 py-0.5 bg-purple-600/20 text-purple-400 text-[10px] rounded-full border border-purple-600/30 font-medium">{dualNozzleModelName(printer.machine_type)}</span>
               )}
               {printer.tags?.map(tag => (
                 <span key={tag} className="px-1.5 py-0.5 bg-[var(--brand-primary)]/20 text-[var(--brand-primary)] text-[10px] rounded-full border border-[var(--brand-primary)]/30">{tag}</span>
@@ -208,37 +208,39 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
             <span className="text-xs text-[var(--brand-text-muted)] ml-auto">(click to edit)</span>
           )}
         </div>
-        {printer.machine_type === 'H2D' && printer.filament_slots?.length > 4 && (
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-[10px] text-[var(--brand-text-muted)] font-medium">AMS Unit 0</span>
-          </div>
-        )}
-        <div className={clsx(
-          "grid gap-2",
-          printer.filament_slots?.length <= 4 ? "grid-cols-4" : "grid-cols-4"
-        )}>
-          {printer.filament_slots?.map((slot: any, idx: number) => {
-            const el = (
-              <FilamentSlotEditor
-                printerId={printer.id}
-                spools={spools}
-                key={slot.id}
-                slot={slot}
-                allFilaments={allFilaments}
-                onSave={(data) => onUpdateSlot(printer.id, slot.slot_number, data)}
-              />
-            )
-            if (printer.machine_type === 'H2D' && idx === 4) {
-              return [
-                <div key="ams1-label" className="col-span-4 text-[10px] text-[var(--brand-text-muted)] font-medium mt-1">AMS Unit 1</div>,
-                el,
-              ]
-            }
-            return el
-          })}
-        </div>
+        {(() => {
+          const slots = printer.filament_slots || []
+          // AMS unit headers only for Bambu printers reporting more than one unit;
+          // other protocols number their slots without AMS units.
+          const groups = slots.map((slot: any) => printer.api_type === 'bambu' ? amsSlotGroup(slot.slot_number) : null)
+          const labelled = !groups.includes(null) && new Set(groups.map((g: any) => g.key)).size > 1
+          let previous: string | null = null
+          return (
+            <div className="grid gap-2 grid-cols-4">
+              {slots.map((slot: any, index: number) => {
+                const group = groups[index]
+                const el = (
+                  <FilamentSlotEditor
+                    printerId={printer.id}
+                    spools={spools}
+                    key={slot.id}
+                    slot={slot}
+                    allFilaments={allFilaments}
+                    onSave={(data) => onUpdateSlot(printer.id, slot.slot_number, data)}
+                  />
+                )
+                const header = labelled && group && group.key !== previous
+                previous = group ? group.key : null
+                return header ? [
+                  <div key={`label-${group.key}`} data-testid="ams-unit-label" className="col-span-4 text-[10px] text-[var(--brand-text-muted)] font-medium mt-1">{group.label}</div>,
+                  el,
+                ] : el
+              })}
+            </div>
+          )
+        })()}
         {/* H2D External Spools (Ext-L / Ext-R) */}
-        {printer.machine_type === 'H2D' && printer.external_spools && (
+        {isDualNozzle(printer.machine_type) && printer.external_spools && (
           <div className="mt-2 pt-2 border-t border-[var(--brand-border)]">
             <span className="text-[10px] text-[var(--brand-text-muted)] font-medium">External Spools</span>
             <div className="grid grid-cols-2 gap-2 mt-1">
@@ -297,7 +299,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
                 )}
               </div>
               <div className="flex items-center gap-3 font-mono text-xs text-[var(--brand-text-secondary)]">
-                {nozTemp != null && printer.machine_type !== 'H2D' && (
+                {nozTemp != null && !isDualNozzle(printer.machine_type) && (
                   <span
                     data-testid="printer-nozzle-temp"
                     className={isHeating ? "text-orange-400" : ""}
@@ -306,7 +308,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
                     Nozzle {nozTemp}°{nozTarget && nozTarget > 0 ? `/${nozTarget}°` : ''}
                   </span>
                 )}
-                {printer.machine_type === 'H2D' && nozTemp != null && (
+                {isDualNozzle(printer.machine_type) && nozTemp != null && (
                   <>
                     <span className={isHeating ? "text-orange-400" : ""} title="Left Nozzle">
                       L {nozTemp}°{nozTarget && nozTarget > 0 ? `/${nozTarget}°` : ''}
@@ -340,13 +342,13 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
           )
         })()}
       </div>
-      {isOnline(printer) && ['RUNNING', 'PAUSE'].includes(printer.gcode_state?.toUpperCase() || '') && (
+      {isOnline(printer) && isActivePrintState(printer.gcode_state) && (
         <div className="px-3 md:px-4 py-2 border-t border-[var(--brand-border)]">
           <PrintProgress percent={printer.mc_percent} remainingMinutes={printer.mc_remaining_time} />
         </div>
       )}
       {/* Bambu speed control — active prints only */}
-      {printer.api_type === 'bambu' && isOnline(printer) && ['RUNNING', 'PAUSE'].includes(printer.gcode_state?.toUpperCase() || '') && (
+      {printer.api_type === 'bambu' && isOnline(printer) && isActivePrintState(printer.gcode_state) && (
         <div className="px-3 md:px-4 py-2 border-t border-[var(--brand-border)]">
           <p className="text-xs text-[var(--brand-text-muted)]">
             {reportedPercent == null ? 'Reported speed unknown' : `Last reported speed: ${reportedPercent}%`}
@@ -405,7 +407,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
         </button>
       </div>
       {activePanel === 'ams' && <AmsEnvironmentChart printerId={printer.id} onClose={() => setActivePanel(null)} />}
-      {activePanel === 'telemetry' && <PrinterTelemetryChart printerId={printer.id} onClose={() => setActivePanel(null)} />}
+      {activePanel === 'telemetry' && <PrinterTelemetryChart printerId={printer.id} apiType={printer.api_type} onClose={() => setActivePanel(null)} />}
       {activePanel === 'nozzle' && <NozzleStatusCard printerId={printer.id} onClose={() => setActivePanel(null)} />}
       {activePanel === 'hms' && <HmsHistoryPanel printerId={printer.id} apiType={printer.api_type} onClose={() => setActivePanel(null)} />}
     </div>

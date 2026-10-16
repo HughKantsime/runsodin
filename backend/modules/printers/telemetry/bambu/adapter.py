@@ -74,6 +74,10 @@ class BambuAdapterConfig:
     port: int = 8883
     username: str = "bblp"
     use_tls: bool = True
+    # True only for an in-process replay/shadow broker this process started
+    # (live_replay.LocalBroker): loopback literal only, never from the DB.
+    # Every other config goes through the device destination policy.
+    replay_broker: bool = False
 
     @property
     def topic_report(self) -> str:
@@ -149,7 +153,17 @@ class BambuTelemetryAdapter:
         self._client = client
         # Use sync connect() to get immediate TCP setup + reliable
         # on_connect firing. The network loop runs async after loop_start().
-        client.connect(self._config.host, self._config.port, keepalive=60)
+        # Connect to the policy-validated IP literal: paho's later reconnects
+        # reuse it, so DNS cannot rebind the broker (TLS is CERT_NONE, no
+        # hostname check, so the literal changes no certificate decision).
+        from core.webhook_utils import device_connect_ip
+        if self._config.replay_broker:
+            if self._config.host not in ("127.0.0.1", "::1"):
+                raise ValueError("replay broker must be a loopback literal")
+            address = self._config.host
+        else:
+            address = device_connect_ip(self._config.host, self._config.port)
+        client.connect(address, self._config.port, keepalive=60)
         client.loop_start()
 
     def stop(self) -> None:
@@ -162,6 +176,28 @@ class BambuTelemetryAdapter:
             self._client.loop_stop()
             self._client = None
             self._connected = False
+
+    def request_version(self) -> bool:
+        """Publish one `get_version` request (read-only identity query).
+
+        Real printers report their model only in the reply's
+        info.module[name=ota].product_name, never in `print` reports.
+        """
+        client = self._client
+        if client is None or not self._connected:
+            return False
+        payload = json.dumps({"info": {"sequence_id": "0", "command": "get_version"}})
+        # Never waits for the broker: called from paho callbacks (on_connect).
+        try:
+            result = client.publish(self._config.topic_request, payload, qos=0)
+        except Exception:
+            logger.warning("bambu get_version request failed: printer=%s", self._config.printer_id, exc_info=True)
+            return False
+        if getattr(result, "rc", 0) != 0:
+            logger.warning("bambu get_version request not queued: printer=%s rc=%s",
+                           self._config.printer_id, getattr(result, "rc", None))
+            return False
+        return True
 
     def status(self) -> PrinterStatus:
         """Return a snapshot of the current PrinterStatus (frozen dataclass)."""

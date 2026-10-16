@@ -31,7 +31,8 @@ try:
 except ImportError:
     cv2 = None
 
-from core.db import engine
+# Resolved at use time: never a stale engine bound at import.
+from core.db import live_engine as engine
 
 log = logging.getLogger('vision_monitor')
 

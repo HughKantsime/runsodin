@@ -95,8 +95,11 @@ def peer():
 
 
 @pytest.mark.parametrize('operation',['status_idle','power_on'])
-def test_actual_fixed_owned_worker_through_private_frames(peer,operation):
+def test_actual_fixed_owned_worker_through_private_frames(peer,operation,monkeypatch):
     port,state=peer
+    # The device double listens on 127.0.0.1, which production blocks.
+    from tests.support.loopback_devices import allow_loopback_devices
+    allow_loopback_devices(monkeypatch)
     inputs=({'api_type':'prusalink','ip':'127.0.0.1','port':port,'api_key':''} if operation=='status_idle'
         else {'type':'tasmota','host':f'127.0.0.1:{port}'})
     raw=request(operation,inputs);raw['deadline']=time.monotonic()+5
@@ -134,7 +137,8 @@ def test_status_cleanup_failure_after_idle_observation(monkeypatch):
         def __exit__(self,*args):closed.append('client')
         def get(self,*args,**kwargs):return Response()
     monkeypatch.setattr('requests.Session',Client)
-    raw=request(inputs={'api_type':'prusalink','ip':'127.0.0.1','api_key':''})
+    # LAN address (no connection is made: Session is faked); loopback devices are blocked.
+    raw=request(inputs={'api_type':'prusalink','ip':'192.0.2.12','api_key':''})
     assert worker.execute_request(raw).message['result']=={'idle':False}
     assert closed==['response','client']
 

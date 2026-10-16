@@ -22,6 +22,9 @@ PUBLIC={
     'GET /api/docs','GET /api/redoc',
     # Public OBS overlay (no stored camera URL, see test_overlay_never_exposes_stored_camera_url)
     'GET /api/overlay/{printer_id}',
+    # Internal HTTP-camera relay for go2rtc/ffmpeg: loopback peers without forwarding
+    # headers plus a per-boot per-printer HMAC token (modules/printers/camera_relay.py)
+    'GET /internal/camera-source/{printer_id}/{token}',
     # SPA fallback
     'GET /{path:path}',
 }

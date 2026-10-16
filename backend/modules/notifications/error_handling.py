@@ -12,7 +12,8 @@ from pathlib import PurePosixPath
 
 from core.order_production import (prepare_job_write, reconcile_job_write, prepare_print_job_write,
                                    ProductionLinkageChanged, retry_production_linkage)
-from core.db_utils import get_db
+# Resolved at call time: never a stale get_db bound at import.
+from core.db_utils import live_get_db as get_db
 from core.db_compat import sql
 from modules.notifications.alert_dispatch import dispatch_alert
 

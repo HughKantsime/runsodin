@@ -224,8 +224,13 @@ class ElegooPrinter:
 
         ws = None
         try:
+            # SDCP has no TLS: connect to the policy-validated IP literal so
+            # neither this connect nor a reconnect can be DNS-rebound.
+            from core.webhook_utils import device_connect_ip
+            address = device_connect_ip(self.host, self.port)
+            shown = f"[{address}]" if ":" in address else address
             ws = websocket.WebSocketApp(
-                self.ws_url,
+                f"ws://{shown}:{self.port}/websocket",  # nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket -- by design — Elegoo SDCP printer protocol uses ws:// on LAN, no TLS in printer firmware
                 on_message=self._on_message,
                 on_error=self._on_error,
                 on_close=self._on_close,
@@ -392,7 +397,7 @@ class ElegooPrinter:
         Neptune 4 / Centauri Carbon expose an MJPEG stream on port 8080.
         Resin printers (Saturn) typically have no camera.
         """
-        import requests as _req
+        from core.webhook_utils import device_request
         # Common camera endpoints for Elegoo FDM printers
         candidates = [
             f"http://{self.host}:8080/?action=stream",
@@ -400,7 +405,7 @@ class ElegooPrinter:
         ]
         for url in candidates:
             try:
-                resp = _req.head(url, timeout=3)  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http -- by design — Elegoo HTTP-only camera streams on LAN
+                resp = device_request("HEAD", url, timeout=3)  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http -- by design — Elegoo HTTP-only camera streams on LAN
                 if resp.status_code == 200:
                     return url
             except Exception as e:

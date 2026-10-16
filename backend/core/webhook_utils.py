@@ -183,28 +183,59 @@ _dns_pin_state: contextvars.ContextVar = contextvars.ContextVar("odin_dns_pin", 
 _real_getaddrinfo = socket.getaddrinfo
 
 
+def normalize_hostname(host) -> str:
+    """Canonical form for pin comparison and storage.
+
+    Lower-case, trailing dots stripped, IDNA (punycode) for non-ASCII names,
+    brackets removed and IP literals in their canonical text form.
+    """
+    if isinstance(host, bytes):
+        host = host.decode("ascii", "strict")
+    value = str(host or "").strip().strip("[]").rstrip(".").lower()
+    try:
+        return str(ipaddress.ip_address(value.split("%", 1)[0]))
+    except ValueError:
+        pass
+    try:
+        return value.encode("idna").decode("ascii")
+    except UnicodeError:
+        return value
+
+
+class PinnedLookupRefused(socket.gaierror):
+    """A name lookup outside the active DNS pin (fail closed)."""
+
+
 def _pinned_getaddrinfo(host, port, *args, **kwargs):
     pin = _dns_pin_state.get()
-    if pin and host == pin["hostname"] and (
-        port == pin["port"] or port is None or str(port) == str(pin["port"])
-    ):
-        # Codex pass 3: return ALL pinned IPs in priority order so httpx
-        # can fall back across the list (dual-stack AAAA→A retry remains
-        # functional on IPv4-only runners).
-        results = []
-        for ip in pin["ips"]:
-            if ":" in ip:
-                results.append((
-                    socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP,
-                    "", (ip, pin["port"], 0, 0),
-                ))
-            else:
-                results.append((
-                    socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP,
-                    "", (ip, pin["port"]),
-                ))
-        return results
-    return _real_getaddrinfo(host, port, *args, **kwargs)
+    if not pin:
+        return _real_getaddrinfo(host, port, *args, **kwargs)
+    try:
+        name = normalize_hostname(host)
+    except UnicodeError:
+        name = None
+    port_ok = port is None or port == pin["port"] or str(port) == str(pin["port"])
+    if not port_ok or (name != pin["hostname"] and name not in pin["ips"]):
+        # Fail closed: while a pin is active nothing reaches the real
+        # resolver, so a case/IDNA/trailing-dot variant of the pinned name
+        # or a redirect to another name cannot be re-resolved.
+        raise PinnedLookupRefused(socket.EAI_NONAME, "lookup outside the pinned destination")
+    # Codex pass 3: return ALL pinned IPs in priority order so httpx
+    # can fall back across the list (dual-stack AAAA→A retry remains
+    # functional on IPv4-only runners).
+    results = []
+    for ip in pin["ips"]:
+        if ":" in ip:
+            results.append((
+                socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP,
+                "", (ip, pin["port"], 0, 0),
+            ))
+        else:
+            results.append((
+                socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP,
+                "", (ip, pin["port"]),
+            ))
+    return results
 
 
 # Install the override exactly once. Multiple imports of this module are
@@ -225,7 +256,8 @@ def _pin_dns(hostname: str, port: int, ips: list[str]):
     guarantees each coroutine sees its own pin, and each thread
     starts with a fresh context so sync callers are also isolated.
     """
-    token = _dns_pin_state.set({"hostname": hostname, "port": port, "ips": list(ips)})
+    token = _dns_pin_state.set({"hostname": normalize_hostname(hostname), "port": port,
+                                "ips": [normalize_hostname(ip) for ip in ips]})
     try:
         yield
     finally:
@@ -398,3 +430,207 @@ def resolve_and_check_webhook_url(url: str) -> str:
         )
 
     return url
+
+
+# ====================================================================
+# LAN device destinations (printers, smart plugs, cameras)
+# ====================================================================
+#
+# Devices live on private LANs, so unlike webhooks RFC-1918/ULA addresses
+# are ALLOWED. Blocked: loopback, link-local (169.254/16, fe80::/10),
+# unspecified, multicast, 0.0.0.0/8, reserved IPv4, cloud metadata, and any
+# of those embedded in IPv4-mapped / IPv4-compatible / NAT64 IPv6 forms.
+# Hostnames are resolved and EVERY address must pass; numeric IPv4 forms
+# (decimal, hex, short dotted) are normalised by the resolver and checked
+# as the address they denote. Request-time callers pin the connection to
+# the validated addresses (pinned_device_destination) so DNS rebinding
+# cannot swap the target between check and connect.
+
+class DeviceDestinationBlocked(WebhookSSRFError):
+    """A device host is malformed, unresolvable or a blocked address."""
+
+
+_METADATA_ADDRESSES = frozenset({
+    ipaddress.ip_address("169.254.169.254"),
+    ipaddress.ip_address("fd00:ec2::254"),
+})
+_IPV4_THIS_NETWORK = ipaddress.ip_network("0.0.0.0/8")
+_IPV6_COMPAT = ipaddress.ip_network("::/96")
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")
+
+
+def _embedded_ipv4(addr):
+    if addr.version != 6:
+        return None
+    if addr.ipv4_mapped is not None:
+        return addr.ipv4_mapped
+    if addr in _NAT64 or (addr in _IPV6_COMPAT and int(addr) > 1):
+        return ipaddress.IPv4Address(int(addr) & 0xFFFFFFFF)
+    return None
+
+
+def is_blocked_device_address(value) -> bool:
+    """True when `value` (an IP string or ip_address) must never be a device target."""
+    try:
+        addr = value if isinstance(value, (ipaddress.IPv4Address, ipaddress.IPv6Address)) \
+            else ipaddress.ip_address(str(value).split("%", 1)[0])
+    except ValueError:
+        return True
+    candidates = [addr]
+    embedded = _embedded_ipv4(addr)
+    if embedded is not None:
+        candidates.append(embedded)
+    for a in candidates:
+        if (a.is_loopback or a.is_link_local or a.is_unspecified or a.is_multicast
+                or a in _METADATA_ADDRESSES):
+            return True
+        if a.version == 4 and (a in _IPV4_THIS_NETWORK or a.is_reserved):
+            return True
+    return False
+
+
+def split_device_host(value: str):
+    """Parse `host`, `host:port`, `[v6]`, `[v6]:port` or a bare IPv6 literal.
+
+    Returns (hostname, port_or_None). Raises DeviceDestinationBlocked when
+    the value is not a plain authority (userinfo, path, query, bad port).
+    """
+    if not isinstance(value, str) or not value.strip():
+        raise DeviceDestinationBlocked("Empty host")
+    raw = value.strip()
+    if any(ch in raw for ch in "/?#@\\ \t"):
+        raise DeviceDestinationBlocked("Host must be host or host:port")
+    if raw.count(":") > 1 and not raw.startswith("["):
+        try:
+            return str(ipaddress.IPv6Address(raw.split("%", 1)[0])), None
+        except ValueError:
+            raise DeviceDestinationBlocked("Invalid IPv6 host; use [address]:port")
+    try:
+        parsed = urllib.parse.urlsplit("//" + raw)
+        host, port = parsed.hostname, parsed.port
+    except ValueError:
+        raise DeviceDestinationBlocked("Invalid host or port")
+    if not host:
+        raise DeviceDestinationBlocked("Invalid host")
+    return host.rstrip("."), port
+
+
+def normalize_device_host(value: str) -> str:
+    """Stored form of a device host[:port]: normalized name, brackets for IPv6."""
+    hostname, port = split_device_host(value)
+    name = normalize_hostname(hostname)
+    shown = f"[{name}]" if ":" in name else name
+    return f"{shown}:{port}" if port else shown
+
+
+def normalize_device_url(url: str) -> str:
+    """http(s)://host[:port] with the host normalized (scheme lower-cased)."""
+    parsed = urllib.parse.urlsplit(url.strip())
+    name = normalize_hostname(parsed.hostname or "")
+    shown = f"[{name}]" if ":" in name else name
+    netloc = f"{shown}:{parsed.port}" if parsed.port else shown
+    return urllib.parse.urlunsplit((parsed.scheme.lower(), netloc, parsed.path, parsed.query, parsed.fragment))
+
+
+def device_destination_ips(host: str, port=None) -> list:
+    """Resolve a device host and return its validated addresses.
+
+    `host` may carry a port (see split_device_host). Raises
+    DeviceDestinationBlocked if it cannot be resolved or ANY resolved
+    address is blocked.
+    """
+    hostname, parsed_port = split_device_host(host)
+    try:
+        hostname = normalize_hostname(hostname)
+    except UnicodeError as exc:
+        raise DeviceDestinationBlocked("Invalid host name") from exc
+    port = port or parsed_port or 0
+    try:
+        infos = _real_getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+    except (socket.gaierror, UnicodeError, OSError) as exc:
+        raise DeviceDestinationBlocked(f"Host {hostname!r} could not be resolved") from exc
+    ips = []
+    for _fam, _type, _proto, _canon, sockaddr in infos:
+        ip = sockaddr[0]
+        if is_blocked_device_address(ip):
+            raise DeviceDestinationBlocked(f"Host {hostname!r} resolves to a blocked address")
+        if ip not in ips:
+            ips.append(ip)
+    if not ips:
+        raise DeviceDestinationBlocked(f"Host {hostname!r} returned no addresses")
+    return ips
+
+
+@contextlib.contextmanager
+def pinned_device_destination(url: str):
+    """Validate a device URL and pin its connection to the validated addresses.
+
+    Every socket.getaddrinfo for the URL's host:port inside the block
+    (urllib, requests, httpx) returns only the addresses checked here.
+    """
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        hostname, port = parsed.hostname, parsed.port
+    except ValueError as exc:
+        raise DeviceDestinationBlocked("Invalid device URL") from exc
+    if parsed.scheme.lower() not in ("http", "https") or not hostname:
+        raise DeviceDestinationBlocked("Device URL must be http(s)://host")
+    port = port or (443 if parsed.scheme.lower() == "https" else 80)
+    ips = device_destination_ips(hostname if ":" not in hostname else f"[{hostname}]", port)
+    with _pin_dns(hostname, port, ips):
+        yield ips
+
+
+# --------------------------------------------------------------------
+# Device HTTP clients: pinned, no redirects, no environment proxies
+# --------------------------------------------------------------------
+
+import urllib.request as _urllib_request
+
+
+class _NoRedirect(_urllib_request.HTTPRedirectHandler):
+    """A 3xx surfaces as HTTPError; a device must never send ODIN elsewhere."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def device_urlopen(request, timeout=None):
+    """urllib open for a device URL: policy-validated, pinned, no redirect, no proxy."""
+    url = request.full_url if isinstance(request, _urllib_request.Request) else request
+    opener = _urllib_request.build_opener(_urllib_request.ProxyHandler({}), _NoRedirect())
+    with pinned_device_destination(url):
+        return opener.open(request, timeout=timeout)
+
+
+def device_request(method: str, url: str, **kwargs):
+    """requests call for a device URL: policy-validated, pinned, no redirect, no proxy.
+
+    A fresh Session ignores HTTP(S)_PROXY/ALL_PROXY/netrc (trust_env=False,
+    proxies={}); redirects are never followed. Raises DeviceDestinationBlocked
+    for a blocked destination.
+    """
+    import requests
+    kwargs["allow_redirects"] = False
+    kwargs.pop("proxies", None)
+    with requests.Session() as session:
+        session.trust_env = False
+        session.proxies = {}
+        session.max_redirects = 0
+        with pinned_device_destination(url):
+            return session.request(method, url, **kwargs)
+
+
+def device_connect_ip(host: str, port=None) -> str:
+    """Validated IP literal to connect to for a non-HTTP device channel.
+
+    MQTT, FTPS, SDCP websocket and UDP clients connect to this literal (no
+    second DNS lookup, so no rebinding window). TLS callers keep the original
+    name for server_hostname where their certificate policy uses it.
+    Raises DeviceDestinationBlocked.
+    """
+    value = str(host or "").strip()
+    if value.count(":") > 1 and not value.startswith("["):
+        value = f"[{value}]"
+    return device_destination_ips(value, port)[0]
+

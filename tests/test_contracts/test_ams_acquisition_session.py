@@ -3,6 +3,15 @@ import time
 from dataclasses import replace
 from types import SimpleNamespace
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _loopback_device_peers(monkeypatch):
+    # Brokers/peers in this file run on loopback, which the production device
+    # destination policy blocks; exempt exactly 127.0.0.1 and ::1 here (also in
+    # spawned workers). test_cert_A_destination_policy covers the policy.
+    from tests.support.loopback_devices import allow_loopback_devices
+    allow_loopback_devices(monkeypatch)
 from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
 from modules.printers.telemetry.bambu.ams_acquisition_session import (
     AMSSessionController, _run_owned_worker, read_selected_ams)
@@ -189,7 +198,14 @@ def test_host_guard_runs_before_any_network(monkeypatch):
     observed=[]
     monkeypatch.setattr(itar,'enforce_host_destination',lambda *a,**k:(_ for _ in ()).throw(ValueError('private')))
     monkeypatch.setattr(adapter.BambuTelemetryAdapter,'start',lambda self:pytest.fail('Host denial touched network'))
-    module._network_worker(SimpleNamespace(put=observed.append),CONFIG,KEY,1,[1],INC,time.monotonic()+1)
+    import logging
+    # _network_worker is a child-process entry point and disables logging
+    # process-wide; running it in-process must not silence later tests.
+    previous=logging.root.manager.disable
+    try:
+        module._network_worker(SimpleNamespace(put=observed.append),CONFIG,KEY,1,[1],INC,time.monotonic()+1)
+    finally:
+        logging.disable(previous)
     assert observed==[{'snapshot':None,'error':'AMS acquisition unavailable'}]
 
 

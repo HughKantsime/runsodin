@@ -23,7 +23,8 @@ from datetime import datetime, timezone
 
 from sqlalchemy import text
 
-from core.db import engine
+# Resolved at use time: never a stale engine bound at import.
+from core.db import live_engine as engine
 from core.db_compat import sql
 
 # WebSocket push (same as mqtt_monitor / moonraker_monitor)
@@ -82,6 +83,11 @@ class PrusaLinkMonitorThread(threading.Thread):
         while self._running:
             try:
                 status = self.client.get_status()
+                if status.state == PrusaLinkState.DISCONNECTED:
+                    # The adapter swallows transport errors and reports a default
+                    # DISCONNECTED status; count it as a failed poll so OFFLINE is
+                    # only persisted after MAX_CONSECUTIVE_FAILURES in a row.
+                    raise ConnectionError("PrusaLink status poll failed")
                 # If recovering from disconnect, re-discover camera
                 if self._consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
                     log.info(f"[{self.name}] Connection recovered, re-discovering camera...")
@@ -248,7 +254,9 @@ class PrusaLinkMonitorThread(threading.Thread):
                     current_layer = status.current_layer
                     total_layers = status.total_layers
                     # PrusaLink reports fan RPM — fan_print is the part cooling fan
-                    fan_speed_val = status.fan_print if status.fan_print else None
+                    # A measured 0 RPM is a real reading; only a missing field is unknown.
+                    raw_printer = (status.raw_data or {}).get("printer") if isinstance(status.raw_data, dict) else None
+                    fan_speed_val = status.fan_print if isinstance(raw_printer, dict) and "fan_print" in raw_printer else None
 
                     # Determine stage
                     if status.state == PrusaLinkState.PRINTING:

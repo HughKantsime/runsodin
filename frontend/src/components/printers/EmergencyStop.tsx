@@ -3,7 +3,7 @@ import { StopCircle, Pause, Play, X, AlertTriangle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { fetchAPI } from '../../api'
 import { canDo, getCurrentUser } from '../../permissions'
-import { isOnline } from '../../utils/shared'
+import { isOnline, isActivePrintState, isPausedState, isPrintingState } from '../../utils/shared'
 
 interface ActivePrinter {
   id: number
@@ -39,12 +39,7 @@ export default function EmergencyStop() {
         if (!Array.isArray(data)) throw new Error('Invalid printer list')
         if (!active || request !== sequence) return
         setListError(false)
-        setPrinters(data.filter((p: ActivePrinter) => isOnline(p) && (
-          p.gcode_state === 'RUNNING' ||
-          p.gcode_state === 'PRINTING' ||
-          p.gcode_state === 'PAUSED' ||
-          p.gcode_state === 'PAUSE')
-        ))
+        setPrinters(data.filter((p: ActivePrinter) => isOnline(p) && isActivePrintState(p.gcode_state)))
       } catch {
         if (!active || request !== sequence) return
         setListError(true)
@@ -87,9 +82,7 @@ export default function EmergencyStop() {
   const user = getCurrentUser()
   if (!user || !['operator', 'admin'].includes(user.role) || !canDo('printers.edit')) return null
 
-  const activePrinting = printers.filter(p =>
-    p.gcode_state === 'RUNNING' || p.gcode_state === 'PRINTING'
-  ).length
+  const activePrinting = printers.filter(p => isPrintingState(p.gcode_state)).length
 
   return (
     <>
@@ -126,7 +119,7 @@ export default function EmergencyStop() {
           <div className="p-3 space-y-2 max-h-80 overflow-y-auto">
             {!listError && printers.length === 0 && <p>No active prints</p>}
             {printers.map(printer => {
-              const isPaused = printer.gcode_state === 'PAUSED' || printer.gcode_state === 'PAUSE'
+              const isPaused = isPausedState(printer.gcode_state)
               const isLoading = loading[printer.id]
 
               return (

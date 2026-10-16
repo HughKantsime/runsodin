@@ -52,7 +52,7 @@ def _schedule(db, monkeypatch):
     return Scheduler().run(db, start_date=datetime(2026, 10, 6, 12, tzinfo=timezone.utc))
 
 
-@pytest.mark.parametrize('machine', ['Bambu Lab P1S', 'P1S', 'BL-P001'])
+@pytest.mark.parametrize('machine', ['Bambu Lab P1S', 'P1S', 'C12'])
 def test_uploaded_job_schedules_on_approved_pin_without_default_or_alias_edits(review_db, tmp_path, monkeypatch, machine):
     uploaded = _upload_and_approve(review_db, tmp_path, machine)
     result = _schedule(review_db, monkeypatch)
@@ -63,7 +63,7 @@ def test_uploaded_job_schedules_on_approved_pin_without_default_or_alias_edits(r
 
 
 def test_uploaded_job_rechecks_machine_drift_without_reassigning(review_db, tmp_path, monkeypatch):
-    uploaded = _upload_and_approve(review_db, tmp_path, 'BL-P001')
+    uploaded = _upload_and_approve(review_db, tmp_path, 'C12')
     # Printer 10 remains compatible; losing the pin's compatibility must not reassign.
     review_db.execute(text("UPDATE printers SET machine_type='X1C' WHERE id=9"))
     review_db.execute(text('UPDATE printers SET nozzle_diameter=0.4 WHERE id=10'))
@@ -75,7 +75,7 @@ def test_uploaded_job_rechecks_machine_drift_without_reassigning(review_db, tmp_
 
 
 def test_explicit_hold_still_blocks_uploaded_job(review_db, tmp_path, monkeypatch):
-    uploaded = _upload_and_approve(review_db, tmp_path, 'BL-P001')
+    uploaded = _upload_and_approve(review_db, tmp_path, 'C12')
     review_db.execute(text('UPDATE jobs SET hold=:held WHERE id=:id'), {'held': True, 'id': uploaded['job_id']})
     review_db.commit()
     assert _schedule(review_db, monkeypatch).scheduled_count == 0
@@ -83,7 +83,7 @@ def test_explicit_hold_still_blocks_uploaded_job(review_db, tmp_path, monkeypatc
 
 
 def test_non_education_job_retains_legacy_model_filter(review_db, tmp_path, monkeypatch):
-    uploaded = _upload_and_approve(review_db, tmp_path, 'BL-P001')
+    uploaded = _upload_and_approve(review_db, tmp_path, 'C12')
     review_db.execute(text('DELETE FROM education_submissions WHERE id=:id'), {'id': uploaded['id']})
     review_db.commit()
     assert _schedule(review_db, monkeypatch).scheduled_count == 0

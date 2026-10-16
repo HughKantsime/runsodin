@@ -41,6 +41,7 @@ Usage:
 """
 
 import json
+import logging
 import warnings
 
 # One-shot deprecation warning on first import. Fires in dev + CI
@@ -62,6 +63,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 import paho.mqtt.client as mqtt
 
+
+log = logging.getLogger("bambu_adapter")
 
 class PrinterState(str, Enum):
     """Printer state enumeration."""
@@ -181,7 +184,9 @@ class BambuPrinter:
             self._client.on_disconnect = self._on_disconnect
             
             # Connect
-            self._client.connect(self.ip, self.MQTT_PORT, keepalive=60)
+            # Policy-validated IP literal: no DNS rebinding on connect/reconnect.
+            from core.webhook_utils import device_connect_ip
+            self._client.connect(device_connect_ip(self.ip, self.MQTT_PORT), self.MQTT_PORT, keepalive=60)
             self._client.loop_start()
             
             # Wait for connection
@@ -212,19 +217,21 @@ class BambuPrinter:
         with self._lock:
             return self._status
     
-    def request_full_status(self):
-        """Request a full status update from the printer."""
+    def request_full_status(self) -> bool:
+        """Request a full status update and the model identity from the printer.
+
+        Called from paho's on_connect callback, so it must never wait for the
+        broker: a blocking wait_for_publish there stalls the network loop and
+        delays every command issued right after connect. Both requests are
+        queued without waiting; rc failures are logged.
+        """
         if not self._connected:
-            return
-        
-        # Send pushall request to get complete state
-        payload = {
-            "pushing": {
-                "sequence_id": "0",
-                "command": "pushall"
-            }
-        }
-        self._publish(payload)
+            return False
+        # pushall: complete state. get_version: the model is only reported in
+        # its reply (info.module[name=ota].product_name).
+        pushed = self._publish_nowait({"pushing": {"sequence_id": "0", "command": "pushall"}})
+        versioned = self._publish_nowait({"info": {"sequence_id": "0", "command": "get_version"}})
+        return pushed and versioned
     
     def pause_print(self) -> bool:
         """Pause current print."""
@@ -506,6 +513,13 @@ class BambuPrinter:
             self._status.raw_data = payload
             self._status.mqtt_retained = mqtt_retained if type(mqtt_retained) is bool else None
             
+            # Model identity: real printers report it only in the get_version
+            # reply (info.module[name=ota].product_name), never in print.
+            from modules.printers.monitors.mqtt_telemetry import ota_product_name
+            product = ota_product_name(payload.get("info"))
+            if product:
+                self._status.printer_type = product
+
             # Get the print section if present
             print_data = payload.get("print", {})
             
@@ -603,6 +617,20 @@ class BambuPrinter:
         }
         return self._publish(payload)
     
+    def _publish_nowait(self, payload: Dict) -> bool:
+        """Queue a publish without waiting for the broker (safe in paho callbacks)."""
+        if not self._client or not self._connected:
+            return False
+        try:
+            result = self._client.publish(self._topic_request, json.dumps(payload))
+        except Exception:
+            log.warning("Bambu request could not be queued: %s", next(iter(payload), "?"), exc_info=True)
+            return False
+        if result.rc != mqtt.MQTT_ERR_SUCCESS:
+            log.warning("Bambu request was not queued (rc=%s): %s", result.rc, next(iter(payload), "?"))
+            return False
+        return True
+
     def _publish(self, payload: Dict) -> bool:
         """Publish message to printer and wait for broker acknowledgement."""
         if not self._client or not self._connected:

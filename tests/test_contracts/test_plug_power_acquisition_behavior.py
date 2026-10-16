@@ -3,6 +3,15 @@ import multiprocessing
 import time
 from types import SimpleNamespace
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _loopback_plug_peers(monkeypatch):
+    # The plug peers in this file listen on 127.0.0.1, which the production
+    # device destination policy blocks; exempt exactly that address here
+    # (and in spawned workers). test_cert_A_destination_policy covers the policy.
+    from tests.support.loopback_devices import allow_loopback_devices
+    allow_loopback_devices(monkeypatch)
 from modules.printers import plug_power_acquisition as module
 from tests.test_contracts.test_smart_plug_http_peer_behavior import plug_peer
 

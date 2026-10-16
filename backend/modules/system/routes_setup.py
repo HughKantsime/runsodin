@@ -275,13 +275,14 @@ def setup_test_printer(
 
     elif request.api_type.lower() == "moonraker":
         import httpx as httpx_client
+        from modules.printers.route_utils import pinned_device_get
         try:
-            r = httpx_client.get(f"http://{request.api_host}/printer/info", timeout=5)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- verified safe — admin-gated by require_role and SSRF-checked by _check_ssrf_blocklist (or setup-locked)
+            r = pinned_device_get(httpx_client, f"http://{request.api_host}/printer/info", timeout=5)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- verified safe — admin-gated by require_role and SSRF-checked by _check_ssrf_blocklist (or setup-locked)
             if r.status_code == 200:
                 info = r.json().get("result", {})
                 detected_model = None
                 try:
-                    cfg_r = httpx_client.get(f"http://{request.api_host}/server/config", timeout=3)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- verified safe — admin-gated by require_role and SSRF-checked by _check_ssrf_blocklist (or setup-locked)
+                    cfg_r = pinned_device_get(httpx_client, f"http://{request.api_host}/server/config", timeout=3)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- verified safe — admin-gated by require_role and SSRF-checked by _check_ssrf_blocklist (or setup-locked)
                     if cfg_r.status_code == 200:
                         kinematics = (cfg_r.json().get("result", {}).get("config", {}).get("printer", {}).get("kinematics", "") or "")
                         if kinematics.lower() == "corexy":
@@ -305,8 +306,9 @@ def setup_test_printer(
 
     elif request.api_type.lower() == "prusalink":
         import httpx as httpx_client
+        from modules.printers.route_utils import pinned_device_get
         try:
-            r = httpx_client.get(f"http://{request.api_host}/api/version", timeout=5)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- verified safe — admin-gated by require_role and SSRF-checked by _check_ssrf_blocklist (or setup-locked)
+            r = pinned_device_get(httpx_client, f"http://{request.api_host}/api/version", timeout=5)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- verified safe — admin-gated by require_role and SSRF-checked by _check_ssrf_blocklist (or setup-locked)
             if r.status_code == 200:
                 # Official PrusaLink Version schema defines `printer` as a
                 # software-version string, not a hardware-model identifier.
@@ -320,9 +322,10 @@ def setup_test_printer(
         import socket
         import json as _json
         import httpx as httpx_client
+        from modules.printers.route_utils import pinned_device_get
         reachable = False
         try:
-            httpx_client.get(f"http://{request.api_host}:3030", timeout=5)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- verified safe — admin-gated by require_role and SSRF-checked by _check_ssrf_blocklist (or setup-locked)
+            pinned_device_get(httpx_client, f"http://{request.api_host}:3030", timeout=5)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- verified safe — admin-gated by require_role and SSRF-checked by _check_ssrf_blocklist (or setup-locked)
             reachable = True
         except Exception as e:
             log.debug(f"Failed to reach Elegoo printer: {e}")
@@ -331,10 +334,13 @@ def setup_test_printer(
         detected_model = None
         try:
             from modules.printers.printer_models import normalize_model_name
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            # Unicast SDCP probe to the policy-validated IP literal.
+            from core.webhook_utils import device_connect_ip
+            probe_ip = device_connect_ip(request.api_host, 3000)
+            sock = socket.socket(socket.AF_INET6 if ":" in probe_ip else socket.AF_INET, socket.SOCK_DGRAM)
             sock.settimeout(3.0)
             try:
-                sock.sendto(b"M99999", (request.api_host, 3000))
+                sock.sendto(b"M99999", (probe_ip, 3000))
                 data, _ = sock.recvfrom(4096)
                 info = _json.loads(data.decode("utf-8"))
                 if "Data" in info:

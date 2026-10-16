@@ -37,6 +37,49 @@ engine = create_database_engine(
     echo=settings.debug,
 )
 
+
+
+def current_engine():
+    """The engine core.db.engine names right now (honours reassignment/monkeypatching)."""
+    import sys
+    return sys.modules[__name__].engine
+
+
+class _CurrentEngine:
+    """Engine handle that resolves core.db.engine on every use.
+
+    Long-lived modules (monitors, notifications, ws hub, db_utils) import this
+    as `engine` instead of binding the Engine object at import time, so a
+    module imported while core.db.engine was temporarily replaced never keeps
+    a stale engine. Works wherever an Engine is used through its attributes
+    (connect, begin, raw_connection, dialect, Session(bind=...)).
+
+    INTERNAL PROXY: it is not an Engine instance, so isinstance(x, Engine)
+    and sqlalchemy.inspect() reject it. Code that validates its engine
+    argument that way (the timelapse modules) must be given
+    current_engine(), never this handle; tests/test_contracts/
+    test_cert_A_misc.py::test_live_engine_stays_out_of_engine_type_checks
+    guards that.
+    """
+    __slots__ = ()
+
+    def __getattr__(self, name):
+        return getattr(current_engine(), name)
+
+    # Attribute writes (e.g. unittest.mock.patch.object(module.engine, "connect"))
+    # apply to the engine the handle currently resolves to.
+    def __setattr__(self, name, value):
+        setattr(current_engine(), name, value)
+
+    def __delattr__(self, name):
+        delattr(current_engine(), name)
+
+    def __repr__(self):
+        return f"<current core.db engine: {current_engine()!r}>"
+
+
+live_engine = _CurrentEngine()
+
 # Configure connection behavior based on database type
 if IS_SQLITE:
     # SQLite-specific pragmas for performance and safety

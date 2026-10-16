@@ -1,6 +1,15 @@
 """Actual command serialization through the existing isolated MQTT client fixture."""
 import json
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _loopback_device_peers(monkeypatch):
+    # Brokers/peers in this file run on loopback, which the production device
+    # destination policy blocks; exempt exactly 127.0.0.1 and ::1 here (also in
+    # spawned workers). test_cert_A_destination_policy covers the policy.
+    from tests.support.loopback_devices import allow_loopback_devices
+    allow_loopback_devices(monkeypatch)
 from tests.test_telemetry.test_telemetry_command_adapter import adapter, config
 
 

@@ -92,8 +92,13 @@ def fresh_http_status_is_idle(creds: dict, deadline: float) -> bool:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return False
-        with requests.Session() as client:
+        from core.webhook_utils import pinned_device_destination
+        # Device request: policy-validated and pinned (no DNS rebinding), no
+        # redirects, no environment proxies.
+        with requests.Session() as client, pinned_device_destination(url):
             client.trust_env = False
+            client.proxies = {}
+            client.max_redirects = 0
             with client.get(url, headers=headers, auth=auth, timeout=remaining,
                             allow_redirects=False, stream=True) as response:
                 if response.status_code != 200 or time.monotonic() >= deadline:

@@ -2,9 +2,12 @@ import { useState, useEffect } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { X } from 'lucide-react'
 import { printerTelemetry } from '../../api'
+import { fanSpeedDisplay } from '../../utils/shared'
 
 interface PrinterTelemetryChartProps {
   printerId: number
+  /** Protocol of the printer; selects the fan unit (% or RPM). */
+  apiType?: string | null
   onClose?: () => void
 }
 
@@ -16,7 +19,8 @@ interface FormattedTelemetryPoint {
   [key: string]: any // TODO: type this properly
 }
 
-export default function PrinterTelemetryChart({ printerId, onClose }: PrinterTelemetryChartProps) {
+export default function PrinterTelemetryChart({ printerId, apiType, onClose }: PrinterTelemetryChartProps) {
+  const fanUnit = (apiType || '').toLowerCase() === 'prusalink' ? 'RPM' : '%'
   const [data, setData] = useState<FormattedTelemetryPoint[]>([])
   const [hours, setHours] = useState(24)
   const [loading, setLoading] = useState(true)
@@ -34,7 +38,7 @@ export default function PrinterTelemetryChart({ printerId, onClose }: PrinterTel
         time: new Date(d.recorded_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         bed: d.bed_temp != null ? parseFloat(d.bed_temp.toFixed(1)) : null,
         nozzle: d.nozzle_temp != null ? parseFloat(d.nozzle_temp.toFixed(1)) : null,
-        fan: d.fan_speed != null ? d.fan_speed : null,
+        fan: fanSpeedDisplay(apiType, d.fan_speed)?.value ?? null,
       }))
       setData(formatted)
     } catch (err) {
@@ -74,7 +78,7 @@ export default function PrinterTelemetryChart({ printerId, onClose }: PrinterTel
             <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
             <XAxis dataKey="time" tick={{ fill: 'var(--chart-axis)', fontSize: 11 }} interval="preserveStartEnd" />
             <YAxis yAxisId="temp" tick={{ fill: '#EF4444', fontSize: 11 }} domain={['auto', 'auto']} label={{ value: '°C', position: 'insideLeft', fill: '#EF4444', fontSize: 11 }} />
-            <YAxis yAxisId="fan" orientation="right" tick={{ fill: '#22C55E', fontSize: 11 }} domain={[0, 'auto']} label={{ value: 'RPM', position: 'insideRight', fill: '#22C55E', fontSize: 11 }} />
+            <YAxis yAxisId="fan" orientation="right" tick={{ fill: '#22C55E', fontSize: 11 }} domain={[0, 'auto']} label={{ value: fanUnit, position: 'insideRight', fill: '#22C55E', fontSize: 11 }} />
             <Tooltip
               contentStyle={{ backgroundColor: 'var(--chart-tooltip-bg)', border: 'none', boxShadow: 'var(--chart-tooltip-shadow)', borderRadius: '6px', fontSize: '12px' }}
               labelStyle={{ color: 'var(--chart-axis)' }}
@@ -82,7 +86,7 @@ export default function PrinterTelemetryChart({ printerId, onClose }: PrinterTel
             <Legend wrapperStyle={{ fontSize: '11px' }} />
             <Line yAxisId="temp" type="monotone" dataKey="bed" stroke="#F59E0B" strokeWidth={2} dot={false} name="Bed (°C)" />
             <Line yAxisId="temp" type="monotone" dataKey="nozzle" stroke="#EF4444" strokeWidth={2} dot={false} name="Nozzle (°C)" />
-            <Line yAxisId="fan" type="monotone" dataKey="fan" stroke="#22C55E" strokeWidth={1.5} dot={false} name="Fan Speed" />
+            <Line yAxisId="fan" type="monotone" dataKey="fan" stroke="#22C55E" strokeWidth={1.5} dot={false} name={`Fan Speed (${fanUnit})`} />
           </LineChart>
         </ResponsiveContainer>
       )}

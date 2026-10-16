@@ -2,6 +2,15 @@
 import threading
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _loopback_plug_peers(monkeypatch):
+    # The plug peers in this file listen on 127.0.0.1, which the production
+    # device destination policy blocks; exempt exactly that address here
+    # (and in spawned workers). test_cert_A_destination_policy covers the policy.
+    from tests.support.loopback_devices import allow_loopback_devices
+    allow_loopback_devices(monkeypatch)
 from modules.printers import smart_plug, plug_http_protocol
 
 

@@ -8,6 +8,7 @@ Usage:
     from printer_models import normalize_model_name
 
     name = normalize_model_name("bambu", "BL-P001")  # -> "X1C"
+    name = normalize_model_name("bambu", "Bambu Lab H2D")  # -> "H2D"
     name = normalize_model_name("bambu", "UNKNOWN")   # -> "UNKNOWN" (passthrough)
     name = normalize_model_name("bambu", "")          # -> None
 """
@@ -15,23 +16,90 @@ Usage:
 from typing import Optional
 
 # ---------------------------------------------------------------------------
-# Bambu Lab: raw MQTT `printer_type` codes -> friendly names
-# Source: community research, Bambu developer firmware strings
+# Bambu Lab: the single source of truth for Bambu model identity.
+#
+# Keys are Bambu machine model ids: the `model_id` of Bambu Studio's machine
+# profiles (resources/profiles/BBL/machine/*.json; every model_id there as of
+# Bambu Studio 02.05.00.66), which is also what sliced
+# 3MF files carry as `printer_model_id` and what MQTT `printer_type` reports
+# when present. The captured A1 3MF fixture carries N2S. The captured A1/H2D
+# MQTT sessions carry no `printer_type` at all; their identity is the ota
+# module's `product_name` ("Bambu Lab A1", "Bambu Lab H2D"), handled by
+# BAMBU_PRODUCT_NAMES below.
+#
+# Hardware evidence: N2S (A1) and the product names "Bambu Lab A1" and
+# "Bambu Lab H2D" are captured from real printers. The remaining ids follow
+# Bambu Studio's machine profiles and are not yet confirmed on hardware.
+# Codes that previously appeared here without a source (BL-P003, BL-P00401,
+# BL-P00501, BL-A001, BL-A002, BL-A003, BL-H001) were removed; an
+# unrecognised code passes through unchanged.
 # ---------------------------------------------------------------------------
-_BAMBU_MODELS = {
+BAMBU_MODEL_IDS = {
     "BL-P001": "X1C",
-    "BL-P002": "X1E",
-    "BL-P003": "X1",
-    "C11": "P1S",
-    "BL-P00501": "P1S",
-    "C12": "P1P",
-    "BL-P00401": "P1P",
-    "N2S": "A1",
-    "BL-A001": "A1",
+    "BL-P002": "X1",
+    "C13": "X1E",
+    "C11": "P1P",
+    "C12": "P1S",
     "N1": "A1 Mini",
-    "BL-A002": "A1 Mini",
-    "BL-H001": "H2D",
+    "N2S": "A1",
+    "N7": "P2S",
+    "O1C2": "H2C",
+    "O1D": "H2D",
+    "O1E": "H2D Pro",
+    "O1S": "H2S",
 }
+
+# Product names reported in info.module[name=ota].product_name, without the
+# "Bambu Lab " prefix, upper-cased -> friendly name.
+BAMBU_PRODUCT_NAMES = {
+    "X1 CARBON": "X1C",
+    "X1C": "X1C",
+    "X1": "X1",
+    "X1E": "X1E",
+    "P1P": "P1P",
+    "P1S": "P1S",
+    "A1": "A1",
+    "A1 MINI": "A1 Mini",
+    "P2S": "P2S",
+    "H2D": "H2D",
+    "H2D PRO": "H2D Pro",
+    "H2S": "H2S",
+    "H2C": "H2C",
+}
+
+_BAMBU_FRIENDLY_NAMES = {name.upper(): name for name in BAMBU_PRODUCT_NAMES.values()}
+
+# Nozzle (extruder) count per model: the length of `nozzle_diameter` in the
+# Bambu Studio 02.05.00.66 machine profiles. Every other listed model has one.
+BAMBU_NOZZLE_COUNTS = {
+    "H2D": 2,
+    "H2D Pro": 2,
+    "H2C": 2,
+}
+
+
+def bambu_nozzle_count(machine_type: Optional[str]) -> int:
+    """Nozzle count for a stored machine_type / model code; 1 when unknown."""
+    return BAMBU_NOZZLE_COUNTS.get(bambu_model_name(machine_type) or "", 1)
+
+
+def bambu_model_name(raw_value: Optional[str]) -> Optional[str]:
+    """Friendly Bambu model for a model id, product name or friendly name.
+
+    Unrecognised values pass through stripped; empty values return None.
+    """
+    if not isinstance(raw_value, str) or not raw_value.strip():
+        return None
+    value = raw_value.strip()
+    upper = value.upper()
+    for code, name in BAMBU_MODEL_IDS.items():
+        if code.upper() == upper:
+            return name
+    product = upper[len("BAMBU LAB "):].strip() if upper.startswith("BAMBU LAB ") else upper
+    if product in BAMBU_PRODUCT_NAMES:
+        return BAMBU_PRODUCT_NAMES[product]
+    return _BAMBU_FRIENDLY_NAMES.get(upper, value)
+
 
 # ---------------------------------------------------------------------------
 # PrusaLink: known hardware model codes -> friendly names.
@@ -92,7 +160,7 @@ def normalize_model_name(api_type: str, raw_value: Optional[str]) -> Optional[st
 
     try:
         if api_type == "bambu":
-            return _BAMBU_MODELS.get(raw_stripped, raw_stripped)
+            return bambu_model_name(raw_stripped)
 
         if api_type == "prusalink":
             return _PRUSALINK_MODELS.get(raw_stripped, raw_stripped)

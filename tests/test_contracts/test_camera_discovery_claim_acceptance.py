@@ -34,11 +34,12 @@ def test_bambu_actual_mqtt_camera_presence_generates_config_from_encrypted_crede
     monitor,emitters,_=v2_offline_monitor
     monitor._camera_discovered=False
     with offline_store.get_bind().begin() as conn:
-        conn.execute(text('UPDATE printers SET api_type=\'bambu\',model=:model,api_host=\'127.0.0.1\',api_key=:key,camera_enabled=TRUE,camera_url=NULL WHERE id=199'),
+        conn.execute(text('UPDATE printers SET api_type=\'bambu\',model=:model,api_host=\'192.168.50.30\',api_key=:key,camera_enabled=TRUE,camera_url=NULL WHERE id=199'),
                      {'model':model,'key':crypto.encrypt('owned-serial|owned-fixture-code')})
     report=BambuPrintSection.model_validate({'command':'push_status','ipcam':{'rtsp_url':'rtsp://192.0.2.17/owned'}})
     emitters[0](BambuReportEvent('monitor-199',2000,report))
-    assert captured_config[-1]['streams']['printer_199']=='rtsps://bblp:owned-fixture-code@127.0.0.1:322/streaming/live/1'
+    # LAN api_host: the device policy blocks loopback camera hosts.
+    assert captured_config[-1]['streams']['printer_199']=='rtsps://bblp:owned-fixture-code@192.168.50.30:322/streaming/live/1'
     assert offline_store.execute(text('SELECT camera_url FROM printers WHERE id=199')).scalar_one() is None
     emitters[0](BambuReportEvent('monitor-199',2001,report))
     assert len(captured_config)==1
@@ -60,10 +61,12 @@ def test_moonraker_camera_list_resolves_relative_stream_and_snapshot(monkeypatch
 def test_prusalink_modern_camera_or_bounded_authenticated_snapshot_probe(monkeypatch,modern,status):
     import requests
     from modules.printers.adapters.prusalink import PrusaLinkPrinter
-    printer=PrusaLinkPrinter('127.0.0.1',api_key='owned-fixture-key');calls=[]
+    # LAN address: the device destination policy blocks loopback printers.
+    printer=PrusaLinkPrinter('192.0.2.10',api_key='owned-fixture-key');calls=[]
     monkeypatch.setattr(printer,'_get',lambda path:[{'id':'owned-camera'}] if modern else [])
     def head(url,**kwargs):calls.append((url,kwargs));return SimpleNamespace(status_code=status)
-    monkeypatch.setattr(requests,'head',head)
+    from tests.support.device_http import route_device_requests
+    route_device_requests(monkeypatch,head=head)
     result=printer.get_webcam_url()
     if modern:
         assert result==printer.base_url+'/api/v1/cameras/snap' and not calls
@@ -76,11 +79,12 @@ def test_prusalink_modern_camera_or_bounded_authenticated_snapshot_probe(monkeyp
 def test_elegoo_port8080_candidates_are_bounded_and_only_success_is_selected(monkeypatch,statuses):
     import requests
     from modules.printers.adapters.elegoo import ElegooPrinter
-    printer=ElegooPrinter('127.0.0.1');calls=[]
+    printer=ElegooPrinter('192.0.2.11');calls=[]  # LAN address: loopback devices are blocked
     def head(url,**kwargs):calls.append((url,kwargs));return SimpleNamespace(status_code=statuses[len(calls)-1])
-    monkeypatch.setattr(requests,'head',head)
+    from tests.support.device_http import route_device_requests
+    route_device_requests(monkeypatch,head=head)
     result=printer.get_webcam_url()
-    expected=['http://127.0.0.1:8080/?action=stream','http://127.0.0.1:8080/webcam/?action=stream'][:len(statuses)]
+    expected=['http://192.0.2.11:8080/?action=stream','http://192.0.2.11:8080/webcam/?action=stream'][:len(statuses)]
     assert calls==[(url,{'timeout':3}) for url in expected]
     assert result==(expected[-1] if statuses[-1]==200 else None)
 
@@ -101,14 +105,17 @@ def test_claim_nonbambu_discovery_reaches_current_go2rtc_stream(offline_store,ca
         monitor=elegoo_monitor.ElegooMonitorThread(199,'Owned camera','192.168.50.20')
         monkeypatch.setattr(monitor.client,'get_webcam_url',lambda:url)
     monitor._discover_and_save_camera()
-    assert captured_config[-1]['streams'].get('printer_199')=='ffmpeg:'+url+'#video=h264'
+    # HTTP cameras stream through ODIN's pinned loopback relay, never directly.
+    from modules.printers.camera_relay import relay_url
+    assert captured_config[-1]['streams'].get('printer_199')=='ffmpeg:'+relay_url(199)+'#video=h264'
 
 
 def test_explicit_mjpeg_registration_uses_h264_prefix(offline_store,captured_config):
     from core import crypto
     from modules.printers.route_utils import sync_go2rtc_config_raw
-    url='http://127.0.0.1:8080/?action=stream'
+    url='http://192.168.50.22:8080/?action=stream'  # LAN camera: loopback hosts are blocked
     with offline_store.get_bind().begin() as conn:
         conn.execute(text('UPDATE printers SET api_type=\'elegoo\',camera_enabled=TRUE,camera_url=:url WHERE id=199'),{'url':crypto.encrypt(url)})
     sync_go2rtc_config_raw()
-    assert captured_config[-1]['streams']['printer_199']=='ffmpeg:'+url+'#video=h264'
+    from modules.printers.camera_relay import relay_url
+    assert captured_config[-1]['streams']['printer_199']=='ffmpeg:'+relay_url(199)+'#video=h264'

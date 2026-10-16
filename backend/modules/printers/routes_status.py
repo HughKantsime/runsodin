@@ -203,7 +203,7 @@ def get_hms_error_history(printer_id: int, days: int = Query(30, ge=1, le=90),
 @router.get("/printers/{printer_id}/nozzle-status", tags=["Printers"])
 def get_nozzle_status(printer_id: int, current_user: dict = Depends(require_role("viewer", scope="read:printers")),
                       db: Session = Depends(get_db)):
-    """Get live nozzle temperature status. Returns dual nozzle data for H2D printers."""
+    """Get live nozzle temperature status. Dual-nozzle models (H2D, H2D Pro, H2C) return both nozzles."""
     printer = _visible_printer(printer_id, db, current_user)
 
     nozzle_0 = {
@@ -213,7 +213,8 @@ def get_nozzle_status(printer_id: int, current_user: dict = Depends(require_role
         "diameter": printer.nozzle_diameter,
     }
 
-    if printer.machine_type == "H2D":
+    from modules.printers.printer_models import bambu_nozzle_count
+    if bambu_nozzle_count(printer.machine_type) == 2:
         return {
             "nozzle_count": 2,
             "nozzle_0": nozzle_0,

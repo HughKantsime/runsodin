@@ -71,15 +71,99 @@ async def get_plug_config(printer_id: int, current_user: dict = Depends(require_
     }
 
 
+PLUG_TYPES = ("tasmota", "homeassistant", "mqtt")
+PLUG_COOLDOWN_MAX_MINUTES = 1440
+
+
+def _validate_plug_host(plug_type, host):
+    """Config-time destination policy for HTTP plug hosts.
+
+    Same policy as printer hosts (Moonraker/PrusaLink api_host):
+    _check_ssrf_blocklist, plus the ITAR outbound check that the plug HTTP
+    helper repeats at request time. MQTT plugs publish to a topic and have
+    no HTTP destination.
+    """
+    if plug_type == "mqtt" or host is None:
+        return
+    if not isinstance(host, str) or not host.strip():
+        raise HTTPException(422, "Plug host must be a non-empty string")
+    import urllib.parse
+    if plug_type == "homeassistant":
+        try:
+            parsed = urllib.parse.urlsplit(host.strip())
+            parsed.port
+        except ValueError:
+            raise HTTPException(400, "Home Assistant URL is malformed")
+        # scheme://host[:port] only: no userinfo, path, query or fragment.
+        if (parsed.scheme.lower() not in ("http", "https") or not parsed.hostname
+                or "@" in parsed.netloc or parsed.path not in ("", "/") or parsed.query or parsed.fragment):
+            raise HTTPException(400, "Home Assistant URL must be http(s)://host[:port] with no path or query")
+        hostname = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+        if parsed.port:
+            hostname += f":{parsed.port}"
+        url = host.strip()
+    else:
+        if "://" in host or "/" in host:
+            raise HTTPException(400, "Tasmota host must be a host or host:port")
+        hostname, url = host.strip(), f"http://{host.strip()}/"
+    from modules.printers.route_utils import _check_ssrf_blocklist
+    _check_ssrf_blocklist(hostname)
+    from core.itar import enforce_request_destination, ItarOutboundBlocked
+    try:
+        enforce_request_destination(url)
+    except ItarOutboundBlocked:
+        raise HTTPException(400, "Plug host blocked by outbound policy")
+
+
 @router.put("/printers/{printer_id}/plug", tags=["Smart Plug"])
 async def update_plug_config(printer_id: int, request: Request, current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)):
-    """Update smart plug configuration for a printer."""
+    """Update smart plug configuration (merge semantics).
+
+    Only fields present in the body change; omitted fields keep their stored
+    values. Clearing the configuration is DELETE, not a null type. The stored
+    Home Assistant token is kept only while type and host are unchanged.
+    """
     _require_printer_org_access(printer_id, current_user, db)
     data = await request.json()
+    if not isinstance(data, dict):
+        raise HTTPException(422, "Body must be a JSON object")
 
-    plug_type = data.get("type")
-    if plug_type and plug_type not in ("tasmota", "homeassistant", "mqtt"):
+    current = db.execute(text(
+        "SELECT plug_type, plug_host, plug_entity_id, plug_auth_token, plug_auto_on, plug_auto_off,"
+        " plug_cooldown_minutes FROM printers WHERE id = :id"
+    ), {"id": printer_id}).fetchone()
+    cur_type, cur_host, cur_entity, cur_token, cur_on, cur_off, cur_cool = current
+
+    if "type" in data and data["type"] not in PLUG_TYPES:
+        if data["type"] in (None, ""):
+            raise HTTPException(400, "Use DELETE /printers/{id}/plug to remove the plug configuration")
         raise HTTPException(400, "Invalid plug type. Use: tasmota, homeassistant, mqtt")
+    for key in ("auto_on", "auto_off"):
+        if key in data and type(data[key]) is not bool:
+            raise HTTPException(422, f"{key} must be a boolean")
+    if "cooldown_minutes" in data:
+        value = data["cooldown_minutes"]
+        if type(value) is not int or not 0 <= value <= PLUG_COOLDOWN_MAX_MINUTES:
+            raise HTTPException(422, f"cooldown_minutes must be an integer from 0 to {PLUG_COOLDOWN_MAX_MINUTES}")
+    for key in ("host", "entity_id", "auth_token"):
+        if key in data and data[key] is not None and not isinstance(data[key], str):
+            raise HTTPException(422, f"{key} must be a string")
+
+    plug_type = data.get("type", cur_type)
+    host = data["host"] if "host" in data else cur_host
+    if "type" in data or "host" in data:
+        _validate_plug_host(plug_type, host)
+        if plug_type != "mqtt" and isinstance(host, str):
+            # Stored normalized (case, IDNA, trailing dot) like api_host.
+            from core.webhook_utils import normalize_device_host, normalize_device_url
+            host = normalize_device_url(host) if plug_type == "homeassistant" else normalize_device_host(host)
+    if "auth_token" in data:
+        auth_token = crypto.encrypt(data["auth_token"]) if data["auth_token"] else None
+    elif plug_type == cur_type and host == cur_host:
+        auth_token = cur_token
+    else:
+        # Never send a stored token to a different plug destination.
+        auth_token = None
 
     db.execute(text("""
         UPDATE printers SET
@@ -94,12 +178,12 @@ async def update_plug_config(printer_id: int, request: Request, current_user: di
     """), {
         "id": printer_id,
         "plug_type": plug_type,
-        "plug_host": data.get("host"),
-        "plug_entity_id": data.get("entity_id"),
-        "plug_auth_token": crypto.encrypt(data.get("auth_token")) if data.get("auth_token") else None,
-        "plug_auto_on": data.get("auto_on", True),
-        "plug_auto_off": data.get("auto_off", True),
-        "plug_cooldown_minutes": data.get("cooldown_minutes", 5),
+        "plug_host": host,
+        "plug_entity_id": data["entity_id"] if "entity_id" in data else cur_entity,
+        "plug_auth_token": auth_token,
+        "plug_auto_on": data["auto_on"] if "auto_on" in data else (cur_on if cur_on is not None else True),
+        "plug_auto_off": data["auto_off"] if "auto_off" in data else (cur_off if cur_off is not None else True),
+        "plug_cooldown_minutes": data["cooldown_minutes"] if "cooldown_minutes" in data else (cur_cool if cur_cool is not None else 5),
     })
     db.commit()
 

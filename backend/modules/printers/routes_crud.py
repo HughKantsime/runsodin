@@ -96,6 +96,8 @@ def create_printer(
     """Create a new printer."""
     if printer.api_host:
         _check_ssrf_blocklist(printer.api_host)
+        from core.webhook_utils import normalize_device_host
+        printer.api_host = normalize_device_host(printer.api_host)
     if printer.camera_url:
         printer.camera_url = _validate_camera_url(printer.camera_url)
         if '@' in printer.camera_url:
@@ -235,9 +237,16 @@ def update_printer(
 
     if 'api_host' in update_data and update_data['api_host']:
         _check_ssrf_blocklist(update_data['api_host'])
+        from core.webhook_utils import normalize_device_host
+        update_data['api_host'] = normalize_device_host(update_data['api_host'])
 
     if 'camera_url' in update_data:
-        if update_data['camera_url']:
+        from modules.printers.route_utils import resolve_masked_camera_url
+        if update_data['camera_url'] and resolve_masked_camera_url(update_data['camera_url'], printer.camera_url) is None:
+            # The masked URL from GET sent back unchanged: keep the stored value.
+            del update_data['camera_url']
+        elif update_data['camera_url']:
+            update_data['camera_url'] = resolve_masked_camera_url(update_data['camera_url'], printer.camera_url)
             update_data['camera_url'] = _validate_camera_url(update_data['camera_url'])
             if '@' in update_data['camera_url']:
                 update_data['camera_url'] = crypto.encrypt(update_data['camera_url'])
@@ -250,7 +259,10 @@ def update_printer(
 
     if 'slot_count' in update_data and update_data['slot_count'] != printer.slot_count:
         new_count = update_data['slot_count']
-        current_slots = {s.slot_number: s for s in printer.filament_slots}
+        # slot_count covers the four-tray slots 1-16 only. AMS HT slots (17+)
+        # come from AMS sync and are never created or deleted by slot_count.
+        from modules.printers.telemetry.bambu.ams_identity import AMS_HT_FIRST_SLOT
+        current_slots = {s.slot_number: s for s in printer.filament_slots if s.slot_number < AMS_HT_FIRST_SLOT}
         current_count = len(current_slots)
 
         if new_count > current_count:
@@ -264,7 +276,7 @@ def update_printer(
                     db.add(slot)
         elif new_count < current_count:
             for slot in printer.filament_slots:
-                if slot.slot_number > new_count:
+                if new_count < slot.slot_number < AMS_HT_FIRST_SLOT:
                     db.delete(slot)
 
     for field, value in update_data.items():
@@ -534,13 +546,14 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
 
     elif api_type == "moonraker":
         import httpx as httpx_client
+        from modules.printers.route_utils import pinned_device_get
         try:
-            r = httpx_client.get(f"http://{request.api_host}/printer/info", timeout=5)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- verified safe — admin-gated by require_role and SSRF-checked by _check_ssrf_blocklist (or setup-locked)
+            r = pinned_device_get(httpx_client, f"http://{request.api_host}/printer/info", timeout=5)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- verified safe — admin-gated by require_role and SSRF-checked by _check_ssrf_blocklist (or setup-locked)
             if r.status_code == 200:
                 info = r.json().get("result", {})
                 detected_model = None
                 try:
-                    cfg_r = httpx_client.get(f"http://{request.api_host}/server/config", timeout=3)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- verified safe — admin-gated by require_role and SSRF-checked by _check_ssrf_blocklist (or setup-locked)
+                    cfg_r = pinned_device_get(httpx_client, f"http://{request.api_host}/server/config", timeout=3)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- verified safe — admin-gated by require_role and SSRF-checked by _check_ssrf_blocklist (or setup-locked)
                     if cfg_r.status_code == 200:
                         kinematics = (
                             cfg_r.json().get("result", {}).get("config", {}).get("printer", {}).get("kinematics", "") or ""
@@ -570,8 +583,9 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
 
     elif api_type == "prusalink":
         import httpx as httpx_client
+        from modules.printers.route_utils import pinned_device_get
         try:
-            r = httpx_client.get(f"http://{request.api_host}/api/version", timeout=5)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- verified safe — admin-gated by require_role and SSRF-checked by _check_ssrf_blocklist (or setup-locked)
+            r = pinned_device_get(httpx_client, f"http://{request.api_host}/api/version", timeout=5)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- verified safe — admin-gated by require_role and SSRF-checked by _check_ssrf_blocklist (or setup-locked)
             if r.status_code == 200:
                 # Official PrusaLink Version schema defines `printer` as a
                 # software-version string, not a hardware-model identifier.
@@ -583,11 +597,12 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
 
     elif api_type == "elegoo":
         import httpx as httpx_client
+        from modules.printers.route_utils import pinned_device_get
         import socket
         import json as _json
         reachable = False
         try:
-            httpx_client.get(f"http://{request.api_host}:3030", timeout=5)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- verified safe — admin-gated by require_role and SSRF-checked by _check_ssrf_blocklist (or setup-locked)
+            pinned_device_get(httpx_client, f"http://{request.api_host}:3030", timeout=5)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- verified safe — admin-gated by require_role and SSRF-checked by _check_ssrf_blocklist (or setup-locked)
             reachable = True
         except Exception as e:
             log.debug(f"Failed to reach Elegoo printer: {e}")
@@ -596,10 +611,13 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
         detected_model = None
         try:
             from modules.printers.printer_models import normalize_model_name
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            # Unicast SDCP probe to the policy-validated IP literal.
+            from core.webhook_utils import device_connect_ip
+            probe_ip = device_connect_ip(request.api_host, 3000)
+            sock = socket.socket(socket.AF_INET6 if ":" in probe_ip else socket.AF_INET, socket.SOCK_DGRAM)
             sock.settimeout(3.0)
             try:
-                sock.sendto(b"M99999", (request.api_host, 3000))
+                sock.sendto(b"M99999", (probe_ip, 3000))
                 data, _ = sock.recvfrom(4096)
                 info = _json.loads(data.decode("utf-8"))
                 if "Data" in info:

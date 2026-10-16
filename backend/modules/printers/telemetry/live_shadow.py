@@ -98,6 +98,7 @@ def run_live_shadow(
         port=broker.port,
         access_code="",
         use_tls=False,
+        replay_broker=True,  # this process's own LocalBroker on loopback
     )
     adapter = BambuTelemetryAdapter(config, emitter=v2_events.append)
     adapter.start()

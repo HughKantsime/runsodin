@@ -16,18 +16,35 @@ from modules.printers.printer_models import normalize_model_name
 
 class TestBambuModels:
     def test_known_codes(self):
+        # Bambu Studio machine model ids (resources/profiles/BBL/machine).
         assert normalize_model_name("bambu", "BL-P001") == "X1C"
-        assert normalize_model_name("bambu", "BL-P002") == "X1E"
-        assert normalize_model_name("bambu", "BL-P003") == "X1"
-        assert normalize_model_name("bambu", "C11") == "P1S"
-        assert normalize_model_name("bambu", "BL-P00501") == "P1S"
-        assert normalize_model_name("bambu", "C12") == "P1P"
-        assert normalize_model_name("bambu", "BL-P00401") == "P1P"
+        assert normalize_model_name("bambu", "BL-P002") == "X1"
+        assert normalize_model_name("bambu", "C13") == "X1E"
+        assert normalize_model_name("bambu", "C11") == "P1P"
+        assert normalize_model_name("bambu", "C12") == "P1S"
         assert normalize_model_name("bambu", "N2S") == "A1"
-        assert normalize_model_name("bambu", "BL-A001") == "A1"
         assert normalize_model_name("bambu", "N1") == "A1 Mini"
-        assert normalize_model_name("bambu", "BL-A002") == "A1 Mini"
-        assert normalize_model_name("bambu", "BL-H001") == "H2D"
+        assert normalize_model_name("bambu", "O1D") == "H2D"
+        assert normalize_model_name("bambu", "O1E") == "H2D Pro"
+        assert normalize_model_name("bambu", "O1S") == "H2S"
+        assert normalize_model_name("bambu", "O1C2") == "H2C"
+        assert normalize_model_name("bambu", "N7") == "P2S"
+
+    def test_new_model_ids_resolve_to_canonical_machines(self):
+        from core.printer_identity import canonical_machine
+        assert [canonical_machine(c) for c in ("O1E", "O1S", "O1C2", "N7", "Bambu Lab H2D Pro", "Bambu Lab P2S")] == [
+            "h2d-pro", "h2s", "h2c", "p2s", "h2d-pro", "p2s"]
+        assert normalize_model_name("bambu", "Bambu Lab H2D Pro") == "H2D Pro"
+
+    def test_ota_product_names(self):
+        assert normalize_model_name("bambu", "Bambu Lab A1") == "A1"
+        assert normalize_model_name("bambu", "Bambu Lab H2D") == "H2D"
+        assert normalize_model_name("bambu", "Bambu Lab X1 Carbon") == "X1C"
+        assert normalize_model_name("bambu", "Bambu Lab A1 mini") == "A1 Mini"
+
+    def test_unsourced_codes_are_not_guessed(self):
+        for code in ("BL-P003", "BL-P00501", "BL-A001", "BL-H001"):
+            assert normalize_model_name("bambu", code) == code
 
     def test_unknown_code_passthrough(self):
         assert normalize_model_name("bambu", "BL-X999") == "BL-X999"

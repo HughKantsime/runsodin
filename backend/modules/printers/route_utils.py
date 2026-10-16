@@ -49,18 +49,30 @@ class TestConnectionRequest(PydanticBaseModel):
 # ====================================================================
 
 def _check_ssrf_blocklist(host: str) -> None:
-    """Block SSRF attempts targeting localhost, metadata endpoints, or internal-only hosts."""
-    import ipaddress
-    blocked_prefixes = ("localhost", "127.", "169.254.", "0.", "::1")
-    h = (host or "").strip().lower().split(":")[0]  # strip port
-    if any(h.startswith(p) for p in blocked_prefixes):
-        raise HTTPException(status_code=400, detail="Invalid printer host")
+    """Config-time device destination policy (printers, plugs, cameras).
+
+    Delegates to core.webhook_utils.device_destination_ips: parses brackets
+    and ports, resolves hostnames and numeric IPv4 forms, and rejects
+    loopback, link-local, unspecified, multicast, metadata and IPv4-mapped
+    forms of those. Private LAN ranges are allowed. Resolver errors are 400.
+    """
+    from core.webhook_utils import DeviceDestinationBlocked, device_destination_ips
     try:
-        addr = ipaddress.ip_address(h)
-        if addr.is_loopback or addr.is_link_local:
-            raise HTTPException(status_code=400, detail="Invalid printer host")
-    except ValueError:
-        pass  # hostname — let OS resolve it
+        device_destination_ips(host)
+    except DeviceDestinationBlocked:
+        raise HTTPException(status_code=400, detail="Invalid printer host")
+
+
+def pinned_device_get(client, url: str, **kwargs):
+    """GET a device URL through the destination policy, pinned to its validated address.
+
+    `client` is the httpx module or client; env proxies are bypassed so the
+    pin cannot be sidestepped. A blocked destination raises
+    core.webhook_utils.DeviceDestinationBlocked.
+    """
+    from core.webhook_utils import pinned_device_destination
+    with pinned_device_destination(url):
+        return client.get(url, trust_env=False, follow_redirects=False, **kwargs)
 
 
 _CAMERA_SHELL_METACHAR_RE = re.compile(r'[;&|$`\\]')
@@ -79,20 +91,45 @@ def _validate_camera_url(url: str) -> str:
         return url
 
     import urllib.parse
-    lower = url.strip().lower()
+    stripped = url.strip()
+    lower = stripped.lower()
     if not (lower.startswith("rtsp://") or lower.startswith("rtsps://")):
         raise HTTPException(status_code=400, detail="Camera URL must use rtsp:// or rtsps:// scheme")
+    # Store the scheme lower-case so every later check sees one spelling.
+    scheme_end = stripped.index("://")
+    stripped = stripped[:scheme_end].lower() + stripped[scheme_end:]
 
-    sanitized = _CAMERA_SHELL_METACHAR_RE.sub('', url.strip())
+    sanitized = _CAMERA_SHELL_METACHAR_RE.sub('', stripped)
 
+    # Userinfo must be unambiguous: urlsplit ends the authority at the first
+    # / ? #, so an unencoded @ / ? # in a password would make the parsed host
+    # (and the masking) disagree with what the user meant.
+    _prefix, userinfo, _rest = split_url_userinfo(sanitized)
+    if userinfo is not None and any(ch in userinfo for ch in "@/?#"):
+        raise HTTPException(status_code=400, detail=(
+            "Camera URL username/password contains @ / ? or #; percent-encode them "
+            "(%40 %2F %3F %23)"))
     try:
-        parsed = urllib.parse.urlparse(sanitized)
+        parsed = urllib.parse.urlsplit(sanitized)
         host = parsed.hostname or ""
-        _check_ssrf_blocklist(host)
+        port = parsed.port
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Camera URL is malformed")
+    if not host:
+        raise HTTPException(status_code=400, detail="Camera URL has no host")
+    try:
+        _check_ssrf_blocklist(f"[{host}]" if ":" in host else host)
     except HTTPException:
         raise HTTPException(status_code=400, detail="Camera URL points to a blocked host")
 
     return sanitized
+
+
+# Bambu models with an RTSPS camera stream at :322/streaming/live/1 (auto
+# camera URL). Bambu Studio's machine profiles carry no camera data, so a model
+# is listed only with another real source; P2S, H2S, H2C and H2D Pro are NOT
+# listed until verified on hardware (fixes.json records the claim text).
+BAMBU_RTSPS_CAMERA_MODELS = frozenset({'X1C', 'X1 Carbon', 'X1E', 'X1 Carbon Combo', 'H2D'})
 
 
 # ====================================================================
@@ -109,7 +146,7 @@ def get_camera_url(printer):
             log.debug(f"Failed to decrypt camera URL (using raw): {e}")
         return url
     if printer.api_type == "bambu" and printer.api_key and printer.api_host:
-        RTSP_MODELS = {'X1C', 'X1 Carbon', 'X1E', 'X1 Carbon Combo', 'H2D'}
+        RTSP_MODELS = BAMBU_RTSPS_CAMERA_MODELS
         model = (printer.model or '').strip()
         if model not in RTSP_MODELS:
             return None
@@ -122,11 +159,97 @@ def get_camera_url(printer):
     return None
 
 
+_URL_SCHEME_RE = re.compile(r'^([a-z][a-z0-9+.\-]*://)', re.IGNORECASE)
+CAMERA_CREDENTIAL_MASK = '***'
+
+
+_HOST_PORT_RE = re.compile(r'^(\[[0-9A-Fa-f:.%]+\]|[^\s:@\[\]/?#]+)(:[0-9]{0,5})?$')
+
+
+def split_url_userinfo(url: str):
+    """Split a URL into (scheme://, userinfo or None, text after the userinfo '@').
+
+    Only the authority (up to the first / ? #, as urlsplit defines it) can
+    carry userinfo, so an '@' in the path or query is never treated as a
+    credential. The one exception is a legacy stored value whose unencoded
+    / ? # in a password makes the authority not a valid host[:port] (e.g.
+    "u:se/cret@host"): then everything up to the last '@' is treated as the
+    credential, so masking never leaks part of it.
+    """
+    match = _URL_SCHEME_RE.match(url or '')
+    if not match:
+        return None, None, url
+    rest = url[match.end():]
+    end = min([i for i in (rest.find('/'), rest.find('?'), rest.find('#')) if i >= 0] or [len(rest)])
+    authority = rest[:end]
+    at = authority.rfind('@')
+    if at >= 0:
+        return match.group(1), rest[:at], rest[at + 1:]
+    if '@' in rest and not _HOST_PORT_RE.match(authority):
+        last = rest.rfind('@')
+        return match.group(1), rest[:last], rest[last + 1:]
+    return match.group(1), None, rest
+
+
 def sanitize_camera_url(url: str) -> str:
-    """Strip credentials from RTSP URLs for API responses."""
+    """Mask URL credentials for API responses, for any scheme and any case."""
     if not url:
         return url
-    return re.sub(r'(rtsps?://)([^@]+)@', r'\1***@', url)
+    prefix, userinfo, rest = split_url_userinfo(url.strip())
+    if userinfo is None:
+        return url.strip()
+    return prefix + CAMERA_CREDENTIAL_MASK + '@' + rest
+
+
+def masked_camera_url(stored):
+    """Response form of a stored camera URL: decrypted, credentials masked.
+
+    Never returns ciphertext; an undecryptable stored value returns None.
+    """
+    if not stored:
+        return stored
+    plain = crypto.decrypt(stored) if crypto.is_encrypted(stored) else stored
+    if not plain or crypto.is_encrypted(plain):
+        return None
+    return sanitize_camera_url(plain)
+
+
+def _url_endpoint(url):
+    import urllib.parse
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        return (parsed.scheme.lower(), (parsed.hostname or '').lower(), parsed.port)
+    except ValueError:
+        return None
+
+
+def resolve_masked_camera_url(incoming, stored):
+    """Restore credentials when a client sends back a masked camera URL.
+
+    Returns the plaintext URL to save, or None when the client sent back
+    exactly the masked form of the stored URL (nothing changed). Stored
+    credentials are carried over only to the same scheme, host and port
+    (a path change is allowed); pointing a masked URL at another endpoint,
+    or sending a masked URL with no stored credentials, is a 400 that
+    requires the full credentialed URL.
+    """
+    if not isinstance(incoming, str):
+        return incoming
+    prefix, userinfo, rest = split_url_userinfo(incoming.strip())
+    if userinfo != CAMERA_CREDENTIAL_MASK:
+        return incoming
+    plain = crypto.decrypt(stored) if stored and crypto.is_encrypted(stored) else stored
+    stored_prefix, stored_userinfo, stored_rest = split_url_userinfo((plain or '').strip())
+    if stored_userinfo is None or crypto.is_encrypted(plain or ''):
+        raise HTTPException(status_code=400, detail="Camera URL credentials are masked; enter the full URL")
+    # Compare endpoints with the userinfo removed, so a legacy password with
+    # an unencoded / ? # cannot shift the parsed host.
+    target = _url_endpoint(prefix + rest)
+    if target is None or target != _url_endpoint(stored_prefix + stored_rest):
+        raise HTTPException(status_code=400,
+                            detail="Camera URL endpoint changed; enter the full URL including credentials")
+    resolved = prefix.lower() + stored_userinfo + '@' + rest
+    return None if resolved == plain.strip() else resolved
 
 
 def _get_lan_ip():
@@ -142,22 +265,72 @@ def _get_lan_ip():
         return None
 
 
+GO2RTC_RTSP_SCHEMES = ("rtsp", "rtsps")
+
+
+def go2rtc_stream_source(url, printer_id=None):
+    """go2rtc source for a camera URL, or None when it must not be streamed.
+
+    - RTSP/RTSPS: the camera host is resolved and validated with the device
+      destination policy, and the validated IP literal replaces it, so go2rtc
+      never resolves a name itself (no rebinding). Userinfo, port, path and
+      query are kept. go2rtc does not verify RTSPS certificates (Bambu printers
+      and most cameras are self-signed), so no hostname is needed for TLS.
+    - HTTP(S) (MJPEG/snapshot): go2rtc hands these to ffmpeg, which resolves
+      and follows redirects itself. The source is therefore ffmpeg reading
+      ODIN's loopback relay (modules.printers.camera_relay), which fetches the
+      camera pinned, without redirects or proxies. Needs printer_id.
+    - UniFi Protect rtsps :7441 becomes rtspx without enableSrtp, as before.
+    """
+    import urllib.parse
+    from core.webhook_utils import DeviceDestinationBlocked, device_connect_ip
+    if not isinstance(url, str) or not url.strip():
+        return None
+    prefix, userinfo, rest = split_url_userinfo(url.strip())
+    if prefix is not None and prefix[:-3].lower() in ("http", "https"):
+        if printer_id is None:
+            return None
+        try:
+            parsed = urllib.parse.urlsplit(url.strip())
+            device_connect_ip(parsed.hostname or "", parsed.port)
+        except (DeviceDestinationBlocked, ValueError):
+            log.warning("Camera source host blocked by device policy; stream omitted")
+            return None
+        from modules.printers.camera_relay import relay_url
+        return f"ffmpeg:{relay_url(printer_id)}#video=h264"
+    if prefix is None or prefix[:-3].lower() not in GO2RTC_RTSP_SCHEMES:
+        return None
+    scheme = prefix[:-3].lower()
+    end = min([i for i in (rest.find('/'), rest.find('?'), rest.find('#')) if i >= 0] or [len(rest)])
+    try:
+        parsed = urllib.parse.urlsplit(f"{scheme}://{rest[:end]}")
+        host, port = parsed.hostname, parsed.port
+    except ValueError:
+        return None
+    if not host:
+        return None
+    try:
+        address = device_connect_ip(host, port or (322 if scheme == "rtsps" else 554))
+    except DeviceDestinationBlocked:
+        log.warning("Camera source host blocked by device policy; stream omitted")
+        return None
+    shown = f"[{address}]" if ":" in address else address
+    source = f"{scheme}://" + (f"{userinfo}@" if userinfo is not None else "") + shown + (f":{port}" if port else "") + rest[end:]
+    if scheme == "rtsps" and port == 7441:
+        source = "rtspx://" + source[len("rtsps://"):]
+        source = source.split("?enableSrtp")[0].split("&enableSrtp")[0]
+    return source
+
+
 def _build_go2rtc_config(db: Session) -> dict:
     """Build go2rtc config dict from current printer state."""
     from modules.printers.models import Printer
     printers = db.query(Printer).filter(Printer.is_active.is_(True), Printer.camera_enabled.is_(True)).all()
     streams = {}
     for p in printers:
-        url = get_camera_url(p)
-        if url:
-            # UniFi Protect: rtsps + port 7441 needs rtspx (no SRTP, skip cert check)
-            if url.startswith("rtsps://") and ":7441" in url:
-                url = "rtspx://" + url[8:]
-                url = url.split("?enableSrtp")[0].split("&enableSrtp")[0]
-            if url.startswith(("http://", "https://")):
-                streams[f"printer_{p.id}"] = f"ffmpeg:{url}#video=h264"
-            else:
-                streams[f"printer_{p.id}"] = url
+        source = go2rtc_stream_source(get_camera_url(p), p.id)
+        if source:
+            streams[f"printer_{p.id}"] = source
     db.commit()
     webrtc_config = {"listen": "0.0.0.0:8555"}
     lan_ip = os.environ.get("ODIN_HOST_IP")
@@ -374,7 +547,7 @@ def sync_go2rtc_config_raw():
                     except Exception:
                         url = camera_url
                 elif api_type == 'bambu' and api_key and api_host:
-                    RTSP_MODELS = {'X1C', 'X1 Carbon', 'X1E', 'X1 Carbon Combo', 'H2D'}
+                    RTSP_MODELS = BAMBU_RTSPS_CAMERA_MODELS
                     if (model or '').strip() in RTSP_MODELS:
                         try:
                             parts = crypto.decrypt(api_key).split('|')
@@ -382,14 +555,9 @@ def sync_go2rtc_config_raw():
                                 url = f"rtsps://bblp:{urlquote(parts[1], safe='')}@{api_host}:322/streaming/live/1"
                         except Exception as e:
                             log.debug(f"Failed to decrypt Bambu key for go2rtc: {e}")
-                if url:
-                    if url.startswith("rtsps://") and ":7441" in url:
-                        url = "rtspx://" + url[8:]
-                        url = url.split("?enableSrtp")[0].split("&enableSrtp")[0]
-                    if url.startswith(("http://", "https://")):
-                        streams[f"printer_{pid}"] = f"ffmpeg:{url}#video=h264"
-                    else:
-                        streams[f"printer_{pid}"] = url
+                source = go2rtc_stream_source(url, pid)
+                if source:
+                    streams[f"printer_{pid}"] = source
 
             lan_ip = os.environ.get("ODIN_HOST_IP")
             if not lan_ip:

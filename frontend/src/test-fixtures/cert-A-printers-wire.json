@@ -1,0 +1,654 @@
+{
+  "scope": "Owned real-router responses after real monitor ingestion of captured Bambu A1/H2D MQTT frames and protocol-accurate Moonraker/PrusaLink/SDCP payloads. Timestamps normalized: last_seen = 2026-10-14 12:00:00 UTC (just reported), others whole minutes before it.",
+  "printers": [
+    {
+      "name": "Cert Bambu",
+      "model": "A1",
+      "slot_count": 4,
+      "is_active": true,
+      "api_type": "bambu",
+      "api_host": "192.0.2.31",
+      "camera_url": null,
+      "nickname": null,
+      "bed_temp": 65.0,
+      "bed_target_temp": 65.0,
+      "nozzle_temp": 219.65625,
+      "nozzle_target_temp": 220.0,
+      "gcode_state": "RUNNING",
+      "print_stage": "Idle",
+      "hms_errors": "[{\"attr\": 83952640, \"code\": 196612}, {\"attr\": 83887616, \"code\": 131232}, {\"attr\": 83952640, \"code\": 196610}, {\"attr\": 83886592, \"code\": 196618}, {\"attr\": 201326848, \"code\": 131095}]",
+      "lights_on": false,
+      "nozzle_type": "hardened_steel",
+      "nozzle_diameter": 0.4,
+      "fan_speed": 11,
+      "bed_x_mm": null,
+      "bed_y_mm": null,
+      "last_seen": "2026-10-14T12:00:00",
+      "total_print_hours": null,
+      "total_print_count": null,
+      "hours_since_maintenance": null,
+      "prints_since_maintenance": null,
+      "last_error_code": "05010400_00030004",
+      "last_error_message": "AMS1: Filament load/unload failure on slot 4. Check PTFE path and filament tip.",
+      "last_error_at": "2026-10-14T10:21:00",
+      "camera_discovered": null,
+      "tags": [
+        "farm-a"
+      ],
+      "timelapse_enabled": false,
+      "machine_type": "A1",
+      "id": 301,
+      "created_at": "2026-10-14T10:22:00",
+      "updated_at": "2026-10-14T10:23:00",
+      "filament_slots": [
+        {
+          "slot_number": 1,
+          "filament_type": "PETG",
+          "color": null,
+          "color_hex": "FFFFFF",
+          "spoolman_spool_id": null,
+          "assigned_spool_id": null,
+          "spool_confirmed": null,
+          "id": 3,
+          "printer_id": 301,
+          "loaded_at": "2026-10-14T10:24:00",
+          "remaining": null,
+          "material_type": "PETG"
+        },
+        {
+          "slot_number": 2,
+          "filament_type": "PETG",
+          "color": null,
+          "color_hex": "FFFFFF",
+          "spoolman_spool_id": null,
+          "assigned_spool_id": null,
+          "spool_confirmed": null,
+          "id": 4,
+          "printer_id": 301,
+          "loaded_at": "2026-10-14T10:25:00",
+          "remaining": null,
+          "material_type": "PETG"
+        },
+        {
+          "slot_number": 3,
+          "filament_type": "PETG",
+          "color": null,
+          "color_hex": "FFFFFF",
+          "spoolman_spool_id": null,
+          "assigned_spool_id": null,
+          "spool_confirmed": null,
+          "id": 5,
+          "printer_id": 301,
+          "loaded_at": "2026-10-14T10:26:00",
+          "remaining": null,
+          "material_type": "PETG"
+        },
+        {
+          "slot_number": 4,
+          "filament_type": "PETG",
+          "color": null,
+          "color_hex": "000000",
+          "spoolman_spool_id": null,
+          "assigned_spool_id": null,
+          "spool_confirmed": null,
+          "id": 6,
+          "printer_id": 301,
+          "loaded_at": "2026-10-14T10:27:00",
+          "remaining": null,
+          "material_type": "PETG"
+        },
+        {
+          "slot_number": 5,
+          "filament_type": "PETG",
+          "color": null,
+          "color_hex": "ADB1B2",
+          "spoolman_spool_id": null,
+          "assigned_spool_id": null,
+          "spool_confirmed": null,
+          "id": 7,
+          "printer_id": 301,
+          "loaded_at": "2026-10-14T10:28:00",
+          "remaining": null,
+          "material_type": "PETG"
+        },
+        {
+          "slot_number": 6,
+          "filament_type": "PLA_SUPPORT",
+          "color": null,
+          "color_hex": "000000",
+          "spoolman_spool_id": null,
+          "assigned_spool_id": null,
+          "spool_confirmed": null,
+          "id": 8,
+          "printer_id": 301,
+          "loaded_at": "2026-10-14T10:29:00",
+          "remaining": null,
+          "material_type": "PLA_SUPPORT"
+        },
+        {
+          "slot_number": 7,
+          "filament_type": "PLA",
+          "color": null,
+          "color_hex": "D1D3D5",
+          "spoolman_spool_id": null,
+          "assigned_spool_id": null,
+          "spool_confirmed": null,
+          "id": 9,
+          "printer_id": 301,
+          "loaded_at": "2026-10-14T10:30:00",
+          "remaining": null,
+          "material_type": "PLA"
+        },
+        {
+          "slot_number": 8,
+          "filament_type": "PLA",
+          "color": null,
+          "color_hex": "0078BF",
+          "spoolman_spool_id": null,
+          "assigned_spool_id": null,
+          "spool_confirmed": null,
+          "id": 10,
+          "printer_id": 301,
+          "loaded_at": "2026-10-14T10:31:00",
+          "remaining": null,
+          "material_type": "PLA"
+        }
+      ],
+      "loaded_colors": [],
+      "shared": false,
+      "org_id": 1,
+      "has_api_key": true
+    },
+    {
+      "name": "Cert Voron",
+      "model": "Voron 2.4",
+      "slot_count": 1,
+      "is_active": true,
+      "api_type": "moonraker",
+      "api_host": "192.0.2.41",
+      "camera_url": "http://192.0.2.41/webcam/?action=stream",
+      "nickname": "Voron Workshop",
+      "bed_temp": 60.1,
+      "bed_target_temp": 60.0,
+      "nozzle_temp": 214.8,
+      "nozzle_target_temp": 215.0,
+      "gcode_state": "PRINTING",
+      "print_stage": "Printing",
+      "hms_errors": null,
+      "lights_on": null,
+      "nozzle_type": null,
+      "nozzle_diameter": 0.4,
+      "fan_speed": 50,
+      "bed_x_mm": null,
+      "bed_y_mm": null,
+      "last_seen": "2026-10-14T12:00:00",
+      "total_print_hours": null,
+      "total_print_count": null,
+      "hours_since_maintenance": null,
+      "prints_since_maintenance": null,
+      "last_error_code": null,
+      "last_error_message": null,
+      "last_error_at": null,
+      "camera_discovered": null,
+      "tags": [
+        "klipper"
+      ],
+      "timelapse_enabled": false,
+      "machine_type": null,
+      "id": 401,
+      "created_at": "2026-10-14T10:32:00",
+      "updated_at": "2026-10-14T10:33:00",
+      "filament_slots": [],
+      "loaded_colors": [],
+      "shared": false,
+      "org_id": 1,
+      "has_api_key": false
+    },
+    {
+      "name": "Cert MK4",
+      "model": "MK4",
+      "slot_count": 1,
+      "is_active": true,
+      "api_type": "prusalink",
+      "api_host": "192.0.2.42",
+      "camera_url": "http://192.0.2.42:80/api/v1/cameras/snap",
+      "nickname": null,
+      "bed_temp": 60.0,
+      "bed_target_temp": 60.0,
+      "nozzle_temp": 214.9,
+      "nozzle_target_temp": 215.0,
+      "gcode_state": "PRINTING",
+      "print_stage": "Printing",
+      "hms_errors": null,
+      "lights_on": null,
+      "nozzle_type": null,
+      "nozzle_diameter": null,
+      "fan_speed": 5964,
+      "bed_x_mm": null,
+      "bed_y_mm": null,
+      "last_seen": "2026-10-14T12:00:00",
+      "total_print_hours": null,
+      "total_print_count": null,
+      "hours_since_maintenance": null,
+      "prints_since_maintenance": null,
+      "last_error_code": null,
+      "last_error_message": null,
+      "last_error_at": null,
+      "camera_discovered": null,
+      "tags": [],
+      "timelapse_enabled": false,
+      "machine_type": null,
+      "id": 402,
+      "created_at": "2026-10-14T10:34:00",
+      "updated_at": "2026-10-14T10:35:00",
+      "filament_slots": [],
+      "loaded_colors": [],
+      "shared": false,
+      "org_id": 1,
+      "has_api_key": false
+    },
+    {
+      "name": "Cert Centauri",
+      "model": "Centauri Carbon",
+      "slot_count": 1,
+      "is_active": true,
+      "api_type": "elegoo",
+      "api_host": "192.0.2.43",
+      "camera_url": null,
+      "nickname": null,
+      "bed_temp": 60.2,
+      "bed_target_temp": 60.0,
+      "nozzle_temp": 219.8,
+      "nozzle_target_temp": 220.0,
+      "gcode_state": "PRINTING",
+      "print_stage": "Printing",
+      "hms_errors": null,
+      "lights_on": null,
+      "nozzle_type": null,
+      "nozzle_diameter": null,
+      "fan_speed": 100,
+      "bed_x_mm": null,
+      "bed_y_mm": null,
+      "last_seen": "2026-10-14T12:00:00",
+      "total_print_hours": null,
+      "total_print_count": null,
+      "hours_since_maintenance": null,
+      "prints_since_maintenance": null,
+      "last_error_code": null,
+      "last_error_message": null,
+      "last_error_at": null,
+      "camera_discovered": null,
+      "tags": [],
+      "timelapse_enabled": false,
+      "machine_type": null,
+      "id": 403,
+      "created_at": "2026-10-14T10:36:00",
+      "updated_at": "2026-10-14T10:37:00",
+      "filament_slots": [],
+      "loaded_colors": [],
+      "shared": false,
+      "org_id": 1,
+      "has_api_key": false
+    }
+  ],
+  "telemetry_301": [
+    {
+      "recorded_at": "2026-10-14T10:38:00",
+      "bed_temp": 22.125,
+      "nozzle_temp": 24.03125,
+      "bed_target": 65.0,
+      "nozzle_target": 140.0,
+      "fan_speed": 0
+    },
+    {
+      "recorded_at": "2026-10-14T10:39:00",
+      "bed_temp": 45.5625,
+      "nozzle_temp": 217.03125,
+      "bed_target": 65.0,
+      "nozzle_target": 250.0,
+      "fan_speed": 0
+    },
+    {
+      "recorded_at": "2026-10-14T10:40:00",
+      "bed_temp": 65.0,
+      "nozzle_temp": 241.625,
+      "bed_target": 65.0,
+      "nozzle_target": 170.0,
+      "fan_speed": 5
+    },
+    {
+      "recorded_at": "2026-10-14T10:41:00",
+      "bed_temp": 63.9375,
+      "nozzle_temp": 168.46875,
+      "bed_target": 65.0,
+      "nozzle_target": 140.0,
+      "fan_speed": 14
+    },
+    {
+      "recorded_at": "2026-10-14T10:42:00",
+      "bed_temp": 64.75,
+      "nozzle_temp": 139.90625,
+      "bed_target": 65.0,
+      "nozzle_target": 140.0,
+      "fan_speed": 0
+    },
+    {
+      "recorded_at": "2026-10-14T10:43:00",
+      "bed_temp": 65.0625,
+      "nozzle_temp": 218.90625,
+      "bed_target": 65.0,
+      "nozzle_target": 220.0,
+      "fan_speed": 0
+    },
+    {
+      "recorded_at": "2026-10-14T10:44:00",
+      "bed_temp": 64.8125,
+      "nozzle_temp": 220.0625,
+      "bed_target": 65.0,
+      "nozzle_target": 220.0,
+      "fan_speed": 0
+    },
+    {
+      "recorded_at": "2026-10-14T10:45:00",
+      "bed_temp": 65.09375,
+      "nozzle_temp": 219.96875,
+      "bed_target": 65.0,
+      "nozzle_target": 220.0,
+      "fan_speed": 0
+    },
+    {
+      "recorded_at": "2026-10-14T10:46:00",
+      "bed_temp": 65.03125,
+      "nozzle_temp": 219.4375,
+      "bed_target": 65.0,
+      "nozzle_target": 220.0,
+      "fan_speed": 0
+    },
+    {
+      "recorded_at": "2026-10-14T10:47:00",
+      "bed_temp": 64.5625,
+      "nozzle_temp": 220.28125,
+      "bed_target": 65.0,
+      "nozzle_target": 220.0,
+      "fan_speed": 9
+    },
+    {
+      "recorded_at": "2026-10-14T10:48:00",
+      "bed_temp": 64.90625,
+      "nozzle_temp": 219.6875,
+      "bed_target": 65.0,
+      "nozzle_target": 220.0,
+      "fan_speed": 14
+    },
+    {
+      "recorded_at": "2026-10-14T10:49:00",
+      "bed_temp": 64.875,
+      "nozzle_temp": 219.9375,
+      "bed_target": 65.0,
+      "nozzle_target": 220.0,
+      "fan_speed": 9
+    },
+    {
+      "recorded_at": "2026-10-14T10:50:00",
+      "bed_temp": 64.65625,
+      "nozzle_temp": 220.65625,
+      "bed_target": 65.0,
+      "nozzle_target": 220.0,
+      "fan_speed": 11
+    },
+    {
+      "recorded_at": "2026-10-14T10:51:00",
+      "bed_temp": 65.0,
+      "nozzle_temp": 220.25,
+      "bed_target": 65.0,
+      "nozzle_target": 220.0,
+      "fan_speed": 11
+    },
+    {
+      "recorded_at": "2026-10-14T10:52:00",
+      "bed_temp": 64.8125,
+      "nozzle_temp": 220.8125,
+      "bed_target": 65.0,
+      "nozzle_target": 220.0,
+      "fan_speed": 11
+    },
+    {
+      "recorded_at": "2026-10-14T10:53:00",
+      "bed_temp": 65.03125,
+      "nozzle_temp": 219.71875,
+      "bed_target": 65.0,
+      "nozzle_target": 220.0,
+      "fan_speed": 11
+    },
+    {
+      "recorded_at": "2026-10-14T10:54:00",
+      "bed_temp": 65.0,
+      "nozzle_temp": 220.6875,
+      "bed_target": 65.0,
+      "nozzle_target": 220.0,
+      "fan_speed": 11
+    },
+    {
+      "recorded_at": "2026-10-14T10:55:00",
+      "bed_temp": 64.84375,
+      "nozzle_temp": 220.84375,
+      "bed_target": 65.0,
+      "nozzle_target": 220.0,
+      "fan_speed": 11
+    },
+    {
+      "recorded_at": "2026-10-14T10:56:00",
+      "bed_temp": 65.09375,
+      "nozzle_temp": 220.15625,
+      "bed_target": 65.0,
+      "nozzle_target": 220.0,
+      "fan_speed": 11
+    },
+    {
+      "recorded_at": "2026-10-14T10:57:00",
+      "bed_temp": 65.09375,
+      "nozzle_temp": 219.59375,
+      "bed_target": 65.0,
+      "nozzle_target": 220.0,
+      "fan_speed": 11
+    },
+    {
+      "recorded_at": "2026-10-14T10:58:00",
+      "bed_temp": 65.09375,
+      "nozzle_temp": 219.90625,
+      "bed_target": 65.0,
+      "nozzle_target": 220.0,
+      "fan_speed": 11
+    },
+    {
+      "recorded_at": "2026-10-14T10:59:00",
+      "bed_temp": 65.03125,
+      "nozzle_temp": 220.46875,
+      "bed_target": 65.0,
+      "nozzle_target": 220.0,
+      "fan_speed": 11
+    },
+    {
+      "recorded_at": "2026-10-14T11:00:00",
+      "bed_temp": 64.90625,
+      "nozzle_temp": 220.71875,
+      "bed_target": 65.0,
+      "nozzle_target": 220.0,
+      "fan_speed": 11
+    },
+    {
+      "recorded_at": "2026-10-14T11:01:00",
+      "bed_temp": 65.15625,
+      "nozzle_temp": 219.96875,
+      "bed_target": 65.0,
+      "nozzle_target": 220.0,
+      "fan_speed": 11
+    },
+    {
+      "recorded_at": "2026-10-14T11:02:00",
+      "bed_temp": 65.0,
+      "nozzle_temp": 219.65625,
+      "bed_target": 65.0,
+      "nozzle_target": 220.0,
+      "fan_speed": 11
+    }
+  ],
+  "hms_301": {
+    "entries": [
+      {
+        "id": 1,
+        "printer_id": 301,
+        "code": "05010400_00030004",
+        "message": "AMS1: Filament load/unload failure on slot 4. Check PTFE path and filament tip.",
+        "severity": "warning",
+        "source": "bambu_hms",
+        "occurred_at": "2026-10-14T11:03:00"
+      },
+      {
+        "id": 2,
+        "printer_id": 301,
+        "code": "05000600_000200A0",
+        "message": "AMS Hub: filament mapping error.",
+        "severity": "warning",
+        "source": "bambu_hms",
+        "occurred_at": "2026-10-14T11:04:00"
+      },
+      {
+        "id": 3,
+        "printer_id": 301,
+        "code": "05010400_00030002",
+        "message": "AMS1: Filament load/unload failure on slot 2.",
+        "severity": "warning",
+        "source": "bambu_hms",
+        "occurred_at": "2026-10-14T11:05:00"
+      },
+      {
+        "id": 4,
+        "printer_id": 301,
+        "code": "05000200_0003000A",
+        "message": "AMS Hub: cutter failure.",
+        "severity": "warning",
+        "source": "bambu_hms",
+        "occurred_at": "2026-10-14T11:06:00"
+      },
+      {
+        "id": 5,
+        "printer_id": 301,
+        "code": "0C000100_00020017",
+        "message": "Extruder: temperature abnormal.",
+        "severity": "warning",
+        "source": "bambu_hms",
+        "occurred_at": "2026-10-14T11:07:00"
+      }
+    ],
+    "frequency": {
+      "05010400_00030004": 1,
+      "05000600_000200A0": 1,
+      "05010400_00030002": 1,
+      "05000200_0003000A": 1,
+      "0C000100_00020017": 1
+    },
+    "total": 5
+  },
+  "ams_environment_301": {
+    "printer_id": 301,
+    "hours": 24,
+    "units": {
+      "0": [
+        {
+          "humidity": 5.0,
+          "temperature": 23.7,
+          "time": "2026-10-14T11:08:00"
+        }
+      ],
+      "1": [
+        {
+          "humidity": 3.0,
+          "temperature": 24.0,
+          "time": "2026-10-14T11:09:00"
+        }
+      ]
+    },
+    "humidity_unit": "level"
+  },
+  "nozzle_301": {
+    "nozzle_type": "hardened_steel",
+    "nozzle_diameter": 0.4,
+    "notes": "",
+    "id": 1,
+    "printer_id": 301,
+    "installed_at": "2026-10-14T11:10:00",
+    "removed_at": null,
+    "print_hours_accumulated": 12.5,
+    "print_count": 3
+  },
+  "nozzle_history_301": [
+    {
+      "nozzle_type": "hardened_steel",
+      "nozzle_diameter": 0.4,
+      "notes": "",
+      "id": 1,
+      "printer_id": 301,
+      "installed_at": "2026-10-14T11:11:00",
+      "removed_at": null,
+      "print_hours_accumulated": 12.5,
+      "print_count": 3
+    }
+  ],
+  "ws_301": {
+    "printer_id": 301,
+    "bed_temp": 65,
+    "bed_target": 65,
+    "nozzle_temp": 219.65625,
+    "nozzle_target": 220,
+    "state": "RUNNING",
+    "progress": 34,
+    "remaining_min": 56,
+    "current_layer": 23,
+    "total_layers": 240,
+    "gcode_file": "Unifi_G3_Instant_Camera_LCD_Mount_for_BL_P1S_P1P",
+    "speed_level": 2,
+    "speed_percent": 100
+  },
+  "ws_other": {
+    "401": {
+      "printer_id": 401,
+      "bed_temp": 60.1,
+      "bed_target": 60.0,
+      "nozzle_temp": 214.8,
+      "nozzle_target": 215.0,
+      "state": "PRINTING",
+      "progress": 25.0,
+      "remaining_min": 30,
+      "current_layer": 30,
+      "total_layers": 120,
+      "fan_speed": 50
+    },
+    "402": {
+      "printer_id": 402,
+      "bed_temp": 60.0,
+      "bed_target": 60.0,
+      "nozzle_temp": 214.9,
+      "nozzle_target": 215.0,
+      "state": "PRINTING",
+      "progress": 42.0,
+      "remaining_min": 33,
+      "current_layer": 0,
+      "total_layers": 0,
+      "fan_speed": 5964
+    },
+    "403": {
+      "printer_id": 403,
+      "bed_temp": 60.2,
+      "bed_target": 60,
+      "nozzle_temp": 219.8,
+      "nozzle_target": 220,
+      "state": "PRINTING",
+      "progress": 10,
+      "remaining_min": 45,
+      "current_layer": 12,
+      "total_layers": 120,
+      "fan_speed": 100
+    }
+  }
+}

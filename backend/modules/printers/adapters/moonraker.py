@@ -35,7 +35,10 @@ import logging
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
 from enum import Enum
-from urllib.request import urlopen, Request
+from urllib.request import Request
+# Every Moonraker request is a device request: policy-validated, pinned,
+# no redirects, no environment proxies.
+from core.webhook_utils import device_urlopen as urlopen
 from urllib.error import URLError, HTTPError
 from urllib.parse import urlencode
 
@@ -347,7 +350,7 @@ class MoonrakerPrinter:
         Returns:
             True if the upload completed successfully (HTTP 201).
         """
-        import requests as _requests
+        from core.webhook_utils import device_request
 
         if remote_filename is None:
             remote_filename = os.path.basename(local_path)
@@ -359,8 +362,8 @@ class MoonrakerPrinter:
 
         try:
             with open(local_path, "rb") as f:
-                resp = _requests.post(
-                    url,
+                resp = device_request(
+                    "POST", url,
                     files={"file": (remote_filename, f, "application/octet-stream")},
                     data={"root": "gcodes"},
                     headers=headers,
@@ -485,7 +488,9 @@ class MoonrakerPrinter:
             req = Request(url)
             if self.api_key:
                 req.add_header("X-Api-Key", self.api_key)
-            with urlopen(req, timeout=timeout) as resp:  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- verified safe — connects to admin-configured printer URLs, SSRF-checked at config time
+            # urlopen is core.webhook_utils.device_urlopen: policy-validated,
+            # pinned (no DNS rebinding), no redirects, no environment proxies.
+            with urlopen(req, timeout=timeout) as resp:  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- verified safe — destination policy checked and pinned per request
                 return json.loads(resp.read().decode())
         except HTTPError as e:
             log.warning(f"HTTP {e.code} from {url}")
@@ -513,7 +518,9 @@ class MoonrakerPrinter:
             req.add_header("Content-Type", "application/json")
             if self.api_key:
                 req.add_header("X-Api-Key", self.api_key)
-            with urlopen(req, timeout=timeout) as resp:  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- verified safe — connects to admin-configured printer URLs, SSRF-checked at config time
+            # urlopen is core.webhook_utils.device_urlopen: policy-validated,
+            # pinned (no DNS rebinding), no redirects, no environment proxies.
+            with urlopen(req, timeout=timeout) as resp:  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- verified safe — destination policy checked and pinned per request
                 return json.loads(resp.read().decode())
         except HTTPError as e:
             log.warning(f"HTTP {e.code} from {url}")
