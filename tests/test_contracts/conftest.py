@@ -107,8 +107,9 @@ def _job_status_runtime_census(request):
     """
     from sqlalchemy import event, inspect as orm_inspect
     from sqlalchemy.engine import Engine
+    from sqlalchemy.pool import Pool
     from tests.test_contracts.job_census import sql_status_writes
-    violations = []
+    violations, traced = [], []
 
     def trace(statement):
         lowered = statement.lower()
@@ -117,9 +118,12 @@ def _job_status_runtime_census(request):
             if origin is not None:
                 violations.append((origin, " ".join(statement.split())[:160]))
 
-    def on_connect(dbapi_connection, _record):
+    def attach(dbapi_connection, *_):
+        # Every DBAPI connection a test uses: new ones (connect) and pooled ones
+        # opened before the test, e.g. by module or session engines (checkout).
         if hasattr(dbapi_connection, "set_trace_callback"):
             dbapi_connection.set_trace_callback(trace)
+            traced.append(dbapi_connection)
 
     def on_status(target, value, oldvalue, initiator):
         if orm_inspect(target).persistent:
@@ -128,11 +132,18 @@ def _job_status_runtime_census(request):
                 violations.append((origin, f"Job.status = {value!r}"))
 
     from modules.jobs.models import Job
-    event.listen(Engine, "connect", on_connect)
+    event.listen(Engine, "connect", attach)
+    event.listen(Pool, "checkout", attach)
     event.listen(Job.status, "set", on_status)
     try:
         yield violations
     finally:
-        event.remove(Engine, "connect", on_connect)
+        event.remove(Engine, "connect", attach)
+        event.remove(Pool, "checkout", attach)
         event.remove(Job.status, "set", on_status)
+        for dbapi_connection in traced:
+            try:
+                dbapi_connection.set_trace_callback(None)
+            except Exception:
+                pass  # already closed
     assert violations == [], f"jobs.status written outside the state machine: {violations}"

@@ -544,3 +544,33 @@ def test_runtime_census_catches_a_product_write_outside_the_state_machine(review
     assert transition_job(review_db, 731, 'cancelled', 'operator')       # the state machine is fine
     review_db.commit()
     assert violations == []
+
+
+def _warm_engine(tmp_path):
+    """An engine whose pooled connection exists before any per-test hook runs."""
+    from sqlalchemy import create_engine
+    engine = create_engine(f"sqlite:///{tmp_path / 'warm.db'}")
+    with engine.begin() as conn:
+        conn.exec_driver_sql("CREATE TABLE jobs (id INTEGER PRIMARY KEY, status TEXT)")
+        conn.exec_driver_sql("INSERT INTO jobs VALUES (1, 'pending')")
+    return engine
+
+
+def test_runtime_census_traces_pooled_connections_and_detaches_at_teardown(tmp_path, _job_status_runtime_census):
+    """A connection pooled before the hook started is traced on checkout; teardown removes the trace."""
+    import tests.test_contracts.conftest as contract_conftest
+    engine = _warm_engine(tmp_path)                       # pooled before the hook below starts
+    hook = contract_conftest._job_status_runtime_census.__wrapped__(None)
+    violations = next(hook)
+    planted = compile("with engine.begin() as conn:\n"
+                      "    conn.exec_driver_sql(\"UPDATE jobs SET status='failed' WHERE id=1\")\n",
+                      str(BACKEND / 'modules' / 'planted_pooled_bypass.py'), 'exec')
+    exec(planted, {'engine': engine})
+    assert [entry[0].split(':')[0].endswith('planted_pooled_bypass.py') for entry in violations] == [True], violations
+    violations.clear()
+    with pytest.raises(StopIteration):
+        next(hook)                                        # teardown: listeners and traces removed
+    exec(planted, {'engine': engine})                     # no longer traced by the finished hook
+    assert violations == []
+    _job_status_runtime_census.clear()                    # this test's own hook saw the planted writes too
+    engine.dispose()
