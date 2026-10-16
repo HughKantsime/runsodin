@@ -25,6 +25,7 @@ def capturing() -> bool:
 VOLATILE_KEYS = frozenset({
     "created_at", "updated_at", "timestamp", "actual_start", "actual_end", "loaded_at",
     "last_serviced", "next_due_date",
+    "size_bytes", "size_mb",  # a SQLite file's size depends on what earlier tests left in it
 })
 ISO_TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?")
 
