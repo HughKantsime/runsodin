@@ -408,3 +408,53 @@ def test_command_right_after_connect_completes_well_under_its_timeout(tls_mqtt, 
     finally:
         printer.disconnect()
 
+
+def _h2d_first_ams_report(sock, clock):
+    frames = frames_until("bambu-h2d-failure-arc", lambda p: isinstance(p.get("ams"), dict) and p["ams"].get("ams"))
+    replay(sock, clock, frames[:-1])
+    clock[0] = frames[-1][0] + 11
+    return frames[-1][1]
+
+
+def test_spool_moved_out_of_unplugged_ht_keeps_its_new_location(wire_monitor, review_db):
+    import copy
+    monitor, sock, clock, events = wire_monitor
+    report = _h2d_first_ams_report(sock, clock)
+    ht_tag = next(t["tag_uid"] for u in report["print"]["ams"]["ams"] if u["id"] == "128" for t in u["tray"])
+    org = review_db.execute(text("SELECT org_id FROM printers WHERE id=301")).scalar_one()
+    fid = review_db.execute(text("SELECT id FROM filament_library LIMIT 1")).scalar()
+    if fid is None:
+        review_db.execute(text("INSERT INTO filament_library(id,brand,name,material) VALUES(7700,'Synthetic','HT','PLA')"))
+        fid = 7700
+    review_db.execute(text("INSERT INTO spools(id,filament_id,rfid_tag,org_id,initial_weight_g,remaining_weight_g) "
+                           "VALUES(7701,:fid,:tag,:org,1000,1000)"), {"tag": ht_tag, "org": org, "fid": fid})
+    review_db.commit()
+    sock.deliver(report)
+    review_db.expire_all()
+    location = lambda: tuple(review_db.execute(text("SELECT location_printer_id,location_slot FROM spools WHERE id=7701")).one())
+    assert location() == (301, 17)
+    moved = copy.deepcopy(report)
+    units = [u for u in moved["print"]["ams"]["ams"] if u["id"] != "128"]
+    units[0]["tray"][0]["tag_uid"] = ht_tag  # same spool now loaded in AMS 1 slot 1
+    moved["print"]["ams"]["ams"] = units
+    clock[0] += 61
+    sock.deliver(moved)
+    review_db.expire_all()
+    assert location() == (301, 1)
+    assert review_db.execute(text("SELECT assigned_spool_id FROM filament_slots WHERE printer_id=301 AND slot_number=1")).scalar_one() == 7701
+    assert review_db.execute(text("SELECT assigned_spool_id,filament_type FROM filament_slots WHERE printer_id=301 AND slot_number=17")).one()[0] is None
+
+
+def test_empty_ams_list_clears_unplugged_ht_slots(wire_monitor, review_db):
+    import copy
+    monitor, sock, clock, events = wire_monitor
+    report = _h2d_first_ams_report(sock, clock)
+    sock.deliver(report)
+    empty = copy.deepcopy(report)
+    empty["print"]["ams"]["ams"] = []
+    clock[0] += 61
+    sock.deliver(empty)
+    review_db.expire_all()
+    assert str(review_db.execute(text(
+        "SELECT filament_type FROM filament_slots WHERE printer_id=301 AND slot_number=17")).scalar_one()).split(".")[-1].lower() == "empty"
+

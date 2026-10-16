@@ -59,6 +59,12 @@ def sync_ams_inventory(conn, printer_id, units):
                   for number, tray in identified]
     trays = [tray for _, tray in identified]
     if not trays:
+        # An empty AMS list still means every HT unit is unplugged.
+        if not getattr(conn, '_postgres', False):
+            conn.execute('UPDATE printers SET name=name WHERE id=?', (printer_id,))
+        else:
+            _rows(conn, 'printers', {printer_id}, 'id', lock=True)
+        _clear_unplugged_ht(conn, printer_id, set())
         return 0
     reported_tags = [tray.get('tag_uid') for tray in trays if tray.get('tag_uid') and tray.get('tray_type')]
     if len(reported_tags) != len(set(reported_tags)):
@@ -134,17 +140,29 @@ def sync_ams_inventory(conn, printer_id, units):
                 conn.execute('UPDATE spools SET location_printer_id=?,location_slot=? WHERE id=?', (printer_id, number, spool_id))
             else:
                 conn.execute('UPDATE spools SET location_printer_id=?,location_slot=?,remaining_weight_g=? WHERE id=?', (printer_id, number, weight, spool_id))
-    # AMS HT units (slots 17+) exist only through this sync. An HT slot whose
-    # unit is absent from the reported AMS list was unplugged: clear it rather
-    # than keep showing the last spool. Slots 1-16 are left alone because
-    # they double as user-configured slots (slot_count) without an AMS.
+    _clear_unplugged_ht(conn, printer_id, {number for number, _ in identified})
+    return len(trays)
+
+
+def _clear_unplugged_ht(conn, printer_id, reported):
+    """Clear AMS HT slots (17+) whose unit is absent from the reported AMS list.
+
+    HT slots exist only through this sync, so an absent unit was unplugged.
+    Runs against the POST-sync state: a spool moved out of the HT slot in the
+    same report has already been reassigned, and only a spool still located
+    in that HT slot loses its location. Slots 1-16 are left alone because
+    they double as user-configured slots (slot_count) without an AMS.
+    """
     from modules.printers.telemetry.bambu.ams_identity import AMS_HT_FIRST_SLOT
-    reported = {number for number, _ in identified}
-    for slot_id, (assigned, slot_printer, number) in before[0].items():
-        if slot_printer != printer_id or number < AMS_HT_FIRST_SLOT or number in reported:
+    suffix = ' FOR UPDATE' if getattr(conn, '_postgres', False) else ''
+    rows = conn.execute(
+        f'SELECT id,assigned_spool_id,slot_number FROM filament_slots WHERE printer_id=? AND slot_number>=? ORDER BY id{suffix}',
+        (printer_id, AMS_HT_FIRST_SLOT)).fetchall()
+    for slot_id, assigned, number in rows:
+        if number in reported:
             continue
         conn.execute('UPDATE filament_slots SET filament_type=?,color_hex=NULL,color=NULL,assigned_spool_id=NULL,spool_confirmed=? WHERE id=?',
                      ('empty', False, slot_id))
-        if assigned is not None and (spools[assigned][2], spools[assigned][5]) == (printer_id, number):
-            conn.execute('UPDATE spools SET location_printer_id=NULL,location_slot=NULL WHERE id=?', (assigned,))
-    return len(trays)
+        if assigned is not None:
+            conn.execute('UPDATE spools SET location_printer_id=NULL,location_slot=NULL'
+                         ' WHERE id=? AND location_printer_id=? AND location_slot=?', (assigned, printer_id, number))
