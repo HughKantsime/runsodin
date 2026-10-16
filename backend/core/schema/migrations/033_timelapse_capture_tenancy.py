@@ -33,6 +33,28 @@ capture_tenancy = Table(
 EXPECTED_COLUMNS = frozenset(c.name for c in capture_tenancy.columns)
 
 
+# Spellings of "the current time" a reflected default may take: SQLite keeps the
+# declared text; PostgreSQL reports CURRENT_TIMESTAMP or now(), possibly wrapped in
+# parentheses or cast to timestamptz.
+_NOW = frozenset({"current_timestamp", "now()", "transaction_timestamp()"})
+_CASTS = ("::timestamp with time zone", "::timestamptz", "::timestamp without time zone", "::timestamp")
+
+
+def _current_timestamp_default(reflected) -> bool:
+    text_value = " ".join(str(reflected or "").lower().split())
+    for _ in range(4):  # unwrap balanced outer parentheses and a trailing cast
+        if text_value.startswith("(") and text_value.endswith(")") and text_value.count("(") == text_value.count(")"):
+            inner = text_value[1:-1].strip()
+            if inner.count("(") == inner.count(")"):
+                text_value = inner
+                continue
+        stripped = next((text_value[:-len(cast)].strip() for cast in _CASTS if text_value.endswith(cast)), None)
+        if stripped is None:
+            break
+        text_value = stripped
+    return text_value in _NOW
+
+
 def apply(connection):
     if connection.dialect.name == 'sqlite' and not connection.connection.driver_connection.in_transaction:
         connection.exec_driver_sql('BEGIN IMMEDIATE')
@@ -61,8 +83,7 @@ def validate(connection):
     # SQLite does not record time zones; PostgreSQL must store timestamptz.
     if not isinstance(created_type, _DateTime) or (connection.dialect.name == "postgresql" and not created_type.timezone):
         raise MigrationError("Capture tenancy created_at must be a timezone-aware timestamp")
-    default = str(columns["created_at"].get("default") or "").strip().strip("()").upper()
-    if default not in ("CURRENT_TIMESTAMP", "NOW()"):
+    if not _current_timestamp_default(columns["created_at"].get("default")):
         raise MigrationError("Capture tenancy created_at must default to CURRENT_TIMESTAMP")
     if inspector.get_pk_constraint(TABLE).get("constrained_columns") != ["operation_id"]:
         raise MigrationError("Capture tenancy primary key missing")
