@@ -291,7 +291,11 @@ export function OrderDetailModal({ isOpen, order, onClose, onSchedule, onShip, o
           <h3 className="font-medium mb-2 text-[var(--brand-text)]">Jobs</h3>
           <div className="text-sm text-[var(--brand-text-secondary)]">
             {order.jobs_complete} / {order.jobs_total} complete
-            <div className="w-full rounded-md h-2 mt-1 bg-[var(--brand-input-bg)]">
+            <div
+              className="w-full rounded-md h-2 mt-1 bg-[var(--brand-input-bg)]"
+              role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-label="Jobs complete"
+              aria-valuenow={order.jobs_total ? Math.round((order.jobs_complete / order.jobs_total) * 100) : 0}
+            >
               <div
                 className="h-2 rounded-md bg-[var(--brand-primary)]"
                 style={{ width: `${order.jobs_total ? (order.jobs_complete / order.jobs_total) * 100 : 0}%` }}

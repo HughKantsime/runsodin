@@ -154,6 +154,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }) {
       {mobileOpen && (
         <div
           className="fixed inset-0 bg-black/50 z-40 md:hidden"
+          aria-hidden="true"
           onClick={onMobileClose}
         />
       )}
@@ -220,7 +221,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }) {
         {/* Org Switcher (superadmin only) */}
         {org.isAdmin && org.orgs.length > 0 && (!collapsed || mobileOpen) && (
           <div className="px-4 py-2" style={{ borderBottom: '1px solid var(--brand-sidebar-border)' }}>
-            <select
+            <select aria-label="Organization"
               value={org.orgId || ''}
               onChange={(e) => org.switchOrg(e.target.value ? parseInt(e.target.value) : null)}
               className="w-full bg-[var(--brand-surface)] border border-[var(--brand-card-border)] rounded-lg px-2 py-1.5 text-xs"
@@ -304,7 +305,12 @@ export default function Sidebar({ mobileOpen, onMobileClose }) {
               <span>Printing: {printingCount}</span><span>Idle: {idleCount}</span><span>Offline: {offlineCount}</span>
               {otherCount > 0 && <span>Other: {otherCount}</span>}
             </div>
-            <div className="h-1 rounded-full overflow-hidden" style={{ backgroundColor: 'rgb(var(--farm-800))' }}>
+            <div
+              className="h-1 rounded-full overflow-hidden" style={{ backgroundColor: 'rgb(var(--farm-800))' }}
+              role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-label="Printers online"
+              aria-valuenow={printersData.length ? Math.round(printersData.filter(p => isOnline(p)).length / printersData.length * 100) : 0}
+              aria-valuetext={`${printersData.filter(p => isOnline(p)).length} of ${printersData.length} printers online`}
+            >
               <div
                 className="h-full rounded-full transition-all duration-500"
                 style={{

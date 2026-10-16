@@ -38,6 +38,7 @@ from sqlalchemy.orm import Session
 
 from core.base import AlertType, AlertSeverity
 from core.models import SystemConfig
+from core.rbac import check_org_access
 from core.webhook_utils import safe_post, trusted_post, WebhookSSRFError
 from modules.notifications.models import Alert, AlertPreference, PushSubscription
 
@@ -329,6 +330,30 @@ def get_group_owner_id(db: Session, user_id: int) -> Optional[int]:
         {"user_id": user_id}
     ).fetchone()
     return row[0] if row else None
+
+
+def get_job_approval_reviewer_ids(db: Session, submitter: dict) -> List[int]:
+    """Who is told that a submitter's job awaits approval.
+
+    The submitter's group owner when the owner can open the group's jobs
+    (a member of the group, or a superadmin). Otherwise — no owner, or an
+    owner outside the group who could neither see nor approve the job — the
+    fallback reviewers: admins and operators of the submitter's group.
+    """
+    group_id = submitter.get("group_id")
+    owner_id = get_group_owner_id(db, submitter["id"])
+    if owner_id:
+        owner = db.execute(
+            text("SELECT id, role, group_id FROM users WHERE id = :id AND is_active IS TRUE"),
+            {"id": owner_id},
+        ).mappings().first()
+        if owner and check_org_access(dict(owner), group_id):
+            return [owner_id]
+        logger.warning(
+            "Group owner %s cannot access group %s; approval alert falls back to group reviewers",
+            owner_id, group_id,
+        )
+    return get_operator_admin_ids(db, group_id)
 
 
 def get_operator_admin_ids(db: Session, group_id: int | None = None) -> List[int]:

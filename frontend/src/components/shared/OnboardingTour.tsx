@@ -139,7 +139,7 @@ export default function OnboardingTour() {
       {/* Card */}
       <div className="rounded-xl border border-border bg-card shadow-2xl overflow-hidden">
         {/* Progress bar */}
-        <div className="h-1 bg-muted">
+        <div className="h-1 bg-muted" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-label="Tour progress" aria-valuenow={Math.round(progress)}>
           <div
             className="h-full bg-accent transition-all duration-500"
             style={{ width: `${progress}%` }}

@@ -22,6 +22,7 @@ export default function Login() {
   const [forgotEmail, setForgotEmail] = useState('')
   const [forgotSent, setForgotSent] = useState(false)
   const [forgotLoading, setForgotLoading] = useState(false)
+  const [forgotError, setForgotError] = useState('')
   const [smtpEnabled, setSmtpEnabled] = useState(false)
 
   useEffect(() => {
@@ -170,6 +171,7 @@ const handleSubmit = async (e) => {
                     ) : (
                       <div className="space-y-2">
                         <p>Enter your email to receive a reset link</p>
+                        {forgotError && <p role="alert" className="text-red-400">{forgotError}</p>}
                         <input
                           aria-label="Account email"
                           type="email"
@@ -184,8 +186,14 @@ const handleSubmit = async (e) => {
                             onClick={async () => {
                               if (!forgotEmail) return
                               setForgotLoading(true)
+                              setForgotError('')
+                              // Only a successful answer means a link may have been sent; a refusal
+                              // (for example 503 when reset email is not configured) is shown as such.
                               try { await api.auth.forgotPassword(forgotEmail); setForgotSent(true) }
-                              catch { setForgotSent(true) }
+                              catch (err) {
+                                const detail = err instanceof Error && err.message ? err.message : ''
+                                setForgotError(`No reset link was sent. ${detail || 'Password reset is unavailable right now.'} Contact your administrator if this continues.`)
+                              }
                               setForgotLoading(false)
                             }}
                             disabled={forgotLoading || !forgotEmail}

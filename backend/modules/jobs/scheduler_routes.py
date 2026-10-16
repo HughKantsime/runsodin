@@ -38,7 +38,7 @@ router = APIRouter()
 @router.post("/scheduler/run", response_model=ScheduleResult, tags=["Scheduler"])
 def run_scheduler_endpoint(
     config: Optional[SchedulerConfigSchema] = None,
-    current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
+    current_user: dict = Depends(require_role("operator", scope="write:jobs")), db: Session = Depends(get_db)
 ):
     """Run the scheduler to assign pending jobs to printers."""
     scheduler_config = None
@@ -95,7 +95,7 @@ def run_scheduler_endpoint(
 @router.get("/scheduler/runs", response_model=list[SchedulerRunResponse], tags=["Scheduler"])
 def list_scheduler_runs(
     limit: int = Query(default=30, le=100),
-    current_user: dict = Depends(require_role("viewer")),
+    current_user: dict = Depends(require_role("viewer", scope="read:jobs")),
     db: Session = Depends(get_db)
 ):
     """Get scheduler run history. Superadmin sees all; org admins see summary only."""
@@ -113,7 +113,7 @@ def list_scheduler_runs(
 def get_timeline(
     start_date: Optional[datetime] = None,
     days: int = Query(default=7, ge=1, le=30),
-    current_user: dict = Depends(require_role("viewer")),
+    current_user: dict = Depends(require_role("viewer", scope="read:jobs")),
     db: Session = Depends(get_db)
 ):
     """Get timeline view data for the scheduler."""

@@ -20,6 +20,7 @@ import {
   Eye,
 } from 'lucide-react'
 import clsx from 'clsx'
+import DialogSurface from './DialogSurface'
 
 const PRIMARY_TABS = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -55,14 +56,18 @@ export default function MobileBottomNav() {
       {moreOpen && (
         <div className="fixed inset-0 z-40 md:hidden" onClick={() => setMoreOpen(false)}>
           <div className="absolute inset-0 bg-black/50" />
-          <div
+          <DialogSurface
+            onEscape={() => setMoreOpen(false)}
+            role="dialog"
+            aria-modal="true"
+            aria-label="More navigation"
             className="absolute bottom-16 left-0 right-0 bg-[var(--brand-card-bg)] border-t border-[var(--brand-card-border)] rounded-t-xl p-3 max-h-[60vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-3 px-1">
               <span className="text-xs font-semibold text-[var(--brand-text-secondary)] uppercase tracking-wider">More</span>
-              <button onClick={() => setMoreOpen(false)} className="p-1 text-[var(--brand-text-muted)]">
-                <X size={16} />
+              <button onClick={() => setMoreOpen(false)} aria-label="Close more menu" className="p-1 text-[var(--brand-text-muted)]">
+                <X size={16} aria-hidden="true" />
               </button>
             </div>
             <div className="grid grid-cols-3 gap-1">
@@ -84,7 +89,7 @@ export default function MobileBottomNav() {
                 </NavLink>
               ))}
             </div>
-          </div>
+          </DialogSurface>
         </div>
       )}
 

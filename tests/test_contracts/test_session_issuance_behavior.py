@@ -9,6 +9,15 @@ from sqlalchemy.orm import Session
 from tests.test_contracts.test_education_review_workflow import review_db
 from tests.test_contracts.test_mfa_authentication_behavior import mfa_client, enroll, challenge
 
+# The exchange needs the initiating browser's binding cookie; codes are stored
+# only as sha256(binding:code) (routes_oidc.oidc_code_key).
+OIDC_BINDING='b'*64  # shape of routes_oidc.oidc_state_binding(state)
+
+
+def bound_key(code):
+    from modules.organizations.routes_oidc import oidc_code_key
+    return oidc_code_key(code,OIDC_BINDING)
+
 
 def break_session_insert(monkeypatch):
     original=Session.execute
@@ -44,7 +53,9 @@ def oidc_client(review_db):
         with Session(review_db.get_bind()) as db:yield db
     app.dependency_overrides[get_db]=database
     review_db.get_bind().hide_parameters=True
-    return TestClient(app,raise_server_exceptions=False)
+    client=TestClient(app,raise_server_exceptions=False)
+    client.cookies.set('odin_oidc_bind',OIDC_BINDING)
+    return client
 
 
 def seed_code(db):
@@ -52,7 +63,7 @@ def seed_code(db):
     code=secrets.token_urlsafe(32)
     token=create_access_token({'sub':'student','role':'viewer'})
     db.execute(text('INSERT INTO oidc_auth_codes(code,access_token,expires_at) VALUES(:code,:token,:expiry)'),
-               {'code':code,'token':token,'expiry':(datetime.now(timezone.utc)+timedelta(minutes=5)).isoformat()})
+               {'code':bound_key(code),'token':token,'expiry':(datetime.now(timezone.utc)+timedelta(minutes=5)).isoformat()})
     db.commit()
     return code
 
@@ -185,7 +196,7 @@ def test_oidc_exchange_rejects_noninteractive_identity(oidc_client,review_db,mod
     code=secrets.token_urlsafe(32)
     token=jwt.encode(payload,auth.SECRET_KEY,algorithm=auth.ALGORITHM)
     review_db.execute(text('INSERT INTO oidc_auth_codes(code,access_token,expires_at) VALUES(:code,:token,:expiry)'),
-                      {'code':code,'token':token,'expiry':(datetime.now(timezone.utc)+timedelta(minutes=5)).isoformat()})
+                      {'code':bound_key(code),'token':token,'expiry':(datetime.now(timezone.utc)+timedelta(minutes=5)).isoformat()})
     review_db.commit()
     response=oidc_client.post('/auth/oidc/exchange',json={'code':code})
     assert response.status_code==401
@@ -231,7 +242,7 @@ def test_oidc_changed_payload_is_not_consumed_from_stale_read(oidc_client,review
             rows=result.fetchall();changed=True
             with review_db.get_bind().begin() as independent:
                 independent.execute(text('UPDATE oidc_auth_codes SET access_token=:token WHERE code=:code'),
-                                    {'token':replacement,'code':code})
+                                    {'token':replacement,'code':bound_key(code)})
             class Buffered:
                 def fetchone(self):return rows[0] if rows else None
             return Buffered()
@@ -242,7 +253,7 @@ def test_oidc_changed_payload_is_not_consumed_from_stale_read(oidc_client,review
     assert 'access_token' not in response.json()
     with Session(review_db.get_bind()) as fresh:
         assert fresh.execute(text('SELECT COUNT(*) FROM active_sessions')).scalar_one()==0
-        assert fresh.execute(text('SELECT COUNT(*) FROM oidc_auth_codes WHERE code=:code'),{'code':code}).scalar_one()==1
+        assert fresh.execute(text('SELECT COUNT(*) FROM oidc_auth_codes WHERE code=:code'),{'code':bound_key(code)}).scalar_one()==1
 
 
 @pytest.mark.parametrize('committed',[False,True])
@@ -402,3 +413,17 @@ def test_oidc_exchange_does_not_bypass_enabled_local_mfa(oidc_client,review_db):
     assert 'session' not in response.cookies
     with Session(review_db.get_bind()) as fresh:
         assert fresh.execute(text('SELECT COUNT(*) FROM active_sessions')).scalar_one()==0
+
+
+def test_oidc_code_is_bound_to_the_initiating_browser(oidc_client,review_db):
+    """A code read from a log or URL is useless without the login's binding cookie."""
+    code=seed_code(review_db)
+    oidc_client.cookies.set('odin_oidc_bind','another-browser-binding-'+'z'*24)
+    assert oidc_client.post('/auth/oidc/exchange',json={'code':code}).status_code==400
+    oidc_client.cookies.clear()
+    assert oidc_client.post('/auth/oidc/exchange',json={'code':code}).status_code==400
+    with Session(review_db.get_bind()) as fresh:
+        # Refused attempts consume nothing; the real browser can still finish.
+        assert fresh.execute(text('SELECT COUNT(*) FROM oidc_auth_codes')).scalar_one()==1
+    oidc_client.cookies.set('odin_oidc_bind',OIDC_BINDING)
+    assert oidc_client.post('/auth/oidc/exchange',json={'code':code}).status_code==200

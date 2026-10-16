@@ -5,7 +5,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from tests.test_contracts.test_education_review_workflow import review_db
-from tests.test_contracts.test_session_issuance_behavior import oidc_client, seed_code
+from tests.test_contracts.test_session_issuance_behavior import oidc_client, seed_code, bound_key
 
 
 def test_pending_oidc_code_cannot_exchange_a_blacklisted_token(oidc_client, review_db):
@@ -15,7 +15,7 @@ def test_pending_oidc_code_cannot_exchange_a_blacklisted_token(oidc_client, revi
     code = seed_code(review_db)
     token = review_db.execute(
         text('SELECT access_token FROM oidc_auth_codes WHERE code=:code'),
-        {'code': code},
+        {'code': bound_key(code)},
     ).scalar_one()
     payload = jwt.decode(token, auth.SECRET_KEY, algorithms=[auth.ALGORITHM])
     review_db.execute(

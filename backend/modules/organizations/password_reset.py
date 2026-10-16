@@ -11,6 +11,7 @@ from sqlalchemy import text
 from core.db_compat import execute_insert_returning_id
 from core.dependencies import log_audit
 from core.models import SystemConfig
+from core.application_url import configured_base_url, validate_base_url, base_url_health_warning  # noqa: F401  (re-exported)
 
 
 def reset_token_digest(raw):
@@ -22,18 +23,62 @@ def reset_mail_base_url(db):
     smtp=config.value if config and isinstance(config.value,dict) else {}
     if smtp.get('enabled') is not True or not isinstance(smtp.get('host'),str) or not smtp['host'].strip():
         raise HTTPException(status_code=503,detail='Password reset requires SMTP to be configured.')
-    configured=db.query(SystemConfig).filter(SystemConfig.key=='base_url').first()
-    base=configured.value if configured else None
     try:
-        if not isinstance(base,str) or not base or any(char.isspace() or ord(char)<32 or ord(char)==127 for char in base):
-            raise ValueError('Invalid base URL')
-        parsed=urlsplit(base)
-        if parsed.scheme.lower() not in {'http','https'} or not parsed.hostname or parsed.username is not None or parsed.password is not None or parsed.query or parsed.fragment:
-            raise ValueError('Invalid base URL')
-        parsed.port  # Validate a supplied port without emitting the configured value.
+        return validate_base_url(configured_base_url(db), enforce_https=False)
     except ValueError:
         raise HTTPException(status_code=503,detail='Password reset requires a valid application base URL.') from None
-    return base.rstrip('/')
+
+
+def invalidate_recovery_credentials(db, user_id):
+    """Void outstanding reset links and biometric refresh tokens for a user.
+
+    Called when the recovery email changes, so a link or long-lived token
+    issued against the old address can no longer be redeemed.
+    """
+    db.execute(text('UPDATE password_reset_tokens SET used=1 WHERE user_id=:uid AND used=0'),
+               {'uid': user_id})
+    db.execute(text('DELETE FROM biometric_tokens WHERE user_id=:uid'), {'uid': user_id})
+
+
+def revoke_sessions_and_biometric(db, user_id, *, keep_jti=None, blacklist_hours=24):
+    """Revoke a user's biometric tokens and active sessions after a password change.
+
+    keep_jti, when given, is the one session left alive (the caller's own, for a
+    self-initiated change); every other session jti is blacklisted and deleted.
+    """
+    from core.db_compat import sql
+    db.execute(text('DELETE FROM biometric_tokens WHERE user_id=:uid'), {'uid': user_id})
+    expiry = (datetime.now(timezone.utc) + timedelta(hours=blacklist_hours)).isoformat()
+    rows = db.execute(text('SELECT token_jti FROM active_sessions WHERE user_id=:uid'),
+                      {'uid': user_id}).fetchall()
+    for session in rows:
+        if keep_jti is not None and session.token_jti == keep_jti:
+            continue
+        db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) "
+                        f"VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),
+                   {'jti': session.token_jti, 'exp': expiry})
+    if keep_jti is None:
+        db.execute(text('DELETE FROM active_sessions WHERE user_id=:uid'), {'uid': user_id})
+    else:
+        db.execute(text('DELETE FROM active_sessions WHERE user_id=:uid AND token_jti != :jti'),
+                   {'uid': user_id, 'jti': keep_jti})
+
+
+def current_session_jti(request):
+    """The jti of the session/bearer token on this request, or None."""
+    if request is None:
+        return None
+    import jwt as _jwt
+    from core import auth as _auth
+    cookie = request.cookies.get('session')
+    header = request.headers.get('authorization', '')
+    raw = cookie or (header.split(' ', 1)[1] if header.startswith('Bearer ') else None)
+    if not raw:
+        return None
+    try:
+        return _jwt.decode(raw, _auth.SECRET_KEY, algorithms=[_auth.ALGORITHM]).get('jti')
+    except Exception:
+        return None
 
 
 def send_reset_link(db,user_id,username,email,send,*,base_url,actor_user_id=None):

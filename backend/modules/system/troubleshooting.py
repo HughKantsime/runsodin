@@ -72,6 +72,14 @@ def server_checks(db):
                             '' if healthy else 'Review container service logs.', running=sum(s=='RUNNING' for s in states), total=len(states)))
     except (OSError, subprocess.TimeoutExpired):
         checks.append(check('services', 'unknown', 'Supervisor status could not be read.', 'Check container service status from the host.'))
+    try:
+        from core.application_url import base_url_health_warning
+        warning = base_url_health_warning(db)
+        checks.append(check('application_url', 'pass' if not warning else 'warn',
+                            'Reset-link URL is unset or uses https.' if not warning else warning,
+                            '' if not warning else 'Set an https Application URL in Settings > Notifications.'))
+    except Exception:
+        pass
     return envelope(checks)
 
 

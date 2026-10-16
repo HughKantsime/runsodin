@@ -8,7 +8,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -17,14 +17,14 @@ from sqlalchemy.orm import Session
 from core.db import get_db
 from core.db_compat import execute_insert_returning_id, sql
 from core.dependencies import log_audit
-from core.rbac import require_scope, require_role, require_superadmin
+from core.rbac import require_scope, require_role, require_superadmin, require_interactive_session, is_interactive_session, CREDENTIAL_ROUTE_DETAIL
 from modules.organizations.education_policy import (
     assert_org_hard_delete_allowed,
     assert_user_hard_delete_allowed,
     assert_user_tenant_change_allowed,
 )
 from core.auth_helpers import _validate_password
-from core.auth import ACCESS_TOKEN_EXPIRE_HOURS, hash_password, UserCreate
+from core.auth import ACCESS_TOKEN_EXPIRE_HOURS, hash_password, UserCreate, UserRole
 from core.models import SystemConfig
 from license_manager import require_feature, check_user_limit
 
@@ -118,7 +118,7 @@ async def list_users(current_user: dict = Depends(require_role("admin")), db: Se
     return [{**dict(u._mapping), "mfa_enabled": bool(u.mfa_enabled)} for u in users]
 
 
-@router.post("/users", tags=["Users"], dependencies=[Depends(require_scope("admin"))])
+@router.post("/users", tags=["Users"], dependencies=[Depends(require_interactive_session())])
 async def create_user(user: UserCreate, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     # Org-scoped admin: enforce group assignment
     if not _is_superadmin(current_user):
@@ -196,7 +196,7 @@ async def create_user(user: UserCreate, current_user: dict = Depends(require_rol
     return {"status": "created"}
 
 
-@router.post("/users/{user_id}/reset-password-email", tags=["Users"], dependencies=[Depends(require_scope("admin"))])
+@router.post("/users/{user_id}/reset-password-email", tags=["Users"], dependencies=[Depends(require_interactive_session())])
 async def reset_password_email(user_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Admin action: email a reset link without changing the user's password."""
     from modules.organizations.password_reset import reset_mail_base_url, send_reset_link
@@ -221,14 +221,14 @@ async def reset_password_email(user_id: int, current_user: dict = Depends(requir
 class UserUpdateRequest(PydanticBaseModel):
     username: Optional[str] = None
     email: Optional[str] = None
-    role: Optional[str] = None
+    role: Optional[UserRole] = None
     is_active: Optional[bool] = None
     password: Optional[str] = None
     group_id: Optional[int] = None
 
 
 @router.patch("/users/{user_id}", tags=["Users"], dependencies=[Depends(require_scope("admin"))])
-async def update_user(user_id: int, body: UserUpdateRequest, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+async def update_user(user_id: int, body: UserUpdateRequest, current_user: dict = Depends(require_role("admin")), request: Request = None, db: Session = Depends(get_db)):
     updates = body.model_dump(exclude_unset=True)
     target = db.execute(
         text("SELECT group_id FROM users WHERE id = :id"), {"id": user_id}
@@ -246,6 +246,19 @@ async def update_user(user_id: int, body: UserUpdateRequest, current_user: dict 
     if "group_id" in updates and updates["group_id"] != target.group_id:
         assert_user_tenant_change_allowed(db, user_id)
 
+    # Email and username are account-recovery material (a forgot-password link
+    # goes to the stored email; the username names the account), so CHANGING
+    # either is credential material and needs an interactive session. Setting a
+    # field to its current value (or resending it unchanged) is a no-op and is
+    # allowed; clearing it to null is a change.
+    current_recovery = db.execute(
+        text("SELECT email, username FROM users WHERE id = :id"), {"id": user_id}).fetchone()
+    recovery_change = (
+        ("email" in updates and updates["email"] != current_recovery.email)
+        or ("username" in updates and updates["username"] != current_recovery.username))
+    if (recovery_change or ('password' in updates and updates['password'])) and not is_interactive_session(current_user):
+        raise HTTPException(status_code=403, detail=CREDENTIAL_ROUTE_DETAIL)
+
     if 'password' in updates and updates['password']:
         pw_valid, pw_msg = _validate_password(updates['password'])
         if not pw_valid:
@@ -256,7 +269,13 @@ async def update_user(user_id: int, body: UserUpdateRequest, current_user: dict 
 
     ALLOWED_USER_FIELDS = {"username", "email", "role", "is_active", "password_hash", "group_id"}
     updates = {k: v for k, v in updates.items() if k in ALLOWED_USER_FIELDS}
+    # Unchanged recovery fields are not written at all (no-op), so a token PATCH
+    # that resends them never touches credential columns.
+    for field in ("email", "username"):
+        if field in updates and updates[field] == getattr(current_recovery, field):
+            updates.pop(field)
 
+    email_changed = 'email' in updates and updates['email'] != current_recovery.email
     password_changed = 'password_hash' in updates
     role_changed = 'role' in updates
     if updates:
@@ -267,17 +286,21 @@ async def update_user(user_id: int, body: UserUpdateRequest, current_user: dict 
     if role_changed:
         log_audit(db, "user.role_changed", "user", user_id,
                   {"new_role": updates.get("role"), "actor_user_id": current_user["id"]})
+    if email_changed:
+        # The recovery address moved: void outstanding reset links and the
+        # 30-day biometric tokens bound to the old identity.
+        from modules.organizations.password_reset import invalidate_recovery_credentials
+        invalidate_recovery_credentials(db, user_id)
     if password_changed:
         from core.mfa_login import cancel_pending_enrollments
+        from modules.organizations.password_reset import revoke_sessions_and_biometric, current_session_jti
         cancel_pending_enrollments(db, user_id)
         log_audit(db, "user.password_changed", "user", user_id,
                   {"actor_user_id": current_user["id"], "target_user_id": user_id})
-        sessions = db.execute(text("SELECT token_jti FROM active_sessions WHERE user_id = :uid"), {"uid": user_id}).fetchall()
-        expiry = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
-        for session in sessions:
-            db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-                       {"jti": session.token_jti, "exp": expiry})
-        db.execute(text("DELETE FROM active_sessions WHERE user_id = :uid"), {"uid": user_id})
+        # Revoke biometric tokens and every other session. On an admin changing
+        # their OWN password, keep the current session alive.
+        keep_jti = current_session_jti(request) if current_user["id"] == user_id else None
+        revoke_sessions_and_biometric(db, user_id, keep_jti=keep_jti)
     db.commit()
     return {"status": "updated"}
 
@@ -383,7 +406,7 @@ def _revoke_user_credentials(db, user_id):
     delete_deferred_deliveries(db, user_id=user_id)
 
 
-@router.post("/users/import", tags=["Users"], dependencies=[Depends(require_scope("admin"))])
+@router.post("/users/import", tags=["Users"], dependencies=[Depends(require_interactive_session())])
 async def import_users_csv(
     file: UploadFile = File(...),
     current_user: dict = Depends(require_role("admin")),

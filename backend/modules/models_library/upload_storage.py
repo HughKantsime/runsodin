@@ -46,7 +46,7 @@ async def _fresh_upload_actor(db, principal):
         fresh["_token_scopes"] = parse_token_scopes(token.scopes) or []
         if not token_scope_granted(fresh["_token_scopes"], "write:models"):
             raise HTTPException(status_code=403, detail="Upload authorization is no longer available")
-    return await require_role("operator", scope="write:models")(fresh)
+    return await require_role("operator", scope="write:models")(request=None, current_user=fresh)
 
 
 def _visible_upload_duplicate(db, file_hash, principal):

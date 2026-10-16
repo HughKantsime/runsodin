@@ -158,7 +158,7 @@ export default function LogViewer() {
         </div>
 
         {/* Search */}
-        <input
+        <input aria-label="Search logs"
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}

@@ -23,6 +23,7 @@ from sqlalchemy import text, update
 from core.auth import create_access_token
 from core.db import get_db
 from core.dependencies import get_current_user
+from core.rbac import require_interactive_session
 from modules.push.models import BiometricToken
 from modules.push.schemas import (
     BiometricTokenResponse,
@@ -40,7 +41,7 @@ def _hash_token(raw: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-@router.post("/auth/biometric-token", response_model=BiometricTokenResponse)
+@router.post("/auth/biometric-token", response_model=BiometricTokenResponse, dependencies=[Depends(require_interactive_session())])
 async def create_biometric_token(
     device_id: str,
     current_user: dict = Depends(get_current_user),
@@ -171,7 +172,7 @@ async def refresh_with_biometric_token(
         raise HTTPException(status_code=503, detail='Login temporarily unavailable. Try again later.') from None
     return BiometricRefreshResponse(access_token=access_token, refresh_token=new_raw, expires_at=new_expires)
 
-@router.delete("/auth/biometric-token", status_code=204)
+@router.delete("/auth/biometric-token", status_code=204, dependencies=[Depends(require_interactive_session())])
 async def revoke_biometric_token(
     device_id: str,
     current_user: dict = Depends(get_current_user),

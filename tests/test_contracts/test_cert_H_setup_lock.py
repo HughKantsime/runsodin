@@ -22,14 +22,7 @@ from core.schema import bootstrap_database
 from modules.system import routes_setup
 
 BACKEND = Path(__file__).resolve().parents[2] / "backend"
-DEFECT = (
-    "DEFECT: backend/modules/system/routes_setup.py:401-406 persists completion via SystemConfig(value='true') "
-    "whose JSON column (core/models.py:19) stores the text '\"true\"', while _setup_is_complete "
-    "(routes_setup.py:110-112) compares the raw value to 'true'. Scenario: wizard calls POST /setup/complete "
-    "(200) -> GET /setup/status is_complete=false; /setup/complete accepted again; any authenticated user "
-    "(even viewer) can still POST /setup/printer; with zero users /setup/admin reopens."
-)
-
+# F22-22.1-07 (fixed): completion is stored as JSON true and read JSON-aware, so the real handler locks setup.
 
 @pytest.fixture
 def client(tmp_path):
@@ -68,19 +61,16 @@ def test_claim_gate_closed_once_admin_exists(client):
         assert conn.execute(text("SELECT COUNT(*) FROM users")).scalar_one() == 1
 
 
-@pytest.mark.xfail(strict=True, reason=DEFECT)
 def test_status_reports_complete_after_real_completion(client):
     test_client, _, _ = client
     assert test_client.get("/setup/status").json()["is_complete"] is True
 
 
-@pytest.mark.xfail(strict=True, reason=DEFECT)
 def test_completion_cannot_be_repeated(client):
     test_client, _, _ = client
     assert test_client.post("/setup/complete").status_code == 403
 
 
-@pytest.mark.xfail(strict=True, reason=DEFECT)
 def test_viewer_cannot_create_printers_through_setup_after_completion(client):
     test_client, engine, actor = client
     actor["value"] = {"id": 2, "username": "certh-viewer", "role": "viewer", "group_id": None}
@@ -90,10 +80,11 @@ def test_viewer_cannot_create_printers_through_setup_after_completion(client):
     assert response.status_code == 403 and created == 0, (response.status_code, created)
 
 
-@pytest.mark.xfail(strict=True, reason=DEFECT)
 def test_completed_setup_stays_locked_when_all_users_are_removed(client):
     test_client, engine, actor = client
     with engine.begin() as conn:
+        # The wizard's admin token is a recorded session (F11-11.7-01), which references the user.
+        conn.execute(text("DELETE FROM active_sessions"))
         conn.execute(text("DELETE FROM users"))
     actor["value"] = None
     response = test_client.post("/setup/admin", json={

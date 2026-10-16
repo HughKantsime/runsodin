@@ -97,7 +97,7 @@ export default function HmsHistoryPanel({ printerId, apiType, onClose }: HmsHist
             </button>
           )}
           {onClose && (
-            <button onClick={onClose} className="ml-2 text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] text-xs"><X size={12} /></button>
+            <button aria-label="Close HMS history" onClick={onClose} className="ml-2 text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] text-xs"><X size={12} /></button>
           )}
         </div>
       </div>

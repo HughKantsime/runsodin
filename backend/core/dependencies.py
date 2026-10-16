@@ -109,6 +109,12 @@ def token_predates_account(payload, row) -> bool:
     return issued + 1 < created.timestamp()
 
 
+from core.credential_write_guard import install_credential_write_guard, mark_noninteractive_principal
+
+# Fail-closed backstop for credential routes: see core/credential_write_guard.py.
+install_credential_write_guard()
+
+
 def _principal(
     row,
     auth_kind: str,
@@ -386,6 +392,7 @@ async def get_current_user(
             principal = _principal(admin, "legacy_global_api_key")
             if principal:
                 bind_verified_actor(db, principal)
+                mark_noninteractive_principal()
                 return principal
 
         # 2b: Per-user scoped tokens (odin_xxx format)
@@ -396,7 +403,13 @@ async def get_current_user(
             # resolves them itself; never a general API credential.
             return None
         if principal:
+            # Scoped tokens never reach a route without a scope check:
+            # routes that declare no scope need the method's generic
+            # read/write scope (see core.rbac).
+            from core.rbac import enforce_route_token_scope
+            enforce_route_token_scope(request, principal)
             bind_verified_actor(db, principal)
+            mark_noninteractive_principal()
             return principal
 
     return None

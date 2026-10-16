@@ -8,6 +8,7 @@ import toast from 'react-hot-toast'
 import type { UserCreateResult } from '../../types'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import UpgradeModal from '../../components/shared/UpgradeModal'
+import { DialogSurface } from '../../components/ui'
 
 const API_BASE = '/api'
 
@@ -41,10 +42,10 @@ function UserModal({ user, groupsList, hasGroups, onClose, onSave }: { user: any
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-[var(--brand-card-bg)] rounded-t-xl sm:rounded border border-[var(--brand-card-border)] w-full max-w-md p-4 sm:p-6 max-h-[90vh] overflow-y-auto">
+      <DialogSurface role="dialog" aria-modal="true" aria-labelledby="admin-user-modal-title" className="bg-[var(--brand-card-bg)] rounded-t-xl sm:rounded border border-[var(--brand-card-border)] w-full max-w-md p-4 sm:p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-4 md:mb-6">
-          <h2 className="text-lg md:text-xl font-display font-bold">{user ? 'Edit User' : 'New User'}</h2>
-          <button onClick={onClose} className="text-[var(--brand-text-muted)] hover:text-white"><X size={20} /></button>
+          <h2 id="admin-user-modal-title" className="text-lg md:text-xl font-display font-bold">{user ? 'Edit User' : 'New User'}</h2>
+          <button onClick={onClose} aria-label={user ? 'Close edit user dialog' : 'Close new user dialog'} className="text-[var(--brand-text-muted)] hover:text-white"><X size={20} aria-hidden="true" /></button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -99,7 +100,7 @@ function UserModal({ user, groupsList, hasGroups, onClose, onSave }: { user: any
             <button type="submit" className="flex-1 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)] text-[var(--brand-on-primary)] rounded-md font-medium transition-colors text-sm">{user ? 'Save Changes' : 'Create User'}</button>
           </div>
         </form>
-      </div>
+      </DialogSurface>
     </div>
   )
 }
@@ -161,13 +162,13 @@ function ImportUsersModal({ onClose, onImported }: { onClose: () => void; onImpo
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-[var(--brand-card-bg)] rounded-t-xl sm:rounded border border-[var(--brand-card-border)] w-full max-w-lg p-4 sm:p-6 max-h-[90vh] overflow-y-auto">
+      <DialogSurface role="dialog" aria-modal="true" aria-labelledby="admin-import-modal-title" className="bg-[var(--brand-card-bg)] rounded-t-xl sm:rounded border border-[var(--brand-card-border)] w-full max-w-lg p-4 sm:p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-display font-bold flex items-center gap-2">
+          <h2 id="admin-import-modal-title" className="text-lg font-display font-bold flex items-center gap-2">
             <Upload size={18} className="text-[var(--brand-primary)]" />
             Import Users from CSV
           </h2>
-          <button onClick={onClose} className="text-[var(--brand-text-muted)] hover:text-white"><X size={20} /></button>
+          <button onClick={onClose} aria-label="Close import users dialog" className="text-[var(--brand-text-muted)] hover:text-white"><X size={20} aria-hidden="true" /></button>
         </div>
 
         {/* Instructions */}
@@ -267,7 +268,7 @@ function ImportUsersModal({ onClose, onImported }: { onClose: () => void; onImpo
             </button>
           )}
         </div>
-      </div>
+      </DialogSurface>
     </div>
   )
 }
@@ -398,7 +399,7 @@ export default function Admin() {
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
         <div className="relative flex-1">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--brand-text-muted)]" />
-          <input
+          <input aria-label="Search users by name or email"
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}

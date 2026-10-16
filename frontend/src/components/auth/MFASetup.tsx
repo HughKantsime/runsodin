@@ -183,7 +183,7 @@ export default function MFASetup({ principalKey }: { principalKey?: string | num
               <code className="text-xs bg-[var(--brand-input-bg)] px-3 py-1.5 rounded font-mono text-[var(--brand-text-secondary)] select-all">
                 {setupData.secret}
               </code>
-              <button onClick={copySecret} className="p-1.5 rounded hover:bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)]">
+              <button aria-label={secretCopied ? "Secret copied" : "Copy secret"} onClick={copySecret} className="p-1.5 rounded hover:bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)]">
                 {secretCopied ? <CheckCircle size={14} className="text-green-400" /> : <Copy size={14} />}
               </button>
             </div>

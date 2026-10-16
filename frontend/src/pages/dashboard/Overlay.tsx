@@ -130,7 +130,7 @@ export default function Overlay() {
             )}
 
             {/* Progress bar */}
-            <div className={`h-3 rounded-full overflow-hidden ${barBg}`}>
+            <div className={`h-3 rounded-full overflow-hidden ${barBg}`} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-label="Print progress" aria-valuenow={Math.round(Math.min(progress, 100))}>
               <div
                 className="h-full rounded-full bg-[var(--status-completed)] transition-all duration-500"
                 style={{ width: `${Math.min(progress, 100)}%` }}

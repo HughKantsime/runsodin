@@ -208,8 +208,9 @@ function FilamentSelector({ value, onChange, filamentData, placeholder }) {
           onBlur={handleBlur}
           className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm pr-8"
           placeholder={isOpen ? "Type to search..." : placeholder}
+          aria-label={placeholder}
         />
-        <button
+        <button aria-label={isOpen ? "Close filament list" : "Open filament list"}
           type="button"
           onMouseDown={(e) => {
             e.preventDefault()
@@ -259,9 +260,9 @@ function ColorSlotInput({ index, color, grams, onChange, onRemove, filamentData 
         <FilamentSelector value={color} onChange={(val) => onChange(index, 'color', val)} filamentData={filamentData} placeholder={`Color ${index + 1}`} />
       </div>
       <div className="w-20 md:w-24">
-        <input type="number" min="0" step="0.1" value={grams} onChange={(e) => onChange(index, 'grams', e.target.value)} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 md:px-3 py-2 text-sm" placeholder="g" />
+        <input aria-label={`Color ${index + 1} grams`} type="number" min="0" step="0.1" value={grams} onChange={(e) => onChange(index, 'grams', e.target.value)} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 md:px-3 py-2 text-sm" placeholder="g" />
       </div>
-      <button type="button" onClick={() => onRemove(index)} className="p-2 text-[var(--brand-muted)] hover:text-red-400 hover:bg-red-900/30 rounded-md transition-colors">
+      <button aria-label={`Remove color ${index + 1}`} type="button" onClick={() => onRemove(index)} className="p-2 text-[var(--brand-muted)] hover:text-red-400 hover:bg-red-900/30 rounded-md transition-colors">
         <X size={16} />
       </button>
     </div>

@@ -13,7 +13,7 @@ from core.config import settings
 from core.db import get_db
 from core.db_compat import sql
 from core.dependencies import log_audit
-from core.rbac import require_superadmin
+from core.rbac import require_superadmin, require_interactive_session
 from modules.system.backup_service import (
     MAX_BACKUP_BYTES,
     BackupValidationError,
@@ -70,7 +70,7 @@ def _backup_paths():
     return postgres_paths() if sql.is_postgres else _sqlite_paths()
 
 
-@router.post("/backups/restore", tags=["System"])
+@router.post("/backups/restore", tags=["System"], dependencies=[Depends(require_interactive_session())])
 async def restore_backup(
     file: UploadFile = File(...),
     current_user: dict = Depends(require_superadmin(scope="admin")),
@@ -125,7 +125,7 @@ async def restore_backup(
     }
 
 
-@router.post("/backups", tags=["System"])
+@router.post("/backups", tags=["System"], dependencies=[Depends(require_interactive_session())])
 def create_backup(current_user: dict = Depends(require_superadmin(scope="admin")), db: Session = Depends(get_db)):
     """Create and verify a restrictive SQLite online backup."""
     try:
@@ -250,13 +250,13 @@ def _safe_backup_path(filename: str) -> Path:
     return candidate
 
 
-@router.get("/backups/{filename}", tags=["System"])
+@router.get("/backups/{filename}", tags=["System"], dependencies=[Depends(require_interactive_session())])
 def download_backup(filename: str, current_user: dict = Depends(require_superadmin(scope="admin"))):
     path = _safe_backup_path(filename)
     return FileResponse(path=path, filename=path.name, media_type="application/octet-stream")
 
 
-@router.delete("/backups/{filename}", status_code=status.HTTP_204_NO_CONTENT, tags=["System"])
+@router.delete("/backups/{filename}", status_code=status.HTTP_204_NO_CONTENT, tags=["System"], dependencies=[Depends(require_interactive_session())])
 def delete_backup(
     filename: str,
     current_user: dict = Depends(require_superadmin(scope="admin")),

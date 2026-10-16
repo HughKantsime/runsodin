@@ -11,7 +11,7 @@ from core.db import get_db
 from core.dependencies import get_current_user, log_audit
 from core.errors import ErrorCode, OdinError
 from core.middleware.dry_run import dry_run_preview, is_dry_run
-from core.rbac import AGENT_READ_SCOPE, AGENT_WRITE_SCOPE, require_any_scope, require_role
+from core.rbac import AGENT_READ_SCOPE, AGENT_WRITE_SCOPE, require_any_scope, require_role, require_superadmin, require_interactive_session
 from core.responses import build_next_actions, next_action
 from core.base import AlertType
 from core.models import SystemConfig
@@ -416,17 +416,22 @@ async def update_alert_preferences(
     return {"status": "ok", "message": "Preferences updated"}
 
 
-# ============== SMTP Config (Admin Only) ==============
+# ============== SMTP Config (Superadmin Only) ==============
+# One mail transport and one reset-link URL serve every organization, so only
+# the install's superadmin may read or change them (an org-scoped admin could
+# otherwise redirect every tenant's password-reset mail).
 
 @router.get("/smtp-config")
 async def get_smtp_config(
-    current_user: dict = Depends(require_role("admin")),
+    current_user: dict = Depends(require_superadmin()),
     db: Session = Depends(get_db)
 ):
-    """Get SMTP configuration (admin only, password masked)."""
+    """Get SMTP configuration (superadmin only, password masked)."""
+    from core.application_url import configured_base_url
     config = db.query(SystemConfig).filter(SystemConfig.key == "smtp_config").first()
+    base_url = configured_base_url(db)
     if not config:
-        return SmtpConfigResponse()
+        return SmtpConfigResponse(base_url=base_url)
     smtp = config.value
     return SmtpConfigResponse(
         enabled=smtp.get("enabled", False),
@@ -435,19 +440,39 @@ async def get_smtp_config(
         username=smtp.get("username", ""),
         password_set=bool(smtp.get("password")),
         from_address=smtp.get("from_address", ""),
-        use_tls=smtp.get("use_tls", True)
+        use_tls=smtp.get("use_tls", True),
+        base_url=base_url,
     )
 
 
-@router.put("/smtp-config")
+@router.put("/smtp-config", dependencies=[Depends(require_interactive_session())])
 async def update_smtp_config(
     data: SmtpConfigBase,
-    current_user: dict = Depends(require_role("admin")),
+    current_user: dict = Depends(require_superadmin()),
     db: Session = Depends(get_db)
 ):
-    """Update SMTP configuration (admin only)."""
+    """Update SMTP configuration (superadmin only, interactive session only)."""
+    from core.application_url import validate_base_url
     config = db.query(SystemConfig).filter(SystemConfig.key == "smtp_config").first()
     smtp_data = data.dict()
+    base_url = smtp_data.pop("base_url", None)
+    if base_url is not None:
+        base_url = base_url.strip()
+        if base_url:
+            try:
+                base_url = validate_base_url(base_url)
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Application URL must be an https URL such as https://odin.example.com "
+                           "(http only for localhost or a private-network address; no credentials, "
+                           "query or fragment).",
+                ) from None
+        stored = db.query(SystemConfig).filter(SystemConfig.key == "base_url").first()
+        if stored:
+            stored.value = base_url
+        else:
+            db.add(SystemConfig(key="base_url", value=base_url))
 
     if not smtp_data.get("password") and config and config.value.get("password"):
         smtp_data["password"] = config.value["password"]
@@ -461,7 +486,8 @@ async def update_smtp_config(
     else:
         db.add(SystemConfig(key="smtp_config", value=smtp_data))
 
-    log_audit(db, "smtp_config_updated", "system", details={"enabled": smtp_data.get("enabled"), "host": smtp_data.get("host")})
+    log_audit(db, "smtp_config_updated", "system", details={"enabled": smtp_data.get("enabled"), "host": smtp_data.get("host"),
+                                                           "base_url_changed": base_url is not None})
     db.commit()
     return {"status": "ok", "message": "SMTP configuration updated"}
 

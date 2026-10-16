@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from 'react'
+import { useState, useEffect, useId, type ReactNode } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { models, pricingConfig } from '../../api'
@@ -19,12 +19,14 @@ import {
 } from 'lucide-react'
 
 function InputField({ label, value, onChange, suffix, icon: Icon, step = "any", min = 0 }: { label: string; value: number; onChange: (value: number) => void; suffix?: string; icon?: LucideIcon; step?: string | number; min?: number }) {
+  const inputId = useId()
   return (
     <div>
-      <label className="block text-xs md:text-sm text-[var(--brand-muted)] mb-1">{label}</label>
+      <label htmlFor={inputId} className="block text-xs md:text-sm text-[var(--brand-muted)] mb-1">{label}</label>
       <div className="relative">
-        {Icon && <Icon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--brand-muted)]" />}
+        {Icon && <Icon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--brand-muted)]" aria-hidden="true" />}
         <input
+          id={inputId}
           type="number"
           step={step}
           min={min}
@@ -325,7 +327,7 @@ export default function CalculatorPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
               <div>
                 <label className="block text-xs md:text-sm text-[var(--brand-muted)] mb-1">Select Model (optional)</label>
-                <select
+                <select aria-label="Select model"
                   value={selectedModel}
                   onChange={(e) => setSelectedModel(e.target.value)}
                   className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm"

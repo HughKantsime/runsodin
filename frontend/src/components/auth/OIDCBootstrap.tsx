@@ -4,12 +4,15 @@ import { Loader2 } from 'lucide-react'
 
 export const oidcNavigation = { finish: () => window.location.replace('/') }
 
+// The one-time code arrives in the URL fragment (never sent to a server, so it
+// can't reach access logs); provider errors arrive in the query string.
 function readCallback() {
-  const { pathname, search } = window.location
+  const { pathname, search, hash } = window.location
   const params = new URLSearchParams(search)
+  const fragment = new URLSearchParams(hash.startsWith('#') ? hash.slice(1) : '')
   if (!['/', '/login'].includes(pathname) ||
-      (!params.has('oidc_code') && !params.has('error'))) return null
-  const codes = params.getAll('oidc_code')
+      (!fragment.has('oidc_code') && !params.has('error'))) return null
+  const codes = fragment.getAll('oidc_code')
   return { code: !params.has('error') && codes.length === 1 ? codes[0].trim() : '' }
 }
 

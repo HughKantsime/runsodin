@@ -116,7 +116,7 @@ export default function PrintLog() {
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <div className="relative flex-1 min-w-[200px] max-w-xs">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--brand-text-muted)]" />
-          <input
+          <input aria-label="Search prints"
             type="text"
             value={searchInput}
             onChange={e => setSearchInput(e.target.value)}
@@ -125,7 +125,7 @@ export default function PrintLog() {
             className="w-full pl-9 pr-3 py-2 bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md text-sm"
           />
         </div>
-        <select
+        <select aria-label="Filter by printer"
           value={filterPrinter}
           onChange={e => setFilterPrinter(e.target.value)}
           className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-2 text-sm"
@@ -135,7 +135,7 @@ export default function PrintLog() {
             <option key={p.id} value={p.id}>{p.nickname || p.name}</option>
           ))}
         </select>
-        <select
+        <select aria-label="Filter by status"
           value={filterStatus}
           onChange={e => setFilterStatus(e.target.value)}
           className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-2 text-sm"
@@ -212,7 +212,7 @@ export default function PrintLog() {
             <div className="flex items-center justify-between mt-4">
               <span className="text-xs text-[var(--brand-text-muted)]">{total} results</span>
               <div className="flex items-center gap-2">
-                <button
+                <button aria-label="Previous page"
                   onClick={() => { const p = Math.max(1, page - 1); setPage(p); updateSearchParams({ page: p > 1 ? String(p) : '' }) }}
                   disabled={page === 1}
                   className="p-1.5 rounded-md bg-[var(--brand-input-bg)] text-[var(--brand-text-muted)] hover:bg-[var(--brand-card-border)] disabled:opacity-30"
@@ -220,7 +220,7 @@ export default function PrintLog() {
                   <ChevronLeft size={16} />
                 </button>
                 <span className="text-sm text-[var(--brand-text-muted)]">{page} / {totalPages}</span>
-                <button
+                <button aria-label="Next page"
                   onClick={() => { const p = Math.min(totalPages, page + 1); setPage(p); updateSearchParams({ page: p > 1 ? String(p) : '' }) }}
                   disabled={page === totalPages}
                   className="p-1.5 rounded-md bg-[var(--brand-input-bg)] text-[var(--brand-text-muted)] hover:bg-[var(--brand-card-border)] disabled:opacity-30"

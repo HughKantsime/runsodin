@@ -17,6 +17,7 @@ import core.auth as auth_module
 from core.db import get_db
 from core.dependencies import get_current_user
 from core.errors import ErrorCode, OdinError
+from core.rbac import mark_token_scope_checker
 from license_manager import get_license
 
 
@@ -73,7 +74,7 @@ def require_education_principal(*, write: bool = False) -> Callable:
             )
         return current_user
 
-    return dependency
+    return mark_token_scope_checker(dependency, "write:education" if write else "read:education")
 
 
 def require_education_capability_principal() -> Callable:
@@ -90,7 +91,7 @@ def require_education_capability_principal() -> Callable:
             )
         return current_user
 
-    return dependency
+    return mark_token_scope_checker(dependency, "read:education")
 
 
 def is_superadmin(principal: dict) -> bool:

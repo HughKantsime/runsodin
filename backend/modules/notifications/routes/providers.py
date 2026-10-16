@@ -8,7 +8,7 @@ import logging
 
 from core.db import get_db
 from core.dependencies import get_current_user, log_audit
-from core.rbac import require_superadmin
+from core.rbac import require_interactive_session, require_superadmin
 from modules.notifications.models import PushSubscription
 from modules.notifications.schemas import PushSubscriptionCreate
 
@@ -59,7 +59,7 @@ async def rotate_vapid_key(current_user: dict = Depends(require_superadmin(scope
     return {"status": "ok", **result}
 
 
-@router.post("/push/subscribe")
+@router.post("/push/subscribe", dependencies=[Depends(require_interactive_session())])
 async def subscribe_push(
     data: PushSubscriptionCreate,
     current_user: dict = Depends(get_current_user),

@@ -91,7 +91,7 @@ export default function VisionSettingsTab() {
 
           <div className="flex items-center gap-3">
             <label className="text-sm text-[var(--brand-text-secondary)]">Frame retention:</label>
-            <input
+            <input aria-label="Frame retention (days)"
               type="range" min="7" max="90" step="1"
               value={globalSettings.retention_days}
               onChange={e => setGlobalSettings(s => ({ ...s, retention_days: parseInt(e.target.value) }))}
@@ -160,7 +160,7 @@ export default function VisionSettingsTab() {
                         />
                         <span className="text-red-400">Spaghetti</span>
                       </label>
-                      <input type="range" min="0.3" max="0.95" step="0.05"
+                      <input aria-label="Spaghetti detection threshold" type="range" min="0.3" max="0.95" step="0.05"
                         value={vs.spaghetti_threshold || 0.65}
                         onChange={e => savePrinterVision(p.id, { spaghetti_threshold: parseFloat(e.target.value) })}
                         className="w-full"
@@ -176,7 +176,7 @@ export default function VisionSettingsTab() {
                         />
                         <span className="text-amber-400">First Layer</span>
                       </label>
-                      <input type="range" min="0.3" max="0.95" step="0.05"
+                      <input aria-label="First layer detection threshold" type="range" min="0.3" max="0.95" step="0.05"
                         value={vs.first_layer_threshold || 0.60}
                         onChange={e => savePrinterVision(p.id, { first_layer_threshold: parseFloat(e.target.value) })}
                         className="w-full"
@@ -192,7 +192,7 @@ export default function VisionSettingsTab() {
                         />
                         <span className="text-orange-400">Detachment</span>
                       </label>
-                      <input type="range" min="0.3" max="0.95" step="0.05"
+                      <input aria-label="Detachment detection threshold" type="range" min="0.3" max="0.95" step="0.05"
                         value={vs.detachment_threshold || 0.70}
                         onChange={e => savePrinterVision(p.id, { detachment_threshold: parseFloat(e.target.value) })}
                         className="w-full"

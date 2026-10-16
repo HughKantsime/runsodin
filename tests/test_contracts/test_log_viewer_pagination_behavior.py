@@ -14,6 +14,9 @@ def client(tmp_path, monkeypatch):
     route = next(r for r in app.routes if r.path == '/api/admin/logs')
     auth = next(d.call for d in route.dependant.dependencies if d.name == 'user')
     app.dependency_overrides[auth] = lambda: {'role': 'admin', 'group_id': None}
+    # The route is interactive-only; this fixture stands in for a login session.
+    from core.dependencies import get_current_user
+    app.dependency_overrides[get_current_user] = lambda: {'role': 'admin', 'group_id': None}
     with TestClient(app) as http:
         yield http, path
 

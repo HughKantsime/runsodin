@@ -14,12 +14,15 @@ def test_request_bound_api_credential_recheck(token_client,review_db,monkeypatch
     client,issue=token_client
     @client.app.post('/synthetic-reauth')
     async def protected(request:Request,principal=Depends(education_access.require_education_principal(write=True))):
-        with Session(review_db.get_bind()) as mutation:
-            if change=='disabled':mutation.execute(text('UPDATE users SET is_active=0 WHERE id=3'))
-            elif change=='tenant':mutation.execute(text('UPDATE users SET group_id=2 WHERE id=3'))
-            elif change=='revoked_api':mutation.execute(text('DELETE FROM api_tokens WHERE id=:id'),{'id':principal['_token_id']})
-            elif change=='scopes':mutation.execute(text("UPDATE api_tokens SET scopes='[\"read:education\"]' WHERE id=:id"),{'id':principal['_token_id']})
-            mutation.commit()
+        def mutate():  # a concurrent admin, not this token request (fresh context)
+            with Session(review_db.get_bind()) as mutation:
+                if change=='disabled':mutation.execute(text('UPDATE users SET is_active=0 WHERE id=3'))
+                elif change=='tenant':mutation.execute(text('UPDATE users SET group_id=2 WHERE id=3'))
+                elif change=='revoked_api':mutation.execute(text('DELETE FROM api_tokens WHERE id=:id'),{'id':principal['_token_id']})
+                elif change=='scopes':mutation.execute(text("UPDATE api_tokens SET scopes='[\"read:education\"]' WHERE id=:id"),{'id':principal['_token_id']})
+                mutation.commit()
+        import contextvars
+        contextvars.Context().run(mutate)
         with Session(review_db.get_bind()) as fresh:
             try:
                 current=await reauthenticate_teacher_request(request,expected_principal=principal,db=fresh)

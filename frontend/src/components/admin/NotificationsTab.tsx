@@ -94,7 +94,7 @@ export default function NotificationsTab() {
   const normalizeType = (type) => type.toLowerCase()
 
   // SMTP config state
-  const [smtp, setSmtp] = useState({ enabled: false, host: '', port: 587, username: '', password: '', from_address: '' })
+  const [smtp, setSmtp] = useState({ enabled: false, host: '', port: 587, username: '', password: '', from_address: '', base_url: '' })
   const [smtpLoading, setSmtpLoading] = useState(true)
   const [smtpSaved, setSmtpSaved] = useState(false)
   const [smtpError, setSmtpError] = useState(null)
@@ -113,6 +113,8 @@ export default function NotificationsTab() {
           username: data.username || '',
           password: '',
           from_address: data.from_address || '',
+          // Password-reset links need the address users open ODIN at; suggest this page's origin.
+          base_url: data.base_url || window.location.origin,
           _password_set: data.password_set || false,
         })
       } catch (err) {
@@ -138,7 +140,7 @@ export default function NotificationsTab() {
       setSmtp(s => ({ ...s, _password_set: true }))
       setTimeout(() => setSmtpSaved(false), 3000)
     } catch (err) {
-      setSmtpError('Failed to save SMTP configuration')
+      setSmtpError(err?.message ? `Failed to save SMTP configuration: ${err.message}` : 'Failed to save SMTP configuration')
       console.error(err)
     }
   }
@@ -295,7 +297,7 @@ export default function NotificationsTab() {
                       <div className="mt-3 pt-3 border-t border-[var(--brand-border)] ml-6 md:ml-0">
                         <div className="flex items-center gap-3">
                           <label className="text-xs text-[var(--brand-text-secondary)] whitespace-nowrap">Low spool threshold:</label>
-                          <input
+                          <input aria-label="Low spool threshold"
                             type="range"
                             min="50"
                             max="500"
@@ -390,7 +392,7 @@ export default function NotificationsTab() {
                 <div>
                   <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Password</label>
                   <div className="relative">
-                    <Input
+                    <Input aria-label="SMTP password"
                       type={showSmtpPassword ? 'text' : 'password'}
                       value={smtp.password}
                       onChange={(e) => setSmtp(s => ({ ...s, password: e.target.value }))}
@@ -414,6 +416,15 @@ export default function NotificationsTab() {
                 value={smtp.from_address}
                 onChange={(e) => setSmtp(s => ({ ...s, from_address: e.target.value }))}
                 placeholder="odin@yourdomain.com"
+                wrapperClassName="max-w-md"
+              />
+
+              <Input
+                label="Application URL (used in password-reset links)"
+                type="url"
+                value={smtp.base_url}
+                onChange={(e) => setSmtp(s => ({ ...s, base_url: e.target.value }))}
+                placeholder="https://odin.example.com"
                 wrapperClassName="max-w-md"
               />
             </div>

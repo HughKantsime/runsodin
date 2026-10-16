@@ -9,7 +9,7 @@ Old import path (from auth import ...) continues to work via re-exports in auth.
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Literal, Optional
 from passlib.context import CryptContext
 import jwt
 from jwt.exceptions import PyJWTError
@@ -36,11 +36,15 @@ class TokenData(BaseModel):
     role: Optional[str] = None
 
 
+# The only roles the permission model knows (core.auth.has_permission).
+UserRole = Literal["admin", "operator", "viewer"]
+
+
 class UserCreate(BaseModel):
     username: str
     email: str
     password: str = ""
-    role: str = "operator"
+    role: UserRole = "operator"
     group_id: Optional[int] = None
     send_welcome_email: bool = False
 

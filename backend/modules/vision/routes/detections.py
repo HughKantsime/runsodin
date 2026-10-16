@@ -204,7 +204,7 @@ async def dismiss_and_resume(
 @router.get("/printers/{printer_id}/vision", tags=["Vigil AI"])
 async def get_printer_vision_settings(
     printer_id: int,
-    current_user: dict = Depends(require_role("viewer")),
+    current_user: dict = Depends(require_role("viewer", scope="read:printers")),
     db: Session = Depends(get_db),
 ):
     """Get per-printer vision settings."""
@@ -234,7 +234,7 @@ async def get_printer_vision_settings(
 async def update_printer_vision_settings(
     printer_id: int,
     request: Request,
-    current_user: dict = Depends(require_role("admin")),
+    current_user: dict = Depends(require_role("admin", scope="write:printers")),
     db: Session = Depends(get_db),
 ):
     """Update per-printer vision settings."""

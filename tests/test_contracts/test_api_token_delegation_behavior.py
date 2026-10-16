@@ -84,16 +84,16 @@ def test_interactive_mint_use_list_and_revoke_without_credential_disclosure(toke
 
 
 @pytest.mark.parametrize('days',[None,1,30])
-def test_admin_delegation_cannot_outlive_parent(token_client,days):
-    from datetime import datetime,timedelta,timezone
+def test_no_api_token_mints_another_token(token_client,review_db,days):
+    # Security review HIGH 1: token creation is credential material; an admin token cannot delegate.
     client,issue=token_client
-    parent_expiry=datetime.now(timezone.utc)+timedelta(hours=1)
-    headers=issue(['admin'],parent_expiry.isoformat())
-    response=client.post('/tokens',headers=headers,json={'name':'Synthetic bounded child','scopes':['write'],'expires_days':days})
-    assert response.status_code==200
-    data=response.json()
-    assert datetime.fromisoformat(data['expires_at'])<=parent_expiry
-    assert client.post('/protected-write',headers={'X-API-Key':data['token']}).status_code==200
+    headers=issue(['admin'])
+    before=review_db.execute(text('SELECT COUNT(*) FROM api_tokens')).scalar_one()
+    response=client.post('/tokens',headers=headers,json={'name':'Synthetic child','scopes':['write'],'expires_days':days})
+    assert response.status_code==403
+    assert response.json()['detail']=="API tokens cannot create or change credentials; sign in with a password session"
+    with Session(review_db.get_bind()) as fresh:
+        assert fresh.execute(text('SELECT COUNT(*) FROM api_tokens')).scalar_one()==before
 
 
 @pytest.mark.parametrize('body',[{}, {'scopes':[]},{'scopes':[{}]},{'scopes':[['write']]},{'scopes':['unknown']},{'scopes':'admin'},{'scopes':['write'],'expires_days':'bad'},{'scopes':['write'],'expires_days':-1},{'scopes':['write'],'expires_days':True},{'scopes':['write'],'expires_days':10**20}])
@@ -151,7 +151,8 @@ def test_grouped_admin_cannot_revoke_foreign_token(token_client,review_db):
         assert fresh.execute(text('SELECT COUNT(*) FROM api_tokens WHERE id=:id'),{'id':target}).scalar_one()==1
 
 
-def test_admin_token_can_revoke_own_session(token_client,review_db):
+def test_admin_token_cannot_revoke_a_session(token_client,review_db):
+    # Security review HIGH 1: session management is credential material; the interactive session does it.
     import jwt
     from core import auth
     client,issue=token_client
@@ -161,12 +162,11 @@ def test_admin_token_can_revoke_own_session(token_client,review_db):
     review_db.commit()
     target=review_db.execute(text('SELECT MAX(id) FROM active_sessions')).scalar_one()
     bearer={'Authorization':'Bearer '+session}
-    response=client.post('/protected-write',headers=bearer)
-    assert response.status_code==200
     response=client.delete(f'/admin/sessions/{target}',headers=issue(['admin']))
-    assert response.status_code==200
-    response=client.post('/protected-write',headers=bearer)
-    assert response.status_code==401
+    assert response.status_code==403
+    assert response.json()['detail']=="API tokens cannot create or change credentials; sign in with a password session"
+    assert client.post('/protected-write',headers=bearer).status_code==200
+    assert client.delete(f'/admin/sessions/{target}',headers=bearer).status_code==200
     with Session(review_db.get_bind()) as fresh:
         assert fresh.execute(text('SELECT COUNT(*) FROM active_sessions WHERE id=:id'),{'id':target}).scalar_one()==0
 

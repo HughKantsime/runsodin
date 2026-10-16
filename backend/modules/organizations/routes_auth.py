@@ -16,7 +16,7 @@ from core.audit_actor import bind_verified_actor
 from core.db import get_db
 from core.db_compat import sql
 from core.dependencies import get_current_user, log_audit
-from core.rbac import require_role, require_scope
+from core.rbac import require_role, require_scope, handler_enforces_token_scope, require_interactive_session
 from core.auth_helpers import (
     _validate_password, _check_rate_limit, _record_login_attempt, _is_locked_out
 )
@@ -213,7 +213,7 @@ async def mfa_verify(request: Request, body: dict, db: Session = Depends(get_db)
     return resp
 
 
-@router.post("/auth/mfa/setup", tags=["Auth"])
+@router.post("/auth/mfa/setup", tags=["Auth"], dependencies=[Depends(require_interactive_session())])
 async def mfa_setup(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Generate TOTP secret and provisioning URI for MFA setup."""
     import pyotp, qrcode, io, base64
@@ -241,7 +241,7 @@ async def mfa_setup(current_user: dict = Depends(require_role("viewer")), db: Se
     return {"secret": secret, "provisioning_uri": provisioning_uri, "qr_code": f"data:image/png;base64,{qr_b64}"}
 
 
-@router.post("/auth/mfa/confirm", tags=["Auth"])
+@router.post("/auth/mfa/confirm", tags=["Auth"], dependencies=[Depends(require_interactive_session())])
 async def mfa_confirm(body: dict, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Confirm MFA setup by verifying a TOTP code. Enables MFA on the account."""
     import pyotp
@@ -268,7 +268,7 @@ async def mfa_confirm(body: dict, current_user: dict = Depends(require_role("vie
     return {"status": "ok", "message": "MFA enabled successfully"}
 
 
-@router.delete("/auth/mfa", tags=["Auth"])
+@router.delete("/auth/mfa", tags=["Auth"], dependencies=[Depends(require_interactive_session())])
 async def mfa_disable(body: dict = None, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Disable MFA. Requires current TOTP code or admin role."""
     import pyotp
@@ -293,7 +293,7 @@ async def mfa_disable(body: dict = None, current_user: dict = Depends(require_ro
     return {"status": "ok", "message": "MFA disabled"}
 
 
-@router.delete("/admin/users/{user_id}/mfa", tags=["Auth"], dependencies=[Depends(require_scope("admin"))])
+@router.delete("/admin/users/{user_id}/mfa", tags=["Auth"], dependencies=[Depends(require_interactive_session())])
 async def admin_mfa_disable(user_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Admin: force-disable MFA for a user (no TOTP required)."""
     user = db.execute(text("SELECT * FROM users WHERE id = :id"), {"id": user_id}).fetchone()
@@ -346,7 +346,7 @@ class RequireMFARequest(PydanticBaseModel):
     require_mfa: bool = False
 
 
-@router.put("/config/require-mfa", tags=["Config"])
+@router.put("/config/require-mfa", tags=["Config"], dependencies=[Depends(require_interactive_session())])
 async def set_require_mfa(body: RequireMFARequest, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Set whether MFA is required for all users."""
     require = body.require_mfa
@@ -358,7 +358,9 @@ async def set_require_mfa(body: RequireMFARequest, current_user: dict = Depends(
 
 # ============== Me / Theme / WS token ==============
 
-@router.get("/auth/me", tags=["Auth"])
+# Any valid credential may identify itself: a scoped token of any scope can read
+# its own principal (the response describes only the caller).
+@router.get("/auth/me", tags=["Auth"], dependencies=[Depends(handler_enforces_token_scope())])
 async def get_me(current_user: dict = Depends(get_current_user)):
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -419,7 +421,9 @@ async def set_theme(prefs: ThemePreferences, current_user: dict = Depends(get_cu
     return stored
 
 
-@router.post("/auth/ws-token", tags=["Auth"])
+# A WebSocket token streams fleet telemetry, so scoped API tokens need the
+# generic read scope to mint one.
+@router.post("/auth/ws-token", tags=["Auth"], dependencies=[Depends(require_scope("read"))])
 @limiter.limit("10/minute")
 async def get_ws_token(
     request: Request,
@@ -581,14 +585,12 @@ async def reset_password(request: Request, body: ResetPasswordRequest, db: Sessi
         db.execute(text("UPDATE password_reset_tokens SET used = 1 WHERE user_id = :uid AND used = 0"),
                    {"uid": row.user_id})
         from core.mfa_login import cancel_pending_enrollments
+        from modules.organizations.password_reset import revoke_sessions_and_biometric
         cancel_pending_enrollments(db, row.user_id)
-        sessions = db.execute(text("SELECT token_jti FROM active_sessions WHERE user_id = :uid"),
-                              {"uid": row.user_id}).fetchall()
-        expiry = (now + timedelta(hours=auth_module.ACCESS_TOKEN_EXPIRE_HOURS)).isoformat()
-        for session in sessions:
-            db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),
-                       {"jti": session.token_jti, "exp": expiry})
-        db.execute(text("DELETE FROM active_sessions WHERE user_id = :uid"), {"uid": row.user_id})
+        # A reset revokes biometric tokens and every session (the user is not
+        # authenticated here, so none is kept).
+        revoke_sessions_and_biometric(db, row.user_id,
+                                      blacklist_hours=auth_module.ACCESS_TOKEN_EXPIRE_HOURS)
         log_audit(db, "user.password_reset", "user", row.user_id,
                   {"target_user_id": row.user_id})
         db.commit()

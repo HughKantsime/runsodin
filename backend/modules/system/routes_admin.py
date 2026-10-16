@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.db_compat import sql
-from core.rbac import require_role, require_superadmin, get_org_scope
+from core.rbac import require_role, require_superadmin, get_org_scope, HANDLER_SCOPE, require_interactive_session
 from modules.models_library.models import Model
 from modules.jobs.models import Job
 from modules.inventory.models import Spool, FilamentLibrary
@@ -62,7 +62,7 @@ def _line_level(line: str) -> Optional[str]:
     return _LEVEL_ALIASES.get(match.group(1), match.group(1)) if match else None
 
 
-@router.get("/admin/logs", tags=["Admin"])
+@router.get("/admin/logs", tags=["Admin"], dependencies=[Depends(require_interactive_session())])
 def get_logs(
     source: str = Query("backend", description="Configured application log source"),
     lines: int = Query(200, ge=1, le=5000),
@@ -129,7 +129,7 @@ def get_logs(
             "page_cursor": f"{stat.st_dev}:{stat.st_ino}:{snapshot}:{boundary}"}
 
 
-@router.get("/admin/logs/stream", tags=["Admin"])
+@router.get("/admin/logs/stream", tags=["Admin"], dependencies=[Depends(require_interactive_session())])
 async def stream_logs(
     request: Request,
     source: str = Query("backend"),
@@ -168,7 +168,7 @@ async def stream_logs(
 
 # ============== Support Bundle ==============
 
-@router.get("/admin/support-bundle", tags=["Admin"])
+@router.get("/admin/support-bundle", tags=["Admin"], dependencies=[Depends(require_interactive_session())])
 def download_support_bundle(user=Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Generate a privacy-filtered diagnostic ZIP for issue reporting. Superadmin only."""
     import io
@@ -223,8 +223,14 @@ def download_support_bundle(user=Depends(require_superadmin()), db: Session = De
         config_rows = db.execute(text("SELECT key, value FROM system_config")).fetchall()
         safe_config = {}
         sensitive = ("password", "key", "token", "secret", "code", "credential")
+        # Internal bookkeeping rows (one-time markers, per-print quota claims) are
+        # not configuration and never belong in a shared diagnostics bundle.
+        internal_prefixes = ("quota_attempt:", "quota_charged:", "setup_admin_claimed",
+                             "biometric_revoked")
         for k, v in config_rows:
-            if any(s in k.lower() for s in sensitive):
+            if any(k.startswith(p) for p in internal_prefixes):
+                continue
+            if any(s in k.lower() for s in sensitive) or k in ("smtp_config", "base_url"):
                 safe_config[k] = "[REDACTED]"
             else:
                 safe_config[k] = sanitize_log_line(str(v))
@@ -281,7 +287,7 @@ def download_support_bundle(user=Depends(require_superadmin()), db: Session = De
 # ============== Global Search ==============
 
 @router.get("/search", tags=["Search"])
-def global_search(q: str = "", db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
+def global_search(q: str = "", db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer", scope=HANDLER_SCOPE))):
     """Search tenant-visible resources within each category's read grants."""
     from core.api_token_policy import token_scope_granted
     from modules.orders.models import Order, Product

@@ -94,7 +94,7 @@ export default function SessionManager() {
                   </div>
                 </div>
                 {!s.is_current && (
-                  <button
+                  <button aria-label="Revoke session"
                     onClick={() => handleRevoke(s.id)}
                     disabled={revoking === s.id}
                     className="p-2 rounded hover:bg-red-900/30 text-[var(--brand-text-muted)] hover:text-red-400"

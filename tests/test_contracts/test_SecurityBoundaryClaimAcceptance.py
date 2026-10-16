@@ -36,8 +36,11 @@ def test_callback_stores_real_fernet_access_token_not_plaintext(oidc_db, monkeyp
     assert stored.access_token.startswith('gAAAAA')
     assert decrypt(stored.access_token).count('.') == 2
     assert stored.access_token != decrypt(stored.access_token)
-    # The exchange code itself is plaintext; the protected column is access_token.
+    # The stored code is the browser-bound digest, never the raw one-time code.
     assert not stored.code.startswith('gAAAAA')
+    raw = response.headers['location'].split('#oidc_code=', 1)[1]
+    from modules.organizations.routes_oidc import oidc_code_key, oidc_state_binding
+    assert stored.code == oidc_code_key(raw, oidc_state_binding('fixture-state')) != raw
 
 
 def test_user_update_whitelists_columns_and_binds_values(setup_client):

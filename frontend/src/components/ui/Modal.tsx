@@ -1,4 +1,5 @@
 import { useEffect, useRef, useId, type ReactNode } from 'react'
+import { useDialogFocus } from './useDialogFocus'
 import { X } from 'lucide-react'
 
 type ModalSize = 'sm' | 'md' | 'lg' | 'xl'
@@ -32,7 +33,6 @@ export default function Modal({
   alert = false,
 }: ModalProps) {
   const modalRef = useRef<HTMLDivElement>(null)
-  const previouslyFocusedRef = useRef<HTMLElement | null>(null)
   const titleId = useId()
   const onCloseRef = useRef(onClose)
 
@@ -41,47 +41,8 @@ export default function Modal({
     onCloseRef.current = onClose
   }, [onClose])
 
-  // Focus trap and Escape key
-  useEffect(() => {
-    if (!isOpen) return
-
-    previouslyFocusedRef.current = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null
-
-    const focusable = modalRef.current?.querySelector<HTMLElement>(
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-    )
-    ;(focusable || modalRef.current)?.focus()
-
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onCloseRef.current()
-        return
-      }
-      if (e.key === 'Tab' && modalRef.current) {
-        const focusable = modalRef.current.querySelectorAll(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-        )
-        if (focusable.length === 0) return
-        const first = focusable[0] as HTMLElement
-        const last = focusable[focusable.length - 1] as HTMLElement
-        if (e.shiftKey && document.activeElement === first) {
-          e.preventDefault()
-          last.focus()
-        } else if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault()
-          first.focus()
-        }
-      }
-    }
-
-    document.addEventListener('keydown', handleKey)
-    return () => {
-      document.removeEventListener('keydown', handleKey)
-      previouslyFocusedRef.current?.focus()
-    }
-  }, [isOpen])
+  // Focus in, trap, Escape and focus restore (shared with page-local dialogs).
+  useDialogFocus(modalRef, isOpen, () => onCloseRef.current())
 
   // Body scroll lock
   useEffect(() => {

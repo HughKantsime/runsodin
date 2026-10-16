@@ -709,7 +709,7 @@ function TextInput({ label, value, onChange, placeholder, type = "text" }) {
 function ColorPicker({ label, desc, value, onChange }) {
   return (
     <div className="flex items-center gap-4 bg-[var(--brand-input-bg)] rounded-md p-3">
-      <input
+      <input aria-label={`${label} color`}
         type="color"
         value={value}
         onChange={e => onChange(e.target.value)}
@@ -720,7 +720,7 @@ function ColorPicker({ label, desc, value, onChange }) {
         <div className="text-sm text-[var(--brand-text-primary)] font-medium">{label}</div>
         <div className="text-xs text-[var(--brand-text-muted)]">{desc}</div>
       </div>
-      <input
+      <input aria-label={`${label} hex value`}
         type="text"
         value={value}
         onChange={e => onChange(e.target.value)}
@@ -744,7 +744,7 @@ function FontSelector({ label, desc, value, options, onChange }) {
           <div className="text-xs text-[var(--brand-text-muted)]">{desc}</div>
         </div>
       </div>
-      <Select
+      <Select aria-label={label}
         value={value}
         onChange={e => onChange(e.target.value)}
         className="bg-[var(--brand-card-bg)] cursor-pointer"

@@ -78,7 +78,7 @@ export default function AmsEnvironmentChart({ printerId, onClose }: AmsEnvironme
             </button>
           ))}
           {onClose && (
-            <button onClick={onClose} className="ml-2 text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] text-xs"><X size={12} /></button>
+            <button aria-label="Close AMS environment chart" onClick={onClose} className="ml-2 text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] text-xs"><X size={12} /></button>
           )}
         </div>
       </div>

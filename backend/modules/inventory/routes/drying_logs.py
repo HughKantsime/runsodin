@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.rbac import require_role
-from modules.inventory.models import FilamentLibrary
+from modules.inventory.models import FilamentLibrary, Spool
 from ._helpers import FilamentCreateRequest, FilamentUpdateRequest
 
 log = logging.getLogger("odin.api")
@@ -27,7 +27,7 @@ def _require_global_rate_writer(current_user: dict) -> None:
 def list_filaments(
     brand: Optional[str] = None,
     material: Optional[str] = None,
-    current_user: dict = Depends(require_role("viewer")),
+    current_user: dict = Depends(require_role("viewer", scope="read:spools")),
     db: Session = Depends(get_db)
 ):
     """Get filaments from library."""
@@ -54,7 +54,7 @@ def list_filaments(
 
 
 @router.post("", tags=["Filaments"])
-def add_custom_filament(data: FilamentCreateRequest, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def add_custom_filament(data: FilamentCreateRequest, current_user: dict = Depends(require_role("operator", scope="write:spools")), db: Session = Depends(get_db)):
     """Add a custom filament to the library."""
     if data.cost_per_gram is not None:
         _require_global_rate_writer(current_user)
@@ -73,7 +73,7 @@ def add_custom_filament(data: FilamentCreateRequest, current_user: dict = Depend
 
 
 @router.get("/combined", tags=["Filaments"])
-async def get_combined_filaments(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+async def get_combined_filaments(current_user: dict = Depends(require_role("viewer", scope="read:spools")), db: Session = Depends(get_db)):
     """Get filaments from both Spoolman (if available) and local library."""
     import httpx
     from core.config import settings
@@ -120,7 +120,7 @@ async def get_combined_filaments(current_user: dict = Depends(require_role("view
 
 
 @router.get("/{filament_id}", tags=["Filaments"])
-def get_filament(filament_id: str, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+def get_filament(filament_id: str, current_user: dict = Depends(require_role("viewer", scope="read:spools")), db: Session = Depends(get_db)):
     """Get a specific filament from the library."""
     fid_str = filament_id.replace("lib_", "")
     try:
@@ -145,7 +145,7 @@ def get_filament(filament_id: str, current_user: dict = Depends(require_role("vi
 
 
 @router.patch("/{filament_id}", tags=["Filaments"])
-def update_filament(filament_id: str, updates: FilamentUpdateRequest, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def update_filament(filament_id: str, updates: FilamentUpdateRequest, current_user: dict = Depends(require_role("operator", scope="write:spools")), db: Session = Depends(get_db)):
     """Update a filament in the library."""
     fid_str = filament_id.replace("lib_", "")
     try:
@@ -181,7 +181,7 @@ def update_filament(filament_id: str, updates: FilamentUpdateRequest, current_us
 
 
 @router.delete("/{filament_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Filaments"])
-def delete_filament(filament_id: str, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def delete_filament(filament_id: str, current_user: dict = Depends(require_role("operator", scope="write:spools")), db: Session = Depends(get_db)):
     """Delete a filament from the library."""
     fid_str = filament_id.replace("lib_", "")
     try:
@@ -194,5 +194,9 @@ def delete_filament(filament_id: str, current_user: dict = Depends(require_role(
         raise HTTPException(status_code=404, detail="Filament not found")
     if filament.cost_per_gram is not None:
         _require_global_rate_writer(current_user)  # removing a rated row moves the material's rate
+    # Spools reference their library filament (spools.filament_id NOT NULL FK).
+    # The library is shared across organizations, so the answer names no count.
+    if db.query(Spool.id).filter(Spool.filament_id == fid).first() is not None:
+        raise HTTPException(status_code=409, detail="Filament is in use by spools and cannot be deleted.")
     db.delete(filament)
     db.commit()

@@ -42,7 +42,13 @@ class IPAllowlistRequest(PydanticBaseModel):
 
 @router.put("/config/ip-allowlist", tags=["Config"])
 async def set_ip_allowlist(request: Request, body: IPAllowlistRequest, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
-    """Set the IP allowlist. Includes lock-out protection."""
+    """Set the IP allowlist.
+
+    Lock-out check: enabling a list that does not cover the caller's address
+    (as this server sees it) is refused with that address in the message. The
+    address is never added automatically: behind a reverse proxy it is the
+    proxy's, and adding it would admit every client behind the proxy.
+    """
     import ipaddress
     enabled = body.enabled
     cidrs = list(body.cidrs)
@@ -68,9 +74,16 @@ async def set_ip_allowlist(request: Request, body: IPAllowlistRequest, current_u
                 raise ValueError("Unsupported scoped identity")
         except ValueError:
             raise HTTPException(status_code=400, detail="Cannot enforce allowlist for this client identity")
+        from core.net_identity import is_loopback
         client_in_list = any(client_address in network for network in networks)
-        if not client_in_list:
-            cidrs.append(f"{client_address}/{client_address.max_prefixlen}")
+        # Loopback is always admitted by the allowlist middleware (shared definition).
+        if not client_in_list and not is_loopback(str(client_address)):
+            raise HTTPException(
+                status_code=400,
+                detail=(f"This server sees your address as {client_address}, which the allowlist does not "
+                        f"include: saving it would lock you out. Add {client_address} or its network. If "
+                        f"{client_address} is a reverse proxy, every client behind it shares that address."),
+            )
 
     config = {"enabled": enabled, "cidrs": cidrs, "mode": mode}
     db.execute(text("""INSERT INTO system_config (key, value) VALUES ('ip_allowlist', :val)
@@ -524,7 +537,7 @@ async def prometheus_metrics(db: Session = Depends(get_db), current_user: dict =
 # ============== HMS Code Lookup ==============
 
 @router.get("/hms-codes/{code}", tags=["Monitoring"])
-async def lookup_hms(code: str, current_user: dict = Depends(require_role("viewer"))):
+async def lookup_hms(code: str, current_user: dict = Depends(require_role("viewer", scope="read:printers"))):
     """Look up human-readable description for a Bambu HMS error code."""
     try:
         from modules.printers.hms_codes import lookup_hms_code, get_code_count

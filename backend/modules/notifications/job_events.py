@@ -182,6 +182,23 @@ def job_completed(
                 from modules.jobs.services import transition_job
                 job_applied = transition_job(cur, scheduled_job_id, status, 'monitor',
                                              extra_fields={'actual_end': ended_at})
+                if job_applied and success:
+                    # Charge the print's material and measured time to the
+                    # owner's grams/hours quota in the completion transaction,
+                    # only when this end actually completed the job.
+                    from core.quota import record_print_consumption, qmark_runner
+                    cur.execute("SAVEPOINT quota_consumption")
+                    try:
+                        record_print_consumption(
+                            qmark_runner(cur), scheduled_job_id,
+                            measured_hours=(duration_seconds / 3600.0) if duration_seconds else None,
+                            attempt_key=f"print:{int(print_job_id)}")
+                        cur.execute("RELEASE SAVEPOINT quota_consumption")
+                    except Exception:
+                        # Never drop an observed completion over accounting;
+                        # the failure is logged loudly for reconciliation.
+                        cur.execute("ROLLBACK TO SAVEPOINT quota_consumption")
+                        log.exception("Quota consumption for job %s could not be recorded", scheduled_job_id)
 
             reconcile_job_write(conn, production_orders)
             conn.commit()

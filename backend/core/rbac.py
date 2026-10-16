@@ -10,10 +10,132 @@ Old import path (from deps import require_role) continues to work via re-exports
 
 from typing import Optional
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 
 from core.auth import has_permission
 from core.api_token_policy import token_scope_granted
+
+
+# ---------------------------------------------------------------------------
+# Token-scope policy for per-user API tokens (odin_xxx)
+# ---------------------------------------------------------------------------
+#
+# Every route reached with a scoped per-user token must be covered by a scope
+# check. Routes that name a scope (require_role(..., scope=...),
+# require_scope, require_any_scope, the Education principals) check that
+# scope. Every other route requires the generic scope derived from the HTTP
+# method: "read" for safe methods, "write" for anything that can change state.
+# Resource-only scopes (read:printers, write:jobs, ...) therefore reach only
+# routes that declare that resource; they never fall through to unrelated
+# admin or user-management routes. JWT sessions and the global API key are
+# not scoped credentials and are unaffected.
+SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+# require_role(..., scope=HANDLER_SCOPE): the route handler applies its own
+# per-resource token-scope filters (for example the global search).
+HANDLER_SCOPE = "handler"
+_SCOPE_MARK = "__odin_token_scope__"
+
+
+def method_token_scope(method: str) -> str:
+    """Generic scope a token needs for a route that declares no scope."""
+    return "read" if (method or "").upper() in SAFE_METHODS else "write"
+
+
+def is_scoped_token(current_user: Optional[dict]) -> bool:
+    return bool(current_user) and (
+        bool(current_user.get("_token_scopes")) or current_user.get("_auth_kind") == "user_api_token"
+    )
+
+
+def mark_token_scope_checker(fn, scope):
+    setattr(fn, _SCOPE_MARK, scope or "method")
+    return fn
+
+
+def _check_token_scope(current_user: dict, scope: str) -> None:
+    if scope == HANDLER_SCOPE or not is_scoped_token(current_user):
+        return
+    if not token_scope_granted(current_user.get("_token_scopes", []) or [], scope):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Insufficient token scope — '{scope}' scope required",
+        )
+
+
+def handler_enforces_token_scope(*scopes: str):
+    """Mark a route whose handler checks the named token scopes itself.
+
+    Use only when the route cannot use a scope-checking dependency (for
+    example media routes that also accept a query-string token).
+    """
+    async def _declared():
+        return None
+    return mark_token_scope_checker(_declared, ",".join(scopes) or HANDLER_SCOPE)
+
+
+_route_scope_cache: dict = {}
+
+
+def _route_scope_marks(route) -> frozenset:
+    """Scope marks of every dependency of the route ("method" = generic)."""
+    key = id(route)
+    cached = _route_scope_cache.get(key)
+    if cached is not None and cached[0] is route:
+        return cached[1]
+    marks = set()
+    stack = list(getattr(getattr(route, "dependant", None), "dependencies", []) or [])
+    while stack:
+        dep = stack.pop()
+        mark = getattr(dep.call, _SCOPE_MARK, None)
+        if mark:
+            marks.add(mark)
+        stack.extend(dep.dependencies or [])
+    result = frozenset(marks)
+    _route_scope_cache[key] = (route, result)
+    return result
+
+
+def route_declares_token_scope(route) -> bool:
+    """True when a dependency of the route performs a token-scope check."""
+    return bool(_route_scope_marks(route))
+
+
+def route_declares_explicit_scope(route) -> bool:
+    """True when a dependency of the route checks a named (non-generic) scope."""
+    return any(mark != "method" for mark in _route_scope_marks(route))
+
+
+def _generic_scope_check(request: Request, current_user: dict) -> None:
+    """Method-derived scope check for require_role()/require_superadmin() without a scope.
+
+    A stacked dependency that names its own scope (for example
+    require_any_scope("read:printers", ...)) governs the route instead.
+    """
+    if not is_scoped_token(current_user):
+        return
+    if route_declares_explicit_scope(request.scope.get("route")):
+        return
+    _check_token_scope(current_user, method_token_scope(request.method))
+
+
+def enforce_route_token_scope(request: Optional[Request], current_user: Optional[dict]) -> None:
+    """Fail closed for scoped tokens on routes without a scope-checking dependency.
+
+    Called by get_current_user, so routes that depend on it directly (for
+    example the push and alert-preference routes) still need the method's
+    generic scope.
+    """
+    if not is_scoped_token(current_user):
+        return
+    route = request.scope.get("route") if request is not None else None
+    if route is None:
+        # Not dispatched by the router (a programmatic get_current_user call):
+        # the calling code applies its own scope dependency. Every HTTP
+        # request that reaches a route has scope["route"] set by FastAPI.
+        return
+    if route_declares_token_scope(route):
+        return
+    _check_token_scope(current_user, method_token_scope(request.method))
 
 
 def _get_org_filter(current_user: dict, request_org_id: int = None) -> Optional[int]:
@@ -79,34 +201,68 @@ def check_org_access(current_user: dict, resource_org_id: Optional[int]) -> bool
     return group_id is not None and group_id == resource_org_id
 
 
+# ---------------------------------------------------------------------------
+# Credential routes: interactive sessions only
+# ---------------------------------------------------------------------------
+#
+# No API credential (per-user odin_ token of any scope, admin included, or the
+# global API key) may create or change authentication material: biometric
+# refresh tokens, MFA, passwords, reset links, sessions, API tokens, SSO,
+# MFA policy and the mail transport that carries reset links. Otherwise a
+# scoped token could mint itself a full session.
+# The non-interactive credentials: a per-user odin_ token (any scope) and the
+# global API key. A session (session_jwt / bearer_jwt) is interactive; so is a
+# principal with no provenance (never produced by token auth — only by a
+# direct login session or an in-test injection).
+NONINTERACTIVE_AUTH_KINDS = frozenset({"user_api_token", "legacy_global_api_key"})
+CREDENTIAL_ROUTE_DETAIL = "API tokens cannot create or change credentials; sign in with a password session"
+
+
+def is_interactive_session(current_user: Optional[dict]) -> bool:
+    if not current_user:
+        return False
+    if current_user.get("_auth_kind") in NONINTERACTIVE_AUTH_KINDS:
+        return False
+    # A scoped token always carries its scopes, even if its kind is unset.
+    return not current_user.get("_token_scopes")
+
+
+def require_interactive_session():
+    """Route dependency for credential routes (see INTERACTIVE_AUTH_KINDS)."""
+    from core.dependencies import get_current_user
+
+    async def interactive_checker(current_user: dict = Depends(get_current_user)):
+        if not current_user:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        if not is_interactive_session(current_user):
+            raise HTTPException(status_code=403, detail=CREDENTIAL_ROUTE_DETAIL)
+        return current_user
+    return mark_token_scope_checker(interactive_checker, "interactive")
+
+
 def require_role(required_role: str, scope: str = None):
     """FastAPI dependency that checks the user has at least the given role.
 
-    Optionally enforces an API token scope (for per-user scoped tokens).
-    scope='read' for GET endpoints, scope='write' for POST/PATCH/PUT/DELETE.
-    Scope is only enforced when the request uses a per-user API token (odin_xxx).
-    JWT and global API key bypass scope checks.
+    Also enforces the API token scope for per-user scoped tokens (odin_xxx):
+    the given scope, or — when none is given — "read" for GET/HEAD/OPTIONS and
+    "write" for every other method. scope=HANDLER_SCOPE leaves the scope check
+    to the route handler. JWT sessions and the global API key bypass scope
+    checks.
     """
     # Import here to avoid a circular dependency between core.rbac and core.dependencies
     from core.dependencies import get_current_user
 
-    async def role_checker(current_user: dict = Depends(get_current_user)):
+    async def role_checker(request: Request, current_user: dict = Depends(get_current_user)):
         if not current_user:
             raise HTTPException(status_code=401, detail="Not authenticated")
         if not has_permission(current_user["role"], required_role):
             raise HTTPException(status_code=403, detail="Insufficient permissions")
-        # Scope enforcement for scoped per-user API tokens
-        if scope is not None:
-            token_scopes = current_user.get("_token_scopes", [])
-            if token_scopes or current_user.get("_auth_kind") == "user_api_token":
-                granted = token_scope_granted(token_scopes, scope)
-                if not granted:
-                    raise HTTPException(
-                        status_code=403,
-                        detail=f"Insufficient token scope — '{scope}' scope required",
-                    )
+        if scope:
+            _check_token_scope(current_user, scope)
+        else:
+            _generic_scope_check(request, current_user)
         return current_user
-    return role_checker
+    return mark_token_scope_checker(role_checker, scope)
 
 
 def require_superadmin(scope: str = None):
@@ -114,23 +270,24 @@ def require_superadmin(scope: str = None):
 
     Use for system-wide operations: config, backup/restore, license, OIDC, etc.
     Org-scoped admins (admin role + group_id) are rejected with 403.
-    Optional scope applies to actual scoped credentials after the identity floor.
+    Scoped credentials need the given scope or, when none is given, the
+    method's generic scope ("read" for safe methods, otherwise "write").
     """
     from core.dependencies import get_current_user
 
-    async def superadmin_checker(current_user: dict = Depends(get_current_user)):
+    async def superadmin_checker(request: Request, current_user: dict = Depends(get_current_user)):
         if not current_user:
             raise HTTPException(status_code=401, detail="Not authenticated")
         if current_user.get("role") != "admin":
             raise HTTPException(status_code=403, detail="Insufficient permissions")
         if current_user.get("group_id"):
             raise HTTPException(status_code=403, detail="Superadmin access required")
-        token_scopes = current_user.get("_token_scopes", [])
-        if scope is not None and (token_scopes or current_user.get("_auth_kind") == "user_api_token"):
-            if not token_scope_granted(token_scopes, scope):
-                raise HTTPException(status_code=403, detail="Insufficient token scope")
+        if scope:
+            _check_token_scope(current_user, scope)
+        else:
+            _generic_scope_check(request, current_user)
         return current_user
-    return superadmin_checker
+    return mark_token_scope_checker(superadmin_checker, scope)
 
 
 def require_scope(scope: str):
@@ -163,7 +320,7 @@ def require_scope(scope: str):
                     detail=f"Insufficient token scope — '{scope}' scope required",
                 )
         return current_user
-    return _check
+    return mark_token_scope_checker(_check, scope)
 
 
 def require_any_scope(*allowed: str):
@@ -213,7 +370,7 @@ def require_any_scope(*allowed: str):
             extra={"allowed_scopes": list(allowed), "token_scopes": list(token_scopes)},
         )
 
-    return _check
+    return mark_token_scope_checker(_check, ",".join(allowed))
 
 
 # Well-known scope strings for the v1.8.9 agent surface. Tokens can be

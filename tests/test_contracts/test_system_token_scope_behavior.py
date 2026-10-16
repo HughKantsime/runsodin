@@ -59,6 +59,15 @@ def test_authorized_superadmin_reaches_substituted_system_boundary(system_client
     client,issue,calls,dummy=system_client
     headers=issue(['admin']) if credential=='admin_token' else interactive_headers()
     response=operation(client,headers,kind)
+    # Security review HIGH-B: backup create/download/restore/delete handle
+    # credential material and are interactive-session only; an admin token is
+    # refused. Listing backups and the mqtt operations stay token-reachable.
+    credential_backup = kind in ('backup_create', 'backup_download', 'backup_delete', 'backup_restore')
+    if credential=='admin_token' and credential_backup:
+        assert response.status_code==403
+        assert response.json()['detail']=="API tokens cannot create or change credentials; sign in with a password session"
+        assert calls==[]
+        return
     assert response.status_code==(204 if kind=='backup_delete' else 200)
     assert len(calls)==(0 if kind=='mqtt_read' else 1)
     if kind=='mqtt_update':
@@ -73,11 +82,13 @@ def test_admin_scope_does_not_bypass_superadmin_tenant_floor(system_client,revie
     assert calls==[]
     assert dummy.exists()
 
-def test_parameterless_superadmin_keeps_existing_semantics(system_client):
+def test_parameterless_superadmin_needs_the_generic_method_scope(system_client):
+    # F11-11.6-01/02: a superadmin route that names no scope needs the method's generic
+    # scope ("read" for GET); a token scoped to an unrelated resource is refused.
     from fastapi import Depends
     from core.rbac import require_superadmin
     client,issue,_,_=system_client
     @client.app.get('/legacy-superadmin')
     def legacy(current_user=Depends(require_superadmin())):return {'accepted':True}
-    response=client.get('/legacy-superadmin',headers=issue(['read:printers']))
-    assert response.status_code==200
+    assert client.get('/legacy-superadmin',headers=issue(['read:printers'])).status_code==403
+    assert client.get('/legacy-superadmin',headers=issue(['read'])).status_code==200

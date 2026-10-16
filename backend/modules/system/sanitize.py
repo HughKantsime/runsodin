@@ -33,7 +33,14 @@ _PATTERNS = [
 ]
 
 
+# One-time login material in URLs (OIDC callback ?code=&state=, ODIN's own
+# oidc_code, nonces and OAuth tokens). Keeps the parameter name for debugging.
+_URL_SECRET_PARAMS = re.compile(
+    r'(?i)([?&#;](?:oidc_code|code|state|nonce|id_token|access_token|refresh_token|client_secret)=)[^&\s"\'#;]*')
+
+
 def sanitize_log_line(line: str) -> str:
+    line = _URL_SECRET_PARAMS.sub(r'\1[REDACTED]', line)
     for pattern in _PATTERNS:
         line = pattern.sub('[REDACTED]', line)
     return line

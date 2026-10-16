@@ -24,7 +24,7 @@ export default function MobileHeader({ onMenuClick }) {
         </h1>
       </div>
       <div className="flex items-center gap-2">
-        <GlobalSearch />
+        <GlobalSearch id="global-search-mobile" />
         <ThemeToggle />
         <AlertBell />
         <button

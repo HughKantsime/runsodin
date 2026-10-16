@@ -1,6 +1,6 @@
 """Organizations sessions routes — session management, API tokens, quotas, and GDPR."""
 
-from core.rbac import require_scope
+from core.rbac import require_scope, handler_enforces_token_scope, require_interactive_session
 
 import json
 import logging
@@ -62,7 +62,7 @@ async def list_sessions(request: Request, current_user: dict = Depends(require_r
     } for r in rows]
 
 
-@router.delete("/sessions/{session_id}", tags=["Sessions"], dependencies=[Depends(require_scope("admin"))])
+@router.delete("/sessions/{session_id}", tags=["Sessions"], dependencies=[Depends(require_interactive_session())])
 async def revoke_session(session_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Revoke a specific session."""
     row = db.execute(text("SELECT * FROM active_sessions WHERE id = :id AND user_id = :uid"),
@@ -84,7 +84,7 @@ async def revoke_session(session_id: int, current_user: dict = Depends(require_r
     return {"status": "ok"}
 
 
-@router.delete("/sessions", tags=["Sessions"], dependencies=[Depends(require_scope("admin"))])
+@router.delete("/sessions", tags=["Sessions"], dependencies=[Depends(require_interactive_session())])
 async def revoke_all_sessions(request: Request, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Revoke all sessions except the current one."""
     from core.mfa_login import cancel_pending_enrollments
@@ -145,7 +145,7 @@ async def admin_list_sessions(current_user: dict = Depends(require_role("admin")
     } for r in rows]
 
 
-@router.delete("/admin/sessions/{session_id}", tags=["Sessions"], dependencies=[Depends(require_scope("admin"))])
+@router.delete("/admin/sessions/{session_id}", tags=["Sessions"], dependencies=[Depends(require_interactive_session())])
 async def admin_revoke_session(session_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Admin: force-revoke any session."""
     row = db.execute(text("SELECT * FROM active_sessions WHERE id = :id"), {"id": session_id}).fetchone()
@@ -178,13 +178,11 @@ async def admin_revoke_session(session_id: int, current_user: dict = Depends(req
 from core.api_token_policy import VALID_SCOPES, parse_token_scopes
 
 
-@router.post("/tokens", tags=["API Tokens"])
+@router.post("/tokens", tags=["API Tokens"], dependencies=[Depends(require_interactive_session())])
 @limiter.limit("10/minute")
 async def create_api_token(request: Request, body: dict, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Create a new scoped API token for the current user."""
     import secrets
-    if current_user.get("_auth_kind") == "user_api_token" and "admin" not in current_user.get("_token_scopes", []):
-        raise HTTPException(status_code=403, detail="Use an interactive session or an admin-scoped token to create credentials")
     raw_name = body.get("name", "")
     if not isinstance(raw_name, str):
         raise HTTPException(status_code=400, detail="Token name must be text")
@@ -265,7 +263,9 @@ async def create_api_token(request: Request, body: dict, current_user: dict = De
     }
 
 
-@router.get("/tokens", tags=["API Tokens"])
+# Lists only the caller's own token metadata (never the secrets), so any
+# valid scoped token may list its owner's tokens.
+@router.get("/tokens", tags=["API Tokens"], dependencies=[Depends(handler_enforces_token_scope())])
 async def list_api_tokens(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """List all API tokens for the current user."""
     rows = db.execute(text(
@@ -279,7 +279,7 @@ async def list_api_tokens(current_user: dict = Depends(require_role("viewer")), 
     } for r in rows]
 
 
-@router.delete("/tokens/{token_id}", tags=["API Tokens"], dependencies=[Depends(require_scope("admin"))])
+@router.delete("/tokens/{token_id}", tags=["API Tokens"], dependencies=[Depends(require_interactive_session())])
 async def revoke_api_token(token_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Revoke (delete) an API token."""
     row = db.execute(text("SELECT * FROM api_tokens WHERE id = :id AND user_id = :uid"),
@@ -381,7 +381,7 @@ async def admin_set_quota(user_id: int, body: QuotaUpdateRequest, current_user: 
 
 # ============== GDPR Data Export & Erasure ==============
 
-@router.get("/users/{user_id}/export", tags=["GDPR"])
+@router.get("/users/{user_id}/export", tags=["GDPR"], dependencies=[Depends(require_interactive_session())])
 async def export_user_data(user_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Export all personal data for a user (GDPR Article 20)."""
     if current_user["id"] != user_id and current_user["role"] != "admin":
@@ -404,6 +404,12 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
     audit = [dict(r._mapping) for r in db.execute(
         text("SELECT * FROM audit_logs WHERE entity_type = 'user' AND entity_id = :uid ORDER BY timestamp DESC LIMIT 1000"),
         {"uid": user_id}).fetchall()]
+    # Actions the user performed (any entity), not only entries about the account.
+    actions = [dict(r._mapping) for r in db.execute(
+        text("SELECT id, timestamp, action, entity_type, entity_id, details, ip_address FROM audit_logs "
+             "WHERE actor_user_id = :uid AND NOT (entity_type = 'user' AND entity_id = :uid) "
+             "ORDER BY timestamp DESC LIMIT 1000"),
+        {"uid": user_id}).fetchall()]
     if not _is_superadmin(current_user):
         for row in audit:
             for field in ("actor_user_id", "actor_username", "actor_auth_kind"):
@@ -418,6 +424,21 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
     quota_data = [dict(r._mapping) for r in db.execute(
         text("SELECT period_key, grams_used, hours_used, jobs_used, updated_at FROM quota_usage WHERE user_id = :uid"),
         {"uid": user_id}).fetchall()]
+    def _rows(statement):
+        return [dict(r._mapping) for r in db.execute(text(statement), {"uid": user_id}).fetchall()]
+
+    alerts_data = _rows("SELECT id, alert_type, severity, title, message, is_read, is_dismissed, printer_id, job_id, "
+                        "spool_id, created_at FROM alerts WHERE user_id = :uid ORDER BY created_at DESC")
+    push_subscriptions_data = _rows("SELECT id, endpoint, created_at FROM push_subscriptions WHERE user_id = :uid")
+    push_devices_data = _rows("SELECT id, device_id, platform, token, live_activity_token, preferences_json, "
+                              "created_at, last_seen_at FROM push_devices WHERE user_id = :uid")
+    archives_data = _rows("SELECT id, job_id, printer_id, print_name, status, started_at, completed_at, "
+                          "actual_duration_seconds, filament_used_grams, cost_estimate, notes, tags, created_at "
+                          "FROM print_archives WHERE user_id = :uid ORDER BY created_at DESC")
+    uploads_data = _rows("SELECT id, filename, original_filename, project_name, total_weight_grams, printer_model, "
+                         "storage_bytes, uploaded_at FROM print_files WHERE created_by = :uid ORDER BY uploaded_at DESC")
+    projects_data = _rows("SELECT id, name, description, status, created_at, updated_at FROM projects "
+                          "WHERE created_by = :uid ORDER BY created_at DESC")
     classroom_identity = [dict(r._mapping) for r in db.execute(
         text(
             "SELECT org_id, provider_user_id, normalized_email, state, last_seen_at, created_at "
@@ -442,6 +463,13 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
         "user": u,
         "jobs_submitted": jobs,
         "audit_log_entries": audit,
+        "audit_actions_performed": actions,
+        "alerts": alerts_data,
+        "push_subscriptions": push_subscriptions_data,
+        "push_devices": push_devices_data,
+        "print_archives": archives_data,
+        "uploaded_print_files": uploads_data,
+        "projects": projects_data,
         "active_sessions": sessions_data,
         "alert_preferences": prefs,
         "api_tokens": api_tokens_data,
@@ -455,7 +483,7 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
     return export
 
 
-@router.delete("/users/{user_id}/erase", tags=["GDPR"])
+@router.delete("/users/{user_id}/erase", tags=["GDPR"], dependencies=[Depends(require_interactive_session())])
 async def erase_user_data(user_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Anonymize user data (GDPR Article 17). Admin only. Preserves job records for analytics."""
     user = db.execute(text("SELECT * FROM users WHERE id = :id"), {"id": user_id}).fetchone()
@@ -505,22 +533,29 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
     db.execute(text("DELETE FROM api_tokens WHERE user_id = :uid"), {"uid": user_id})
     db.execute(text("DELETE FROM alert_preferences WHERE user_id = :uid"), {"uid": user_id})
     db.execute(text("DELETE FROM push_subscriptions WHERE user_id = :uid"), {"uid": user_id})
+    db.execute(text("DELETE FROM push_devices WHERE user_id = :uid"), {"uid": user_id})
+    # Login history keeps its rate-limit value but no longer names the user.
+    former_username = user_data.get("username")
+    if isinstance(former_username, str) and former_username:
+        db.execute(text("UPDATE login_attempts SET username = :anon WHERE LOWER(username) = LOWER(:old)"),
+                   {"anon": f"[deleted-{user_id}]", "old": former_username})
 
     # Submission/resubmission alerts are delivered to reviewers, so deleting
     # only alerts owned by this user would leave their former username or
     # email in other users' inboxes. Scrub the known account identifiers while
     # retaining the operational alert and job reference.
-    for identifier in identifiers:
-        db.execute(
-            text(
-                "UPDATE alerts SET "
-                "title = REPLACE(title, :identifier, '[deleted-user]'), "
-                "message = CASE WHEN message IS NULL THEN NULL "
-                "ELSE REPLACE(message, :identifier, '[deleted-user]') END "
-                "WHERE title LIKE :pattern OR message LIKE :pattern"
-            ),
-            {"identifier": identifier, "pattern": f"%{identifier}%"},
-        )
+    from core.identity_scrub import like_patterns, scrub_text, scrub_json_text
+
+    like = "ILIKE" if db.get_bind().dialect.name == "postgresql" else "LIKE"
+
+    def _candidate_ids(table, column_expr):
+        # Case-insensitive on both dialects (PostgreSQL LIKE is case-sensitive).
+        ids = set()
+        for identifier in identifiers:
+            for pattern in like_patterns(identifier):
+                ids.update(r.id for r in db.execute(
+                    text(f"SELECT id FROM {table} WHERE {column_expr} {like} :p"), {"p": pattern}))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — table/column are module constants, no user input
+        return sorted(ids)
 
     # Quiet-hours deferred deliveries (migration 032): the user's own copies go; copies
     # of the same alert held for other recipients and webhooks are kept for delivery,
@@ -583,4 +618,40 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
         erasure_details["actor_user_id"] = current_user["id"]
     log_audit(db, "gdpr_erasure", "user", user_id, erasure_details)
     db.commit()
+
+    # Account anonymization is committed. Scrub the user's identifiers from the
+    # free-text audit and alert tables in committed chunks: each chunk holds the
+    # write lock only briefly, and a re-run after an interruption resumes from
+    # whatever rows still match (idempotent).
+    # Chunk the candidate rows so a large table is not rewritten in one
+    # statement that holds the write lock for many seconds; log progress.
+    CHUNK = 500
+    alert_ids = _candidate_ids("alerts", "COALESCE(title,'') || ' ' || COALESCE(message,'')")
+    for start in range(0, len(alert_ids), CHUNK):
+        for alert_id in alert_ids[start:start + CHUNK]:
+            row = db.execute(text("SELECT title, message FROM alerts WHERE id = :id"), {"id": alert_id}).one()
+            title, message = scrub_text(row.title, identifiers), scrub_text(row.message, identifiers)
+            if (title, message) != (row.title, row.message):
+                db.execute(text("UPDATE alerts SET title = :t, message = :m WHERE id = :id"),
+                           {"t": title, "m": message, "id": alert_id})
+        db.commit()  # commit per chunk: bounded lock, idempotent and resumable
+        if alert_ids:
+            log.info("GDPR erase: scrubbed alerts %d/%d", min(start + CHUNK, len(alert_ids)), len(alert_ids))
+
+    # Any other audit row can still name the user in its details (failed
+    # logins have no entity id; actions the user performed carry their name).
+    # Decode each candidate's JSON text (read as text on both dialects) and
+    # scrub it structurally; rows that do not name the user stay byte-identical.
+    audit_ids = _candidate_ids("audit_logs", "CAST(details AS TEXT)")
+    for start in range(0, len(audit_ids), CHUNK):
+        for audit_id in audit_ids[start:start + CHUNK]:
+            raw = db.execute(text("SELECT CAST(details AS TEXT) FROM audit_logs WHERE id = :id"), {"id": audit_id}).scalar()
+            scrubbed = scrub_json_text(raw, identifiers)
+            if scrubbed is not None:
+                db.execute(text("UPDATE audit_logs SET details = :details WHERE id = :id"),
+                           {"details": scrubbed, "id": audit_id})
+        db.commit()  # commit per chunk: bounded lock, idempotent and resumable
+        if audit_ids:
+            log.info("GDPR erase: scrubbed audit_logs %d/%d", min(start + CHUNK, len(audit_ids)), len(audit_ids))
+
     return {"status": "ok", "message": "User data erased"}

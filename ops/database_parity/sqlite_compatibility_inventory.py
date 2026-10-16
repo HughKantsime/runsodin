@@ -209,6 +209,10 @@ CLASSIFICATIONS: dict[str, tuple[str, str]] = {
         "sqlite-provider-only",
         "Education migration uses guarded SQLite PRAGMA inspection while PostgreSQL uses SQLAlchemy reflection",
     ),
+    "backend/core/credential_write_guard.py": (
+        "dialect-neutral",
+        "Runtime statement classifier: regexes contain SQL vocabulary (INSERT OR, REPLACE INTO) to recognise writes on either provider; it executes no database statement",
+    ),
     "backend/modules/organizations/education_policy_inventory.py": (
         "dialect-neutral",
         "Static source-discovery regex contains SQL vocabulary and regex question marks; it executes no database statement",
@@ -244,6 +248,10 @@ CLASSIFICATIONS: dict[str, tuple[str, str]] = {
     "backend/modules/notifications/error_handling.py": (
         "dialect-neutral",
         "Qmark statements execute through the dialect-aware shared DBAPI adapter",
+    ),
+    "backend/core/quota.py": (
+        "dialect-neutral",
+        "qmark_runner binds named parameters as qmarks for the dialect-aware shared DBAPI adapter",
     ),
     "backend/modules/notifications/job_events.py": (
         "dialect-neutral",

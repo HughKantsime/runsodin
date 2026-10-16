@@ -416,6 +416,37 @@ def _setup_middleware(app: FastAPI) -> None:
     )
 
 
+def _ip_allowlist_denial(session_factory, client_ip):
+    """None when the IP allowlist admits client_ip; 403 when it refuses; 503 when the check failed.
+
+    Loopback is always admitted (local administration and the bundled
+    reverse proxy). The check fails closed.
+    """
+    try:
+        db = session_factory()
+        try:
+            row = db.execute(text("SELECT value FROM system_config WHERE key = 'ip_allowlist'")).fetchone()
+        finally:
+            db.close()
+        if not row:
+            return None
+        import ipaddress
+        config = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+        if not (config and config.get("enabled") and config.get("cidrs")):
+            return None
+        from core.net_identity import is_loopback
+        client_ip = client_ip or "127.0.0.1"
+        if is_loopback(client_ip):
+            return None
+        address = ipaddress.ip_address(client_ip)
+        if any(address in ipaddress.ip_network(c, strict=False) for c in config["cidrs"]):
+            return None
+        return 403
+    except Exception as e:
+        log.error("IP allowlist check failed — denying request (fail-closed): %s", e)
+        return 503
+
+
 def _register_http_middleware(app: FastAPI) -> None:
     """Register @app.middleware("http") handlers for security headers and auth.
 
@@ -503,6 +534,18 @@ def _register_http_middleware(app: FastAPI) -> None:
         elif path.startswith("/api/"):
             _api_path = path[4:]
 
+        # IP allowlist: every /api request from a non-allowlisted address is
+        # refused, authenticated or not (login, labels, setup and overlay
+        # included). Only CORS preflights pass; they carry no credentials.
+        if path.startswith("/api/") and request.method != "OPTIONS":
+            denial = _ip_allowlist_denial(SessionLocal, request.client.host if request.client else None)
+            if denial == 403:
+                return JSONResponse(status_code=403, content={"detail": "IP address not allowed"})
+            if denial == 503:
+                return JSONResponse(status_code=503, content={"detail": "Service temporarily unavailable"})
+
+        # Routes exempt from the global API key (they authenticate otherwise
+        # or are public by design).
         if (
             path in ("/health", "/health/ready", "/ws", "/api/v1/ws")
             or path.endswith("/label")
@@ -517,39 +560,6 @@ def _register_http_middleware(app: FastAPI) -> None:
             or request.method == "OPTIONS"
         ):
             return await call_next(request)
-
-        # IP allowlist check
-        if path.startswith("/api/"):
-            try:
-                _db = SessionLocal()
-                try:
-                    ip_row = _db.execute(
-                        text("SELECT value FROM system_config WHERE key = 'ip_allowlist'")
-                    ).fetchone()
-                    if ip_row:
-                        import ipaddress
-                        ip_config = (
-                            json.loads(ip_row[0]) if isinstance(ip_row[0], str) else ip_row[0]
-                        )
-                        if ip_config and ip_config.get("enabled") and ip_config.get("cidrs"):
-                            client_ip = request.client.host if request.client else "127.0.0.1"
-                            if client_ip not in ("127.0.0.1", "::1"):
-                                allowed = any(
-                                    ipaddress.ip_address(client_ip)
-                                    in ipaddress.ip_network(c, strict=False)
-                                    for c in ip_config["cidrs"]
-                                )
-                                if not allowed:
-                                    return JSONResponse(
-                                        status_code=403,
-                                        content={"detail": "IP address not allowed"},
-                                    )
-                finally:
-                    _db.close()
-            except Exception as e:
-                log.error("IP allowlist check failed — denying request (fail-closed): %s", e)
-                # IP allowlist: fail-closed
-                return JSONResponse(status_code=503, content={"detail": "Service temporarily unavailable"})
 
         if not settings.api_key:
             return await call_next(request)
@@ -636,6 +646,34 @@ def _mount_static_assets(app,static_dir):
     app.state.branding_assets=assets
     app.mount('/static/branding',assets,name='branding-assets')
     app.mount('/static',StaticFiles(directory=static_dir),name='static')
+
+
+def _revoke_legacy_biometric_tokens(engine) -> None:
+    """Delete all biometric refresh tokens once, on first start of this version.
+
+    v1.9.24 and earlier let a scoped API token mint a biometric refresh token
+    (SEC HIGH-1). Any such token already issued keeps working until it expires,
+    so on the first start after upgrade every biometric token is revoked and
+    users re-enrol through an interactive session. A system_config marker makes
+    it run exactly once; it is not a schema change.
+    """
+    from sqlalchemy import text
+    from core.db_compat import sql
+    marker = "biometric_revoked_2_0"
+    with engine.begin() as connection:
+        done = connection.execute(
+            text("SELECT 1 FROM system_config WHERE key = :k"), {"k": marker}
+        ).first()
+        if done:
+            return
+        deleted = connection.execute(text("DELETE FROM biometric_tokens")).rowcount
+        connection.execute(
+            text(f"{sql.insert_or_ignore_prefix()} system_config (key, value) "
+                 f"VALUES (:k, :v){sql.on_conflict_ignore('key')}"),
+            {"k": marker, "v": "true"},
+        )
+        if deleted:
+            log.warning("Revoked %d pre-2.0 biometric refresh token(s); affected devices must re-enrol.", deleted)
 
 
 def create_app() -> FastAPI:
@@ -727,6 +765,15 @@ def create_app() -> FastAPI:
         from modules.archives import register_subscribers as archives_register
 
         _check_schema_drift(engine, Base)
+
+        # 2.0 one-time data cleanup: biometric refresh tokens minted before the
+        # credential-route hardening (a scoped token could create one) are
+        # revoked once, so every device re-enrols under the interactive-only
+        # rule. Guarded by a system_config flag — no schema change.
+        try:
+            _revoke_legacy_biometric_tokens(engine)
+        except Exception as e:
+            log.warning("One-time biometric token revocation did not complete: %s", e)
 
         # v1.8.9 codex pass 4: second ITAR audit, now that DB is
         # populated. The early `create_app`-level check only sees
@@ -948,6 +995,12 @@ def create_app() -> FastAPI:
         Requires a short-lived, purpose-limited JWT passed as a query parameter
         (?token=...). Rejects all other credentials and unauthenticated connections.
         """
+        from core.db import SessionLocal as _ws_session
+        denial = _ip_allowlist_denial(_ws_session, ws.client.host if ws.client else None)
+        if denial is not None:
+            await ws.close(code=4003, reason="IP address not allowed" if denial == 403 else "Service temporarily unavailable")
+            return
+
         principal = None
         if token:
             token_data = decode_token(token)

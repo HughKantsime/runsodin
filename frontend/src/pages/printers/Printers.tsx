@@ -360,7 +360,7 @@ export default function Printers() {
           {filteredPrinters.map((printer) => (
             <div key={printer.id} className="relative">
               {canDo('printers.edit') && (
-                <input
+                <input aria-label={`Select ${printer.nickname || printer.name}`}
                   type="checkbox"
                   checked={selectedPrinters.has(printer.id)}
                   onChange={() => togglePrinterSelect(printer.id)}

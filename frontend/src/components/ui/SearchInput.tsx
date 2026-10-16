@@ -21,12 +21,15 @@ export default function SearchInput({
       <Search
         size={16}
         className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--brand-text-muted)]"
+        aria-hidden="true"
       />
       <input
         type="text"
         value={value}
         onChange={onChange}
         placeholder={placeholder}
+        // The placeholder is the visible prompt; it doubles as the accessible name unless one is given.
+        aria-label={placeholder.replace(/\.{3}$|…$/, '')}
         className="w-full bg-transparent border-b border-[var(--brand-card-border)] focus:border-[var(--brand-primary)] focus:outline-hidden pl-9 pr-3 py-2 text-sm"
         {...rest}
       />

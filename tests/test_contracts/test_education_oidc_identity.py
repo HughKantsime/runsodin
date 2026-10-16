@@ -72,7 +72,11 @@ def _oidc_client(db: Session) -> TestClient:
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_db] = lambda: db
-    return TestClient(app)
+    client = TestClient(app)
+    # The browser that started the fixture login (see routes_oidc.OIDC_BINDING_COOKIE).
+    from modules.organizations.routes_oidc import oidc_state_binding
+    client.cookies.set("odin_oidc_bind", oidc_state_binding("fixture-state"))
+    return client
 
 
 class _CallbackHandler:
@@ -351,7 +355,7 @@ def test_oidc_callback_commits_identity_and_auth_code_together(
         follow_redirects=False,
     )
     assert response.status_code == 302
-    assert response.headers["location"].startswith("/?oidc_code=")
+    assert response.headers["location"].startswith("/#oidc_code=")
     assert oidc_db.execute(
         text("SELECT COUNT(*) FROM users WHERE oidc_subject='subject-1'")
     ).scalar_one() == 1
@@ -580,3 +584,80 @@ def test_provider_neutral_userinfo_uses_discovery_endpoint_and_allowlist(
         "email": "student@example.test",
         "email_verified": True,
     }
+
+
+@pytest.mark.parametrize("col,val", [("password_hash", "$2b$12$abcdefghijklmnopqrstuv"), ("mfa_enabled", 1)])
+def test_verified_email_will_not_adopt_a_credentialed_local_account(oidc_db: Session, col, val) -> None:
+    # Security review HIGH-A: an unbound placeholder may be adopted, but never an
+    # account that already holds its own password or MFA.
+    from modules.organizations.routes_oidc import _provider_identity, _resolve_oidc_user
+    from modules.organizations.routes_oidc import OIDCIdentityError
+
+    oidc_db.execute(text(
+        f"INSERT INTO users (username, email, password_hash, role, is_active, group_id, mfa_enabled) "
+        f"VALUES ('teacher', 'teacher@example.test', '', 'operator', 1, 1, 0)"))
+    oidc_db.execute(text(f"UPDATE users SET {col} = :v WHERE email='teacher@example.test'"), {"v": val})
+    oidc_db.commit()
+    config = _config(provider_type="google", allowed_domains="example.test")
+    claims = {"iss": "https://accounts.google.com", "sub": "g-teacher",
+              "email": "teacher@example.test", "email_verified": True, "hd": "example.test"}
+    email, verified = _provider_identity(config, claims, {"sub": "g-teacher"})
+    with pytest.raises(OIDCIdentityError) as exc:
+        _resolve_oidc_user(oidc_db, config, {**claims, "email": email}, {}, verified_email=verified)
+    assert "conflict" in str(exc.value)
+    row = oidc_db.execute(text("SELECT oidc_subject FROM users WHERE email='teacher@example.test'")).scalar()
+    assert row is None  # not linked
+
+
+def test_oidc_callback_requires_the_login_binding_cookie(oidc_db, monkeypatch):
+    """A replayed provider callback from another client cannot mint a code."""
+    from modules.organizations import oidc_handler
+    _seed_oidc_config(oidc_db)
+    monkeypatch.setattr(oidc_handler, "create_handler_from_config",
+                        lambda config, redirect_uri: _CallbackHandler())
+    client = _oidc_client(oidc_db)
+    client.cookies.clear()
+    response = client.get("/auth/oidc/callback?code=fixture-code&state=fixture-state",
+                          follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["location"] == "/?error=invalid_state"
+    assert oidc_db.execute(text("SELECT COUNT(*) FROM oidc_auth_codes")).scalar_one() == 0
+
+
+def test_oidc_login_sets_httponly_lax_binding_cookie(oidc_db, monkeypatch):
+    from modules.organizations import oidc_handler
+    _seed_oidc_config(oidc_db)
+
+    class Handler:
+        async def get_authorization_url(self):
+            return "https://provider.example.test/authorize", "fixture-state"
+    monkeypatch.setattr(oidc_handler, "create_handler_from_config", lambda config, redirect_uri: Handler())
+    response = _oidc_client(oidc_db).get("/auth/oidc/login", follow_redirects=False)
+    assert response.status_code == 302
+    header = response.headers["set-cookie"].lower()
+    assert header.startswith("odin_oidc_bind=") and "httponly" in header and "samesite=lax" in header
+    assert "path=/api/auth/oidc" in header and "max-age=600" in header
+    assert len(response.cookies["odin_oidc_bind"]) >= 32
+
+
+def test_oidc_callback_refuses_another_logins_state_login_csrf(oidc_db, monkeypatch):
+    """A victim browser holding the cookie of its own login cannot be made to finish
+    an attacker's IdP flow (attacker code + attacker state)."""
+    from modules.organizations import oidc_handler
+    from modules.organizations.routes_oidc import oidc_state_binding
+    _seed_oidc_config(oidc_db)
+    consumed = []
+
+    class Handler(_CallbackHandler):
+        def validate_state(self, state):
+            consumed.append(state)
+            return True
+    monkeypatch.setattr(oidc_handler, "create_handler_from_config", lambda config, redirect_uri: Handler())
+    victim = _oidc_client(oidc_db)
+    victim.cookies.set("odin_oidc_bind", oidc_state_binding("victim-own-state"))
+    response = victim.get("/auth/oidc/callback?code=attacker-code&state=attacker-state",
+                          follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["location"] == "/?error=invalid_state"
+    assert consumed == []  # refused before the attacker's state is even consumed
+    assert oidc_db.execute(text("SELECT COUNT(*) FROM oidc_auth_codes")).scalar_one() == 0
