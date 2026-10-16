@@ -161,9 +161,10 @@ assert client.get('/api/vision/settings').json() == {'enabled': False, 'retentio
 from modules.vision import monitor, frame_storage
 monitor.engine = engine
 frame_storage.engine = engine
-assert monitor.VisionMonitorDaemon._globally_enabled(None) is False
+probe_daemon = object.__new__(monitor.VisionMonitorDaemon)  # real methods, no inference engine
+assert probe_daemon._globally_enabled() is False
 assert client.patch('/api/vision/settings', json={'enabled': True, 'retention_days': 1}).status_code == 200
-assert monitor.VisionMonitorDaemon._globally_enabled(None) is True
+assert probe_daemon._globally_enabled() is True
 with engine.begin() as c:
     c.execute(text("INSERT INTO printers(id,name,api_type,slot_count,is_active,tags,timelapse_enabled,shared) VALUES(9,'PG-9','bambu',1,TRUE,'[]',FALSE,FALSE)"))
     c.execute(text("INSERT INTO vision_detections(id,printer_id,detection_type,confidence,status,frame_path,created_at) VALUES(7701,9,'spaghetti',0.9,'pending','9/aged.jpg',:old)"),
@@ -175,6 +176,19 @@ frame_storage.cleanup_old_frames(str(frames))
 assert not (frames / '9' / 'aged.jpg').exists()
 with engine.connect() as c:
     assert c.execute(text('SELECT frame_path FROM vision_detections WHERE id=7701')).scalar_one() is None
+probe_daemon._threads = {1: None, 2: None}
+probe_daemon._publish_monitor_status(2, [9])   # insert
+probe_daemon._threads = {1: None}
+probe_daemon._publish_monitor_status(2, [])    # update in place
+probe_daemon._publish_monitor_status(2, [9])
+assert probe_daemon._max_threads() == 16
+assert client.patch('/api/vision/settings', json={'max_threads': 2}).status_code == 200
+assert probe_daemon._max_threads() == 2
+status = client.get('/api/vision/monitor-status').json()
+assert status == {'max_threads': 2, 'reported': True, 'active_threads': 1, 'capped': True, 'capped_count': 1, 'capped_printer_ids': [9]}, status
+with engine.connect() as c:
+    assert c.execute(text("SELECT count(*) FROM system_config WHERE key='vision_monitor_status'")).scalar_one() == 1
+print('vision monitor-status JSON upsert and cap report ok', flush=True)
 app.dependency_overrides[get_current_user] = lambda: {'id': 3, 'role': 'admin', 'group_id': 7}
 assert client.patch('/api/vision/settings', json={'enabled': False}).status_code == 403
 print('vision settings JSON persistence, global switch, retention cleanup, superadmin gate ok', flush=True)
