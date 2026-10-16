@@ -228,3 +228,27 @@ it('F04-4.3-01 rows are draggable only while the list is in queue order', async 
   fireEvent.click(screen.getByRole('button', { name: 'Sort by queue order' }))
   expect(row('CertC adhoc pending B')).toHaveAttribute('draggable', 'true')
 })
+
+// ---- round 4: a notes-only save never sends a pin (it would wipe model/protocol targets) ----
+it('F04-4.2-02 notes-only edit sends no pinned_printer_id', async () => {
+  await mount()
+  fireEvent.click(within(row('CertC adhoc pending A')).getByRole('button', { name: 'Edit job' }))
+  fireEvent.change(field('Notes'), { target: { value: 'only the notes changed' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+  await waitFor(() => expect(api.update).toHaveBeenCalled())
+  expect(api.update.mock.calls[0][1]).not.toHaveProperty('pinned_printer_id')
+  expect(api.update.mock.calls[0][1]).not.toHaveProperty('printer_id')
+})
+
+it('F04-4.2-02 a deleted pin is shown in the edit modal and kept on save', async () => {
+  current = [...wire.jobs_before, { ...wire.pinned_blocked_job, id: 9990, item_name: 'CertC deleted pin', pinned_printer_id: null, pinned_printer_issue: 'pinned_printer_deleted', target_filter: 'deleted:10' }]
+  await mount()
+  expect(within(row('CertC deleted pin')).getByRole('status')).toHaveTextContent('Pinned printer was deleted — choose another printer')
+  fireEvent.click(within(row('CertC deleted pin')).getByRole('button', { name: 'Edit job' }))
+  const select = field('Pinned Printer') as HTMLSelectElement
+  expect(select.selectedOptions[0].textContent).toBe('Deleted printer — choose another')
+  fireEvent.change(field('Notes'), { target: { value: 'keep the pin' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+  await waitFor(() => expect(api.update).toHaveBeenCalled())
+  expect(api.update.mock.calls[0][1]).not.toHaveProperty('pinned_printer_id')
+})

@@ -50,7 +50,8 @@ export interface Job {
   quantity_on_bed: number | null;
   queue_position: number | null;
   pinned_printer_id: number | null;
-  pinned_printer_issue: 'pinned_printer_missing' | 'pinned_printer_inactive' | null;
+  pinned_printer_issue: 'pinned_printer_missing' | 'pinned_printer_inactive' | 'pinned_printer_deleted'
+    | 'pinned_printer_inaccessible' | 'pinned_target_invalid' | null;
   submitted_by: number | null;
   approved_by: number | null;
   approved_at: string | null;

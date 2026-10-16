@@ -6,6 +6,14 @@ import { canDo, getCurrentUser } from '../../permissions'
 import { formatHours } from '../../utils/shared'
 import { Button, StatusBadge } from '../ui'
 
+const PIN_ISSUE_TEXT: Record<string, string> = {
+  pinned_printer_inactive: 'Pinned printer is inactive — job stays queued',
+  pinned_printer_missing: 'Pinned printer no longer exists — job stays queued',
+  pinned_printer_deleted: 'Pinned printer was deleted — choose another printer',
+  pinned_printer_inaccessible: 'Your organization can no longer use the pinned printer — choose another',
+  pinned_target_invalid: 'Invalid printer pin — treated as any printer; edit the job to choose one',
+}
+
 function DueDateBadge({ dueDate }: { dueDate: string | null }) {
   if (!dueDate) return null
   const due = new Date(dueDate)
@@ -97,9 +105,7 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
           </div>
         )}
         {job.pinned_printer_issue && (
-          <div className="text-xs text-red-400" role="status">
-            {job.pinned_printer_issue === 'pinned_printer_missing' ? 'Pinned printer no longer exists' : 'Pinned printer is inactive'} — job stays queued
-          </div>
+          <div className="text-xs text-red-400" role="status">{PIN_ISSUE_TEXT[job.pinned_printer_issue] ?? 'Pinned printer is unavailable — job stays queued'}</div>
         )}
       </td>
       <td className="px-3 md:px-4 py-3 hidden lg:table-cell">
