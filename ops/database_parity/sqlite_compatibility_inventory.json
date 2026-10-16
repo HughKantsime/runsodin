@@ -266,7 +266,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 59,
+      "line": 69,
       "path": "backend/core/credential_write_guard.py",
       "pattern": "qmark-parameter",
       "reason": "Runtime statement classifier: regexes contain SQL vocabulary (INSERT OR, REPLACE INTO) to recognise writes on either provider; it executes no database statement",
@@ -274,7 +274,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 154,
+      "line": 164,
       "path": "backend/core/credential_write_guard.py",
       "pattern": "qmark-parameter",
       "reason": "Runtime statement classifier: regexes contain SQL vocabulary (INSERT OR, REPLACE INTO) to recognise writes on either provider; it executes no database statement",
@@ -514,7 +514,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 52,
+      "line": 58,
       "path": "backend/core/log_redaction.py",
       "pattern": "qmark-parameter",
       "reason": "Credential-redaction regular expressions (Set-Cookie headers, optional quotes) contain qmark-like fragments; this logging helper performs no database operations or SQL.",
@@ -522,7 +522,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 54,
+      "line": 60,
       "path": "backend/core/log_redaction.py",
       "pattern": "qmark-parameter",
       "reason": "Credential-redaction regular expressions (Set-Cookie headers, optional quotes) contain qmark-like fragments; this logging helper performs no database operations or SQL.",
@@ -1698,7 +1698,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 109,
+      "line": 147,
       "path": "backend/modules/printers/camera_relay.py",
       "pattern": "qmark-parameter",
       "reason": "Single read-only qmark lookup through the shared get_db DBAPI adapter, which binds qmark SQL on both providers; IS TRUE boolean predicates are valid on SQLite and PostgreSQL",
