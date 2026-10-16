@@ -100,11 +100,13 @@ POLICY_INVENTORY = (
         for surface in (
             "archives.routes.archives_crud",
             "archives.timelapse_capture",
+            "jobs.bulk_actions",
             "jobs.routes.jobs_agent",
             "jobs.routes.jobs_crud",
             "jobs.routes.jobs_lifecycle",
             "jobs.routes.presets",
             "jobs.scheduler_routes",
+            "models_library.routes._models_helpers",
             "models_library.routes.models_crud",
             "models_library.routes.pricing",
             "models_library.routes.print_files",
