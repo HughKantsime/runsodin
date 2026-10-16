@@ -962,6 +962,14 @@
     },
     {
       "classification": "sqlite-provider-only",
+      "line": 75,
+      "path": "backend/core/schema/migrations/033_timelapse_capture_tenancy.py",
+      "pattern": "PRAGMA",
+      "reason": "The foreign-key PRAGMA that reads ON DELETE and the BEGIN IMMEDIATE write lock are guarded by dialect; PostgreSQL validates the reflected constraint options.",
+      "source": "ondelete = [str(row[6]).upper() for row in connection.exec_driver_sql(f\"PRAGMA foreign_key_list({TABLE})\")]"
+    },
+    {
+      "classification": "sqlite-provider-only",
       "line": 244,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",

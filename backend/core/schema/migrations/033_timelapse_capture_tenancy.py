@@ -51,9 +51,29 @@ def validate(connection):
     for name in EXPECTED_COLUMNS:
         if columns[name]["nullable"]:
             raise MigrationError(f"Capture tenancy column must be NOT NULL: {name}")
+    from sqlalchemy import Boolean as _Boolean, DateTime as _DateTime, String as _String
+    operation_type = columns["operation_id"]["type"]
+    if not isinstance(operation_type, _String) or getattr(operation_type, "length", None) != 64:
+        raise MigrationError("Capture tenancy operation_id must be VARCHAR(64)")
+    if not isinstance(columns["captured_single_tenant"]["type"], _Boolean):
+        raise MigrationError("Capture tenancy captured_single_tenant must be BOOLEAN")
+    created_type = columns["created_at"]["type"]
+    # SQLite does not record time zones; PostgreSQL must store timestamptz.
+    if not isinstance(created_type, _DateTime) or (connection.dialect.name == "postgresql" and not created_type.timezone):
+        raise MigrationError("Capture tenancy created_at must be a timezone-aware timestamp")
+    default = str(columns["created_at"].get("default") or "").strip().strip("()").upper()
+    if default not in ("CURRENT_TIMESTAMP", "NOW()"):
+        raise MigrationError("Capture tenancy created_at must default to CURRENT_TIMESTAMP")
     if inspector.get_pk_constraint(TABLE).get("constrained_columns") != ["operation_id"]:
         raise MigrationError("Capture tenancy primary key missing")
     foreign = [(fk.get("referred_table"), tuple(fk.get("constrained_columns") or ()), tuple(fk.get("referred_columns") or ()))
                for fk in inspector.get_foreign_keys(TABLE)]
     if foreign != [("timelapse_ownership_anchors", ("operation_id",), ("operation_id",))]:
         raise MigrationError("Capture tenancy foreign key mismatch")
+    if connection.dialect.name == "sqlite":
+        # The engine's own record (reflection misses column-level ON DELETE clauses).
+        ondelete = [str(row[6]).upper() for row in connection.exec_driver_sql(f"PRAGMA foreign_key_list({TABLE})")]
+    else:
+        ondelete = [str((fk.get("options") or {}).get("ondelete") or "").upper() for fk in inspector.get_foreign_keys(TABLE)]
+    if ondelete != ["CASCADE"]:
+        raise MigrationError("Capture tenancy foreign key must cascade on anchor delete")

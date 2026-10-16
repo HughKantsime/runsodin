@@ -79,6 +79,21 @@ def test_pre033_database_upgrades_and_keeps_its_rows_without_backfill(tmp_path):
     f"CREATE TABLE {TABLE}(operation_id VARCHAR(64) PRIMARY KEY)",
     f"CREATE TABLE {TABLE}(operation_id VARCHAR(64) PRIMARY KEY, captured_single_tenant BOOLEAN, created_at DATETIME NOT NULL)",
     f"CREATE TABLE {TABLE}(operation_id VARCHAR(64) PRIMARY KEY, captured_single_tenant BOOLEAN NOT NULL, created_at DATETIME NOT NULL)",
+    # Round 5: ondelete, column types and the created_at default are validated too.
+    f"CREATE TABLE {TABLE}(operation_id VARCHAR(64) NOT NULL PRIMARY KEY REFERENCES timelapse_ownership_anchors(operation_id), "
+    "captured_single_tenant BOOLEAN NOT NULL, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)",
+    f"CREATE TABLE {TABLE}(operation_id VARCHAR(64) NOT NULL PRIMARY KEY REFERENCES timelapse_ownership_anchors(operation_id) ON DELETE SET NULL, "
+    "captured_single_tenant BOOLEAN NOT NULL, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)",
+    f"CREATE TABLE {TABLE}(operation_id VARCHAR(32) NOT NULL PRIMARY KEY REFERENCES timelapse_ownership_anchors(operation_id) ON DELETE CASCADE, "
+    "captured_single_tenant BOOLEAN NOT NULL, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)",
+    f"CREATE TABLE {TABLE}(operation_id VARCHAR(64) NOT NULL PRIMARY KEY REFERENCES timelapse_ownership_anchors(operation_id) ON DELETE CASCADE, "
+    "captured_single_tenant INTEGER NOT NULL, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)",
+    f"CREATE TABLE {TABLE}(operation_id VARCHAR(64) NOT NULL PRIMARY KEY REFERENCES timelapse_ownership_anchors(operation_id) ON DELETE CASCADE, "
+    "captured_single_tenant BOOLEAN NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)",
+    f"CREATE TABLE {TABLE}(operation_id VARCHAR(64) NOT NULL PRIMARY KEY REFERENCES timelapse_ownership_anchors(operation_id) ON DELETE CASCADE, "
+    "captured_single_tenant BOOLEAN NOT NULL, created_at DATETIME NOT NULL)",
+    f"CREATE TABLE {TABLE}(operation_id VARCHAR(64) NOT NULL PRIMARY KEY REFERENCES timelapse_ownership_anchors(operation_id) ON DELETE CASCADE, "
+    "captured_single_tenant BOOLEAN NOT NULL, created_at DATETIME NOT NULL DEFAULT '2020-01-01')",
 ])
 def test_a_different_existing_table_shape_is_refused(tmp_path, ddl):
     engine = _pre033(tmp_path, with_anchor=False)
@@ -88,6 +103,19 @@ def test_a_different_existing_table_shape_is_refused(tmp_path, ddl):
         with pytest.raises(MigrationError):
             bootstrap_database(engine)
         assert M.MIGRATION_ID not in _ids(engine)
+    finally:
+        engine.dispose()
+
+
+def test_the_exact_shape_written_by_hand_is_accepted(tmp_path):
+    """Control for the refusals above: the same DDL with every validated property passes."""
+    engine = _pre033(tmp_path, with_anchor=False)
+    try:
+        with engine.begin() as c:
+            c.execute(text(f"CREATE TABLE {TABLE}(operation_id VARCHAR(64) NOT NULL PRIMARY KEY REFERENCES "
+                           "timelapse_ownership_anchors(operation_id) ON DELETE CASCADE, captured_single_tenant BOOLEAN NOT NULL, "
+                           "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)"))
+        assert M.MIGRATION_ID in bootstrap_database(engine)["applied"]
     finally:
         engine.dispose()
 
