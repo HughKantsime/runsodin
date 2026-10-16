@@ -40,7 +40,6 @@ def _run(monkeypatch, base, *errors, result=None):
     monkeypatch.setattr(restore_coordinator.restore_artifacts, "sweep_stale", lambda *a, **k: {"databases": [], "files": []})
     monkeypatch.setattr(restore_coordinator.time, "sleep", lambda seconds: None)
     monkeypatch.setattr(b, "_insert_postgres_restore_audit", lambda *a, **k: None)
-    monkeypatch.setattr(b, "_notify_superadmins_of_quarantine", lambda *a, **k: None)
     monkeypatch.setenv("ODIN_DATA_DIR", str(base))
     monkeypatch.setenv("DATABASE_MAINTENANCE_URL", "postgresql://m@pg/postgres")
     monkeypatch.setattr(sys, "argv", ["restore_coordinator", "--database-url", "postgresql://o@pg/odin"])

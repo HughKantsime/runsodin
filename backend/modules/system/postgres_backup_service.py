@@ -1232,30 +1232,7 @@ def quarantine_failed_pending_postgres_restore(
             {"reason": reason, "candidate_sha256": manifest.get("sha256"), "target_untouched": True})
     except Exception:  # The record file and the returned status already carry the reason.
         pass
-    try:
-        _notify_superadmins_of_quarantine(target_url, password_file, record)
-    except Exception:  # The backups list and diagnostics still show the record.
-        pass
     return record
-
-
-def _notify_superadmins_of_quarantine(target_url, password_file, record) -> None:
-    """Persistent in-app alert for every active superadmin (existing alerts table)."""
-    engine = create_database_engine(target_url, role="restore", password_file=password_file)
-    try:
-        with engine.begin() as connection:
-            admins = connection.execute(text(
-                "SELECT id FROM users WHERE role='admin' AND group_id IS NULL AND is_active IS TRUE")).scalars().all()
-            for user_id in admins:
-                connection.execute(text(
-                    "INSERT INTO alerts(user_id,alert_type,severity,title,message,is_read,is_dismissed,metadata_json) "
-                    "VALUES(:u,'maintenance_overdue','critical',:t,:m,FALSE,FALSE,:j)"),
-                    {"u": user_id, "t": "Database restore was not applied",
-                     "m": f"{record['reason']} {record['action']} The archive is kept as {record['archive']} in the backup list.",
-                     "j": json.dumps({"kind": "restore_quarantined", "archive": record["archive"],
-                                      "candidate_sha256": record["candidate_sha256"], "failed_at": record["failed_at"]})})
-    finally:
-        engine.dispose()
 
 
 _QUARANTINED = re.compile(r"failed_restore_\d{8}_\d{6}_\d{6}\.(dump|json)")

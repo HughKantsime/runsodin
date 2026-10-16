@@ -196,6 +196,34 @@ def list_backups(current_user: dict = Depends(require_superadmin(scope="admin"))
 
 
 _QUARANTINED_PREFIX = "failed_restore_"
+BACKUPS_LINK = "/settings?tab=system#backups"
+
+
+def active_system_notices() -> list[dict]:
+    """Superadmin notices derived from current state; each clears when its cause is gone."""
+    if not sql.is_postgres:
+        return []
+    notices = []
+    for record in quarantined_restores():
+        if record["archive"] is None:
+            continue
+        notices.append({
+            "kind": "restore_quarantined",
+            "severity": "critical",
+            "title": "Database restore was not applied",
+            "message": f"{record.get('reason')} The current database was not changed. "
+                       "Re-stage or delete the archive in Settings > System > Backups.",
+            "archive": record["archive"],
+            "failed_at": record.get("failed_at"),
+            "link": BACKUPS_LINK,
+        })
+    return notices
+
+
+@router.get("/system/notices", tags=["System"])
+def system_notices(current_user: dict = Depends(require_superadmin(scope="admin"))):
+    """Active system notices for superadmins (restore quarantine)."""
+    return {"notices": active_system_notices()}
 
 
 def _safe_backup_path(filename: str) -> Path:

@@ -298,6 +298,10 @@ export default function SystemTab() {
   }
   const queryClient = useQueryClient()
   const [deleteConfirm, setDeleteConfirm] = useState(null)
+  useEffect(() => {
+    // Deep link from the system-notice banner: /settings?tab=system#backups
+    if (window.location.hash === '#backups') document.getElementById('backups')?.scrollIntoView?.()
+  }, [])
 
   const { data: statsData } = useQuery({ queryKey: ['stats'], queryFn: () => fetchAPI('/stats') })
   const { data: backups, isLoading: backupsLoading } = useQuery({
@@ -332,6 +336,7 @@ export default function SystemTab() {
     mutationFn: backupsApi.stage,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['backups'] })
+      queryClient.invalidateQueries({ queryKey: ['system-notices'] })
       toast.success('Restore validated and staged. Restart ODIN to apply it.')
     },
     onError: (err: any) => toast.error('Stage restore failed: ' + (err?.message || 'Unknown error')),
@@ -341,6 +346,7 @@ export default function SystemTab() {
     mutationFn: backupsApi.remove,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['backups'] })
+      queryClient.invalidateQueries({ queryKey: ['system-notices'] })
       setDeleteConfirm(null)
     },
     onError: (err: any) => toast.error('Delete backup failed: ' + (err?.message || 'Unknown error')),
@@ -386,7 +392,7 @@ export default function SystemTab() {
       </Card>
 
       {/* Database Backups */}
-      <Card padding="lg" className="mb-4 md:mb-6">
+      <Card padding="lg" className="mb-4 md:mb-6" id="backups">
         <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
           <div className="flex items-center gap-2 md:gap-3">
             <HardDrive size={18} className="text-[var(--brand-primary)]" />

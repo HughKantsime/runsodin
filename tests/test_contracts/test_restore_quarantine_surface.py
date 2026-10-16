@@ -1,7 +1,9 @@
 """A quarantined PostgreSQL restore is visible and actionable for the superadmin.
 
 Backups list (with reason and action), re-stage and delete from the list, diagnostics,
-a count-only readiness notice, a persistent in-app alert, and retention.
+a count-only readiness notice, the superadmin system-notices endpoint (which clears
+when the archive is re-staged or deleted), and retention. No in-app alert is written:
+alert types are routed by the notification rules.
 """
 import json
 import os
@@ -24,11 +26,9 @@ def quarantined(tmp_path, monkeypatch):
     paths.manifest.write_text(json.dumps({"schema_version": 1, "dialect": "postgresql", "state": "staged", "sha256": "a" * 64,
                                           "size_bytes": 200, "actor_id": 1, "staged_at": "2026-10-15T00:00:00+00:00"}))
     monkeypatch.setattr(b, "_insert_postgres_restore_audit", lambda *a, **k: None)
-    alerts = []
-    monkeypatch.setattr(b, "_notify_superadmins_of_quarantine", lambda url, pw, record: alerts.append(record))
     record = b.quarantine_failed_pending_postgres_restore("postgresql://o@pg/odin", error=b.ArchiveRefused("Archive schema differs"))
     monkeypatch.setattr(routes_backup, "sql", __import__("types").SimpleNamespace(is_postgres=True))
-    return paths, record, alerts
+    return paths, record, []
 
 
 def test_backups_list_shows_the_quarantined_archive_with_reason(quarantined):
@@ -36,7 +36,6 @@ def test_backups_list_shows_the_quarantined_archive_with_reason(quarantined):
     listed = routes_backup.list_backups(current_user={"id": 1})
     assert listed[0]["filename"] == record["archive"] and listed[0]["quarantined"] is True
     assert listed[0]["reason"] == "Archive schema differs" and "re-stage" in listed[0]["action"].lower()
-    assert alerts == [record]
 
 
 def test_quarantined_archive_can_be_staged_again_from_the_list(quarantined, monkeypatch):
@@ -84,21 +83,47 @@ def test_quarantined_restores_are_retained_30_days(quarantined):
     assert b.quarantined_restores() == []
 
 
-def test_superadmins_receive_a_persistent_in_app_alert(tmp_path, monkeypatch):
-    from core.schema import bootstrap_database
-    db = tmp_path / "alerts.db"
-    engine = create_engine(f"sqlite:///{db}")
-    bootstrap_database(engine)
-    with engine.begin() as c:
-        c.execute(text("INSERT INTO users(id,username,password_hash,role,is_active,group_id) VALUES(1,'root','x','admin',1,NULL),"
-                       "(2,'orgadmin','x','admin',1,5),(3,'viewer','x','viewer',1,NULL),(4,'gone','x','admin',0,NULL)"))
-    engine.dispose()
-    record = {"reason": "Archive schema differs", "action": "Re-stage it.", "archive": "failed_restore_20261015_000000_000000.dump",
-              "candidate_sha256": "a" * 64, "failed_at": "2026-10-15T00:00:00+00:00"}
-    b._notify_superadmins_of_quarantine(f"sqlite:///{db}", None, record)
-    engine = create_engine(f"sqlite:///{db}")
-    with engine.connect() as c:
-        rows = c.execute(text("SELECT user_id,severity,title,is_read,metadata_json FROM alerts")).all()
-    engine.dispose()
-    assert [(r[0], r[1], r[2], r[3]) for r in rows] == [(1, "critical", "Database restore was not applied", 0)]
-    assert json.loads(rows[0][4])["kind"] == "restore_quarantined"
+def test_system_notice_is_active_until_the_archive_is_restaged(quarantined, monkeypatch):
+    paths, record, _ = quarantined
+    notices = routes_backup.system_notices(current_user={"id": 1})["notices"]
+    assert [(n["kind"], n["archive"], n["link"]) for n in notices] == [("restore_quarantined", record["archive"], "/settings?tab=system#backups")]
+    assert "Archive schema differs" in notices[0]["message"] and notices[0]["severity"] == "critical"
+    monkeypatch.setattr(routes_backup, "_postgres_maintenance_config", lambda: ("postgresql://m@pg/postgres", "/a", "/b"))
+    monkeypatch.setattr(routes_backup, "stage_postgres_restore", lambda path, *a, **k: {"candidate_sha256": "a" * 64})
+    monkeypatch.setattr(routes_backup, "log_audit", lambda *a, **k: None)
+    class DB:
+        def commit(self): pass
+    routes_backup.stage_existing_backup(record["archive"], current_user={"id": 1}, db=DB())
+    assert routes_backup.system_notices(current_user={"id": 1}) == {"notices": []}
+
+
+def test_system_notice_clears_when_the_archive_is_deleted(quarantined, monkeypatch):
+    paths, record, _ = quarantined
+    monkeypatch.setattr(routes_backup, "log_audit", lambda *a, **k: None)
+    class DB:
+        def commit(self): pass
+    assert routes_backup.system_notices(current_user={"id": 1})["notices"]
+    routes_backup.delete_backup(record["archive"], current_user={"id": 1}, db=DB())
+    assert routes_backup.system_notices(current_user={"id": 1}) == {"notices": []}
+
+
+def test_system_notices_are_empty_on_sqlite_and_write_no_alerts(quarantined, monkeypatch):
+    monkeypatch.setattr(routes_backup, "sql", __import__("types").SimpleNamespace(is_postgres=False))
+    assert routes_backup.active_system_notices() == []
+    import inspect
+    assert "INSERT INTO alerts" not in inspect.getsource(b)
+
+
+def test_system_notices_endpoint_requires_a_superadmin():
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from core.dependencies import get_current_user
+    app = FastAPI(); app.include_router(routes_backup.router)
+    with TestClient(app) as client:
+        assert client.get("/system/notices").status_code in (401, 403)
+        for principal in ({"id": 2, "role": "admin", "group_id": 5}, {"id": 3, "role": "viewer", "group_id": None}):
+            app.dependency_overrides[get_current_user] = lambda principal=principal: principal
+            assert client.get("/system/notices").status_code == 403, principal
+        app.dependency_overrides[get_current_user] = lambda: {"id": 1, "role": "admin", "group_id": None}
+        response = client.get("/system/notices")
+        assert response.status_code == 200 and "notices" in response.json()

@@ -76,7 +76,6 @@ POLICY_INVENTORY = (
     _entry("notifications.error_handling", "printer/job error topics", "submission/job/alert", "notify", "trusted notification worker", ("Education outbox",), "test_education_monitor_policy.py", "guarded"),
     _entry("notifications.alert_dispatch", "dispatch_alert", "Education alert", "external-sink", "none for Education", ("email", "push", "webhook"), "test_education_notification_privacy.py", "batch2_required"),
     _entry("notifications.alert_dispatcher", "alert dispatcher worker", "Education alert", "external-sink", "none for Education", ("email", "push", "webhook"), "test_education_notification_privacy.py", "batch2_required"),
-    _entry("system.postgres_backup_service", "quarantine_failed_pending_postgres_restore", "restore-quarantine alert", "notify", "superadmins only (no tenant data)", ("in-app alerts",), "test_restore_quarantine_surface.py", "excluded_internal"),
     _entry("notifications.quiet_hours", "digest collector", "Education alert", "external-sink", "none for Education", ("digest",), "test_education_notification_privacy.py", "batch2_required"),
     _entry("notifications.mqtt_republish", "MQTT republisher", "Education event", "external-sink", "none for Education", ("MQTT",), "test_education_notification_privacy.py", "batch2_required"),
     _entry("push.fanout", "push fanout", "Education alert", "external-sink", "none for Education", ("APNS", "web push"), "test_education_notification_privacy.py", "batch2_required"),

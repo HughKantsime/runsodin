@@ -24,6 +24,21 @@ export interface BackupEntry {
   action?: string | null;
 }
 
+export interface SystemNotice {
+  kind: 'restore_quarantined';
+  severity: 'critical' | 'warning';
+  title: string;
+  message: string;
+  archive?: string;
+  failed_at?: string | null;
+  link: string;
+}
+
+/** Superadmin-only notices derived from current server state (GET /system/notices). */
+export const systemNotices = {
+  list: (): Promise<{ notices: SystemNotice[] }> => fetchAPI('/system/notices'),
+}
+
 export interface StagedRestore {
   status: string;
   message: string;
