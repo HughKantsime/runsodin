@@ -11,17 +11,17 @@
 - Live nozzle temperature, bed temperature, fan speed via MQTT/WebSocket/REST polling
 - Telemetry snapshots stored every 60 seconds during active prints (90-day retention)
 - Telemetry timeseries chart on printer detail panel
-- Fan speed extraction from MQTT heartbeat (Bambu), WebSocket (Moonraker), REST poll (PrusaLink), SDCP status (Elegoo)
+- Fan speed extraction from MQTT heartbeat (Bambu, gear 0-15), REST poll (Moonraker 0-100%, PrusaLink RPM), SDCP status (Elegoo 0-100%)
 - All four printer protocols at telemetry parity as of v1.1.4
 
 ### 1.2 Printer Status Tracking
 - Real-time state detection: Idle, Printing, Paused, Error, Offline
 - Live heartbeat system with 90-second threshold for online/offline determination
-- Offline detection for all protocols (MQTT timeout for Bambu, WS disconnect for Moonraker, consecutive poll failures for PrusaLink, status timeout for Elegoo)
+- Offline detection for all protocols (MQTT disconnect/120 s staleness for Bambu, REST poll failure for Moonraker, failed REST polls for PrusaLink, 60 s status timeout for Elegoo)
 - Progress percentage and ETA displayed on printer cards and job views
 
 ### 1.3 HMS Error System (Bambu)
-- 500+ translated Bambu HMS error codes with human-readable descriptions (expanded from 42)
+- 331 translated Bambu HMS error codes plus 266 print-action error codes (597 total) with human-readable descriptions, and structural decoding for unlisted codes
 - Clear HMS errors from UI — `POST /api/printers/{id}/clear-errors` sends reset via MQTT (operator/admin)
 - HMS error history logging on change detection (90-day retention)
 - HMS history panel on printer cards with toggle button
@@ -30,22 +30,22 @@
 ### 1.4 AMS Integration (Bambu)
 - RFID spool detection — automatic filament type and color identification
 - AMS slot display with loaded filament colors and material types
-- AMS humidity and temperature monitoring (5-minute capture interval, 7-day retention)
+- AMS humidity and temperature monitoring (5-minute capture interval, 90-day retention; charts show up to 7 days)
 - AMS environment chart (Recharts) on printer detail panel
 - **H2D dual-nozzle support** — auto-detected via `machine_type` column; dual nozzle temps (L/R), dual AMS unit labels, H2D badge on printer cards, `GET /api/printers/{id}/nozzle-status` endpoint
-- **H2D external spools** — Ext-L / Ext-R spool positions parsed from `vt_tray` MQTT field; material, color, and remaining percentage displayed on printer cards
-- **AMS RFID re-read** — trigger filament re-scan from UI via MQTT `ams_change_filament` command
+- **H2D external spools** — Ext-L / Ext-R spool positions parsed from the `vir_slot` MQTT field; material, color, and remaining percentage displayed on printer cards
+- **AMS RFID re-read** — trigger filament re-scan via `POST /api/printers/{id}/ams/refresh` (MQTT `ams_change_filament`); API only, no UI control
 - **AMS slot configuration** — set material type, color hex, and K-factor per slot via MQTT `ams_filament_setting` command
 - **AMS auto-sync** — filament slot data (material, color, remaining %) automatically synced from MQTT telemetry to inventory; creates missing slot rows on first detection (v1.5.9)
 - **SpoolRing visualization** — SVG circular arc indicator for filament visualization across all pages (color, material, fill level); dashed ring for empty, amber warning below 15% (v1.5.3+)
 
 ### 1.5 Printer Controls
-- **Emergency Stop** — floating red button visible on every page, sends stop to all connected printers (operator/admin)
+- **Emergency Stop** — floating button on every page lists active prints; operators/admins can pause, resume or stop (with confirmation) each printer
 - **Pause / Resume** — pause active prints, resume paused ones (operator/admin)
 - **Light Toggle** — chamber light on/off for Bambu printers with cooldown (operator/admin)
 - **Smart Plug Control** — on/off/status for configured smart plugs (operator/admin)
 - **Skip Objects** — exclude specific objects mid-print for Bambu printers via `POST /api/printers/{id}/skip-objects` (operator/admin)
-- **Speed Adjustment** — change print speed mid-print (25%–200%) for Bambu printers via `POST /api/printers/{id}/speed` (operator/admin)
+- **Speed Adjustment** — switch print speed mode mid-print (Silent / Standard / Sport / Ludicrous) for Bambu printers via `POST /api/printers/{id}/speed` (operator/admin)
 - Speed slider with percentage display on printer cards during active prints
 - **Fan Speed Control** — set part cooling, auxiliary, and chamber fan speeds (0–255) for Bambu printers via `POST /api/printers/{id}/fan` (operator/admin)
 - **AMS RFID Re-read** — trigger AMS RFID re-scan via `POST /api/printers/{id}/ams/refresh` (operator/admin)
@@ -62,7 +62,7 @@
 - Track nozzle installs and retirements with timestamps
 - Accumulated print hours per nozzle
 - Nozzle status card on printer detail panel
-- CRUD API endpoints for nozzle management
+- API endpoints to install, retire, and list nozzles (current + history)
 
 ### 1.8 Printer Management UI
 - Search, filter, and sort toolbar on Printers page (v1.1.0)
@@ -78,12 +78,12 @@
 ## 2. Camera System
 
 ### 2.1 Camera Feeds
-- WebRTC streaming via go2rtc (RTSP → WebRTC transcoding)
+- WebRTC streaming via go2rtc (RTSP cameras relayed to WebRTC; HTTP/MJPEG cameras transcoded to H.264)
 - Camera grid page with all active feeds
 - Per-camera enable/disable toggle
 
 ### 2.2 Camera Auto-Discovery
-- Bambu X1C/H2D: RTSP URL broadcast via MQTT
+- Bambu X1C/X1E/H2D: camera auto-configured (RTSPS on port 322 from the printer's access code) when MQTT reports the camera
 - Moonraker/Klipper: webcam URL from Moonraker config
 - PrusaLink: snapshot endpoint probed on connect
 - Elegoo: MJPEG stream probed on port 8080
@@ -94,7 +94,7 @@
 - Exit with Escape
 
 ### 2.4 Picture-in-Picture
-- Pop-out any camera feed into a draggable, resizable floating mini-player
+- Pop out any camera from the Cameras grid into a draggable floating mini-player (two size presets)
 - Persists while navigating to other pages
 
 ### 2.5 Camera Detail View (v1.1.3)
@@ -111,8 +111,8 @@
 - Opens in new tab from Cameras page
 - Header: app branding, printing count, live clock + date
 - Responsive grid of printer cards with WebRTC camera thumbnails, status, job progress + ETA
-- Auto-pagination every 30 seconds for farms with 12+ printers, with page dots
-- Stats bar with active alerts count
+- Auto-pagination every 30 seconds for farms with more than 12 printers (12 per page), with page dots
+- Stats bar with count of unread print-failure, low-spool and overdue-maintenance alerts
 - Exit with Escape or X button
 
 ### 2.7 Timelapse Management (v1.2.0)
@@ -120,7 +120,7 @@
 - Captures JPEG frames for printers with `timelapse_enabled=True` while printing
 - Stitches frames to MP4 via ffmpeg when print completes
 - API: paginated list with printer/status filters, serve MP4 (supports `?token=` for `<video>` elements), delete (admin-only)
-- Gallery page with grid view, video player modal, printer/status filters, pagination, download + delete actions
+- Gallery page with grid view, inline video player, printer/status filters, pagination, download + delete actions
 - Nav item with Film icon under Cameras
 - **Timelapse editor** — in-app trim (start/end), speed adjustment (0.5×–8×), download via ffmpeg; editor modal with video player, range sliders, and speed presets
 
@@ -140,7 +140,7 @@
 - Automatically creates an archive record when any print job completes (success, failure, or cancellation)
 - Subscribes to JOB_COMPLETED, JOB_FAILED, and JOB_CANCELLED events via the event bus
 - Captures: job name, printer, status, start/end time, duration, filament used, cost estimate, thumbnail, file path, print file ID, plate count, user attribution
-- Multi-filament consumption deduction: distributes weight evenly across all assigned spools on completion
+- Multi-filament consumption deduction: per-material evidence drives assigned-spool deductions; ambiguous total-only measurements remain unresolved
 
 ### 2b.2 Archive Browser
 - Dedicated `/archives` page with table view (thumbnail, name, printer, status badge, duration, filament, date)
@@ -190,12 +190,12 @@
 ## 3. Vigil AI — Print Failure Detection
 
 ### 3.1 Detection Engine
-- Supervised daemon (`vision_monitor.py`) managed by supervisord
-- ONNX model inference for four failure types: spaghetti, first layer defects, detachment, build plate empty
+- Supervised daemon (`modules/vision/monitor.py`, run as `python3 -m modules.vision.monitor`) managed by supervisord
+- ONNX model inference for four failure types: spaghetti, first layer defects, detachment, build plate empty (spaghetti model bundled; the other three run with your uploaded ONNX model)
 - Per-printer monitoring threads that capture frames from go2rtc camera streams
 - Confidence filtering with configurable thresholds per detection type
 - Non-maximum suppression (NMS) for deduplication
-- Confirmation buffer to reduce false positives — multiple consecutive detections required before alerting
+- Confirmation buffer to reduce false positives — spaghetti, detachment and plate-empty alerts need 2 of the last 3 frames above threshold; first-layer alerts fire on a single frame (time-critical); 60 s per-type alert cooldown
 - Auto-pause capability: automatically pauses prints when failures are confirmed
 
 ### 3.2 Detection Management
@@ -209,7 +209,7 @@
 - `GET/PATCH /api/printers/{id}/vision` — per-printer vision settings (enable/disable, sensitivity)
 - `GET/PATCH /api/vision/settings` — global vision configuration
 - `GET/POST /api/vision/models` — manage ONNX model files (upload new, activate)
-- `GET /api/vision/stats` — detection statistics and trends
+- `GET /api/vision/stats` — detection counts by type, status and printer plus confirmed-review rate over a configurable window (default 7 days, max 90)
 - Training data endpoints: export labeled frames, label detections for model retraining
 
 ### 3.4 Storage
@@ -224,7 +224,7 @@
 
 ### 4.1 Job Lifecycle
 - States: Pending → Printing → Completed/Failed
-- With approval mode: Submitted → Approved → Pending → Printing → Completed/Failed
+- With approval mode: Submitted → Pending (on approval) → Printing → Completed/Failed; rejected submissions become Rejected
 - Rejected jobs can be resubmitted by the original submitter
 
 ### 4.2 Scheduling
@@ -232,16 +232,16 @@
 - **Target type filtering** — jobs can target a specific printer, any printer matching a machine model, or any printer using a protocol (specific/model/protocol)
 - Time-window job matching strategy — evaluates printer availability windows, not single-point checks (v1.3.13)
 - Stale schedule cleanup — reactive per-printer cleanup on print start (v1.3.13), proactive fleet-wide cleanup on every scheduler run (v1.3.18)
-- Auto-create jobs on print completion for reprint tracking (v1.3.10)
+- Auto-create jobs on Bambu print completion for reprint tracking (v1.3.10)
 - Upload → Model Library → Schedule → Jobs workflow pipeline
 - Quick Print button on upload success screen — creates pending job immediately (v1.0.26)
 - Quick-schedule presets for common configurations (v1.2.0)
-- Due dates and priority levels: low / normal / high / urgent with color badges
+- Due dates with overdue/due-soon badges and five priority levels (1 Highest – 5 Lowest) shown as color-coded P1–P5 badges; the API also accepts named levels urgent/high/normal/low
 - **Filament compatibility check** — `GET /api/jobs/filament-check` validates printer's loaded filament against job requirements
 
 ### 4.3 Queue Management
-- Drag-and-drop queue reorder (operator/admin)
-- Three tabs: All, Order Jobs, Ad-hoc
+- Drag-and-drop queue reorder within a priority level (operator/admin)
+- Four tabs: All Jobs, Awaiting Approval, Order Jobs, Ad-hoc
 - At-risk job warnings — overdue jobs show red tint background (v1.0.26)
 - Job edit modal for inline editing (v1.1.0)
 - Bulk operations with multi-select checkboxes: cancel, priority change, reschedule, delete (v1.3.0)
@@ -257,10 +257,10 @@
 
 ### 4.5 Failure Logging
 - Failure reason dropdown (nozzle clog, adhesion failure, filament tangle, etc.) + free-text notes
-- Failure analytics with correlation data (v1.2.0) — which printer fails most, which model, patterns
+- Failure analytics (v1.2.0) — success/failure counts and failure rates by printer (ranked, with MTBF), model and filament type, top failure reasons, and HMS error frequency
 
 ### 4.6 Job Approval Workflow (Education)
-- Toggle "Require Job Approval" in Settings (admin-only)
+- "Job Approval Workflow" toggle in Settings → General (admin-only, Education license)
 - Viewers (students) submit jobs → Submitted status
 - Awaiting Approval tab with badge count visible to operators/admins
 - Approve/Reject buttons with notification dispatch
@@ -291,7 +291,7 @@
 - **Multi-plate scheduling** — plate selector in schedule modal for multi-plate 3MF files; `plate_count` exposed in variants endpoint
 
 ### 5.2 Library Management
-- Search by name, material, or tags
+- Search by name or material
 - Favorites (star frequently-used models)
 - Stat cards: total models, total print hours, most-printed
 - Schedule a job, edit metadata, delete from any model
@@ -311,9 +311,9 @@
 ## 5b. Slicer & Printer Profiles
 
 ### 5b.1 Profile Library
-- Upload, tag, version, and distribute slicer and printer configuration profiles across your farm
+- Upload, tag, version, and share slicer and printer configuration profiles; apply Klipper command profiles (temperature, speed, macros) live to Moonraker printers across your farm
 - Supported formats: `.json` (OrcaSlicer, Bambu Studio), `.ini` (PrusaSlicer), `.cfg` (Klipper)
-- Categorized by type: slicer_profile, printer_profile, filament_profile
+- Categorized by type: printer, filament, process (slicer profiles); temperature, speed, macro_set, custom (Klipper profiles)
 - Search and filter by printer model, slicer, material, tags
 
 ### 5b.2 Profile Versioning
@@ -347,13 +347,13 @@
 
 ### 6.5 CSV Export
 - Export full spool inventory as CSV via `GET /api/spools/export`
-- Includes all spool fields: material, color, brand, weight, status, PA profile
+- Includes ID, brand, name, material, color, initial/remaining weight, % remaining, status, vendor, price, storage location, notes and PA profile
 
 ### 6.6 Spoolman Integration
 - `spoolman_spool_id` field for linking O.D.I.N. spools to external Spoolman instance
-- Bidirectional sync: pull spool inventory from an external Spoolman instance; push consumption back on job completion (manual and printer-observed) via `PUT /api/v1/spool/{id}/use`
+- Spoolman integration: browse spools from an external Spoolman instance (read-through, not imported into O.D.I.N.); push consumption back on job completion via `PUT /api/v1/spool/{id}/use`
 - **Auto-deduction** — filament consumption auto-deducted from the assigned spool on print completion; consumption_json stored in the archive; pushed back to Spoolman when the spool is linked (fails loud via job.notes if Spoolman is unreachable, no silent drops)
-- **Filament usage tracking** — Bambu: AMS remain percentage delta × initial_weight_g; Moonraker: Klipper `print_stats.filament_used` (mm→grams conversion); multi-filament deductions use per-material evidence; ambiguous total-only measurements remain unresolved
+- **Filament usage tracking** — Bambu: AMS remain % delta × initial_weight_g; Moonraker: print_stats.filament_used (mm→g). A measured total is deducted from the spool only for single-spool prints; multi-filament prints deduct each assigned spool's sliced per-slot estimate, and a single measured total is never split across spools.
 
 ### 6.7 Filament Drying Log (v1.2.0)
 - Log drying sessions per spool: start time, duration, temperature
@@ -362,7 +362,7 @@
 ### 6.4 Pricing Configuration
 - Per-material cost rates (cost per gram for PLA, PETG, ASA, etc.)
 - Feeds into cost calculator and order P&L calculations
-- Admin-only configuration under Settings → Pricing
+- Admin-only pricing configuration saved from Tools → Calculator (`PUT /api/pricing-config`)
 
 ---
 
@@ -399,17 +399,17 @@
 - Stat cards: total orders, revenue, pending orders, average margin
 
 ### 9.2 Order Lifecycle
-- Pending → In Progress (Schedule All) → Fulfilled (all jobs complete) → Shipped (with tracking number)
-- "Schedule All" auto-generates jobs from BOM, assigns to printers with color-match scoring, deducts consumable stock
+- Pending → In Progress (Schedule Jobs) → Fulfilled (all jobs complete) → Shipped (with tracking number)
+- "Schedule Jobs" auto-generates jobs from the BOM and deducts consumable stock; running the scheduler then assigns them to printers with color-match scoring
 
 ### 9.3 Per-Order P&L
-- Revenue: sale price × quantity per line item
-- COGS: filament cost + consumable cost for all BOM components
-- Profit and margin calculated per order
+- Revenue: order total entered per order; each line item shows its sale price × quantity subtotal
+- Estimated COGS: each BOM model's cost per item (the entered cost, or one derived from its filament usage when none is entered) plus consumable cost, for all BOM components and line items
+- Estimated profit and margin (revenue minus estimated BOM COGS and recorded fees) calculated per order
 
 ### 9.4 PDF Invoice Export (v1.0.26)
 - Branded PDF invoices via `GET /api/orders/{id}/invoice.pdf` using fpdf2
-- Integrates branding system: logo, colors, app name
+- Integrates branding system: logo, primary color, app name and footer text
 - Download Invoice button on order detail modal
 
 ### 9.5 Shipping
@@ -420,7 +420,7 @@
 ## 10. Analytics & Reporting
 
 ### 10.1 Analytics Dashboard
-- Hero stat cards: total revenue, total cost, profit margin, jobs completed
+- Stat cards: revenue (with completed-job count), pipeline, average $/hour and print hours, plus total cost and net margin when cost data exists (estimated values for the selected time range)
 - Cost/revenue time-series bar chart
 - Model rankings by job count
 - Fleet overview
@@ -442,14 +442,14 @@
 - EnergyWidget in Analytics dashboard with consumption trends
 
 ### 10.5 Failure Analytics (v1.2.0)
-- Failure reason correlation: which printer fails most, which model, pattern detection
+- Failure analytics chart success and failure per printer and the top failure reasons, and show per-model and per-filament failure rates on the Analytics page.
 - Built on failure logging data
 
 ### 10.6 CSV Exports
-- Jobs, models, spools, filament usage, audit logs (admin-only)
-- Available from relevant pages and Settings → Export
+- CSV exports: jobs, models, spools and filament usage (operator and above), audit logs (platform superadmin only)
+- Jobs, models, spools and filament-usage CSVs in Settings → System → Data Export; audit-log CSV on the Audit Log page
 
-### 10.7 Cost Chargebacks (v1.3.0)
+### 10.7 Cost Chargebacks
 - Auto-links `charged_to_user_id` on job creation
 - Chargeback report with date filters and per-user breakdown (jobs, hours, grams, cost)
 - Report UI in Settings → System tab
@@ -460,14 +460,14 @@
 - Aggregates stats by printer and model
 - Gated by Pro license tier (added in v1.3.16)
 
-### 10.9 Scheduled Reports (v1.3.0 definitions, v1.3.19 delivery)
+### 10.9 Scheduled Reports (v1.3.19 delivery)
 - CRUD for report schedule records: name, type, frequency (daily/weekly/monthly), recipients
 - Supported types: fleet utilization, job summary, filament consumption, failure analysis, chargeback summary
 - Toggle active/inactive, manage recipients
 - Report schedule management UI in Settings → System tab
 - Report runner daemon (`report_runner.py`) — executes scheduled reports and delivers via SMTP with HTML body (v1.3.19)
 - "Run Now" button for on-demand report generation with immediate email delivery (v1.3.47)
-- Quiet hours suppression + digest — configurable per-org time window suppresses external notifications (push, email, webhooks); in-app alerts are still recorded; when the window ends, a digest is delivered per-user (email + push) and per-org (webhook) covering everything that was suppressed (v1.8.5)
+- Quiet hours suppression + digest — configurable per-org time window (UTC) suppresses external notifications (push, email, webhooks); in-app alerts are still recorded; when the window ends, a digest is delivered per-user (email + push, per alert-type preference) and by webhook (the org's webhook and system-wide webhook integrations) covering what was suppressed during the window (v1.8.5)
 
 ---
 
@@ -475,7 +475,7 @@
 
 ### 11.1 Authentication
 - httpOnly session cookie auth (XSS-resistant) — JWT stored in `Secure; SameSite=Strict` cookie; Bearer token and X-API-Key fallbacks preserved for API clients (v1.3.59)
-- OIDC/SSO via Microsoft Entra ID with auto-user provisioning; redirect_uri pinning to prevent Host-header injection (v1.3.67)
+- OIDC/SSO via Microsoft Entra ID with auto-user provisioning (viewer role in a configured default organization); redirect_uri pinned to OIDC_REDIRECT_URI when set — otherwise it is derived from the request Host, so set OIDC_REDIRECT_URI or TRUSTED_HOSTS to prevent Host-header injection (v1.3.67)
 - Unified JWT signing for local auth and OIDC
 - WebSocket tokens scoped to WebSocket connections only — cannot be replayed against REST endpoints (v1.3.63)
 - **Email-based user onboarding** — admin creates user with "Send welcome email" option; system generates random password and sends invite email via configured SMTP
@@ -486,13 +486,13 @@
 ### 11.2 TOTP MFA (v1.3.0)
 - QR code setup flow via MFASetup component
 - 6-digit TOTP challenge on login
-- Admin can force-enable or disable MFA per user
+- Admin can reset (force-disable) MFA for any user from the user management table
 
 ### 11.3 RBAC (Role-Based Access Control)
 - Three roles: admin, operator, viewer
-- Enforced on all 200+ API endpoints with documented and tested auth expectations (1507 RBAC tests in CI)
-- Viewer: read-only + submit jobs (with approval mode)
-- Operator: day-to-day production (create/edit jobs, spools, models, orders, products, maintenance)
+- Authentication enforced on all 451 API endpoints: every non-public route must authenticate (route census test plus a live probe of every route), with an RBAC matrix of 1,800+ tests covering most routes
+- Viewer: read-only, plus job submission (jobs wait for approval when approval mode is on; otherwise they join the queue)
+- Operator: day-to-day production (create/edit jobs, spools, models, products and maintenance; create, schedule and ship orders — order edits are admin-only)
 - Admin: full system control (users, settings, branding, SSO, webhooks, backups, license, pricing)
 
 ### 11.4 User Groups (v1.1.0)
@@ -500,14 +500,14 @@
 - Group owner concept for targeted approval alert routing
 
 ### 11.5 Organizations (v1.3.0)
-- Create organizations to group users and assign printer/model/spool resources
+- Create organizations to group users and assign printers; models and spools created by members belong to their organization
 - Member management (add/remove users) and printer assignment within organizations
 - Organization management UI in Settings → Access tab
 
 ### 11.6 Scoped API Tokens (v1.3.0)
 - `odin_` prefixed tokens with granular per-route scopes
 - Scopes: read:printers, write:jobs, etc.
-- APITokenManager component for CRUD
+- APITokenManager component to create, list and revoke tokens
 
 ### 11.7 Session Management (v1.3.0)
 - JWT `jti` tracking for session identification
@@ -526,8 +526,8 @@
 ## 12. Security
 
 ### 12.1 Authentication Security
-- Rate limiting: 10 failed login attempts per 5-minute window per IP (successful logins don't count — v1.3.17); global API rate limiter via slowapi (10 req/min auth, 30 req/min upload — v1.3.59)
-- Account lockout: 5 failed attempts → 15-minute lock (in-memory, resets on restart)
+- Rate limiting: 10 failed login attempts per 5-minute window per IP, persisted in the database (successful logins don't count — v1.3.17); per-route slowapi limits per client IP: 10 req/min on login, MFA verify and WebSocket-token, 5 req/min on forgot/reset password, 30 req/min on print-file upload (v1.3.59)
+- Account lockout: 5 failed attempts within a rolling 15-minute window lock the account until fewer than 5 failures remain in that window (persisted in the database; survives restarts)
 - Password complexity: minimum 8 characters, uppercase + lowercase + number
 - Login attempt audit trail with IP addresses; password change audit events (v1.3.58)
 - Setup/complete endpoint hardened against 500 errors after wizard completion (v1.3.15)
@@ -541,24 +541,24 @@
 - IPAllowlistSettings component
 
 ### 12.3 Data Protection
-- Fernet encryption at rest for: printer API keys, SMTP passwords, MQTT republish passwords, camera URLs with embedded credentials, webhook URLs (Discord/Slack/Telegram/ntfy), org webhook settings, OIDC auth codes (v1.3.62–v1.3.67)
+- Fernet encryption at rest for: printer API keys, SMTP passwords, MQTT republish passwords, camera URLs with embedded credentials, webhook URLs (Discord/Slack/Telegram/ntfy), org webhook settings, and the access token held behind single-use 2-minute OIDC exchange codes (v1.3.62–v1.3.67)
 - Ed25519 license key signing (production keys deployed, dev bypass removed)
 - SQL injection prevention: parameterized queries + column whitelist on user updates
-- Gitleaks pre-commit hook + CI secret scanning (gitleaks-action)
-- Camera RTSP credentials never persisted to DB — generated on-demand from encrypted API key (v1.3.62)
-- API keys stripped from all API responses (v1.3.57)
+- Gitleaks pre-commit hook + gitleaks secret scan (redacted, fail-closed) in the Trusted Validation release gate
+- Bambu camera RTSP credentials never persisted to DB — generated on demand from the encrypted printer access code (v1.3.62); manually entered camera URLs with credentials are stored Fernet-encrypted
+- Printer API keys, smart-plug tokens, SMTP/MQTT passwords, OIDC client secret and API-token secrets are never returned by the API (v1.3.57); webhook URLs are returned decrypted to admins for editing
 
 ### 12.4 GDPR Compliance (v1.3.0)
 - Full JSON export of all user data
 - Anonymization endpoint that preserves analytics while removing PII
 
 ### 12.5 Data Retention Policies (v1.3.0)
-- Configurable TTL per data type
+- Configurable TTL per data type (completed jobs, audit logs, alert history), applied by manual cleanup; timelapse TTL is stored but not yet applied
 - Manual cleanup trigger
 - DataRetentionSettings component
 
 ### 12.6 Auth Bypass Prevention
-- `/label` endpoints: exact path matching (not substring)
+- `/label` endpoints: API-key perimeter exemption matches only paths ending in the `/label` or `/labels/batch` segment (not substrings such as `/relabel` or `/labelx`); exempted routes still enforce route-level authentication
 - Branding: only GET unauthenticated; PUT/POST/DELETE require admin
 - Setup endpoints: permanently locked after setup completion
 
@@ -566,9 +566,9 @@
 - Skip-to-content link
 - Landmark roles on major page sections
 - `aria-label` on 50+ icon-only buttons
-- `role="dialog"` on 17 modals
+- `role="dialog"` with `aria-modal` on the shared Modal (34 call sites) and 19 page-local dialogs
 - Form label associations
-- Table `scope="col"` headers
+- Table scope="col" headers on the Jobs and Chargeback tables
 - Progressbar roles on progress indicators
 
 ---
@@ -576,7 +576,7 @@
 ## 13. Notifications
 
 ### 13.1 Channels
-- **Browser Push** — VAPID-based, no external service required
+- **Browser Push** — standard Web Push with locally generated VAPID keys (no third-party push account or API key); delivery goes through each browser vendor's push service
 - **Email** — SMTP configuration
 - **Webhooks** — Discord/Slack integration with configurable events
 - **ntfy** — lightweight push via HTTP POST
@@ -585,11 +585,11 @@
 - **Pushover** — Native Pushover API with priority mapping (critical → priority 1, others → priority 0)
 
 ### 13.2 Quiet Hours
-- Configurable time window for notification suppression (per-org setting)
+- Configurable time window (HH:MM, evaluated in UTC) for notification suppression (per-org setting, with a system-wide fallback)
 - External notifications (email, push, webhooks) suppressed during the window
 - In-app alerts still saved to the database so nothing is lost
 - When the window ends, an automated digest is delivered: per-user via email + browser push (respecting each user's alert_preferences), per-org via a combined webhook dispatch
-- Idempotent via `quiet_hours_digest_sends(user_id, window_ended_at)` UNIQUE — sibling workers and daemon restarts can't produce duplicate sends (v1.8.5)
+- Idempotent via UNIQUE `quiet_hours_digest_sends(user_id, scope_key, window_ended_at)` (per-user email/push) and UNIQUE `quiet_hours_org_digest_sends(scope_key, window_ended_at)` (per-org webhook) — sibling workers and daemon restarts can't produce duplicate sends (v1.8.5)
 
 ### 13.3 In-App Alerts
 - Alert bell icon with unread count in header
@@ -603,19 +603,19 @@
 
 ## 14. Integrations
 
-### 14.1 MQTT Republish
+### 14.1 MQTT Republish (Enterprise)
 - Forward printer events to configurable external MQTT broker
-- Topics: printer status, print lifecycle, AMS changes, queue events, maintenance alerts
+- Topics: {prefix}/<printer>/status (live printer telemetry), {prefix}/<printer>/job (print started/completed/failed) and {prefix}/alerts (alerts that have at least one in-app recipient, e.g. printer/HMS errors, print failures, queue skipped/failed-start and opted-in queue-added)
 - Use with Home Assistant, Node-RED, Ignition
 
 ### 14.2 Prometheus Metrics
-- `/metrics` endpoint in Prometheus format
-- Printer telemetry, job counts, system health
+- `/api/v1/metrics` endpoint (alias `/api/metrics`) in Prometheus text format; scrape with an API token that has `read:analytics`
+- Printer telemetry (nozzle/bed temperature, print progress, lifetime hours and prints), fleet online/printing/idle/error counts, job/queue/order/spool counts, unread alerts, and system health (database up, build version, process uptime)
 - Grafana-ready
 
 ### 14.3 WebSocket
 - `/ws` endpoint for real-time push to frontend
-- Replaces polling for live updates
+- Pushes live printer telemetry, job and alert events to the frontend, supplementing periodic polling (pages keep refetch intervals as fallback; printer detail refreshes by 5 s polling)
 
 ### 14.4 REST API Documentation
 - Swagger UI at `/api/docs`
@@ -623,19 +623,20 @@
 
 ### 14.5 Spoolman
 - Link O.D.I.N. spools to external Spoolman instance via `spoolman_spool_id`
-- Bidirectional sync (v1.8.5): pull inventory from Spoolman on demand; push consumption back on job completion (manual and printer-observed) via `PUT /api/v1/spool/{id}/use`
-- SSRF-safe dispatch via `safe_post()` (user-configured Spoolman URL gets DNS-pin validation)
+- Spoolman sync (v1.8.5): list Spoolman spools on demand (no import into ODIN inventory); push consumption back on job completion via `PUT /api/v1/spool/{id}/use`
+- SSRF-safe dispatch via a dedicated DNS-pinned Spoolman client (`_post_spoolman_usage`: user-configured Spoolman URL resolved and validated, metadata/link-local destinations refused, no redirects or proxies, public destinations blocked in ITAR mode)
 - Unreachable Spoolman instance is a loud failure — logged + appended to `job.notes` — never a silent drop
 
 ---
 
 ## 15. White-Label Branding
 
+### 15.1 Branding Customization
 - Custom application name and subtitle
 - Primary and accent color customization
 - Logo upload
-- 64 web fonts selectable for UI (v1.1.0)
-- Branding applied across UI and PDF invoices
+- 64 font choices across display (28), body (24) and monospace (12) selectors (44 distinct typefaces plus system defaults; Inter, Space Grotesk, JetBrains Mono and IBM Plex Mono are bundled, others use locally installed fonts)
+- Branding applied across the UI and PDF invoices (app name, primary color, footer, PNG/JPEG/WebP logo)
 - CSS custom properties approach
 
 ---
@@ -676,11 +677,11 @@
 ### 16.7 Settings Consolidation
 - 9 tabs in Advanced view; 8 in Simple view (Vigil AI is hidden)
 - Simple/Advanced view toggle
-- Sub-sections: General, Access, Notifications, Integrations, Branding, Vigil, System
+- Sub-sections: General, Notifications, Access, Integrations, Vigil AI (Advanced only), Branding, License, System, Logs
 
 ### 16.8 Live Application Log Viewer
 - Real-time log viewer in Settings → Logs tab (admin-only)
-- 9 log sources: backend, MQTT monitor, Moonraker, PrusaLink, Elegoo, go2rtc, supervisord, timelapse, vision
+- 10 log sources: backend, MQTT monitor, Moonraker, PrusaLink, Elegoo, go2rtc, supervisord, timelapse, vision, report runner
 - Level filter buttons (ERROR, WARNING, INFO, DEBUG)
 - Text search with keyword highlighting
 - SSE streaming mode for live tail (`GET /api/admin/logs/stream`)
@@ -696,18 +697,20 @@
 
 ## 17. Maintenance
 
-- Scheduled maintenance tasks per printer with due dates and recurring intervals
-- Complete tasks to reset counters; recurring tasks auto-create next instance
-- Dashboard widget showing upcoming and overdue tasks
-- Care counters: total print hours, prints since last maintenance
+### 17.1 Maintenance Tracking
+- Maintenance task templates with recurring print-hour and/or calendar-day intervals, optionally filtered by printer model and tracked per printer
+- Logging a service resets that task's counter and the printer's care counters, and the next due point (print hours and/or date) is computed from the interval
+- Dashboard widget shows overdue and nearly-due tasks
+- Care counters: total print hours and prints, plus prints and hours since last maintenance
 
 ---
 
 ## 18. Backup & Restore
 
+### 18.1 Database Backups
 - Create point-in-time database snapshots (admin-only)
 - Download backup files
-- Backup restore via UI (v1.3.0) — upload .db file through restore panel, auto-safety-backup before overwrite
+- Backup restore via UI (v1.3.0) — upload a SQLite .db backup through the restore panel; it is validated and staged with an automatic pre-restore safety backup, then applied offline on the next restart (PostgreSQL deployments use pg_dump .dump archives)
 - Uses SQLite `.backup` API (not file copy) during WAL mode
 
 ---
@@ -715,9 +718,9 @@
 ## 19. Audit & Compliance
 
 ### 19.1 Audit Log
-- Searchable history of all admin actions with timestamps, user, IP address
+- Searchable history of audited administrative actions with timestamps, user, and IP address
 - Audit log viewer in Settings (admin-only)
-- CSV export with filters (v1.0.26)
+- CSV export with filters (v1.0.26; Enterprise license)
 - Full audit log system (v1.2.0)
 
 ### 19.2 Bulk Operations (v1.3.0)
@@ -731,8 +734,8 @@
 ### 20.1 License Tiers
 - Community (free, 5 printers, 1 user)
 - Pro (unlimited printers/users, all production features + usage reports)
-- Education (Pro + job approval + user groups + quotas)
-- Enterprise (Pro + MFA + IP allowlist + organizations + GDPR + compliance)
+- Education (Pro features + job approval + user groups + quotas; up to 9,999 printers and users)
+- Enterprise (Education features + audit-log CSV export and MQTT event republishing; up to 9,999 printers and users). MFA, IP allowlist, organizations and GDPR export are included in every tier, including Community.
 
 ### 20.2 License Enforcement
 - Ed25519 signed license files, verified locally (no phone home)
@@ -742,7 +745,7 @@
 - Online activation/unactivation/reactivation via license portal
 - Offline activation via JSON file exchange for air-gapped deployments
 - Grant system — each key has N concurrent activation slots
-- BSL 1.1 license — converts to Apache 2.0 after 4 years per version (2029-02-07 for initial release)
+- BSL 1.1 license — converts to Apache 2.0 on the Change Date (2029-02-07) or four years after a version's first public release, whichever comes first
 
 ### 20.3 License Portal (runsodin.com)
 - Integrated into marketing site as Vercel serverless functions (Neon Postgres)
@@ -752,7 +755,7 @@
 - Offline activation/unactivation via JSON file upload portal
 - License verification/heartbeat endpoint (updates last_seen_at)
 - Admin portal: CRUD license keys, view activations, force-unactivate, activity log
-- ODIN-XXXX-XXXX-XXXX key format with unambiguous charset
+- ODIN-XXXX-XXXX-XXXX key format (31-character uppercase charset that excludes the look-alikes 0/O and 1/I/L)
 - Ed25519 signing compatible with ODIN's embedded verifier
 - Default LICENSE_SERVER_URL=https://runsodin.com (configurable)
 
@@ -768,8 +771,8 @@
 
 ### 21.2 Moonraker REST/WebSocket
 - Printers: Any Klipper printer (Anycubic Kobra S1, Creality K1, Voron, QIDI, Sovol)
-- Connection: REST API + WebSocket
-- Receives: temps, progress, state, file list, webcam URL
+- Connection: REST API polling (every 3 s)
+- Receives: temps, progress, state, layers, fan speed, webcam URL
 
 ### 21.3 PrusaLink REST
 - Printers: MK4/S, MK3.9, MK3.5, MINI+, XL, CORE One
@@ -795,7 +798,7 @@
 - `docker compose up` deployment
 - Volume mount for persistent data (database, backups, uploads, logs, secrets, timelapses)
 - Auto-generated secrets on first run
-- Onboarding wizard on first launch (6 steps: Welcome → Create Admin and farm name → Pick a Tier → Add Printer → Network → Ready)
+- Onboarding wizard on first launch (6 steps: Welcome → Create Admin and farm name → Pick a Tier → Add Printer → Network → Ready); the farm name sets the app name on Pro and above
 - Setup endpoints permanently locked after completion
 
 ### 22.2 GHCR Distribution
@@ -808,7 +811,7 @@
 - `update.sh` — self-updating updater with version diffing, `--force` flag, rollback instructions
 - Non-TTY mode for automated/scripted installs (detects pipe, skips interactive prompts)
 - Security hardening: no `eval`, `.env` permissions locked to 0600, SIGINT traps for clean abort
-- Test suite (`tests/test_installer.sh`) — 59 unit + integration tests validating installer behavior
+- Test suite (`tests/test_installer.sh`) — 43 unit/static checks plus 17 Docker integration checks of install and update, with isolated end-to-end installer tests in `tests/test_release_control/`
 
 ### 22.5 Windows Installer
 - PowerShell one-liner: `irm https://raw.githubusercontent.com/HughKantsime/runsodin/master/install/install.ps1 | iex`
@@ -824,7 +827,7 @@
 - Documentation link in Settings page
 
 ### 22.3 Database Migrations
-- Idempotent column additions via `entrypoint.sh`
+- Idempotent, checksummed schema migrations (including legacy column additions) run by `entrypoint.sh` on every container start
 - Tables: api_tokens, active_sessions, token_blacklist, quota_usage, model_revisions, report_schedules, timelapses (v1.2.0–v1.3.0)
 - Columns: MFA fields on users, quota fields on users, chargeback columns on jobs, org columns on groups/printers/models/spools, timelapse_enabled on printers
 
@@ -840,8 +843,8 @@ conveniences a browser tab can't provide.
 
 ### 23.1 iOS / iPadOS — Mobile companion
 - Platform — iPhone + iPad, SwiftUI, requires iOS 17+
-- Widgets — 5 families: small / medium / large fleet, lock-screen inline, StandBy (extra-large)
-- Live Activities — iOS 16.2+ with Dynamic Island; tracks progress, ETA, bed/nozzle temps, layer count; state-aware glyphs (printing / paused / completed / failed); explicit push-token failure surfacing
+- Widgets — 5 widgets: small / medium / large fleet (extra-large on iPad), Lock Screen inline / rectangular / circular, StandBy (small)
+- Live Activities — iOS 17+ with Dynamic Island; tracks progress, ETA, bed/nozzle temps, layer count; state-aware glyphs (printing / paused / completed / failed); explicit push-token failure surfacing
 - iPadOS — split-view layout with sidebar navigation
 - Kiosk / Always-On mode (iPad) — multi-camera full-screen grid, brightness dimming, inactivity auto-dim, idle-timer disable
 - Scope by design: no file upload, no vision-detection review, no timelapse playback, no login-as-SSO-user — those live on the web dashboard where they belong
@@ -857,12 +860,12 @@ conveniences a browser tab can't provide.
 - Toggle between Dock app and menu-bar-only mode via `appMode` preference
 
 ### 23.3 Shared by both native platforms
-- Multi-instance — connect to multiple ODIN servers and switch between them
+- Multi-instance — save multiple ODIN servers and choose one at sign-in; switching servers signs out of the current one
 - Fleet view — live printer status, progress, temperatures, filters (Printing / Idle / Error / Offline)
 - Printer detail — AMS slots, pause/resume, lights, speed/fan control, cancel job, HMS errors
-- Queue — Active / Pending / Scheduled / Completed tabs; approve, reject, cancel, reprint
+- Queue — Active / Pending Approval / Pending / Scheduled / Completed sections; approve, reject, cancel, reprint
 - Spools — list with color swatches, assign to printer, mark empty
-- Cameras — live feed (inline WKWebView on iOS / iPadOS, "Open Camera Feed" link on macOS)
+- Cameras — live WebRTC feed via the server's go2rtc, shown inline on iOS, iPadOS and macOS
 - Alerts — severity grouping (Critical / Warning / Info), dismiss, mark read
 - Biometric unlock — Face ID / Touch ID gating refresh-token reads (macOS uses LAContext equivalently)
 - Offline cache — SwiftData keeps the last fetched fleet state visible on network drop
