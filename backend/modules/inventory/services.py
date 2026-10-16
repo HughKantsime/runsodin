@@ -14,6 +14,9 @@ import logging
 
 from core.config import settings
 from core.webhook_utils import _pin_dns, WebhookSSRFError
+from sqlalchemy import text
+
+from core.rbac import check_org_access
 
 log = logging.getLogger("odin.api")
 
@@ -117,3 +120,36 @@ def push_consumption_to_spoolman(deductions: list) -> list:
             )
 
     return errors
+
+
+# Spoolman link conflicts: shared by the inventory route and system diagnostics.
+
+def spoolman_link_conflicts(db) -> list:
+    """Existing duplicate links (possible in 1.9.x data), for the admin warning. Never rewritten."""
+    rows = db.execute(text(
+        "SELECT spoolman_spool_id, id, qr_code, org_id FROM spools WHERE spoolman_spool_id IN ("
+        "SELECT spoolman_spool_id FROM spools WHERE spoolman_spool_id IS NOT NULL "
+        "GROUP BY spoolman_spool_id HAVING COUNT(*) > 1) ORDER BY spoolman_spool_id, id")).all()
+    conflicts = {}
+    for spoolman_id, spool_id, qr_code, org_id in rows:
+        conflicts.setdefault(spoolman_id, []).append({"id": spool_id, "qr_code": qr_code, "org_id": org_id})
+    return [{"spoolman_spool_id": key, "spools": value} for key, value in conflicts.items()]
+
+
+OTHER_ORG_SPOOL = "a spool in another organization"
+
+
+def visible_spoolman_link_conflicts(db, current_user: dict) -> list:
+    """Conflicts touching a spool the caller can see; spools they cannot see are masked
+    exactly like the 409 detail (no id, QR or org)."""
+    visible = []
+    for conflict in spoolman_link_conflicts(db):
+        members = []
+        for member in conflict["spools"]:
+            if check_org_access(current_user, member["org_id"]):
+                members.append({**member, "label": f"#{member['id']} ({member['qr_code']})"})
+            else:
+                members.append({"id": None, "qr_code": None, "org_id": None, "label": OTHER_ORG_SPOOL})
+        if any(member["id"] is not None for member in members):
+            visible.append({"spoolman_spool_id": conflict["spoolman_spool_id"], "spools": members})
+    return visible

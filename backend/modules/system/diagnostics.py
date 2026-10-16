@@ -208,7 +208,7 @@ def _spoolman_link_conflicts(current_user: dict) -> list | dict:
     """Spoolman spools linked to more than one ODIN spool (1.9.x data); reported, never rewritten.
     Org admins see other orgs' spools masked, as in the 409 and the conflicts endpoint."""
     from core.db import SessionLocal
-    from modules.inventory.routes.spools import visible_spoolman_link_conflicts
+    from modules.inventory.services import visible_spoolman_link_conflicts
     try:
         db = SessionLocal()
         try:

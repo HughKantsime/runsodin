@@ -26,6 +26,7 @@ from core.rbac import (
 from core.responses import build_next_actions, next_action
 from core.base import SpoolStatus
 from modules.inventory.models import Spool, SpoolUsage
+from modules.inventory.services import OTHER_ORG_SPOOL, spoolman_link_conflicts, visible_spoolman_link_conflicts  # noqa: F401
 from modules.printers.models import FilamentSlot, Printer
 from ._helpers import (
     SpoolCreate, SpoolUpdate,
@@ -173,37 +174,6 @@ def _refuse_taken_spoolman_link(db: Session, spoolman_spool_id, own_id=None, cur
     else:
         where = OTHER_ORG_SPOOL
     raise HTTPException(status_code=409, detail=f"Spoolman spool {spoolman_spool_id} is already linked to {where}")
-
-
-def spoolman_link_conflicts(db) -> list:
-    """Existing duplicate links (possible in 1.9.x data), for the admin warning. Never rewritten."""
-    rows = db.execute(text(
-        "SELECT spoolman_spool_id, id, qr_code, org_id FROM spools WHERE spoolman_spool_id IN ("
-        "SELECT spoolman_spool_id FROM spools WHERE spoolman_spool_id IS NOT NULL "
-        "GROUP BY spoolman_spool_id HAVING COUNT(*) > 1) ORDER BY spoolman_spool_id, id")).all()
-    conflicts = {}
-    for spoolman_id, spool_id, qr_code, org_id in rows:
-        conflicts.setdefault(spoolman_id, []).append({"id": spool_id, "qr_code": qr_code, "org_id": org_id})
-    return [{"spoolman_spool_id": key, "spools": value} for key, value in conflicts.items()]
-
-
-OTHER_ORG_SPOOL = "a spool in another organization"
-
-
-def visible_spoolman_link_conflicts(db, current_user: dict) -> list:
-    """Conflicts touching a spool the caller can see; spools they cannot see are masked
-    exactly like the 409 detail (no id, QR or org)."""
-    visible = []
-    for conflict in spoolman_link_conflicts(db):
-        members = []
-        for member in conflict["spools"]:
-            if check_org_access(current_user, member["org_id"]):
-                members.append({**member, "label": f"#{member['id']} ({member['qr_code']})"})
-            else:
-                members.append({"id": None, "qr_code": None, "org_id": None, "label": OTHER_ORG_SPOOL})
-        if any(member["id"] is not None for member in members):
-            visible.append({"spoolman_spool_id": conflict["spoolman_spool_id"], "spools": members})
-    return visible
 
 
 @router.get("/spoolman-link-conflicts", tags=["Spools"])
