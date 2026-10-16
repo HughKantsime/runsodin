@@ -15,7 +15,7 @@ export default function SpoolmanLinkConflicts() {
         <ul className="mt-1 list-disc pl-5">
           {data.map(conflict => (
             <li key={conflict.spoolman_spool_id}>
-              Spoolman spool {conflict.spoolman_spool_id}: {conflict.spools.map(s => `#${s.id}${s.qr_code ? ` (${s.qr_code})` : ''}`).join(', ')}
+              Spoolman spool {conflict.spoolman_spool_id}: {conflict.spools.map(s => s.label).join(', ')}
             </li>
           ))}
         </ul>

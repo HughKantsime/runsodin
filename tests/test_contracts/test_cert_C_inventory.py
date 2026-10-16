@@ -382,7 +382,7 @@ def test_existing_duplicate_links_are_kept_editable_and_reported_to_admins(inven
     from unittest import mock
     from sqlalchemy.orm import sessionmaker
     with mock.patch('core.db.SessionLocal', sessionmaker(bind=review_db.get_bind())):
-        assert [item['spoolman_spool_id'] for item in _spoolman_link_conflicts()] == [77]
+        assert [item['spoolman_spool_id'] for item in _spoolman_link_conflicts({'id': 1, 'role': 'admin', 'group_id': None})] == [77]
 
 
 @pytest.fixture
@@ -471,3 +471,29 @@ def test_moving_or_deleting_a_rated_filament_requires_superadmin(inventory_clien
     inventory_client.app.dependency_overrides[get_current_user] = lambda: superadmin
     assert inventory_client.patch(f'/api/filaments/{rated}', json={'material': 'PETG'}).status_code == 200
     assert inventory_client.delete(f'/api/filaments/{rated}').status_code == 204
+
+
+def test_link_conflicts_mask_spools_the_org_admin_cannot_see(inventory_client, review_db):
+    """Final review MEDIUM-2: same masking as the 409; diagnostics filtered the same way."""
+    own = _create(inventory_client)
+    inventory_client.app.dependency_overrides[get_current_user] = lambda: {'id': 5, 'role': 'operator', 'group_id': 2}
+    foreign = _create(inventory_client)
+    foreign_qr = inventory_client.get(f'/api/spools/{foreign}').json()['qr_code']
+    review_db.execute(text('UPDATE spools SET spoolman_spool_id=88 WHERE id IN (:a,:b)'), {'a': own, 'b': foreign})
+    review_db.commit()
+    org_admin = {'id': 3, 'role': 'admin', 'group_id': 1}
+    inventory_client.app.dependency_overrides[get_current_user] = lambda: org_admin
+    body = inventory_client.get('/api/spools/spoolman-link-conflicts').json()
+    assert [c['spoolman_spool_id'] for c in body] == [88]
+    spools = body[0]['spools']
+    assert any(s['id'] == own and s['label'].startswith(f'#{own} (') for s in spools)
+    masked = [s for s in spools if s['id'] != own]
+    assert masked == [{'id': None, 'qr_code': None, 'org_id': None, 'label': 'a spool in another organization'}]
+    assert foreign_qr not in json.dumps(body)
+    from unittest import mock
+    from sqlalchemy.orm import sessionmaker
+    from modules.system.diagnostics import _spoolman_link_conflicts
+    with mock.patch('core.db.SessionLocal', sessionmaker(bind=review_db.get_bind())):
+        assert foreign_qr not in json.dumps(_spoolman_link_conflicts(org_admin))
+        everything = _spoolman_link_conflicts({'id': 1, 'role': 'admin', 'group_id': None})
+    assert foreign_qr in json.dumps(everything)

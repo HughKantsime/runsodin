@@ -171,7 +171,7 @@ def _refuse_taken_spoolman_link(db: Session, spoolman_spool_id, own_id=None, cur
     if current_user is not None and check_org_access(current_user, holder.org_id):
         where = f"spool #{holder.id} ({holder.qr_code})"
     else:
-        where = "a spool in another organization"
+        where = OTHER_ORG_SPOOL
     raise HTTPException(status_code=409, detail=f"Spoolman spool {spoolman_spool_id} is already linked to {where}")
 
 
@@ -187,13 +187,29 @@ def spoolman_link_conflicts(db) -> list:
     return [{"spoolman_spool_id": key, "spools": value} for key, value in conflicts.items()]
 
 
+OTHER_ORG_SPOOL = "a spool in another organization"
+
+
+def visible_spoolman_link_conflicts(db, current_user: dict) -> list:
+    """Conflicts touching a spool the caller can see; spools they cannot see are masked
+    exactly like the 409 detail (no id, QR or org)."""
+    visible = []
+    for conflict in spoolman_link_conflicts(db):
+        members = []
+        for member in conflict["spools"]:
+            if check_org_access(current_user, member["org_id"]):
+                members.append({**member, "label": f"#{member['id']} ({member['qr_code']})"})
+            else:
+                members.append({"id": None, "qr_code": None, "org_id": None, "label": OTHER_ORG_SPOOL})
+        if any(member["id"] is not None for member in members):
+            visible.append({"spoolman_spool_id": conflict["spoolman_spool_id"], "spools": members})
+    return visible
+
+
 @router.get("/spoolman-link-conflicts", tags=["Spools"])
 def get_spoolman_link_conflicts(current_user: dict = Depends(require_role("admin", scope="read:spools")), db: Session = Depends(get_db)):
     """Admin warning: Spoolman spools linked to more than one ODIN spool (usage would be pushed twice)."""
-    conflicts = spoolman_link_conflicts(db)
-    if current_user.get("group_id"):
-        conflicts = [c for c in conflicts if any(check_org_access(current_user, s["org_id"]) for s in c["spools"])]
-    return conflicts
+    return visible_spoolman_link_conflicts(db, current_user)
 
 
 @router.post("", tags=["Spools"])

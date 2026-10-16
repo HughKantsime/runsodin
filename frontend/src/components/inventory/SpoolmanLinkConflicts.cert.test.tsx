@@ -13,9 +13,9 @@ function mount() {
 }
 
 it('names every conflicting spool for an admin', async () => {
-  api.linkConflicts.mockResolvedValue([{ spoolman_spool_id: 77, spools: [{ id: 3, qr_code: 'SPL-AAAA0001', org_id: 1 }, { id: 4, qr_code: 'SPL-AAAA0002', org_id: 1 }] }])
+  api.linkConflicts.mockResolvedValue([{ spoolman_spool_id: 77, spools: [{ id: 3, qr_code: 'SPL-AAAA0001', org_id: 1, label: '#3 (SPL-AAAA0001)' }, { id: null, qr_code: null, org_id: null, label: 'a spool in another organization' }] }])
   mount()
-  expect(await screen.findByRole('alert')).toHaveTextContent('Spoolman spool 77: #3 (SPL-AAAA0001), #4 (SPL-AAAA0002)')
+  expect(await screen.findByRole('alert')).toHaveTextContent('Spoolman spool 77: #3 (SPL-AAAA0001), a spool in another organization')
 })
 
 it('renders nothing without conflicts or for a non-admin (403)', async () => {
