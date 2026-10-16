@@ -44,14 +44,20 @@ def admin_body(**extra):
             "password": secrets.token_urlsafe(24) + "aA1", **extra}
 
 
-def test_wizard_farm_name_is_returned_by_branding(client):
+def test_wizard_farm_name_is_returned_by_branding(client, tier_license):
+    """Decision (2026-10-16): the farm name is Pro branding. A provided name is stored on
+    every tier; Community serves the stock branding, and the name appears under Pro."""
     test_client, engine = client
+    tier_license(None)  # Community
     assert test_client.get("/branding").json()["app_name"] == "O.D.I.N."
     r = test_client.post("/setup/admin", json=admin_body(site_name="  Riverside Print Lab  "))
     assert r.status_code == 200, r.text
-    assert test_client.get("/branding").json()["app_name"] == "Riverside Print Lab"
+    assert test_client.get("/branding").json()["app_name"] == "O.D.I.N."  # stock branding below Pro
     with engine.connect() as conn:
         assert conn.execute(text("SELECT COUNT(*) FROM users")).scalar_one() == 1
+        assert conn.execute(text("SELECT app_name FROM branding")).scalar_one() == "Riverside Print Lab"  # kept for upgrade
+    tier_license("pro")
+    assert test_client.get("/branding").json()["app_name"] == "Riverside Print Lab"
 
 
 def test_missing_or_blank_farm_name_keeps_default(client):

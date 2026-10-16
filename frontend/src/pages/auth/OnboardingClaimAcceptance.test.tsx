@@ -4,9 +4,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import Setup from './Setup'
 import Settings from '../admin/Settings'
-const api=vi.hoisted(()=>({refresh:vi.fn(),completeOK:true}))
+const api=vi.hoisted(()=>({refresh:vi.fn(),completeOK:true,branding:true}))
 vi.mock('../../permissions',()=>({refreshPermissions:api.refresh,getCurrentUser:()=>({id:1})}))
-vi.mock('../../LicenseContext',()=>({useLicense:()=>({isPro:true,hasFeature:()=>false})}))
+// F22-22.1-06: the instance (farm) name is Pro branding; api.branding toggles the entitlement.
+vi.mock('../../LicenseContext',()=>({useLicense:()=>({isPro:api.branding,hasFeature:(feature:string)=>api.branding&&feature==='branding'})}))
 vi.mock('../../api',()=>({pricingConfig:{get:vi.fn().mockResolvedValue({ui_mode:'advanced'})}}))
 vi.mock('../admin/Admin', () => ({ default: () => <div>Users boundary</div> }))
 vi.mock('../admin/Permissions', () => ({ default: () => <div>Permissions boundary</div> }))
@@ -27,7 +28,7 @@ vi.mock('../../components/admin/SystemTab', () => ({ default: () => <div>System 
 vi.mock('../../components/admin/LicenseTab', () => ({ default: () => <div>License boundary</div> }))
 vi.mock('../../components/admin/GeneralTab',()=>({default:()=>null}))
 beforeEach(()=>{
- api.completeOK=true;api.refresh.mockResolvedValue({page_access:{}})
+ api.completeOK=true;api.branding=true;api.refresh.mockResolvedValue({page_access:{}})
  vi.stubGlobal('fetch',vi.fn(async(url:unknown)=>({ok:String(url)==='/api/setup/complete'?api.completeOK:true,status:api.completeOK?200:500,json:async()=>String(url)==='/api/setup/network'?{detected_ip:'192.0.2.10'}:{access_token:'synthetic-test-authority'}})))
 })
 afterEach(()=>{cleanup();vi.clearAllMocks();vi.unstubAllGlobals()})
@@ -38,7 +39,7 @@ async function admin(){
  fireEvent.change(screen.getByPlaceholderText('you@example.com'),{target:{value:' synthetic@example.invalid '}})
  fireEvent.change(screen.getByPlaceholderText('Min 8 characters (uppercase, lowercase, number)'),{target:{value:'Synthetic123'}})
  fireEvent.change(screen.getByPlaceholderText('Repeat password'),{target:{value:'Synthetic123'}})
- fireEvent.change(screen.getByPlaceholderText('O.D.I.N.'),{target:{value:'Synthetic farm'}})
+ if(api.branding)fireEvent.change(screen.getByPlaceholderText('O.D.I.N.'),{target:{value:'Synthetic farm'}})
  fireEvent.click(screen.getByRole('button',{name:'Create Account'}))
  await screen.findByRole('heading',{name:'Pick a Tier'})
 }
@@ -58,6 +59,14 @@ test('F22-22.1-06 Community flow skips physical printer and network, sends compl
  mount();await ready();fireEvent.click(screen.getByRole('button',{name:'Open Dashboard'}));await screen.findByRole('heading',{name:'Synthetic Dashboard'})
  expect(vi.mocked(fetch).mock.calls.some(([url])=>url==='/api/setup/printer'||url==='/api/setup/test-printer')).toBe(false)
  expect(fetch).toHaveBeenCalledWith('/api/setup/complete',expect.objectContaining({method:'POST',credentials:'include'}))
+})
+test('F22-22.1-06 below Pro the farm-name field is disabled with a Pro note and no name is sent',async()=>{
+ api.branding=false;mount();fireEvent.click(screen.getByRole('button',{name:'Get Started'}))
+ const field=screen.getByRole('textbox',{name:'Instance Name'})
+ expect(field).toBeDisabled();expect(field).toHaveValue('O.D.I.N.')
+ expect(screen.getByText(/Pro feature: a custom instance name needs a Pro license/)).toBeInTheDocument()
+ cleanup();mount();await admin()
+ expect(JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body))).toEqual({username:'synthetic-admin',email:'synthetic@example.invalid',password:'Synthetic123'})
 })
 test('F22-22.1-06 farm name is saved with Admin before the documented Tier step',async()=>{
  mount();await admin()

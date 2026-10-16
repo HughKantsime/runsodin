@@ -265,7 +265,11 @@ def test_onboarding_wizard_walks_six_steps_on_first_launch():
         page.get_by_role("heading", name="Welcome to O.D.I.N.").wait_for()
         page.get_by_role("button", name="Get Started").click()
         page.get_by_role("heading", name="Create Admin Account").wait_for()
-        page.get_by_placeholder("O.D.I.N.").fill(STATE["farm"])
+        # F22-22.1-06 (Pro-only, 2026-10-16): the image starts on Community, so the instance-name
+        # field is disabled with a Pro note and no name is sent.
+        instance = page.get_by_role("textbox", name="Instance Name")
+        STATE["instance_disabled"] = instance.is_disabled()
+        STATE["instance_note"] = page.locator("#instance-name-note").inner_text()
         page.get_by_placeholder("admin").fill(STATE["username"])
         page.get_by_placeholder("you@example.com").fill("certh@example.invalid")
         page.get_by_placeholder("Min 8 characters (uppercase, lowercase, number)").fill(STATE["password"])
@@ -302,19 +306,14 @@ def test_wizard_completion_persists_setup_complete():  # F22-22.1-07 fixed by ce
     assert body["is_complete"] is True, body
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "DEFECT: backend/modules/system/routes_setup.py:78-82 SetupAdminRequest has no site_name and "
-        "setup_create_admin (:146-169) never persists it, while frontend/src/pages/auth/Setup.tsx:143,348-351 "
-        "asks for the farm (Instance) name in the Create Admin step and sends site_name. Scenario: enter "
-        "'Acme Farm' in the wizard -> after setup GET /api/branding app_name is still 'O.D.I.N.'."
-    ),
-)
-def test_wizard_farm_name_is_persisted():
+def test_wizard_farm_name_is_pro_only_on_community():
+    """F22-22.1-06 decision: the farm name sets the app name on Pro and above. On the
+    Community image the wizard disables the field and the stock branding is served."""
+    assert STATE["instance_disabled"] is True
+    assert "Pro feature" in STATE["instance_note"]
     status, body = _json("GET", "/api/branding", token=STATE.get("token"))
     assert status == 200, body
-    assert body.get("app_name") == STATE["farm"], body.get("app_name")
+    assert body.get("app_name") == "O.D.I.N.", body.get("app_name")
 
 
 # ── F22-22.1-07 setup permanently locked ──────────────────────────────────────

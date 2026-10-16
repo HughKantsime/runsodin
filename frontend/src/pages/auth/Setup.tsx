@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { User, Lock, Mail, Server, Wifi, CheckCircle2, ChevronRight, ChevronLeft, Loader2, AlertCircle, Printer, Tag, Hash, KeyRound, MonitorSmartphone, ArrowRight, Sparkles, Gift, FileKey, UploadCloud } from 'lucide-react'
 import { refreshPermissions } from '../../permissions'
+import { useLicense } from '../../LicenseContext'
 
 const STEPS = [
   { id: 'welcome', title: 'Welcome' },
@@ -62,6 +63,9 @@ export default function Setup() {
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [siteName, setSiteName] = useState('O.D.I.N.')
+  // The instance name is custom branding: a Pro feature. Below Pro the field is shown
+  // disabled and nothing is sent (the backend would store it for a later upgrade).
+  const brandingLicensed = useLicense().hasFeature('branding')
 
   // Printer form
   const [printerType, setPrinterType] = useState('bambu')
@@ -140,7 +144,8 @@ export default function Setup() {
       const resp = await fetch('/api/setup/admin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: username.trim(), email: email.trim(), password, site_name: siteName.trim() || 'O.D.I.N.' }),
+        body: JSON.stringify({ username: username.trim(), email: email.trim(), password,
+          ...(brandingLicensed ? { site_name: siteName.trim() || 'O.D.I.N.' } : {}) }),
       })
       if (!resp.ok) {
         const data = await resp.json()
@@ -348,9 +353,13 @@ export default function Setup() {
           <label className={labelClass}>Instance Name</label>
           <div className="relative">
             <Tag size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
-            <input type="text" value={siteName} onChange={e => setSiteName(e.target.value)} placeholder="O.D.I.N." className={inputClass + " pl-10"} />
+            <input type="text" aria-label="Instance Name" value={brandingLicensed ? siteName : 'O.D.I.N.'} onChange={e => setSiteName(e.target.value)}
+              placeholder="O.D.I.N." disabled={!brandingLicensed} aria-describedby="instance-name-note"
+              className={inputClass + " pl-10" + (brandingLicensed ? "" : " opacity-50 cursor-not-allowed")} />
           </div>
-          <p className="text-white/30 text-xs mt-1">Shown in header and login page</p>
+          <p id="instance-name-note" className="text-white/30 text-xs mt-1">
+            {brandingLicensed ? 'Shown in header and login page' : 'Pro feature: a custom instance name needs a Pro license (set it later in Settings > Branding)'}
+          </p>
         </div>
 
         <div className="border-t border-white/5 pt-4">
