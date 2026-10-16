@@ -11,7 +11,7 @@ covered because they emit SQL through the same cursor.
 
 Background daemons, the CLI and requests authenticated by a login session are
 never marked, so they are unaffected. Raw DBAPI cursors from core.db_utils.get_db
-call check_credential_write directly.
+are wrapped at install time, and ORM SystemConfig rows are checked by key at flush.
 
 Known limits (no current code path relies on them): work handed to a
 ThreadPoolExecutor/threading.Thread/run_in_executor does not inherit the request
@@ -60,7 +60,8 @@ _WRITE = re.compile(
     rf"((?:{_IDENT}\.)?{_IDENT})", re.I)
 _SET_STOP = re.compile(r"(WHERE|RETURNING|FROM)\b", re.I)
 # system_config writes must name their key exactly; LIKE/GLOB/concatenation fail closed.
-_KEY_EQUALS = re.compile(r"\bkey\b\s*=\s*(?:'[^']*'|:\w+|\?|%\(\w+\)s|\$\d+)", re.I)
+_ORM_PK_WHERE = re.compile(r"\bWHERE\s+\"?system_config\"?\.\"?id\"?\s*=", re.I)
+_KEY_EQUALS = re.compile(r"\bkey\b[\"`\]]?\s*=\s*(?:'[^']*'|:\w+|\?|%\(\w+\)s|\$\d+)", re.I)
 
 
 class CredentialWriteRefused(HTTPException):
@@ -213,9 +214,14 @@ def guarded_write_target(statement: str, parameters: Any) -> str | None:
                 return "users"
         if table == "system_config":
             rest = sql[match.start():]
-            if (verb in {"UPDATE", "DELETE"} and not _KEY_EQUALS.search(rest)) or re.search(
-                    r"\|\||\bCONCAT\s*\(|\bLIKE\b|\bGLOB\b", rest, re.I):
-                return "system_config"  # key not named exactly (LIKE, ||, none): fail closed
+            if re.search(r"\|\||\bCONCAT\s*\(|\bLIKE\b|\bGLOB\b", rest, re.I):
+                return "system_config"  # key built or pattern-matched: fail closed
+            if verb in {"UPDATE", "DELETE"} and not _KEY_EQUALS.search(rest):
+                # ORM flushes address the row by primary key; the before_flush hook
+                # checks those objects' keys. Any other key-less write fails closed.
+                if not _ORM_PK_WHERE.search(rest):
+                    return "system_config"
+                continue
             literal_keys = re.findall(r"'([^']*)'", rest)
             if any(_is_guarded_config_key(k) for k in literal_keys) or any(
                     _config_param_is_guarded(n, v) for n, v in _parameter_values(parameters)):
@@ -236,13 +242,45 @@ def _before_cursor_execute(conn, cursor, statement, parameters, context, execute
     check_credential_write(statement, parameters)
 
 
+def _before_flush(session, flush_context, instances):
+    if not _NONINTERACTIVE.get():
+        return
+    for obj in list(session.new) + list(session.dirty) + list(session.deleted):
+        if getattr(obj, "__tablename__", None) == "system_config" and _is_guarded_config_key(getattr(obj, "key", None)):
+            raise CredentialWriteRefused("system_config")
+
+
+def _guard_raw_dbapi_adapter() -> None:
+    """core.db_utils hands out raw DBAPI cursors, which bypass SQLAlchemy events.
+    Its source is pinned by migration 029, so the check is attached at runtime."""
+    from core import db_utils
+    adapter = db_utils._CursorAdapter
+    if getattr(adapter, "_odin_credential_guard", False):
+        return
+    execute, executemany = adapter.execute, adapter.executemany
+
+    def guarded_execute(self, statement, parameters=None):
+        check_credential_write(statement, parameters)
+        return execute(self, statement, parameters)
+
+    def guarded_executemany(self, statement, parameters):
+        check_credential_write(statement, parameters)
+        return executemany(self, statement, parameters)
+
+    adapter.execute, adapter.executemany = guarded_execute, guarded_executemany
+    adapter._odin_credential_guard = True
+
+
 _INSTALLED = False
 
 
 def install_credential_write_guard() -> None:
-    """Attach the guard to every Engine in this process (idempotent)."""
+    """Attach the guard to every Engine, Session and the raw DBAPI adapter (idempotent)."""
     global _INSTALLED
     if _INSTALLED:
         return
+    from sqlalchemy.orm import Session
     event.listen(Engine, "before_cursor_execute", _before_cursor_execute)
+    event.listen(Session, "before_flush", _before_flush)
+    _guard_raw_dbapi_adapter()
     _INSTALLED = True

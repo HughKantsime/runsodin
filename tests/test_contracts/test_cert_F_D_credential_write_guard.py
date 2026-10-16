@@ -170,6 +170,10 @@ def _snapshot(engine):
     ("UPDATE system_config SET value=? WHERE key='smtp_'||'config'", ("x",), "system_config"),
     ("UPDATE system_config SET value=:value WHERE key=:k", {"value": "oidc-blue", "k": "theme"}, None),
     ("UPDATE system_config SET value=:value WHERE key=:key", {"value": "x", "key": "oidc_client_secret"}, "system_config"),
+    ('UPDATE system_config SET value=?, updated_at=CURRENT_TIMESTAMP WHERE system_config."key" = ?',
+     ('{"spool_cost": 40}', "pricing_config"), None),  # ORM, quoted key column
+    ('UPDATE system_config SET value=? WHERE system_config."key" = ?', ("x", "smtp_config"), "system_config"),
+    ("UPDATE system_config SET value=? WHERE id=?", ("x", 3), "system_config"),  # raw, key unknown
     # PostgreSQL / psycopg rendering of the same statements.
     ("UPDATE users SET email=%(email)s WHERE users.id = %(id_1)s", {"email": "x", "id_1": 1}, "users"),
     ("UPDATE users SET theme=%(theme)s WHERE users.id = %(id_1)s", {"theme": "x", "id_1": 1}, None),
@@ -233,3 +237,36 @@ def test_raw_dbapi_adapter_is_guarded_too(tmp_path, monkeypatch):
     assert getattr(refused, "status_code", None) == 403
     with engine.connect() as c:
         assert c.execute(text("SELECT email, theme FROM users")).one() == ("v@x.test", "light")
+
+
+def test_orm_flush_of_a_guarded_config_key_is_refused(tmp_path):
+    """ORM updates address system_config by primary key; the flush hook checks the key."""
+    import asyncio
+    from sqlalchemy import Column, Integer, String
+    Base = declarative_base()
+
+    class Config(Base):
+        __tablename__ = "system_config"
+        id = Column(Integer, primary_key=True)
+        key = Column(String)
+        value = Column(String)
+    engine = create_engine(f"sqlite:///{tmp_path / 'cfg.db'}")
+    Base.metadata.create_all(engine)
+    with Session(engine) as s:
+        s.add_all([Config(id=1, key="smtp_config", value="{}"), Config(id=2, key="pricing_config", value="{}")])
+        s.commit()
+
+    async def as_token_request():
+        mark_noninteractive_principal()
+        with Session(engine) as s:
+            s.get(Config, 2).value = '{"ok": 1}'
+            s.commit()  # ordinary key: allowed
+            s.get(Config, 1).value = '{"host": "evil"}'
+            with pytest.raises(Exception) as refused:
+                s.commit()
+            return refused.value
+    refused = asyncio.run(as_token_request())
+    assert getattr(refused, "status_code", None) == 403
+    with engine.connect() as c:
+        assert dict(c.execute(text("SELECT key, value FROM system_config")).all()) == {
+            "smtp_config": "{}", "pricing_config": '{"ok": 1}'}

@@ -40,17 +40,12 @@ def _postgres_placeholders(statement: str) -> str:
     return "".join(output)
 
 
-from core.credential_write_guard import check_credential_write  # noqa: E402
-
-
 class _CursorAdapter:
     def __init__(self, cursor: Any, postgres: bool):
         self._cursor = cursor
         self._postgres = postgres
 
     def execute(self, statement: str, parameters: Iterable[Any] | None = None):
-        # Raw DBAPI cursors bypass SQLAlchemy events; apply the same credential guard.
-        check_credential_write(statement, parameters)
         if self._postgres:
             if statement.strip().upper() == "BEGIN IMMEDIATE":
                 statement = "BEGIN"
@@ -62,7 +57,6 @@ class _CursorAdapter:
         return self
 
     def executemany(self, statement: str, parameters):
-        check_credential_write(statement, parameters)
         if self._postgres:
             statement = _postgres_placeholders(statement)
         self._cursor.executemany(statement, parameters)
