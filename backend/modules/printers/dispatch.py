@@ -840,14 +840,11 @@ def _run_admitted_dispatch(job,creds,stored_path,remote_filename,print_options,e
             reconciliation_message = None
             with engine.begin() as conn:
                 parents = prepare_job_write(conn, [job_id])
-                transitioned = conn.execute(
-                    _text("UPDATE jobs SET status = 'printing',"
-                          " actual_start = COALESCE(actual_start, :now)"
-                          " WHERE id = :jid AND printer_id = :pid"
-                          " AND status IN ('pending','scheduled','printing') RETURNING id"),
-                    {"now": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-                     "jid": job_id, "pid": printer_id},
-                ).first()
+                from modules.jobs.state_machine import transition_job, Expr
+                transitioned = transition_job(conn, job_id, "printing", "dispatch",
+                    extra_fields={"actual_start": Expr("COALESCE(actual_start, :now)",
+                        now=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"))},
+                    where="printer_id = :pid", params={"pid": printer_id}) or None
                 reconcile_job_write(conn, parents)
                 if transitioned is None:
                     current = conn.execute(_text("SELECT status,printer_id FROM jobs WHERE id=:id"),

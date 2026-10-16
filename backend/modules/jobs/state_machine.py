@@ -169,7 +169,9 @@ def _execute(executor, statement: str, values: dict) -> int:
     from sqlalchemy.engine import Connection
     from sqlalchemy.orm import Session
     from sqlalchemy import text
-    if isinstance(executor, (Session, Connection)):
+    # SQLAlchemy sessions/connections and SQLAlchemy-style views (anything that
+    # exposes a dialect, e.g. core TransactionView) take text() + named params.
+    if isinstance(executor, (Session, Connection)) or hasattr(executor, "dialect"):
         return executor.execute(text(statement), values).rowcount
     ordered: list[str] = []
 
@@ -192,3 +194,15 @@ def align_identity(job, status, **attributes) -> None:
     set_committed_value(job, "status", status)
     for name, value in attributes.items():
         set_committed_value(job, name, value)
+
+
+class _Outcome:
+    __slots__ = ("rowcount",)
+
+    def __init__(self, applied: bool):
+        self.rowcount = 1 if applied else 0
+
+
+def transition_result(executor, job_id: int, to, actor: str, **options) -> _Outcome:
+    """transition_job for callers that check ``.rowcount`` like a DBAPI result."""
+    return _Outcome(transition_job(executor, job_id, to, actor, **options))

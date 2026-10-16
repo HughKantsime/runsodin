@@ -170,16 +170,19 @@ def job_completed(
             prow = cur.fetchone()
             printer_name = prow[1] or prow[0] if prow else f"Printer {printer_id}"
 
-            # Update scheduled job status if linked
+            # Update the linked job through the state machine: an observed end
+            # never overwrites a terminal/unapproved/rejected job.
+            job_applied = False
             if scheduled_job_id:
-                cur.execute(
-                    "UPDATE jobs SET status = ?, actual_end = ? WHERE id = ?",
-                    (status, ended_at, scheduled_job_id)
-                )
+                from modules.jobs.state_machine import transition_job
+                job_applied = transition_job(cur, scheduled_job_id, status, 'monitor',
+                                             extra_fields={'actual_end': ended_at})
 
             reconcile_job_write(conn, production_orders)
             conn.commit()
-            committed_completion = success is True
+            # The completion event describes a job completion only when one applied
+            # (or when the print had no job: the event is the print's own outcome).
+            committed_completion = success is True and (job_applied or not scheduled_job_id)
             completion_job_id = scheduled_job_id
             completion_metadata = {'job_name': job_name, 'duration_seconds': duration_seconds}
 
@@ -314,10 +317,9 @@ def job_cancelled(
             printer_name = prow[1] or prow[0] if prow else f"Printer {printer_id}"
 
             if scheduled_job_id:
-                cur.execute(
-                    "UPDATE jobs SET status = 'cancelled', actual_end = ?, queue_position = NULL WHERE id = ?",
-                    (ended_at, scheduled_job_id)
-                )
+                from modules.jobs.state_machine import transition_job
+                transition_job(cur, scheduled_job_id, 'cancelled', 'monitor',
+                               extra_fields={'actual_end': ended_at})
 
             reconcile_job_write(conn, production_orders)
             conn.commit()
