@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # O.D.I.N. Installer — curl -sfL https://raw.githubusercontent.com/HughKantsime/runsodin/master/install/install.sh | bash
 set -euo pipefail
+# An exported CDPATH makes `cd` print the resolved directory, which corrupts the
+# $(cd ... && pwd -P) path resolution below.
+unset CDPATH
 
 # Windows detection: if running under Cygwin, MSYS2, or Git Bash, redirect to PowerShell installer
 case "$(uname -s 2>/dev/null)" in
@@ -333,8 +336,32 @@ fi
 ok "curl available"
 
 # Ports
+# Ports published by this install's own running container (same compose project, started
+# from this install directory) are not a conflict: a reinstall recreates that container
+# on the same ports. Anything else holding a port still refuses the install.
+own_ports=" "
+if [ -f "${INSTALL_DIR}/docker-compose.yml" ]; then
+    own_labels=$(docker inspect -f '{{.State.Running}}|{{index .Config.Labels "com.docker.compose.project"}}|{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$ODIN_CONTAINER_NAME" 2>/dev/null || true)
+    own_running=${own_labels%%|*}
+    own_rest=${own_labels#*|}
+    own_project=${own_rest%%|*}
+    own_dir=${own_rest#*|}
+    install_dir_abs=$(cd "$INSTALL_DIR" 2>/dev/null && pwd -P || true)
+    own_dir_abs=$(cd "$own_dir" 2>/dev/null && pwd -P || true)
+    if [ "$own_running" = "true" ] && [ "$own_project" = "$ODIN_COMPOSE_PROJECT" ] \
+        && [ -n "$install_dir_abs" ] && [ "$own_dir_abs" = "$install_dir_abs" ]; then
+        own_ports=" $(docker port "$ODIN_CONTAINER_NAME" 2>/dev/null | sed -nE 's/.*:([0-9]+)$/\1/p' | sort -u | tr '\n' ' ' || true)"
+    fi
+fi
 port_fail=0
+accepted_ports=""
 for port in "$ODIN_HTTP_PORT" "$ODIN_GO2RTC_PORT" "$ODIN_WEBRTC_PORT"; do
+    case "$own_ports" in
+        *" $port "*)
+            dim "Port $port is held by this install's running O.D.I.N. container (${ODIN_CONTAINER_NAME}); it will be recreated"
+            accepted_ports="${accepted_ports:+${accepted_ports}, }${port}"
+            continue ;;
+    esac
     if ! check_port "$port"; then
         err "Port $port in use"
         dim "$(port_user "$port")"
@@ -416,7 +443,11 @@ if [ "${ODIN_SKIP_PUBLIC_CHECK:-0}" != "1" ]; then
         fi
     fi
 fi
-ok "Ports ${ODIN_HTTP_PORT}, ${ODIN_GO2RTC_PORT}, ${ODIN_WEBRTC_PORT} free"
+if [ -n "$accepted_ports" ]; then
+    ok "Ports ${ODIN_HTTP_PORT}, ${ODIN_GO2RTC_PORT}, ${ODIN_WEBRTC_PORT} usable (${accepted_ports} held by this install's ${ODIN_CONTAINER_NAME} container, which will be recreated)"
+else
+    ok "Ports ${ODIN_HTTP_PORT}, ${ODIN_GO2RTC_PORT}, ${ODIN_WEBRTC_PORT} free"
+fi
 
 # Architecture
 arch=$(uname -m)

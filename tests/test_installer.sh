@@ -420,10 +420,13 @@ else
     fail "update.sh --force" "Missing --force support"
 fi
 
-if grep -q 'exec "\$0"' "$UPDATE_SH"; then
+# The restart must use the absolute path resolved before the script cd's into its own
+# directory; a relative "$0" no longer resolves after the cd (F22-22.4-02).
+if grep -q 'SELF="\${SELF_DIR}/' "$UPDATE_SH" && grep -q 'exec bash "\$SELF"' "$UPDATE_SH" \
+    && ! grep -Eq '(cp|diff -q|exec)[^#]*"\$0"' "$UPDATE_SH"; then
     pass "update.sh exec's itself after self-update"
 else
-    fail "update.sh exec self" "Missing exec for self-update restart"
+    fail "update.sh exec self" "Missing absolute-path exec for self-update restart"
 fi
 
 if grep -q 'Rollback' "$UPDATE_SH"; then
