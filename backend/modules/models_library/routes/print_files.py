@@ -179,7 +179,9 @@ async def upload_3mf(
             # XML, plate JSON and preview mesh are read by a bounded child process.
             analysis = await _analyze_3mf_upload(tmp_path)
             if analysis.status == "too_large":
-                raise HTTPException(status_code=400, detail="File rejected: decompressed size exceeds 500 MB limit.")
+                raise HTTPException(status_code=400, detail="File rejected: decompressed size exceeds the 500 MB limit (400 MB per member).")
+            if analysis.status == "too_many_members":
+                raise HTTPException(status_code=400, detail="File rejected: the .3mf has too many archive members.")
             if analysis.status == "bad_zip":
                 raise HTTPException(status_code=400, detail="Invalid .3mf file (bad zip structure).")
             if analysis.status != "ok" or not analysis.metadata:
@@ -542,61 +544,68 @@ async def submit_studio_print(
         FILE_FIELDS, lock_queue_reference, assert_unchanged,
         verified_queue_payload, assert_payload_unchanged, file_snapshot_predicate,
     )
-    try:
-        db.execute(text('UPDATE print_files SET id=id WHERE id=:id'), {'id': file_id})
-        row = accessible_preview_file(db, file_id, current_user)
-        _assert_generic_payload(db, row)
-        if row.job_id is not None or row.model_id != uploaded.get('model_id'):
-            raise HTTPException(409, 'Uploaded file changed; refresh before scheduling')
-        if row.model_id is not None:
-            lock_queue_reference(db, 'models', row.model_id, ('id', 'org_id'))
-        parent = _generic_parent(db, row, current_user)
-        assert_generic_model_reference_allowed(db, row.model_id)
-        target = lock_queue_reference(db, 'printers', target_printer_id, TARGET_FIELDS)
-        if target is None or not check_org_access(current_user, target.org_id):
-            raise HTTPException(404, 'Printer not found')
-        target_capture = capture(target, TARGET_FIELDS)
-        if target_capture != initial_target:
-            raise HTTPException(409, 'Selected printer changed during upload; refresh before scheduling')
-        file_capture = capture(row, FILE_FIELDS)
-        parent_capture = capture(parent, ('id', 'org_id'))
-        with verified_queue_payload(row, target) as payload_hash:
+    def _queue_uploaded():
+        # Blocking: row locks, payload hashing and the bounded plate check of the
+        # stored package run in a worker thread, never on the event loop.
+        try:
+            db.execute(text('UPDATE print_files SET id=id WHERE id=:id'), {'id': file_id})
+            row = accessible_preview_file(db, file_id, current_user)
+            _assert_generic_payload(db, row)
+            if row.job_id is not None or row.model_id != uploaded.get('model_id'):
+                raise HTTPException(409, 'Uploaded file changed; refresh before scheduling')
+            if row.model_id is not None:
+                lock_queue_reference(db, 'models', row.model_id, ('id', 'org_id'))
+            parent = _generic_parent(db, row, current_user)
+            assert_generic_model_reference_allowed(db, row.model_id)
+            target = lock_queue_reference(db, 'printers', target_printer_id, TARGET_FIELDS)
+            if target is None or not check_org_access(current_user, target.org_id):
+                raise HTTPException(404, 'Printer not found')
+            target_capture = capture(target, TARGET_FIELDS)
+            if target_capture != initial_target:
+                raise HTTPException(409, 'Selected printer changed during upload; refresh before scheduling')
+            file_capture = capture(row, FILE_FIELDS)
+            parent_capture = capture(parent, ('id', 'org_id'))
+            with verified_queue_payload(row, target) as payload_hash:
+                assert_unchanged(db, 'print_files', file_capture)
+                assert_unchanged(db, 'models', parent_capture)
+                assert_unchanged(db, 'printers', target_capture)
+            charge_job_quota(db, current_user)
+
+            job = queue_creator.stage_values(db, {
+                "item_name": uploaded.get("project_name") or filename,
+                "model_id": row.model_id, "print_file_id": row.id,
+                "payload_sha256": payload_hash, "plate_index": 0, "duration_hours": duration_hours,
+                "colors_required": ",".join(colors), "quantity": 1, "priority": 5,
+                "status": "pending", "printer_id": target_printer_id,
+                "hold": False, "is_locked": False, "notes": notes,
+                "charged_to_user_id": current_user.get("id") if current_user else None,
+                "charged_to_org_id": current_user.get("group_id") if current_user else None,
+                "target_type": "specific",
+            }, current_user)
+            job_id = job.id
             assert_unchanged(db, 'print_files', file_capture)
             assert_unchanged(db, 'models', parent_capture)
             assert_unchanged(db, 'printers', target_capture)
-        charge_job_quota(db, current_user)
+            _assert_generic_payload(db, row)
+            assert_generic_model_reference_allowed(db, row.model_id)
+            assert_payload_unchanged(row.stored_path, payload_hash)
+            predicate, parameters = file_snapshot_predicate(file_capture)
+            linked = db.execute(text(f'UPDATE print_files SET job_id=:job WHERE {predicate} AND job_id IS NULL'),
+                                {**parameters, 'job': job_id})
+            if linked.rowcount != 1:
+                raise HTTPException(409, 'Print file changed; refresh before scheduling')
+            db.commit()
+            return job_id
+        except (HTTPException, OdinError):
+            _rollback_file_transaction(db, file_id)
+            raise
+        except Exception as exc:
+            _rollback_file_transaction(db, file_id)
+            log.warning('Studio queue failed for file %s (%s)', file_id, type(exc).__name__)
+            raise HTTPException(500, 'Unable to queue uploaded print file. Refresh before retrying.') from None
 
-        job = queue_creator.stage_values(db, {
-            "item_name": uploaded.get("project_name") or filename,
-            "model_id": row.model_id, "print_file_id": row.id,
-            "payload_sha256": payload_hash, "plate_index": 0, "duration_hours": duration_hours,
-            "colors_required": ",".join(colors), "quantity": 1, "priority": 5,
-            "status": "pending", "printer_id": target_printer_id,
-            "hold": False, "is_locked": False, "notes": notes,
-            "charged_to_user_id": current_user.get("id") if current_user else None,
-            "charged_to_org_id": current_user.get("group_id") if current_user else None,
-            "target_type": "specific",
-        }, current_user)
-        job_id = job.id
-        assert_unchanged(db, 'print_files', file_capture)
-        assert_unchanged(db, 'models', parent_capture)
-        assert_unchanged(db, 'printers', target_capture)
-        _assert_generic_payload(db, row)
-        assert_generic_model_reference_allowed(db, row.model_id)
-        assert_payload_unchanged(row.stored_path, payload_hash)
-        predicate, parameters = file_snapshot_predicate(file_capture)
-        linked = db.execute(text(f'UPDATE print_files SET job_id=:job WHERE {predicate} AND job_id IS NULL'),
-                            {**parameters, 'job': job_id})
-        if linked.rowcount != 1:
-            raise HTTPException(409, 'Print file changed; refresh before scheduling')
-        db.commit()
-    except (HTTPException, OdinError):
-        _rollback_file_transaction(db, file_id)
-        raise
-    except Exception as exc:
-        _rollback_file_transaction(db, file_id)
-        log.warning('Studio queue failed for file %s (%s)', file_id, type(exc).__name__)
-        raise HTTPException(500, 'Unable to queue uploaded print file. Refresh before retrying.') from None
+    from starlette.concurrency import run_in_threadpool
+    job_id = await run_in_threadpool(_queue_uploaded)
 
     queued_position = db.execute(
         text("SELECT COUNT(*) FROM jobs WHERE status IN ('pending', 'scheduled') AND id <= :id"),

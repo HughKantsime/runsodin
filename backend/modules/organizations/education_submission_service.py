@@ -7,7 +7,6 @@ import json
 import os
 import shutil
 import uuid
-import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import BinaryIO
@@ -24,13 +23,14 @@ from modules.jobs.models import Job
 from modules.organizations.education_storage import MIN_FREE_BYTES, StorageConfigurationError, required_free_bytes
 
 
-def _parse_3mf_isolated(path):
-    """Parse the untrusted package in the bounded 3MF child process (never in the API
-    process); 429 with Retry-After when the install's 3MF workers are busy."""
+def _analyze_3mf_isolated(path, ticket):
+    """(status, metadata) from the bounded 3MF child process (never this process); 429
+    with Retry-After when the install's 3MF workers are busy. Blocking: callers run it
+    on the 3MF executor (see routes_education_submissions)."""
     from fastapi import HTTPException
-    from modules.models_library.threemf_parser import ThreeMFBusy, parse_3mf_isolated
+    from modules.models_library.threemf_parser import ThreeMFBusy, analyze_education_3mf, reserve_3mf_analysis
     try:
-        return parse_3mf_isolated(path)
+        return analyze_education_3mf(path, ticket if ticket is not None else reserve_3mf_analysis())
     except ThreeMFBusy as busy:
         raise HTTPException(status_code=429, detail="3MF analysis is busy; try again shortly",
                             headers={"Retry-After": str(busy.retry_after)}) from None
@@ -825,8 +825,12 @@ def finalize_staged_3mf_submission(
     final_path: Path,
     byte_count: int,
     digest: str,
+    threemf_ticket=None,
 ) -> dict:
-    """Validate a fully reserved staging file and atomically commit its graph."""
+    """Validate a fully reserved staging file and atomically commit its graph.
+
+    Blocking (database work and the isolated 3MF analysis): async callers run it on
+    the 3MF executor with a ``threemf_ticket`` taken on the event loop."""
     renamed = False
     try:
         if byte_count == 0:
@@ -842,22 +846,20 @@ def finalize_staged_3mf_submission(
         if staged.rowcount != 1:
             raise RuntimeError("Education upload reservation did not match staged bytes")
         db.commit()
-        try:
-            with zipfile.ZipFile(staging_path) as archive:
-                if sum(item.file_size for item in archive.infolist()) > MAX_UNCOMPRESSED_BYTES:
-                    raise OdinError(ErrorCode.validation_failed, "Expanded .3mf exceeds 500 MiB", status=400)
-                # Bambu dispatch selects this exact first-plate path. A suffix
-                # match, alternate plate, or empty member cannot be printed.
-                printable = [item for item in archive.infolist() if item.filename == "Metadata/plate_1.gcode"]
-                if len(printable) != 1 or printable[0].is_dir() or printable[0].file_size <= 0:
-                    raise OdinError(
-                        ErrorCode.validation_failed,
-                        "Education upload requires one nonempty Metadata/plate_1.gcode member",
-                        status=400,
-                    )
-        except zipfile.BadZipFile as exc:
-            raise OdinError(ErrorCode.validation_failed, "Invalid .3mf container", status=400) from exc
-        metadata = _parse_3mf_isolated(staging_path)
+        # The package is opened and parsed only by the bounded 3MF child process.
+        status, metadata = _analyze_3mf_isolated(staging_path, threemf_ticket)
+        if status == "too_large":
+            raise OdinError(ErrorCode.validation_failed, "Expanded .3mf exceeds 500 MiB", status=400)
+        if status in ("bad_zip", "too_many_members"):
+            raise OdinError(ErrorCode.validation_failed, "Invalid .3mf container", status=400)
+        if status == "no_plate":
+            # Bambu dispatch selects this exact first-plate path. A suffix
+            # match, alternate plate, or empty member cannot be printed.
+            raise OdinError(
+                ErrorCode.validation_failed,
+                "Education upload requires one nonempty Metadata/plate_1.gcode member",
+                status=400,
+            )
         if not metadata or metadata.print_time_seconds <= 0:
             raise OdinError(ErrorCode.validation_failed, "Education upload must be a sliced .3mf", status=400)
         compatibility_meta = _compatibility_meta_from_parsed(metadata)

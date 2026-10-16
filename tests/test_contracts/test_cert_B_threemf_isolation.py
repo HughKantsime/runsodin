@@ -26,6 +26,7 @@ from tests.test_contracts.test_api_token_delegation_behavior import token_client
 
 CORE = "http://schemas.microsoft.com/3dmanufacturing/core/2015/02"
 FIXTURE = Path("tests/fixtures/release_gate/candidate-calibration-cube.3mf")
+SLICED = Path("tests/fixtures/certification/cert-B/a1-acceptance-coupon.gcode.3mf")
 
 
 @pytest.fixture(autouse=True)
@@ -129,9 +130,11 @@ def test_upload_route_parses_only_in_the_child(upload_client, review_db, parent_
 
 
 def test_education_metadata_parses_only_in_the_child(parent_cannot_parse):
-    from modules.organizations.education_submission_service import _parse_3mf_isolated
-    metadata = _parse_3mf_isolated(FIXTURE)
-    assert metadata is not None and metadata.project_name == "ODIN Candidate Upload Cube"
+    from modules.organizations.education_submission_service import _analyze_3mf_isolated
+    status, metadata = _analyze_3mf_isolated(SLICED, None)
+    assert status == "ok" and metadata is not None and metadata.print_time_seconds > 0
+    # The Education plate rule is also decided in the child.
+    assert _analyze_3mf_isolated(FIXTURE, None) == ("no_plate", None)
 
 
 @pytest.mark.parametrize("content,detail", [(b"not a zip", "bad zip"), (None, "500 MB")])
@@ -209,7 +212,7 @@ def test_child_environment_carries_no_secrets(monkeypatch):
     assert mesh_isolation.analyze_blocking(FIXTURE).status == "ok"  # works with nothing inherited
     assert seen and all("parent-secret" not in value for env in seen for value in env.values())
     assert set(seen[0]) <= {"PATH", "PYTHONPATH", "PYTHONNOUSERSITE", "PYTHONDONTWRITEBYTECODE", "LC_ALL", "LANG",
-                            "ODIN_MESH_WORKER_TEST_SLEEP"}
+                            "ODIN_MESH_WORKER_TEST_SLEEP", "ODIN_MESH_WORKER_TEST_GRANDCHILD"}
 
 
 def test_child_limits_cpu_and_dies_with_its_parent_on_linux(monkeypatch):
@@ -226,7 +229,7 @@ def test_child_limits_cpu_and_dies_with_its_parent_on_linux(monkeypatch):
             return 0
     monkeypatch.setattr(ctypes, "CDLL", lambda *a, **k: FakeLibc())
     monkeypatch.setattr(mesh_worker.sys, "platform", "linux")
-    mesh_worker._limit(2**30, 7)
+    mesh_worker._limit(2**30, 7, os.getppid())
     assert (resource.RLIMIT_CPU, (7, 8)) in limits and (resource.RLIMIT_AS, (2**30, 2**30)) in limits
     assert prctl == [(1, signal.SIGKILL)]  # PR_SET_PDEATHSIG
 
@@ -248,13 +251,13 @@ def test_output_is_decoded_off_the_event_loop(monkeypatch):
 def test_education_upload_is_429_when_the_queue_is_full(private_run_dir):
     from fastapi import HTTPException
     from modules.models_library import mesh_isolation
-    from modules.organizations.education_submission_service import _parse_3mf_isolated
+    from modules.organizations.education_submission_service import _analyze_3mf_isolated
     names = [f"threemf-run-{i}.lock" for i in range(mesh_isolation.MAX_WORKERS)]
     names += [f"threemf-wait-{i}.lock" for i in range(mesh_isolation.MAX_WAITERS)]
     holder = _hold_locks(private_run_dir, names, 3)
     try:
         with pytest.raises(HTTPException) as refused:
-            _parse_3mf_isolated(FIXTURE)
+            _analyze_3mf_isolated(FIXTURE, None)
         assert refused.value.status_code == 429 and refused.value.headers["Retry-After"]
     finally:
         holder.kill(); holder.wait()

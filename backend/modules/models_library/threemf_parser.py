@@ -93,25 +93,28 @@ def metadata_from_dict(data: dict) -> PrintFileMetadata:
     return PrintFileMetadata(**values)
 
 
-def parse_3mf_isolated(file_path) -> Optional[PrintFileMetadata]:
-    """parse_3mf for untrusted uploads: runs in the bounded 3MF child process, never
-    in the calling (API) process. Raises mesh_isolation.Busy when the install's 3MF
-    workers and wait queue are full (callers answer 429 with Retry-After)."""
-    from modules.models_library.mesh_isolation import analyze_blocking
-    analysis = analyze_blocking(str(file_path), mode="metadata")
+def analyze_education_3mf(file_path, ticket):
+    """Education upload analysis in the bounded 3MF child (never in the calling process):
+    returns (status, metadata). ``ticket`` is a mesh_isolation admission taken on the
+    event loop; status is ok, too_large, too_many_members, bad_zip, no_plate, unparsed
+    or failed. Raises mesh_isolation.Busy when no run slot frees up before the deadline."""
+    from modules.models_library.mesh_isolation import run_admitted
+    analysis = run_admitted(str(file_path), ticket, mode="education")
     if analysis.status != "ok" or not analysis.metadata:
-        return None
-    return metadata_from_dict(analysis.metadata)
+        return analysis.status, None
+    return "ok", metadata_from_dict(analysis.metadata)
 
 
 def __getattr__(name):
-    if name == "ThreeMFBusy":  # lazy: the isolation module is only needed by callers
-        from modules.models_library.mesh_isolation import Busy
-        return Busy
+    # Lazy: the isolation module is only needed by callers of the isolated entry points.
+    if name in ("ThreeMFBusy", "reserve_3mf_analysis", "run_on_3mf_executor"):
+        from modules.models_library import mesh_isolation
+        return {"ThreeMFBusy": mesh_isolation.Busy, "reserve_3mf_analysis": mesh_isolation.reserve,
+                "run_on_3mf_executor": mesh_isolation.run_on_executor}[name]
     raise AttributeError(name)
 
 
-def parse_3mf(file_path: str) -> Optional[PrintFileMetadata]:
+def parse_3mf(file_path: str, name: Optional[str] = None) -> Optional[PrintFileMetadata]:
     """
     Parse a Bambu Studio sliced .3mf file and extract metadata.
     
@@ -133,7 +136,7 @@ def parse_3mf(file_path: str) -> Optional[PrintFileMetadata]:
             
             if not has_gcode:
                 # Try to parse as unsliced project
-                return parse_unsliced_3mf(zf, file_path)
+                return parse_unsliced_3mf(zf, file_path, name)
             
             # Parse slice_info.config for main metadata
             slice_info = parse_slice_info(zf)
@@ -147,7 +150,7 @@ def parse_3mf(file_path: str) -> Optional[PrintFileMetadata]:
             thumbnail_b64 = extract_thumbnail(zf)
             
             # Get project name from 3dmodel.model
-            project_name = extract_project_name(zf) or Path(file_path).stem
+            project_name = extract_project_name(zf) or Path(name or file_path).stem
             
             # Build filament list
             filaments = []
@@ -169,7 +172,7 @@ def parse_3mf(file_path: str) -> Optional[PrintFileMetadata]:
                     layer_count = int(parts[-1]) + 1  # 0-indexed, so add 1
             
             return PrintFileMetadata(
-                filename=Path(file_path).name,
+                filename=Path(name or file_path).name,
                 project_name=project_name,
                 print_time_seconds=int(slice_info.get('prediction', 0)),
                 total_weight_grams=float(slice_info.get('weight', 0)),
@@ -296,7 +299,7 @@ def extract_project_name(zf: zipfile.ZipFile) -> Optional[str]:
         return None
 
 
-def parse_unsliced_3mf(zf: zipfile.ZipFile, file_path: str) -> Optional[PrintFileMetadata]:
+def parse_unsliced_3mf(zf: zipfile.ZipFile, file_path: str, name: Optional[str] = None) -> Optional[PrintFileMetadata]:
     """Parse an unsliced .3mf project file (limited data)."""
     try:
         from modules.models_library.print_file_meta import extract_print_file_meta
@@ -330,11 +333,11 @@ def parse_unsliced_3mf(zf: zipfile.ZipFile, file_path: str) -> Optional[PrintFil
             used_grams=0
         ))
         
-        project_name = extract_project_name(zf) or Path(file_path).stem
+        project_name = extract_project_name(zf) or Path(name or file_path).stem
         thumbnail_b64 = extract_thumbnail(zf)
         
         return PrintFileMetadata(
-            filename=Path(file_path).name,
+            filename=Path(name or file_path).name,
             project_name=project_name,
             print_time_seconds=0,  # Unknown - needs manual entry
             total_weight_grams=0,
