@@ -170,3 +170,20 @@ def test_restore_staging_routes_are_marked_for_the_interactive_session_guard():
     assert ("POST", "/backups/{filename}/stage") in marked and ("POST", "/backups/restore") in marked
     registered = {(method, route.path) for route in routes_backup.router.routes for method in getattr(route, "methods", ())}
     assert set(marked) <= registered
+
+
+def test_sweep_removes_stale_rollback_dumps_but_keeps_the_newest_and_any_in_use(tmp_path):
+    backups = tmp_path / "backups"; backups.mkdir()
+    now = time.time()
+    names = [f"rollback_20261001_00000{i}_000000.dump" for i in range(4)]
+    for age, name in zip((40, 30, 20, 10), names):
+        path = backups / name; path.write_bytes(b"x" * 200); os.utime(path, (now - age * 86400, now - age * 86400))
+    (tmp_path / "restore-pending-postgres.json").write_text(json.dumps({"state": "restore_in_progress", "rollback_backup": names[1]}))
+    removed = restore_artifacts.sweep_stale(backups, "unused", None, drop=lambda n: [])
+    assert sorted(removed["files"]) == sorted([names[0], names[2]])  # names[1] is in use, names[3] is the newest
+    assert sorted(p.name for p in backups.glob("rollback_*")) == sorted([names[1], names[3]])
+    (tmp_path / "restore-pending-postgres.json").write_text("{not json")
+    for name in names[1:]:
+        if (backups / name).exists():
+            os.utime(backups / name, (now - 50 * 86400, now - 50 * 86400))
+    assert restore_artifacts.sweep_stale(backups, "unused", None, drop=lambda n: [])["files"] == []

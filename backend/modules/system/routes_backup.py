@@ -219,8 +219,8 @@ def active_system_notices() -> list[dict]:
             "kind": "restore_quarantined",
             "severity": "critical",
             "title": "Database restore was not applied",
-            "message": f"{record.get('reason')} The current database was not changed. "
-                       "Re-stage or delete the archive in Settings > System > Backups.",
+            "message": f"{record.get('reason')} {record.get('action') or ''} "
+                       "Re-stage or delete the archive in Settings > System > Backups.".replace("  ", " "),
             "archive": record["archive"],
             "failed_at": record.get("failed_at"),
             "link": BACKUPS_LINK,

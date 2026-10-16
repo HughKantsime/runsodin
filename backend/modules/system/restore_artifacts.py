@@ -127,6 +127,32 @@ def _quarantined_at(record_path: Path, archive: Path) -> float | None:
         return None
 
 
+ROLLBACK_RETENTION_DAYS = 7
+_ROLLBACK = re.compile(r"rollback_\d{8}_\d{6}_\d{6}\.dump")
+
+
+def _sweep_rollbacks(backups: Path, cutoff: float) -> list[str]:
+    """Pre-restore rollback dumps older than ROLLBACK_RETENTION_DAYS, keeping the newest one
+    and never one an in-progress restore names for its recovery."""
+    import json
+    protected = set()
+    manifest = backups.parent / "restore-pending-postgres.json"
+    try:
+        named = json.loads(manifest.read_text(encoding="utf-8")).get("rollback_backup")
+        if isinstance(named, str):
+            protected.add(named)
+    except (OSError, ValueError, AttributeError):
+        if manifest.exists():
+            return []  # An unreadable manifest may name any of them: keep all.
+    dumps = sorted((entry for entry in backups.iterdir() if _ROLLBACK.fullmatch(entry.name) and stat.S_ISREG(entry.lstat().st_mode)),
+                   key=lambda entry: entry.lstat().st_mtime)
+    removed = []
+    for entry in dumps[:-1]:
+        if entry.name not in protected and entry.lstat().st_mtime < cutoff:
+            entry.unlink(missing_ok=True); removed.append(entry.name)
+    return removed
+
+
 def _sweep_quarantine(backups: Path, cutoff: float) -> list[str]:
     removed = []
     stems = {entry.name.rsplit(".", 1)[0] for entry in backups.iterdir()
@@ -157,6 +183,7 @@ def sweep_stale(backups: Path, maintenance_url: str, maintenance_password_file: 
     # failed_at, else the archive's mtime, which the quarantine resets); orphan records
     # whose archive is gone are removed at once.
     removed.extend(_sweep_quarantine(backups, (time.time() if now is None else now) - QUARANTINE_RETENTION_DAYS * 86400))
+    removed.extend(_sweep_rollbacks(backups, (time.time() if now is None else now) - ROLLBACK_RETENTION_DAYS * 86400))
     for entry in backups.iterdir():
         facts = entry.lstat()
         if facts.st_mtime >= cutoff:
