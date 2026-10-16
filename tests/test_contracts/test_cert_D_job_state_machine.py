@@ -39,45 +39,79 @@ def _patch_refuses_status_before_copying_fields():
     return guard.lineno < copy.lineno and any(isinstance(n, ast.Raise) for n in guard.body)
 
 
-def _priced_restore_never_targets_jobs():
+def _site_tables(sites, path, parameter_callee=None):
+    """Resolve each site's table: its first SQL interpolation (after a schema prefix)."""
+    tables = set()
+    for site in sites:
+        parts = job_census.dynamic_parts(site.detail)
+        expression = parts[1] if parts and parts[0] == 'prefix' else parts[0]
+        if parameter_callee and expression == 'table':
+            tables |= {job_census.resolve(path, a) for a in job_census.call_arguments(path, parameter_callee, 1)}
+        else:
+            tables.add(job_census.resolve(path, expression))
+    return tables
+
+
+def _failure_info_set_list(sites):
+    """update_job_failure's SET list is appended only from literal assignments of its own columns."""
     import ast
-    from core import priced_estimate_schema as schema
-    source = (BACKEND / 'core/priced_estimate_restore.py').read_text()
-    calls = [n for n in ast.walk(ast.parse(source)) if isinstance(n, ast.Call) and ast.unparse(n.func) == '_cas']
-    tables = {getattr(schema, ast.unparse(c.args[1]).split('.')[-1]) for c in calls}
-    return calls and 'jobs' not in tables
+    function = next(n for n in ast.walk(ast.parse((BACKEND / 'modules/jobs/routes/jobs_lifecycle.py').read_text()))
+                    if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == 'update_job_failure')
+    appended = [n.args[0] for n in ast.walk(function) if isinstance(n, ast.Call)
+                and ast.unparse(n.func) == 'updates.append']
+    columns = {getattr(re.match(r"f?['\"](\w+)\s*=", ast.unparse(a)), 'group', lambda _: None)(1) for a in appended}
+    return (all(job_census.dynamic_parts(site.detail) == ["', '.join(updates)"] for site in sites)
+            and columns == {'fail_reason', 'fail_notes', 'updated_at'})
 
 
+def _enum_repair_is_status_only(sites):
+    import ast
+    function = next(n for n in ast.walk(ast.parse((BACKEND / 'core/schema/migrations/001_legacy_columns.py').read_text()))
+                    if isinstance(n, ast.FunctionDef) and n.name == 'apply')
+    rules = next(n.value for n in ast.walk(function) if isinstance(n, ast.Assign)
+                 and any(getattr(t, 'id', None) == 'enum_rules' for t in n.targets))
+    columns = {ast.literal_eval(rule)[1] for rule in rules.elts}
+    return columns == {'status'} and all(
+        'SET \x00column_name\x00 = LOWER(\x00column_name\x00)' in site.detail for site in sites)
+
+
+# Each allowed (file, function, kind) pins its exact number of call sites, and
+# its check runs on those sites (the SQL text the node builds, or the call it makes).
 ALLOWED_WRITES = {
     ('backend/modules/jobs/routes/jobs_crud.py', 'update_job', 'setattr'):
-        ('PATCH copies JobUpdate fields only after refusing a sent status (422)', _patch_refuses_status_before_copying_fields),
+        (1, 'PATCH copies JobUpdate fields only after refusing a sent status (422)',
+         lambda sites: [s.detail for s in sites] == ['setattr(job, field, value)']
+         and _patch_refuses_status_before_copying_fields()),
     ('backend/modules/jobs/routes/jobs_lifecycle.py', 'update_job_failure', 'sql update (dynamic SET)'):
-        ('the SET list is built only from the literals fail_reason/fail_notes/updated_at', lambda: True),
+        (1, 'the SET list is built only from fail_reason/fail_notes/updated_at', _failure_info_set_list),
     ('backend/core/power_target_operations.py', '_stage_transition', 'sql update (dynamic table)'):
-        ('power-operation state CAS on its own table', lambda: job_census.resolve(
-            'backend/core/power_target_operations.py', 'schema.TABLE') != 'jobs'),
+        (1, 'power-operation state CAS on its own table',
+         lambda sites: 'jobs' not in _site_tables(sites, 'backend/core/power_target_operations.py')),
     ('backend/core/priced_estimate_restore.py', '_cas', 'sql update (dynamic table)'):
-        ('restore CAS of the priced-estimate tables only', _priced_restore_never_targets_jobs),
+        (1, 'restore CAS of the priced-estimate tables only',
+         lambda sites: 'jobs' not in _site_tables(sites, 'backend/core/priced_estimate_restore.py', '_cas')),
     ('backend/core/schema/migrations/001_legacy_columns.py', 'apply', 'sql update (dynamic table)'):
-        ('bootstrap repair of legacy enum casing (status=LOWER(status) within the same value set); not a transition',
-         lambda: True),
+        (1, 'bootstrap repair of legacy enum casing (status=LOWER(status) within the same value set); not a transition',
+         _enum_repair_is_status_only),
 }
 
 
 def _violations(source: str):
     """Status writes in one snippet (planted-example checks)."""
     writes, _, _ = job_census.scan({'backend/modules/planted.py': source})
-    return [(kind, line) for _, _, kind, line in writes]
+    return [(w.kind, w.line) for w in writes]
 
 
 def test_census_no_module_outside_the_state_machine_writes_jobs_status():
     writes, _, _ = job_census.scan()
-    offenders = [w for w in writes if w[0] != STATE_MACHINE and w[:3] not in ALLOWED_WRITES]
+    outside = [w for w in writes if w.path != STATE_MACHINE]
+    offenders = [w[:4] for w in outside if w[:3] not in ALLOWED_WRITES]
     assert offenders == [], offenders
-    for site, (reason, still_true) in ALLOWED_WRITES.items():
-        assert still_true(), (site, reason)
-    sites = {w[:3] for w in writes}
-    assert set(ALLOWED_WRITES) <= sites, set(ALLOWED_WRITES) - sites  # no stale allowance
+    found = job_census.counts(outside)
+    assert {key: (n, ALLOWED_WRITES[key][0]) for key, n in found.items() if ALLOWED_WRITES[key][0] != n} == {}
+    assert set(ALLOWED_WRITES) - set(found) == set(), set(ALLOWED_WRITES) - set(found)  # no stale allowance
+    for key, (count, reason, check) in ALLOWED_WRITES.items():
+        assert check([w for w in outside if w[:3] == key]), (key, reason)
 
 
 PLANTED = [
@@ -131,7 +165,7 @@ def test_census_reports_each_call_site_not_each_file():
     source = ("def a(cur):\n    cur.execute(\"UPDATE jobs SET status='x' WHERE id=1\")\n"
               "def b(cur):\n    cur.execute(\"UPDATE jobs SET status='y' WHERE id=1\")\n")
     writes, _, _ = job_census.scan({'backend/modules/planted.py': source})
-    assert [(site, line) for _, site, _, line in writes] == [('a', 2), ('b', 4)]
+    assert [(w.site, w.line) for w in writes] == [('a', 2), ('b', 4)]
 
 
 @pytest.fixture

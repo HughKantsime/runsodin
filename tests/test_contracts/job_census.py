@@ -35,8 +35,13 @@ quoted, e.g. public."spools") and <c> a target column:
 """
 import ast
 import re
+from collections import namedtuple
 from dataclasses import dataclass
 from pathlib import Path
+
+# One call site: ``detail`` is the SQL text the node builds (interpolations
+# bracketed by DYNAMIC) or the unparsed ORM call/assignment, for checks at the node.
+Site = namedtuple("Site", "path site kind line detail")
 
 ROOT = Path(__file__).resolve().parents[2]
 BACKEND = ROOT / "backend"
@@ -227,11 +232,15 @@ class _Scanner(ast.NodeVisitor):
     def _is_instance(self, node):
         return isinstance(node, ast.Name) and (node.id in self.bound[-1] or self._named(node.id))
 
+    def _detail(self, node):
+        sql = _string_value(node)
+        return sql if sql is not None else ast.unparse(node)
+
     def _write(self, kind, node):
-        self.writes.append((self.path, self._site(), kind, node.lineno))
+        self.writes.append(Site(self.path, self._site(), kind, node.lineno, self._detail(node)))
 
     def _delete(self, kind, node):
-        self.deletes.append((self.path, self._site(), kind, node.lineno))
+        self.deletes.append(Site(self.path, self._site(), kind, node.lineno, self._detail(node)))
 
     # ORM ----------------------------------------------------------------
     def _targets(self, targets, node):
@@ -362,3 +371,16 @@ def function_source(path, name):
     tree = ast.parse((ROOT / path).read_text(encoding="utf-8"))
     node = next(n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name)
     return ast.unparse(node)
+
+
+def counts(sites):
+    """{(path, function, kind): number of call sites}."""
+    found = {}
+    for site in sites:
+        found[site[:3]] = found.get(site[:3], 0) + 1
+    return found
+
+
+def dynamic_parts(detail):
+    """The interpolated expressions of a site's SQL text, in order."""
+    return re.findall(rf"{DYNAMIC}([^{DYNAMIC}]+){DYNAMIC}", detail)
