@@ -244,5 +244,9 @@ def test_the_census_actually_found_the_known_guarded_routes():
         assert route in guarded, route
         assert route in enforced or route in REVIEWED_PUBLIC, route
     assert ("POST", "/backups/restore") in enforced  # no static signal; pinned directly
+    # Every restore-staging route (cert-fix-migrations) is interactive-session only.
+    from modules.system.routes_backup import BACKUP_ROUTES_REQUIRING_INTERACTIVE
+    assert ("POST", "/backups/{filename}/stage") in BACKUP_ROUTES_REQUIRING_INTERACTIVE
+    assert set(BACKUP_ROUTES_REQUIRING_INTERACTIVE) <= set(enforced), set(BACKUP_ROUTES_REQUIRING_INTERACTIVE) - set(enforced)
     assert len(guarded) >= 25, len(guarded)
     assert len(enforced) >= 25, len(enforced)

@@ -197,9 +197,9 @@ def list_backups(current_user: dict = Depends(require_superadmin(scope="admin"))
 
 _QUARANTINED_PREFIX = "failed_restore_"
 
-# Routes that stage a database restore. They must refuse API-token callers and require an
-# interactive superadmin session: cert-fix-F's require_interactive_session guard is added
-# to each of these at merge (recorded in the merge plan; see docs/SCHEMA_MIGRATIONS.md).
+# Routes that stage a database restore. They refuse API-token callers and require an
+# interactive superadmin session (cert-fix-F's require_interactive_session on each);
+# test_cert_F_B_credential_census pins every entry as enforced.
 BACKUP_ROUTES_REQUIRING_INTERACTIVE = (
     ("POST", "/backups/restore"),
     ("POST", "/backups/{filename}/stage"),
@@ -270,7 +270,7 @@ def delete_backup(
     db.commit()
 
 
-@router.post("/backups/{filename}/stage", tags=["System"])
+@router.post("/backups/{filename}/stage", tags=["System"], dependencies=[Depends(require_interactive_session())])
 def stage_existing_backup(
     filename: str,
     current_user: dict = Depends(require_superadmin(scope="admin")),
