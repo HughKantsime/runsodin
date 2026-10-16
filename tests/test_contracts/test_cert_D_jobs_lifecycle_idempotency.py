@@ -156,3 +156,16 @@ def test_moonraker_deduction_is_per_attempt_and_shared_with_operator_corrections
     db.execute(text("UPDATE jobs SET printer_id=9 WHERE id=111")); db.commit()  # rescheduled on the printer
     deduct()                                                             # Moonraker reprint deducts again
     assert _spool(db) == (80.0, 2)
+
+
+def test_filament_claim_is_atomic_even_when_both_callers_pass_the_read_check(lifecycle_client, monkeypatch):
+    """Two writers that both read 'not deducted' still produce exactly one winning claim."""
+    from core import print_attempts
+    client, db = lifecycle_client
+    monkeypatch.setattr(print_attempts, 'filament_already_deducted', lambda run, job_id: False)
+    engine = db.get_bind()
+    with engine.begin() as first, engine.begin() as second:
+        a = print_attempts.mark_filament_deducted(print_attempts.sqlalchemy_runner(first), 111)
+    with engine.begin() as second:
+        b = print_attempts.mark_filament_deducted(print_attempts.sqlalchemy_runner(second), 111)
+    assert (a, b) == (True, False)
