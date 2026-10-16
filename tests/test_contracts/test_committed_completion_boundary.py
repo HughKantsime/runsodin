@@ -15,11 +15,6 @@ from tests.test_contracts.test_education_review_workflow import review_db
 from tests.test_contracts.test_education_monitor_policy import monitor_db
 
 ROOT=Path(__file__).resolve().parents[2]
-QUOTA_CHARGE_BLOCK='                if success:\n                    # Charge the print\'s material and measured time to the\n                    # owner\'s grams/hours quota in the completion transaction.\n                    from core.quota import record_print_consumption, qmark_runner\n                    cur.execute("SAVEPOINT quota_consumption")\n                    try:\n                        record_print_consumption(\n                            qmark_runner(cur), scheduled_job_id,\n                            measured_hours=(duration_seconds / 3600.0) if duration_seconds else None,\n                            attempt_key=f"print:{int(print_job_id)}")\n                        cur.execute("RELEASE SAVEPOINT quota_consumption")\n                    except Exception:\n                        # Never drop an observed completion over accounting;\n                        # the failure is logged loudly for reconciliation.\n                        cur.execute("ROLLBACK TO SAVEPOINT quota_consumption")\n                        log.exception("Quota consumption for job %s could not be recorded", scheduled_job_id)\n'
-
-
-TRANSITION_GUARD_NEW='            if scheduled_job_id:\n                # Only an active job takes the observed outcome: a job an\n                # operator already completed, failed or cancelled keeps that\n                # outcome and is not charged again.\n                cur.execute(\n                    "UPDATE jobs SET status = ?, actual_end = ? WHERE id = ? "\n                    "AND status IN (\'pending\',\'scheduled\',\'printing\',\'paused\')",\n                    (status, ended_at, scheduled_job_id)\n                )\n                if success and cur.rowcount == 1:\n'
-TRANSITION_GUARD_BASE='            if scheduled_job_id:\n                cur.execute(\n                    "UPDATE jobs SET status = ?, actual_end = ? WHERE id = ?",\n                    (status, ended_at, scheduled_job_id)\n                )\n                if success:\n'
 
 
 _NEW_IMPORT='from core.committed_terminal_events import publish_committed_completion'
@@ -58,7 +53,6 @@ def test_current_job_events_source_is_the_reviewed_revision():
     current=(ROOT/'backend/modules/notifications/job_events.py').read_text()
     assert current.count(_NEW_IMPORT)==1 and _OLD_IMPORT not in current
     assert _sha256(current)==json.loads((_BOUNDARY/'source-current.json').read_text())['job_events_sha256']
-
 
 
 @pytest.mark.parametrize('args,kwargs',[((True,1),{}),((0,1),{}),((1,-1),{}),((1,True),{}),((1,1),{'source_module':'foreign'}),((1,1),{'metadata':{'extra':'value'}}),((1,1),{'metadata':[]})])
