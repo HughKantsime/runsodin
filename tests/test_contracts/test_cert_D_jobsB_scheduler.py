@@ -401,8 +401,8 @@ def test_deleting_a_printer_marks_its_pins_deleted_and_never_retargets(fleet, si
     run(fleet)
     assert rows(fleet, [job])[job][:2] == ('pending', None)
     fleet.expire_all()
-    alerts = fleet.execute(text("SELECT metadata_json FROM alerts WHERE job_id=:id"), {'id': job}).scalars().all()
-    assert any('pinned_printer_deleted' in str(a) for a in alerts)
+    alerts = fleet.execute(text("SELECT metadata_json FROM alerts WHERE title LIKE 'Pinned printer deleted%'")).scalars().all()
+    assert any('pinned_printer_deleted' in str(a) and str(job) in str(a) for a in alerts)
 
 
 @pytest.mark.parametrize('bad', ['١٢', '+12', '12a', ' ', '0', '-3'])
@@ -472,3 +472,28 @@ def test_printer_id_alone_is_not_a_pin_and_explicit_pin_replaces_a_model_target(
     assert tuple(fleet.execute(text('SELECT target_type,target_filter FROM jobs WHERE id=906')).one()) == ('model', 'X1C')
     assert client.patch('/api/v1/jobs/906', json={'pinned_printer_id': 12}).status_code == 200
     assert _pin(fleet, 906) == 12
+
+
+def test_printer_delete_marks_only_live_pinned_jobs_and_alerts_once_per_owner(fleet, signed_license, monkeypatch):
+    from modules.printers import routes_crud
+    client = _pin_client(fleet, signed_license, monkeypatch)
+    client.app.include_router(routes_crud.router, prefix='/api/v1')
+    for jid, status in ((907, 'pending'), (908, 'scheduled'), (909, 'submitted'), (910, 'completed'), (911, 'failed')):
+        add_job(fleet, jid, status=status, target_type='specific', target_filter='12')
+    fleet.execute(text('DELETE FROM filament_slots WHERE printer_id=12')); fleet.commit()
+    assert client.delete('/api/v1/printers/12').status_code in (200, 204)
+    fleet.expire_all()
+    filters = dict(fleet.execute(text('SELECT id,target_filter FROM jobs WHERE id BETWEEN 907 AND 911')).all())
+    assert filters == {907: 'deleted:12', 908: 'deleted:12', 909: 'deleted:12', 910: '12', 911: '12'}  # history untouched
+    alerts = fleet.execute(text("SELECT user_id,message FROM alerts WHERE title LIKE 'Pinned printer deleted%'")).all()
+    assert len(alerts) == 1 and '3 queued jobs' in alerts[0][1]  # one per owner, not per job
+
+
+def test_clear_pins_chunks_large_job_sets(fleet):
+    from modules.jobs import pinning
+    for jid in range(1000, 1012):
+        add_job(fleet, jid, target_type='specific', target_filter='12')
+    marked = pinning.clear_pins_for_deleted_printer(fleet, 12, chunk=5)
+    fleet.commit()
+    assert sorted(marked) == list(range(1000, 1012))
+    assert fleet.execute(text("SELECT COUNT(*) FROM jobs WHERE target_filter='deleted:12'")).scalar_one() == 12

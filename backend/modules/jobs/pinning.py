@@ -120,12 +120,24 @@ for _name in ("after_commit", "after_rollback", "after_soft_rollback", "after_fl
     event.listen(Session, _name, _drop_cache)
 
 
-def clear_pins_for_deleted_printer(db, printer_id: int) -> list:
-    """On printer delete: mark pins to it as deleted (never left to match a reused id)."""
-    rows = db.execute(text("SELECT id FROM jobs WHERE COALESCE(target_type,'specific')='specific' "
-                           "AND TRIM(COALESCE(target_filter,''))=:pid"), {"pid": str(int(printer_id))}).scalars().all()
-    if rows:
-        db.execute(text("UPDATE jobs SET target_filter=:marker WHERE COALESCE(target_type,'specific')='specific' "
-                        "AND TRIM(COALESCE(target_filter,''))=:pid"),
-                   {"marker": f"{DELETED_PREFIX}{int(printer_id)}", "pid": str(int(printer_id))})
-    return list(rows)
+LIVE_PIN_STATUSES = ("pending", "scheduled", "submitted")
+
+
+def clear_pins_for_deleted_printer(db, printer_id: int, *, chunk: int = 500) -> list:
+    """On printer delete: mark pins of queued jobs as deleted (never left to match a reused id).
+
+    Only jobs that could still be scheduled (pending/scheduled/submitted) are marked;
+    finished history keeps its record of the printer. Work is chunked so the IN
+    lists stay bounded.
+    """
+    pid = str(int(printer_id))
+    ids = db.execute(text("SELECT id FROM jobs WHERE COALESCE(target_type,'specific')='specific' "
+                          "AND TRIM(COALESCE(target_filter,''))=:pid AND status IN ('pending','scheduled','submitted') "
+                          "ORDER BY id"), {"pid": pid}).scalars().all()
+    from sqlalchemy import bindparam
+    statement = text("UPDATE jobs SET target_filter=:marker WHERE id IN :ids "
+                     "AND TRIM(COALESCE(target_filter,''))=:pid").bindparams(bindparam("ids", expanding=True))
+    for start in range(0, len(ids), max(1, int(chunk))):
+        db.execute(statement, {"marker": f"{DELETED_PREFIX}{int(printer_id)}", "pid": pid,
+                               "ids": list(ids[start:start + chunk])})
+    return list(ids)
