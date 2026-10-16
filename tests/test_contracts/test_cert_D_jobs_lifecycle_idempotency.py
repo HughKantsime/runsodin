@@ -114,3 +114,45 @@ def test_delete_clears_the_attempt_counter_and_markers(lifecycle_client):
     assert client.delete("/jobs/111").status_code == 204
     db.expire_all()
     assert db.execute(text("SELECT COUNT(*) FROM system_config WHERE key LIKE 'quota_attempt:%111%'")).scalar_one() == 0
+
+
+# ---------------- round 4: deductions without a marker (pre-upgrade, Moonraker) ----------------
+
+def test_pre_upgrade_deduction_without_a_marker_is_not_repeated(lifecycle_client):
+    client, db = lifecycle_client
+    # A pre-upgrade completion deducted 10 g and wrote spool_usage, but no attempt marker exists.
+    db.execute(text("UPDATE spools SET remaining_weight_g=90 WHERE id=111"))
+    db.execute(text("INSERT INTO spool_usage(spool_id,job_id,weight_used_g,notes) VALUES(111,111,10,'pre-upgrade')"))
+    db.execute(text("UPDATE jobs SET status='failed' WHERE id=111")); db.commit()
+    assert client.post("/jobs/111/complete").status_code == 200        # correction after upgrade
+    assert _spool(db) == (90.0, 1)
+
+
+def _moonraker(db, monkeypatch):
+    import types
+    from modules.printers.monitors.moonraker_monitor import MoonrakerMonitor
+    db.execute(text("UPDATE spools SET location_slot=NULL WHERE id=111"))
+    db.commit()
+    fake = types.SimpleNamespace(printer_id=9)
+    engine = db.get_bind()
+
+    def deduct():
+        with engine.begin() as conn:
+            MoonrakerMonitor._auto_deduct_filament(fake, conn, 111, observed_grams=10.0)
+    return deduct
+
+
+def test_moonraker_deduction_is_per_attempt_and_shared_with_operator_corrections(lifecycle_client, monkeypatch):
+    client, db = lifecycle_client
+    deduct = _moonraker(db, monkeypatch)
+    deduct()
+    assert _spool(db) == (90.0, 1)
+    deduct()                                                             # duplicate end event
+    assert _spool(db) == (90.0, 1)
+    db.execute(text("UPDATE jobs SET status='failed' WHERE id=111")); db.commit()
+    assert client.post("/jobs/111/complete").status_code == 200          # operator correction: same attempt
+    assert _spool(db) == (90.0, 1)
+    assert client.post("/jobs/111/reset").status_code == 200             # a new physical attempt
+    db.execute(text("UPDATE jobs SET printer_id=9 WHERE id=111")); db.commit()  # rescheduled on the printer
+    deduct()                                                             # Moonraker reprint deducts again
+    assert _spool(db) == (80.0, 2)

@@ -841,9 +841,10 @@ class MoonrakerMonitor:
         if len(spools) != 1:
             return
         spool_id = spools[0][0]
-        existing = conn.execute(text('SELECT 1 FROM spool_usage WHERE job_id=:job LIMIT 1'),
-                                {'job':scheduled_job_id}).first()
-        if existing:
+        # Once per print attempt, shared with operator completion (core.print_attempts):
+        # a duplicate end or a correction never deducts again; a reset reprint does.
+        from core.print_attempts import mark_filament_deducted, sqlalchemy_runner
+        if not mark_filament_deducted(sqlalchemy_runner(conn), scheduled_job_id):
             return
         updated = conn.execute(text("""
             UPDATE spools SET remaining_weight_g=CASE
