@@ -458,3 +458,36 @@ def test_empty_ams_list_clears_unplugged_ht_slots(wire_monitor, review_db):
     assert str(review_db.execute(text(
         "SELECT filament_type FROM filament_slots WHERE printer_id=301 AND slot_number=17")).scalar_one()).split(".")[-1].lower() == "empty"
 
+
+def test_failing_ams_sync_backs_off_then_drops_report_with_error(wire_monitor, monkeypatch, caplog):
+    import modules.printers.monitors.ams_inventory as ams_inventory
+    import modules.printers.monitors.mqtt_printer as mqtt_printer
+    monitor, sock, clock, events = wire_monitor
+    calls = []
+
+    def always_fail(conn, printer_id, units):
+        calls.append(clock[0])
+        raise RuntimeError("synthetic database failure")
+    monkeypatch.setattr(ams_inventory, "sync_ams_inventory", always_fail)
+    report = next(p for _, p in load_frames("bambu-x1c-ams-swap")
+                  if isinstance(p.get("print", {}).get("ams"), dict) and p["print"]["ams"].get("ams"))
+    clock[0] += 11
+    sock.deliver(report)
+    heartbeat = {"print": {"gcode_state": "IDLE"}}
+    for _ in range(80):  # 800 s of heartbeats
+        clock[0] += 10
+        sock.deliver(heartbeat)
+    assert len(calls) == mqtt_printer.AMS_SYNC_MAX_ATTEMPTS
+    gaps = [b - a for a, b in zip(calls, calls[1:])]
+    assert gaps == sorted(gaps) and gaps[0] >= mqtt_printer.AMS_SYNC_RETRY_BASE_SECONDS
+    assert monitor._pending_ams_report is None
+    assert "dropping the reported AMS list" in caplog.text
+
+
+def test_reconnect_resets_pending_ams_report(wire_monitor):
+    monitor, sock, clock, events = wire_monitor
+    monitor._reset_pending_ams([{"id": "0", "tray": []}])
+    monitor._ams_sync_failures = 3
+    monitor._begin_connection()
+    assert (monitor._pending_ams_report, monitor._ams_sync_failures, monitor._ams_sync_retry_at) == (None, 0, 0.0)
+

@@ -51,6 +51,11 @@ except ImportError:
 log = logging.getLogger('mqtt_monitor')
 
 
+# Failed AMS inventory syncs retry on later heartbeats with exponential backoff.
+AMS_SYNC_MAX_ATTEMPTS = 5
+AMS_SYNC_RETRY_BASE_SECONDS = 10
+AMS_SYNC_RETRY_MAX_SECONDS = 300
+
 class PrinterMonitor:
     """Monitors a single printer's MQTT stream."""
 
@@ -333,7 +338,15 @@ class PrinterMonitor:
         with self._lock:
             self._connection_generation += 1
             self._connection_retired = False
+            # A held AMS list belongs to the previous connection; the printer
+            # re-reports it after pushall.
+            self._reset_pending_ams()
             return self._connection_generation
+
+    def _reset_pending_ams(self, report=None):
+        self._pending_ams_report = report
+        self._ams_sync_failures = 0
+        self._ams_sync_retry_at = 0.0
 
     def disconnect(self):
         """Disconnect from printer."""
@@ -476,7 +489,7 @@ class PrinterMonitor:
             if isinstance(incoming_ams_report, dict) and isinstance(incoming_ams_report.get('ams'), list):
                 # Held until the next heartbeat write: Bambu sends the AMS list
                 # only on change/pushall, usually between heartbeats.
-                self._pending_ams_report = incoming_ams_report['ams']
+                self._reset_pending_ams(incoming_ams_report['ams'])
 
             # Merge correlation and lifecycle fields before any HMS processing.
             # A first RUNNING packet may also contain a print-stopping HMS code;
@@ -752,23 +765,35 @@ class PrinterMonitor:
 
                         # ---- AMS Filament Slot Auto-Sync ----
                         pending_ams = getattr(self, '_pending_ams_report', None)
+                        now = time.time()
                         if (pending_ams is not None
-                                and time.time() - getattr(self, '_last_ams_slot_sync', 0) >= 60):
-                            sync_observed_at = time.time()
+                                and now - getattr(self, '_last_ams_slot_sync', 0) >= 60
+                                and now >= getattr(self, '_ams_sync_retry_at', 0.0)):
                             # Inventory receives only the latest reported AMS list; it is
                             # consumed after a committed sync. A heartbeat cannot renew
-                            # cached tray observations, and a failed sync keeps the list
-                            # for the next heartbeat unless a newer report replaces it.
+                            # cached tray observations. A failed sync retries with
+                            # exponential backoff and is dropped after
+                            # AMS_SYNC_MAX_ATTEMPTS (or replaced by a newer report).
                             try:
                                 from modules.printers.monitors.ams_inventory import sync_ams_inventory
                                 sync_ams_inventory(conn, self.printer_id, pending_ams)
                                 conn.commit()
-                                self._last_ams_slot_sync = sync_observed_at
+                                self._last_ams_slot_sync = now
                                 if self._pending_ams_report is pending_ams:
-                                    self._pending_ams_report = None
+                                    self._reset_pending_ams()
                             except Exception:
                                 conn.rollback()
-                                log.warning("AMS inventory synchronization failed; keeping the reported AMS list for retry on the next heartbeat")
+                                failures = getattr(self, '_ams_sync_failures', 0) + 1
+                                if failures >= AMS_SYNC_MAX_ATTEMPTS:
+                                    log.error("AMS inventory synchronization failed %s times; dropping the reported AMS list until the printer reports again",
+                                              failures, exc_info=True)
+                                    self._reset_pending_ams()
+                                else:
+                                    delay = min(AMS_SYNC_RETRY_BASE_SECONDS * 2 ** (failures - 1), AMS_SYNC_RETRY_MAX_SECONDS)
+                                    self._ams_sync_failures = failures
+                                    self._ams_sync_retry_at = now + delay
+                                    log.warning("AMS inventory synchronization failed (attempt %s/%s); retrying in %ss",
+                                                failures, AMS_SYNC_MAX_ATTEMPTS, delay)
 
                     # ---- H2D Dual-Nozzle / External Spool Parsing ----
                     h2d_nozzle_data = None
