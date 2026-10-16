@@ -17,19 +17,41 @@ from tests.test_contracts.test_education_monitor_policy import monitor_db
 ROOT=Path(__file__).resolve().parents[2]
 
 
+_NEW_IMPORT='from core.committed_terminal_events import publish_committed_completion'
+_OLD_IMPORT='from modules.printers.committed_terminal_events import publish_committed_completion'
+_BOUNDARY=ROOT/'tests/fixtures/certification/committed-completion-boundary'
+
+
+def _sha256(data):
+    return hashlib.sha256(data if isinstance(data,bytes) else data.encode()).hexdigest()
+
+
 def test_same_object_and_exact_pre_extraction_body():
+    """The extraction moved the publisher into core and changed only job_events' import line.
+
+    Proved against committed fixtures, independent of later job_events changes:
+    job_events-before.py is the pre-extraction body (its hash is the original pin),
+    and the extracted revision is exactly that body with the one import swapped.
+    """
     from core.committed_terminal_events import publish_committed_completion as core
     from modules.printers.committed_terminal_events import publish_committed_completion as old
     assert core is old
-    base=ROOT/'tests/fixtures/certification/committed-completion-boundary'
-    assert (ROOT/'backend/core/committed_terminal_events.py').read_bytes()==(base/'publisher-before.py').read_bytes()
-    before=json.loads((base/'source-before.json').read_text())
+    before=json.loads((_BOUNDARY/'source-before.json').read_text())
+    publisher=(_BOUNDARY/'publisher-before.py').read_bytes()
+    assert _sha256(publisher)==before['publisher_sha256']
+    assert (ROOT/'backend/core/committed_terminal_events.py').read_bytes()==publisher
+    body=(_BOUNDARY/'job_events-before.py').read_text()
+    assert _sha256(body)==before['job_events_sha256']
+    assert body.count(_OLD_IMPORT)==1 and _NEW_IMPORT not in body
+    # Byte hashes are interpreter-independent (ast.dump differs between 3.11 and 3.14).
+    assert _sha256(body.replace(_OLD_IMPORT,_NEW_IMPORT))==before['job_events_extracted_sha256']
+
+
+def test_current_job_events_source_is_the_reviewed_revision():
+    """Pin of the reviewed job_events.py; a change needs review and an update of source-current.json."""
     current=(ROOT/'backend/modules/notifications/job_events.py').read_text()
-    new='from core.committed_terminal_events import publish_committed_completion'
-    old='from modules.printers.committed_terminal_events import publish_committed_completion'
-    assert current.count(new)==1
-    # Byte hash is interpreter-independent; ast.dump schemas differ3.11/3.14.
-    assert hashlib.sha256(current.replace(new,old).encode()).hexdigest()==before['job_events_sha256']
+    assert current.count(_NEW_IMPORT)==1 and _OLD_IMPORT not in current
+    assert _sha256(current)==json.loads((_BOUNDARY/'source-current.json').read_text())['job_events_sha256']
 
 
 
