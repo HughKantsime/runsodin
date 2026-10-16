@@ -667,6 +667,20 @@ async def update_job(job_id: int, updates: JobUpdate, request: Request, current_
             if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
                 raise HTTPException(status_code=404, detail="Printer not found")
     changes = updates.model_dump(exclude_unset=True)
+    # printer_id is the scheduler's assignment, never a pin. On a pinned job it
+    # must agree with the pin this PATCH leaves in place: a conflicting
+    # printer_id is refused (409) rather than silently retargeting the job --
+    # change the pin itself with pinned_printer_id (or move the job).
+    if changes.get("printer_id") is not None:
+        from modules.jobs.pinning import ISSUE_DELETED, parse_target
+        pin, pin_problem = parse_target(job.target_type, job.target_filter)
+        if "pinned_printer_id" in changes:
+            pin, pin_problem = changes["pinned_printer_id"], None
+        if pin_problem == ISSUE_DELETED:
+            raise HTTPException(409, "The job's pinned printer was deleted; choose a printer with pinned_printer_id")
+        if pin is not None and int(pin) != int(changes["printer_id"]):
+            raise HTTPException(409, f"The job is pinned to printer {int(pin)}; change the pin with "
+                                     "pinned_printer_id or move the job")
     # A pin changes only when pinned_printer_id is sent explicitly. A printer id
     # pins (replacing any model/protocol target: the user chose this printer);
     # null clears an existing specific pin but never touches a model/protocol target.

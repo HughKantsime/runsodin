@@ -482,6 +482,29 @@ def test_printer_id_alone_is_not_a_pin_and_explicit_pin_replaces_a_model_target(
     assert _pin(fleet, 906) == 12
 
 
+@pytest.mark.parametrize('body,expected,pin_after', [
+    ({'printer_id': 11}, 409, 12),                               # conflicts with the pin
+    ({'printer_id': 12}, 200, 12),                               # agrees with the pin
+    ({'printer_id': 11, 'pinned_printer_id': 11}, 200, 11),      # explicit re-pin, consistent
+    ({'printer_id': 11, 'pinned_printer_id': 10}, 409, 12),      # inconsistent pair
+    ({'printer_id': 11, 'pinned_printer_id': None}, 200, None),  # pin cleared, assignment free
+])
+def test_patch_printer_id_must_agree_with_the_pin(fleet, signed_license, monkeypatch, body, expected, pin_after):
+    client = _pin_client(fleet, signed_license, monkeypatch)
+    add_job(fleet, 916, target_type='specific', target_filter='12')
+    response = client.patch('/api/v1/jobs/916', json=body)
+    assert response.status_code == expected, response.text
+    assert _pin(fleet, 916) == pin_after
+
+
+def test_patch_printer_id_on_a_deleted_pin_asks_for_an_explicit_choice(fleet, signed_license, monkeypatch):
+    client = _pin_client(fleet, signed_license, monkeypatch)
+    add_job(fleet, 917, target_type='specific', target_filter='deleted:44')
+    assert client.patch('/api/v1/jobs/917', json={'printer_id': 11}).status_code == 409
+    assert client.patch('/api/v1/jobs/917', json={'printer_id': 11, 'pinned_printer_id': 11}).status_code == 200
+    assert _pin(fleet, 917) == 11
+
+
 def _delete_printer_12(client, fleet):
     from modules.printers import routes_crud
     client.app.include_router(routes_crud.router, prefix='/api/v1')

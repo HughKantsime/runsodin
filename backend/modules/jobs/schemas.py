@@ -80,6 +80,8 @@ class JobUpdate(BaseModel):
     # Accepted only so PATCH can refuse it explicitly (422): status changes go
     # through the guarded lifecycle and approval endpoints.
     status: Optional[JobStatus] = None
+    # The scheduler's current assignment, not a pin. On a pinned job it must equal
+    # the pin (after any pinned_printer_id in the same PATCH), else 409.
     printer_id: Optional[int] = None
     scheduled_start: Optional[datetime] = None
     scheduled_end: Optional[datetime] = None
@@ -90,8 +92,9 @@ class JobUpdate(BaseModel):
     hold: Optional[bool] = None
     is_locked: Optional[bool] = None
     due_date: Optional[datetime] = None
-    # Explicit specific-printer pin (None clears). Changing printer_id to a
-    # different printer also sets the pin.
+    # Explicit specific-printer pin: a printer id pins (replacing a model or
+    # protocol target), None clears a specific pin (model/protocol targets are
+    # kept). Only this field changes a pin; printer_id never does.
     pinned_printer_id: Optional[int] = Field(default=None, ge=1)
 
     @field_validator('quantity', 'hold', 'is_locked', mode='before')

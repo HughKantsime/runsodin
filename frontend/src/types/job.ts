@@ -86,7 +86,9 @@ export interface JobUpdate {
   model_id?: number;
   quantity?: number;
   priority?: number;
+  /** Refused by PATCH (422): status moves only through the lifecycle and approval routes. */
   status?: JobStatus;
+  /** The scheduler's assignment, never a pin. On a pinned job it must equal the pin (else 409). */
   printer_id?: number;
   scheduled_start?: string;
   scheduled_end?: string;
@@ -97,6 +99,8 @@ export interface JobUpdate {
   hold?: boolean;
   is_locked?: boolean;
   due_date?: string;
+  /** The only field that changes a pin: a printer id pins, null clears a specific pin. */
+  pinned_printer_id?: number | null;
 }
 
 export interface JobSummary {
