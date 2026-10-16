@@ -183,28 +183,59 @@ _dns_pin_state: contextvars.ContextVar = contextvars.ContextVar("odin_dns_pin", 
 _real_getaddrinfo = socket.getaddrinfo
 
 
+def normalize_hostname(host) -> str:
+    """Canonical form for pin comparison and storage.
+
+    Lower-case, trailing dots stripped, IDNA (punycode) for non-ASCII names,
+    brackets removed and IP literals in their canonical text form.
+    """
+    if isinstance(host, bytes):
+        host = host.decode("ascii", "strict")
+    value = str(host or "").strip().strip("[]").rstrip(".").lower()
+    try:
+        return str(ipaddress.ip_address(value.split("%", 1)[0]))
+    except ValueError:
+        pass
+    try:
+        return value.encode("idna").decode("ascii")
+    except UnicodeError:
+        return value
+
+
+class PinnedLookupRefused(socket.gaierror):
+    """A name lookup outside the active DNS pin (fail closed)."""
+
+
 def _pinned_getaddrinfo(host, port, *args, **kwargs):
     pin = _dns_pin_state.get()
-    if pin and host == pin["hostname"] and (
-        port == pin["port"] or port is None or str(port) == str(pin["port"])
-    ):
-        # Codex pass 3: return ALL pinned IPs in priority order so httpx
-        # can fall back across the list (dual-stack AAAA→A retry remains
-        # functional on IPv4-only runners).
-        results = []
-        for ip in pin["ips"]:
-            if ":" in ip:
-                results.append((
-                    socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP,
-                    "", (ip, pin["port"], 0, 0),
-                ))
-            else:
-                results.append((
-                    socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP,
-                    "", (ip, pin["port"]),
-                ))
-        return results
-    return _real_getaddrinfo(host, port, *args, **kwargs)
+    if not pin:
+        return _real_getaddrinfo(host, port, *args, **kwargs)
+    try:
+        name = normalize_hostname(host)
+    except UnicodeError:
+        name = None
+    port_ok = port is None or port == pin["port"] or str(port) == str(pin["port"])
+    if not port_ok or (name != pin["hostname"] and name not in pin["ips"]):
+        # Fail closed: while a pin is active nothing reaches the real
+        # resolver, so a case/IDNA/trailing-dot variant of the pinned name
+        # or a redirect to another name cannot be re-resolved.
+        raise PinnedLookupRefused(socket.EAI_NONAME, "lookup outside the pinned destination")
+    # Codex pass 3: return ALL pinned IPs in priority order so httpx
+    # can fall back across the list (dual-stack AAAA→A retry remains
+    # functional on IPv4-only runners).
+    results = []
+    for ip in pin["ips"]:
+        if ":" in ip:
+            results.append((
+                socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP,
+                "", (ip, pin["port"], 0, 0),
+            ))
+        else:
+            results.append((
+                socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP,
+                "", (ip, pin["port"]),
+            ))
+    return results
 
 
 # Install the override exactly once. Multiple imports of this module are
@@ -225,7 +256,8 @@ def _pin_dns(hostname: str, port: int, ips: list[str]):
     guarantees each coroutine sees its own pin, and each thread
     starts with a fresh context so sync callers are also isolated.
     """
-    token = _dns_pin_state.set({"hostname": hostname, "port": port, "ips": list(ips)})
+    token = _dns_pin_state.set({"hostname": normalize_hostname(hostname), "port": port,
+                                "ips": [normalize_hostname(ip) for ip in ips]})
     try:
         yield
     finally:
@@ -483,6 +515,23 @@ def split_device_host(value: str):
     return host.rstrip("."), port
 
 
+def normalize_device_host(value: str) -> str:
+    """Stored form of a device host[:port]: normalized name, brackets for IPv6."""
+    hostname, port = split_device_host(value)
+    name = normalize_hostname(hostname)
+    shown = f"[{name}]" if ":" in name else name
+    return f"{shown}:{port}" if port else shown
+
+
+def normalize_device_url(url: str) -> str:
+    """http(s)://host[:port] with the host normalized (scheme lower-cased)."""
+    parsed = urllib.parse.urlsplit(url.strip())
+    name = normalize_hostname(parsed.hostname or "")
+    shown = f"[{name}]" if ":" in name else name
+    netloc = f"{shown}:{parsed.port}" if parsed.port else shown
+    return urllib.parse.urlunsplit((parsed.scheme.lower(), netloc, parsed.path, parsed.query, parsed.fragment))
+
+
 def device_destination_ips(host: str, port=None) -> list:
     """Resolve a device host and return its validated addresses.
 
@@ -491,6 +540,10 @@ def device_destination_ips(host: str, port=None) -> list:
     address is blocked.
     """
     hostname, parsed_port = split_device_host(host)
+    try:
+        hostname = normalize_hostname(hostname)
+    except UnicodeError as exc:
+        raise DeviceDestinationBlocked("Invalid host name") from exc
     port = port or parsed_port or 0
     try:
         infos = _real_getaddrinfo(hostname, port, type=socket.SOCK_STREAM)

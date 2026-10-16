@@ -96,6 +96,8 @@ def create_printer(
     """Create a new printer."""
     if printer.api_host:
         _check_ssrf_blocklist(printer.api_host)
+        from core.webhook_utils import normalize_device_host
+        printer.api_host = normalize_device_host(printer.api_host)
     if printer.camera_url:
         printer.camera_url = _validate_camera_url(printer.camera_url)
         if '@' in printer.camera_url:
@@ -235,6 +237,8 @@ def update_printer(
 
     if 'api_host' in update_data and update_data['api_host']:
         _check_ssrf_blocklist(update_data['api_host'])
+        from core.webhook_utils import normalize_device_host
+        update_data['api_host'] = normalize_device_host(update_data['api_host'])
 
     if 'camera_url' in update_data:
         from modules.printers.route_utils import resolve_masked_camera_url

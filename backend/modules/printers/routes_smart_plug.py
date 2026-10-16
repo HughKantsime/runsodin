@@ -153,6 +153,10 @@ async def update_plug_config(printer_id: int, request: Request, current_user: di
     host = data["host"] if "host" in data else cur_host
     if "type" in data or "host" in data:
         _validate_plug_host(plug_type, host)
+        if plug_type != "mqtt" and isinstance(host, str):
+            # Stored normalized (case, IDNA, trailing dot) like api_host.
+            from core.webhook_utils import normalize_device_host, normalize_device_url
+            host = normalize_device_url(host) if plug_type == "homeassistant" else normalize_device_host(host)
     if "auth_token" in data:
         auth_token = crypto.encrypt(data["auth_token"]) if data["auth_token"] else None
     elif plug_type == cur_type and host == cur_host:
