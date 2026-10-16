@@ -88,6 +88,11 @@ def test_audit_failure_rolls_back_mfa_secret_change(admin_mfa_client,review_db,m
 
 
 def test_tenant_move_between_check_and_update_cannot_cross_boundary(admin_mfa_client,review_db,monkeypatch):
+    # User 4 holds no org-bound Education rows, so the concurrent move to org 2 is a valid
+    # write with foreign keys enforced on every connection (review_db, cert-fix-A); user 1's
+    # Education submissions/grants would make the move itself fail its composite FKs.
+    review_db.execute(text("UPDATE users SET mfa_enabled=1,mfa_secret='synthetic-unusable-ciphertext' WHERE id=4"))
+    review_db.commit()
     original=Session.execute
     moved=False
     def move_before_write(self,statement,*args,**kwargs):
@@ -95,13 +100,13 @@ def test_tenant_move_between_check_and_update_cannot_cross_boundary(admin_mfa_cl
         if not moved and str(statement).startswith('UPDATE users SET mfa_enabled = FALSE'):
             moved=True
             with review_db.get_bind().begin() as independent:
-                independent.execute(text('UPDATE users SET group_id=2 WHERE id=1'))
+                independent.execute(text('UPDATE users SET group_id=2 WHERE id=4'))
         return original(self,statement,*args,**kwargs)
     monkeypatch.setattr(Session,'execute',move_before_write)
-    response=admin_mfa_client.delete('/admin/users/1/mfa',headers=principal('admin','admin'))
+    response=admin_mfa_client.delete('/admin/users/4/mfa',headers=principal('admin','admin'))
     assert response.status_code==409
     with Session(review_db.get_bind()) as fresh:
-        assert tuple(fresh.execute(text('SELECT group_id,mfa_enabled FROM users WHERE id=1')).one())==(2,1)
+        assert tuple(fresh.execute(text('SELECT group_id,mfa_enabled FROM users WHERE id=4')).one())==(2,1)
         assert fresh.execute(text("SELECT COUNT(*) FROM audit_logs WHERE action='mfa_disabled_admin'")).scalar_one()==0
 
 
