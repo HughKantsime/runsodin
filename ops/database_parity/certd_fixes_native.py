@@ -120,6 +120,9 @@ with Session(engine) as db:
     db.commit()
 pid = pinned.json()['id']
 assert tuple(one('SELECT status, printer_id FROM jobs WHERE id=:id', id=pid)) == ('scheduled', 12)
+assert client.post(f'/jobs/{pid}/reset').status_code == 409          # reset only from a finished outcome
+assert client.post(f'/jobs/{pid}/start').status_code == 200
+assert client.post(f'/jobs/{pid}/fail').status_code == 200
 assert client.post(f'/jobs/{pid}/reset').status_code == 200          # reset keeps the pin
 assert tuple(one('SELECT status, printer_id, target_filter FROM jobs WHERE id=:id', id=pid)) == ('pending', None, '12')
 with engine.begin() as c:
@@ -162,5 +165,52 @@ status = next(p for p in client.get('/maintenance/status').json() if p['printer_
 task = next(t for t in status['tasks'] if t['task_id'] == 501)
 assert (status['prints_since_maintenance'], task['hours_until_due'], task['next_due_print_hours']) == (0, 10, 50), (status, task)
 print('postgres-maintenance-counter-reset-pass', flush=True)
+# 6. Job state machine on PostgreSQL: guarded UPDATE through SQLAlchemy and through the
+#    monitors' DBAPI cursor adapter (named -> qmark -> %s), enum status column.
+from modules.jobs.state_machine import transition_job, TransitionError
+from core.db_utils import _ConnectionAdapter
+with engine.begin() as c:
+    sm = c.execute(text("INSERT INTO jobs(item_name,status,charged_to_org_id,quantity,priority,hold,is_locked,printer_id) "
+                        "VALUES('PG sm','cancelled',1,1,3,FALSE,FALSE,9) RETURNING id")).scalar_one()
+with Session(engine) as db:
+    assert transition_job(db, sm, 'completed', 'monitor') is False          # print end never revives a cancelled job
+    assert transition_job(db, sm, 'pending', 'operator') is True            # reset from a finished outcome
+    db.commit()
+raw = engine.raw_connection()
+try:
+    cursor = _ConnectionAdapter(raw, True).cursor()
+    assert transition_job(cursor, sm, 'scheduled', 'scheduler', extra_fields={'printer_id': 9}) is True
+    assert transition_job(cursor, sm, 'printing', 'monitor', where='printer_id=:pid', params={'pid': 9}) is True
+    assert transition_job(cursor, sm, 'pending', 'operator') is False       # no reset from a live print
+    raw.commit()
+finally:
+    raw.close()
+assert one('SELECT status FROM jobs WHERE id=:id', id=sm)[0] == 'printing'
+assert client.post(f'/jobs/{sm}/reset').status_code == 409
+assert client.patch(f'/jobs/{sm}', json={'status': 'pending'}).status_code == 422
+print('postgres-state-machine-pass', flush=True)
+
+# 7. Filament once per print attempt (quota_attempt: markers in system_config).
+with engine.begin() as c:
+    c.execute(text("INSERT INTO models(id,name,org_id,color_requirements) VALUES(901,'PG grams',1,:req)"),
+              {'req': '{"slot1": {"grams": 10.0}}'})
+    c.execute(text("INSERT INTO filament_library(id,brand,name,material) VALUES(901,'PG','Test','PLA')"))
+    c.execute(text("INSERT INTO spools(id,filament_id,status,location_printer_id,location_slot,remaining_weight_g,"
+                   "initial_weight_g,org_id) VALUES(901,901,'active',9,1,100,100,1)"))
+    fj = c.execute(text("INSERT INTO jobs(item_name,model_id,status,charged_to_org_id,quantity,priority,hold,is_locked,printer_id) "
+                        "VALUES('PG grams',901,'printing',1,1,3,FALSE,FALSE,9) RETURNING id")).scalar_one()
+for route in ('complete', 'fail', 'complete'):
+    assert client.post(f'/jobs/{fj}/{route}').status_code == 200, route
+assert one('SELECT remaining_weight_g FROM spools WHERE id=901')[0] == 90
+assert client.post(f'/jobs/{fj}/reset').status_code == 200
+with engine.begin() as c:
+    c.execute(text('UPDATE jobs SET printer_id=9 WHERE id=:id'), {'id': fj})
+assert client.post(f'/jobs/{fj}/start').status_code == 200
+assert client.post(f'/jobs/{fj}/complete').status_code == 200
+assert one('SELECT remaining_weight_g FROM spools WHERE id=901')[0] == 80
+with engine.connect() as c:
+    keys = set(c.execute(text("SELECT key FROM system_config WHERE key LIKE :p"), {'p': f'quota_attempt:%:{fj}%'}).scalars())
+assert keys == {f'quota_attempt:seq:{fj}', f'quota_attempt:filament:job:{fj}:0', f'quota_attempt:filament:job:{fj}:1'}, keys
+print('postgres-print-attempt-markers-pass', flush=True)
 print('certd-fixes-native-pass', flush=True)
 engine.dispose()
