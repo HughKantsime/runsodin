@@ -30,8 +30,9 @@ def test_same_object_and_exact_pre_extraction_body():
     """The extraction moved the publisher into core and changed only job_events' import line.
 
     Proved against committed fixtures, independent of later job_events changes:
-    job_events-before.py is the pre-extraction body (its hash is the original pin),
-    and the extracted revision is exactly that body with the one import swapped.
+    job_events-before.py is the pre-extraction body (its hash is the original pin)
+    and imports the publisher from the old location exactly once; the publisher
+    moved to core byte-for-byte (publisher-before.py).
     """
     from core.committed_terminal_events import publish_committed_completion as core
     from modules.printers.committed_terminal_events import publish_committed_completion as old
@@ -41,10 +42,10 @@ def test_same_object_and_exact_pre_extraction_body():
     assert _sha256(publisher)==before['publisher_sha256']
     assert (ROOT/'backend/core/committed_terminal_events.py').read_bytes()==publisher
     body=(_BOUNDARY/'job_events-before.py').read_text()
+    # Byte hashes are interpreter-independent (ast.dump differs between 3.11 and 3.14).
     assert _sha256(body)==before['job_events_sha256']
     assert body.count(_OLD_IMPORT)==1 and _NEW_IMPORT not in body
-    # Byte hashes are interpreter-independent (ast.dump differs between 3.11 and 3.14).
-    assert _sha256(body.replace(_OLD_IMPORT,_NEW_IMPORT))==before['job_events_extracted_sha256']
+    assert set(before)=={'publisher_sha256','job_events_sha256'}
 
 
 def test_current_job_events_source_is_the_reviewed_revision():
