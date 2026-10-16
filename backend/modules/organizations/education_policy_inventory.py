@@ -111,6 +111,7 @@ POLICY_INVENTORY = (
             "orders.routes.orders_crud",
             "orders.routes.products",
             "organizations.routes_sessions",
+            "reporting.analytics_window",
             "reporting.education_usage",
             "reporting.routes.analytics",
             "reporting.routes.exports",
