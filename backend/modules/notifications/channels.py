@@ -16,7 +16,7 @@ from email.mime.multipart import MIMEMultipart
 
 import core.crypto as crypto
 # Resolved at call time: never a stale get_db bound at import.
-from core.db_utils import live_get_db as get_db
+from core.db_live import live_get_db as get_db
 from modules.notifications.event_selection import selects_event
 from core.webhook_utils import safe_post, trusted_post, WebhookSSRFError
 from modules.notifications.webhook_payloads import post_typed_webhook  # noqa: F401 -- sanctioned delivery surface

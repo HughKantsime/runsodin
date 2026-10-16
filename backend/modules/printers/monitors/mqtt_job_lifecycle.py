@@ -16,7 +16,7 @@ from typing import Optional, Tuple, Dict, Any
 from core.order_production import (prepare_job_write, reconcile_job_write, prepare_print_job_write,
                                    ProductionLinkageChanged, retry_production_linkage)
 # Resolved at call time: never a stale get_db bound at import.
-from core.db_utils import live_get_db as get_db
+from core.db_live import live_get_db as get_db
 from core.db_compat import as_utc_datetime, sql
 
 from modules.archives.services import capture_attempt_spools

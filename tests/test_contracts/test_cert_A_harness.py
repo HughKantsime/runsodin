@@ -198,6 +198,7 @@ def bind_engine(monkeypatch, engine):
     import sys
     import core.db as core_db
     import core.db_utils as core_db_utils
+    from core.db_live import live_get_db
     import modules.notifications.event_dispatcher  # noqa: F401
     import modules.notifications.alert_dispatch  # noqa: F401
     import modules.notifications.quiet_hours  # noqa: F401
@@ -212,6 +213,9 @@ def bind_engine(monkeypatch, engine):
     # stale one captured at import while another fixture had replaced
     # core.db.engine — so test order cannot leak a foreign database in.
     monkeypatch.setattr(core_db, "engine", engine)
+    # core.db_utils is byte-pinned (migration 029) and binds the Engine at import,
+    # so its raw get_db() must be pointed at the owned engine explicitly.
+    monkeypatch.setattr(core_db_utils, "engine", engine)
     for name, module in list(sys.modules.items()):
         if not (name.startswith("modules.") or name.startswith("core.")) or module is core_db:
             continue
@@ -226,7 +230,7 @@ def bind_engine(monkeypatch, engine):
         # get_db (core.db, core.db_utils, ...) is never replaced.
         if (callable(held_get_db) and module is not core_db_utils
                 and str(getattr(held_get_db, "__module__", "")).startswith(("tests.", "test_"))):
-            monkeypatch.setattr(module, "get_db", core_db_utils.live_get_db)
+            monkeypatch.setattr(module, "get_db", live_get_db)
 
 
 def load_frames(name):

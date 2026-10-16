@@ -251,7 +251,9 @@ def test_slot_count_shrink_keeps_ams_ht_slots(cert_app, review_db):
 
 
 @pytest.mark.parametrize("module_name", [
-    "core.db_utils", "core.ws_hub", "modules.notifications.alert_dispatch", "modules.notifications.mqtt_republish",
+    # core.db_utils is byte-pinned by migration 029 (SOURCE_PINS) and keeps its plain
+    # import; the cert-A harness rebinds it (test_bind_engine_rebinds_pinned_db_utils).
+    "core.ws_hub", "modules.notifications.alert_dispatch", "modules.notifications.mqtt_republish",
     "modules.notifications.quiet_hours", "modules.printers.smart_plug", "modules.printers.monitors.mqtt_monitor",
     "modules.printers.monitors.moonraker_monitor", "modules.printers.monitors.prusalink_monitor",
     "modules.printers.monitors.elegoo_monitor",
@@ -266,6 +268,20 @@ def test_long_lived_modules_resolve_the_engine_at_use_time(monkeypatch, module_n
     monkeypatch.setattr(core_db, "engine", replacement)
     with module.engine.connect() as conn:
         assert conn.engine is replacement
+
+
+def test_bind_engine_rebinds_pinned_db_utils(monkeypatch, tmp_path):
+    """The raw get_db() of the byte-pinned core.db_utils follows the harness's owned engine."""
+    from sqlalchemy import create_engine, text
+    import core.db_utils as db_utils
+    from tests.test_contracts.test_cert_A_harness import bind_engine
+    owned = create_engine(f"sqlite:///{tmp_path / 'owned.db'}")
+    with owned.begin() as conn:
+        conn.execute(text("CREATE TABLE marker (v TEXT)"))
+        conn.execute(text("INSERT INTO marker VALUES ('owned')"))
+    bind_engine(monkeypatch, owned)
+    with db_utils.get_db() as conn:
+        assert conn.execute("SELECT v FROM marker").fetchone()[0] == "owned"
 
 
 @pytest.mark.parametrize("module_name", [

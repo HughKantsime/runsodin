@@ -346,7 +346,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 36,
+      "line": 35,
       "path": "backend/core/db_utils.py",
       "pattern": "qmark-parameter",
       "reason": "Shared DBAPI adapter conditionally applies SQLite PRAGMAs and adapts PostgreSQL SQL",
@@ -354,7 +354,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 118,
+      "line": 117,
       "path": "backend/core/db_utils.py",
       "pattern": "PRAGMA",
       "reason": "Shared DBAPI adapter conditionally applies SQLite PRAGMAs and adapts PostgreSQL SQL",
