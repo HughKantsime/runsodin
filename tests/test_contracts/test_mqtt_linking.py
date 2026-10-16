@@ -109,14 +109,16 @@ class TestNameMatching:
         setup(models=[{'id': 1, 'name': 'part_a'}],
               print_files=[{'model_id': 1, 'filename': 'part_a.3mf', 'layer_count': 30}],
               jobs=[{'id': 10, 'model_id': 1, 'item_name': 'Part A', 'printer_id': 10}])
-        assert start(9, {'subtask_name': 'part_a.3mf', 'total_layer_num': 30})[1] is None
+        new_job_id, linked = start(9, {'subtask_name': 'part_a.3mf', 'total_layer_num': 30})
+        assert new_job_id is not None and linked is None  # the print is recorded; nothing is linked
 
     def test_only_matches_scheduled_or_pending(self, linking):
         setup, start, _, _ = linking
         setup(models=[{'id': 1, 'name': 'done_part'}],
               print_files=[{'model_id': 1, 'filename': 'done_part.3mf', 'layer_count': 20}],
               jobs=[{'id': 10, 'model_id': 1, 'item_name': 'Done Part', 'printer_id': 9, 'status': 'completed'}])
-        assert start(9, {'subtask_name': 'done_part.3mf', 'total_layer_num': 20})[1] is None
+        new_job_id, linked = start(9, {'subtask_name': 'done_part.3mf', 'total_layer_num': 20})
+        assert new_job_id is not None and linked is None  # the print is recorded; nothing is linked
 
 
 class TestLayerCountMatching:
@@ -136,14 +138,16 @@ class TestLayerCountMatching:
                            {'model_id': 2, 'filename': 'part_y.3mf', 'layer_count': 200}],
               jobs=[{'id': 10, 'model_id': 1, 'item_name': 'Part X', 'printer_id': 9},
                     {'id': 11, 'model_id': 2, 'item_name': 'Part Y', 'printer_id': 9}])
-        assert start(9, {'subtask_name': 'unknown_part.3mf', 'total_layer_num': 200})[1] is None
+        new_job_id, linked = start(9, {'subtask_name': 'unknown_part.3mf', 'total_layer_num': 200})
+        assert new_job_id is not None and linked is None  # the print is recorded; nothing is linked
 
     def test_zero_layers_skips_strategy2(self, linking):
         setup, start, _, _ = linking
         setup(models=[{'id': 1, 'name': 'zeropart'}],
               print_files=[{'model_id': 1, 'filename': 'zeropart.3mf', 'layer_count': 0}],
               jobs=[{'id': 10, 'model_id': 1, 'item_name': 'Zero Part', 'printer_id': 9}])
-        assert start(9, {'subtask_name': 'nomatch.3mf', 'total_layer_num': 0})[1] is None
+        new_job_id, linked = start(9, {'subtask_name': 'nomatch.3mf', 'total_layer_num': 0})
+        assert new_job_id is not None and linked is None  # the print is recorded; nothing is linked
 
 
 class TestNoCandidates:
