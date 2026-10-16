@@ -447,3 +447,27 @@ def test_parallel_link_updates_have_exactly_one_winner(concurrent_inventory, inv
     assert statuses == [200, 409, 409]
     with engine.connect() as connection:
         assert connection.execute(text('SELECT COUNT(*) FROM spools WHERE spoolman_spool_id=65')).scalar_one() == 1
+
+
+# ------------------------------------------- final review HIGH-1: every input of the rate lookup
+
+@pytest.mark.parametrize('principal', [{'id': 3, 'role': 'operator', 'group_id': None}, {'id': 4, 'role': 'admin', 'group_id': 1}])
+def test_moving_or_deleting_a_rated_filament_requires_superadmin(inventory_client, review_db, principal):
+    """material + cost_per_gram + id select the install-wide rate (material_cost_per_gram); id is immutable."""
+    from modules.models_library.services import material_cost_per_gram
+    superadmin = {'id': 1, 'role': 'admin', 'group_id': None}
+    inventory_client.app.dependency_overrides[get_current_user] = lambda: superadmin
+    rated = f"lib_{inventory_client.post('/api/filaments', json={'brand': 'Cert', 'name': 'Rated ASA', 'material': 'ASA', 'cost_per_gram': 0.04}).json()['id']}"
+    unrated = f"lib_{inventory_client.post('/api/filaments', json={'brand': 'Cert', 'name': 'Plain', 'material': 'ASA'}).json()['id']}"
+    inventory_client.app.dependency_overrides[get_current_user] = lambda: principal
+    assert inventory_client.patch(f'/api/filaments/{rated}', json={'material': 'PETG'}).status_code == 403
+    assert inventory_client.delete(f'/api/filaments/{rated}').status_code == 403
+    review_db.expire_all()
+    assert material_cost_per_gram(review_db, 'ASA') == 0.04
+    # Unrated rows and rate-neutral edits stay with operators.
+    assert inventory_client.patch(f'/api/filaments/{rated}', json={'name': 'Rated ASA v2', 'material': 'ASA'}).status_code == 200
+    assert inventory_client.patch(f'/api/filaments/{unrated}', json={'material': 'PETG'}).status_code == 200
+    assert inventory_client.delete(f'/api/filaments/{unrated}').status_code == 204
+    inventory_client.app.dependency_overrides[get_current_user] = lambda: superadmin
+    assert inventory_client.patch(f'/api/filaments/{rated}', json={'material': 'PETG'}).status_code == 200
+    assert inventory_client.delete(f'/api/filaments/{rated}').status_code == 204

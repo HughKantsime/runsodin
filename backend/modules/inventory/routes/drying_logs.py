@@ -158,7 +158,12 @@ def update_filament(filament_id: str, updates: FilamentUpdateRequest, current_us
         raise HTTPException(status_code=404, detail="Filament not found")
 
     update_data = updates.model_dump(exclude_unset=True)
+    # material_cost_per_gram selects by (material, cost_per_gram, id); id is immutable, so
+    # changing the rate, or moving a rated row to another material, needs a superadmin.
     if "cost_per_gram" in update_data and update_data["cost_per_gram"] != filament.cost_per_gram:
+        _require_global_rate_writer(current_user)
+    if ("material" in update_data and update_data["material"] != filament.material
+            and filament.cost_per_gram is not None):
         _require_global_rate_writer(current_user)
     for field, value in update_data.items():
         setattr(filament, field, value)
@@ -187,5 +192,7 @@ def delete_filament(filament_id: str, current_user: dict = Depends(require_role(
     filament = db.query(FilamentLibrary).filter(FilamentLibrary.id == fid).first()
     if not filament:
         raise HTTPException(status_code=404, detail="Filament not found")
+    if filament.cost_per_gram is not None:
+        _require_global_rate_writer(current_user)  # removing a rated row moves the material's rate
     db.delete(filament)
     db.commit()
