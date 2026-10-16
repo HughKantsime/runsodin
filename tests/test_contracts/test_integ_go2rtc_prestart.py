@@ -32,8 +32,10 @@ def test_prestart_write_marks_config_applied_so_startup_sync_does_not_restart(tm
 
 def test_entrypoint_prepares_go2rtc_before_supervisord_and_api_skips_rotation():
     entrypoint = (ROOT / "docker" / "entrypoint.sh").read_text()
-    block = entrypoint[entrypoint.index('if [ "$#" -eq 0 ]; then'):]
-    assert block.index("scripts.prepare_go2rtc_config") < block.index("/usr/bin/supervisord")
+    # The image always passes CMD (supervisord with odin.conf): the step keys on that config.
+    block = entrypoint[entrypoint.index('case "$*" in'):]
+    assert "*/etc/supervisor/conf.d/odin.conf*)" in block
+    assert block.index("scripts.prepare_go2rtc_config") < block.index('exec "$@"')
     assert "export ODIN_CAMERA_RELAY_SECRET_ROTATED=1" in block
     app = (ROOT / "backend" / "core" / "app.py").read_text()
     assert 'if os.environ.get("ODIN_CAMERA_RELAY_SECRET_ROTATED") != "1":\n                rotate_relay_secret()' in app

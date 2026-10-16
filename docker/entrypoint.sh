@@ -170,12 +170,17 @@ echo "  O.D.I.N. is ready!"
 echo "========================================="
 
 if [ "$#" -eq 0 ]; then
-    # Single container: go2rtc starts with this boot's RTSP credentials and relay tokens,
-    # so the API's start-up sync restarts nothing. (Split deployments pass a command and
-    # keep rotating in the API, which owns the shared secret file.)
-    if (cd /app/backend && /usr/sbin/runuser -u odin -- python3 -m scripts.prepare_go2rtc_config); then
-        export ODIN_CAMERA_RELAY_SECRET_ROTATED=1
-    fi
     set -- /usr/bin/supervisord -n -c /etc/supervisor/conf.d/odin.conf
 fi
+case "$*" in
+    */etc/supervisor/conf.d/odin.conf*)
+        # Single container (go2rtc runs here): it starts with this boot's RTSP credentials
+        # and relay tokens, so the API's start-up sync restarts nothing. Split deployments
+        # (api.conf, monitors.conf, ...) keep rotating in the API, which owns the shared
+        # secret file.
+        if (cd /app/backend && /usr/sbin/runuser -u odin -- python3 -m scripts.prepare_go2rtc_config); then
+            export ODIN_CAMERA_RELAY_SECRET_ROTATED=1
+        fi
+        ;;
+esac
 exec "$@"

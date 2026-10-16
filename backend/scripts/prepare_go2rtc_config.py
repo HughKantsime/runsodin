@@ -11,6 +11,8 @@ import sys
 
 def main() -> int:
     try:
+        from core.schema.bootstrap import import_all_models
+        import_all_models()  # the Printer mapper needs every related model registered
         from core.db import SessionLocal
         from modules.printers.camera_relay import rotate_relay_secret
         from modules.printers.route_utils import _build_go2rtc_config, write_go2rtc_config_before_start
