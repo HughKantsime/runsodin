@@ -552,8 +552,6 @@ async def submit_studio_print(
             "payload_sha256": payload_hash, "plate_index": 0, "duration_hours": duration_hours,
             "colors_required": ",".join(colors), "quantity": 1, "priority": 5,
             "status": "pending", "printer_id": target_printer_id,
-            "target_type": "specific",
-            "target_filter": str(target_printer_id) if target_printer_id is not None else None,
             "hold": False, "is_locked": False, "notes": notes,
             "charged_to_user_id": current_user.get("id") if current_user else None,
             "charged_to_org_id": current_user.get("group_id") if current_user else None,

@@ -23,7 +23,7 @@ Every route here follows the Phase 2 canonical pattern:
 from datetime import datetime, timezone
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.orm import Session
 
@@ -171,7 +171,8 @@ def approve_job(
     if not transition_job(db, job_id, JobStatus.PENDING, "approval", extra_fields={
             "approved_by": current_user["id"], "approved_at": datetime.now(timezone.utc)}):
         db.rollback()
-        raise HTTPException(status_code=409, detail="Job is no longer awaiting approval")
+        raise OdinError(ErrorCode.invalid_state_transition, "Job is no longer awaiting approval",
+                        status=409, retriable=False)
     db.refresh(job)
     log_audit(db, "job.approved", "job", job.id, {"approved_by": current_user["id"]})
     db.commit()
@@ -258,7 +259,8 @@ def reject_job(
     if not transition_job(db, job_id, JobStatus.REJECTED, "approval", extra_fields={
             "approved_by": current_user["id"], "rejected_reason": reason}):
         db.rollback()
-        raise HTTPException(status_code=409, detail="Job is no longer awaiting approval")
+        raise OdinError(ErrorCode.invalid_state_transition, "Job is no longer awaiting approval",
+                        status=409, retriable=False)
     db.refresh(job)
     log_audit(db, "job.rejected", "job", job.id, {"rejected_by": current_user["id"], "reason": reason})
     db.commit()

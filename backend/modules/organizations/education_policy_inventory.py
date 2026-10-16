@@ -73,6 +73,8 @@ POLICY_INVENTORY = (
     _entry("printers.monitors.elegoo_monitor", "Elegoo state poll", "submission/job/printer", "telemetry-transition", "trusted monitor", ("Education outbox",), "test_education_monitor_policy.py", "guarded"),
     _entry("jobs.scheduler", "scheduler tick", "submission/job/printer", "schedule", "trusted scheduler", ("organizations.education_policy", "printers.services"), "test_education_scheduler_policy.py", "guarded"),
     _entry("notifications.job_events", "job.* topics", "submission/job/alert", "notify", "trusted notification worker", ("Education outbox",), "test_education_monitor_policy.py", "guarded"),
+    _entry("jobs.state_machine", "transition_job (the only jobs.status writer)", "job", "transition", "callers' own Education guards (generic routes, Education policy predicates)", ("jobs.*", "organizations.education_policy", "printers.monitors", "notifications.job_events"), "test_cert_D_job_state_machine.py", "guarded"),
+    _entry("jobs.pinning", "explicit printer pin parse/issue/delete-marking", "job/printer", "read/mark", "trusted callers (job routes, scheduler, printer delete)", ("jobs.scheduler", "printers.routes_crud"), "test_cert_D_jobsB_scheduler.py", "guarded"),
     _entry("notifications.error_handling", "printer/job error topics", "submission/job/alert", "notify", "trusted notification worker", ("Education outbox",), "test_education_monitor_policy.py", "guarded"),
     _entry("notifications.alert_dispatch", "dispatch_alert", "Education alert", "external-sink", "none for Education", ("email", "push", "webhook"), "test_education_notification_privacy.py", "batch2_required"),
     _entry("notifications.alert_dispatcher", "alert dispatcher worker", "Education alert", "external-sink", "none for Education", ("email", "push", "webhook"), "test_education_notification_privacy.py", "batch2_required"),
@@ -156,6 +158,9 @@ _EXPLICIT_SURFACE_PATHS = (
     "modules/printers/monitors/elegoo_monitor.py",
     "modules/archives/routes/tags.py",
     "modules/notifications/channels.py",
+    # Job status now flows through jobs.state_machine; these workers remain surfaces.
+    "modules/notifications/job_events.py",
+    "modules/notifications/error_handling.py",
     "modules/notifications/event_dispatcher.py",
     "modules/notifications/routes/webhooks.py",
     "modules/notifications/alert_dispatch.py",

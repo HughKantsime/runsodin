@@ -50,11 +50,15 @@ def test_education_generic_mutation_denied_without_state_change(client, review_d
 
 
 def test_generic_reset_retains_behavior(client, review_db):
-    review_db.execute(text("INSERT INTO jobs (id,item_name,status,charged_to_org_id,quantity,hold) VALUES (20,'Generic','scheduled',1,1,0)"))
+    # Reset is a new attempt from a finished outcome (job state machine); a live
+    # scheduled job is refused instead of silently unassigned.
+    review_db.execute(text("INSERT INTO jobs (id,item_name,status,charged_to_org_id,quantity,hold) VALUES (20,'Generic','failed',1,1,0)"))
+    review_db.execute(text("INSERT INTO jobs (id,item_name,status,charged_to_org_id,quantity,hold) VALUES (21,'Generic live','scheduled',1,1,0)"))
     review_db.commit()
     response = client.post('/jobs/20/reset')
     assert response.status_code == 200, response.text
     assert response.json()['status'] == 'pending'
+    assert client.post('/jobs/21/reset').status_code == 409
 
 
 def test_missing_policy_fails_closed(client, monkeypatch):
