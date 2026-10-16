@@ -270,3 +270,103 @@ def test_every_supervised_process_installs_redaction():
         assert main, daemon
         first = "".join(ast.unparse(statement) for statement in main[0].body[:2])
         assert "install_log_redaction()" in first, f"{daemon}: install redaction before anything logs"
+
+
+# --------------------------------------------------------------------------- redaction never raises (round 5)
+
+@pytest.fixture
+def redacting_logger():
+    logger, handler, stream = _capture("certb.redaction.probe", logging.Formatter("%(message)s"))
+    logger.propagate = False
+    try:
+        yield logger, stream
+    finally:
+        logger.removeHandler(handler)
+
+
+def test_namedtuple_message_keeps_its_type_and_never_raises(redacting_logger):
+    from collections import namedtuple
+    from core.log_redaction import redact_structure
+    Point = namedtuple("Point", "url count")
+    token = _token()
+    redacted = redact_structure(Point(f"/x?token={token}", 3))
+    assert type(redacted) is Point and token not in redacted.url and redacted.count == 3
+    logger, stream = redacting_logger
+    logger.info(Point(f"/x?token={token}", 3))  # must not raise into the caller
+    assert token not in stream.getvalue() and "[REDACTED]" in stream.getvalue()
+
+
+def test_cyclic_and_deep_structures_never_recurse_without_bound(redacting_logger):
+    from core.log_redaction import redact_structure
+    token = _token()
+    cyclic = {"token": token, "note": f"?token={token}"}
+    cyclic["self"] = cyclic
+    looped = [f"?token={token}"]
+    looped.append(looped)
+    deep = current = []
+    for _ in range(200):
+        current.append([]); current = current[0]
+    current.append(f"?token={token}")
+    for value in (cyclic, looped, deep):
+        assert token not in repr(redact_structure(value))
+    logger, stream = redacting_logger
+    logger.info(cyclic); logger.info(looped)
+    assert token not in stream.getvalue()
+
+
+def test_hostile_containers_fall_back_to_redacted_text(redacting_logger):
+    from core.log_redaction import redact_structure
+    token = _token()
+
+    class Exploding(dict):
+        def items(self):
+            raise RuntimeError("boom")
+
+    class Strict(tuple):
+        def __new__(cls, a, b):
+            return super().__new__(cls, (a, b))
+
+    class Unprintable:
+        def __str__(self):
+            raise RuntimeError("no str")
+        __repr__ = __str__
+
+    assert token not in str(redact_structure(Exploding(note=f"?token={token}")))
+    strict = redact_structure(Strict(f"?token={token}", 1))
+    assert token not in repr(strict)
+    assert redact_structure([Unprintable()])[0].__class__ is Unprintable
+    logger, stream = redacting_logger
+    logger.info(Exploding(note=f"?token={token}"))
+    logger.info(Strict(f"?token={token}", 1))
+    assert token not in stream.getvalue()
+
+
+def test_redacted_records_pickle_and_stay_redacted():
+    import pickle
+    from core.log_redaction import install_log_redaction
+    install_log_redaction()
+    token = _token()
+    record = logging.getLogger("certb.redaction.pickle").makeRecord(
+        "certb.redaction.pickle", logging.INFO, __file__, 1, "GET %s", (f"/x?token={token}",), None)
+    restored = pickle.loads(pickle.dumps(record))
+    assert token not in restored.getMessage() and "[REDACTED]" in restored.getMessage()
+
+
+@pytest.mark.parametrize("key", ["access_token", "refresh_token", "id_token", "client_secret", "private_key",
+                                 "session", "cookie"])
+def test_credential_keys_are_redacted_in_structured_messages(redacting_logger, key):
+    logger, stream = redacting_logger
+    secret = "s3cr3t-" + secrets.token_hex(8)
+    logger.info({key: secret, "user": "ada"})
+    assert secret not in stream.getvalue() and "ada" in stream.getvalue()
+
+
+def test_unifi_protect_path_tokens_are_redacted_in_logs(redacting_logger):
+    logger, stream = redacting_logger
+    path_token = secrets.token_hex(8)
+    logger.info("camera %s failed", f"rtsps://192.168.1.10:7441/{path_token}?enableSrtp")
+    logger.info("camera %s failed", f"rtsp://admin:pw@nvr.local:7447/{path_token}")
+    out = stream.getvalue()
+    assert path_token not in out and out.count("7441/[REDACTED]") == 1 and "7447/[REDACTED]" in out
+    logger.info("plain %s", "rtsp://cam.local:554/stream1")
+    assert "rtsp://cam.local:554/stream1" in stream.getvalue()

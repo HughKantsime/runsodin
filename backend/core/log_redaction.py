@@ -10,6 +10,11 @@ non-str arguments (httpx.URL, lists, dicts, lazy objects) are redacted after
 formatting and never break. Record creation adds a fallback for consumers that
 read record.getMessage() directly, and redacts structured (dict) messages in
 place without turning them into strings.
+
+Redaction never raises into the code that logs: every step falls back to
+redacting str() of the value, and finally to the redacted placeholder.
+Records stay picklable (QueueHandler, multiprocessing): the fallback is a
+module-level LogRecord subclass, not a per-record closure.
 """
 import logging
 import re
@@ -17,7 +22,8 @@ import re
 REDACTED = "[REDACTED]"
 
 _SECRET_PARAMS = ("token", "access_token", "api_key", "apikey", "key", "ws_token", "oidc_code", "code", "state",
-                  "nonce", "password", "pwd", "passwd", "access_code", "refresh_token", "id_token", "client_secret")
+                  "nonce", "password", "pwd", "passwd", "access_code", "refresh_token", "id_token", "client_secret",
+                  "private_key")
 # Credential-bearing query parameters, in a URL or a logged request line.
 _QUERY_SECRET = re.compile(r"(?i)([?&](?:" + "|".join(_SECRET_PARAMS) + r")=)[^&\s\"'#]+")
 # Userinfo of any URL: scheme://user:pass@ or scheme://token@.
@@ -29,14 +35,21 @@ _API_KEY_HEADER = re.compile(r"(?i)(\bx-api-key\b" + _QUOTE + r"\s*[:=]\s*" + _Q
 # Scoped API tokens: odin_ + secrets.token_urlsafe(32) (43 url-safe characters).
 # Short odin_ identifiers (odin_api, odin_schema_migrations) are not secrets.
 _API_TOKEN = re.compile(r"\bodin_[A-Za-z0-9_-]{40,}")
+# UniFi Protect RTSP(S) path tokens (rtsps://host:7441/<token>, also :7447), as
+# camera URLs carry them (modules/printers/route_utils.py _PATH_TOKEN_RE).
+_UNIFI_PATH_TOKEN = re.compile(r"(?i)(\brtsps?://(?:[^\s/?#\"'@]{1,512}+@)?+[^\s/?#\"':@]{1,255}+:(?:7441|7447)/)[A-Za-z0-9]{8,}+")
 # JWTs; possessive quantifiers keep matching linear on hostile input.
 _JWT = re.compile(r"\beyJ[A-Za-z0-9_-]++\.eyJ[A-Za-z0-9_-]++\.[A-Za-z0-9_-]++")
 _SECRET_KEY_NAMES = ("authorization", "proxy-authorization", "x-api-key", "cookie", "set-cookie", "password", "token",
-                     "api_key", "secret")
+                     "api_key", "secret", "access_token", "refresh_token", "id_token", "client_secret", "private_key",
+                     "session")
 _SECRET_KEYS = re.compile(r"(?i)^(" + "|".join(re.escape(name) for name in _SECRET_KEY_NAMES) + ")$")
 
 
 def redact_text(value: str) -> str:
+    if not isinstance(value, str):
+        value = _safe_str(value)
+    value = _UNIFI_PATH_TOKEN.sub(lambda m: m.group(1) + REDACTED, value)
     value = _QUERY_SECRET.sub(lambda m: m.group(1) + REDACTED, value)
     value = _USERINFO.sub(lambda m: m.group(1) + REDACTED + "@", value)
     value = _AUTH_HEADER.sub(lambda m: m.group(1) + REDACTED, value)
@@ -45,34 +58,86 @@ def redact_text(value: str) -> str:
     return _JWT.sub(REDACTED, value)
 
 
-def redact_structure(value):
-    """Recursively redact strings inside dicts/lists (audit details, bundle JSON,
-    structured log messages); values under credential keys are replaced."""
+def _safe_str(value) -> str:
+    try:
+        return str(value)
+    except Exception:
+        return REDACTED
+
+
+_MAX_DEPTH = 32
+
+
+def _rebuild(value, depth, active):
     if isinstance(value, str):
         return redact_text(value)
-    if isinstance(value, dict):
-        return {k: (REDACTED if isinstance(k, str) and _SECRET_KEYS.match(k) and v is not None else redact_structure(v))
-                for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return type(value)(redact_structure(v) for v in value)
-    return value
+    if not isinstance(value, (dict, list, tuple)):
+        return value
+    if depth > _MAX_DEPTH or id(value) in active:
+        return REDACTED  # cycle or absurd nesting: never recurse without bound
+    active.add(id(value))
+    try:
+        if isinstance(value, dict):
+            items = {k: (REDACTED if isinstance(k, str) and _SECRET_KEYS.match(k) and v is not None
+                         else _rebuild(v, depth + 1, active)) for k, v in value.items()}
+            if type(value) is dict:
+                return items
+            try:
+                return type(value)(items)
+            except Exception:
+                return items
+        parts = [_rebuild(v, depth + 1, active) for v in value]
+        if type(value) in (list, tuple):
+            return type(value)(parts)
+        if hasattr(value, "_make"):  # namedtuple
+            return value._make(parts)
+        try:
+            return type(value)(parts)
+        except Exception:
+            return list(parts) if isinstance(value, list) else tuple(parts)
+    finally:
+        active.discard(id(value))
+
+
+def redact_structure(value):
+    """Recursively redact strings inside dicts/lists/tuples (audit details, bundle
+    JSON, structured log messages); values under credential keys are replaced.
+    Never raises: on failure the value's str() is redacted instead."""
+    try:
+        return _rebuild(value, 0, set())
+    except Exception:
+        return redact_text(_safe_str(value))
+
+
+class RedactingLogRecord(logging.LogRecord):
+    """getMessage() returns redacted text. Module-level, so records pickle."""
+
+    _odin_redacted = True
+
+    def getMessage(self):
+        message = super().getMessage()
+        try:
+            return redact_text(message)
+        except Exception:
+            return REDACTED
 
 
 def redact_record(record: logging.LogRecord) -> logging.LogRecord:
     """Creation-time fallback: structured messages redacted in place; getMessage()
-    returns redacted text. Arguments are left intact for formatting."""
-    if getattr(record, "_odin_redacted", False):
-        return record
-    if isinstance(record.msg, (dict, list, tuple)):
-        record.msg = redact_structure(record.msg)
-    if isinstance(record.args, dict):
-        record.args = redact_structure(record.args)
-    original = record.getMessage
-
-    def get_message():
-        return redact_text(original())
-    record.getMessage = get_message
-    record._odin_redacted = True
+    returns redacted text. Arguments are left intact for formatting. Never raises."""
+    try:
+        if getattr(record, "_odin_redacted", False):
+            return record
+        if isinstance(record.msg, (dict, list, tuple)):
+            record.msg = redact_structure(record.msg)
+        if isinstance(record.args, dict):
+            record.args = redact_structure(record.args)
+        if type(record) is logging.LogRecord:
+            record.__class__ = RedactingLogRecord
+        # A custom record class keeps its own getMessage; Handler.format still
+        # redacts everything it formats.
+    except Exception:
+        pass
     return record
 
 
@@ -95,7 +160,11 @@ def _patch_handlers() -> None:
     original_format = logging.Handler.format
 
     def format(self, record):
-        return redact_text(original_format(self, record))
+        formatted = original_format(self, record)
+        try:
+            return redact_text(formatted)
+        except Exception:
+            return REDACTED
     format._odin_redacting = True
     logging.Handler.format = format
 
@@ -114,6 +183,18 @@ def _patch_handlers() -> None:
     logging.Handler.handleError = handle_error
 
 
+class _RedactingFactory:
+    """Wraps the previous record factory (module-level class, no closure)."""
+
+    _odin_redacting = True
+
+    def __init__(self, inner):
+        self.inner = inner
+
+    def __call__(self, *args, **kwargs):
+        return redact_record(self.inner(*args, **kwargs))
+
+
 def install_log_redaction() -> None:
     """Idempotent; call at every process entry point (API, daemons, monitors)."""
     global _installed
@@ -121,10 +202,7 @@ def install_log_redaction() -> None:
         _patch_handlers()
     current = logging.getLogRecordFactory()
     if not getattr(current, "_odin_redacting", False):
-        def factory(*args, **kwargs):
-            return redact_record(current(*args, **kwargs))
-        factory._odin_redacting = True
-        logging.setLogRecordFactory(factory)
+        logging.setLogRecordFactory(_RedactingFactory(current))
     for name in _LOGGERS:
         logger = logging.getLogger(name)
         if _FILTER not in logger.filters:
