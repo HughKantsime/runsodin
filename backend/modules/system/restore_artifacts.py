@@ -35,8 +35,12 @@ def journal_dir(backups: Path) -> Path:
     return path
 
 
-def journal_entries(backups: Path) -> dict[str, float]:
-    """Journaled names and their age, including preserved029 children's directories."""
+def journal_entries(backups: Path, *, confirmed_only: bool = False) -> dict[str, float]:
+    """Journaled names and their age, including preserved029 children's directories.
+
+    A child's ``<name>.intent`` (CREATE DATABASE was about to run) is included unless
+    ``confirmed_only``: the sweep cannot prove such a database is this code's.
+    """
     folder = journal_dir(backups)
     entries = {}
     for entry in folder.iterdir():
@@ -44,10 +48,31 @@ def journal_entries(backups: Path) -> dict[str, float]:
             entries[entry.name] = entry.lstat().st_mtime
         elif _STALE_DIR.fullmatch(entry.name) and entry.is_dir() and not entry.is_symlink():
             for child in entry.iterdir():
-                name = child.name[:-7] if child.name.endswith(".intent") else child.name
-                if _NAME.fullmatch(name) and child.is_file():
+                intent = child.name.endswith(".intent")
+                name = child.name[:-7] if intent else child.name
+                if _NAME.fullmatch(name) and child.is_file() and not (intent and confirmed_only):
                     entries[name] = min(entries.get(name, child.lstat().st_mtime), child.lstat().st_mtime)
     return entries
+
+
+def _sweep_child_journals(backups: Path, cutoff: float) -> None:
+    """Forget stale intent-only entries (never dropped) and remove stale empty child journals.
+
+    A child journal is touched only when it and everything in it are older than ``cutoff``,
+    so a running child's fresh (possibly still empty) directory is never removed.
+    """
+    folder = journal_dir(backups)
+    for entry in folder.iterdir():
+        if not (_STALE_DIR.fullmatch(entry.name) and entry.is_dir() and not entry.is_symlink()):
+            continue
+        children = list(entry.iterdir())
+        if entry.lstat().st_mtime >= cutoff or any(child.lstat().st_mtime >= cutoff for child in children):
+            continue
+        for child in children:
+            if child.name.endswith(".intent") and child.is_file():
+                child.unlink(missing_ok=True)
+        if not any(entry.iterdir()):
+            entry.rmdir()
 
 
 def record(backups: Path, name: str) -> None:
@@ -174,7 +199,8 @@ def sweep_stale(backups: Path, maintenance_url: str, maintenance_password_file: 
     if not backups.is_dir():
         return {"databases": [], "files": []}
     cutoff = (time.time() if now is None else now) - older_than
-    stale = [name for name, mtime in journal_entries(backups).items() if mtime < cutoff]
+    stale = [name for name, mtime in journal_entries(backups, confirmed_only=True).items() if mtime < cutoff]
+    _sweep_child_journals(backups, cutoff)  # before forgetting, which touches the directories
     dropped = (drop or (lambda names: drop_databases(maintenance_url, maintenance_password_file, names)))(stale) if stale else []
     for name in dropped:
         forget(backups, name)

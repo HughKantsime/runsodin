@@ -155,9 +155,10 @@ def _supervised(data,deadline,*,journal,work,keep,drop,existing):
     code did not create is never dropped. ``drop`` returns the names it dropped.
     """
     folder=_child_journal(journal,work)
-    before=set(existing())
+    before=set()
     data={**data,'journal':str(folder)}
     try:
+        before=set(existing())
         with tempfile.TemporaryDirectory(prefix='preserved029-parent-') as control_folder:
             control=Path(control_folder)/'control.json'
             descriptor=os.open(control,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)

@@ -517,3 +517,32 @@ def test_child_classifies_its_own_failures_by_type(make, code):
         f"print(r.exit_code_for({make}))")
     result = isolated(script)
     assert result.returncode == 0 and result.stdout.strip() == str(code), result.stderr
+
+
+def test_supervised_cleans_up_when_listing_existing_databases_fails(tmp_path):
+    from modules.system import restore_artifacts
+    backups = tmp_path / "backups"; backups.mkdir()
+    journal = restore_artifacts.journal_dir(backups)
+    work = backups / (".odin-preserved029-" + "9" * 20); (work / "backups").mkdir(parents=True)
+    def broken():
+        raise ConnectionError("maintenance database unreachable")
+    with pytest.raises(ConnectionError):
+        p._supervised({"action": "restore029"}, monotonic() + 5, journal=journal, work=work, keep=set(), drop=lambda names: [], existing=broken)
+    assert not work.exists() and not (journal / work.name).exists()
+
+
+def test_sweep_never_drops_intent_only_names_and_removes_empty_child_journals(tmp_path):
+    from modules.system import restore_artifacts
+    backups = tmp_path / "backups"; backups.mkdir()
+    journal = restore_artifacts.journal_dir(backups)
+    old = __import__("time").time() - 7 * 3600
+    child = journal / (".odin-preserved029-" + "8" * 20); child.mkdir(mode=0o700)
+    confirmed, intended = "odin_validate_" + "3" * 20, "odin_validate_" + "4" * 20
+    (child / confirmed).write_text(""); (child / (intended + ".intent")).write_text("")
+    empty = journal / (".odin-preserved029-" + "7" * 20); empty.mkdir(mode=0o700)
+    for path in (child / confirmed, child / (intended + ".intent"), empty, child):
+        os.utime(path, (old, old))
+    asked = []
+    result = restore_artifacts.sweep_stale(backups, "unused", None, drop=lambda names: asked.extend(sorted(names)) or sorted(names))
+    assert asked == [confirmed] and result["databases"] == [confirmed]
+    assert not empty.exists() and not child.exists()  # emptied: the unprovable intent entry is forgotten, not dropped
