@@ -378,20 +378,21 @@ def test_legacy_connect_requests_status_and_version_without_waiting_for_the_brok
     assert waits == []
 
 
-def _capture_logger(monkeypatch, name):
-    """Records from one named logger, independent of root/propagation state left by other tests."""
+def _capture_logger(monkeypatch, logger):
+    """Records from one logger object, independent of root/propagation state left by other tests."""
     import logging
     records = []
 
     class Collect(logging.Handler):
         def emit(self, record):
             records.append(record.getMessage())
-    logger = logging.getLogger(name)
     handler = Collect(level=logging.DEBUG)
     logger.addHandler(handler)
     monkeypatch.setattr(logger, "disabled", False)
     monkeypatch.setattr(logger, "level", logging.DEBUG)
     monkeypatch.setattr(logging.root.manager, "disable", 0)
+    # Logger.isEnabledFor caches per level; drop answers cached under the old state.
+    logging.root.manager._clear_cache()
     return records, handler, logger
 
 
@@ -401,7 +402,8 @@ def test_legacy_request_full_status_logs_unqueued_publish(monkeypatch):
     printer = BambuPrinter(ip="127.0.0.1", serial="SYNTHSERIAL", access_code="")
     printer._client = SimpleNamespace(publish=lambda *a, **k: SimpleNamespace(rc=4))
     printer._connected = True
-    records, handler, logger = _capture_logger(monkeypatch, "bambu_adapter")
+    import modules.printers.adapters.bambu as bambu_module
+    records, handler, logger = _capture_logger(monkeypatch, bambu_module.log)
     try:
         assert printer.request_full_status() is False
     finally:
@@ -495,7 +497,7 @@ def test_failing_ams_sync_backs_off_then_drops_report_with_error(wire_monitor, m
     clock[0] += 11
     sock.deliver(report)
     heartbeat = {"print": {"gcode_state": "IDLE"}}
-    records, handler, logger = _capture_logger(monkeypatch, mqtt_printer.log.name)
+    records, handler, logger = _capture_logger(monkeypatch, mqtt_printer.log)
     try:
         for _ in range(80):  # 800 s of heartbeats
             clock[0] += 10

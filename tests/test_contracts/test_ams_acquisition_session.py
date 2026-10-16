@@ -179,7 +179,14 @@ def test_host_guard_runs_before_any_network(monkeypatch):
     observed=[]
     monkeypatch.setattr(itar,'enforce_host_destination',lambda *a,**k:(_ for _ in ()).throw(ValueError('private')))
     monkeypatch.setattr(adapter.BambuTelemetryAdapter,'start',lambda self:pytest.fail('Host denial touched network'))
-    module._network_worker(SimpleNamespace(put=observed.append),CONFIG,KEY,1,[1],INC,time.monotonic()+1)
+    import logging
+    # _network_worker is a child-process entry point and disables logging
+    # process-wide; running it in-process must not silence later tests.
+    previous=logging.root.manager.disable
+    try:
+        module._network_worker(SimpleNamespace(put=observed.append),CONFIG,KEY,1,[1],INC,time.monotonic()+1)
+    finally:
+        logging.disable(previous)
     assert observed==[{'snapshot':None,'error':'AMS acquisition unavailable'}]
 
 
