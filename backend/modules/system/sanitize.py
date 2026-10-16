@@ -40,7 +40,12 @@ _URL_SECRET_PARAMS = re.compile(
     r'|token|api_key|apikey|key|ws_token|password)=)[^&\s"\'#;]*')
 
 
+# The camera relay's per-printer token in its path (see core.log_redaction).
+_RELAY_PATH_TOKEN = re.compile(r'(/internal/camera-source/\d{1,20}/)[^\s/?#"\']{1,256}')
+
+
 def sanitize_log_line(line: str) -> str:
+    line = _RELAY_PATH_TOKEN.sub(r'\1[REDACTED]', line)
     line = _URL_SECRET_PARAMS.sub(r'\1[REDACTED]', line)
     for pattern in _PATTERNS:
         line = pattern.sub('[REDACTED]', line)

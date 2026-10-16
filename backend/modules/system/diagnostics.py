@@ -219,6 +219,9 @@ def _spoolman_link_conflicts(current_user: dict) -> list | dict:
         return {"error": str(e)}
 
 
+LOGS_SUPERADMIN_ONLY = {"restricted": "Install-wide logs are available to the superadmin only"}
+
+
 @router.get("/system/diagnostics")
 async def get_diagnostics(current_user: dict = Depends(require_role("admin"))):
     """Admin-only diagnostics bundle for troubleshooting."""
@@ -264,21 +267,27 @@ async def get_diagnostics(current_user: dict = Depends(require_role("admin"))):
     except Exception as e:
         result["uptime_seconds"] = {"error": str(e)}
 
-    # Recent logs (sanitized)
-    try:
-        raw_logs = _read_tail("/data/backend.log", 100)
-        if isinstance(raw_logs, list):
-            result["recent_logs"] = sanitize_log_lines(raw_logs)
-        else:
-            result["recent_logs"] = raw_logs  # "not found"
-    except Exception as e:
-        result["recent_logs"] = {"error": str(e)}
+    # Install-wide log lines and the error buffer carry every tenant's activity:
+    # superadmin only. Org admins get the rest of the bundle.
+    superadmin = current_user.get("role") == "admin" and not current_user.get("group_id")
+    if not superadmin:
+        result["recent_logs"] = result["error_buffer"] = LOGS_SUPERADMIN_ONLY
+    else:
+        # Recent logs (sanitized)
+        try:
+            raw_logs = _read_tail("/data/backend.log", 100)
+            if isinstance(raw_logs, list):
+                result["recent_logs"] = sanitize_log_lines(raw_logs)
+            else:
+                result["recent_logs"] = raw_logs  # "not found"
+        except Exception as e:
+            result["recent_logs"] = {"error": str(e)}
 
-    # Error buffer
-    try:
-        result["error_buffer"] = sanitize_structure(error_buffer.entries())
-    except Exception as e:
-        result["error_buffer"] = {"error": str(e)}
+        # Error buffer
+        try:
+            result["error_buffer"] = sanitize_structure(error_buffer.entries())
+        except Exception as e:
+            result["error_buffer"] = {"error": str(e)}
 
     # System resources
     try:

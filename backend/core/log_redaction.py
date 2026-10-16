@@ -43,6 +43,9 @@ _UNIFI_PATH_TOKEN = re.compile(r"(?i)(\brtsps?://(?:[^\s/?#\"'@]{1,512}+@)?+[^\s
 # source, so every such URL is treated as one). Ordinary stream paths (stream1,
 # live/ch0, h264Preview_01_main) are short or segmented and stay readable.
 _RTSP_OPAQUE_PATH = re.compile(r"(?i)(\brtsps?://(?:[^\s/?#\"'@]{1,512}+@)?+[^\s/?#\"'@]{1,255}+/)[A-Za-z0-9]{16,}+(?=$|[?#\s\"'])")
+# The internal camera relay's per-printer HMAC token travels in its path (go2rtc's
+# ffmpeg and native HTTP sources cannot send headers): /internal/camera-source/<id>/<token>.
+_RELAY_PATH_TOKEN = re.compile(r"(/internal/camera-source/\d{1,20}+/)[^\s/?#\"']{1,256}+")
 # key=value / key: value pairs naming a credential, anywhere in a line (bare
 # token=..., password: ..., a dict repr's 'token': '...').
 _KEY_VALUE_NAMES = ("password", "passwd", "pwd", "secret", "token", "access_token", "refresh_token", "id_token",
@@ -63,6 +66,7 @@ _SECRET_KEYS = re.compile(r"(?i)^(" + "|".join(re.escape(name) for name in _SECR
 def redact_text(value: str) -> str:
     if not isinstance(value, str):
         value = _safe_str(value)
+    value = _RELAY_PATH_TOKEN.sub(lambda m: m.group(1) + REDACTED, value)
     value = _UNIFI_PATH_TOKEN.sub(lambda m: m.group(1) + REDACTED, value)
     value = _RTSP_OPAQUE_PATH.sub(lambda m: m.group(1) + REDACTED, value)
     value = _COOKIE_HEADER.sub(lambda m: m.group(1) + REDACTED, value)
