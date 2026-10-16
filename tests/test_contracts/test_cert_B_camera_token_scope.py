@@ -116,11 +116,11 @@ def test_narrow_scoped_token_authenticates_only_routes_within_its_scope(tmp_path
     assert accepted == {}, f"{len(accepted)} routes accept a read:analytics token: {sorted(accepted)[:30]}"
 
 
-@pytest.mark.parametrize("scopes,status", [(["read:cameras"], 200), (["read:cameras", "read"], 200),
-                                           (["read:cameras", "admin"], 200), (["read:cameras", "write"], 200),
-                                           (["read:cameras", "read:printers"], 400), (["read:cameras", "write:jobs"], 400),
-                                           (["read:cameras", "agent:read"], 400)])
-def test_camera_scope_combines_only_with_broad_scopes(token_client, scopes, status):
+@pytest.mark.parametrize("scopes,status", [(["read:cameras"], 200), (["read:cameras", "read"], 422),
+                                           (["read:cameras", "admin"], 422), (["read:cameras", "write"], 422),
+                                           (["read:cameras", "read:printers"], 422), (["read:cameras", "write:jobs"], 422),
+                                           (["read:cameras", "agent:read"], 422), (["read:cameras", "read:cameras"], 200)])
+def test_camera_scope_is_the_token_s_only_scope(token_client, scopes, status):
     client, issue = token_client
     response = client.post("/tokens", headers=issue(["admin"]), json={"name": "combo", "scopes": scopes})
     assert response.status_code == status, response.text
@@ -128,12 +128,15 @@ def test_camera_scope_combines_only_with_broad_scopes(token_client, scopes, stat
         assert response.json()["expires_at"] is not None  # read:cameras always gets an expiry
 
 
-def test_camera_scope_with_other_scopes_still_gets_the_default_expiry(token_client):
+def test_camera_token_expiry_defaults_to_a_year_and_longer_is_refused(token_client):
     from datetime import datetime, timedelta, timezone
     client, issue = token_client
-    minted = client.post("/tokens", headers=issue(["admin"]), json={"name": "OBS+", "scopes": ["read:cameras", "read"]})
+    minted = client.post("/tokens", headers=issue(["admin"]), json={"name": "OBS", "scopes": ["read:cameras"]})
     expires = datetime.fromisoformat(minted.json()["expires_at"])
     assert abs(expires - (datetime.now(timezone.utc) + timedelta(days=365))) < timedelta(minutes=5)
-    # An explicit expiry is kept, but never beyond the default.
-    longer = client.post("/tokens", headers=issue(["admin"]), json={"name": "OBS long", "scopes": ["read:cameras"], "expires_days": 3650})
-    assert datetime.fromisoformat(longer.json()["expires_at"]) - datetime.now(timezone.utc) < timedelta(days=366)
+    exact = client.post("/tokens", headers=issue(["admin"]), json={"name": "OBS 365", "scopes": ["read:cameras"], "expires_days": 365})
+    assert exact.status_code == 200, exact.text
+    # Longer than the default is refused, not clamped.
+    for days in (366, 3650):
+        longer = client.post("/tokens", headers=issue(["admin"]), json={"name": "OBS long", "scopes": ["read:cameras"], "expires_days": days})
+        assert longer.status_code == 422 and "365" in longer.text, longer.text

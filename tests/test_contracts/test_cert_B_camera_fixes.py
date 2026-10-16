@@ -112,7 +112,9 @@ def overlay_client(reprint_client, review_db, monkeypatch):
     review_db.execute(text("UPDATE printers SET camera_url='rtsp://192.0.2.9:8554/cam',camera_enabled=1 WHERE id=9"))
     review_db.execute(text("UPDATE printers SET camera_url='rtsp://192.0.2.11:8554/cam',camera_enabled=1 WHERE id=11"))
     tokens = {}
-    for user_id, scopes, name in ((1, '["read:cameras"]', "camera"), (1, '["read:jobs"]', "jobs"), (5, '["read:cameras"]', "foreign")):
+    for user_id, scopes, name in ((1, '["read:cameras"]', "camera"), (1, '["read:jobs"]', "jobs"), (5, '["read:cameras"]', "foreign"),
+                                 (1, '["read:printers"]', "printers"), (1, '["read"]', "read"), (1, '["admin"]', "admin"),
+                                 (1, '["read:cameras","read"]', "legacy_combo")):
         raw = "odin_" + secrets.token_urlsafe(32)
         review_db.execute(text("INSERT INTO api_tokens(user_id,name,token_hash,token_prefix,scopes) VALUES(:u,:n,:h,:p,:s)"),
                           {"u": user_id, "n": name, "h": hash_password(raw), "p": raw[:10], "s": scopes})
@@ -152,6 +154,11 @@ def test_overlay_camera_refuses_missing_wrong_scope_and_foreign_tokens(overlay_c
     assert client.get("/overlay/9/camera").status_code == 401
     assert client.get("/overlay/9/camera", params={"token": "odin_" + secrets.token_urlsafe(32)}).status_code == 401
     assert client.get("/overlay/9/camera", params={"token": tokens["jobs"]}).status_code == 403
+    # Only camera-only tokens open the relay; broader ones (and combinations minted
+    # before the camera-only rule) are refused.
+    for name in ("printers", "read", "admin", "legacy_combo"):
+        # (an admin-scoped token of a non-admin user is already refused at resolution: 401)
+        assert client.get("/overlay/9/camera", params={"token": tokens[name]}).status_code in (401, 403), name
     assert client.get("/overlay/11/camera", params={"token": tokens["camera"]}).status_code == 404  # org 2 printer, org 1 token
     review_db.execute(text("UPDATE printers SET camera_enabled=0 WHERE id=9")); review_db.commit()
     assert client.get("/overlay/9/camera", params={"token": tokens["camera"]}).status_code == 404
@@ -466,3 +473,4 @@ def test_unifi_protect_path_token_is_encrypted_masked_and_restored(printers_clie
     assert masked == "rtsp://192.0.2.23:7447/***"
     assert printers_client.patch("/printers/23", json={"camera_url": masked}).status_code == 200  # unchanged resave
     assert crypto.decrypt(review_db.execute(text("SELECT camera_url FROM printers WHERE id=23")).scalar_one()) == url
+

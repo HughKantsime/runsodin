@@ -216,15 +216,14 @@ async def create_api_token(request: Request, body: dict, current_user: dict = De
             status=403,
         )
 
-    from core.api_token_policy import camera_scope_combination_error, CAMERA_TOKEN_DEFAULT_DAYS
-    combination = camera_scope_combination_error(scopes)
-    if combination:
-        raise HTTPException(status_code=400, detail=combination)
+    from core.api_token_policy import camera_scope_combination_error, camera_token_expiry_error, CAMERA_TOKEN_DEFAULT_DAYS
     if "read:cameras" in scopes:
-        # Camera tokens live in OBS configs and copied URLs: never unbounded, and
-        # never longer than the default lifetime, whatever else they carry.
-        if expires_days is None or (isinstance(expires_days, int) and not isinstance(expires_days, bool)
-                                    and expires_days > CAMERA_TOKEN_DEFAULT_DAYS):
+        # Camera tokens live in OBS configs and copied URLs: camera-only, never
+        # unbounded, and never longer than the default lifetime.
+        refusal = camera_scope_combination_error(scopes) or camera_token_expiry_error(expires_days)
+        if refusal:
+            raise HTTPException(status_code=422, detail=refusal)
+        if expires_days is None:
             expires_days = CAMERA_TOKEN_DEFAULT_DAYS
     expires_at = None
     if expires_days is not None:

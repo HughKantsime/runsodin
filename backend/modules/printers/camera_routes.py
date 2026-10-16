@@ -405,9 +405,6 @@ async def camera_webrtc(printer_id: int, request: Request, db: Session = Depends
 # ====================================================================
 
 GO2RTC_API = "http://127.0.0.1:1984"
-# Scopes that may read a camera image: the narrow overlay scope, or the
-# printer read scope every camera route already requires.
-OVERLAY_CAMERA_SCOPES = ("read:cameras", "read:printers")
 
 
 def overlay_camera_principal(db: Session, token: Optional[str], printer: Optional[Printer]) -> dict:
@@ -422,9 +419,11 @@ def overlay_camera_principal(db: Session, token: Optional[str], printer: Optiona
     principal = resolve_user_api_token(token, db) if token else None
     if not principal:
         raise HTTPException(status_code=401, detail="A camera token is required")
-    scopes = principal.get("_token_scopes") or []
-    if not any(token_scope_granted(scopes, scope) for scope in OVERLAY_CAMERA_SCOPES):
-        raise HTTPException(status_code=403, detail="Token lacks camera read scope")
+    # Only a camera-only token (sole scope read:cameras) opens the relay: broader
+    # tokens (read:printers, read, admin, ...) never belong in an OBS URL.
+    from core.api_token_policy import is_camera_only
+    if not is_camera_only(principal.get("_token_scopes") or []):
+        raise HTTPException(status_code=403, detail="Overlay cameras need a camera-only (read:cameras) token")
     if printer is None or not (check_org_access(principal, printer.org_id) or printer.shared):
         raise HTTPException(status_code=404, detail="Printer not found")
     if not printer.is_active or not printer.camera_enabled or not get_camera_url(printer):
