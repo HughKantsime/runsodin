@@ -17,7 +17,7 @@ vi.mock('../../api', async () => {
     backups: { list: vi.fn().mockResolvedValue([]) }, gdpr: {}, adminBundle: {},
   }
 })
-vi.mock('../../LicenseContext', () => ({ useLicense: () => ({ isPro: true }) }))
+vi.mock('../../LicenseContext', () => ({ useLicense: () => ({ isPro: true, hasFeature: () => true }) }))
 vi.mock('../../permissions', () => ({ getCurrentUser: () => ({ role: 'admin' }), clearSensitiveBrowserState: vi.fn() }))
 vi.mock('./Admin', () => ({ default: () => null }))
 vi.mock('./Permissions', () => ({ default: () => null }))
