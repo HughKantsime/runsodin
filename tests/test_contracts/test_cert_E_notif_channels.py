@@ -486,7 +486,8 @@ def test_smtp_configuration_round_trip_and_password_encrypted(admin_api, notif_e
     assert stored['password'].startswith('gAAAA') and 'synthetic-noncredential' not in json.dumps(stored)
     shown = admin_api.get('/smtp-config').json()
     assert shown == {'enabled': True, 'host': '127.0.0.1', 'port': smtp_peer.port, 'username': 'synthetic-user',
-                     'password_set': True, 'from_address': 'odin@example.test', 'use_tls': False}
+                     'password_set': True, 'from_address': 'odin@example.test', 'use_tls': False,
+                     'base_url': ''}  # cert-fix-F: reset-link base URL (unset here)
     # Saving again with a blank password keeps the stored secret.
     configure_smtp(admin_api, smtp_peer, username='synthetic-user')
     assert admin_api.get('/smtp-config').json()['password_set'] is True

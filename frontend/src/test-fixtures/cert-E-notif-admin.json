@@ -19,6 +19,7 @@
     "username": "odin",
     "password_set": true,
     "from_address": "odin@example.test",
-    "use_tls": true
+    "use_tls": true,
+    "base_url": ""
   }
 }
