@@ -273,7 +273,18 @@ it('printer card labels four-tray AMS units and AMS HT units separately', async 
   // A slot number outside AMS numbering disables grouping instead of crashing or mislabelling.
   render(<PrinterCard printer={{ ...w.printers[0], filament_slots: [0, 1, 5].map(slot) }} {...props} />)
   expect(screen.queryAllByTestId('ams-unit-label')).toHaveLength(0)
+  cleanup()
+  render(<PrinterCard printer={{ ...w.printers[0], filament_slots: [1, 5, 25].map(slot) }} {...props} />)
+  expect(screen.queryAllByTestId('ams-unit-label')).toHaveLength(0)
 })
+
+it.each([['O1E', 'H2D Pro'], ['O1C2', 'H2C'], ['H2D', 'H2D'], ['Bambu Lab H2D Pro', 'H2D Pro']])(
+  'dual-nozzle badge for %s shows the friendly model name %s', async (machine, label) => {
+    const { default: PrinterCard } = await import('../../components/printers/PrinterCard')
+    const props = { allFilaments: [], spools: [], onDelete: vi.fn(), onToggleActive: vi.fn(), onUpdateSlot: vi.fn(), onEdit: vi.fn(), onSyncAms: vi.fn() }
+    render(<PrinterCard printer={{ ...w.printers[0], model: 'Synthetic', machine_type: machine }} {...props} />)
+    expect(screen.getByText(label, { selector: 'span.rounded-full' })).toBeInTheDocument()
+  })
 
 it.each(['H2D', 'H2D Pro', 'H2C'])('%s card shows left and right nozzle temperatures', async machine => {
   const { default: PrinterCard } = await import('../../components/printers/PrinterCard')

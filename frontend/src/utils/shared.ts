@@ -139,12 +139,14 @@ export function isOnline(printer: Printer): boolean {
 // Backend slot numbers: 1-16 are four-tray AMS units 0-3 (unit = (n-1)/4),
 // 17-24 are single-tray AMS HT units 128-135.
 export const AMS_HT_FIRST_SLOT = 17
+/** Last slot number the backend assigns: AMS HT units 128-135 -> slots 17-24. */
+export const AMS_LAST_SLOT = 24
 
 export interface AmsSlotGroup { key: string; label: string }
 
 /** Unit group of a Bambu AMS slot, or null for a slot number outside AMS numbering. */
 export function amsSlotGroup(slotNumber: number): AmsSlotGroup | null {
-  if (!Number.isInteger(slotNumber) || slotNumber <= 0) return null
+  if (!Number.isInteger(slotNumber) || slotNumber <= 0 || slotNumber > AMS_LAST_SLOT) return null
   if (slotNumber >= AMS_HT_FIRST_SLOT) {
     const index = slotNumber - AMS_HT_FIRST_SLOT + 1
     return { key: `ht-${index}`, label: `AMS HT ${index}` }
@@ -161,4 +163,15 @@ const DUAL_NOZZLE_MODELS = new Set(['H2D', 'H2D PRO', 'H2C', 'O1D', 'O1E', 'O1C2
 export function isDualNozzle(machineType: string | null | undefined): boolean {
   const normalized = (machineType || '').trim().toUpperCase().replace(/^BAMBU LAB /, '')
   return DUAL_NOZZLE_MODELS.has(normalized)
+}
+
+// Friendly names for dual-nozzle model codes (backend printer_models table).
+const DUAL_NOZZLE_NAMES: Record<string, string> = {
+  'H2D': 'H2D', 'O1D': 'H2D', 'H2D PRO': 'H2D Pro', 'O1E': 'H2D Pro', 'H2C': 'H2C', 'O1C2': 'H2C',
+}
+
+/** Display name of a dual-nozzle model ("O1E" -> "H2D Pro"); input unchanged otherwise. */
+export function dualNozzleModelName(machineType: string | null | undefined): string {
+  const raw = (machineType || '').trim()
+  return DUAL_NOZZLE_NAMES[raw.toUpperCase().replace(/^BAMBU LAB /, '')] || raw
 }
