@@ -1232,6 +1232,8 @@ def claim_monitor_observation(
             )
             if observation_changed.rowcount != 1:
                 raise _MonitorTransitionMiss
+            from core.print_attempts import bind_print_attempt
+            bind_print_attempt(adapter.execute, print_job_id, context["job_id"])
             result = {
                 "education_owned": True,
                 "education_reserved": True,

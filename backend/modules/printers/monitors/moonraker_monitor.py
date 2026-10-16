@@ -819,6 +819,8 @@ class MoonrakerMonitor:
         """), {'job':scheduled_job_id,'id':self._current_job_db_id,'pid':self.printer_id}).first()
         if linked is None:
             raise RuntimeError('Print linkage changed; transaction must roll back')
+        from core.print_attempts import bind_print_attempt, sqlalchemy_runner
+        bind_print_attempt(sqlalchemy_runner(conn), self._current_job_db_id, scheduled_job_id)
         reconcile_job_write(conn, parents)
         return True
 

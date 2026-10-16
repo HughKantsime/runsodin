@@ -352,3 +352,93 @@ def test_census_no_filament_stock_writer_outside_the_ledger():
 ])
 def test_census_catches_planted_writers(planted):
     assert census({"backend/modules/planted.py": planted})
+
+
+# ---------------- round 6: a print is accounted to its own attempt ----------------
+
+def _reset_after_print(client, engine, job_id=7099):
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE jobs SET status='completed' WHERE id=:j AND status!='completed'"), {"j": job_id})
+    assert client.post(f"/jobs/{job_id}/reset").status_code == 200       # attempt 1 begins now (after the print)
+
+
+def _reprint(client, engine, job_id=7099):
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE jobs SET printer_id=9 WHERE id=:j"), {"j": job_id})
+    assert client.post(f"/jobs/{job_id}/start").status_code == 200
+    assert client.post(f"/jobs/{job_id}/complete").status_code == 200
+
+
+def test_late_archive_after_reset_sees_the_operator_deduction_of_its_own_attempt(archive_case, monkeypatch):
+    archive, engine = archive_case
+    client = _archive_client(engine, monkeypatch)
+    assert client.post("/jobs/7099/complete").status_code == 200        # attempt 0, job-level
+    assert _balances(engine) == [960, 960]
+    _reset_after_print(client, engine)
+    assert archive.create_print_archive(7099, 9, True) is not None       # the attempt-0 print archives late
+    assert _accounting(engine) == ("unresolved", "job_usage_unattributed")
+    assert _balances(engine) == [960, 960]
+
+
+def test_late_archive_claims_its_own_attempt_not_the_next_one(archive_case, monkeypatch):
+    archive, engine = archive_case
+    client = _archive_client(engine, monkeypatch)
+    _reset_after_print(client, engine)
+    assert archive.create_print_archive(7099, 9, True) is not None       # attempt-0 print, archived in attempt 1
+    assert _accounting(engine) == ("accounted", None) and _balances(engine) == [960, 960]
+    with engine.connect() as conn:
+        keys = set(conn.execute(text("SELECT key FROM system_config WHERE key LIKE 'quota_attempt:filament:job:7099:%'")).scalars())
+    assert "quota_attempt:filament:job:7099:0" in keys and "quota_attempt:filament:job:7099:1" not in keys
+    _reprint(client, engine)                                              # attempt 1 deducts its own print
+    assert _balances(engine) == [920, 920]
+
+
+def test_startup_recovery_accounts_a_late_print_to_its_own_attempt(archive_case, monkeypatch):
+    archive, engine = archive_case
+    client = _archive_client(engine, monkeypatch)
+    _reset_after_print(client, engine)
+    result = archive.recover_missing_archives()
+    assert result["recovered"] == 1 and _balances(engine) == [960, 960]
+    _reprint(client, engine)
+    assert _balances(engine) == [920, 920]
+
+
+@pytest.mark.parametrize("print_started,expected", [
+    ("2026-01-01 08:00:00", ("unresolved", "legacy_usage_unattributed")),  # same attempt as the legacy row
+    ("2026-01-03 08:00:00", ("accounted", None)),                          # after the audited reset
+])
+def test_legacy_operator_rows_belong_to_the_attempt_of_their_time(archive_case, monkeypatch, print_started, expected):
+    archive, engine = archive_case
+    with engine.begin() as conn:
+        conn.execute(text("INSERT INTO spool_usage(spool_id,job_id,weight_used_g,used_at,notes) "
+                          "VALUES(7099,7099,40,'2026-01-01 10:00:00','Auto-deducted on job #7099 complete (Synthetic)')"))
+        conn.execute(text("INSERT INTO audit_logs(timestamp,action,entity_type,entity_id) VALUES('2026-01-02 09:00:00','job.reset','job',7099)"))
+        conn.execute(text("UPDATE print_jobs SET started_at=:s WHERE id=7099"), {"s": print_started})
+    assert archive.create_print_archive(7099, 9, True) is not None
+    assert _accounting(engine) == expected
+
+
+def test_a_bound_print_keeps_its_attempt_whatever_its_started_at(lifecycle_client):
+    from core.filament_ledger import print_attempt
+    from core.print_attempts import bind_print_attempt, bump_print_attempt, sqlalchemy_runner
+    client, db = lifecycle_client
+    _print_job(db, 5101)
+    run = sqlalchemy_runner(db)
+    bind_print_attempt(run, 5101, 111)                                    # created in attempt 0
+    bump_print_attempt(run, 111)
+    db.execute(text("UPDATE print_jobs SET started_at='2099-01-01 00:00:00' WHERE id=5101"))   # skewed clock
+    assert print_attempt(run, 111, 5101).seq == 0
+    bind_print_attempt(run, 5101, 111)                                    # first binding wins
+    assert print_attempt(run, 111, 5101).seq == 0
+    db.rollback()
+
+
+def test_link_print_binds_the_print_to_the_jobs_current_attempt(lifecycle_client):
+    from core.print_attempts import bound_print_attempt, sqlalchemy_runner
+    client, db = lifecycle_client
+    db.execute(text("INSERT INTO print_jobs(id,printer_id,job_name,status,started_at) VALUES(5102,9,'x','completed',CURRENT_TIMESTAMP)"))
+    db.commit()
+    response = client.post("/jobs/111/link-print", params={"print_job_id": 5102})
+    assert response.status_code == 200, response.text
+    db.expire_all()
+    assert bound_print_attempt(sqlalchemy_runner(db), 5102, 111) == 0

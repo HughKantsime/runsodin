@@ -29,8 +29,15 @@ can still deduct):
                      is refused as ``job_usage_unattributed`` instead of
                      deducting twice.
 
+Attempts are resolved per deduction, never assumed to be the job's current one:
+a physical print belongs to the attempt it was bound to when created/linked
+(core.print_attempts.bind_print_attempt), else to the attempt whose reset window
+holds its started_at -- so a late archive (or startup recovery) after a reset
+claims and checks the print's own attempt. Usage rows naming a print belong to
+that print's attempt; job-level rows to the attempt whose window holds used_at.
+
 A marker-less deduction (written before markers existed, or by a pre-ledger
-build) still counts when its spool_usage row belongs to the *current* attempt:
+build) still counts when its spool_usage row belongs to the same attempt:
 a row for the given physical print, or an automatic job row written at or after
 the attempt's anchor -- the reset that began it (the counter's ``started`` key,
 or for pre-counter data the latest ``job.reset`` audit entry) or, later, the
@@ -55,7 +62,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Mapping, Optional
 
-from core.print_attempts import PREFIX, attempt_reset_at, attempt_seq, filament_marker
+from core.print_attempts import (PREFIX, attempt_seq, attempt_starts, bound_print_attempt,
+                                 filament_marker_for)
 
 AUTO_PREFIX = "auto:"
 MANUAL_PREFIX = "manual:"
@@ -110,21 +118,74 @@ def row_kind(notes) -> str:
     return "unknown"
 
 
-def _last_audit_reset(run, job_id):
-    row = run("SELECT MAX(timestamp) FROM audit_logs WHERE action = 'job.reset' AND entity_type = 'job' "
-              "AND entity_id = :jid", {"jid": int(job_id)}).fetchone()
-    return _utc(row[0]) if row else None
+def _audit_resets(run, job_id):
+    return [moment for moment in (_utc(row[0]) for row in run(
+        "SELECT timestamp FROM audit_logs WHERE action = 'job.reset' AND entity_type = 'job' AND entity_id = :jid",
+        {"jid": int(job_id)}).fetchall()) if moment is not None]
+
+
+@dataclass(frozen=True)
+class AttemptView:
+    """One attempt of a job: its marker seq and its time window [start, end).
+
+    ``floor`` additionally bounds job-level rows of the *current* attempt by the
+    job's actual_start (for resets that left no trace).
+    """
+    seq: int
+    start: Optional[datetime] = None
+    end: Optional[datetime] = None
+    floor: Optional[datetime] = None
+
+    def holds(self, moment) -> bool:
+        if moment is None:
+            return self.start is None and self.floor is None
+        lower = max([b for b in (self.start, self.floor) if b is not None], default=None)
+        return (lower is None or moment >= lower) and (self.end is None or moment < self.end)
+
+    def same_attempt(self, other) -> bool:
+        return self.seq == other.seq and self.start == other.start
+
+
+def _boundaries(run, job_id):
+    """Every known reset of the job: counted ones (started anchors) and audited ones."""
+    return sorted(set(attempt_starts(run, job_id).values()) | set(_audit_resets(run, job_id)))
+
+
+def current_attempt(run, job_id) -> AttemptView:
+    bounds = _boundaries(run, job_id)
+    row = run("SELECT actual_start FROM jobs WHERE id = :jid", {"jid": int(job_id)}).fetchone()
+    return AttemptView(attempt_seq(run, job_id), bounds[-1] if bounds else None, None,
+                       _utc(row[0]) if row else None)
+
+
+def print_attempt(run, job_id, print_job_id) -> AttemptView:
+    """The attempt a physical print belongs to -- never simply the job's current one.
+
+    The seq is the binding recorded when the print was created/linked
+    (core.print_attempts.bind_print_attempt); for an older print it is the number
+    of counted resets at or before the print's started_at. The window is the span
+    between the resets around started_at.
+    """
+    row = run("SELECT started_at FROM print_jobs WHERE id = :p", {"p": int(print_job_id)}).fetchone()
+    started = _utc(row[0]) if row else None
+    bound = bound_print_attempt(run, print_job_id, job_id)
+    starts = attempt_starts(run, job_id)
+    if started is None:
+        if bound is None:
+            return current_attempt(run, job_id)
+        later = [moment for seq, moment in starts.items() if seq > bound]
+        return AttemptView(bound, starts.get(bound), min(later) if later else None)
+    bounds = _boundaries(run, job_id)
+    before = [b for b in bounds if b <= started]
+    after = [b for b in bounds if b > started]
+    seq = bound if bound is not None else sum(1 for moment in starts.values() if moment <= started)
+    return AttemptView(seq, before[-1] if before else None, after[0] if after else None)
 
 
 def attempt_anchor(run, job_id):
     """Earliest time a usage row of the current attempt can carry (None: no bound)."""
-    seq = attempt_seq(run, job_id)
-    reset = attempt_reset_at(run, job_id, seq) if seq > 0 else None
-    if reset is None:
-        reset = _last_audit_reset(run, job_id)
-    row = run("SELECT actual_start FROM jobs WHERE id = :jid", {"jid": int(job_id)}).fetchone()
-    started = _utc(row[0]) if row else None
-    known = [moment for moment in (reset, started) if moment is not None]
+    view = current_attempt(run, job_id)
+    known = [moment for moment in (view.start, view.floor) if moment is not None]
     return max(known) if known else None
 
 
@@ -146,20 +207,32 @@ def _marker_print(value):
     return value.get("print_job_id") if isinstance(value, dict) else None
 
 
-def _current_attempt_rows(run, job_id, kinds):
-    anchor = attempt_anchor(run, job_id)
+def _attempt_rows(run, job_id, view, kinds):
+    """print_job_id of every usage row of ``kinds`` that belongs to attempt ``view``.
+
+    A row naming a physical print belongs to that print's own attempt (a late
+    archive written after a reset still belongs to the earlier attempt); a
+    job-level row belongs to the attempt whose window holds its used_at.
+    """
+    prints = {}
     for print_job, used_at, notes in run("SELECT print_job_id, used_at, notes FROM spool_usage WHERE job_id = :jid",
                                          {"jid": int(job_id)}).fetchall():
-        when = _utc(used_at)
-        if row_kind(notes) in kinds and (anchor is None or (when is not None and when >= anchor)):
-            yield print_job
+        if row_kind(notes) not in kinds:
+            continue
+        if print_job is not None:
+            if print_job not in prints:
+                prints[print_job] = print_attempt(run, job_id, print_job)
+            if prints[print_job].same_attempt(view):
+                yield print_job
+        elif view.holds(_utc(used_at)):
+            yield None
 
 
 def prior_attempt_usage(run, job_id, print_job_id=None) -> Optional[str]:
     """Why this deduction is already accounted for (None when it is not).
 
-    With ``print_job_id`` the question is about that physical print; without it,
-    about the job's current attempt.
+    With ``print_job_id`` the question is about that physical print and the
+    attempt *it* belongs to; without it, about the job's current attempt.
     """
     if print_job_id is not None:
         if run("SELECT 1 FROM system_config WHERE key = :k", {"k": print_marker(job_id, print_job_id)}).fetchone():
@@ -168,19 +241,22 @@ def prior_attempt_usage(run, job_id, print_job_id=None) -> Optional[str]:
             return PRINT_USAGE
         if job_id is None:
             return None
-        row = run("SELECT value FROM system_config WHERE key = :k", {"k": filament_marker(run, job_id)}).fetchone()
+        view = print_attempt(run, job_id, print_job_id)
+        row = run("SELECT value FROM system_config WHERE key = :k",
+                  {"k": filament_marker_for(job_id, view.seq)}).fetchone()
         if row and _marker_print(row[0]) is None:
             return JOB_USAGE
         # A marker-less job row of this attempt (automatic, or a legacy row whose
         # writer is unknown) cannot be attributed to this print: reconcile.
-        if any(print_job is None for print_job in _current_attempt_rows(run, job_id, ("auto", "unknown"))):
+        if any(print_job is None for print_job in _attempt_rows(run, job_id, view, ("auto", "unknown"))):
             return LEGACY_JOB_USAGE
         return None
     if job_id is None:
         return None
-    if run("SELECT 1 FROM system_config WHERE key = :k", {"k": filament_marker(run, job_id)}).fetchone():
+    view = current_attempt(run, job_id)
+    if run("SELECT 1 FROM system_config WHERE key = :k", {"k": filament_marker_for(job_id, view.seq)}).fetchone():
         return MARKER
-    for print_job in _current_attempt_rows(run, job_id, ("auto",)):
+    for print_job in _attempt_rows(run, job_id, view, ("auto",)):
         return PRINT_USAGE if print_job is not None else LEGACY_JOB_USAGE
     return None
 
@@ -237,7 +313,11 @@ def record_job_filament(run, job_id, *, source: str, grams_by_spool: Mapping, pr
     if not items:
         return LedgerResult("nothing_deducted")
     claimed = []
-    job_key = filament_marker(run, job_id) if job_id is not None else None
+    if job_id is None:
+        job_key = None
+    else:  # the attempt this deduction belongs to: the print's own, or the job's current one
+        view = print_attempt(run, job_id, print_job_id) if print_job_id is not None else current_attempt(run, job_id)
+        job_key = filament_marker_for(job_id, view.seq)
     if print_job_id is not None:
         key = print_marker(job_id, print_job_id)
         if not _claim(run, key, {"source": source}):

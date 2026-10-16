@@ -488,6 +488,9 @@ def test_education_print_whose_job_was_cancelled_still_ends_physically_publishes
         printer_id=9, printer_name="Owned A1", state=state, dispatch_alert_fn=lambda **kw: None,
         trigger_reschedule_fn=lambda: None)
     assert linked_job_id == uploaded["job_id"]
+    from core.print_attempts import bound_print_attempt, sqlalchemy_runner
+    with engine.connect() as conn:  # the Education link bound the print to the job's current attempt
+        assert bound_print_attempt(sqlalchemy_runner(conn), print_job_id, uploaded["job_id"]) == 0
     with engine.begin() as conn:  # the operator cancels the school job while it prints
         conn.execute(text("UPDATE jobs SET status='cancelled' WHERE id=:j"), {"j": uploaded["job_id"]})
     mqtt_job_lifecycle.record_job_ended(

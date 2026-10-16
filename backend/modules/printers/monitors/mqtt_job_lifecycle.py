@@ -258,6 +258,9 @@ def record_job_started(
                         cur.execute(
                             "UPDATE print_jobs SET scheduled_job_id = ? WHERE id = ? AND scheduled_job_id IS NULL",
                             (linked_job_id, new_job_id))
+                        if cur.rowcount == 1:
+                            from core.print_attempts import bind_print_attempt, qmark_runner
+                            bind_print_attempt(qmark_runner(cur), new_job_id, linked_job_id)
 
                 # ---- Ad-hoc print: bump displaced scheduled jobs ----
                 if not linked_job_id and candidates:
@@ -493,6 +496,8 @@ def record_job_ended(
                     linked_job_id = cur.lastrowid
                 cur.execute("UPDATE print_jobs SET scheduled_job_id = ? WHERE id = ?",
                             (linked_job_id, current_job_id))
+                from core.print_attempts import bind_print_attempt, qmark_runner
+                bind_print_attempt(qmark_runner(cur), current_job_id, linked_job_id)
                 log.info(f"[{printer_name}] Created job {linked_job_id} for '{job_name}' ({job_status}, duration={duration_hours}h)")
 
             reconcile_job_write(conn, production_orders)

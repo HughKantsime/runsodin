@@ -510,6 +510,8 @@ def link_job_to_print(job_id: int, print_job_id: int, current_user: dict = Depen
     locked_print = linked.fetchone()
     if locked_print is None:
         raise HTTPException(409, "Print linkage changed before this request")
+    from core.print_attempts import bind_print_attempt, sqlalchemy_runner
+    bind_print_attempt(sqlalchemy_runner(db), print_job_id, job_id)
 
     # Update job status based on print status
     new_status = None
