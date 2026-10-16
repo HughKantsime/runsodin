@@ -32,7 +32,7 @@ from modules.printers.schemas import (
 )
 from core.base import FilamentType
 from modules.printers.route_utils import (
-    TestConnectionRequest, _check_ssrf_blocklist, _validate_camera_url,
+    TestConnectionRequest, _check_ssrf_blocklist, _validate_camera_url, camera_url_has_credentials,
 )
 
 log = logging.getLogger("odin.api")
@@ -98,11 +98,11 @@ def create_printer(
         _check_ssrf_blocklist(printer.api_host)
         from core.webhook_utils import normalize_device_host
         printer.api_host = normalize_device_host(printer.api_host)
+    camera_url = None
     if printer.camera_url:
-        printer.camera_url = _validate_camera_url(printer.camera_url)
-        if '@' in printer.camera_url:
-            printer.camera_url = crypto.encrypt(printer.camera_url)
-        printer.camera_enabled = True
+        camera_url = _validate_camera_url(printer.camera_url)
+        if camera_url_has_credentials(camera_url):
+            camera_url = crypto.encrypt(camera_url)
 
     from license_manager import check_printer_limit
 
@@ -129,6 +129,8 @@ def create_printer(
         org_id=current_user.get("group_id") if current_user else None,
         bed_x_mm=printer.bed_x_mm,
         bed_y_mm=printer.bed_y_mm,
+        # Without a URL the model default applies (Bambu printers have a built-in camera).
+        **({"camera_url": camera_url, "camera_enabled": True} if camera_url else {}),
     )
     db.add(db_printer)
     db.flush()
@@ -152,6 +154,14 @@ def create_printer(
     log_audit(db, "printer.created", "printer", db_printer.id,
               {"name": db_printer.name, "api_type": db_printer.api_type})
     db.commit()
+    db.refresh(db_printer)
+
+    if camera_url:
+        try:
+            from modules.printers.route_utils import sync_go2rtc_config
+            sync_go2rtc_config(db)
+        except Exception as e:
+            log.debug(f"Failed to sync go2rtc config: {e}")
     return db_printer
 
 
@@ -242,13 +252,23 @@ def update_printer(
 
     if 'camera_url' in update_data:
         from modules.printers.route_utils import resolve_masked_camera_url
-        if update_data['camera_url'] and resolve_masked_camera_url(update_data['camera_url'], printer.camera_url) is None:
+        # GET returns the effective URL masked (stored, or generated from the
+        # printer's credentials), so masked values resolve against that.
+        from modules.printers.route_utils import effective_camera_url, camera_url_is_masked
+        effective = effective_camera_url(printer)
+        if (not printer.camera_url and camera_url_is_masked(update_data['camera_url'])
+                and resolve_masked_camera_url(update_data['camera_url'], effective) is not None):
+            # The generated camera (Bambu access code) is derived at read time; a masked
+            # edit would freeze the access code into camera_url.
+            raise HTTPException(status_code=400, detail="This camera comes from the printer's access code; "
+                                "enter a full camera URL to override it")
+        if update_data['camera_url'] and resolve_masked_camera_url(update_data['camera_url'], effective) is None:
             # The masked URL from GET sent back unchanged: keep the stored value.
             del update_data['camera_url']
         elif update_data['camera_url']:
-            update_data['camera_url'] = resolve_masked_camera_url(update_data['camera_url'], printer.camera_url)
+            update_data['camera_url'] = resolve_masked_camera_url(update_data['camera_url'], effective)
             update_data['camera_url'] = _validate_camera_url(update_data['camera_url'])
-            if '@' in update_data['camera_url']:
+            if camera_url_has_credentials(update_data['camera_url']):
                 update_data['camera_url'] = crypto.encrypt(update_data['camera_url'])
             update_data['camera_enabled'] = True
         else:
@@ -376,10 +396,13 @@ def get_overlay_data(printer_id: int, db: Session = Depends(get_db)):
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
     # Public endpoint: never expose a stored camera URL (it can embed credentials
-    # and may be stored encrypted); point at the proxied stream instead.
+    # and may be stored encrypted). Point at the overlay MJPEG relay, which is
+    # public in path only: it requires the scoped camera token the copied
+    # overlay URL carries (?token=), checked per stream.
+    from modules.printers.route_utils import get_camera_url
     camera_url = None
-    if (printer.api_type == "bambu" and printer.api_host) or printer.camera_url:
-        camera_url = f"/api/cameras/{printer_id}/stream"
+    if printer.is_active and printer.camera_enabled and get_camera_url(printer):
+        camera_url = f"/api/overlay/{printer_id}/camera"
     job_row = db.execute(
         text(
             "SELECT job_name, progress_percent, current_layer, total_layers, remaining_minutes "

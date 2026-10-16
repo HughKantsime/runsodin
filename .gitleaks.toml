@@ -22,6 +22,8 @@ useDefault = true
     '''AdminTestPass1''',
     '''test_(viewer|operator|admin)_rbac''',
     '''OdinAdmin1''',
+    # Synthetic UniFi Protect path token in test_cert_B_camera_fixes.py (no real camera).
+    '''aB3dE5fG7hJ9kL1m''',
     '''[0-9]{3}_[a-z_]*keys[a-z_]*\.sql['"]\s*[:,]\s*['"][0-9a-f]{64}['"]''',
   ]
   # SHA-256 source digests keyed by migration filenames (e.g. *_idempotency_keys.sql)

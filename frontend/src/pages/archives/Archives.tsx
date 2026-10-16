@@ -1,4 +1,4 @@
-import { useState, useCallback, lazy, Suspense } from 'react'
+import { useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { archives, printers as printersApi } from '../../api'
@@ -132,6 +132,18 @@ function ArchiveDetail({ archive, onClose, onDelete, onNotesUpdate, onTagsUpdate
   const [show3DViewer, setShow3DViewer] = useState(false)
 
   const plateCount = archive.plate_count || 1
+  const [applyMapping, setApplyMapping] = useState(true)
+  const targetPrinter = (printerList || []).find(p => String(p.id) === String(reprintPrinterId))
+  const { data: amsPreview, isLoading: amsLoading, isError: amsError } = useQuery({
+    queryKey: ['archive-ams-preview', archive.id, reprintPrinterId],
+    queryFn: () => archives.amsPreview(archive.id, parseInt(reprintPrinterId)),
+    enabled: showReprint && !!reprintPrinterId,
+  })
+  const required = amsPreview?.required || []
+  const suggested = amsPreview?.suggested_mapping || []
+  // Bambu dispatch accepts a mapping only when it covers every source filament.
+  const mappingComplete = required.length > 0 && suggested.length === required.length
+  const canApplyMapping = mappingComplete && targetPrinter?.api_type === 'bambu'
 
   const handleReprint = async () => {
     if (!reprintPrinterId) return toast.error('Select a printer')
@@ -140,6 +152,9 @@ function ArchiveDetail({ archive, onClose, onDelete, onNotesUpdate, onTagsUpdate
       const result = await archives.reprint(archive.id, {
         printer_id: parseInt(reprintPrinterId),
         plate_index: reprintPlate,
+        ...(canApplyMapping && applyMapping
+          ? { ams_mapping: suggested.map(m => ({ source_slot: m.source_slot, target_slot: m.target_slot })) }
+          : {}),
       })
       toast.success(result.message || 'Reprint job created')
       setShowReprint(false)
@@ -270,6 +285,43 @@ function ArchiveDetail({ archive, onClose, onDelete, onNotesUpdate, onTagsUpdate
                     <option key={p.id} value={p.id}>{p.nickname || p.name}</option>
                   ))}
                 </select>
+                {reprintPrinterId && (
+                  <div data-testid="reprint-ams-preview" className="space-y-1">
+                    <span className="block text-xs text-[var(--brand-text-muted)]">AMS filament mapping</span>
+                    {amsLoading ? (
+                      <p className="text-xs text-[var(--brand-text-muted)]">Loading filament mapping...</p>
+                    ) : amsError ? (
+                      <p role="alert" className="text-xs text-red-400">Filament mapping preview unavailable</p>
+                    ) : required.length === 0 ? (
+                      <p className="text-xs text-[var(--brand-text-muted)]">The original file lists no filaments.</p>
+                    ) : (
+                      <ul className="space-y-1">
+                        {required.map(req => {
+                          const match = suggested.find(m => m.source_slot === req.slot)
+                          const slot = match && (amsPreview?.available || []).find(a => a.slot === match.target_slot)
+                          return (
+                            <li key={req.slot} className="flex items-center gap-2 text-xs">
+                              <span className="inline-block w-3 h-3 rounded-full border border-[var(--brand-card-border)]" style={{ background: req.color || 'transparent' }} />
+                              <span>Filament {req.slot + 1}: {req.material || 'Unknown'}</span>
+                              <span className="text-[var(--brand-text-muted)]">&rarr;</span>
+                              {slot ? (
+                                <span>Slot {slot.slot} ({[slot.color, slot.material].filter(Boolean).join(' ')}){match.confidence === 'material_only' ? ' - material only' : ''}</span>
+                              ) : (
+                                <span className="text-amber-400">No matching slot</span>
+                              )}
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    )}
+                    {canApplyMapping && (
+                      <label className="flex items-center gap-2 text-xs">
+                        <input type="checkbox" checked={applyMapping} onChange={e => setApplyMapping(e.target.checked)} />
+                        Use this mapping
+                      </label>
+                    )}
+                  </div>
+                )}
                 {plateCount > 1 && (
                   <>
                     <label className="block text-xs text-[var(--brand-text-muted)]">Plate</label>
@@ -352,26 +404,32 @@ export default function ArchivesPage() {
   const [compareIds, setCompareIds] = useState(new Set())
   const [showCompare, setShowCompare] = useState(false)
 
+  // Several filter setters run in one handler (e.g. tag click = tag + page 1).
+  // react-router's functional setSearchParams hands each call the params of
+  // the last render, so the second write would drop the first: accumulate in
+  // a ref and write the composed result.
+  const paramsRef = useRef(searchParams)
+  useEffect(() => { paramsRef.current = searchParams }, [searchParams])
   const updateSearchParams = useCallback((updates) => {
-    setSearchParams(prev => {
-      const next = new URLSearchParams(prev)
-      Object.entries(updates).forEach(([key, value]) => {
-        if (value && value !== '' && !(key === 'page' && String(value) === '1')) {
-          next.set(key, value)
-        } else {
-          next.delete(key)
-        }
-      })
-      return next
-    }, { replace: true })
+    const next = new URLSearchParams(paramsRef.current)
+    Object.entries(updates).forEach(([key, value]) => {
+      if (value && value !== '' && !(key === 'page' && String(value) === '1')) {
+        next.set(key, String(value))
+      } else {
+        next.delete(key)
+      }
+    })
+    paramsRef.current = next
+    setSearchParams(next, { replace: true })
   }, [setSearchParams])
 
+  const pageRef = useRef(page)
+  useEffect(() => { pageRef.current = page }, [page])
   const setPage = useCallback((valueOrFn) => {
-    _setPage(prev => {
-      const newVal = typeof valueOrFn === 'function' ? valueOrFn(prev) : valueOrFn
-      updateSearchParams({ page: newVal })
-      return newVal
-    })
+    const newVal = typeof valueOrFn === 'function' ? valueOrFn(pageRef.current) : valueOrFn
+    pageRef.current = newVal
+    _setPage(newVal)
+    updateSearchParams({ page: newVal })
   }, [updateSearchParams])
 
   const setSearch = useCallback((value) => {

@@ -117,7 +117,7 @@ def discover_camera(printer_id: int, rtsp_url: str):
     try:
         from core import crypto
         from modules.printers.route_utils import (
-            _check_ssrf_blocklist, _CAMERA_SHELL_METACHAR_RE,
+            _check_ssrf_blocklist, _CAMERA_DIRECTIVE_RE as _CAMERA_SHELL_METACHAR_RE,
             sync_go2rtc_config_raw,
         )
         from urllib.parse import urlsplit

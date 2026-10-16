@@ -298,7 +298,6 @@ def model_schedule_options(model_id: int,
     from core.interfaces.education_policy import assert_generic_model_reference_allowed
     from core.print_payload_snapshot import hash_regular_payload, stage_payload, PayloadUnavailable
     from core.print_payload import validate_plate
-    import zipfile
     model = db.query(Model).filter(Model.id == model_id).first()
     if not model or not check_org_access(current_user, model.org_id):
         raise HTTPException(404, "Model not found")
@@ -311,14 +310,12 @@ def model_schedule_options(model_id: int,
         digest = hash_regular_payload(file.stored_path)
         with stage_payload(file.stored_path, digest) as snapshot:
             if Path(file.stored_path).suffix.lower() == ".3mf":
-                try:
-                    with zipfile.ZipFile(snapshot.path) as archive:
-                        indices = sorted({int(match.group(1)) - 1 for name in archive.namelist()
-                            if (match := re.fullmatch(r"Metadata/plate_([1-9][0-9]*)\.gcode", name))})
-                    for index in indices:
-                        validate_plate(snapshot.path, index, "bambu")
-                except (OSError, zipfile.BadZipFile):
-                    raise HTTPException(400, "Original file is not a readable sliced Bambu 3MF") from None
+                # One bounded open of the stored package for every plate.
+                from core.print_payload import bambu_plate_numbers
+                numbers = bambu_plate_numbers(snapshot.path)
+                indices = [number - 1 for number in numbers]
+                for index in indices:
+                    validate_plate(snapshot.path, index, "bambu", plate_numbers=numbers)
     except PayloadUnavailable as exc:
         raise HTTPException(400, str(exc)) from None
     return {"print_file_id": file.id, "payload_sha256": digest, "plate_indices": indices}

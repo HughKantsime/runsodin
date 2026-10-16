@@ -3,6 +3,7 @@
 Extracts print metadata, filament info, and thumbnails.
 """
 
+import math
 import re
 import zipfile
 import json
@@ -86,7 +87,35 @@ class PrintFileMetadata:
         return d
 
 
-def parse_3mf(file_path: str) -> Optional[PrintFileMetadata]:
+def metadata_from_dict(data: dict) -> PrintFileMetadata:
+    """Rebuild metadata sent by the isolated 3MF worker (plain data, no parsing)."""
+    values = dict(data)
+    values["filaments"] = [FilamentInfo(**item) for item in values.get("filaments") or []]
+    return PrintFileMetadata(**values)
+
+
+def analyze_education_3mf(file_path, ticket):
+    """Education upload analysis in the bounded 3MF child (never in the calling process):
+    returns (status, metadata). ``ticket`` is a mesh_isolation admission taken on the
+    event loop; status is ok, too_large, too_many_members, bad_zip, no_plate, unparsed
+    or failed. Raises mesh_isolation.Busy when no run slot frees up before the deadline."""
+    from modules.models_library.mesh_isolation import run_admitted
+    analysis = run_admitted(str(file_path), ticket, mode="education")
+    if analysis.status != "ok" or not analysis.metadata:
+        return analysis.status, None
+    return "ok", metadata_from_dict(analysis.metadata)
+
+
+def __getattr__(name):
+    # Lazy: the isolation module is only needed by callers of the isolated entry points.
+    if name in ("ThreeMFBusy", "reserve_3mf_analysis", "run_on_3mf_executor"):
+        from modules.models_library import mesh_isolation
+        return {"ThreeMFBusy": mesh_isolation.Busy, "reserve_3mf_analysis": mesh_isolation.reserve,
+                "run_on_3mf_executor": mesh_isolation.run_on_executor}[name]
+    raise AttributeError(name)
+
+
+def parse_3mf(file_path: str, name: Optional[str] = None) -> Optional[PrintFileMetadata]:
     """
     Parse a Bambu Studio sliced .3mf file and extract metadata.
     
@@ -108,7 +137,7 @@ def parse_3mf(file_path: str) -> Optional[PrintFileMetadata]:
             
             if not has_gcode:
                 # Try to parse as unsliced project
-                return parse_unsliced_3mf(zf, file_path)
+                return parse_unsliced_3mf(zf, file_path, name)
             
             # Parse slice_info.config for main metadata
             slice_info = parse_slice_info(zf)
@@ -122,7 +151,7 @@ def parse_3mf(file_path: str) -> Optional[PrintFileMetadata]:
             thumbnail_b64 = extract_thumbnail(zf)
             
             # Get project name from 3dmodel.model
-            project_name = extract_project_name(zf) or Path(file_path).stem
+            project_name = extract_project_name(zf) or Path(name or file_path).stem
             
             # Build filament list
             filaments = []
@@ -144,7 +173,7 @@ def parse_3mf(file_path: str) -> Optional[PrintFileMetadata]:
                     layer_count = int(parts[-1]) + 1  # 0-indexed, so add 1
             
             return PrintFileMetadata(
-                filename=Path(file_path).name,
+                filename=Path(name or file_path).name,
                 project_name=project_name,
                 print_time_seconds=int(slice_info.get('prediction', 0)),
                 total_weight_grams=float(slice_info.get('weight', 0)),
@@ -271,7 +300,7 @@ def extract_project_name(zf: zipfile.ZipFile) -> Optional[str]:
         return None
 
 
-def parse_unsliced_3mf(zf: zipfile.ZipFile, file_path: str) -> Optional[PrintFileMetadata]:
+def parse_unsliced_3mf(zf: zipfile.ZipFile, file_path: str, name: Optional[str] = None) -> Optional[PrintFileMetadata]:
     """Parse an unsliced .3mf project file (limited data)."""
     try:
         from modules.models_library.print_file_meta import extract_print_file_meta
@@ -305,11 +334,11 @@ def parse_unsliced_3mf(zf: zipfile.ZipFile, file_path: str) -> Optional[PrintFil
             used_grams=0
         ))
         
-        project_name = extract_project_name(zf) or Path(file_path).stem
+        project_name = extract_project_name(zf) or Path(name or file_path).stem
         thumbnail_b64 = extract_thumbnail(zf)
         
         return PrintFileMetadata(
-            filename=Path(file_path).name,
+            filename=Path(name or file_path).name,
             project_name=project_name,
             print_time_seconds=0,  # Unknown - needs manual entry
             total_weight_grams=0,
@@ -366,6 +395,191 @@ def extract_objects_from_plate(zf: zipfile.ZipFile, plate_number: int = 1) -> li
         return []
 
 
+_CORE_NS = 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02'
+_PROD_NS = 'http://schemas.microsoft.com/3dmanufacturing/production/2015/06'
+_IDENTITY = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0)
+_MAX_COMPONENT_DEPTH = 16
+# Budgets for one preview. Components multiply: a few hundred bytes can describe
+# billions of instances, so emission is bounded globally, not per level.
+_MAX_EMITTED_VERTICES = 1_000_000
+_MAX_EMITTED_TRIANGLES = 2_000_000
+_MAX_MESH_INSTANCES = 10_000
+_MAX_COMPONENT_VISITS = 100_000
+# Decompressed size of one .model part (zip members are tiny when repetitive).
+_MAX_MODEL_PART_BYTES = 64 * 2**20
+
+
+class MeshBudgetExceeded(Exception):
+    """The package describes more geometry than a preview may expand (or a cycle)."""
+
+
+def _local(tag: str) -> str:
+    return tag.rsplit('}', 1)[-1]
+
+
+def _children(elem, name: str):
+    return [child for child in list(elem) if _local(child.tag) == name]
+
+
+def _child(elem, name: str):
+    found = _children(elem, name)
+    return found[0] if found else None
+
+
+def _finite(value) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        raise MeshBudgetExceeded("non-finite geometry")
+    return number
+
+
+def _matrix(value):
+    """3MF transform 'm00 m01 m02 m10 m11 m12 m20 m21 m22 m30 m31 m32' (row vectors)."""
+    if not value:
+        return _IDENTITY
+    try:
+        parts = tuple(_finite(v) for v in value.split())
+    except ValueError:
+        raise MeshBudgetExceeded("invalid transform") from None
+    if len(parts) != 12:
+        raise MeshBudgetExceeded("invalid transform")
+    return parts
+
+
+def _compose(inner, outer):
+    """Matrix applying `inner` first, then `outer`."""
+    a, b = inner, outer
+    rot = []
+    for r in range(3):
+        for c in range(3):
+            rot.append(sum(a[r * 3 + k] * b[k * 3 + c] for k in range(3)))
+    trans = [sum(a[9 + k] * b[k * 3 + c] for k in range(3)) + b[9 + c] for c in range(3)]
+    return tuple(rot + trans)
+
+
+def _root_model_path(zf: zipfile.ZipFile):
+    """The package's start part (OPC relationship), else 3D/3dmodel.model, else any .model."""
+    names = zf.namelist()
+    lower = {n.lower(): n for n in names}
+    try:
+        rels = ET.fromstring(zf.read(lower['_rels/.rels']))
+        for rel in rels.iter():
+            if _local(rel.tag) == 'Relationship' and (rel.get('Type') or '').endswith('/3dmodel'):
+                target = (rel.get('Target') or '').lstrip('/')
+                if target.lower() in lower:
+                    return lower[target.lower()]
+    except (KeyError, ET.ParseError, zipfile.BadZipFile):
+        pass
+    if '3d/3dmodel.model' in lower:
+        return lower['3d/3dmodel.model']
+    for name in names:
+        if name.lower().endswith('.model') and '3d/' in name.lower():
+            return name
+    for name in names:
+        if name.lower().endswith('.model'):
+            return name
+    return None
+
+
+def _collect_mesh_geometry(zf: zipfile.ZipFile):
+    """Flattened vertices/triangles of every built object.
+
+    Follows build items -> objects -> components, including 3MF Production
+    extension components whose geometry lives in another part
+    (``<component p:path="/3D/Objects/object_1.model">``, as written by
+    Bambu Studio and OrcaSlicer projects), applying each transform.
+    """
+    root_path = _root_model_path(zf)
+    if not root_path:
+        return [], []
+    lower = {n.lower(): n for n in zf.namelist()}
+    documents = {}
+
+    def objects_of(path):
+        if path not in documents:
+            try:
+                with zf.open(path) as member:
+                    data = member.read(_MAX_MODEL_PART_BYTES + 1)
+                if len(data) > _MAX_MODEL_PART_BYTES:
+                    raise MeshBudgetExceeded("model part too large")
+                tree = ET.fromstring(data)
+            except (KeyError, ET.ParseError):
+                documents[path] = ({}, None)
+                return documents[path]
+            resources = _child(tree, 'resources')
+            objects = {o.get('id'): o for o in _children(resources, 'object')} if resources is not None else {}
+            documents[path] = (objects, tree)
+        return documents[path]
+
+    vertices, triangles = [], []
+    budget = {'instances': 0, 'visits': 0}
+
+    def emit_mesh(mesh, transform):
+        verts_elem, tris_elem = _child(mesh, 'vertices'), _child(mesh, 'triangles')
+        if verts_elem is None or tris_elem is None:
+            return
+        budget['instances'] += 1
+        source = _children(verts_elem, 'vertex')
+        faces = _children(tris_elem, 'triangle')
+        if (budget['instances'] > _MAX_MESH_INSTANCES or len(vertices) // 3 + len(source) > _MAX_EMITTED_VERTICES
+                or len(triangles) // 3 + len(faces) > _MAX_EMITTED_TRIANGLES):
+            raise MeshBudgetExceeded("mesh budget exceeded")
+        offset = len(vertices) // 3
+        m = transform
+        count = 0
+        for v in source:
+            x, y, z = _finite(v.get('x', 0)), _finite(v.get('y', 0)), _finite(v.get('z', 0))
+            point = (x * m[0] + y * m[3] + z * m[6] + m[9],
+                     x * m[1] + y * m[4] + z * m[7] + m[10],
+                     x * m[2] + y * m[5] + z * m[8] + m[11])
+            if not all(math.isfinite(c) for c in point):
+                raise MeshBudgetExceeded("non-finite geometry")
+            vertices.extend(point)
+            count += 1
+        for t in faces:
+            ids = [int(t.get(k, 0)) for k in ('v1', 'v2', 'v3')]
+            if all(0 <= i < count for i in ids):
+                triangles.extend(i + offset for i in ids)
+
+    def emit_object(path, object_id, transform, stack):
+        key = (path, object_id)
+        if key in stack:
+            raise MeshBudgetExceeded("component cycle")
+        if len(stack) >= _MAX_COMPONENT_DEPTH:
+            raise MeshBudgetExceeded("components nested too deep")
+        budget['visits'] += 1
+        if budget['visits'] > _MAX_COMPONENT_VISITS:
+            raise MeshBudgetExceeded("too many components")
+        objects, _ = objects_of(path)
+        obj = objects.get(object_id)
+        if obj is None:
+            return
+        mesh = _child(obj, 'mesh')
+        if mesh is not None:
+            emit_mesh(mesh, transform)
+        components = _child(obj, 'components')
+        for comp in _children(components, 'component') if components is not None else []:
+            ref = comp.get('{%s}path' % _PROD_NS) or comp.get('path')
+            target = path
+            if ref:
+                target = lower.get(ref.lstrip('/').lower())
+                if target is None:
+                    continue
+            emit_object(target, comp.get('objectid'), _compose(_matrix(comp.get('transform')), transform), stack | {key})
+
+    objects, tree = objects_of(root_path)
+    build = _child(tree, 'build') if tree is not None else None
+    items = _children(build, 'item') if build is not None else []
+    if items:
+        for item in items:
+            emit_object(root_path, item.get('objectid'), _matrix(item.get('transform')), frozenset())
+    else:
+        # No build section: every object of the root part.
+        for object_id in objects:
+            emit_object(root_path, object_id, _IDENTITY, frozenset())
+    return vertices, triangles
+
+
 def extract_mesh_from_3mf(file_path: str) -> Optional[dict]:
     """
     Extract mesh geometry (vertices + triangles) from a .3mf file.
@@ -375,88 +589,12 @@ def extract_mesh_from_3mf(file_path: str) -> Optional[dict]:
     """
     try:
         with zipfile.ZipFile(file_path, 'r') as zf:
-            # Find the 3D model file
-            model_path = None
-            for name in zf.namelist():
-                if name.lower().endswith('.model') and '3d/' in name.lower():
-                    model_path = name
-                    break
-            
-            if not model_path:
-                # Try root-level .model file
-                for name in zf.namelist():
-                    if name.lower().endswith('.model'):
-                        model_path = name
-                        break
-            
-            if not model_path:
+            try:
+                all_vertices, all_triangles = _collect_mesh_geometry(zf)
+            except MeshBudgetExceeded as refused:
+                # No preview rather than an unbounded or invalid one.
+                print(f"Mesh preview refused: {refused}")
                 return None
-            
-            xml_data = zf.read(model_path).decode('utf-8')
-            
-            # Parse XML — handle namespace
-            # 3MF uses namespace: http://schemas.microsoft.com/3dmanufacturing/core/2015/02
-            ns = {'m': 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02'}
-            root = ET.fromstring(xml_data)
-            
-            all_vertices = []
-            all_triangles = []
-            vertex_offset = 0
-            
-            # Find all mesh elements (could be multiple objects)
-            meshes = root.findall('.//m:mesh', ns)
-            if not meshes:
-                # Try without namespace (some files don't use it)
-                meshes = root.findall('.//mesh')
-            
-            for mesh in meshes:
-                # Extract vertices
-                vertices_elem = mesh.find('m:vertices', ns)
-                if vertices_elem is None:
-                    vertices_elem = mesh.find('vertices')
-                if vertices_elem is None:
-                    continue
-                
-                local_verts = []
-                for v in vertices_elem.findall('m:vertex', ns):
-                    local_verts.extend([
-                        float(v.get('x', 0)),
-                        float(v.get('y', 0)),
-                        float(v.get('z', 0))
-                    ])
-                if not local_verts:
-                    for v in vertices_elem.findall('vertex'):
-                        local_verts.extend([
-                            float(v.get('x', 0)),
-                            float(v.get('y', 0)),
-                            float(v.get('z', 0))
-                        ])
-                
-                # Extract triangles
-                triangles_elem = mesh.find('m:triangles', ns)
-                if triangles_elem is None:
-                    triangles_elem = mesh.find('triangles')
-                if triangles_elem is None:
-                    continue
-                
-                local_tris = []
-                for t in triangles_elem.findall('m:triangle', ns):
-                    local_tris.extend([
-                        int(t.get('v1', 0)) + vertex_offset,
-                        int(t.get('v2', 0)) + vertex_offset,
-                        int(t.get('v3', 0)) + vertex_offset
-                    ])
-                if not local_tris:
-                    for t in triangles_elem.findall('triangle'):
-                        local_tris.extend([
-                            int(t.get('v1', 0)) + vertex_offset,
-                            int(t.get('v2', 0)) + vertex_offset,
-                            int(t.get('v3', 0)) + vertex_offset
-                        ])
-                
-                all_vertices.extend(local_verts)
-                all_triangles.extend(local_tris)
-                vertex_offset += len(local_verts) // 3
             
             if not all_vertices or not all_triangles:
                 return None

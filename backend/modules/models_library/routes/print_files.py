@@ -113,6 +113,28 @@ def _studio_print_notes(note: Optional[str], profile_metadata: Optional[dict]) -
 # Print Files (3MF upload & management)
 # ──────────────────────────────────────────────
 
+MESH_EXTRACTION_TIMEOUT_SECONDS = 30
+
+
+async def _analyze_3mf_upload(path):
+    """Isolated analysis of an uploaded 3MF; 429 with Retry-After when the install is busy."""
+    from modules.models_library.mesh_isolation import Busy, analyze_3mf_isolated
+    try:
+        return await analyze_3mf_isolated(path, timeout=MESH_EXTRACTION_TIMEOUT_SECONDS)
+    except Busy as busy:
+        raise HTTPException(status_code=429, detail="3MF analysis is busy; try again shortly",
+                            headers={"Retry-After": str(busy.retry_after)}) from None
+
+
+async def _extract_preview_mesh(path):
+    """Mesh preview or None. Runs in a bounded child process (time, memory, pool)."""
+    from modules.models_library.mesh_isolation import extract_mesh_isolated
+    mesh = await extract_mesh_isolated(path, timeout=MESH_EXTRACTION_TIMEOUT_SECONDS)
+    if mesh is None:
+        log.info("3MF mesh preview not produced (refused, too large or too slow)")
+    return mesh
+
+
 @router.post("/print-files/upload")
 @limiter.limit("30/minute")
 async def upload_3mf(
@@ -153,38 +175,27 @@ async def upload_3mf(
     try:
         if ext == ".3mf":
             # --- .3mf path: full metadata parse ---
-            from modules.models_library.threemf_parser import parse_3mf, extract_objects_from_plate, extract_mesh_from_3mf
-
-            # Zip bomb check: reject files where uncompressed size exceeds 500 MB
-            import zipfile as _zf
-            MAX_UNCOMPRESSED = 500 * 1024 * 1024
-            try:
-                with _zf.ZipFile(tmp_path, 'r') as _z:
-                    total_size = sum(e.file_size for e in _z.infolist())
-                    if total_size > MAX_UNCOMPRESSED:
-                        raise HTTPException(status_code=400, detail="File rejected: decompressed size exceeds 500 MB limit.")
-            except _zf.BadZipFile:
+            # The API process never parses the untrusted package: the zip directory,
+            # XML, plate JSON and preview mesh are read by a bounded child process.
+            analysis = await _analyze_3mf_upload(tmp_path)
+            if analysis.status == "too_large":
+                raise HTTPException(status_code=400, detail="File rejected: decompressed size exceeds the 500 MB limit (400 MB per member).")
+            if analysis.status == "too_many_members":
+                raise HTTPException(status_code=400, detail="File rejected: the .3mf has too many archive members.")
+            if analysis.status == "bad_zip":
                 raise HTTPException(status_code=400, detail="Invalid .3mf file (bad zip structure).")
-
-            metadata = parse_3mf(tmp_path)
-            if not metadata:
+            if analysis.status != "ok" or not analysis.metadata:
                 raise HTTPException(status_code=400, detail="Failed to parse .3mf file")
-
-            # Extract objects for quantity counting
-            import zipfile
-            with zipfile.ZipFile(tmp_path, 'r') as zf:
-                plate_objects = extract_objects_from_plate(zf)
-                # Sliced plates are the Metadata/plate_N.gcode members (same rule as schedule-options).
-                plate_count = len({name for name in zf.namelist()
-                                   if re.fullmatch(r"Metadata/plate_[1-9][0-9]*\.gcode", name)}) or 1
+            from modules.models_library.threemf_parser import metadata_from_dict
+            metadata = metadata_from_dict(analysis.metadata)
+            plate_objects = analysis.plate_objects
+            plate_count = analysis.plate_count
             # Default sellable pieces = objects checked by default (wipe towers excluded).
-            # Model-level fields (objects, quantity_per_bed, grams, build time) describe plate 1;
-            # per-plate values come from GET /models/{id}/plates.
-            default_quantity = sum(1 for obj in plate_objects if obj.get("checked")) or 1
-
-            # Extract 3D mesh for viewer
-            mesh_data = extract_mesh_from_3mf(tmp_path)
-            mesh_json = json.dumps(mesh_data) if mesh_data else None
+            default_quantity = sum(1 for obj in plate_objects if isinstance(obj, dict) and obj.get("checked")) or 1
+            mesh_data = analysis.mesh
+            if mesh_data is None:
+                log.info("3MF mesh preview not produced (refused, too large or too slow)")
+            mesh_json = json.dumps(mesh_data, allow_nan=False) if mesh_data else None
 
             current_user = await _fresh_upload_actor(db, current_user)
             duplicate_info = _visible_upload_duplicate(db, file_hash, current_user)
@@ -290,8 +301,8 @@ async def upload_3mf(
             db.execute(text("UPDATE print_files SET stored_path = :p, original_filename = :fn WHERE id = :id"),
                        {"p": stored_path, "fn": file.filename, "id": file_id})
 
-            # Extract bed/compatibility metadata and persist
-            meta = pfm.extract_print_file_meta(stored_path, ext)
+            # Bed/compatibility metadata, read by the isolated 3MF analysis
+            meta = analysis.file_meta
             db.execute(text(
                 "UPDATE print_files SET bed_x_mm = :x, bed_y_mm = :y, "
                 "compatible_api_types = :types, compatibility_facts_json = :facts WHERE id = :id"
@@ -537,61 +548,68 @@ async def submit_studio_print(
         FILE_FIELDS, lock_queue_reference, assert_unchanged,
         verified_queue_payload, assert_payload_unchanged, file_snapshot_predicate,
     )
-    try:
-        db.execute(text('UPDATE print_files SET id=id WHERE id=:id'), {'id': file_id})
-        row = accessible_preview_file(db, file_id, current_user)
-        _assert_generic_payload(db, row)
-        if row.job_id is not None or row.model_id != uploaded.get('model_id'):
-            raise HTTPException(409, 'Uploaded file changed; refresh before scheduling')
-        if row.model_id is not None:
-            lock_queue_reference(db, 'models', row.model_id, ('id', 'org_id'))
-        parent = _generic_parent(db, row, current_user)
-        assert_generic_model_reference_allowed(db, row.model_id)
-        target = lock_queue_reference(db, 'printers', target_printer_id, TARGET_FIELDS)
-        if target is None or not check_org_access(current_user, target.org_id):
-            raise HTTPException(404, 'Printer not found')
-        target_capture = capture(target, TARGET_FIELDS)
-        if target_capture != initial_target:
-            raise HTTPException(409, 'Selected printer changed during upload; refresh before scheduling')
-        file_capture = capture(row, FILE_FIELDS)
-        parent_capture = capture(parent, ('id', 'org_id'))
-        with verified_queue_payload(row, target) as payload_hash:
+    def _queue_uploaded():
+        # Blocking: row locks, payload hashing and the bounded plate check of the
+        # stored package run in a worker thread, never on the event loop.
+        try:
+            db.execute(text('UPDATE print_files SET id=id WHERE id=:id'), {'id': file_id})
+            row = accessible_preview_file(db, file_id, current_user)
+            _assert_generic_payload(db, row)
+            if row.job_id is not None or row.model_id != uploaded.get('model_id'):
+                raise HTTPException(409, 'Uploaded file changed; refresh before scheduling')
+            if row.model_id is not None:
+                lock_queue_reference(db, 'models', row.model_id, ('id', 'org_id'))
+            parent = _generic_parent(db, row, current_user)
+            assert_generic_model_reference_allowed(db, row.model_id)
+            target = lock_queue_reference(db, 'printers', target_printer_id, TARGET_FIELDS)
+            if target is None or not check_org_access(current_user, target.org_id):
+                raise HTTPException(404, 'Printer not found')
+            target_capture = capture(target, TARGET_FIELDS)
+            if target_capture != initial_target:
+                raise HTTPException(409, 'Selected printer changed during upload; refresh before scheduling')
+            file_capture = capture(row, FILE_FIELDS)
+            parent_capture = capture(parent, ('id', 'org_id'))
+            with verified_queue_payload(row, target) as payload_hash:
+                assert_unchanged(db, 'print_files', file_capture)
+                assert_unchanged(db, 'models', parent_capture)
+                assert_unchanged(db, 'printers', target_capture)
+            charge_job_quota(db, current_user)
+
+            job = queue_creator.stage_values(db, {
+                "item_name": uploaded.get("project_name") or filename,
+                "model_id": row.model_id, "print_file_id": row.id,
+                "payload_sha256": payload_hash, "plate_index": 0, "duration_hours": duration_hours,
+                "colors_required": ",".join(colors), "quantity": 1, "priority": 5,
+                "status": "pending", "printer_id": target_printer_id,
+                "hold": False, "is_locked": False, "notes": notes,
+                "charged_to_user_id": current_user.get("id") if current_user else None,
+                "charged_to_org_id": current_user.get("group_id") if current_user else None,
+                "target_type": "specific",
+            }, current_user)
+            job_id = job.id
             assert_unchanged(db, 'print_files', file_capture)
             assert_unchanged(db, 'models', parent_capture)
             assert_unchanged(db, 'printers', target_capture)
-        charge_job_quota(db, current_user)
+            _assert_generic_payload(db, row)
+            assert_generic_model_reference_allowed(db, row.model_id)
+            assert_payload_unchanged(row.stored_path, payload_hash)
+            predicate, parameters = file_snapshot_predicate(file_capture)
+            linked = db.execute(text(f'UPDATE print_files SET job_id=:job WHERE {predicate} AND job_id IS NULL'),
+                                {**parameters, 'job': job_id})
+            if linked.rowcount != 1:
+                raise HTTPException(409, 'Print file changed; refresh before scheduling')
+            db.commit()
+            return job_id
+        except (HTTPException, OdinError):
+            _rollback_file_transaction(db, file_id)
+            raise
+        except Exception as exc:
+            _rollback_file_transaction(db, file_id)
+            log.warning('Studio queue failed for file %s (%s)', file_id, type(exc).__name__)
+            raise HTTPException(500, 'Unable to queue uploaded print file. Refresh before retrying.') from None
 
-        job = queue_creator.stage_values(db, {
-            "item_name": uploaded.get("project_name") or filename,
-            "model_id": row.model_id, "print_file_id": row.id,
-            "payload_sha256": payload_hash, "plate_index": 0, "duration_hours": duration_hours,
-            "colors_required": ",".join(colors), "quantity": 1, "priority": 5,
-            "status": "pending", "printer_id": target_printer_id,
-            "hold": False, "is_locked": False, "notes": notes,
-            "charged_to_user_id": current_user.get("id") if current_user else None,
-            "charged_to_org_id": current_user.get("group_id") if current_user else None,
-            "target_type": "specific",
-        }, current_user)
-        job_id = job.id
-        assert_unchanged(db, 'print_files', file_capture)
-        assert_unchanged(db, 'models', parent_capture)
-        assert_unchanged(db, 'printers', target_capture)
-        _assert_generic_payload(db, row)
-        assert_generic_model_reference_allowed(db, row.model_id)
-        assert_payload_unchanged(row.stored_path, payload_hash)
-        predicate, parameters = file_snapshot_predicate(file_capture)
-        linked = db.execute(text(f'UPDATE print_files SET job_id=:job WHERE {predicate} AND job_id IS NULL'),
-                            {**parameters, 'job': job_id})
-        if linked.rowcount != 1:
-            raise HTTPException(409, 'Print file changed; refresh before scheduling')
-        db.commit()
-    except (HTTPException, OdinError):
-        _rollback_file_transaction(db, file_id)
-        raise
-    except Exception as exc:
-        _rollback_file_transaction(db, file_id)
-        log.warning('Studio queue failed for file %s (%s)', file_id, type(exc).__name__)
-        raise HTTPException(500, 'Unable to queue uploaded print file. Refresh before retrying.') from None
+    from starlette.concurrency import run_in_threadpool
+    job_id = await run_in_threadpool(_queue_uploaded)
 
     queued_position = db.execute(
         text("SELECT COUNT(*) FROM jobs WHERE status IN ('pending', 'scheduled') AND id <= :id"),

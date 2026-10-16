@@ -123,7 +123,7 @@ def test_actual_process_death_after_move_and_fresh_process_recovery(prepared_sta
     from pathlib import Path
     plan,_,_=prepared_stage;repo=Path(__file__).resolve().parents[2]
     command=[sys.executable,str(repo/'tests/fixtures/certification/run_owned_timelapse_stage.py'),str(plan[0].url.database),str(plan[1]),str(plan[2])]
-    environment=dict(os.environ,PYTHONPATH=str(repo/'backend')+':'+str(repo),BASE_URL='http://127.0.0.1:1')
+    environment=dict(os.environ,PYTHONPATH=str(repo/'backend')+':'+str(repo),ODIN_OWNED_TEST_ROOT=str(_pytest_owned_root()),BASE_URL='http://127.0.0.1:1')
     crashed=subprocess.run(command+[target],cwd=repo,env=environment,capture_output=True,text=True,timeout=30)
     assert crashed.returncode==73,{'returncode':crashed.returncode,'output':crashed.stdout}
     retained(prepared_stage)
@@ -243,3 +243,18 @@ def test_original_absence_is_checked_before_staging_and_never_adopts_late_file(o
     with Session(owned_plan[0]) as db:
         assert db.execute(text('SELECT state FROM timelapse_retirements')).scalar_one()=='pending'
         assert db.execute(text('SELECT COUNT(*) FROM timelapse_retirement_moves')).scalar_one()==0
+
+
+
+# The child's safety guard accepts only DB/media paths inside the pytest-owned temp
+# tree; that is the session basetemp, which --basetemp may place outside $TMPDIR.
+_BASETEMP = []
+
+
+def _pytest_owned_root():
+    return _BASETEMP[0]
+
+
+@pytest.fixture(autouse=True)
+def _record_pytest_owned_root(tmp_path_factory):
+    _BASETEMP[:] = [tmp_path_factory.getbasetemp().resolve()]

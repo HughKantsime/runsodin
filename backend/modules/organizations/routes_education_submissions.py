@@ -189,17 +189,32 @@ async def create_education_submission(
                 digest=digest,
             )
             return parser.replay
-        return finalize_staged_3mf_submission(
-            db,
-            original_filename=upload.filename or "",
-            operation_id=parser.operation_id,
-            principal=principal,
-            cost_center_id=parser.cost_center_id,
-            staging_path=parser.staging_path,
-            final_path=parser.final_path,
-            byte_count=upload.byte_count,
-            digest=digest,
-        )
+        # Validation and the isolated 3MF analysis block for up to the analysis deadline:
+        # admit on the loop (429 at once when the install is busy), then run the whole
+        # finalize on the dedicated 3MF executor, never on the event loop.
+        from fastapi import HTTPException
+        from modules.models_library.threemf_parser import ThreeMFBusy, reserve_3mf_analysis, run_on_3mf_executor
+        try:
+            ticket = reserve_3mf_analysis()
+        except ThreeMFBusy as busy:
+            raise HTTPException(status_code=429, detail="3MF analysis is busy; try again shortly",
+                                headers={"Retry-After": str(busy.retry_after)}) from None
+        try:
+            return await run_on_3mf_executor(
+                finalize_staged_3mf_submission,
+                db,
+                original_filename=upload.filename or "",
+                operation_id=parser.operation_id,
+                principal=principal,
+                cost_center_id=parser.cost_center_id,
+                staging_path=parser.staging_path,
+                final_path=parser.final_path,
+                byte_count=upload.byte_count,
+                digest=digest,
+                threemf_ticket=ticket,
+            )
+        finally:
+            ticket.release()
     finally:
         if parser.upload is not None and not parser.upload.file.closed:
             await parser.upload.close()

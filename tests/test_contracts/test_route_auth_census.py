@@ -25,6 +25,9 @@ PUBLIC={
     # Internal HTTP-camera relay for go2rtc/ffmpeg: loopback peers without forwarding
     # headers plus a per-boot per-printer HMAC token (modules/printers/camera_relay.py)
     'GET /internal/camera-source/{printer_id}/{token}',
+    # Overlay MJPEG relay: no session; the handler requires a camera-only (sole scope read:cameras) API
+    # token in ?token= and the token user's printer access (test_cert_B_camera_fixes.py)
+    'GET /api/overlay/{printer_id}/camera',
     # SPA fallback
     'GET /{path:path}',
 }

@@ -119,12 +119,12 @@ it('search, type/tag filters, sort and S/M/L/XL card size work on the real print
   fireEvent.change(screen.getByLabelText('Filter printers by tag'), { target: { value: '' } })
   fireEvent.change(screen.getByLabelText('Sort printers'), { target: { value: 'name_asc' } })
   expect(names()).toEqual(['Cert Bambu', 'Cert Centauri', 'Cert MK4', 'Cert Voron'])
-  for (const size of ['S', 'M', 'L', 'XL']) expect(screen.getByRole('button', { name: size, exact: true })).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: 'L', exact: true }))
+  for (const size of ['S', 'M', 'L', 'XL']) expect(screen.getByRole('button', { name: size })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'L' }))
   expect(localStorage.getItem('printerCardSize')).toBe('L')
   view.unmount()
   await page()
-  expect(screen.getByRole('button', { name: 'L', exact: true }).className).toContain('bg-[var(--brand-primary)]')
+  expect(screen.getByRole('button', { name: 'L' }).className).toContain('bg-[var(--brand-primary)]')
 })
 
 it('tags render on the card and every card has the AMS / Telemetry / Nozzle / HMS toolbar row', async () => {

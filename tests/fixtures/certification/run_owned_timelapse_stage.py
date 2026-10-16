@@ -4,7 +4,7 @@ from pathlib import Path
 
 try:
     database=Path(sys.argv[1]).resolve();root=Path(sys.argv[2]).resolve()
-    trusted=Path(tempfile.gettempdir()).resolve()
+    trusted=Path(os.environ.get('ODIN_OWNED_TEST_ROOT') or tempfile.gettempdir()).resolve()
     assert database.name=='review.db' and root.name=='owned-media'
     assert database.parent==root.parent and database.is_relative_to(trusted) and database.is_file() and root.is_dir()
     tid=int(sys.argv[3]);target=sys.argv[4]

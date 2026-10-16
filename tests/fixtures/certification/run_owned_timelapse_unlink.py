@@ -5,7 +5,7 @@ from pathlib import Path
 try:
     database=Path(sys.argv[1]).resolve();root=Path(sys.argv[2]).resolve()
     assert database.name=='review.db' and root.name=='owned-media'
-    assert database.parent==root.parent and database.is_relative_to(Path(tempfile.gettempdir()).resolve())
+    assert database.parent==root.parent and database.is_relative_to(Path(os.environ.get('ODIN_OWNED_TEST_ROOT') or tempfile.gettempdir()).resolve())
     assert database.is_file() and root.is_dir()
     tid=int(sys.argv[3]);index=int(sys.argv[4]);crash=sys.argv[5]
     assert tid>0 and index>=0 and crash in ('unlink','sync','none')

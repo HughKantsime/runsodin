@@ -4,31 +4,42 @@ import zipfile
 from fastapi import HTTPException
 
 
-def validate_plate(path: str, plate_index: int, api_type: str) -> int:
-    """Return the one-based Bambu member number, never trust cached plate_count."""
+def bambu_plate_numbers(path: str) -> list:
+    """The stored package's Metadata/plate_N.gcode numbers, from one bounded open.
+
+    The member count is checked from the end-of-central-directory record before
+    zipfile lists the directory, so an absurd stored package is refused cheaply."""
+    from core.zip_bounds import open_bounded
+    try:
+        with open_bounded(path) as package:
+            numbers = []
+            for member in package.infolist():
+                match = re.fullmatch(r"Metadata/plate_([1-9][0-9]*)\.gcode", member.filename)
+                if match:
+                    if member.is_dir() or member.file_size == 0:
+                        raise HTTPException(400, "Selected archive contains an empty print plate")
+                    numbers.append(int(match.group(1)))
+    except (OSError, zipfile.BadZipFile):
+        raise HTTPException(400, "Original file is not a readable sliced Bambu 3MF") from None
+    if len(numbers) != len(set(numbers)):
+        raise HTTPException(400, "Archive contains ambiguous duplicate print plates")
+    return sorted(numbers)
+
+
+def validate_plate(path: str, plate_index: int, api_type: str, *, plate_numbers=None) -> int:
+    """Return the one-based Bambu member number, never trust cached plate_count.
+    Pass ``plate_numbers`` (from bambu_plate_numbers) to validate several plates of one
+    package without reopening it."""
     if type(plate_index) is not int or plate_index < 0:
         raise HTTPException(400, "Plate index must be a nonnegative integer")
     if api_type != "bambu":
         if plate_index != 0:
             raise HTTPException(400, "Plate selection is supported only for Bambu printers")
         return 1
-    try:
-        with zipfile.ZipFile(path) as package:
-            members = package.infolist()
-            numbers = []
-            for member in members:
-                match = re.fullmatch(r"Metadata/plate_([1-9][0-9]*)\.gcode", member.filename)
-                if match:
-                    if member.is_dir() or member.file_size == 0:
-                        raise HTTPException(400, "Selected archive contains an empty print plate")
-                    numbers.append(int(match.group(1)))
-            if len(numbers) != len(set(numbers)):
-                raise HTTPException(400, "Archive contains ambiguous duplicate print plates")
-            # UI index N maps to protocol member N+1, never select by ZIP order.
-            if plate_index + 1 not in numbers:
-                raise HTTPException(400, "Selected print plate is not present in the stored file")
-    except (OSError, zipfile.BadZipFile):
-        raise HTTPException(400, "Original file is not a readable sliced Bambu 3MF") from None
+    numbers = bambu_plate_numbers(path) if plate_numbers is None else plate_numbers
+    # UI index N maps to protocol member N+1, never select by ZIP order.
+    if plate_index + 1 not in numbers:
+        raise HTTPException(400, "Selected print plate is not present in the stored file")
     return plate_index + 1
 
 

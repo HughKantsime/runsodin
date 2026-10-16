@@ -8,7 +8,7 @@ import NozzleStatusCard from './NozzleStatusCard'
 import HmsHistoryPanel from './HmsHistoryPanel'
 import FilamentSlotEditor from './FilamentSlotEditor'
 import PrintProgress from './PrintProgress'
-import { printers } from '../../api'
+import { printers, apiTokens } from '../../api'
 import { canDo, getCurrentUser } from '../../permissions'
 import { canControlPlug } from '../../utils/plugControl'
 import { isOnline, isActivePrintState, amsSlotGroup, isDualNozzle, dualNozzleModelName } from '../../utils/shared'
@@ -25,6 +25,7 @@ interface PrinterLike {
   api_host: string | null
   has_api_key: boolean
   camera_url: string | null
+  camera_enabled?: boolean
   bed_temp: number | null
   bed_target_temp: number | null
   nozzle_temp: number | null
@@ -63,6 +64,31 @@ interface PrinterCardProps {
   plugStates?: Record<number, boolean | undefined>
   plugPending?: boolean
   plugOutcome?: string
+}
+
+/**
+ * Copy the OBS overlay URL. The overlay page is public; its camera stream is
+ * not, so for a printer with a camera the URL carries a new read:cameras API
+ * token (revocable in Settings > API Tokens).
+ */
+async function copyOverlayUrl(printer: { id: number; name: string; nickname?: string | null }, withCamera: boolean) {
+  const base = `${window.location.origin}/overlay/${printer.id}`
+  if (!withCamera) {
+    await navigator.clipboard.writeText(base)
+    toast.success('Overlay URL copied')
+    return
+  }
+  try {
+    // A raw token cannot be read back, so each copy mints one; the name says which
+    // printer and day it was made for, and it expires after a year.
+    const day = new Date().toISOString().slice(0, 10)
+    const created = await apiTokens.create({ name: `OBS overlay: ${printer.nickname || printer.name} (#${printer.id}) ${day}`, scopes: ['read:cameras'], expires_days: 365 })
+    await navigator.clipboard.writeText(`${base}?token=${encodeURIComponent(created.token)}`)
+    toast.success('Overlay URL copied. It includes a camera token; revoke it in Settings > API Tokens.')
+  } catch {
+    await navigator.clipboard.writeText(base)
+    toast.error('Overlay URL copied without the camera: a camera token could not be created')
+  }
 }
 
 export default function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, onUpdateSlot, onEdit, onSyncAms, isDragging, onDragStart, onDragOver, onDragEnd, hasCamera, onCameraClick, onScanSpool, onPlugToggle, plugStates, plugPending, plugOutcome }: PrinterCardProps) {
@@ -167,7 +193,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
           {canDo('printers.edit') && <Button variant="ghost" size="icon" icon={Settings} onClick={() => onEdit(printer)} aria-label="Edit printer settings" />}
           {canDo('printers.edit') && <Button variant="ghost" size="icon" icon={printer.is_active ? Power : PowerOff} onClick={() => onToggleActive(printer.id, !printer.is_active)} className={clsx(printer.is_active ? 'text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10' : 'text-[var(--brand-text-muted)] hover:bg-[var(--brand-input-bg)]')} aria-label={printer.is_active ? 'Deactivate printer' : 'Activate printer'} />}
           {hasCamera && <Button variant="ghost" size="icon" icon={Video} onClick={() => onCameraClick?.(printer)} aria-label="View camera" />}
-          <Button variant="ghost" size="icon" icon={ExternalLink} onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/overlay/${printer.id}`); toast.success('Overlay URL copied') }} aria-label="Copy OBS overlay URL" title="Copy OBS overlay URL" />
+          <Button variant="ghost" size="icon" icon={ExternalLink} onClick={() => copyOverlayUrl(printer, !!hasCamera || (!!printer.camera_url && printer.camera_enabled !== false))} aria-label="Copy OBS overlay URL" title="Copy OBS overlay URL" />
           {printer.plug_type && onPlugToggle && canControlPlug(printer) && (
             <Button
               variant="ghost"

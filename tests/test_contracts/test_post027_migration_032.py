@@ -47,7 +47,9 @@ def test_fresh_sqlite_boot_applies_032_once_and_is_idempotent(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'fresh.db'}")
     try:
         first = bootstrap_database(engine)
-        assert first["applied"][-2:] == [M.MIGRATION_ID, "orm-baseline:1"]
+        # Later post-027 migrations (033...) follow 032; the ORM baseline is recorded last.
+        assert M.MIGRATION_ID in first["applied"] and first["applied"][-1] == "orm-baseline:1"
+        assert first["applied"].index(M.MIGRATION_ID) < first["applied"].index("orm-baseline:1")
         assert {c["name"] for c in inspect(engine).get_columns(TABLE)} == EXPECTED_COLUMNS
         second = bootstrap_database(engine)
         assert second["applied"] == [] and second["schema_fingerprint"] == first["schema_fingerprint"]

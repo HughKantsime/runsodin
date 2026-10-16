@@ -26,7 +26,8 @@ def immutable_timelapse_policy(principal,*,mutation=False):
         provider=registry.get_provider('EducationPolicyProvider')
         audience=getattr(provider,'archive_audience_sql',None)
         education=audience() if callable(audience) else generic_archive_audience_sql()
-        policy="((a.owner_state='known' AND a.org_id=:_arc_org) OR a.owner_state='shared') AND ("+education+")"
+        from core.tenancy_mode import SHARED_CAPTURE_AUDIENCE_SQL
+        policy="((a.owner_state='known' AND a.org_id=:_arc_org) OR (a.owner_state='shared' AND "+SHARED_CAPTURE_AUDIENCE_SQL+")) AND ("+education+")"
         parameters={'_arc_org':org,'_arc_user':principal.get('id'),'_arc_admin':1 if principal.get('role')=='admin' else 0}
     return policy,parameters
 
@@ -81,3 +82,5 @@ def inherit_timelapse_owner(db,source,derived,principal):
                   scheduled_job_id=derived.print_job_id,filename=derived.filename)
     derived.ownership_operation_id=nonce
     db.execute(anchors.insert(),values)
+    from core import timelapse_capture_tenancy_schema as capture_tenancy
+    capture_tenancy.copy(db.connection(),source.ownership_operation_id,nonce)

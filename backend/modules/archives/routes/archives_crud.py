@@ -530,32 +530,13 @@ def ams_preview(
                 available.append({
                     "slot": s.slot_number,
                     "color": s.color or "",
+                    "color_hex": s.color_hex or "",
                     "material": s.material_type or "",
-                    "spool_id": s.spool_id,
+                    "spool_id": s.assigned_spool_id,
                 })
 
-    # Simple auto-match: exact type+color match
-    suggested = []
-    for req in required:
-        best = None
-        confidence = "none"
-        for avail in available:
-            if (req["material"].lower() == avail["material"].lower()
-                    and req["color"].lower() == avail["color"].lower()):
-                best = avail["slot"]
-                confidence = "exact"
-                break
-            elif req["material"].lower() == avail["material"].lower():
-                if best is None:
-                    best = avail["slot"]
-                    confidence = "material_only"
-        if best is not None:
-            suggested.append({
-                "source_slot": req["slot"],
-                "target_slot": best,
-                "confidence": confidence,
-            })
-
+    from modules.archives.ams_mapping import suggest_mapping
+    suggested = suggest_mapping(required, available)
     return {"required": required, "available": available, "suggested_mapping": suggested}
 
 

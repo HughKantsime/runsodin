@@ -16,7 +16,10 @@ import uuid
 IMAGE = 'postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea'
 RUNTIME_REF = 'ghcr.io/hughkantsime/odin@sha256:f4ecb5d6dd0b8b8216fb29c680a887624714f79c0e7236e6ec20b22e2ca2899e'
 RELEASED_IMAGE = 'ghcr.io/hughkantsime/odin:v1.9.24'
-STAGING = Path('/Users/ollama/Documents/Claude/odin/artifacts/application-certification/migrations')
+import os
+# Owners of concurrent proofs pick their own container prefix and receipt directory.
+STAGING = Path(os.environ.get('POST027_STAGING', '/Users/ollama/Documents/Claude/odin/artifacts/application-certification/migrations'))
+PREFIX = os.environ.get('POST027_CONTAINER_PREFIX', 'certfixMig_')
 
 
 def run(*args, timeout=120):
@@ -29,7 +32,7 @@ def run(*args, timeout=120):
 def main():
     root = Path.cwd().resolve()
     tag = uuid.uuid4().hex[:10]
-    name = 'certfixMig_' + tag
+    name = PREFIX + tag
     database, runtime = name + '_db', name + '_runtime'
     source = STAGING / ('src-' + tag)
     head = run('git', 'rev-parse', 'HEAD').strip()
@@ -51,7 +54,8 @@ def main():
         run('docker', 'run', '-d', '--name', database, '--network', name, '--network-alias', 'pg',
             '--tmpfs', '/var/lib/postgresql/data:rw,size=1024m', '-e', 'POSTGRES_HOST_AUTH_METHOD=trust', IMAGE)
         deadline = time.monotonic() + 60
-        while subprocess.run(['docker', 'exec', database, 'pg_isready', '-U', 'postgres'], capture_output=True, timeout=10).returncode:
+        # TCP readiness: the image's init-time server listens on the socket only and then restarts.
+        while subprocess.run(['docker', 'exec', database, 'pg_isready', '-h', '127.0.0.1', '-U', 'postgres'], capture_output=True, timeout=10).returncode:
             if time.monotonic() > deadline:
                 raise RuntimeError('Owned database not ready')
             time.sleep(.5)

@@ -59,6 +59,10 @@ CLASSIFICATIONS: dict[str, tuple[str, str]] = {
         "sqlite-provider-only",
         "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
     ),
+    "backend/core/log_redaction.py": (
+        "dialect-neutral",
+        "Credential-redaction regular expressions (Set-Cookie headers, optional quotes) contain qmark-like fragments; this logging helper performs no database operations or SQL.",
+    ),
     "backend/modules/archives/project_zip_manifest.py": (
         "dialect-neutral",
         "The bounded UTC timestamp regular expression contains a qmark-like fragment; this closed ZIP metadata parser performs no database operations or SQL.",
@@ -69,6 +73,7 @@ CLASSIFICATIONS: dict[str, tuple[str, str]] = {
     'backend/core/power_target_operations.py': ('dialect-neutral', 'Closed operation templates use the shared power schema executor for provider-specific qmark binding and timestamps; this storage helper does not authorize device commands.'),
     'backend/core/schema/migrations/021_economic_identity.py': ('sqlite-provider-only', 'SQLite declarations, trigger catalog and foreign-key PRAGMAs are guarded by dialect; PostgreSQL validates native constraints and exact guard definitions.'),
     'backend/core/schema/migrations/022_economic_source_lifetimes.py': ('sqlite-provider-only', 'SQLite lifetime DDL and retained enforcement checks are dialect guarded; PostgreSQL has its own source-owned constraints and guard validation.'),
+    'backend/core/schema/migrations/033_timelapse_capture_tenancy.py': ('sqlite-provider-only', 'The foreign-key PRAGMA that reads ON DELETE and the BEGIN IMMEDIATE write lock are guarded by dialect; PostgreSQL validates the reflected constraint options.'),
     'backend/core/spool_purchase_evidence.py': ('sqlite-provider-only', 'SQLite foreign-key enforcement and writer transaction checks are dialect guarded; PostgreSQL uses finite native locks in the caller transaction.'),
     'backend/core/spool_purchase_schema.py': ('sqlite-provider-only', 'SQLite catalog, shadowing and foreign-key checks are dialect guarded; PostgreSQL uses native schema and exact canonical guard validation.'),
     'backend/modules/archives/timelapse_action_authority.py': ('sqlite-provider-only', 'SQLite foreign-key enforcement and BEGIN IMMEDIATE are dialect guarded; PostgreSQL action authority uses its own caller transaction and source locks.'),

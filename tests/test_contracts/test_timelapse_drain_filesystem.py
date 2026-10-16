@@ -186,7 +186,7 @@ def test_actual_process_death_after_unlink_or_sync_and_fresh_retry(staged_drain,
         row=next(value for value in fs.plan if value['kind']==kind);pending(plan,fs,row)
         index=row['object_index'];file=destination(plan,row)
     command=[sys.executable,str(repo/'tests/fixtures/certification/run_owned_timelapse_unlink.py'),str(plan[0].url.database),str(plan[1]),str(plan[2]),str(index)]
-    env=dict(os.environ,PYTHONPATH=str(repo/'backend')+':'+str(repo),BASE_URL='http://127.0.0.1:1')
+    env=dict(os.environ,PYTHONPATH=str(repo/'backend')+':'+str(repo),ODIN_OWNED_TEST_ROOT=str(_pytest_owned_root()),BASE_URL='http://127.0.0.1:1')
     ended=subprocess.run(command+[crash],cwd=repo,env=env,capture_output=True,text=True,timeout=30)
     assert ended.returncode==(74 if crash=='unlink' else 75),{'returncode':ended.returncode,'output':ended.stdout}
     assert not file.exists()
@@ -214,3 +214,18 @@ def test_malformed_admission_refuses_before_any_unlink(staged_drain,change):
         with pytest.raises((StagingFilesystemUnavailable,RenameUnavailable)):
             DrainFilesystem(fs.root_fd,fs.quarantine_fd,fs.root,fs.quarantine,fs.plan,fs.parents,fs.moves,fs.unlinks,fs.guard)
         assert file.exists()
+
+
+
+# The child's safety guard accepts only DB/media paths inside the pytest-owned temp
+# tree; that is the session basetemp, which --basetemp may place outside $TMPDIR.
+_BASETEMP = []
+
+
+def _pytest_owned_root():
+    return _BASETEMP[0]
+
+
+@pytest.fixture(autouse=True)
+def _record_pytest_owned_root(tmp_path_factory):
+    _BASETEMP[:] = [tmp_path_factory.getbasetemp().resolve()]

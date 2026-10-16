@@ -41,13 +41,16 @@ SessionLocal = sessionmaker(bind=engine)
 
 def get_active_printers(session) -> list:
     """Get printers that have timelapse enabled and are currently printing."""
-    rows = session.execute(text("""
+    from core.printer_utils import PRINTING_STATES, state_sql_in
+    # Protocol-neutral: Bambu reports RUNNING, Moonraker/PrusaLink/Elegoo PRINTING.
+    printing, params = state_sql_in("p.gcode_state", PRINTING_STATES, "state")
+    rows = session.execute(text(f"""
         SELECT p.id, p.name
         FROM printers p
         WHERE p.timelapse_enabled IS TRUE
           AND p.is_active IS TRUE
-          AND p.gcode_state = 'RUNNING'
-    """)).fetchall()
+          AND {printing}
+    """), params).fetchall()
     return [{"id": r[0], "name": r[1]} for r in rows]
 
 
@@ -107,6 +110,15 @@ def get_or_create_timelapse(session, printer_id: int, job_id: int, *, return_tic
         if type(value) is bool:shared = value
         elif type(value) is int and value in (0,1):shared = value == 1
         else:raise RuntimeError("Capture visibility unavailable")
+        # capture_printer_shared records the printer's install-wide audience at
+        # capture time: shared, or org-less on an install without organizations
+        # (single-tenant: the install owns it). Multi-org installs are unchanged.
+        # One observation of the tenancy mode decides both the owner state and the
+        # stored capture-time fact (migration 033), so an organization created
+        # between them cannot split the decision.
+        from core import tenancy_mode
+        has_orgs = tenancy_mode.install_has_organizations(session.connection())
+        shared = tenancy_mode.printer_visible_install_wide(session.connection(), printer[0], shared, has_organizations=has_orgs)
         org = source.get('org_id')
         state = 'unresolved'
         if source.get('state') == 'known':
@@ -129,6 +141,9 @@ def get_or_create_timelapse(session, printer_id: int, job_id: int, *, return_tic
             'education_submission_id':source.get('education_submission_id'),
             'capture_printer_org_id':printer[0],'capture_printer_shared':shared,
         })
+        # The capture-time tenancy fact the audience rule reads (migration 033).
+        from core import timelapse_capture_tenancy_schema as capture_tenancy
+        capture_tenancy.record(session.connection(), nonce, not has_orgs)
         session.commit()
         return CaptureTicket(tid,nonce,job_id) if return_ticket else tid
     except Exception:
@@ -226,4 +241,6 @@ def main_loop():
 
 
 if __name__ == "__main__":
+    from core.log_redaction import install_log_redaction
+    install_log_redaction()
     main_loop()

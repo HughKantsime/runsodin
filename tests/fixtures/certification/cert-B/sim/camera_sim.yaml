@@ -1,0 +1,12 @@
+# Cert-B physical RTSP camera simulator: a second go2rtc (1.9.4) RTSP server inside the
+# ODIN container. A looping ffmpeg publishes a live lavfi H.264 test pattern to
+# rtsp://<container-ip>:8556/cam (push mode, so the camera keeps streaming
+# independently of consumers, like a real IP camera).
+api:
+  listen: ":1985"
+rtsp:
+  listen: ":8556"
+webrtc:
+  listen: ":8566"
+streams:
+  cam:

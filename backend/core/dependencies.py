@@ -179,6 +179,101 @@ def validate_access_token(token: str, db: Session) -> Optional[dict]:
     return _principal(user, "bearer_jwt")
 
 
+def resolve_user_api_token(api_key: str, db: Session) -> Optional[dict]:
+    """Principal for a per-user scoped API token (odin_xxx), or None.
+
+    Shared by the X-API-Key header path and carriers that cannot send
+    headers (e.g. an <img> stream URL); the caller binds the actor.
+    """
+    if not isinstance(api_key, str) or not api_key.startswith("odin_"):
+        return None
+    prefix = api_key[:10]
+    candidates = db.execute(
+        text("SELECT * FROM api_tokens WHERE token_prefix = :prefix"),
+        {"prefix": prefix},
+    ).fetchall()
+    # Constant-time multi-entry compare: verify_password() runs for
+    # every candidate, and we only commit to a match AFTER iterating
+    # the full list. Folding the expiry check into the per-candidate
+    # `usable` flag means an expired token still consumes the same
+    # bcrypt time as a valid one. Without this, the first-prefix-
+    # match-wins shape made it possible to map prefix density across
+    # the token store from the outside via response timing.
+    #
+    # Historical (v1.9.1 prod incident 2026-04-16): the expiry parse
+    # block previously imported `dateutil.parser.parse` which isn't
+    # in requirements.txt. The ModuleNotFoundError raised on EVERY
+    # scoped-token auth. Switched to stdlib `datetime.fromisoformat`.
+    matched_candidate = None
+    for candidate in candidates:
+        byte_match = verify_password(api_key, candidate.token_hash)
+        expired = False
+        if candidate.expires_at:
+            try:
+                raw = candidate.expires_at
+                exp = datetime.fromisoformat(raw) if isinstance(raw, str) else raw
+                if exp.tzinfo is None:
+                    exp = exp.replace(tzinfo=timezone.utc)
+                expired = exp <= datetime.now(timezone.utc)
+            except Exception:
+                # Invalid stored expiry cannot establish usable credentials.
+                expired = True
+        usable = not expired
+        if byte_match and usable and matched_candidate is None:
+            matched_candidate = candidate
+    if matched_candidate is None:
+        return None
+    candidate = matched_candidate
+    # Update last_used_at — best effort. This is telemetry,
+    # not part of the auth decision. If it races with another
+    # writer (idempotency middleware, another auth call) and
+    # SQLite returns `database is locked`, we must NOT fail
+    # the auth — the agent would see a 500 on every scoped-
+    # token call under any concurrent write load, which is
+    # exactly what the v1.9.1 sweep 2026-04-16 surfaced.
+    try:
+        db.execute(
+            text("UPDATE api_tokens SET last_used_at = :now WHERE id = :id"),
+            {"now": datetime.now(timezone.utc), "id": candidate.id},
+        )
+        db.commit()
+    except Exception as exc:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        log.debug(
+            "Best-effort api_tokens.last_used_at update failed "
+            "(likely SQLite WAL contention): %s", exc,
+        )
+    # Fetch the user
+    user = db.execute(
+        text("SELECT * FROM users WHERE id = :id"),
+        {"id": candidate.user_id},
+    ).fetchone()
+    scopes = parse_token_scopes(candidate.scopes)
+    if scopes is None or not user:
+        return None
+    # Combined read:cameras tokens predate the camera-only rule and are revoked.
+    from core.api_token_policy import is_legacy_camera_combination
+    if is_legacy_camera_combination(scopes):
+        return None
+    # Stored credentials cannot retain privileges removed from the account.
+    if "admin" in scopes and user.role != "admin":
+        return None
+    if "agent:write" in scopes and user.role not in {"admin", "operator"}:
+        return None
+    principal = _principal(
+        user,
+        "user_api_token",
+        token_id=int(candidate.id),
+        token_scopes=scopes,
+    )
+    if principal:
+        principal["_token_expires_at"] = candidate.expires_at
+    return principal
+
+
 async def get_current_user(
     request: Request,
     token: str = Depends(oauth2_scheme),
@@ -294,87 +389,14 @@ async def get_current_user(
                 return principal
 
         # 2b: Per-user scoped tokens (odin_xxx format)
-        if api_key.startswith("odin_"):
-            prefix = api_key[:10]
-            candidates = db.execute(
-                text("SELECT * FROM api_tokens WHERE token_prefix = :prefix"),
-                {"prefix": prefix},
-            ).fetchall()
-            # Constant-time multi-entry compare: verify_password() runs for
-            # every candidate, and we only commit to a match AFTER iterating
-            # the full list. Folding the expiry check into the per-candidate
-            # `usable` flag means an expired token still consumes the same
-            # bcrypt time as a valid one. Without this, the first-prefix-
-            # match-wins shape made it possible to map prefix density across
-            # the token store from the outside via response timing.
-            #
-            # Historical (v1.9.1 prod incident 2026-04-16): the expiry parse
-            # block previously imported `dateutil.parser.parse` which isn't
-            # in requirements.txt. The ModuleNotFoundError raised on EVERY
-            # scoped-token auth. Switched to stdlib `datetime.fromisoformat`.
-            matched_candidate = None
-            for candidate in candidates:
-                byte_match = verify_password(api_key, candidate.token_hash)
-                expired = False
-                if candidate.expires_at:
-                    try:
-                        raw = candidate.expires_at
-                        exp = datetime.fromisoformat(raw) if isinstance(raw, str) else raw
-                        if exp.tzinfo is None:
-                            exp = exp.replace(tzinfo=timezone.utc)
-                        expired = exp <= datetime.now(timezone.utc)
-                    except Exception:
-                        # Invalid stored expiry cannot establish usable credentials.
-                        expired = True
-                usable = not expired
-                if byte_match and usable and matched_candidate is None:
-                    matched_candidate = candidate
-            if matched_candidate is not None:
-                candidate = matched_candidate
-                # Update last_used_at — best effort. This is telemetry,
-                # not part of the auth decision. If it races with another
-                # writer (idempotency middleware, another auth call) and
-                # SQLite returns `database is locked`, we must NOT fail
-                # the auth — the agent would see a 500 on every scoped-
-                # token call under any concurrent write load, which is
-                # exactly what the v1.9.1 sweep 2026-04-16 surfaced.
-                try:
-                    db.execute(
-                        text("UPDATE api_tokens SET last_used_at = :now WHERE id = :id"),
-                        {"now": datetime.now(timezone.utc), "id": candidate.id},
-                    )
-                    db.commit()
-                except Exception as exc:
-                    try:
-                        db.rollback()
-                    except Exception:
-                        pass
-                    log.debug(
-                        "Best-effort api_tokens.last_used_at update failed "
-                        "(likely SQLite WAL contention): %s", exc,
-                    )
-                # Fetch the user
-                user = db.execute(
-                    text("SELECT * FROM users WHERE id = :id"),
-                    {"id": candidate.user_id},
-                ).fetchone()
-                scopes = parse_token_scopes(candidate.scopes)
-                if scopes is None or not user:
-                    return None
-                # Stored credentials cannot retain privileges removed from the account.
-                if "admin" in scopes and user.role != "admin":
-                    return None
-                if "agent:write" in scopes and user.role not in {"admin", "operator"}:
-                    return None
-                principal = _principal(
-                    user,
-                    "user_api_token",
-                    token_id=int(candidate.id),
-                    token_scopes=scopes,
-                )
-                if principal:
-                    principal["_token_expires_at"] = candidate.expires_at
-                    bind_verified_actor(db, principal)
-                    return principal
+        principal = resolve_user_api_token(api_key, db)
+        from core.api_token_policy import is_camera_only
+        if principal and is_camera_only(principal.get("_token_scopes")):
+            # Overlay camera tokens authenticate only /overlay/{id}/camera, which
+            # resolves them itself; never a general API credential.
+            return None
+        if principal:
+            bind_verified_actor(db, principal)
+            return principal
 
     return None

@@ -37,6 +37,7 @@ def main():
         post_ids = [migration_id for migration_id, _ in POST027_MIGRATIONS]
         from core.quiet_hours_deferral_schema import TABLE as DEFERRED, EXPECTED_COLUMNS
         from core.quiet_hours_deferral_schema import validate as validate_032
+        from core.timelapse_capture_tenancy_schema import TABLE as TENANCY, validate as validate_033
 
         def fresh(name):
             with admin.connect() as c:
@@ -47,6 +48,7 @@ def main():
             # Migration 032's table, exactly shaped (name kept from the 030 proof's helper).
             with engine.connect() as c:
                 validate_032(c)
+                validate_033(c)
                 return {r[0] for r in c.execute(text("SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=:t"), {'t': DEFERRED})} == EXPECTED_COLUMNS
 
         # 1. Fresh PostgreSQL boot, twice.
@@ -124,10 +126,15 @@ def main():
             c.execute(text("UPDATE system_config SET value='\"current-backup\"' WHERE key='historical_marker'"))
             c.execute(text("INSERT INTO " + DEFERRED + "(id,user_id,org_id,scope_key,channel,alert_type,severity,title,state) "
                            "VALUES('roundtrip032',3,1,'org:1','email','print_failed','critical','kept','pending')"))
+            # Migration 033: a capture-tenancy row (with its ownership anchor) survives too.
+            c.execute(text("INSERT INTO timelapse_ownership_anchors(operation_id,timelapse_id,printer_id,filename,owner_state,"
+                           "ownership_source,capture_printer_shared) VALUES('roundtrip033',1,1,'roundtrip.mp4','unresolved','capture_unresolved',FALSE)"))
+            c.execute(text("INSERT INTO " + TENANCY + "(operation_id,captured_single_tenant) VALUES('roundtrip033',TRUE)"))
         backup, backup_metadata = b.create_postgres_backup(target, maintenance_url=maintenance, **args)
         with engine.begin() as c:
             c.execute(text("UPDATE system_config SET value='\"after-backup\"' WHERE key='historical_marker'"))
             c.execute(text("DELETE FROM " + DEFERRED))
+            c.execute(text("DELETE FROM " + TENANCY))
         current = b.validate_postgres_restore(backup, target, maintenance, **args)
         assert 'source_schema_version' not in current and current['restore_validated']
         b.stage_postgres_restore(backup, target, maintenance, **args); engine.dispose()
@@ -136,7 +143,9 @@ def main():
         with engine.connect() as c:
             validate_executables(c)
             assert c.execute(text("SELECT id,title FROM " + DEFERRED)).all() == [('roundtrip032', 'kept')]
+            assert c.execute(text("SELECT operation_id,captured_single_tenant FROM " + TENANCY)).all() == [('roundtrip033', True)]
         print('post027-native-current-backup-restore-roundtrip-data-and-032-row-pass', flush=True)
+        print('post027-native-current-backup-restore-roundtrip-033-capture-tenancy-row-pass', flush=True)
 
         engine.dispose()
 

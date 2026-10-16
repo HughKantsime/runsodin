@@ -38,11 +38,12 @@ class ErrorRingBuffer:
         # Keep last 5 frames only
         tb_lines = tb_lines[-5:]
 
+        from core.log_redaction import redact_text
         entry = ErrorEntry(
             timestamp=time.time(),
             exc_type=type(exc).__name__,
-            exc_message=str(exc),
-            traceback_frames=tb_lines,
+            exc_message=redact_text(str(exc)),
+            traceback_frames=[redact_text(line) for line in tb_lines],
             request_path=str(request.url.path) if request else None,
             request_method=request.method if request else None,
         )

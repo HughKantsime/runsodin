@@ -50,6 +50,9 @@ POST027_RAW_TABLES = {
             "id user_id org_id scope_key channel alert_type severity title message printer_id job_id spool_id state "
             "outcome_reason created_at delivered_at".split()),
     },
+    "python:033-timelapse-capture-tenancy": {
+        "timelapse_capture_tenancy": frozenset("operation_id captured_single_tenant created_at".split()),
+    },
 }
 
 

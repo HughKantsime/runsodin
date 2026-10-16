@@ -38,6 +38,8 @@ export interface FilamentSlot {
   spool_confirmed: boolean | null;
   loaded_at: string | null;
   remaining: number | null;
+  /** Grams left on the assigned spool. */
+  remaining_weight?: number | null;
   material_type: string | null;
 }
 
@@ -60,7 +62,10 @@ export interface Printer {
   is_active: boolean;
   api_type: string | null;
   api_host: string | null;
+  /** Effective camera URL (configured, or generated for Bambu X1C/X1E/H2D), credentials masked. */
   camera_url: string | null;
+  camera_enabled?: boolean;
+  camera_source?: 'configured' | 'auto' | null;
   nickname: string | null;
   bed_temp: number | null;
   bed_target_temp: number | null;

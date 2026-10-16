@@ -54,12 +54,20 @@ export interface ArchiveCompareResult {
   [key: string]: unknown;
 }
 
+export interface ArchiveAmsRequirement { slot: number; color: string; material: string }
+export interface ArchiveAmsSlot { slot: number; color: string; color_hex: string; material: string; spool_id: number | null }
+export interface ArchiveAmsSuggestion { source_slot: number; target_slot: number; confidence: 'exact' | 'material_only' }
+
 export interface ArchiveAmsPreview {
-  [key: string]: unknown;
+  required: ArchiveAmsRequirement[];
+  available: ArchiveAmsSlot[];
+  suggested_mapping: ArchiveAmsSuggestion[];
 }
 
 export interface ArchiveReprintRequest {
   printer_id?: number;
+  plate_index?: number;
+  ams_mapping?: { source_slot: number; target_slot: number }[];
   [key: string]: unknown;
 }
 

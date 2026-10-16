@@ -652,6 +652,9 @@ def create_app() -> FastAPI:
 
     Returns the fully configured app object. Uvicorn finds it via main:app.
     """
+    # Credential-bearing URLs (?token=...) must never reach access or error logs.
+    from core.log_redaction import install_log_redaction
+    install_log_redaction()
     from core.config import settings
     from core.db import engine, Base, get_db
     from core.auth import decode_token
@@ -769,6 +772,18 @@ def create_app() -> FastAPI:
             log.info("go2rtc config synced on startup")
         except Exception as e:
             log.warning(f"go2rtc config sync failed on startup: {e}")
+
+        # Revoke combined read:cameras tokens (never valid in a release; overlay
+        # URLs must carry camera-only tokens). Idempotent; never blocks startup.
+        try:
+            from core.db import SessionLocal
+            from core.api_token_policy import revoke_legacy_camera_tokens
+            with SessionLocal() as session:
+                revoked = await asyncio.to_thread(revoke_legacy_camera_tokens, session)
+            if revoked:
+                log.warning("Revoked %d legacy combined read:cameras API token(s)", revoked)
+        except Exception as e:
+            log.warning("Legacy camera token revocation failed on startup: %s", type(e).__name__)
 
         broadcast_task = asyncio.create_task(_ws_broadcaster())
         cleanup_task = asyncio.create_task(_periodic_cleanup())
