@@ -10,7 +10,13 @@ helper, an ORM attribute change or ``db.add``, ``update(User)``. ORM flushes are
 covered because they emit SQL through the same cursor.
 
 Background daemons, the CLI and requests authenticated by a login session are
-never marked, so they are unaffected.
+never marked, so they are unaffected. Raw DBAPI cursors from core.db_utils.get_db
+call check_credential_write directly.
+
+Known limits (no current code path relies on them): work handed to a
+ThreadPoolExecutor/threading.Thread/run_in_executor does not inherit the request
+context, and statements on connections opened outside SQLAlchemy and db_utils
+are not seen.
 """
 
 from __future__ import annotations
@@ -48,10 +54,13 @@ _DELETE_GUARDED_TABLES = frozenset({"oidc_config", "system_config"})
 _ALLOWED_TOKEN_TELEMETRY = {("api_tokens", frozenset({"last_used_at"}))}
 
 _COMMENT = re.compile(r"--[^\n]*|/\*.*?\*/", re.S)
+_IDENT = r"[\"`\[]?\w+[\"`\]]?"
 _WRITE = re.compile(
     r"\b(INSERT\s+(?:OR\s+\w+\s+)?INTO|REPLACE\s+INTO|UPDATE(?:\s+OR\s+\w+)?|DELETE\s+FROM|MERGE\s+INTO)\s+"
-    r"((?:\"?\w+\"?\.)?\"?\w+\"?)", re.I)
-_SET_COLUMN = re.compile(r"(?:^|,|\()\s*\"?(\w+)\"?\s*=", re.I)
+    rf"((?:{_IDENT}\.)?{_IDENT})", re.I)
+_SET_STOP = re.compile(r"(WHERE|RETURNING|FROM)\b", re.I)
+# system_config writes must name their key exactly; LIKE/GLOB/concatenation fail closed.
+_KEY_EQUALS = re.compile(r"\bkey\b\s*=\s*(?:'[^']*'|:\w+|\?|%\(\w+\)s|\$\d+)", re.I)
 
 
 class CredentialWriteRefused(HTTPException):
@@ -70,20 +79,73 @@ def request_is_noninteractive() -> bool:
 
 
 def _table_name(raw: str) -> str:
-    return raw.split(".")[-1].strip('"').lower()
+    return raw.split(".")[-1].strip('"`[]').lower()
+
+
+def _top_level_set_clause(sql: str, start: int) -> str | None:
+    """The SET clause after ``start``, cut at the first top-level WHERE/RETURNING/FROM/;.
+    Parentheses and quotes are tracked so subqueries inside SET don't end it early."""
+    m = re.search(r"\bSET\b", sql[start:], re.I)
+    if not m:
+        return None
+    i = start + m.end()
+    depth, quote, out = 0, None, []
+    while i < len(sql):
+        ch = sql[i]
+        if quote:
+            if ch == quote:
+                quote = None
+        elif ch in "'\"`":
+            quote = ch
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif depth == 0 and (ch == ";" or (sql[i - 1:i].isspace() and _SET_STOP.match(sql, i))):
+            break
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _split_top_level(clause: str) -> list[str]:
+    parts, depth, quote, cur = [], 0, None, []
+    for ch in clause:
+        if quote:
+            quote = None if ch == quote else quote
+        elif ch in "'\"`":
+            quote = ch
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            parts.append("".join(cur)); cur = []
+            continue
+        cur.append(ch)
+    parts.append("".join(cur))
+    return parts
 
 
 def _set_columns(sql: str, start: int) -> frozenset[str]:
-    """Columns assigned by the UPDATE starting at ``start`` (up to WHERE/RETURNING/;)."""
-    tail = sql[start:]
-    m = re.search(r"\bSET\b(.*?)(?:\bWHERE\b|\bRETURNING\b|\bFROM\b|;|$)", tail, re.I | re.S)
-    if not m:
+    """Columns an UPDATE assigns. Self-assignments (``SET id = id``, the row-lock idiom)
+    change nothing and are left out; an empty result means a no-op lock."""
+    clause = _top_level_set_clause(sql, start)
+    if clause is None:
         return frozenset({"*"})
-    clause = m.group(1)
-    if re.match(r"\s*\(", clause):  # tuple SET (a, b) = (...)
-        names = re.match(r"\s*\(([^)]*)\)", clause).group(1)
-        return frozenset(n.strip().strip('"').lower() for n in names.split(","))
-    return frozenset(c.lower() for c in _SET_COLUMN.findall(clause))
+    tup = re.match(r"\s*\(([^)]*)\)\s*=", clause)
+    if tup:  # tuple SET (a, b) = (...)
+        return frozenset(n.strip().strip('"`[]').lower() for n in tup.group(1).split(","))
+    columns = set()
+    for part in _split_top_level(clause):
+        lhs, eq, rhs = part.partition("=")
+        if not eq:
+            continue
+        name = lhs.strip().split(".")[-1].strip('"`[]').lower()
+        if rhs.strip().split(".")[-1].strip('"`[]').lower() == name:
+            continue  # x = x
+        columns.add(name)
+    return frozenset(columns)
 
 
 def _insert_columns(sql: str, start: int) -> frozenset[str]:
@@ -94,22 +156,30 @@ def _insert_columns(sql: str, start: int) -> frozenset[str]:
     return frozenset(n.strip().strip('"').lower() for n in m.group(1).split(","))
 
 
-def _parameter_values(parameters: Any) -> Iterable[Any]:
+def _parameter_values(parameters: Any) -> Iterable[tuple[str | None, Any]]:
+    """(name, value) pairs; name is None for positional parameters."""
     if isinstance(parameters, dict):
-        yield from parameters.values()
+        for name, value in parameters.items():
+            yield str(name), value
     elif isinstance(parameters, (list, tuple)):
         for item in parameters:
             if isinstance(item, (dict, list, tuple)):
                 yield from _parameter_values(item)
             else:
-                yield item
+                yield None, item
 
 
-def _is_guarded_config_key(value: Any) -> bool:
+def _is_guarded_config_key(value: Any, *, prefix: bool = True) -> bool:
     if not isinstance(value, str):
         return False
     key = value.strip().lower()
-    return key in GUARDED_CONFIG_KEYS or key.startswith(GUARDED_CONFIG_PREFIXES)
+    return key in GUARDED_CONFIG_KEYS or (prefix and key.startswith(GUARDED_CONFIG_PREFIXES))
+
+
+def _config_param_is_guarded(name: str | None, value: Any) -> bool:
+    # A parameter named like a key is matched by prefix too; other values only
+    # exactly, so an ordinary value such as a theme "oidc-blue" is not mistaken.
+    return _is_guarded_config_key(value, prefix=name is None or "key" in name.lower())
 
 
 def guarded_write_target(statement: str, parameters: Any) -> str | None:
@@ -132,6 +202,8 @@ def guarded_write_target(statement: str, parameters: Any) -> str | None:
         conflict = re.search(r"\bDO\s+UPDATE\s+SET\b|\bON\s+DUPLICATE\s+KEY\s+UPDATE\b", sql[match.end():], re.I)
         if conflict:
             columns = columns | _set_columns(sql, match.end() + conflict.start())
+        if verb == "UPDATE" and not columns:
+            continue  # SET x = x row-lock idiom: writes nothing
         if table in GUARDED_TABLES:
             if (table, columns) in _ALLOWED_TOKEN_TELEMETRY:
                 continue
@@ -140,19 +212,28 @@ def guarded_write_target(statement: str, parameters: Any) -> str | None:
             if verb in {"INSERT", "REPLACE", "MERGE"} or "*" in columns or columns & USERS_CREDENTIAL_COLUMNS:
                 return "users"
         if table == "system_config":
-            literal_keys = re.findall(r"'([^']*)'", sql[match.start():])
+            rest = sql[match.start():]
+            if (verb in {"UPDATE", "DELETE"} and not _KEY_EQUALS.search(rest)) or re.search(
+                    r"\|\||\bCONCAT\s*\(|\bLIKE\b|\bGLOB\b", rest, re.I):
+                return "system_config"  # key not named exactly (LIKE, ||, none): fail closed
+            literal_keys = re.findall(r"'([^']*)'", rest)
             if any(_is_guarded_config_key(k) for k in literal_keys) or any(
-                    _is_guarded_config_key(v) for v in _parameter_values(parameters)):
+                    _config_param_is_guarded(n, v) for n, v in _parameter_values(parameters)):
                 return "system_config"
     return None
 
 
-def _before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+def check_credential_write(statement: str, parameters: Any) -> None:
+    """Refuse a guarded write when the current request is an API-token request."""
     if not _NONINTERACTIVE.get():
         return
     target = guarded_write_target(statement, parameters)
     if target is not None:
         raise CredentialWriteRefused(target)
+
+
+def _before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+    check_credential_write(statement, parameters)
 
 
 _INSTALLED = False

@@ -169,9 +169,20 @@ def _collect():
     # (a comment naming the guard must not count). Routers mount under different
     # prefixes, so a router-relative path matches the mounted path's suffix.
     for method, path in seen_routes:
-        if any(m == method and full.endswith(path) for m, full in interactive):
+        if len(path) > 1 and any(m == method and full.endswith(path) for m, full in interactive):
             enforced[(method, path)] = True
     return guarded, enforced
+
+
+def _handler_calls_is_interactive(endpoint) -> bool:
+    """True only for a real call (not a comment or string) in the handler body."""
+    import inspect
+    import textwrap
+    try:
+        tree = ast.parse(textwrap.dedent(inspect.getsource(endpoint)))
+    except (OSError, TypeError, SyntaxError):
+        return False
+    return "is_interactive_session" in _call_names(tree)
 
 
 def _interactive_routes():
@@ -193,13 +204,7 @@ def _interactive_routes():
     for route in create_app().routes:
         if not isinstance(route, APIRoute):
             continue
-        handler_src = ""
-        try:
-            import inspect
-            handler_src = inspect.getsource(route.endpoint)
-        except (OSError, TypeError):
-            pass
-        if interactive(route.dependant, set()) or "is_interactive_session(" in handler_src:
+        if interactive(route.dependant, set()) or _handler_calls_is_interactive(route.endpoint):
             for method in route.methods - {"HEAD"}:
                 found.add((method, route.path))
     return found

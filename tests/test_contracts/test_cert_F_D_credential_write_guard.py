@@ -159,6 +159,17 @@ def _snapshot(engine):
     ("UPDATE system_config SET value = ? WHERE key = ?", ("x", "quiet_hours"), None),
     ("/* c */ UPDATE -- x\n users SET email = ?", None, "users"),
     ("UPDATE printers SET name = ?", None, None),
+    # Security re-review shapes.
+    ("UPDATE api_tokens SET id=id WHERE id=:id", {"id": 1}, None),  # row-lock idiom
+    ("UPDATE active_sessions SET id = id WHERE 0", None, None),
+    ("UPDATE [users] SET email=?", None, "users"),
+    ("UPDATE `users` SET email=?", None, "users"),
+    ("UPDATE users SET role=(SELECT r FROM x WHERE y=1), email=:e WHERE id=1", {"e": 1}, "users"),
+    ("UPDATE system_config SET value=? WHERE key LIKE 'oid%'", ("x",), "system_config"),
+    ("DELETE FROM system_config WHERE key LIKE 'oid%'", None, "system_config"),
+    ("UPDATE system_config SET value=? WHERE key='smtp_'||'config'", ("x",), "system_config"),
+    ("UPDATE system_config SET value=:value WHERE key=:k", {"value": "oidc-blue", "k": "theme"}, None),
+    ("UPDATE system_config SET value=:value WHERE key=:key", {"value": "x", "key": "oidc_client_secret"}, "system_config"),
     # PostgreSQL / psycopg rendering of the same statements.
     ("UPDATE users SET email=%(email)s WHERE users.id = %(id_1)s", {"email": "x", "id_1": 1}, "users"),
     ("UPDATE users SET theme=%(theme)s WHERE users.id = %(id_1)s", {"theme": "x", "id_1": 1}, None),
@@ -198,3 +209,27 @@ def test_get_current_user_marks_token_principals(monkeypatch, tmp_path):
     user, marked = asyncio.run(resolve())
     assert user and user["_auth_kind"] == "legacy_global_api_key"
     assert marked is True
+
+
+def test_raw_dbapi_adapter_is_guarded_too(tmp_path, monkeypatch):
+    """core.db_utils.get_db hands out raw DBAPI cursors that bypass SQLAlchemy events."""
+    import asyncio
+    from core import db_utils
+    engine = create_engine(f"sqlite:///{tmp_path / 'raw.db'}")
+    with engine.begin() as c:
+        c.execute(text("CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT, theme TEXT)"))
+        c.execute(text("INSERT INTO users VALUES (1, 'v@x.test', 'dark')"))
+    monkeypatch.setattr(db_utils, "engine", engine)
+
+    async def as_token_request():
+        mark_noninteractive_principal()
+        with db_utils.get_db() as conn:
+            conn.execute("UPDATE users SET theme = ? WHERE id = 1", ("light",))
+            with pytest.raises(Exception) as refused:
+                conn.execute("UPDATE users SET email = ? WHERE id = 1", ("evil@x.test",))
+            conn.commit()
+        return refused.value
+    refused = asyncio.run(as_token_request())
+    assert getattr(refused, "status_code", None) == 403
+    with engine.connect() as c:
+        assert c.execute(text("SELECT email, theme FROM users")).one() == ("v@x.test", "light")
