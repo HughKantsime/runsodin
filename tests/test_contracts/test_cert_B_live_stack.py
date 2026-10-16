@@ -219,7 +219,11 @@ def test_F02_2_2_02_moonraker_webcam_discovered_from_moonraker_config(live):
     stored = live.rows("SELECT camera_url FROM printers WHERE id=:id", {"id": kid})[0][0]
     assert stored and "8080" not in stored  # persisted encrypted, not plaintext
     assert "/server/webcams/list" in live.sim_status()["paths"]
-    assert live.go2rtc_config()["streams"][f"printer_{kid}"] == f"ffmpeg:{live.mjpeg_url}#video=h264"
+    # cert-fix-A: go2rtc/ffmpeg read an HTTP camera only through ODIN's pinned loopback relay
+    # (per-boot HMAC token in the path), never the discovered camera URL itself.
+    source = live.go2rtc_config()["streams"][f"printer_{kid}"]
+    assert re.fullmatch(rf"ffmpeg:http://127\.0\.0\.1:8000/internal/camera-source/{kid}/[0-9a-f]{{64}}#video=h264", source), source
+    assert live.mjpeg_url.split("//", 1)[1].split("/", 1)[0] not in json.dumps(live.go2rtc_config())
 
 
 def test_F02_2_2_05_mjpeg_camera_is_transcoded_to_h264_and_plays_over_webrtc(live):
