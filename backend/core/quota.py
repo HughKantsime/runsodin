@@ -177,26 +177,19 @@ QUOTA_ATTEMPT_PREFIX = "quota_attempt:"
 
 
 def _attempt_seq(run, job_id):
-    """The job's print-attempt counter (0 unless a reset has bumped it)."""
-    row = run("SELECT value FROM system_config WHERE key = :k",
-              {"k": f"{QUOTA_ATTEMPT_PREFIX}seq:{int(job_id)}"}).fetchone()
-    if not row:
-        return 0
-    value = row[0]
-    if isinstance(value, (bytes, bytearray)):
-        value = value.decode("utf-8", "replace")
-    try:
-        return int(str(value).strip().strip('"'))
-    except (TypeError, ValueError):
-        return 0
+    """The job's print-attempt counter: cert-fix-D's shared counter (core.print_attempts)."""
+    from core.print_attempts import attempt_seq
+    return attempt_seq(run, job_id)
 
 
-def bump_print_attempt(run, job_id) -> None:
-    """A reset starts a new physical print attempt, so the next completion charges again."""
-    seq = _attempt_seq(run, job_id) + 1
-    key = f"{QUOTA_ATTEMPT_PREFIX}seq:{int(job_id)}"
-    run("DELETE FROM system_config WHERE key = :k", {"k": key})
-    run("INSERT INTO system_config (key, value) VALUES (:k, :v)", {"k": key, "v": str(seq)})
+def bump_print_attempt(run, job_id) -> int:
+    """A reset starts a new physical print attempt (one shared counter, core.print_attempts).
+
+    Delegates to core.print_attempts.bump_print_attempt, which also records the reset
+    anchor the filament ledger needs. reset_job calls that directly; this wrapper keeps
+    the quota API for callers that only know core.quota."""
+    from core.print_attempts import bump_print_attempt as bump
+    return bump(run, job_id)
 
 
 def clear_print_consumption_markers(run, job_id) -> None:
@@ -214,7 +207,8 @@ def clear_print_consumption_markers(run, job_id) -> None:
             {"k": f"{QUOTA_ATTEMPT_PREFIX}print:{int(r[0])}"})
 
 
-def record_print_consumption(run, job_id, *, grams=None, measured_hours=None, attempt_key=None, now=None) -> None:
+def record_print_consumption(run, job_id, *, grams=None, measured_hours=None, attempt_key=None, now=None,
+                             print_job_id=None) -> None:
     """Charge a completed print's material and time to its owner's quota usage.
 
     The owner is the user the job is charged to (else its submitter). Hours are
@@ -228,7 +222,17 @@ def record_print_consumption(run, job_id, *, grams=None, measured_hours=None, at
               "FROM jobs WHERE id = :jid", {"jid": job_id}).fetchone()
     if not job or job[0] is None:
         return
-    marker = QUOTA_ATTEMPT_PREFIX + (attempt_key or f"job:{int(job_id)}:{_attempt_seq(run, job_id)}")
+    if attempt_key is None:
+        # The job attempt this charge belongs to: a known physical print's own attempt
+        # (core.filament_ledger.print_attempt: its binding, else its reset window),
+        # never simply the job's current one; otherwise the current attempt.
+        if print_job_id is not None:
+            from core.filament_ledger import print_attempt
+            seq = print_attempt(run, job_id, print_job_id).seq
+        else:
+            seq = _attempt_seq(run, job_id)
+        attempt_key = f"job:{int(job_id)}:{int(seq)}"
+    marker = QUOTA_ATTEMPT_PREFIX + attempt_key
     if run(f"{_insert_ignore()} system_config (key, value) VALUES (:k, :v){_on_conflict_ignore()}",
            {"k": marker, "v": "true"}).rowcount != 1:
         return

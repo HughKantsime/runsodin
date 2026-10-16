@@ -279,6 +279,9 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_role
             if changed.rowcount:
                 from core.print_attempts import clear_job_attempts, sqlalchemy_runner
                 clear_job_attempts(sqlalchemy_runner(db), jid)
+                # cert-fix-F's hook also drops the monitor print:<print_job_id> quota markers.
+                from core.quota import clear_print_consumption_markers
+                clear_print_consumption_markers(sqlalchemy_runner(db), jid)
             count += changed.rowcount
     else:
         from modules.jobs.bulk_actions import apply_bulk_action

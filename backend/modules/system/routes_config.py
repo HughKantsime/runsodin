@@ -197,8 +197,10 @@ async def run_retention_cleanup(current_user: dict = Depends(require_superadmin(
                 removed_ids = list(db.execute(statement, {"candidate_ids": candidates, "cutoff": cutoff}).scalars())
                 # Purged jobs leave no print-attempt markers behind (SQLite id reuse is safe).
                 from core.print_attempts import clear_job_attempts, sqlalchemy_runner
+                from core.quota import clear_print_consumption_markers
                 for removed_id in removed_ids:
                     clear_job_attempts(sqlalchemy_runner(db), removed_id)
+                    clear_print_consumption_markers(sqlalchemy_runner(db), removed_id)
                 count += len(removed_ids)
             deleted["completed_jobs"] = count
 

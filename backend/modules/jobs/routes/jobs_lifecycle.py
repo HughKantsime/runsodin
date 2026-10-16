@@ -380,9 +380,7 @@ def reset_job(job_id: int, current_user: dict = Depends(require_role("operator",
     bump_print_attempt(sqlalchemy_runner(db), job_id)
     db.refresh(job)
 
-    from core.quota import bump_print_attempt, sqlalchemy_runner as _sar
-    # A reset begins a new physical print attempt, so the next completion charges again.
-    bump_print_attempt(_sar(db), job_id)
+    # One shared counter (MERGE_NOTES_F): D's bump above also starts the next quota attempt.
     log_audit(db, "job.reset", "job", job.id)
     reconcile_job_write(db, production_orders)
     db.commit()
