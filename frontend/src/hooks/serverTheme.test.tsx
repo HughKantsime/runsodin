@@ -68,7 +68,7 @@ it('a toggle made while the account theme is still loading is not overridden by 
   serverTheme = { accent_color: '#6366f1', sidebar_style: 'dark', background: 'default', mode: 'dark' }
   let release: () => void = () => {}
   const gate = new Promise<void>(r => { release = r })
-  const inner = transport.getMockImplementation()!
+  const inner = transport.getMockImplementation() as (url: string, init?: RequestInit) => Promise<unknown>
   transport.mockImplementation(async (url: string, init?: RequestInit) => {
     if (!init?.method || init.method === 'GET') await gate
     return inner(url, init)

@@ -56,7 +56,7 @@ async function openSystemTab() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/settings']}><Settings /><Toaster /></MemoryRouter></QueryClientProvider>)
   expect(screen.queryByRole('heading', { name: 'Cost Chargebacks' })).not.toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: 'System', exact: true }))
+  fireEvent.click(screen.getByRole('button', { name: 'System' }))
 }
 
 test('CertERep F10-10.7-03 chargeback report lives in Settings -> System and renders captured per-user rows', async () => {

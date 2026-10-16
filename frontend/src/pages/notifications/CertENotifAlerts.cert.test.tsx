@@ -63,7 +63,7 @@ test.each([
   show()
   await screen.findByText(TITLES[0])
   fireEvent.click(screen.getByRole('button', { name: tab }))
-  await waitFor(() => expect(calls.at(-1)).toEqual({ method: 'GET', path }))
+  await waitFor(() => expect(calls.slice(-1)[0]).toEqual({ method: 'GET', path }))
   await waitFor(() => expect(visibleTitles()).toEqual(expected))
 })
 
