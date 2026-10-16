@@ -135,9 +135,11 @@ def job_completed(
                     # Education refused the job transition); the job only if applied.
                     applied = (education_result.get('authorized') is True
                                and education_result.get('transitioned') is True)
-                    committed_completion = success is True and (
-                        applied or education_result.get('physical_ended') is True)
+                    physical = applied or education_result.get('physical_ended') is True
+                    committed_completion = success is True and physical
                     completion_job_id = education_result.get('job_id') if applied else None
+                    if physical:
+                        _archive_physical_end(printer_id, print_job_id, status)
                     return education_result
 
             # Update print_jobs record
@@ -265,6 +267,20 @@ def job_completed(
                                              metadata=completion_metadata, source_module='notifications')
 
 
+def _archive_physical_end(printer_id, print_job_id, status):
+    """Archive an Education print that physically ended, as the MQTT and Moonraker paths do.
+
+    Generic prints reach the archive through the event bus; Education ends publish
+    no generic fan-out, so they are archived directly (after the commit).
+    """
+    try:
+        from modules.archives.archive import create_print_archive
+        create_print_archive(print_job_id=print_job_id, printer_id=printer_id, success=(status == 'completed'),
+                             result_status=status if status == 'cancelled' else None)
+    except Exception as failure:
+        log.warning("Failed to archive Education print %s (%s)", print_job_id, type(failure).__name__)
+
+
 @retry_production_linkage
 def job_cancelled(
     printer_id: int,
@@ -290,6 +306,9 @@ def job_cancelled(
                     "education_reserved"
                 ):
                     conn.commit()
+                    if ((education_result.get("authorized") is True and education_result.get("transitioned") is True)
+                            or education_result.get("physical_ended") is True):
+                        _archive_physical_end(printer_id, print_job_id, "cancelled")
                     return education_result
 
             linked_id, production_orders = prepare_print_job_write(conn, print_job_id)

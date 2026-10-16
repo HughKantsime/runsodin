@@ -1434,7 +1434,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 146,
+      "line": 148,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1442,7 +1442,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 152,
+      "line": 154,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1450,7 +1450,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 161,
+      "line": 163,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1458,7 +1458,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 172,
+      "line": 174,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1466,7 +1466,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 297,
+      "line": 316,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1474,7 +1474,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 303,
+      "line": 322,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1482,7 +1482,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 311,
+      "line": 330,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1490,7 +1490,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 321,
+      "line": 340,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1498,7 +1498,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 381,
+      "line": 400,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1506,7 +1506,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 384,
+      "line": 403,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1514,7 +1514,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 387,
+      "line": 406,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1522,7 +1522,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 399,
+      "line": 418,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",

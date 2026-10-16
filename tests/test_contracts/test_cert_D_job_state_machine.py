@@ -574,3 +574,46 @@ def test_runtime_census_traces_pooled_connections_and_detaches_at_teardown(tmp_p
     assert violations == []
     _job_status_runtime_census.clear()                    # this test's own hook saw the planted writes too
     engine.dispose()
+
+
+@pytest.mark.parametrize('end', ['completed', 'failed', 'cancelled'])
+def test_job_events_education_physical_end_archives_directly(admitted_monitor, monkeypatch, end):
+    """PrusaLink/Elegoo/OctoPrint ends of an Education print whose job was cancelled mid-print."""
+    from contextlib import contextmanager
+    from core.db_utils import _ConnectionAdapter
+    from core.monitor_bootstrap import bootstrap_monitor_authority
+    import modules.printers.committed_terminal_events as committed
+    from modules.archives import archive
+    from modules.notifications import job_events
+    from modules.printers.monitors import mqtt_job_lifecycle
+    bootstrap_monitor_authority()
+    monitor_db, uploaded, reservation = admitted_monitor
+    engine = monitor_db.get_bind()
+
+    @contextmanager
+    def owned_db():
+        raw = engine.raw_connection()
+        try:
+            yield _ConnectionAdapter(raw, False)
+        finally:
+            raw.close()
+    for module in (mqtt_job_lifecycle, archive, job_events):
+        monkeypatch.setattr(module, 'get_db', owned_db)
+    monkeypatch.setattr(committed, 'publish_committed_completion', lambda *a, **k: None)
+    state = {"subtask_name": reservation["remote_filename"].removesuffix(".3mf"), "gcode_file": "Metadata/plate_1.gcode",
+             "job_id": "owned-hardware-observation", "total_layer_num": 10}
+    print_job_id, linked_job_id, _ = mqtt_job_lifecycle.record_job_started(
+        printer_id=9, printer_name="Owned A1", state=state, dispatch_alert_fn=lambda **kw: None,
+        trigger_reschedule_fn=lambda: None)
+    assert linked_job_id == uploaded["job_id"]
+    with engine.begin() as conn:  # the operator cancels the school job while it prints
+        conn.execute(text("UPDATE jobs SET status='cancelled' WHERE id=:j"), {"j": uploaded["job_id"]})
+    if end == 'cancelled':
+        job_events.job_cancelled(9, print_job_id)
+    else:
+        job_events.job_completed(9, print_job_id, success=end == 'completed', duration_seconds=60)
+    monitor_db.expire_all()
+    assert monitor_db.execute(text("SELECT status FROM print_jobs WHERE id=:p"), {"p": print_job_id}).scalar_one() == end
+    assert monitor_db.execute(text("SELECT status FROM jobs WHERE id=:j"), {"j": uploaded["job_id"]}).scalar_one() == "cancelled"
+    assert monitor_db.execute(text("SELECT status FROM print_archives WHERE print_job_id=:p"),
+                              {"p": print_job_id}).scalar_one() == end
