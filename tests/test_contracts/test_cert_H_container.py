@@ -295,17 +295,9 @@ def test_onboarding_wizard_walks_six_steps_on_first_launch():
     STATE["token"] = body["access_token"]
 
 
-SETUP_COMPLETE_DEFECT = (
-    "DEFECT: backend/modules/system/routes_setup.py:405 stores SystemConfig(value='true') through the JSON "
-    "column (core/models.py:19) as the JSON text '\"true\"', but _setup_is_complete (routes_setup.py:110-112) "
-    "compares the raw column to 'true'. Scenario: finish the wizard (POST /api/setup/complete -> 200) -> "
-    "/api/setup/status still reports is_complete=false, /api/setup/complete can be called again, and the "
-    "completed-setup lock only holds while a user row exists."
-)
 
 
-@pytest.mark.xfail(strict=True, reason=SETUP_COMPLETE_DEFECT)
-def test_wizard_completion_persists_setup_complete():
+def test_wizard_completion_persists_setup_complete():  # F22-22.1-07 fixed by cert-fix-F
     status, body = _json("GET", "/api/setup/status")
     assert body["is_complete"] is True, body
 
@@ -359,9 +351,7 @@ def test_setup_claim_endpoints_locked_after_completion():
     _assert_claim_gate()
 
 
-@pytest.mark.xfail(strict=True, reason=SETUP_COMPLETE_DEFECT + " Observed: authenticated POST /api/setup/printer -> 200 "
-                   "creates a printer after the wizard finished (get_current_user only, no role/tier check).")
-def test_every_setup_mutation_locked_after_completion():
+def test_every_setup_mutation_locked_after_completion():  # F22-22.1-07 fixed by cert-fix-F
     for method, path, body in POST_COMPLETION:
         status, payload = _json(method, path, token=STATE["token"], json_body=body)
         assert status == 403, (path, status, payload)
