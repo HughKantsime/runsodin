@@ -300,8 +300,8 @@ def prusalink(proto, monkeypatch):
     from modules.printers.adapters import prusalink as adapter
     from modules.printers.monitors import prusalink_monitor as module
     http = PrusaHTTP()
-    monkeypatch.setattr(adapter.requests, "get", http.get)
-    monkeypatch.setattr(adapter.requests, "head", http.head)
+    from tests.support.device_http import route_device_requests
+    route_device_requests(monkeypatch, get=http.get, head=http.head)
     monitor = module.PrusaLinkMonitorThread(402, "Cert MK4", "192.0.2.42", api_key="synthetic-key")
     monkeypatch.setattr(monitor, "_try_dispatch", lambda: None)
     monkeypatch.setattr(module, "threading", SimpleNamespace(

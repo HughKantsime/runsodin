@@ -64,7 +64,8 @@ def test_prusalink_modern_camera_or_bounded_authenticated_snapshot_probe(monkeyp
     printer=PrusaLinkPrinter('192.0.2.10',api_key='owned-fixture-key');calls=[]
     monkeypatch.setattr(printer,'_get',lambda path:[{'id':'owned-camera'}] if modern else [])
     def head(url,**kwargs):calls.append((url,kwargs));return SimpleNamespace(status_code=status)
-    monkeypatch.setattr(requests,'head',head)
+    from tests.support.device_http import route_device_requests
+    route_device_requests(monkeypatch,head=head)
     result=printer.get_webcam_url()
     if modern:
         assert result==printer.base_url+'/api/v1/cameras/snap' and not calls
@@ -77,11 +78,12 @@ def test_prusalink_modern_camera_or_bounded_authenticated_snapshot_probe(monkeyp
 def test_elegoo_port8080_candidates_are_bounded_and_only_success_is_selected(monkeypatch,statuses):
     import requests
     from modules.printers.adapters.elegoo import ElegooPrinter
-    printer=ElegooPrinter('127.0.0.1');calls=[]
+    printer=ElegooPrinter('192.0.2.11');calls=[]  # LAN address: loopback devices are blocked
     def head(url,**kwargs):calls.append((url,kwargs));return SimpleNamespace(status_code=statuses[len(calls)-1])
-    monkeypatch.setattr(requests,'head',head)
+    from tests.support.device_http import route_device_requests
+    route_device_requests(monkeypatch,head=head)
     result=printer.get_webcam_url()
-    expected=['http://127.0.0.1:8080/?action=stream','http://127.0.0.1:8080/webcam/?action=stream'][:len(statuses)]
+    expected=['http://192.0.2.11:8080/?action=stream','http://192.0.2.11:8080/webcam/?action=stream'][:len(statuses)]
     assert calls==[(url,{'timeout':3}) for url in expected]
     assert result==(expected[-1] if statuses[-1]==200 else None)
 

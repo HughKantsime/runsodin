@@ -579,3 +579,44 @@ def pinned_device_destination(url: str):
     ips = device_destination_ips(hostname if ":" not in hostname else f"[{hostname}]", port)
     with _pin_dns(hostname, port, ips):
         yield ips
+
+
+# --------------------------------------------------------------------
+# Device HTTP clients: pinned, no redirects, no environment proxies
+# --------------------------------------------------------------------
+
+import urllib.request as _urllib_request
+
+
+class _NoRedirect(_urllib_request.HTTPRedirectHandler):
+    """A 3xx surfaces as HTTPError; a device must never send ODIN elsewhere."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def device_urlopen(request, timeout=None):
+    """urllib open for a device URL: policy-validated, pinned, no redirect, no proxy."""
+    url = request.full_url if isinstance(request, _urllib_request.Request) else request
+    opener = _urllib_request.build_opener(_urllib_request.ProxyHandler({}), _NoRedirect())
+    with pinned_device_destination(url):
+        return opener.open(request, timeout=timeout)
+
+
+def device_request(method: str, url: str, **kwargs):
+    """requests call for a device URL: policy-validated, pinned, no redirect, no proxy.
+
+    A fresh Session ignores HTTP(S)_PROXY/ALL_PROXY/netrc (trust_env=False,
+    proxies={}); redirects are never followed. Raises DeviceDestinationBlocked
+    for a blocked destination.
+    """
+    import requests
+    kwargs["allow_redirects"] = False
+    kwargs.pop("proxies", None)
+    with requests.Session() as session:
+        session.trust_env = False
+        session.proxies = {}
+        session.max_redirects = 0
+        with pinned_device_destination(url):
+            return session.request(method, url, **kwargs)
+

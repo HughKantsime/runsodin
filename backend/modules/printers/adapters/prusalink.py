@@ -21,25 +21,25 @@ from requests.auth import HTTPDigestAuth
 
 
 class _PinnedRequests:
-    """`requests` with each call pinned to the validated device address.
+    """Device HTTP verbs for PrusaLink: core.webhook_utils.device_request.
 
-    The URL host is resolved and checked by the LAN device destination
-    policy (core.webhook_utils) and the connection is pinned to those
-    addresses, so DNS rebinding cannot redirect it. A blocked destination
-    surfaces as requests' ConnectionError.
+    Each call is checked by the LAN device destination policy, pinned to the
+    validated addresses (no DNS rebinding), never follows redirects and never
+    uses environment proxies. A blocked destination surfaces as requests'
+    ConnectionError.
     """
     _VERBS = frozenset({"get", "put", "post", "head", "delete"})
 
     def __getattr__(self, name):
-        target = getattr(requests, name)
         if name not in self._VERBS:
-            return target
+            return getattr(requests, name)
 
         def call(url, *args, **kwargs):
-            from core.webhook_utils import DeviceDestinationBlocked, pinned_device_destination
+            from core.webhook_utils import DeviceDestinationBlocked, device_request
+            if args:
+                raise TypeError("device requests take keyword arguments only")
             try:
-                with pinned_device_destination(url):
-                    return target(url, *args, **kwargs)
+                return device_request(name.upper(), url, **kwargs)
             except DeviceDestinationBlocked as exc:
                 raise requests.exceptions.ConnectionError(str(exc)) from exc
         return call

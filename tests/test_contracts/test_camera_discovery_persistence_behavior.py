@@ -55,7 +55,8 @@ def test_adapter_transport_through_monitor_persists_encrypted_source(discovery_s
         def head(url, **kwargs):
             calls.append(url)
             return SimpleNamespace(status_code=200)
-        monkeypatch.setattr(requests, 'head', head)
+        from tests.support.device_http import route_device_requests
+        route_device_requests(monkeypatch, head=head)
     monitor._discover_and_save_camera()
     stored = store.execute(text('SELECT camera_url FROM printers WHERE id=199')).scalar_one()
     assert calls

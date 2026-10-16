@@ -137,7 +137,8 @@ def test_status_cleanup_failure_after_idle_observation(monkeypatch):
         def __exit__(self,*args):closed.append('client')
         def get(self,*args,**kwargs):return Response()
     monkeypatch.setattr('requests.Session',Client)
-    raw=request(inputs={'api_type':'prusalink','ip':'127.0.0.1','api_key':''})
+    # LAN address (no connection is made: Session is faked); loopback devices are blocked.
+    raw=request(inputs={'api_type':'prusalink','ip':'192.0.2.12','api_key':''})
     assert worker.execute_request(raw).message['result']=={'idle':False}
     assert closed==['response','client']
 

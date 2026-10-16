@@ -72,7 +72,7 @@ def pinned_device_get(client, url: str, **kwargs):
     """
     from core.webhook_utils import pinned_device_destination
     with pinned_device_destination(url):
-        return client.get(url, trust_env=False, **kwargs)
+        return client.get(url, trust_env=False, follow_redirects=False, **kwargs)
 
 
 _CAMERA_SHELL_METACHAR_RE = re.compile(r'[;&|$`\\]')

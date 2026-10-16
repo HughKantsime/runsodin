@@ -5,6 +5,14 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _loopback_device_peers(monkeypatch):
+    # The device peers in this file listen on 127.0.0.1, which the production
+    # device destination policy blocks; exempt exactly that address here.
+    from tests.support.loopback_devices import allow_loopback_devices
+    allow_loopback_devices(monkeypatch)
 from modules.printers import dispatch_readiness as module
 
 
