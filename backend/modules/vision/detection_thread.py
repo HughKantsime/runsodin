@@ -108,12 +108,14 @@ class PrinterVisionThread(threading.Thread):
                     self._capture_and_analyze()
                 except Exception as e:
                     log.error(f"[{self.printer_name}] Vision error: {e}")
+                # Clear the wake flag BEFORE re-checking _running and reading the interval, so a
+                # stop() or interval change landing in between is never erased.
+                self._wake.clear()
                 if not self._running:
                     break
                 # Re-read the interval every loop so a changed setting applies to this print.
                 interval = capture_interval(self.settings.get('capture_interval_sec'))
                 try:
-                    self._wake.clear()
                     self._wake.wait(interval)
                 except Exception as e:
                     log.error(f"[{self.printer_name}] Vision sleep error: {e}")

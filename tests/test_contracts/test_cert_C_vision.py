@@ -9,6 +9,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -566,3 +567,25 @@ def test_auto_configured_bambu_camera_without_stored_url_is_monitored(daemon, ca
     instance._scan_printers()
     assert set(instance._threads) == {9, 10, 21, 22}
     assert _wait(lambda: 'http://127.0.0.1:1984/api/frame.jpeg?src=printer_21' in calls)
+
+
+def test_stop_arriving_while_interval_is_read_is_not_lost(daemon, camera_printers, vision_http, monkeypatch):
+    """Final review LOW-4: a stop/interval wake between reading the interval and waiting must not be cleared."""
+    from modules.vision import detection_thread
+    instance, _ = daemon
+    client, _ = vision_http
+    assert client.patch('/api/printers/9/vision', json={'capture_interval_sec': 3600}).status_code == 200
+    camera_printers.execute(text("UPDATE printers SET gcode_state='IDLE' WHERE id=10"))
+    camera_printers.commit()
+    instance._scan_printers()
+    thread = instance._threads[9]
+    real = detection_thread.capture_interval
+
+    def stop_while_reading(value):
+        if threading.current_thread() is thread:
+            thread.stop()  # lands after the loop's _running check, before the wait
+        return real(value)
+    monkeypatch.setattr(detection_thread, 'capture_interval', stop_while_reading)
+    thread._wake.set()  # finish the current wait so the loop reaches the interval read
+    thread.join(timeout=3)
+    assert not thread.is_alive()
