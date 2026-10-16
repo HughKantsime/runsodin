@@ -185,8 +185,10 @@ services:
     image: alexxit/go2rtc@sha256:61b8f04efe0f9025739ce0e5e5a5e0748b64c1e4bdb5ae707e9d0966150175e7
     restart: unless-stopped
     ports:
-      - "8555:8555"  # WebRTC
-      - "1984:1984"  # HLS/API (expose if needed)
+      - "8555:8555"  # WebRTC (must stay published for ICE)
+    # go2rtc's API (1984) is reachable on the compose network only, never published.
+    expose:
+      - "1984"
     volumes:
       - ./odin-data/go2rtc:/config
     environment:

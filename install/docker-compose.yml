@@ -19,7 +19,7 @@ services:
     restart: unless-stopped
     ports:
       - "${ODIN_HTTP_PORT:-8000}:8000"   # Web UI + API
-      - "${ODIN_GO2RTC_PORT:-1984}:1984" # go2rtc API
+      # go2rtc's API (1984) stays on loopback inside the container: never published.
       - "${ODIN_WEBRTC_PORT:-8555}:8555" # go2rtc WebRTC
     volumes:
       - ${ODIN_DATA_PATH:-./odin-data}:/data

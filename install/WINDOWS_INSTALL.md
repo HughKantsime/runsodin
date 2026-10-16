@@ -55,7 +55,6 @@ Run as Administrator:
 
 ```powershell
 netsh advfirewall firewall add rule name="ODIN Web" dir=in action=allow protocol=tcp localport=8000
-netsh advfirewall firewall add rule name="ODIN go2rtc" dir=in action=allow protocol=tcp localport=1984
 netsh advfirewall firewall add rule name="ODIN WebRTC" dir=in action=allow protocol=tcp localport=8555
 ```
 
@@ -84,7 +83,7 @@ netsh advfirewall firewall delete rule name="ODIN WebRTC"
 - Check that virtualization is enabled in BIOS/UEFI
 
 ### "Port already in use" error
-Another application is using port 8000, 1984, or 8555. Find it:
+Another application is using port 8000 or 8555. Find it:
 
 ```powershell
 Get-NetTCPConnection -LocalPort 8000 -State Listen | Select-Object OwningProcess

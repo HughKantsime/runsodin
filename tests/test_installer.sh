@@ -453,13 +453,20 @@ else
     fail "compose restart" "Missing restart policy"
 fi
 
-for mapping in '${ODIN_HTTP_PORT:-8000}:8000' '${ODIN_GO2RTC_PORT:-1984}:1984' '${ODIN_WEBRTC_PORT:-8555}:8555'; do
+for mapping in '${ODIN_HTTP_PORT:-8000}:8000' '${ODIN_WEBRTC_PORT:-8555}:8555'; do
     if grep -Fq "$mapping" "$compose_file"; then
         pass "docker-compose.yml exposes parameterized mapping $mapping"
     else
         fail "compose port mapping" "Mapping $mapping not exposed"
     fi
 done
+
+# go2rtc's API (1984) listens on loopback inside the container and is never published.
+if grep -Eq '^[[:space:]]*-[[:space:]]*"?[^#]*:1984"?' "$compose_file"; then
+    fail "compose go2rtc API" "docker-compose.yml publishes go2rtc's API port 1984"
+else
+    pass "docker-compose.yml does not publish go2rtc's API port 1984"
+fi
 
 if grep -Fq '${ODIN_DATA_PATH:-./odin-data}:/data' "$compose_file"; then
     pass "docker-compose.yml mounts data volume"
