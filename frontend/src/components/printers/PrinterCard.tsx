@@ -210,13 +210,15 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
         </div>
         {(() => {
           const slots = printer.filament_slots || []
-          // Group headers only when the printer reports more than one unit.
-          const labelled = new Set(slots.map((slot: any) => amsSlotGroup(slot.slot_number).key)).size > 1
+          // AMS unit headers only for Bambu printers reporting more than one unit;
+          // other protocols number their slots without AMS units.
+          const groups = slots.map((slot: any) => printer.api_type === 'bambu' ? amsSlotGroup(slot.slot_number) : null)
+          const labelled = !groups.includes(null) && new Set(groups.map((g: any) => g.key)).size > 1
           let previous: string | null = null
           return (
             <div className="grid gap-2 grid-cols-4">
-              {slots.map((slot: any) => {
-                const group = amsSlotGroup(slot.slot_number)
+              {slots.map((slot: any, index: number) => {
+                const group = groups[index]
                 const el = (
                   <FilamentSlotEditor
                     printerId={printer.id}
@@ -227,8 +229,8 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
                     onSave={(data) => onUpdateSlot(printer.id, slot.slot_number, data)}
                   />
                 )
-                const header = labelled && group.key !== previous
-                previous = group.key
+                const header = labelled && group && group.key !== previous
+                previous = group ? group.key : null
                 return header ? [
                   <div key={`label-${group.key}`} data-testid="ams-unit-label" className="col-span-4 text-[10px] text-[var(--brand-text-muted)] font-medium mt-1">{group.label}</div>,
                   el,

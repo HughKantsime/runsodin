@@ -142,7 +142,9 @@ export const AMS_HT_FIRST_SLOT = 17
 
 export interface AmsSlotGroup { key: string; label: string }
 
-export function amsSlotGroup(slotNumber: number): AmsSlotGroup {
+/** Unit group of a Bambu AMS slot, or null for a slot number outside AMS numbering. */
+export function amsSlotGroup(slotNumber: number): AmsSlotGroup | null {
+  if (!Number.isInteger(slotNumber) || slotNumber <= 0) return null
   if (slotNumber >= AMS_HT_FIRST_SLOT) {
     const index = slotNumber - AMS_HT_FIRST_SLOT + 1
     return { key: `ht-${index}`, label: `AMS HT ${index}` }

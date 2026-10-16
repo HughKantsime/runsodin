@@ -264,6 +264,15 @@ it('printer card labels four-tray AMS units and AMS HT units separately', async 
   cleanup()
   render(<PrinterCard printer={{ ...w.printers[0], filament_slots: [1, 2, 3, 4].map(slot) }} {...props} />)
   expect(screen.queryAllByTestId('ams-unit-label')).toHaveLength(0)
+  cleanup()
+  // Non-Bambu printers have no AMS units, whatever their slot numbers.
+  const moonraker = w.printers.find((p: any) => p.api_type === 'moonraker')
+  render(<PrinterCard printer={{ ...moonraker, filament_slots: [1, 2, 3, 4, 5, 6, 17].map(slot) }} {...props} />)
+  expect(screen.queryAllByTestId('ams-unit-label')).toHaveLength(0)
+  cleanup()
+  // A slot number outside AMS numbering disables grouping instead of crashing or mislabelling.
+  render(<PrinterCard printer={{ ...w.printers[0], filament_slots: [0, 1, 5].map(slot) }} {...props} />)
+  expect(screen.queryAllByTestId('ams-unit-label')).toHaveLength(0)
 })
 
 it('no printer-card control reaches the AMS RFID re-read endpoint (claim says it is triggered from the UI)', async () => {
