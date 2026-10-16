@@ -238,6 +238,28 @@ def test_manual_spool_use_refuses_non_positive_grams(lifecycle_client):
     assert _spool(db) == (100.0, 0)
 
 
+def test_manual_usage_notes_fit_the_column_with_their_prefix(lifecycle_client):
+    from core.filament_ledger import MANUAL_NOTES_MAX
+    client, db = lifecycle_client
+    _spool_client(client)
+    assert MANUAL_NOTES_MAX == 255 - len("manual: ")
+    assert client.post("/spools/111/use", json={"weight_used_g": 1, "notes": "n" * (MANUAL_NOTES_MAX + 1)}).status_code == 422
+    assert _spool(db) == (100.0, 0)
+    assert client.post("/spools/111/use", json={"weight_used_g": 1, "notes": "n" * MANUAL_NOTES_MAX}).status_code == 200
+    db.expire_all()
+    assert len(db.execute(text("SELECT notes FROM spool_usage WHERE spool_id=111")).scalar_one()) == 255
+
+
+def test_automatic_labels_are_capped_at_the_column_width(lifecycle_client):
+    from core.filament_ledger import record_job_filament
+    from core.print_attempts import sqlalchemy_runner
+    client, db = lifecycle_client
+    assert record_job_filament(sqlalchemy_runner(db), 111, source="operator_complete",
+                               grams_by_spool={111: 10}, notes="y" * 400).deducted
+    db.commit()
+    assert len(_usage(db)[0].notes) == 255 and _usage(db)[0].notes.startswith("auto:operator_complete: y")
+
+
 def test_weighing_records_a_manual_adjustment_that_never_counts_as_a_deduction(lifecycle_client):
     client, db = lifecycle_client
     _spool_client(client)

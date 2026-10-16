@@ -67,6 +67,8 @@ from core.print_attempts import (PREFIX, attempt_seq, attempt_starts, bound_prin
 
 AUTO_PREFIX = "auto:"
 MANUAL_PREFIX = "manual:"
+NOTES_MAX = 255  # spool_usage.notes is VARCHAR(255)
+MANUAL_NOTES_MAX = NOTES_MAX - len(MANUAL_PREFIX) - 1  # what an operator may write after "manual: "
 SOURCES = frozenset({"operator_complete", "moonraker", "archive"})
 # Notes written by the automatic deducers before the ledger existed.
 LEGACY_AUTO_NOTES = ("Auto-deducted on job #", "Moonraker observed extrusion", "Moonraker sliced estimate",
@@ -347,7 +349,7 @@ def record_job_filament(run, job_id, *, source: str, grams_by_spool: Mapping, pr
         if not _claim(run, job_key, {"source": source, "print_job_id": None}):
             return LedgerResult("already_deducted", MARKER)
         claimed.append(job_key)
-    label = f"{AUTO_PREFIX}{source}: {notes}" if notes else f"{AUTO_PREFIX}{source}"
+    label = (f"{AUTO_PREFIX}{source}: {notes}" if notes else f"{AUTO_PREFIX}{source}")[:NOTES_MAX]
     deductions = [entry for entry in (
         _deduct(run, spool_id, grams, job_id=job_id, print_job_id=print_job_id, notes=label)
         for spool_id, grams in items) if entry is not None]
@@ -364,6 +366,8 @@ def record_manual_usage(run, spool_id, grams, *, job_id=None, notes=None) -> Opt
     items = _clean({spool_id: grams})
     if not items:
         return None
+    if notes is not None and len(notes) > MANUAL_NOTES_MAX:
+        raise ValueError(f"Manual usage notes are limited to {MANUAL_NOTES_MAX} characters")
     label = f"{MANUAL_PREFIX} {notes}" if notes else MANUAL_PREFIX
     if not _lock_spools(run, [items[0][0]]):
         return None
