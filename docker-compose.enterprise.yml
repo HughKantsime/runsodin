@@ -79,6 +79,12 @@ services:
       TRUSTED_HOSTS: ${TRUSTED_HOSTS:-*}
       ODIN_HOST_IP: ${ODIN_HOST_IP:-}
       TZ: ${TZ:-America/New_York}
+      # go2rtc runs as its own container: it reaches the camera relay on the API
+      # service, the relay trusts the go2rtc service (HMAC token still required),
+      # and API and monitors share one per-boot relay secret on /data.
+      ODIN_CAMERA_RELAY_BASE_URL: http://api:8000
+      ODIN_CAMERA_RELAY_PEERS: go2rtc
+      ODIN_CAMERA_RELAY_SECRET_FILE: /data/.camera-relay-secret
     secrets:
       - source: postgres_app_password
         target: postgres_app_password
@@ -120,6 +126,12 @@ services:
       ODIN_DB_ROLE: monitor-bambu
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       TZ: ${TZ:-America/New_York}
+      # go2rtc runs as its own container: it reaches the camera relay on the API
+      # service, the relay trusts the go2rtc service (HMAC token still required),
+      # and API and monitors share one per-boot relay secret on /data.
+      ODIN_CAMERA_RELAY_BASE_URL: http://api:8000
+      ODIN_CAMERA_RELAY_PEERS: go2rtc
+      ODIN_CAMERA_RELAY_SECRET_FILE: /data/.camera-relay-secret
     secrets:
       - source: postgres_app_password
         target: postgres_app_password

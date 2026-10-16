@@ -10,7 +10,9 @@ relay; ffmpeg therefore only ever talks to ODIN, and ODIN fetches the camera:
 - only the printer's stored HTTP(S) camera URL, re-read per request;
 - bytes are streamed back; the relay never emits a redirect.
 
-Access: loopback peers only (no forwarding headers) and a per-printer token,
+Access: loopback peers, or the configured relay peers (ODIN_CAMERA_RELAY_PEERS: the
+go2rtc service when it runs as its own container), never with a proxy/forwarding
+header, and always a per-printer token,
 HMAC-SHA256 over the printer id with a per-boot random secret. The secret
 lives in a 0600 file next to the go2rtc config, rotated at API start-up and
 read by every process that writes the go2rtc config; only go2rtc's config
@@ -36,7 +38,9 @@ router = APIRouter(include_in_schema=False)
 
 RELAY_PATH = "/internal/camera-source/{printer_id}/{token}"
 _LOOPBACK_PEERS = frozenset({"127.0.0.1", "::1"})
-_FORWARDING_HEADERS = ("forwarded", "x-forwarded-for", "x-forwarded-host", "x-real-ip")
+# Any proxy/CDN marker means the request did not come straight from the relay consumer.
+_FORWARDING_HEADERS = ("forwarded", "x-forwarded-for", "x-forwarded-host", "x-real-ip", "via",
+                       "cf-connecting-ip", "true-client-ip", "x-client-ip")
 _CHUNK = 64 * 1024
 _secret_lock = threading.Lock()
 _process_secret = None
@@ -88,15 +92,49 @@ def relay_token(printer_id: int) -> str:
     return hmac.new(relay_secret().encode(), f"camera-source:{int(printer_id)}".encode(), hashlib.sha256).hexdigest()
 
 
-def relay_url(printer_id: int) -> str:
-    """Loopback URL go2rtc/ffmpeg use for this printer's HTTP camera."""
+def relay_base_url() -> str:
+    """Where go2rtc reaches the relay: loopback in the single container; the API service
+    (ODIN_CAMERA_RELAY_BASE_URL, e.g. http://api:8000) when go2rtc is its own container."""
+    configured = (os.environ.get("ODIN_CAMERA_RELAY_BASE_URL") or "").strip().rstrip("/")
+    if configured:
+        return configured
     port = int(os.environ.get("PORT", "8000"))
-    return f"http://127.0.0.1:{port}/internal/camera-source/{int(printer_id)}/{relay_token(printer_id)}"
+    return f"http://127.0.0.1:{port}"
+
+
+def relay_url(printer_id: int) -> str:
+    """URL go2rtc/ffmpeg use for this printer's HTTP camera."""
+    return f"{relay_base_url()}/internal/camera-source/{int(printer_id)}/{relay_token(printer_id)}"
+
+
+def _trusted_peers() -> set:
+    """Loopback plus ODIN_CAMERA_RELAY_PEERS (comma-separated IPs or host names, e.g. the
+    go2rtc service), resolved at check time. The HMAC token is required in every case."""
+    import ipaddress
+    import socket
+    peers = set(_LOOPBACK_PEERS)
+    for entry in (os.environ.get("ODIN_CAMERA_RELAY_PEERS") or "").split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        try:
+            peers.add(str(ipaddress.ip_address(entry)))
+            continue
+        except ValueError:
+            pass
+        try:
+            for info in socket.getaddrinfo(entry, None, type=socket.SOCK_STREAM):
+                peers.add(info[4][0])
+        except (socket.gaierror, OSError, UnicodeError):
+            log.warning("Camera relay peer %r could not be resolved", entry)
+    return peers
 
 
 def _is_local_peer(request: Request) -> bool:
     client = request.client.host if request.client else None
-    if client not in _LOOPBACK_PEERS:
+    if client is None:
+        return False
+    if client not in _LOOPBACK_PEERS and client not in _trusted_peers():
         return False
     return not any(request.headers.get(name) for name in _FORWARDING_HEADERS)
 
