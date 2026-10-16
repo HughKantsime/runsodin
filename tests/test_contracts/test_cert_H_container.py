@@ -206,8 +206,21 @@ def _supervisor_status() -> dict[str, tuple[str, str]]:
     return rows
 
 
+def _wait_supervisor_running(timeout: float = 30) -> dict[str, tuple[str, str]]:
+    """supervisord reports STARTING until a program outlives its startsecs (backend 5 s);
+    /health/ready can answer before that, so wait for supervisord's own confirmation."""
+    deadline = time.monotonic() + timeout
+    status = _supervisor_status()
+    while time.monotonic() < deadline and not (set(status) == PROGRAMS and
+                                               all(state == "RUNNING" for state, _ in status.values())):
+        assert not any(state in {"BACKOFF", "FATAL", "EXITED"} for state, _ in status.values()), status
+        time.sleep(1)
+        status = _supervisor_status()
+    return status
+
+
 def test_supervisord_runs_exactly_the_nine_advertised_programs_and_they_stay_up():
-    first = _supervisor_status()
+    first = _wait_supervisor_running()
     assert set(first) == PROGRAMS, sorted(first)
     assert all(state == "RUNNING" for state, _ in first.values()), first
     time.sleep(12)
@@ -239,7 +252,7 @@ def test_every_container_process_runs_as_non_root_odin_user():
     assert len(long_lived) >= 10, long_lived  # supervisord + 9 programs (+ uvicorn workers)
     for pid, uids, cmd in long_lived:
         assert set(uids) == {"10001"}, (pid, uids, cmd)
-    status = _supervisor_status()
+    status = _wait_supervisor_running()
     for name, (_, pid) in status.items():
         assert any(str(p[0]) == pid for p in long_lived), (name, pid)
 
