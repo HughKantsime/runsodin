@@ -6,6 +6,7 @@ through the ledger; automatic deductions are once per physical print / job
 attempt, claimed atomically and only when something is actually deducted.
 """
 import json
+import re
 import threading
 import types
 from datetime import datetime, timedelta, timezone
@@ -19,7 +20,7 @@ from sqlalchemy.orm import Session
 from tests.test_contracts.test_education_review_workflow import review_db  # noqa: F401
 from tests.test_contracts.test_cert_D_jobs_lifecycle_idempotency import lifecycle_client, _spool  # noqa: F401
 from tests.test_contracts.test_archive_persistence_accounting_behavior import archive_case  # noqa: F401
-from tests.test_contracts.filament_census import census
+from tests.test_contracts import job_census
 
 
 def _keys(db, job_id=111):
@@ -81,8 +82,9 @@ def test_moonraker_physical_print_deducts_once_and_operator_correction_does_not_
 
 def test_prusalink_and_elegoo_completion_never_writes_stock():
     """job_events (PrusaLink/Elegoo/OctoPrint) records the print; the archive path accounts it."""
-    found = census()
-    assert not any(path.endswith("notifications/job_events.py") for path, _, _ in found)
+    for target in (job_census.SPOOLS, job_census.SPOOL_USAGE):
+        writes, _, _ = job_census.scan(target=target)
+        assert not any(path.endswith("notifications/job_events.py") for path, _, _, _ in writes)
 
 
 # ---------------- archive accounting ----------------
@@ -315,43 +317,135 @@ def test_concurrent_writers_serialise_on_the_claim(lifecycle_client):
 
 # ---------------- census: the ledger is the only consumption writer ----------------
 
-# Absolute writes that are not consumption (no usage row; measurement, creation or an edit).
+LEDGER = "backend/core/filament_ledger.py"
+
+
+def _names_never(path, function, words):
+    source = job_census.function_source(path, function)
+    return not any(re.search(rf"\b{word}\b", source) for word in words)
+
+
+def _constant_tables(path, expressions, forbidden):
+    return all(job_census.resolve(path, expression) not in forbidden for expression in expressions)
+
+
+def _priced_restore_tables(forbidden):
+    path = "backend/core/priced_estimate_restore.py"
+    arguments = job_census.call_arguments(path, "_insert", 1) + job_census.call_arguments(path, "_cas", 1)
+    return bool(arguments) and _constant_tables(path, arguments, forbidden)
+
+
+def _source_factory_tables():
+    path = "backend/core/economic_source_creation.py"
+    return set(job_census.call_arguments(path, "_insert", 1)) == {"'spools'", "'print_jobs'"}
+
+
+# Writers the census sees outside the ledger that do not consume filament,
+# per call site, each with a checked reason. Shared dynamic-SQL helpers appear
+# for every target and must prove they never address it.
+SHARED_DYNAMIC = {
+    ("backend/core/economic_source_creation.py", "_insert_inside", "sql insert (dynamic table)"):
+        ("the source factory inserts only spools (a fresh spool's opening balance) and print_jobs",
+         _source_factory_tables),
+    ("backend/core/global_order_origin_schema.py", "apply", "sql insert (dynamic table)"):
+        ("order-origin exclusions table", lambda: _constant_tables(
+            "backend/core/global_order_origin_schema.py", ["EXCLUSIONS"], {"spools", "spool_usage"})),
+    ("backend/core/power_target_operations.py", "_stage_operation", "sql insert (dynamic table)"):
+        ("power-operation table", lambda: _constant_tables(
+            "backend/core/power_target_operations.py", ["schema.TABLE"], {"spools", "spool_usage"})),
+    ("backend/core/power_target_operations.py", "_stage_transition", "sql update (dynamic table)"):
+        ("power-operation table", lambda: _constant_tables(
+            "backend/core/power_target_operations.py", ["schema.TABLE"], {"spools", "spool_usage"})),
+    ("backend/core/priced_estimate_restore.py", "_insert", "sql insert (dynamic table)"):
+        ("priced-estimate restore tables", lambda: _priced_restore_tables({"spools", "spool_usage"})),
+    ("backend/core/priced_estimate_restore.py", "_cas", "sql update (dynamic table)"):
+        ("priced-estimate restore tables", lambda: _priced_restore_tables({"spools", "spool_usage"})),
+    ("backend/core/schema/migrations/001_legacy_columns.py", "apply", "sql update (dynamic table)"):
+        ("legacy enum casing repair of status columns", lambda: _names_never(
+            "backend/core/schema/migrations/001_legacy_columns.py", "apply", ["remaining_weight_g", "weight_used_g", "spool_usage"])),
+    ("backend/core/schema/migrations/004_quiet_hours_scoped_claims.py", "apply", "sql insert (dynamic table)"):
+        ("quiet-hours claim tables", lambda: _constant_tables(
+            "backend/core/schema/migrations/004_quiet_hours_scoped_claims.py", ["TABLES"], {"spools", "spool_usage"})
+         and not set(job_census.resolve("backend/core/schema/migrations/004_quiet_hours_scoped_claims.py", "TABLES"))
+         & {"spools", "spool_usage"}),
+}
 ALLOWED = {
-    ("backend/modules/inventory/routes/spools.py", "create_spool", "remaining_weight_g write"):
-        (1, "a new spool starts at its initial weight"),
-    ("backend/modules/inventory/routes/spools.py", "update_spool", "setattr on a spool"):
-        (1, "operator edit of spool fields, including an absolute weight correction"),
-    ("backend/modules/printers/routes_ams.py", "sync_ams_state", "remaining_weight_g write"):
-        (2, "AMS RFID measured weight, and a spool created from an AMS tray"),
-    ("backend/modules/printers/monitors/ams_inventory.py", "sync_ams_inventory", "remaining_weight_g write"):
-        (1, "AMS telemetry measured weight"),
-    ("backend/modules/printers/monitors/ams_inventory.py", "sync_ams_inventory", "ORM bulk update of spools"):
-        (1, "the same AMS telemetry statement"),
+    "spools": {
+        **SHARED_DYNAMIC,
+        ("backend/core/economic_source_creation.py", "_insert_inside", "sql insert (dynamic table)"):
+            ("a fresh spool's opening balance (spool birth through the source factory)", _source_factory_tables),
+        ("backend/core/spool_purchase_evidence.py", "write_purchase", "sql update (dynamic SET)"):
+            ("purchase evidence: the SET list is limited to price/initial_weight_g", lambda: _names_never(
+                "backend/core/spool_purchase_evidence.py", "write_purchase", ["remaining_weight_g"])),
+        ("backend/modules/inventory/routes/spools.py", "update_spool", "setattr"):
+            ("operator edit of spool fields, including an absolute weight correction", lambda: True),
+        ("backend/modules/printers/routes_ams.py", "sync_ams_state", "orm attribute"):
+            ("AMS RFID measured weight (absolute)", lambda: True),
+        ("backend/modules/printers/routes_ams.py", "sync_ams_state", "Spool(column=...)"):
+            ("a spool created from an AMS tray at its measured weight", lambda: True),
+        ("backend/modules/printers/monitors/ams_inventory.py", "sync_ams_inventory", "sql update"):
+            ("AMS telemetry measured weight (absolute)", lambda: True),
+    },
+    "spool_usage": dict(SHARED_DYNAMIC),
 }
 
 
-def test_census_no_filament_stock_writer_outside_the_ledger():
-    found = census()
-    unexpected = {key: count for key, count in found.items() if ALLOWED.get(key, (None,))[0] != count}
-    assert not unexpected, f"filament stock written outside core.filament_ledger: {unexpected}"
-    assert set(found) == set(ALLOWED), set(ALLOWED) - set(found)
+@pytest.mark.parametrize("target", [job_census.SPOOLS, job_census.SPOOL_USAGE], ids=lambda t: t.table)
+def test_census_no_filament_stock_writer_outside_the_ledger(target):
+    writes, _, _ = job_census.scan(job_census.backend_sources(("backend/scripts/seed_",)), target)
+    sites = {w[:3] for w in writes if w[0] != LEDGER}
+    allowed = ALLOWED[target.table]
+    assert sites - set(allowed) == set(), f"{target.table} written outside core.filament_ledger: {sites - set(allowed)}"
+    assert set(allowed) - sites == set(), f"stale allowance: {set(allowed) - sites}"
+    for site, (reason, still_true) in allowed.items():
+        assert still_true(), (site, reason)
+    assert any(w[0] == LEDGER for w in writes)  # the ledger itself is seen
+
+
+def _filament_writes(source):
+    found = []
+    for target in (job_census.SPOOLS, job_census.SPOOL_USAGE):
+        writes, _, _ = job_census.scan({"backend/modules/planted.py": source}, target)
+        found += writes
+    return found
 
 
 @pytest.mark.parametrize("planted", [
     "def f(db):\n    db.execute(text('INSERT INTO spool_usage (spool_id) VALUES (1)'))\n",
     "def f(db):\n    db.execute(text('insert or ignore into \"spool_usage\" values (1)'))\n",
+    "def f(db):\n    db.execute(text('INSERT INTO public.spool_usage (spool_id) VALUES (1)'))\n",
+    "def f(db):\n    db.execute(text('UPDATE \"public\".\"spools\" SET remaining_weight_g=0 WHERE id=1'))\n",
+    "def f(db):\n    db.execute(text('UPDATE spools '\n                    'SET remaining_weight_g = remaining_weight_g - :g '\n                    'WHERE id = :id'))\n",
+    "def f(db):\n    db.execute(text('UPDATE spools ' + 'SET remaining_weight_g=0'))\n",
+    "def f(db):\n    db.execute(text('UPDATE spools sp SET remaining_weight_g=0'))\n",
+    "def f(db):\n    db.execute(text('INSERT INTO spools (id, remaining_weight_g) VALUES (1, 5) ON CONFLICT (id) DO UPDATE SET remaining_weight_g=excluded.remaining_weight_g'))\n",
     "def f(db, s):\n    db.add(SpoolUsage(spool_id=s.id))\n",
+    "def f(db):\n    db.execute(insert(SpoolUsage.__table__).values(spool_id=1))\n",
+    "def f(db):\n    db.execute(insert(SpoolUsage).values(spool_id=1))\n",
+    "def f(db):\n    db.execute(SpoolUsage.__table__.insert().values(spool_id=1))\n",
+    "def f(db, rows):\n    db.bulk_insert_mappings(SpoolUsage, rows)\n",
     "def f(s, g):\n    s.remaining_weight_g -= g\n",
     "def f(s, g):\n    s.remaining_weight_g = max(0, s.remaining_weight_g - g)\n",
-    "def f(db):\n    db.execute(text('UPDATE spools sp SET remaining_weight_g=0'))\n",
     "def f(db):\n    db.query(Spool).filter(Spool.id == 1).update({'remaining_weight_g': 0})\n",
+    "def f(db):\n    (db.query(Spool)\n       .filter(Spool.id == 1)\n       .filter(Spool.org_id == 2)\n       .update({'remaining_weight_g': 0}))\n",
     "def f(db):\n    db.execute(Spool.__table__.update().values(remaining_weight_g=0))\n",
+    "def f(db):\n    spools = Spool.__table__\n    db.execute(spools.update().values(remaining_weight_g=0))\n",
+    "def f(db, metadata):\n    usage = Table('spool_usage', metadata)\n    db.execute(usage.insert().values(spool_id=1))\n",
     "def f(db):\n    db.execute(sa_update(Spool).values(x=1))\n",
     "def f(spool, k, v):\n    setattr(spool, k, v)\n",
+    "def f(x, v):\n    setattr(x, 'remaining_weight_g', v)\n",
     "def f(u):\n    u.weight_used_g = 3\n",
+    "def f(db):\n    found = find_spool_by_rfid('t')\n    setattr(found, 'notes', 'x')\n    setattr(found, k, 1)\n",
 ])
 def test_census_catches_planted_writers(planted):
-    assert census({"backend/modules/planted.py": planted})
+    assert _filament_writes(planted), planted
+
+
+def test_census_ignores_reads_and_other_tables():
+    assert not _filament_writes("def f(db):\n    db.execute(text('SELECT remaining_weight_g FROM spools'))\n")
+    assert not _filament_writes("def f(db):\n    db.execute(text('UPDATE spools SET id = id WHERE id = 1'))\n")
+    assert not _filament_writes("def f(db):\n    db.execute(text('UPDATE spool_lots SET remaining_weight_g=0'))\n")
+    assert not _filament_writes("def f(db):\n    db.execute(text('UPDATE spools SET status=:s WHERE id=1'))\n")
 
 
 # ---------------- round 6: a print is accounted to its own attempt ----------------

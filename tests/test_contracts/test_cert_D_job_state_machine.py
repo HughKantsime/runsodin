@@ -53,6 +53,9 @@ ALLOWED_WRITES = {
         ('PATCH copies JobUpdate fields only after refusing a sent status (422)', _patch_refuses_status_before_copying_fields),
     ('backend/modules/jobs/routes/jobs_lifecycle.py', 'update_job_failure', 'sql update (dynamic SET)'):
         ('the SET list is built only from the literals fail_reason/fail_notes/updated_at', lambda: True),
+    ('backend/core/power_target_operations.py', '_stage_transition', 'sql update (dynamic table)'):
+        ('power-operation state CAS on its own table', lambda: job_census.resolve(
+            'backend/core/power_target_operations.py', 'schema.TABLE') != 'jobs'),
     ('backend/core/priced_estimate_restore.py', '_cas', 'sql update (dynamic table)'):
         ('restore CAS of the priced-estimate tables only', _priced_restore_never_targets_jobs),
     ('backend/core/schema/migrations/001_legacy_columns.py', 'apply', 'sql update (dynamic table)'):
@@ -103,6 +106,10 @@ PLANTED = [
     "def f(db, rows):\n    db.bulk_update_mappings(Job, rows)",
     "def f(db):\n    row = db.get(Job, 5)\n    setattr(row, 'status', 'failed')",
     "def f(db, field, value):\n    row = db.get(Job, 5)\n    setattr(row, field, value)",
+    "q = 'UPDATE public.jobs SET status=:s WHERE id=:id'",
+    "def f(db):\n    (db.query(Job)\n       .filter(Job.id == 1)\n       .update({'status': 'failed'}))",
+    "def f(db):\n    jobs = Job.__table__\n    db.execute(jobs.update().values(status='x'))",
+    "def f(db):\n    found = get_job(db, 5)\n    found.status = 'failed'",
 ]
 
 
