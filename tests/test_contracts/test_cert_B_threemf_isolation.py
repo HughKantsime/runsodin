@@ -243,3 +243,18 @@ def test_output_is_decoded_off_the_event_loop(monkeypatch):
     monkeypatch.setattr(mesh_isolation, "decode_mesh", recording)
     analysis = asyncio.run(mesh_isolation.analyze_3mf_isolated(FIXTURE))
     assert analysis.status == "ok" and threads == [False]
+
+
+def test_education_upload_is_429_when_the_queue_is_full(private_run_dir):
+    from fastapi import HTTPException
+    from modules.models_library import mesh_isolation
+    from modules.organizations.education_submission_service import _parse_3mf_isolated
+    names = [f"threemf-run-{i}.lock" for i in range(mesh_isolation.MAX_WORKERS)]
+    names += [f"threemf-wait-{i}.lock" for i in range(mesh_isolation.MAX_WAITERS)]
+    holder = _hold_locks(private_run_dir, names, 3)
+    try:
+        with pytest.raises(HTTPException) as refused:
+            _parse_3mf_isolated(FIXTURE)
+        assert refused.value.status_code == 429 and refused.value.headers["Retry-After"]
+    finally:
+        holder.kill(); holder.wait()

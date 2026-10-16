@@ -93,6 +93,24 @@ def metadata_from_dict(data: dict) -> PrintFileMetadata:
     return PrintFileMetadata(**values)
 
 
+def parse_3mf_isolated(file_path) -> Optional[PrintFileMetadata]:
+    """parse_3mf for untrusted uploads: runs in the bounded 3MF child process, never
+    in the calling (API) process. Raises mesh_isolation.Busy when the install's 3MF
+    workers and wait queue are full (callers answer 429 with Retry-After)."""
+    from modules.models_library.mesh_isolation import analyze_blocking
+    analysis = analyze_blocking(str(file_path), mode="metadata")
+    if analysis.status != "ok" or not analysis.metadata:
+        return None
+    return metadata_from_dict(analysis.metadata)
+
+
+def __getattr__(name):
+    if name == "ThreeMFBusy":  # lazy: the isolation module is only needed by callers
+        from modules.models_library.mesh_isolation import Busy
+        return Busy
+    raise AttributeError(name)
+
+
 def parse_3mf(file_path: str) -> Optional[PrintFileMetadata]:
     """
     Parse a Bambu Studio sliced .3mf file and extract metadata.

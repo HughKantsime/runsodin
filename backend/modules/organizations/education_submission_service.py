@@ -21,7 +21,6 @@ from core.db_compat import execute_insert_returning_id
 from core.errors import ErrorCode, OdinError
 from core.economic_identity import _add_created
 from modules.jobs.models import Job
-from modules.models_library.threemf_parser import metadata_from_dict
 from modules.organizations.education_storage import MIN_FREE_BYTES, StorageConfigurationError, required_free_bytes
 
 
@@ -29,16 +28,12 @@ def _parse_3mf_isolated(path):
     """Parse the untrusted package in the bounded 3MF child process (never in the API
     process); 429 with Retry-After when the install's 3MF workers are busy."""
     from fastapi import HTTPException
-    from modules.models_library.mesh_isolation import Busy, analyze_blocking
+    from modules.models_library.threemf_parser import ThreeMFBusy, parse_3mf_isolated
     try:
-        analysis = analyze_blocking(str(path), mode="metadata")
-    except Busy as busy:
+        return parse_3mf_isolated(path)
+    except ThreeMFBusy as busy:
         raise HTTPException(status_code=429, detail="3MF analysis is busy; try again shortly",
                             headers={"Retry-After": str(busy.retry_after)}) from None
-    if analysis.status != "ok" or not analysis.metadata:
-        return None
-    return metadata_from_dict(analysis.metadata)
-
 
 CHUNK_BYTES = 1024 * 1024
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024
