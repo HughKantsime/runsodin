@@ -42,10 +42,13 @@ def test_migration_032_is_additive_and_idempotent(notif_env):
     engine = notif_env.get_bind()
     with engine.connect() as conn:
         before = set(inspect(conn).get_table_names())
+        # Registered: the bootstrapped database already has the table (additive upgrade of a
+        # pre-032 database is covered by test_post027_migration_032.py).
+        assert "quiet_hours_deferred_deliveries" in before
         MIGRATION.apply(conn); conn.commit()
-        MIGRATION.apply(conn); conn.commit()  # second apply: no error, no change
+        MIGRATION.apply(conn); conn.commit()  # re-apply: no error, no change
         MIGRATION.validate(conn)
-        assert set(inspect(conn).get_table_names()) - before == {"quiet_hours_deferred_deliveries"}
+        assert set(inspect(conn).get_table_names()) == before
     with pytest.raises(Exception):
         with engine.begin() as conn:
             conn.execute(text("INSERT INTO quiet_hours_deferred_deliveries(id,user_id,scope_key,channel,alert_type,severity,title) "
@@ -144,8 +147,11 @@ def test_retention_purges_sent_after_7_days_and_unsent_after_30(notif_env, defer
 
 
 def test_without_table_recording_is_a_noop(notif_env):
-    """Pre-registration databases keep the previous behaviour (no error, nothing recorded)."""
+    """A database not yet upgraded by 032 keeps the previous behaviour (no error, nothing recorded).
+    032 is registered, so the bootstrapped table is dropped to model that database."""
     from modules.notifications import deferred_deliveries
+    with notif_env.get_bind().begin() as conn:
+        conn.execute(text("DROP TABLE quiet_hours_deferred_deliveries"))
     with notif_env.get_bind().begin() as conn:
         assert deferred_deliveries.available(conn) is False
         assert deferred_deliveries.record_suppressed(conn, org_id=1, scope="org:1", recipients={1: {"email"}},
