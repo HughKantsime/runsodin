@@ -56,7 +56,16 @@ def main():
                 raise RuntimeError('Owned database not ready')
             time.sleep(.5)
         # The published v1.9.24 image's own bootstrap writes the released PostgreSQL database.
-        run('docker', 'exec', database, 'psql', '-U', 'postgres', '-c', 'CREATE DATABASE post027_released')
+        # pg_isready can pass during the image's init phase, before its restart: retry briefly.
+        deadline = time.monotonic() + 60
+        while True:
+            created = subprocess.run(['docker', 'exec', database, 'psql', '-U', 'postgres', '-c', 'CREATE DATABASE post027_released'],
+                                     text=True, capture_output=True, timeout=30)
+            if created.returncode == 0:
+                break
+            if time.monotonic() > deadline:
+                raise RuntimeError(created.stdout + created.stderr)
+            time.sleep(1)
         receipt['released_image'] = run('docker', 'image', 'inspect', '--format', '{{.Id}}', RELEASED_IMAGE).strip()
         released = subprocess.run(['docker', 'run', '--rm', '--name', name + '_released', '--network', name, '--entrypoint', '/bin/sh', RELEASED_IMAGE, '-c',
             'umask 077; head -c 24 /dev/urandom | base64 > /tmp/pw; cd /app/backend && DATABASE_URL=postgresql://postgres@pg/post027_released '
