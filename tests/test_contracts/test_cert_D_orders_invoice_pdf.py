@@ -15,6 +15,9 @@ from sqlalchemy.orm import Session
 
 from tests.test_contracts.test_education_review_workflow import review_db  # noqa: F401
 
+# Exercises Pro-gated routes (cert-fix-G tier gates): run under a real signed license.
+pytestmark = pytest.mark.usefixtures("pro_license")
+
 
 @pytest.fixture
 def api_client(review_db):

@@ -15,16 +15,11 @@ from PIL import Image
 from pypdf import PdfReader
 from sqlalchemy import text
 
-try:
-    from tests.test_contracts.test_cert_D_orders_invoice_pdf import _contents, _fills, _order, _rgb, api_client  # noqa: F401
-except ImportError:  # cert-fix-D (orders invoice harness) is not merged into cert-integration yet
-    @pytest.fixture
-    def api_client():
-        raise ImportError("tests/test_contracts/test_cert_D_orders_invoice_pdf.py is on cert-fix-D")
-
-# Strict: once cert-fix-D merges these pass, XPASS fails, and this marker must be removed.
-NEEDS_CERT_FIX_D = pytest.mark.xfail(strict=True, reason="needs cert-fix-D")
+from tests.test_contracts.test_cert_D_orders_invoice_pdf import _contents, _fills, _order, _rgb, api_client  # noqa: F401
 from tests.test_contracts.test_education_review_workflow import review_db  # noqa: F401
+
+# Exercises Pro-gated routes (cert-fix-G tier gates): run under a real signed license.
+pytestmark = pytest.mark.usefixtures("pro_license")
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / "frontend" / "src" / "test-fixtures" / "cert-E-integ-branding.json"
@@ -71,7 +66,6 @@ def _invoice(client):
     return PdfReader(BytesIO(response.content))
 
 
-@NEEDS_CERT_FIX_D
 def test_admin_branding_save_and_logo_upload_reach_ui_wire_and_invoice(brand_app):
     client, store = brand_app
     saved = client.put("/api/branding", json=SAVE)
@@ -103,7 +97,6 @@ def test_admin_branding_save_and_logo_upload_reach_ui_wire_and_invoice(brand_app
         FIXTURE.write_text(json.dumps(fixture, indent=2) + "\n")
 
 
-@NEEDS_CERT_FIX_D
 def test_svg_logo_is_accepted_for_ui_but_not_rendered_on_invoice(brand_app):
     """Branding reaches the invoice only for raster logos (invoice_generator.py:100 PNG/JPEG/WebP)."""
     client, store = brand_app
@@ -124,7 +117,6 @@ def _ui_font_lists():
     return lists
 
 
-@NEEDS_CERT_FIX_D
 def test_every_ui_font_choice_is_accepted_and_persisted_by_backend(brand_app):
     client, _ = brand_app
     lists = _ui_font_lists()
