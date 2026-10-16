@@ -1,8 +1,10 @@
 """Organizations OIDC routes — SSO/OIDC login, callback, token exchange, admin config."""
 
 import hashlib
+import hmac
 import logging
 import secrets
+from urllib.parse import urlsplit
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
@@ -23,21 +25,38 @@ log = logging.getLogger("odin.api")
 router = APIRouter()
 
 
-# Browser binding for the one-time ODIN code. The login request sets a random
-# HttpOnly cookie; the callback stores only sha256(binding:code), and the exchange
-# recomputes it from the same cookie. A code read from a log, a URL or the
-# database is useless without the initiating browser's cookie.
+# Browser binding for the login. The login request sets an HttpOnly cookie whose
+# value is a keyed MAC of that login's OAuth `state`, so:
+# - the callback only completes in the browser that started *that* login. A
+#   victim's browser cannot be made to finish an attacker's IdP flow (login CSRF),
+#   because its cookie belongs to a different state;
+# - the one-time ODIN code is stored as sha256(binding:code) and the exchange
+#   recomputes it from the cookie, so a code read from a log, a URL or the
+#   database is useless without that cookie.
 OIDC_BINDING_COOKIE = "odin_oidc_bind"
 _OIDC_BINDING_MAX_AGE = 600
+
+
+def oidc_state_binding(state: str) -> str:
+    mac = hmac.new(auth_module.SECRET_KEY.encode(), f"odin-oidc-binding:{state}".encode(), hashlib.sha256)
+    return mac.hexdigest()
 
 
 def oidc_code_key(code: str, binding: str) -> str:
     return hashlib.sha256(f"{binding}:{code}".encode()).hexdigest()
 
 
+def _redirect_uri(request: Request) -> str:
+    if _settings.oidc_redirect_uri:
+        return _settings.oidc_redirect_uri
+    return f"{str(request.base_url).rstrip('/')}/api/auth/oidc/callback"
+
+
 def _binding_cookie_path(request: Request) -> str:
-    # ".../auth/oidc/login" -> ".../auth/oidc" (covers callback and exchange).
-    return request.url.path.rsplit("/", 1)[0] or "/"
+    # The callback's directory (".../auth/oidc"), which also covers the exchange.
+    # Taken from the redirect_uri, not the login URL, so a login started under
+    # /api/v1 still reaches the /api callback.
+    return urlsplit(_redirect_uri(request)).path.rsplit("/", 1)[0] or "/"
 
 
 class OIDCIdentityError(RuntimeError):
@@ -302,17 +321,12 @@ async def oidc_login(request: Request, db: Session = Depends(get_db)):
     if not row:
         raise HTTPException(status_code=400, detail="OIDC not configured")
     config = dict(row._mapping)
-    if _settings.oidc_redirect_uri:
-        redirect_uri = _settings.oidc_redirect_uri
-    else:
-        base_url = str(request.base_url).rstrip("/")
-        redirect_uri = f"{base_url}/api/auth/oidc/callback"
-    handler = create_handler_from_config(config, redirect_uri)
+    handler = create_handler_from_config(config, _redirect_uri(request))
     url, state = await handler.get_authorization_url()
     from fastapi.responses import RedirectResponse
     response = RedirectResponse(url=url, status_code=302)
     # SameSite=Lax so the IdP's top-level redirect back to the callback carries it.
-    response.set_cookie(key=OIDC_BINDING_COOKIE, value=secrets.token_urlsafe(32),
+    response.set_cookie(key=OIDC_BINDING_COOKIE, value=oidc_state_binding(state),
                         httponly=True, secure=_settings.cookie_secure and request.url.scheme == "https", samesite="lax",
                         path=_binding_cookie_path(request), max_age=_OIDC_BINDING_MAX_AGE)
     return response
@@ -338,18 +352,13 @@ async def oidc_callback(request: Request, code: str = None, state: str = None,
         return RedirectResponse(url="/?error=oidc_not_configured", status_code=302)
     config = dict(row._mapping)
 
-    if _settings.oidc_redirect_uri:
-        redirect_uri = _settings.oidc_redirect_uri
-    else:
-        base_url = str(request.base_url).rstrip("/")
-        redirect_uri = f"{base_url}/api/auth/oidc/callback"
-
-    handler = create_handler_from_config(config, redirect_uri)
-    if not handler.validate_state(state):
-        return RedirectResponse(url="/?error=invalid_state", status_code=302)
+    # Only the browser that started *this* login may complete it (login CSRF).
     binding = request.cookies.get(OIDC_BINDING_COOKIE) or ""
-    if len(binding) < 32:
-        # Only the browser that started this login may complete it.
+    if not hmac.compare_digest(binding, oidc_state_binding(state)):
+        return RedirectResponse(url="/?error=invalid_state", status_code=302)
+
+    handler = create_handler_from_config(config, _redirect_uri(request))
+    if not handler.validate_state(state):
         return RedirectResponse(url="/?error=invalid_state", status_code=302)
 
     try:
@@ -404,7 +413,7 @@ async def oidc_exchange_code(body: dict, request: Request, db: Session = Depends
     if not code or not isinstance(code, str):
         raise HTTPException(status_code=400, detail="code is required")
     binding = request.cookies.get(OIDC_BINDING_COOKIE) or ""
-    if len(binding) < 32:
+    if len(binding) != 64:
         raise HTTPException(status_code=400, detail="Invalid or expired code")
     code = oidc_code_key(code, binding)
 
@@ -475,7 +484,10 @@ async def oidc_exchange_code(body: dict, request: Request, db: Session = Depends
     from core.mfa_login import login_mfa_response
     continuation = login_mfa_response(db, user.id)
     if continuation is not None:
-        return continuation
+        from fastapi.responses import JSONResponse
+        pending = JSONResponse(continuation)
+        pending.delete_cookie(OIDC_BINDING_COOKIE, path=_binding_cookie_path(request))
+        return pending
     client_ip = request.client.host if request.client else "unknown"
     if _record_session(db, user.id, access_token, client_ip, request.headers.get("user-agent", "")) is not True:
         raise HTTPException(status_code=503, detail="Login temporarily unavailable. Try again later.")

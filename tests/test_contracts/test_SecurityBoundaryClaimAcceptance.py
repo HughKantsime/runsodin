@@ -39,8 +39,8 @@ def test_callback_stores_real_fernet_access_token_not_plaintext(oidc_db, monkeyp
     # The stored code is the browser-bound digest, never the raw one-time code.
     assert not stored.code.startswith('gAAAAA')
     raw = response.headers['location'].split('#oidc_code=', 1)[1]
-    from modules.organizations.routes_oidc import oidc_code_key
-    assert stored.code == oidc_code_key(raw, 'synthetic-browser-binding-' + 'b' * 24) != raw
+    from modules.organizations.routes_oidc import oidc_code_key, oidc_state_binding
+    assert stored.code == oidc_code_key(raw, oidc_state_binding('fixture-state')) != raw
 
 
 def test_user_update_whitelists_columns_and_binds_values(setup_client):

@@ -11,7 +11,7 @@ from tests.test_contracts.test_mfa_authentication_behavior import mfa_client, en
 
 # The exchange needs the initiating browser's binding cookie; codes are stored
 # only as sha256(binding:code) (routes_oidc.oidc_code_key).
-OIDC_BINDING='synthetic-browser-binding-'+'b'*24
+OIDC_BINDING='b'*64  # shape of routes_oidc.oidc_state_binding(state)
 
 
 def bound_key(code):

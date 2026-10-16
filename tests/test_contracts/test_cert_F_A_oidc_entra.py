@@ -205,3 +205,23 @@ def test_trusted_hosts_rejects_hostile_host_before_oidc_login(trusted):
     assert r.status_code == 400
     _, params = start_login(trusted)
     assert params["redirect_uri"] == trusted.url.replace("127.0.0.1", "127.0.0.1") + "/api/auth/oidc/callback"
+
+
+# ---------------------------------------------------------------- browser cookie jar
+@pytest.mark.parametrize("login_prefix", ["/api", "/api/v1"])
+def test_real_cookie_jar_carries_the_binding_to_callback_and_exchange(odin, idp, login_prefix):
+    """No explicit cookies: the binding must reach the callback and exchange by its
+    own Path, including a login started under /api/v1 (callback is under /api)."""
+    import requests
+    jar = requests.Session()
+    r = jar.get(odin.url + login_prefix + "/auth/oidc/login", allow_redirects=False, timeout=30)
+    assert r.status_code == 302, r.text
+    params = {k: v[0] for k, v in parse_qs(urlsplit(r.headers["location"]).query).items()}
+    code = idp.issue_code(params["nonce"], "entra-" + secrets.token_hex(5), f"jar{secrets.token_hex(3)}@contoso.example")
+    cb = jar.get(odin.url + "/api/auth/oidc/callback", params={"code": code, "state": params["state"]},
+                 allow_redirects=False, timeout=30)
+    assert cb.status_code == 302 and "#oidc_code=" in cb.headers["location"], cb.headers.get("location")
+    oidc_code = parse_qs(urlsplit(cb.headers["location"]).fragment)["oidc_code"][0]
+    ex = jar.post(odin.url + "/api/auth/oidc/exchange", json={"code": oidc_code}, timeout=30)
+    assert ex.status_code == 200, ex.text
+    assert ex.json()["token_type"] == "bearer"

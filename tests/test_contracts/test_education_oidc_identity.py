@@ -70,8 +70,9 @@ def _oidc_client(db: Session) -> TestClient:
     app.include_router(router)
     app.dependency_overrides[get_db] = lambda: db
     client = TestClient(app)
-    # The browser that started the login (see routes_oidc.OIDC_BINDING_COOKIE).
-    client.cookies.set("odin_oidc_bind", "synthetic-browser-binding-" + "b" * 24)
+    # The browser that started the fixture login (see routes_oidc.OIDC_BINDING_COOKIE).
+    from modules.organizations.routes_oidc import oidc_state_binding
+    client.cookies.set("odin_oidc_bind", oidc_state_binding("fixture-state"))
     return client
 
 
@@ -632,5 +633,28 @@ def test_oidc_login_sets_httponly_lax_binding_cookie(oidc_db, monkeypatch):
     assert response.status_code == 302
     header = response.headers["set-cookie"].lower()
     assert header.startswith("odin_oidc_bind=") and "httponly" in header and "samesite=lax" in header
-    assert "path=/auth/oidc" in header and "max-age=600" in header
+    assert "path=/api/auth/oidc" in header and "max-age=600" in header
     assert len(response.cookies["odin_oidc_bind"]) >= 32
+
+
+def test_oidc_callback_refuses_another_logins_state_login_csrf(oidc_db, monkeypatch):
+    """A victim browser holding the cookie of its own login cannot be made to finish
+    an attacker's IdP flow (attacker code + attacker state)."""
+    from modules.organizations import oidc_handler
+    from modules.organizations.routes_oidc import oidc_state_binding
+    _seed_oidc_config(oidc_db)
+    consumed = []
+
+    class Handler(_CallbackHandler):
+        def validate_state(self, state):
+            consumed.append(state)
+            return True
+    monkeypatch.setattr(oidc_handler, "create_handler_from_config", lambda config, redirect_uri: Handler())
+    victim = _oidc_client(oidc_db)
+    victim.cookies.set("odin_oidc_bind", oidc_state_binding("victim-own-state"))
+    response = victim.get("/auth/oidc/callback?code=attacker-code&state=attacker-state",
+                          follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["location"] == "/?error=invalid_state"
+    assert consumed == []  # refused before the attacker's state is even consumed
+    assert oidc_db.execute(text("SELECT COUNT(*) FROM oidc_auth_codes")).scalar_one() == 0
