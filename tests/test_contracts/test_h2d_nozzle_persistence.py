@@ -176,3 +176,50 @@ def test_v2_adapter_request_version_publishes_get_version():
     adapter._connected = True
     assert adapter.request_version() is True
     assert published == [('device/SYNTHSERIAL/request', {'info': {'sequence_id': '0', 'command': 'get_version'}})]
+
+
+@pytest.mark.parametrize('machine_type,count', [('H2D', 2), ('H2D Pro', 2), ('H2C', 2), ('O1E', 2), ('O1C2', 2),
+                                                ('H2S', 1), ('X1C', 1), ('P2S', 1), (None, 1)])
+def test_nozzle_status_api_uses_model_nozzle_capability(v2_offline_monitor, offline_store, token_client, machine_type, count):
+    from modules.printers import routes_status
+    offline_store.execute(text("UPDATE printers SET machine_type=:m, nozzle_1_temp=190 WHERE id=199"), {'m': machine_type}); offline_store.commit()
+    client, issue = token_client; client.app.include_router(routes_status.router)
+    body = client.get('/printers/199/nozzle-status', headers=issue(['read:printers'])).json()
+    assert body['nozzle_count'] == count
+    assert (body['nozzle_1'] is None) == (count == 1)
+
+
+@pytest.mark.parametrize('machine_type', ['H2D Pro', 'H2C'])
+def test_dual_nozzle_models_get_dual_nozzle_websocket_parsing(v2_offline_monitor, offline_store, monkeypatch, machine_type):
+    monitor, _, module = v2_offline_monitor
+    pushed = []
+    monkeypatch.setattr(module, 'ws_push', lambda kind, payload: pushed.append(payload))
+    offline_store.execute(text("UPDATE printers SET machine_type=:m WHERE id=199"), {'m': machine_type}); offline_store.commit()
+    monitor._on_status(SimpleNamespace(raw_data={'print': {'gcode_state': 'IDLE', 'nozzle_temper': 210, 'nozzle_temper_1': 190}}))
+    assert pushed and pushed[-1]['h2d_nozzles']['nozzle_1']['temp'] == 190
+
+
+def test_bambu_nozzle_counts_match_installed_bambu_studio_profiles():
+    import json
+    from pathlib import Path
+    from modules.printers.printer_models import BAMBU_MODEL_IDS, bambu_nozzle_count
+    machine = Path('/Applications/BambuStudio.app/Contents/Resources/profiles/BBL/machine')
+    if not machine.is_dir():
+        pytest.skip('Bambu Studio profiles not installed')
+    profiles = {}
+    for path in machine.glob('*.json'):
+        try:
+            data = json.loads(path.read_text())
+        except ValueError:
+            continue
+        profiles[data.get('name')] = data
+    def resolve(name, key):
+        data = profiles.get(name)
+        while data is not None:
+            if key in data:
+                return data[key]
+            data = profiles.get(data.get('inherits'))
+    for data in [d for d in profiles.values() if 'model_id' in d and d['model_id'] in BAMBU_MODEL_IDS]:
+        variants = [n for n, v in profiles.items() if v.get('printer_model') == data['name']]
+        counts = {len(resolve(v, 'nozzle_diameter') or []) for v in variants}
+        assert counts == {bambu_nozzle_count(data['model_id'])}, data['name']

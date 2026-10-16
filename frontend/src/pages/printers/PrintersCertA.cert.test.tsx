@@ -275,6 +275,14 @@ it('printer card labels four-tray AMS units and AMS HT units separately', async 
   expect(screen.queryAllByTestId('ams-unit-label')).toHaveLength(0)
 })
 
+it.each(['H2D', 'H2D Pro', 'H2C'])('%s card shows left and right nozzle temperatures', async machine => {
+  const { default: PrinterCard } = await import('../../components/printers/PrinterCard')
+  const props = { allFilaments: [], spools: [], onDelete: vi.fn(), onToggleActive: vi.fn(), onUpdateSlot: vi.fn(), onEdit: vi.fn(), onSyncAms: vi.fn() }
+  render(<PrinterCard printer={{ ...w.printers[0], machine_type: machine, nozzle_temp: 210, h2d_nozzles: { nozzle_1: { temp: 190, target: 0 } } }} {...props} />)
+  expect(screen.getByTitle('Left Nozzle')).toHaveTextContent('L 210°')
+  expect(screen.getByTitle('Right Nozzle')).toHaveTextContent('R 190°')
+})
+
 it('no printer-card control reaches the AMS RFID re-read endpoint (claim says it is triggered from the UI)', async () => {
   const { default: PrinterCard } = await import('../../components/printers/PrinterCard')
   const urls: string[] = []

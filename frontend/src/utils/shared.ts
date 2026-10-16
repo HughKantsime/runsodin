@@ -152,3 +152,13 @@ export function amsSlotGroup(slotNumber: number): AmsSlotGroup | null {
   const unit = Math.floor((slotNumber - 1) / 4)
   return { key: `ams-${unit}`, label: `AMS Unit ${unit}` }
 }
+
+// ---- Nozzle capability ----
+// Mirrors backend printer_models.BAMBU_NOZZLE_COUNTS (Bambu Studio profiles'
+// nozzle_diameter length): H2D, H2D Pro and H2C have two nozzles.
+const DUAL_NOZZLE_MODELS = new Set(['H2D', 'H2D PRO', 'H2C', 'O1D', 'O1E', 'O1C2'])
+
+export function isDualNozzle(machineType: string | null | undefined): boolean {
+  const normalized = (machineType || '').trim().toUpperCase().replace(/^BAMBU LAB /, '')
+  return DUAL_NOZZLE_MODELS.has(normalized)
+}

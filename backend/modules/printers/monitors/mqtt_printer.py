@@ -795,7 +795,7 @@ class PrinterMonitor:
                                     log.warning("AMS inventory synchronization failed (attempt %s/%s); retrying in %ss",
                                                 failures, AMS_SYNC_MAX_ATTEMPTS, delay)
 
-                    # ---- H2D Dual-Nozzle / External Spool Parsing ----
+                    # ---- Dual-Nozzle (H2D / H2D Pro / H2C) / External Spool Parsing ----
                     h2d_nozzle_data = None
                     external_spools = None
                     try:
@@ -805,7 +805,8 @@ class PrinterMonitor:
                     except Exception:
                         machine_type = None
 
-                    if machine_type == 'H2D':
+                    from modules.printers.printer_models import bambu_nozzle_count
+                    if bambu_nozzle_count(machine_type) == 2:
                         h2d_nozzle_data = parse_h2d_nozzles(self._state)
                         external_spools = parse_h2d_external_spools(self._state)
 

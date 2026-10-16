@@ -69,6 +69,19 @@ BAMBU_PRODUCT_NAMES = {
 
 _BAMBU_FRIENDLY_NAMES = {name.upper(): name for name in BAMBU_PRODUCT_NAMES.values()}
 
+# Nozzle (extruder) count per model: the length of `nozzle_diameter` in the
+# Bambu Studio 02.05.00.66 machine profiles. Every other listed model has one.
+BAMBU_NOZZLE_COUNTS = {
+    "H2D": 2,
+    "H2D Pro": 2,
+    "H2C": 2,
+}
+
+
+def bambu_nozzle_count(machine_type: Optional[str]) -> int:
+    """Nozzle count for a stored machine_type / model code; 1 when unknown."""
+    return BAMBU_NOZZLE_COUNTS.get(bambu_model_name(machine_type) or "", 1)
+
 
 def bambu_model_name(raw_value: Optional[str]) -> Optional[str]:
     """Friendly Bambu model for a model id, product name or friendly name.

@@ -125,6 +125,13 @@ def _validate_camera_url(url: str) -> str:
     return sanitized
 
 
+# Bambu models with an RTSPS camera stream at :322/streaming/live/1 (auto
+# camera URL). Bambu Studio's machine profiles carry no camera data, so a model
+# is listed only with another real source; P2S, H2S, H2C and H2D Pro are NOT
+# listed until verified on hardware (fixes.json records the claim text).
+BAMBU_RTSPS_CAMERA_MODELS = frozenset({'X1C', 'X1 Carbon', 'X1E', 'X1 Carbon Combo', 'H2D'})
+
+
 # ====================================================================
 # Camera / go2rtc helpers
 # ====================================================================
@@ -139,7 +146,7 @@ def get_camera_url(printer):
             log.debug(f"Failed to decrypt camera URL (using raw): {e}")
         return url
     if printer.api_type == "bambu" and printer.api_key and printer.api_host:
-        RTSP_MODELS = {'X1C', 'X1 Carbon', 'X1E', 'X1 Carbon Combo', 'H2D'}
+        RTSP_MODELS = BAMBU_RTSPS_CAMERA_MODELS
         model = (printer.model or '').strip()
         if model not in RTSP_MODELS:
             return None
@@ -481,7 +488,7 @@ def sync_go2rtc_config_raw():
                     except Exception:
                         url = camera_url
                 elif api_type == 'bambu' and api_key and api_host:
-                    RTSP_MODELS = {'X1C', 'X1 Carbon', 'X1E', 'X1 Carbon Combo', 'H2D'}
+                    RTSP_MODELS = BAMBU_RTSPS_CAMERA_MODELS
                     if (model or '').strip() in RTSP_MODELS:
                         try:
                             parts = crypto.decrypt(api_key).split('|')

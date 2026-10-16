@@ -11,7 +11,7 @@ import PrintProgress from './PrintProgress'
 import { printers } from '../../api'
 import { canDo, getCurrentUser } from '../../permissions'
 import { canControlPlug } from '../../utils/plugControl'
-import { isOnline, isActivePrintState, amsSlotGroup } from '../../utils/shared'
+import { isOnline, isActivePrintState, amsSlotGroup, isDualNozzle } from '../../utils/shared'
 import { Button, SpoolRing } from '../ui'
 
 // TODO: type this properly — runtime printer shape has extra MQTT/telemetry fields
@@ -154,8 +154,8 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
             <h3 className="font-display font-semibold text-base md:text-lg truncate">{printer.nickname || printer.name}</h3>
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-xs md:text-sm text-[var(--brand-text-muted)] truncate">{printer.model || 'Unknown model'}</span>
-              {printer.machine_type === 'H2D' && (
-                <span className="px-1.5 py-0.5 bg-purple-600/20 text-purple-400 text-[10px] rounded-full border border-purple-600/30 font-medium">H2D</span>
+              {isDualNozzle(printer.machine_type) && (
+                <span className="px-1.5 py-0.5 bg-purple-600/20 text-purple-400 text-[10px] rounded-full border border-purple-600/30 font-medium">{printer.machine_type}</span>
               )}
               {printer.tags?.map(tag => (
                 <span key={tag} className="px-1.5 py-0.5 bg-[var(--brand-primary)]/20 text-[var(--brand-primary)] text-[10px] rounded-full border border-[var(--brand-primary)]/30">{tag}</span>
@@ -240,7 +240,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
           )
         })()}
         {/* H2D External Spools (Ext-L / Ext-R) */}
-        {printer.machine_type === 'H2D' && printer.external_spools && (
+        {isDualNozzle(printer.machine_type) && printer.external_spools && (
           <div className="mt-2 pt-2 border-t border-[var(--brand-border)]">
             <span className="text-[10px] text-[var(--brand-text-muted)] font-medium">External Spools</span>
             <div className="grid grid-cols-2 gap-2 mt-1">
@@ -299,7 +299,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
                 )}
               </div>
               <div className="flex items-center gap-3 font-mono text-xs text-[var(--brand-text-secondary)]">
-                {nozTemp != null && printer.machine_type !== 'H2D' && (
+                {nozTemp != null && !isDualNozzle(printer.machine_type) && (
                   <span
                     data-testid="printer-nozzle-temp"
                     className={isHeating ? "text-orange-400" : ""}
@@ -308,7 +308,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
                     Nozzle {nozTemp}°{nozTarget && nozTarget > 0 ? `/${nozTarget}°` : ''}
                   </span>
                 )}
-                {printer.machine_type === 'H2D' && nozTemp != null && (
+                {isDualNozzle(printer.machine_type) && nozTemp != null && (
                   <>
                     <span className={isHeating ? "text-orange-400" : ""} title="Left Nozzle">
                       L {nozTemp}°{nozTarget && nozTarget > 0 ? `/${nozTarget}°` : ''}
