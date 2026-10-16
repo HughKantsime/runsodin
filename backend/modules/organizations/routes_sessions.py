@@ -557,24 +557,12 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
                     text(f"SELECT id FROM {table} WHERE {column_expr} {like} :p"), {"p": pattern}))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — table/column are module constants, no user input
         return sorted(ids)
 
-    # Quiet-hours deferred deliveries (migration 032): the user's own copies go; copies
-    # of the same alert held for other recipients and webhooks are kept for delivery,
-    # scrubbed with the same identifier replacement as the alerts above. (cert-fix-F's
-    # structural scrub replaces both at merge.)
+    # Quiet-hours deferred deliveries (migration 032): the user's own copies go here;
+    # copies of the same alert held for other recipients and webhooks are kept for
+    # delivery and scrubbed structurally with the alerts below.
     from modules.organizations.routes_users import delete_deferred_deliveries, _DEFERRED_DELIVERIES_TABLE
     delete_deferred_deliveries(db, user_id=user_id)
-    if inspect(db.connection()).has_table(_DEFERRED_DELIVERIES_TABLE):
-        for identifier in identifiers:
-            db.execute(
-                text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant table name; params bound
-                    f"UPDATE {_DEFERRED_DELIVERIES_TABLE} SET "
-                    "title = REPLACE(title, :identifier, '[deleted-user]'), "
-                    "message = CASE WHEN message IS NULL THEN NULL "
-                    "ELSE REPLACE(message, :identifier, '[deleted-user]') END "
-                    "WHERE title LIKE :pattern OR message LIKE :pattern"
-                ),
-                {"identifier": identifier, "pattern": f"%{identifier}%"},
-            )
+    deferred_present = inspect(db.connection()).has_table(_DEFERRED_DELIVERIES_TABLE)
 
     # Remove direct Classroom identity data and any unconsumed OAuth state.
     # Operational course mappings and cost centers remain, while grants are
@@ -637,6 +625,20 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
         db.commit()  # commit per chunk: bounded lock, idempotent and resumable
         if alert_ids:
             log.info("GDPR erase: scrubbed alerts %d/%d", min(start + CHUNK, len(alert_ids)), len(alert_ids))
+
+    # The same structural scrub for the deferred copies (title/message), when 032 is applied.
+    deferred_ids = _candidate_ids(_DEFERRED_DELIVERIES_TABLE, "COALESCE(title,'') || ' ' || COALESCE(message,'')") if deferred_present else []
+    for start in range(0, len(deferred_ids), CHUNK):
+        for deferred_id in deferred_ids[start:start + CHUNK]:
+            row = db.execute(text(f"SELECT title, message FROM {_DEFERRED_DELIVERIES_TABLE} WHERE id = :id"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant table name; params bound
+                             {"id": deferred_id}).one()
+            title, message = scrub_text(row.title, identifiers), scrub_text(row.message, identifiers)
+            if (title, message) != (row.title, row.message):
+                db.execute(text(f"UPDATE {_DEFERRED_DELIVERIES_TABLE} SET title = :t, message = :m WHERE id = :id"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant table name; params bound
+                           {"t": title, "m": message, "id": deferred_id})
+        db.commit()  # commit per chunk: bounded lock, idempotent and resumable
+        if deferred_ids:
+            log.info("GDPR erase: scrubbed deferred deliveries %d/%d", min(start + CHUNK, len(deferred_ids)), len(deferred_ids))
 
     # Any other audit row can still name the user in its details (failed
     # logins have no entity id; actions the user performed carry their name).
