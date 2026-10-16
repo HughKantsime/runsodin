@@ -265,6 +265,30 @@
       "source": "response.headers[\"Pragma\"] = \"no-cache\""
     },
     {
+      "classification": "dialect-neutral",
+      "line": 52,
+      "path": "backend/core/credential_write_guard.py",
+      "pattern": "qmark-parameter",
+      "reason": "Runtime statement classifier: regexes contain SQL vocabulary (INSERT OR, REPLACE INTO) to recognise writes on either provider; it executes no database statement",
+      "source": "r\"\\b(INSERT\\s+(?:OR\\s+\\w+\\s+)?INTO|REPLACE\\s+INTO|UPDATE(?:\\s+OR\\s+\\w+)?|DELETE\\s+FROM|MERGE\\s+INTO)\\s+\""
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 79,
+      "path": "backend/core/credential_write_guard.py",
+      "pattern": "qmark-parameter",
+      "reason": "Runtime statement classifier: regexes contain SQL vocabulary (INSERT OR, REPLACE INTO) to recognise writes on either provider; it executes no database statement",
+      "source": "m = re.search(r\"\\bSET\\b(.*?)(?:\\bWHERE\\b|\\bRETURNING\\b|\\bFROM\\b|;|$)\", tail, re.I | re.S)"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 91,
+      "path": "backend/core/credential_write_guard.py",
+      "pattern": "qmark-parameter",
+      "reason": "Runtime statement classifier: regexes contain SQL vocabulary (INSERT OR, REPLACE INTO) to recognise writes on either provider; it executes no database statement",
+      "source": "m = re.match(r\"[^(]*?\\(([^)]*)\\)\\s*(?:VALUES|SELECT)\", tail, re.I | re.S)"
+    },
+    {
       "classification": "sqlite-provider-only",
       "line": 116,
       "path": "backend/core/database_config.py",

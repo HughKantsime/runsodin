@@ -269,6 +269,11 @@ async def update_user(user_id: int, body: UserUpdateRequest, current_user: dict 
 
     ALLOWED_USER_FIELDS = {"username", "email", "role", "is_active", "password_hash", "group_id"}
     updates = {k: v for k, v in updates.items() if k in ALLOWED_USER_FIELDS}
+    # Unchanged recovery fields are not written at all (no-op), so a token PATCH
+    # that resends them never touches credential columns.
+    for field in ("email", "username"):
+        if field in updates and updates[field] == getattr(current_recovery, field):
+            updates.pop(field)
 
     email_changed = 'email' in updates and updates['email'] != current_recovery.email
     password_changed = 'password_hash' in updates

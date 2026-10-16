@@ -200,6 +200,10 @@ CLASSIFICATIONS: dict[str, tuple[str, str]] = {
         "sqlite-provider-only",
         "Education migration uses guarded SQLite PRAGMA inspection while PostgreSQL uses SQLAlchemy reflection",
     ),
+    "backend/core/credential_write_guard.py": (
+        "dialect-neutral",
+        "Runtime statement classifier: regexes contain SQL vocabulary (INSERT OR, REPLACE INTO) to recognise writes on either provider; it executes no database statement",
+    ),
     "backend/modules/organizations/education_policy_inventory.py": (
         "dialect-neutral",
         "Static source-discovery regex contains SQL vocabulary and regex question marks; it executes no database statement",
