@@ -632,10 +632,14 @@ def reconcile_dispatch_denial(
     if result.rowcount != 1:
         db.rollback()
         return False
-    transition_job(db, job_id, "submitted", "education", extra_fields={
-        "printer_id": None,
-        "notes": Expr("CASE WHEN notes IS NULL OR notes='' THEN :reason ELSE notes || '\n' || :reason END",
-                      reason=f"Education dispatch reset: {sanitized_reason}")})
+    # The submission and its job move together: if the job is no longer
+    # pending/scheduled/printing, undo the submission change as well.
+    if not transition_job(db, job_id, "submitted", "education", extra_fields={
+            "printer_id": None,
+            "notes": Expr("CASE WHEN notes IS NULL OR notes='' THEN :reason ELSE notes || '\n' || :reason END",
+                          reason=f"Education dispatch reset: {sanitized_reason}")}):
+        db.rollback()
+        return False
     db.commit()
     return True
 

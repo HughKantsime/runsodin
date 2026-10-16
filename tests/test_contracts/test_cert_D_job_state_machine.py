@@ -37,6 +37,16 @@ def _violations(source: str):
             found.append(('orm', line))
     for match in re.finditer(r'\bupdate\(\s*Job\s*\)', source):
         found.append(('update(Job)', source[:match.start()].count('\n') + 1))
+    for match in re.finditer(r'query\(\s*Job\s*\)[^\n]*\.update\(', source):
+        found.append(('query(Job).update', source[:match.start()].count('\n') + 1))
+    # Any name bound to a Job instance in the same source (whatever it is called).
+    bound = set(re.findall(r'^\s*(\w+)\s*=\s*[^\n]*(?:query\(\s*Job\s*\)|\.get\(\s*Job\b|\bJob\()', source, re.M))
+    bound |= set(re.findall(r'^\s*for\s+(\w+)\s+in\s+[^\n]*query\(\s*Job\s*\)', source, re.M))
+    for name in bound:
+        for match in re.finditer(rf'^\s*{re.escape(name)}\.status\s*=(?!=)', source, re.M):
+            entry = ('orm', source[:match.start()].count('\n') + 1)
+            if entry not in found:
+                found.append(entry)
     return found
 
 
@@ -56,6 +66,10 @@ def test_census_no_module_outside_the_state_machine_writes_jobs_status():
     "q = ('UPDATE jobs SET printer_id=NULL,' \n     ' status=:s WHERE id=:id')",
     "    job.status = JobStatus.FAILED",
     "db.execute(update(Job).where(Job.id == 1).values(status='failed'))",
+    "row = db.query(Job).filter(Job.id == 1).first()\nrow.status = JobStatus.FAILED",
+    "for entry in db.query(Job).all():\n    entry.status = 'cancelled'",
+    "current = db.get(Job, 5)\ncurrent.status = 'printing'",
+    "db.query(Job).filter(Job.id == 1).update({'status': 'failed'})",
 ])
 def test_census_scanner_detects_each_bypass_shape(planted):
     assert _violations(planted)
@@ -281,3 +295,36 @@ def test_mqtt_print_end_publishes_the_physical_print_and_the_job_only_when_it_ap
     mqtt_job_lifecycle.record_job_ended(9, 'P', 7712, 712, 'completed', {'subtask_name': 'x'}, {}, lambda **k: None)
     assert _status(review_db, 712) == ('failed' if job_status == 'failed' else 'completed')
     assert [args[:3] for args in published] == [(9, 7712, expected_job)]
+
+
+def test_reconcile_dispatch_denial_rolls_back_when_the_job_already_finished():
+    """The submission is only reset when its job transition applies (both or neither)."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+    from modules.organizations.education_policy import reconcile_dispatch_denial
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    with engine.begin() as c:
+        c.execute(text("CREATE TABLE jobs (id INTEGER PRIMARY KEY, charged_to_org_id INTEGER, status TEXT, printer_id INTEGER, notes TEXT)"))
+        c.execute(text("CREATE TABLE education_submissions (id INTEGER PRIMARY KEY, org_id INTEGER, cost_center_id INTEGER, job_id INTEGER, status TEXT, lifecycle_revision INTEGER, approved_printer_id INTEGER, approved_by INTEGER, compatibility_engine_version TEXT, updated_at TEXT)"))
+        c.execute(text("INSERT INTO jobs VALUES (72, 2, 'completed', 9, NULL)"))
+        c.execute(text("INSERT INTO education_submissions VALUES (4, 2, 7, 72, 'scheduled', 3, 9, 5, 'e', NULL)"))
+    with Session(engine) as db:
+        assert reconcile_dispatch_denial(db, submission_id=4, job_id=72, expected_revision=3, reason='drift') is False
+    with engine.connect() as c:
+        assert tuple(c.execute(text('SELECT status,lifecycle_revision FROM education_submissions WHERE id=4')).one()) == ('scheduled', 3)
+        assert c.execute(text('SELECT status FROM jobs WHERE id=72')).scalar_one() == 'completed'
+
+
+def test_complete_on_a_legacy_null_status_row_is_allowed_as_before(fleet, signed_license, monkeypatch):
+    """Decision: legacy/hand-written rows with NULL status may still be completed by an operator
+    (kept from the pre-state-machine behaviour); every other actor and transition refuses NULL."""
+    from modules.jobs.state_machine import transition_job
+    client = _pin_client(fleet, signed_license, monkeypatch)
+    fleet.execute(text("INSERT INTO jobs(id,item_name,status,charged_to_org_id,quantity,priority,hold,is_locked) "
+                       "VALUES(713,'Legacy null',NULL,1,1,3,0,0)"))
+    fleet.commit()
+    assert transition_job(fleet, 713, 'failed', 'operator') is False
+    fleet.rollback()
+    response = client.post('/api/v1/jobs/713/complete')
+    assert response.status_code == 200, response.text
+    assert _status(fleet, 713) == 'completed'

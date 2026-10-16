@@ -120,13 +120,16 @@ def transition_job(executor, job_id: int, to, actor: str, *,
                    extra_fields: Optional[Mapping[str, Any]] = None,
                    from_states: Optional[Iterable[str]] = None,
                    where: Optional[str] = None,
-                   params: Optional[Mapping[str, Any]] = None) -> bool:
+                   params: Optional[Mapping[str, Any]] = None,
+                   include_null: bool = False) -> bool:
     """Atomically move one job to ``to`` if its current status allows it.
 
     ``executor`` may be a SQLAlchemy Session/Connection, a DBAPI connection or a
     DBAPI cursor (the monitor paths). ``from_states`` may narrow, never widen,
     the actor's allowed from-set. ``where`` adds a predicate (named parameters
-    from ``params``). Returns True when exactly this call changed the row.
+    from ``params``). ``include_null`` also admits a legacy row whose status is
+    NULL (used only by the operator /complete route, as before the state
+    machine). Returns True when exactly this call changed the row.
     """
     to = _status_value(to)
     allowed = allowed_from(actor, to)
@@ -157,8 +160,10 @@ def transition_job(executor, job_id: int, to, actor: str, *,
         name = f"sm_f{index}"
         placeholders.append(f":{name}")
         values[name] = state
-    statement = (f"UPDATE jobs SET {', '.join(sets)} WHERE id=:sm_job "
-                 f"AND status IN ({', '.join(placeholders)})")
+    status_clause = f"status IN ({', '.join(placeholders)})"
+    if include_null:
+        status_clause = f"({status_clause} OR status IS NULL)"
+    statement = f"UPDATE jobs SET {', '.join(sets)} WHERE id=:sm_job AND {status_clause}"
     if where:
         statement += f" AND ({where})"
         values.update(params or {})

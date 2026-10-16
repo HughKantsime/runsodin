@@ -126,8 +126,10 @@ def complete_job(job_id: int, current_user: dict = Depends(require_role("operato
     # of an already-completed job is a no-op, and cancelled/submitted/rejected
     # jobs are refused.
     now = datetime.now(timezone.utc)
+    # Decision: a legacy row with NULL status may still be completed (as before
+    # the state machine); no other transition accepts NULL.
     applied = transition_job(db, job_id, JobStatus.COMPLETED, "operator",
-                             extra_fields={"actual_end": now, "is_locked": True})
+                             extra_fields={"actual_end": now, "is_locked": True}, include_null=True)
     if not applied:
         current = _status_value(db.execute(
             text("SELECT status FROM jobs WHERE id = :id"), {"id": job_id}
