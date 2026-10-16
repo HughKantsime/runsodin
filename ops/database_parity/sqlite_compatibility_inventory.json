@@ -785,6 +785,14 @@
       "source": "if db.exec_driver_sql('PRAGMA foreign_key_check('+table+')').first():_fail()"
     },
     {
+      "classification": "dialect-neutral",
+      "line": 40,
+      "path": "backend/core/print_attempts.py",
+      "pattern": "qmark-parameter",
+      "reason": "qmark_runner translates named parameters for the shared DBAPI cursor adapter, which rewrites them for PostgreSQL",
+      "source": "return cursor.execute(re.sub(r\"(?<!:):([A-Za-z_]\\w*)\", bind, statement), tuple(values))"
+    },
+    {
       "classification": "sqlite-provider-only",
       "line": 3,
       "path": "backend/core/project_import_transaction.py",
@@ -1434,14 +1442,6 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 267,
-      "path": "backend/modules/notifications/error_handling.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
-      "source": "f\"UPDATE jobs SET status = 'failed', actual_end = {sql.now()}, queue_position = NULL WHERE id = ?\","
-    },
-    {
-      "classification": "dialect-neutral",
       "line": 325,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
@@ -1498,15 +1498,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 176,
-      "path": "backend/modules/notifications/job_events.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
-      "source": "\"UPDATE jobs SET status = ?, actual_end = ? WHERE id = ?\","
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 288,
+      "line": 291,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1514,7 +1506,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 294,
+      "line": 297,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1522,7 +1514,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 302,
+      "line": 305,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1530,7 +1522,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 312,
+      "line": 315,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1538,15 +1530,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 318,
-      "path": "backend/modules/notifications/job_events.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
-      "source": "\"UPDATE jobs SET status = 'cancelled', actual_end = ?, queue_position = NULL WHERE id = ?\","
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 371,
+      "line": 373,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1554,7 +1538,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 374,
+      "line": 376,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1562,7 +1546,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 377,
+      "line": 379,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1570,7 +1554,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 389,
+      "line": 391,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1826,7 +1810,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 138,
+      "line": 146,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1834,23 +1818,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 152,
-      "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
-      "source": "\"UPDATE jobs SET status = 'pending', printer_id = NULL,\""
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 154,
-      "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
-      "source": "\" WHERE printer_id=? AND status='scheduled' AND id IN ({}) RETURNING id\".format(','.join('?' * len(stale_ids))),"
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 170,
+      "line": 173,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1858,15 +1826,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 243,
-      "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
-      "source": "changed = cur.execute(\"\"\""
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 256,
+      "line": 259,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1874,7 +1834,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 262,
+      "line": 265,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1882,23 +1842,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 275,
-      "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
-      "source": "\"UPDATE jobs SET status = 'pending', printer_id = NULL,\""
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 277,
-      "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
-      "source": "\" WHERE printer_id=? AND status='scheduled' AND id IN ({}) RETURNING id\".format(','.join('?' * len(displaced_ids))),"
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 366,
+      "line": 364,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1906,7 +1850,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 376,
+      "line": 374,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1914,7 +1858,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 418,
+      "line": 416,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1922,19 +1866,11 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 441,
+      "line": 439,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
       "source": "cur.execute(\"\"\""
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 459,
-      "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
-      "source": "ended = cur.execute(\"UPDATE jobs SET status = ?, actual_end = ?, actual_start = COALESCE(actual_start, ?),\""
     },
     {
       "classification": "dialect-neutral",
@@ -1962,7 +1898,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 511,
+      "line": 513,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",

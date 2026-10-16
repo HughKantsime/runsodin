@@ -204,6 +204,14 @@ CLASSIFICATIONS: dict[str, tuple[str, str]] = {
         "dialect-neutral",
         "Static source-discovery regex contains SQL vocabulary and regex question marks; it executes no database statement",
     ),
+    "backend/core/print_attempts.py": (
+        "dialect-neutral",
+        "qmark_runner translates named parameters for the shared DBAPI cursor adapter, which rewrites them for PostgreSQL",
+    ),
+    "backend/modules/jobs/state_machine.py": (
+        "dialect-neutral",
+        "transition_job translates named parameters to qmark only for the shared DBAPI cursor adapter, which rewrites them for PostgreSQL",
+    ),
     "backend/modules/organizations/education_policy.py": (
         "dialect-neutral",
         "Central policy translates named parameters for the shared DBAPI adapter and uses sqlite3 only to classify integrity exceptions",
