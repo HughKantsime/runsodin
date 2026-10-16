@@ -1,6 +1,7 @@
 """Owned PostgreSQL probe for the cert-D fixes whose DB semantics changed.
 
-Covers: job lifecycle guard (enum NOT IN inside the atomic completion UPDATE),
+Covers: job lifecycle guard; atomic per-attempt filament claim incl. pre-upgrade
+spool_usage; printer-delete pin marking; retention purge marker cleanup; (enum NOT IN inside the atomic completion UPDATE),
 queue_position ordering (boolean NULLS-last ORDER BY) in GET /jobs and the
 scheduler, named priority persisted as INTEGER, specific-printer pin, ship
 guard on orders, and the maintenance care-counter reset. Real routers and the
@@ -212,5 +213,61 @@ with engine.connect() as c:
     keys = set(c.execute(text("SELECT key FROM system_config WHERE key LIKE :p"), {'p': f'quota_attempt:%:{fj}%'}).scalars())
 assert keys == {f'quota_attempt:seq:{fj}', f'quota_attempt:filament:job:{fj}:0', f'quota_attempt:filament:job:{fj}:1'}, keys
 print('postgres-print-attempt-markers-pass', flush=True)
+
+# 8. Atomic filament claim (INSERT ... ON CONFLICT DO NOTHING + rowcount) and pre-upgrade
+#    deductions (spool_usage row, no marker) counted as attempt 0 on PostgreSQL.
+from core.print_attempts import filament_already_deducted, mark_filament_deducted, sqlalchemy_runner, clear_job_attempts
+with engine.begin() as c:
+    legacy = c.execute(text("INSERT INTO jobs(item_name,model_id,status,charged_to_org_id,quantity,priority,hold,is_locked,printer_id) "
+                            "VALUES('PG legacy',901,'printing',1,1,3,FALSE,FALSE,9) RETURNING id")).scalar_one()
+    c.execute(text("INSERT INTO spool_usage(spool_id,job_id,weight_used_g) VALUES(901,:j,5)"), {'j': legacy})
+with Session(engine) as db:
+    run = sqlalchemy_runner(db)
+    assert filament_already_deducted(run, legacy) is True
+    fresh = db.execute(text("INSERT INTO jobs(item_name,status,charged_to_org_id,quantity,priority,hold,is_locked) "
+                            "VALUES('PG claim','completed',1,1,3,FALSE,FALSE) RETURNING id")).scalar_one()
+    assert mark_filament_deducted(run, fresh) is True
+    assert mark_filament_deducted(run, fresh) is False                      # second claim loses, no error
+    db.commit()
+assert client.post(f'/jobs/{legacy}/complete').status_code == 200          # applied completion, no second deduction
+assert one('SELECT status FROM jobs WHERE id=:id', id=legacy)[0] == 'completed'
+assert one('SELECT remaining_weight_g FROM spools WHERE id=901')[0] == 80
+print('postgres-atomic-filament-claim-pass', flush=True)
+
+# 9. Printer delete: chunked expanding IN marks only live queued pins; history keeps its pin.
+from modules.jobs.pinning import clear_pins_for_deleted_printer
+with engine.begin() as c:
+    c.execute(text("INSERT INTO printers(id,name,api_type,slot_count,is_active,tags,timelapse_enabled,shared,org_id) "
+                   "VALUES(14,'PG-14','bambu',1,TRUE,'[]',FALSE,FALSE,1)"))
+    live_ids = [c.execute(text("INSERT INTO jobs(item_name,status,charged_to_org_id,quantity,priority,hold,is_locked,"
+                               "target_type,target_filter) VALUES('PG pin',:s,1,1,3,FALSE,FALSE,'specific','14') RETURNING id"),
+                          {'s': s}).scalar_one() for s in ('pending', 'scheduled', 'submitted', 'pending', 'pending')]
+    history = c.execute(text("INSERT INTO jobs(item_name,status,charged_to_org_id,quantity,priority,hold,is_locked,"
+                             "target_type,target_filter) VALUES('PG pin hist','completed',1,1,3,FALSE,FALSE,'specific','14') RETURNING id")).scalar_one()
+with Session(engine) as db:
+    assert sorted(clear_pins_for_deleted_printer(db, 14, chunk=2)) == sorted(live_ids)
+    db.commit()
+with engine.connect() as c:
+    filters = dict(c.execute(text("SELECT id,target_filter FROM jobs WHERE id IN (" + ",".join(map(str, live_ids + [history])) + ")")).all())
+assert all(filters[j] == 'deleted:14' for j in live_ids) and filters[history] == '14', filters
+print('postgres-printer-delete-pins-pass', flush=True)
+
+# 10. Retention purge (DELETE ... RETURNING id) clears the purged jobs' attempt markers.
+import asyncio
+from modules.system.routes_config import run_retention_cleanup
+with engine.begin() as c:
+    old = c.execute(text("INSERT INTO jobs(item_name,status,charged_to_org_id,quantity,priority,hold,is_locked,updated_at) "
+                         "VALUES('PG old','completed',1,1,3,FALSE,FALSE,NOW() - INTERVAL '90 days') RETURNING id")).scalar_one()
+    for key in (f'quota_attempt:seq:{old}', f'quota_attempt:filament:job:{old}:0'):
+        c.execute(text("INSERT INTO system_config(key,value) VALUES(:k,'1')"), {'k': key})
+    c.execute(text("INSERT INTO system_config(key,value) VALUES('data_retention',:v) ON CONFLICT(key) DO UPDATE SET value=:v"),
+              {'v': '{"completed_jobs_days": 30}'})
+with Session(engine) as db:
+    result = asyncio.run(run_retention_cleanup(current_user={'id': 3, 'role': 'admin'}, db=db))
+assert result['deleted']['completed_jobs'] >= 1, result
+with engine.connect() as c:
+    assert c.execute(text("SELECT COUNT(*) FROM jobs WHERE id=:id"), {'id': old}).scalar_one() == 0
+    assert c.execute(text("SELECT COUNT(*) FROM system_config WHERE key LIKE :p"), {'p': f'quota_attempt:%:{old}%'}).scalar_one() == 0
+print('postgres-retention-attempt-cleanup-pass', flush=True)
 print('certd-fixes-native-pass', flush=True)
 engine.dispose()
