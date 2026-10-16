@@ -82,3 +82,35 @@ def test_fail_predicate_is_atomic_against_a_concurrent_cancel(lifecycle_client, 
     db.expire_all()
     # Refused by the UPDATE predicate; the request's transaction (including the injected cancel) rolled back.
     assert db.execute(text("SELECT status FROM jobs WHERE id=111")).scalar_one() == "printing"
+
+
+def test_reset_then_reprint_deducts_again_and_markers_follow_the_attempt(lifecycle_client):
+    """Per print attempt (same scheme as the quota attempt markers): correction = once, reset = new attempt."""
+    from core.print_attempts import attempt_seq, sqlalchemy_runner
+    client, db = lifecycle_client
+    assert client.post("/jobs/111/complete").status_code == 200
+    assert client.post("/jobs/111/fail").status_code == 200
+    assert client.post("/jobs/111/complete").status_code == 200
+    assert _spool(db) == (90.0, 1)
+    assert client.post("/jobs/111/reset").status_code == 200          # a genuine new print
+    assert attempt_seq(sqlalchemy_runner(db), 111) == 1
+    db.execute(text("UPDATE jobs SET printer_id=9 WHERE id=111")); db.commit()  # re-assigned to the printer
+    assert client.post("/jobs/111/start").status_code == 200
+    assert client.post("/jobs/111/complete").status_code == 200
+    assert _spool(db) == (80.0, 2)
+    db.expire_all()
+    keys = set(db.execute(text("SELECT key FROM system_config WHERE key LIKE 'quota_attempt:%'")).scalars())
+    assert keys == {'quota_attempt:seq:111', 'quota_attempt:filament:job:111:0', 'quota_attempt:filament:job:111:1'}
+
+
+def test_delete_clears_the_attempt_counter_and_markers(lifecycle_client):
+    from fastapi import FastAPI
+    from modules.jobs.routes import jobs_crud
+    client, db = lifecycle_client
+    client.app.include_router(jobs_crud.router)
+    assert client.post("/jobs/111/complete").status_code == 200
+    assert client.post("/jobs/111/reset").status_code == 200
+    db.execute(text("UPDATE jobs SET status='cancelled' WHERE id=111")); db.commit()
+    assert client.delete("/jobs/111").status_code == 204
+    db.expire_all()
+    assert db.execute(text("SELECT COUNT(*) FROM system_config WHERE key LIKE 'quota_attempt:%111%'")).scalar_one() == 0
