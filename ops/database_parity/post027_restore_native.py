@@ -198,7 +198,7 @@ def main():
         finally:
             stage_module.prepared_archive = real_prepared
         assert rollbacks() == before_rollbacks and b.postgres_paths(root).manifest.exists()
-        before = marker()
+        before = marker(); engine.dispose()  # no open target session during the apply
         try:b.apply_pending_postgres_restore(target, maintenance, acknowledgement=facts[27]['sha256'], fail_after_restore=True, **args)
         except RuntimeError as error:assert 'Injected post-restore' in str(error)
         else:raise AssertionError('post-restore failure did not fire')

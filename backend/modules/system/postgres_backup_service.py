@@ -1253,6 +1253,16 @@ def quarantine_failed_pending_postgres_restore(
 _QUARANTINED = re.compile(r"failed_restore_\d{8}_\d{6}_\d{6}\.(dump|json)")
 
 
+def quarantined_restore_count(dialect_name: str, base_dir: Path | None = None):
+    """Quarantined archives still present (orphan records are not counted); None if unknown."""
+    try:
+        if dialect_name != "postgresql":
+            return 0
+        return sum(1 for record in quarantined_restores(base_dir) if record["archive"] is not None)
+    except Exception:
+        return None
+
+
 def quarantined_restores(base_dir: Path | None = None) -> list[dict[str, object]]:
     """Quarantined restore records (newest first) for the backups list and diagnostics."""
     backups = postgres_paths(base_dir).backups

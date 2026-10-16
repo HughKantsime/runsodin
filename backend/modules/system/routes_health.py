@@ -149,17 +149,6 @@ async def license_server_status():
     return await _probe_license_server()
 
 
-def _restore_quarantine_count(dialect_name: str):
-    """Quarantined archives still present (orphan records are not counted); None if unknown."""
-    try:
-        from modules.system.postgres_backup_service import quarantined_restores
-        if dialect_name != "postgresql":
-            return 0
-        return sum(1 for record in quarantined_restores() if record["archive"] is not None)
-    except Exception:
-        return None
-
-
 @router.get("/health/ready", tags=["System"])
 def readiness_check(db: Session = Depends(get_db)):
     """Kubernetes-style readiness probe. Returns 200 when ODIN is ready
@@ -206,7 +195,8 @@ def readiness_check(db: Session = Depends(get_db)):
             detail={"ready": False, "reason": f"schema:{type(e).__name__}"},
         )
     # Public readiness carries only a count; reasons are in the admin diagnostics and backups list.
-    quarantined = _restore_quarantine_count(db.bind.dialect.name)
+    from modules.system.postgres_backup_service import quarantined_restore_count
+    quarantined = quarantined_restore_count(db.bind.dialect.name)
     return {"ready": True, "version": __version__, "dialect": db.bind.dialect.name,
             "schema_fingerprint": fingerprint, "notices": {"restore_quarantined": quarantined}, **validation}
 
