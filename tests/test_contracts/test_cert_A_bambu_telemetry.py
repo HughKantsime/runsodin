@@ -11,6 +11,7 @@ import json
 import pytest
 from sqlalchemy import text
 
+from tests.test_contracts.test_education_connected_print_workflow import tls_mqtt  # noqa: F401
 from tests.test_contracts.test_cert_A_harness import (  # noqa: F401
     ACCESS, SERIAL, broker_socket, fernet_env, load_frames, replay, review_db, wire_monitor,
 )
@@ -361,9 +362,9 @@ def test_unplugged_ams_ht_unit_slot_is_cleared(wire_monitor, review_db):
                                   "AND filament_type<>'empty'")).scalar_one() >= 7
 
 
-def test_legacy_connect_requests_get_version_without_blocking_the_network_loop():
-    """request_full_status runs inside paho's on_connect; a second blocking publish
-    there stalled the loop and made the following start command's outcome unknown."""
+def test_legacy_connect_requests_status_and_version_without_waiting_for_the_broker():
+    """request_full_status runs inside paho's on_connect; any wait_for_publish there
+    stalls the network loop and delays every command issued after connect."""
     from types import SimpleNamespace
     from modules.printers.adapters.bambu import BambuPrinter
     printer = BambuPrinter(ip="127.0.0.1", serial="SYNTHSERIAL", access_code="")
@@ -371,6 +372,39 @@ def test_legacy_connect_requests_get_version_without_blocking_the_network_loop()
     result = SimpleNamespace(rc=0, wait_for_publish=lambda timeout=None: waits.append(timeout), is_published=lambda: True)
     printer._client = SimpleNamespace(publish=lambda topic, payload, *a, **k: published.append(json.loads(payload)) or result)
     printer._connected = True
-    printer.request_full_status()
-    assert {"info": {"sequence_id": "0", "command": "get_version"}} in published
-    assert len(waits) == 1  # only the pre-existing pushall waits for the broker
+    assert printer.request_full_status() is True
+    assert published == [{"pushing": {"sequence_id": "0", "command": "pushall"}},
+                         {"info": {"sequence_id": "0", "command": "get_version"}}]
+    assert waits == []
+
+
+def test_legacy_request_full_status_logs_unqueued_publish(caplog):
+    from types import SimpleNamespace
+    from modules.printers.adapters.bambu import BambuPrinter
+    printer = BambuPrinter(ip="127.0.0.1", serial="SYNTHSERIAL", access_code="")
+    printer._client = SimpleNamespace(publish=lambda *a, **k: SimpleNamespace(rc=4))
+    printer._connected = True
+    assert printer.request_full_status() is False
+    assert "not queued (rc=4)" in caplog.text
+
+
+def test_command_right_after_connect_completes_well_under_its_timeout(tls_mqtt, monkeypatch):
+    """Real TLS broker: pause sent immediately after connect is acknowledged quickly."""
+    import time as _time
+    from modules.printers.adapters.bambu import BambuPrinter
+    from tests.test_contracts.test_education_connected_print_workflow import SYNTHETIC_ACCESS_CODE
+    port, commands = tls_mqtt
+    monkeypatch.setattr(BambuPrinter, "MQTT_PORT", port)
+    printer = BambuPrinter(ip="127.0.0.1", serial="synthetic-printer", access_code=SYNTHETIC_ACCESS_CODE)
+    try:
+        assert printer.connect()
+        started = _time.monotonic()
+        assert printer.pause_print() is True
+        assert _time.monotonic() - started < 2.0  # _publish waits up to 5 s
+        deadline = _time.monotonic() + 3
+        while not any(c.get("print", {}).get("command") == "pause" for c in commands):
+            assert _time.monotonic() < deadline
+            _time.sleep(0.02)
+    finally:
+        printer.disconnect()
+

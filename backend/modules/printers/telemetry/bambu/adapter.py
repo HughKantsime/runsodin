@@ -173,12 +173,17 @@ class BambuTelemetryAdapter:
         if client is None or not self._connected:
             return False
         payload = json.dumps({"info": {"sequence_id": "0", "command": "get_version"}})
+        # Never waits for the broker: called from paho callbacks (on_connect).
         try:
             result = client.publish(self._config.topic_request, payload, qos=0)
         except Exception:
-            logger.warning("bambu get_version request failed: printer=%s", self._config.printer_id)
+            logger.warning("bambu get_version request failed: printer=%s", self._config.printer_id, exc_info=True)
             return False
-        return getattr(result, "rc", 0) == 0
+        if getattr(result, "rc", 0) != 0:
+            logger.warning("bambu get_version request not queued: printer=%s rc=%s",
+                           self._config.printer_id, getattr(result, "rc", None))
+            return False
+        return True
 
     def status(self) -> PrinterStatus:
         """Return a snapshot of the current PrinterStatus (frozen dataclass)."""
