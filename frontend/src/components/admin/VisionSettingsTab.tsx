@@ -217,6 +217,7 @@ export default function VisionSettingsTab() {
                       <div className="flex items-center gap-1">
                         <span className="text-[var(--brand-text-muted)]">Interval:</span>
                         <select
+                          aria-label={`Capture interval for ${p.nickname || p.name}`}
                           value={vs.capture_interval_sec || 10}
                           onChange={e => savePrinterVision(p.id, { capture_interval_sec: parseInt(e.target.value) })}
                           className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-1 py-0.5 text-xs"
