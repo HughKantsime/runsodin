@@ -25,9 +25,10 @@ def test_callback_honors_current_account_and_policy_before_full_session(oidc_db,
     app.dependency_overrides[get_db]=database
     routes_auth.limiter._storage.reset()
     with TestClient(app,base_url='https://testserver',raise_server_exceptions=False) as client:
+        client.cookies.set('odin_oidc_bind','synthetic-browser-binding-'+'b'*24)
         callback=client.get('/auth/oidc/callback?code=fixture-code&state=fixture-state',follow_redirects=False)
         assert callback.status_code==302
-        codes=parse_qs(urlparse(callback.headers['location']).query).get('oidc_code',[])
+        codes=parse_qs(urlparse(callback.headers['location']).fragment).get('oidc_code',[])
         assert len(codes)==1
         assert client.get('/auth/me').status_code==401
         uid=oidc_db.execute(text("SELECT id FROM users WHERE oidc_subject='subject-1'")).scalar_one()

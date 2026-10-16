@@ -43,7 +43,7 @@ try {
     const context = await browser.newContext()
     const page = await context.newPage()
     requests.length = 0
-    await page.goto(`${origin}${path}?oidc_code=synthetic`)
+    await page.goto(`${origin}${path}#oidc_code=synthetic`)
     await page.getByRole('heading', { name: 'Verified authenticated document replacement' }).waitFor()
     assert.equal(page.url(), `${origin}/`)
     assert.deepEqual(requests, ['/api/auth/oidc/exchange', '/api/auth/me'])
@@ -54,7 +54,7 @@ try {
   const page = await context.newPage()
   fail = true
   requests.length = 0
-  await page.goto(`${origin}/?oidc_code=synthetic`)
+  await page.goto(`${origin}/#oidc_code=synthetic`)
   await page.getByRole('alert').waitFor()
   assert.equal(page.url(), `${origin}/login`)
   assert.deepEqual(requests, ['/api/auth/oidc/exchange'])
@@ -75,7 +75,7 @@ try {
   }, cacheName)
   await page.reload()
   await page.waitForFunction(() => !!navigator.serviceWorker.controller)
-  await page.goto(`${origin}/?oidc_code=synthetic-controlled`)
+  await page.goto(`${origin}/#oidc_code=synthetic-controlled`)
   await page.getByRole('alert').waitFor()
   assert.equal(await page.evaluate(async cacheName => {
     const cache = await caches.open(cacheName)

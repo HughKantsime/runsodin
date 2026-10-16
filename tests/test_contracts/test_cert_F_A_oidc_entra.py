@@ -41,19 +41,23 @@ def start_login(o: LiveOdin, **headers):
     r = o.get("/api/auth/oidc/login", headers=headers or None, allow_redirects=False)
     assert r.status_code == 302, r.text
     loc = urlsplit(r.headers["location"])
-    return loc, {k: v[0] for k, v in parse_qs(loc.query).items()}
+    params = {k: v[0] for k, v in parse_qs(loc.query).items()}
+    # The browser binding cookie set at login must accompany callback and exchange.
+    params["_cookies"] = {"odin_oidc_bind": r.cookies["odin_oidc_bind"]}
+    return loc, params
 
 
 def full_sso(o: LiveOdin, idp: StubIdP, sub: str, email_addr: str, **headers):
     loc, params = start_login(o, **headers)
     code = idp.issue_code(params["nonce"], sub, email_addr)
     cb = o.get("/api/auth/oidc/callback", params={"code": code, "state": params["state"]},
-               headers=headers or None, allow_redirects=False)
+               headers=headers or None, allow_redirects=False, cookies=params["_cookies"])
     assert cb.status_code == 302, cb.text
     target = urlsplit(cb.headers["location"])
-    q = parse_qs(target.query)
+    assert not target.query, cb.headers["location"]  # never in the query string
+    q = parse_qs(target.fragment)
     assert "oidc_code" in q, cb.headers["location"]
-    ex = o.post("/api/auth/oidc/exchange", json={"code": q["oidc_code"][0]})
+    ex = o.post("/api/auth/oidc/exchange", json={"code": q["oidc_code"][0]}, cookies=params["_cookies"])
     return params, q["oidc_code"][0], ex
 
 
@@ -127,7 +131,7 @@ def test_entra_sso_auto_provisions_viewer_in_default_tenant_and_issues_session(o
     me = odin.get("/api/auth/me", headers={"Cookie": f"session={token}"})
     assert me.status_code == 200 and me.json()["username"] == "ada.entra" and me.json()["group_id"] == odin.org_id
     # the one-time exchange code cannot be replayed
-    assert odin.post("/api/auth/oidc/exchange", json={"code": oidc_code}).status_code == 400
+    assert odin.post("/api/auth/oidc/exchange", json={"code": oidc_code}, cookies=params["_cookies"]).status_code == 400
     # the same Entra subject signs in again without creating another account
     _, _, again = full_sso(odin, idp, sub, "ada.entra@contoso.example")
     assert again.status_code == 200
@@ -139,11 +143,12 @@ def test_entra_callback_rejects_forged_state_and_wrong_nonce(odin, idp):
     loc, params = start_login(odin)
     code = idp.issue_code(params["nonce"], "entra-" + secrets.token_hex(4), "x@contoso.example")
     bad = odin.get("/api/auth/oidc/callback", params={"code": code, "state": "forged" + params["state"]},
-                   allow_redirects=False)
+                   allow_redirects=False, cookies=params["_cookies"])
     assert bad.status_code == 302 and "error=invalid_state" in bad.headers["location"]
     loc, params = start_login(odin)
     code = idp.issue_code("not-the-nonce", "entra-" + secrets.token_hex(4), "y@contoso.example")
-    bad = odin.get("/api/auth/oidc/callback", params={"code": code, "state": params["state"]}, allow_redirects=False)
+    bad = odin.get("/api/auth/oidc/callback", params={"code": code, "state": params["state"]}, allow_redirects=False,
+                   cookies=params["_cookies"])
     assert bad.status_code == 302 and "error=auth_failed" in bad.headers["location"]
     assert odin.sql("SELECT COUNT(*) FROM users WHERE email IN ('x@contoso.example','y@contoso.example')")[0][0] == 0
 
@@ -179,8 +184,8 @@ def test_configured_redirect_uri_is_pinned_against_hostile_host_and_forwarded_ho
     _, params = start_login(pinned, Host=HOSTILE)
     code = idp.issue_code(params["nonce"], "entra-" + secrets.token_hex(5), "pin.user@contoso.example")
     cb = pinned.get("/api/auth/oidc/callback", params={"code": code, "state": params["state"]},
-                    headers={"Host": HOSTILE}, allow_redirects=False)
-    assert cb.status_code == 302 and "oidc_code=" in cb.headers["location"]
+                    headers={"Host": HOSTILE}, allow_redirects=False, cookies=params["_cookies"])
+    assert cb.status_code == 302 and "#oidc_code=" in cb.headers["location"]
     assert idp.token_requests()[-1]["form"]["redirect_uri"] == PINNED
 
 

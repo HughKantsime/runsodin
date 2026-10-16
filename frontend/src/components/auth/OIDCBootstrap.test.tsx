@@ -23,9 +23,10 @@ it.each(['/', '/login'])('exchanges once before providers at %s, even with delay
   let finish!: (value: unknown) => void
   request.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
     .mockResolvedValueOnce(response())
-  start(`${path}?oidc_code=synthetic-code`)
+  start(`${path}#oidc_code=synthetic-code`)
   expect(screen.getByRole('status')).toBeInTheDocument()
   expect(location.search).toBe('')
+  expect(location.hash).toBe('')
   expect(request).toHaveBeenCalledTimes(1)
   expect(mounted).not.toHaveBeenCalled()
   await act(async () => finish(response()))
@@ -37,7 +38,7 @@ it.each(['/', '/login'])('exchanges once before providers at %s, even with delay
   expect(mounted).not.toHaveBeenCalled()
 })
 
-it.each(['/?oidc_code=', '/?error=secret', '/login?error=', '/?oidc_code=a&error=x', '/?oidc_code=a&oidc_code=b'])('rejects malformed/provider callback %s', async path => {
+it.each(['/#oidc_code=', '/?error=secret', '/login?error=', '/?error=x#oidc_code=a', '/#oidc_code=a&oidc_code=b'])('rejects malformed/provider callback %s', async path => {
   start(path)
   expect(await screen.findByRole('alert')).toHaveTextContent('SSO sign-in could not be completed')
   expect(screen.getByRole('link')).toHaveAttribute('href', '/login')
@@ -54,7 +55,7 @@ it.each(['exchange', 'network', 'cookie', 'shape', 'json', 'redirect'])('fails c
     failure === 'cookie' ? response({}, false) : failure === 'redirect' ? { ...response(), redirected: true } :
       failure === 'json' ? { ...response(), json: async () => { throw new SyntaxError('Invalid JSON') } } : response({})
   )
-  start('/?oidc_code=synthetic-code')
+  start('/#oidc_code=synthetic-code')
   expect(await screen.findByRole('alert')).not.toHaveTextContent('sensitive')
   expect(request).toHaveBeenCalledTimes(['exchange', 'network'].includes(failure) ? 1 : 2)
   expect(mounted).not.toHaveBeenCalled()
@@ -64,7 +65,7 @@ it.each(['exchange', 'network', 'cookie', 'shape', 'json', 'redirect'])('fails c
 it('waits for delayed session verification without mounting providers or exchanging again', async () => {
   let finish!: (value: unknown) => void
   request.mockResolvedValueOnce(response()).mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
-  start('/?oidc_code=synthetic-code')
+  start('/#oidc_code=synthetic-code')
   await waitFor(() => expect(request).toHaveBeenCalledTimes(2))
   expect(mounted).not.toHaveBeenCalled()
   expect(oidcNavigation.finish).not.toHaveBeenCalled()
@@ -87,11 +88,17 @@ it.each(['mfa_required', 'mfa_setup_required'])('keeps providers and session che
   if (flag === 'mfa_setup_required') request.mockResolvedValueOnce(response({
     secret: 'A'.repeat(32), qr_code: 'data:image/png;base64,synthetic', expires_at: Date.now()/1000+60,
   }))
-  start('/?oidc_code=synthetic-code')
+  start('/#oidc_code=synthetic-code')
   await screen.findByRole('region', { name: 'Complete sign-in' })
   if (flag === 'mfa_setup_required') await screen.findByRole('img')
   expect(mounted).not.toHaveBeenCalled()
   expect(oidcNavigation.finish).not.toHaveBeenCalled()
   expect(request.mock.calls.some(([url]) => url === '/api/auth/me')).toBe(false)
   expect(location.search).toBe('')
+})
+
+it('ignores a code in the query string; only the fragment carries it', () => {
+  start('/?oidc_code=synthetic-code')
+  expect(screen.getByText('Application')).toBeInTheDocument()
+  expect(request).not.toHaveBeenCalled()
 })

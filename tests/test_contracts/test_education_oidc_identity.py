@@ -69,7 +69,10 @@ def _oidc_client(db: Session) -> TestClient:
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_db] = lambda: db
-    return TestClient(app)
+    client = TestClient(app)
+    # The browser that started the login (see routes_oidc.OIDC_BINDING_COOKIE).
+    client.cookies.set("odin_oidc_bind", "synthetic-browser-binding-" + "b" * 24)
+    return client
 
 
 class _CallbackHandler:
@@ -348,7 +351,7 @@ def test_oidc_callback_commits_identity_and_auth_code_together(
         follow_redirects=False,
     )
     assert response.status_code == 302
-    assert response.headers["location"].startswith("/?oidc_code=")
+    assert response.headers["location"].startswith("/#oidc_code=")
     assert oidc_db.execute(
         text("SELECT COUNT(*) FROM users WHERE oidc_subject='subject-1'")
     ).scalar_one() == 1
@@ -600,3 +603,34 @@ def test_verified_email_will_not_adopt_a_credentialed_local_account(oidc_db: Ses
     assert "conflict" in str(exc.value)
     row = oidc_db.execute(text("SELECT oidc_subject FROM users WHERE email='teacher@example.test'")).scalar()
     assert row is None  # not linked
+
+
+def test_oidc_callback_requires_the_login_binding_cookie(oidc_db, monkeypatch):
+    """A replayed provider callback from another client cannot mint a code."""
+    from modules.organizations import oidc_handler
+    _seed_oidc_config(oidc_db)
+    monkeypatch.setattr(oidc_handler, "create_handler_from_config",
+                        lambda config, redirect_uri: _CallbackHandler())
+    client = _oidc_client(oidc_db)
+    client.cookies.clear()
+    response = client.get("/auth/oidc/callback?code=fixture-code&state=fixture-state",
+                          follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["location"] == "/?error=invalid_state"
+    assert oidc_db.execute(text("SELECT COUNT(*) FROM oidc_auth_codes")).scalar_one() == 0
+
+
+def test_oidc_login_sets_httponly_lax_binding_cookie(oidc_db, monkeypatch):
+    from modules.organizations import oidc_handler
+    _seed_oidc_config(oidc_db)
+
+    class Handler:
+        async def get_authorization_url(self):
+            return "https://provider.example.test/authorize", "fixture-state"
+    monkeypatch.setattr(oidc_handler, "create_handler_from_config", lambda config, redirect_uri: Handler())
+    response = _oidc_client(oidc_db).get("/auth/oidc/login", follow_redirects=False)
+    assert response.status_code == 302
+    header = response.headers["set-cookie"].lower()
+    assert header.startswith("odin_oidc_bind=") and "httponly" in header and "samesite=lax" in header
+    assert "path=/auth/oidc" in header and "max-age=600" in header
+    assert len(response.cookies["odin_oidc_bind"]) >= 32

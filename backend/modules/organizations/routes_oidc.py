@@ -1,6 +1,8 @@
 """Organizations OIDC routes — SSO/OIDC login, callback, token exchange, admin config."""
 
+import hashlib
 import logging
+import secrets
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
@@ -19,6 +21,23 @@ from core.config import settings as _settings
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
+
+
+# Browser binding for the one-time ODIN code. The login request sets a random
+# HttpOnly cookie; the callback stores only sha256(binding:code), and the exchange
+# recomputes it from the same cookie. A code read from a log, a URL or the
+# database is useless without the initiating browser's cookie.
+OIDC_BINDING_COOKIE = "odin_oidc_bind"
+_OIDC_BINDING_MAX_AGE = 600
+
+
+def oidc_code_key(code: str, binding: str) -> str:
+    return hashlib.sha256(f"{binding}:{code}".encode()).hexdigest()
+
+
+def _binding_cookie_path(request: Request) -> str:
+    # ".../auth/oidc/login" -> ".../auth/oidc" (covers callback and exchange).
+    return request.url.path.rsplit("/", 1)[0] or "/"
 
 
 class OIDCIdentityError(RuntimeError):
@@ -291,7 +310,12 @@ async def oidc_login(request: Request, db: Session = Depends(get_db)):
     handler = create_handler_from_config(config, redirect_uri)
     url, state = await handler.get_authorization_url()
     from fastapi.responses import RedirectResponse
-    return RedirectResponse(url=url, status_code=302)
+    response = RedirectResponse(url=url, status_code=302)
+    # SameSite=Lax so the IdP's top-level redirect back to the callback carries it.
+    response.set_cookie(key=OIDC_BINDING_COOKIE, value=secrets.token_urlsafe(32),
+                        httponly=True, secure=_settings.cookie_secure and request.url.scheme == "https", samesite="lax",
+                        path=_binding_cookie_path(request), max_age=_OIDC_BINDING_MAX_AGE)
+    return response
 
 
 # ============== OIDC callback ==============
@@ -323,6 +347,10 @@ async def oidc_callback(request: Request, code: str = None, state: str = None,
     handler = create_handler_from_config(config, redirect_uri)
     if not handler.validate_state(state):
         return RedirectResponse(url="/?error=invalid_state", status_code=302)
+    binding = request.cookies.get(OIDC_BINDING_COOKIE) or ""
+    if len(binding) < 32:
+        # Only the browser that started this login may complete it.
+        return RedirectResponse(url="/?error=invalid_state", status_code=302)
 
     try:
         tokens = await handler.exchange_code(code)
@@ -346,14 +374,16 @@ async def oidc_callback(request: Request, code: str = None, state: str = None,
             "role": user_role,
         })
 
-        import secrets as _secrets
         from core.crypto import encrypt as _crypto_encrypt
-        oidc_code = _secrets.token_urlsafe(48)
+        oidc_code = secrets.token_urlsafe(48)
         expires_at = (datetime.now(timezone.utc) + timedelta(minutes=2)).isoformat()
         db.execute(text("INSERT INTO oidc_auth_codes (code, access_token, expires_at) VALUES (:code, :token, :exp)"),
-                   {"code": oidc_code, "token": _crypto_encrypt(access_token), "exp": expires_at})
+                   {"code": oidc_code_key(oidc_code, binding),
+                    "token": _crypto_encrypt(access_token), "exp": expires_at})
         db.commit()
-        return RedirectResponse(url=f"/?oidc_code={oidc_code}", status_code=302)
+        # Fragment, not query: browsers never send it to any server, so it can't
+        # reach access logs, proxies or Referer headers.
+        return RedirectResponse(url=f"/#oidc_code={oidc_code}", status_code=302)
 
     except OIDCIdentityError as e:
         log.warning("OIDC identity resolution failed: %s", e.code)
@@ -371,8 +401,12 @@ async def oidc_callback(request: Request, code: str = None, state: str = None,
 async def oidc_exchange_code(body: dict, request: Request, db: Session = Depends(get_db)):
     """Exchange a one-time OIDC auth code for a JWT access token."""
     code = body.get("code", "")
-    if not code:
+    if not code or not isinstance(code, str):
         raise HTTPException(status_code=400, detail="code is required")
+    binding = request.cookies.get(OIDC_BINDING_COOKIE) or ""
+    if len(binding) < 32:
+        raise HTTPException(status_code=400, detail="Invalid or expired code")
+    code = oidc_code_key(code, binding)
 
     try:
         row = db.execute(text("SELECT access_token, expires_at FROM oidc_auth_codes WHERE code = :code"),
@@ -448,6 +482,7 @@ async def oidc_exchange_code(body: dict, request: Request, db: Session = Depends
 
     from fastapi.responses import JSONResponse
     resp = JSONResponse({"access_token": access_token, "token_type": "bearer"})
+    resp.delete_cookie(OIDC_BINDING_COOKIE, path=_binding_cookie_path(request))
     resp.set_cookie(key="session", value=access_token, httponly=True,
                     secure=_settings.cookie_secure, samesite=_settings.cookie_samesite,
                     path="/", max_age=86400)
