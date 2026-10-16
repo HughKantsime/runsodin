@@ -69,7 +69,7 @@ def test_camera_only_token_is_refused_on_every_route_but_the_relay(tmp_path):
     assert sum(codes[0] in (401, 403) for codes in statuses.values()) > 300
 
 
-from tests.test_contracts.test_api_token_delegation_behavior import token_client  # noqa: E402,F401
+from tests.test_contracts.test_api_token_delegation_behavior import interactive_headers, token_client  # noqa: E402,F401
 from tests.test_contracts.test_education_review_workflow import review_db  # noqa: E402,F401
 
 
@@ -81,7 +81,7 @@ def test_camera_token_is_refused_by_get_current_user_and_expires_by_default(toke
     assert client.get("/tokens", headers=camera).status_code == 401
     assert client.post("/tokens", headers=camera, json={"name": "child", "scopes": ["read:cameras"]}).status_code == 401
     # A camera-only token minted without an expiry gets the default lifetime; others are unchanged.
-    session = issue(["admin"])
+    session = interactive_headers()  # cert-fix-F: only an interactive session mints tokens
     minted = client.post("/tokens", headers=session, json={"name": "OBS overlay: Bay 7 (#7)", "scopes": ["read:cameras"]})
     assert minted.status_code == 200
     expires = datetime.fromisoformat(minted.json()["expires_at"])
@@ -97,22 +97,28 @@ def _probe(tmp_path, scopes):
     result = subprocess.run([sys.executable, "-c", PROBE, json.dumps(sorted(PUBLIC | {RELAY})), json.dumps(scopes)],
                             cwd=ROOT / "backend", env=env, capture_output=True, text=True, timeout=600)
     assert result.returncode == 0, result.stderr[-3000:]
-    return json.loads(next(l for l in result.stdout.splitlines() if l.startswith("CERTB=")))
+    return json.loads(next(l for l in result.stdout.splitlines() if l.startswith("CERTB="))[6:])
 
 
 # Routes whose declared scope a read:analytics token legitimately satisfies.
 ANALYTICS_ROUTES = ("/api/analytics", "/api/reports", "/api/stats", "/api/chargeback", "/api/education/usage",
-                    "/api/v1/analytics", "/api/v1/reports", "/api/v1/stats", "/api/v1/chargeback")
+                    "/api/v1/analytics", "/api/v1/reports", "/api/v1/stats", "/api/v1/chargeback",
+                    # Prometheus scrape: declares read:analytics (system/routes_config.prometheus_metrics).
+                    "/api/metrics", "/api/v1/metrics")
+# Routes whose handler applies the token's grants itself (cert-fix-F handler_enforces_token_scope /
+# HANDLER_SCOPE): the caller's own identity, its own token list, and search filtered per category.
+HANDLER_SCOPED_ROUTES = ("/api/auth/me", "/api/v1/auth/me", "/api/tokens", "/api/v1/tokens",
+                         "/api/search", "/api/v1/search")
 
 
-@pytest.mark.xfail(strict=True, reason="needs cert-fix-F generic scope gate")
 def test_narrow_scoped_token_authenticates_only_routes_within_its_scope(tmp_path):
-    """Systemic (pre-existing): a scoped token passes get_current_user on routes that declare
-    no scope. With a generic read/write gate, a read:analytics token reaches nothing else."""
+    """cert-fix-F's generic read/write gate: a read:analytics token reaches nothing outside its
+    scope, except routes whose handler applies the token's grants itself."""
     statuses = _probe(tmp_path, ["read:analytics"])
     accepted = {route: codes for route, codes in statuses.items()
                 if codes[0] not in (401, 403) and codes[0] != codes[1]
-                and not route.split(" ")[-1].startswith(ANALYTICS_ROUTES)}
+                and not route.split(" ")[-1].startswith(ANALYTICS_ROUTES)
+                and route.split(" ")[-1] not in HANDLER_SCOPED_ROUTES}
     assert accepted == {}, f"{len(accepted)} routes accept a read:analytics token: {sorted(accepted)[:30]}"
 
 
@@ -122,7 +128,7 @@ def test_narrow_scoped_token_authenticates_only_routes_within_its_scope(tmp_path
                                            (["read:cameras", "agent:read"], 422), (["read:cameras", "read:cameras"], 200)])
 def test_camera_scope_is_the_token_s_only_scope(token_client, scopes, status):
     client, issue = token_client
-    response = client.post("/tokens", headers=issue(["admin"]), json={"name": "combo", "scopes": scopes})
+    response = client.post("/tokens", headers=interactive_headers(), json={"name": "combo", "scopes": scopes})
     assert response.status_code == status, response.text
     if status == 200:
         assert response.json()["expires_at"] is not None  # read:cameras always gets an expiry
@@ -131,14 +137,14 @@ def test_camera_scope_is_the_token_s_only_scope(token_client, scopes, status):
 def test_camera_token_expiry_defaults_to_a_year_and_longer_is_refused(token_client):
     from datetime import datetime, timedelta, timezone
     client, issue = token_client
-    minted = client.post("/tokens", headers=issue(["admin"]), json={"name": "OBS", "scopes": ["read:cameras"]})
+    minted = client.post("/tokens", headers=interactive_headers(), json={"name": "OBS", "scopes": ["read:cameras"]})
     expires = datetime.fromisoformat(minted.json()["expires_at"])
     assert abs(expires - (datetime.now(timezone.utc) + timedelta(days=365))) < timedelta(minutes=5)
-    exact = client.post("/tokens", headers=issue(["admin"]), json={"name": "OBS 365", "scopes": ["read:cameras"], "expires_days": 365})
+    exact = client.post("/tokens", headers=interactive_headers(), json={"name": "OBS 365", "scopes": ["read:cameras"], "expires_days": 365})
     assert exact.status_code == 200, exact.text
     # Longer than the default is refused, not clamped.
     for days in (366, 3650):
-        longer = client.post("/tokens", headers=issue(["admin"]), json={"name": "OBS long", "scopes": ["read:cameras"], "expires_days": days})
+        longer = client.post("/tokens", headers=interactive_headers(), json={"name": "OBS long", "scopes": ["read:cameras"], "expires_days": days})
         assert longer.status_code == 422 and "365" in longer.text, longer.text
 
 
