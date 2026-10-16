@@ -10,7 +10,8 @@ Storage is system_config, in the same scheme as the quota attempt markers
 
     quota_attempt:seq:<job_id>                    the attempt counter
     quota_attempt:job:<job_id>:<seq>              quota charged for that attempt
-    quota_attempt:filament:job:<job_id>:<seq>     filament deducted for that attempt
+    quota_attempt:filament:job:<job_id>:<seq>     filament deducted for that attempt (core.filament_ledger)
+    quota_attempt:started:<job_id>:<seq>          when the reset that began attempt <seq> happened
 
 All keys share the ``quota_attempt:`` prefix, which the diagnostics dump excludes.
 ``run`` is a ``run(sql, params)`` callable (see sqlalchemy_runner/qmark_runner).
@@ -60,50 +61,50 @@ def attempt_seq(run, job_id) -> int:
         return 0
 
 
+def _started_key(job_id, seq) -> str:
+    return f"{PREFIX}started:{int(job_id)}:{int(seq)}"
+
+
 def bump_print_attempt(run, job_id) -> int:
-    """A reset starts a new physical attempt; returns the new counter."""
+    """A reset starts a new physical attempt; returns the new counter.
+
+    The reset time is kept as the attempt's anchor (``started:<job>:<seq>``) so the
+    filament ledger can tell this attempt's usage rows from earlier ones.
+    """
+    from datetime import datetime, timezone
     seq = attempt_seq(run, job_id) + 1
     run("DELETE FROM system_config WHERE key = :k", {"k": _seq_key(job_id)})
     run("INSERT INTO system_config (key, value) VALUES (:k, :v)", {"k": _seq_key(job_id), "v": str(seq)})
+    run("INSERT INTO system_config (key, value) VALUES (:k, :v) ON CONFLICT (key) DO NOTHING",
+        {"k": _started_key(job_id, seq), "v": json.dumps(datetime.now(timezone.utc).isoformat())})
     return seq
 
 
+def attempt_reset_at(run, job_id, seq=None):
+    """When the current attempt was started by a reset (None for attempt 0 or unknown)."""
+    from core.db_compat import as_utc_datetime
+    seq = attempt_seq(run, job_id) if seq is None else seq
+    if seq <= 0:
+        return None
+    row = run("SELECT value FROM system_config WHERE key = :k", {"k": _started_key(job_id, seq)}).fetchone()
+    if not row:
+        return None
+    value = row[0]
+    try:
+        value = json.loads(value) if isinstance(value, (str, bytes, bytearray)) else value
+        return as_utc_datetime(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def filament_marker(run, job_id) -> str:
+    """This attempt's filament-ledger claim key (written only by core.filament_ledger)."""
     return f"{PREFIX}filament:job:{int(job_id)}:{attempt_seq(run, job_id)}"
-
-
-def filament_already_deducted(run, job_id) -> bool:
-    """True when this attempt's filament was already deducted.
-
-    A marker settles it. Attempt 0 also counts any spool_usage row for the job
-    as deducted: pre-upgrade completions and Moonraker deductions made before
-    markers existed wrote usage rows but no marker.
-    """
-    if run("SELECT 1 FROM system_config WHERE key = :k", {"k": filament_marker(run, job_id)}).fetchone():
-        return True
-    return attempt_seq(run, job_id) == 0 and run(
-        "SELECT 1 FROM spool_usage WHERE job_id = :jid LIMIT 1", {"jid": int(job_id)}).fetchone() is not None
-
-
-def mark_filament_deducted(run, job_id) -> bool:
-    """Atomically claim this attempt's filament deduction; False when already done.
-
-    INSERT ... ON CONFLICT (key) DO NOTHING is atomic on SQLite (>= 3.24) and
-    PostgreSQL; the rowcount says whether this caller won the claim.
-    """
-    key = filament_marker(run, job_id)
-    if filament_already_deducted(run, job_id):
-        # Record legacy (marker-less) attempt-0 deductions so later checks are cheap.
-        run("INSERT INTO system_config (key, value) VALUES (:k, :v) ON CONFLICT (key) DO NOTHING",
-            {"k": key, "v": json.dumps("legacy")})
-        return False
-    result = run("INSERT INTO system_config (key, value) VALUES (:k, :v) ON CONFLICT (key) DO NOTHING",
-                 {"k": key, "v": "true"})
-    return getattr(result, "rowcount", 0) == 1
 
 
 def clear_job_attempts(run, job_id) -> None:
     """Drop the counter and every per-attempt marker of a deleted job (SQLite id reuse is safe)."""
     jid = int(job_id)
-    run("DELETE FROM system_config WHERE key = :seq OR key LIKE :job OR key LIKE :filament",
-        {"seq": _seq_key(jid), "job": f"{PREFIX}job:{jid}:%", "filament": f"{PREFIX}filament:job:{jid}:%"})
+    run("DELETE FROM system_config WHERE key = :seq OR key LIKE :job OR key LIKE :filament OR key LIKE :started",
+        {"seq": _seq_key(jid), "job": f"{PREFIX}job:{jid}:%", "filament": f"{PREFIX}filament:job:{jid}:%",
+         "started": f"{PREFIX}started:{jid}:%"})

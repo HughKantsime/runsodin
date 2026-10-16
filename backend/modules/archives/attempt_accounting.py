@@ -19,6 +19,17 @@ def execute(connection, statement, parameters=()):
     return connection.execute(statement, tuple(parameters))
 
 
+def _ledger_runner(connection):
+    """core.filament_ledger ``run(sql, params)`` over this module's bound execute()."""
+    from core.print_attempts import qmark_runner
+
+    class _Bound:
+        @staticmethod
+        def execute(statement, parameters):
+            return execute(connection, statement, parameters)
+    return qmark_runner(_Bound())
+
+
 def _finite_quantity(value):
     import math
     if type(value) not in (int, float):
@@ -294,15 +305,21 @@ def account_archive(connection, *, archive_id, print_job_id, printer_id, snapsho
             return unresolved('measured_material_distribution_unknown')
     except (ValueError, TypeError, KeyError):
         return unresolved('invalid_start_snapshot')
-    # A scheduled-job usage row cannot prove which physical attempt it belongs
-    # to. Retain it and require reconciliation instead of deducting it again.
-    if scheduled_job_id is not None and execute(connection,
-            'SELECT id FROM spool_usage WHERE job_id=? AND print_job_id IS NULL LIMIT 1',
-            (scheduled_job_id,)).fetchone() is not None:
-        return unresolved('legacy_usage_unattributed')
-    if execute(connection, 'SELECT id FROM spool_usage WHERE print_job_id=? LIMIT 1',
-               (print_job_id,)).fetchone() is not None:
+    # One ledger for every deducer (core.filament_ledger): this physical print
+    # may already be accounted (by the Moonraker monitor), or its attempt may hold
+    # a job-level deduction (operator /complete) or a marker-less row that
+    # cannot be attributed to this print -- reconcile instead of deducting twice.
+    from core import filament_ledger
+    ledger_run = _ledger_runner(connection)
+    prior = filament_ledger.prior_attempt_usage(ledger_run, scheduled_job_id, print_job_id)
+    if prior == filament_ledger.MARKER:
+        return 'accounted', 'attempt_already_accounted', []
+    if prior == filament_ledger.PRINT_USAGE:
         return unresolved('attempt_usage_without_archive')
+    if prior == filament_ledger.LEGACY_JOB_USAGE:
+        return unresolved('legacy_usage_unattributed')
+    if prior == filament_ledger.JOB_USAGE:
+        return unresolved('job_usage_unattributed')
     rows = {}
     for spool_id in sorted(consumption):
         # Portable SQLite writer / PostgreSQL row lock, then read fresh owner
@@ -319,27 +336,32 @@ def account_archive(connection, *, archive_id, print_job_id, printer_id, snapsho
         if row[1] is None or type(row[1]) not in (int, float) or not math.isfinite(row[1]) or row[1] < 0:
             return unresolved('unknown_spool_balance')
         rows[spool_id] = row
-    result = []
+    outcome = filament_ledger.record_job_filament(
+        ledger_run, scheduled_job_id, source='archive', print_job_id=print_job_id,
+        grams_by_spool={spool_id: consumption[spool_id]['grams_used'] for spool_id in consumption})
+    if outcome.state == 'already_deducted':
+        if outcome.reason == filament_ledger.JOB_USAGE:
+            return unresolved('job_usage_unattributed')
+        return 'accounted', 'attempt_already_accounted', []
+    zero = [spool_id for spool_id in sorted(consumption) if consumption[spool_id]['grams_used'] == 0]
+    if not outcome.deducted and len(zero) != len(consumption):
+        return unresolved('nothing_deducted')
+    result = [{'spool_id': spool_id, 'grams_used': consumption[spool_id]['grams_used'],
+               'quantity_provenance': consumption[spool_id]['quantity_provenance'],
+               'inventory_shortfall_g': 0} for spool_id in zero]
     has_shortfall = False
-    for spool_id in sorted(consumption):
-        item = consumption[spool_id]
-        grams = item['grams_used']
-        row = rows[spool_id]
-        execute(connection,
-            'UPDATE spools SET remaining_weight_g=CASE WHEN remaining_weight_g>? THEN remaining_weight_g-? ELSE 0 END WHERE id=?',
-            (grams, grams, spool_id))
-        execute(connection,
-            'INSERT INTO spool_usage(spool_id,job_id,print_job_id,weight_used_g,notes) VALUES(?,?,?,?,?)',
-            (spool_id, scheduled_job_id, print_job_id, grams, 'Physical attempt '+item['quantity_provenance']))
-        if row[2] is not None and grams > 0:
+    for entry in outcome.deductions:
+        spool_id = entry['spool_id']
+        grams = consumption[spool_id]['grams_used']  # as attributed (ledger stores it as float)
+        if entry['spoolman_spool_id'] is not None and grams > 0:
             execute(connection,
                 "INSERT INTO filament_delivery_outbox(id,print_job_id,spool_id,spoolman_spool_id,grams_used,state) VALUES(?,?,?,?,?,'pending')",
-                (uuid.uuid4().hex, print_job_id, spool_id, row[2], grams))
-        shortfall = max(0, grams-row[1])
-        has_shortfall = has_shortfall or shortfall > 0
+                (uuid.uuid4().hex, print_job_id, spool_id, entry['spoolman_spool_id'], grams))
+        has_shortfall = has_shortfall or entry['shortfall_g'] > 0
         result.append({'spool_id': spool_id, 'grams_used': grams,
-                       'quantity_provenance': item['quantity_provenance'],
-                       'inventory_shortfall_g': shortfall})
+                       'quantity_provenance': consumption[spool_id]['quantity_provenance'],
+                       'inventory_shortfall_g': entry['shortfall_g']})
+    result.sort(key=lambda item: item['spool_id'])
     execute(connection, 'UPDATE print_archives SET consumption_json=? WHERE id=?',
             (json.dumps(result, allow_nan=False), archive_id))
     return ('reconciliation_required', 'inventory_shortfall', result) if has_shortfall else ('accounted', None, result)

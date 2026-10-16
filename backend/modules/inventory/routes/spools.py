@@ -24,7 +24,7 @@ from core.rbac import (
 )
 from core.responses import build_next_actions, next_action
 from core.base import SpoolStatus
-from modules.inventory.models import Spool, SpoolUsage
+from modules.inventory.models import Spool
 from modules.printers.models import FilamentSlot, Printer
 from ._helpers import (
     SpoolCreate, SpoolUpdate,
@@ -420,6 +420,15 @@ def use_spool(
             retriable=False,
         )
 
+    import math
+    if not math.isfinite(grams) or grams <= 0:
+        raise OdinError(
+            ErrorCode.validation_failed,
+            "Filament usage must be a positive number of grams",
+            status=400,
+            retriable=False,
+        )
+
     current_remaining = spool.remaining_weight_g
     new_remaining = max(0, current_remaining - grams)
     will_deplete = new_remaining <= 0
@@ -442,17 +451,15 @@ def use_spool(
             notes="Would update spools.remaining_weight_g and insert a spool_usage row.",
         )
 
-    spool.remaining_weight_g = new_remaining
+    # The filament ledger records it as a manual adjustment: it never counts as
+    # the named job's automatic deduction (that job's completion still deducts).
+    from core.filament_ledger import record_manual_usage
+    from core.print_attempts import sqlalchemy_runner
+    db.flush()
+    record_manual_usage(sqlalchemy_runner(db), spool.id, grams, job_id=body.job_id, notes=body.notes)
+    db.refresh(spool)
     if will_deplete:
         spool.status = SpoolStatus.EMPTY
-
-    usage = SpoolUsage(
-        spool_id=spool.id,
-        job_id=body.job_id,
-        weight_used_g=grams,
-        notes=body.notes,
-    )
-    db.add(usage)
     log_audit(db, "use", "spool", spool_id, {"weight_used_g": grams, "remaining": spool.remaining_weight_g})
     db.commit()
     return {
@@ -478,16 +485,12 @@ def weigh_spool(spool_id: int, request: SpoolWeighRequest, current_user: dict = 
     # Calculate net filament weight
     old_weight = spool.remaining_weight_g
     new_weight = max(0, request.gross_weight_g - spool.spool_weight_g)
-    spool.remaining_weight_g = new_weight
-
-    # Record as usage if weight decreased
-    if new_weight < old_weight:
-        usage = SpoolUsage(
-            spool_id=spool.id,
-            weight_used_g=old_weight - new_weight,
-            notes="Manual weigh adjustment",
-        )
-        db.add(usage)
+    # The ledger sets the net weight and records a decrease as a manual adjustment.
+    from core.filament_ledger import record_weighed_spool
+    from core.print_attempts import sqlalchemy_runner
+    db.flush()
+    record_weighed_spool(sqlalchemy_runner(db), spool.id, new_weight)
+    db.refresh(spool)
 
     # Check if empty
     if spool.remaining_weight_g <= 10:  # Less than 10g = effectively empty

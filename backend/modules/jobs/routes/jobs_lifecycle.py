@@ -18,7 +18,7 @@ from core.rbac import require_role, check_org_access
 from core.base import JobStatus, AlertType, AlertSeverity
 from modules.jobs.models import Job
 from modules.printers.models import Printer
-from modules.inventory.models import Spool, SpoolUsage
+from modules.inventory.models import Spool
 from modules.models_library.models import Model
 from modules.jobs.schemas import JobResponse
 from modules.jobs.state_machine import transition_job, Expr
@@ -189,45 +189,42 @@ def complete_job(job_id: int, current_user: dict = Depends(require_role("operato
             except (json.JSONDecodeError, TypeError):
                 pass
 
-    # Apply deductions to spools loaded on this printer — at most once per
-    # print attempt: a failed->completed correction stays on the same attempt
-    # and deducts nothing more; a reset (new physical print) deducts again.
-    from core.print_attempts import mark_filament_deducted, sqlalchemy_runner as _attempt_runner
-    if slot_grams and job.printer_id and mark_filament_deducted(_attempt_runner(db), job.id):
+    # Apply deductions to spools loaded on this printer through the filament
+    # ledger: at most once per print attempt (a failed->completed correction
+    # stays on the same attempt; a reset reprint deducts again), and the attempt
+    # is claimed only when something is actually deducted.
+    if slot_grams and job.printer_id:
         from core.base import SpoolStatus
+        from core.filament_ledger import record_job_filament
+        from core.print_attempts import sqlalchemy_runner as _attempt_runner
         loaded_spools = db.query(Spool).filter(
             Spool.location_printer_id == job.printer_id,
             Spool.status == SpoolStatus.ACTIVE
         ).all()
-
         spool_by_slot = {s.location_slot: s for s in loaded_spools if s.location_slot}
-
+        grams_by_spool, slot_of = {}, {}
         for slot_num, grams in slot_grams.items():
             spool = spool_by_slot.get(slot_num)
-            if spool and grams > 0:
-                old_weight = spool.remaining_weight_g
-                spool.remaining_weight_g = max(0, spool.remaining_weight_g - grams)
-
-                # Create usage record for audit trail
-                usage = SpoolUsage(
-                    spool_id=spool.id,
-                    weight_used_g=grams,
-                    job_id=job.id,
-                    notes=f"Auto-deducted on job #{job.id} complete ({job.item_name})"
-                )
-                db.add(usage)
-
-                deductions.append({
-                    "spool_id": spool.id,
-                    "slot": slot_num,
-                    "deducted_g": round(grams, 1),
-                    "remaining_g": round(spool.remaining_weight_g, 1),
-                    # v1.8.5: carried through to Spoolman push-back below.
-                    # None for spools not linked to an external Spoolman row.
-                    "spoolman_spool_id": spool.spoolman_spool_id,
-                    "grams": float(grams),
-                    "job_id": job.id,
-                })
+            if spool is not None and grams > 0:
+                grams_by_spool[spool.id] = grams_by_spool.get(spool.id, 0.0) + grams
+                slot_of.setdefault(spool.id, slot_num)
+        outcome = record_job_filament(_attempt_runner(db), job.id, source="operator_complete",
+                                      grams_by_spool=grams_by_spool,
+                                      notes=f"job #{job.id} complete ({job.item_name})")
+        for spool in loaded_spools:
+            db.expire(spool)  # the ledger wrote the balances with SQL
+        for entry in outcome.deductions:
+            deductions.append({
+                "spool_id": entry["spool_id"],
+                "slot": slot_of.get(entry["spool_id"]),
+                "deducted_g": round(entry["grams"], 1),
+                "remaining_g": round(entry["remaining_g"], 1),
+                # v1.8.5: carried through to Spoolman push-back below.
+                # None for spools not linked to an external Spoolman row.
+                "spoolman_spool_id": entry["spoolman_spool_id"],
+                "grams": float(entry["grams"]),
+                "job_id": job.id,
+            })
 
     if deductions:
         deduct_summary = "; ".join(

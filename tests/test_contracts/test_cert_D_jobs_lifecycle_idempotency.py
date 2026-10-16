@@ -100,7 +100,8 @@ def test_reset_then_reprint_deducts_again_and_markers_follow_the_attempt(lifecyc
     assert _spool(db) == (80.0, 2)
     db.expire_all()
     keys = set(db.execute(text("SELECT key FROM system_config WHERE key LIKE 'quota_attempt:%'")).scalars())
-    assert keys == {'quota_attempt:seq:111', 'quota_attempt:filament:job:111:0', 'quota_attempt:filament:job:111:1'}
+    assert keys == {'quota_attempt:seq:111', 'quota_attempt:started:111:1',
+                    'quota_attempt:filament:job:111:0', 'quota_attempt:filament:job:111:1'}
 
 
 def test_delete_clears_the_attempt_counter_and_markers(lifecycle_client):
@@ -122,7 +123,8 @@ def test_pre_upgrade_deduction_without_a_marker_is_not_repeated(lifecycle_client
     client, db = lifecycle_client
     # A pre-upgrade completion deducted 10 g and wrote spool_usage, but no attempt marker exists.
     db.execute(text("UPDATE spools SET remaining_weight_g=90 WHERE id=111"))
-    db.execute(text("INSERT INTO spool_usage(spool_id,job_id,weight_used_g,notes) VALUES(111,111,10,'pre-upgrade')"))
+    db.execute(text("INSERT INTO spool_usage(spool_id,job_id,weight_used_g,notes) "
+                    "VALUES(111,111,10,'Auto-deducted on job #111 complete (Fixture print)')"))
     db.execute(text("UPDATE jobs SET status='failed' WHERE id=111")); db.commit()
     assert client.post("/jobs/111/complete").status_code == 200        # correction after upgrade
     assert _spool(db) == (90.0, 1)
@@ -158,25 +160,10 @@ def test_moonraker_deduction_is_per_attempt_and_shared_with_operator_corrections
     assert _spool(db) == (80.0, 2)
 
 
-def test_filament_claim_is_atomic_even_when_both_callers_pass_the_read_check(lifecycle_client, monkeypatch):
-    """Two writers that both read 'not deducted' still produce exactly one winning claim."""
-    from core import print_attempts
-    client, db = lifecycle_client
-    monkeypatch.setattr(print_attempts, 'filament_already_deducted', lambda run, job_id: False)
-    engine = db.get_bind()
-    with engine.begin() as first:
-        a = print_attempts.mark_filament_deducted(print_attempts.sqlalchemy_runner(first), 111)
-    with engine.begin() as second:
-        b = print_attempts.mark_filament_deducted(print_attempts.sqlalchemy_runner(second), 111)
-    assert (a, b) == (True, False)
-
-
 def test_every_attempt_marker_value_is_valid_json(lifecycle_client):
     """system_config.value is JSON on PostgreSQL: a bare word there raises InvalidTextRepresentation."""
     client, db = lifecycle_client
-    db.execute(text("INSERT INTO spool_usage(spool_id,job_id,weight_used_g,notes) VALUES(111,111,10,'pre-upgrade')"))
-    db.commit()
-    assert client.post("/jobs/111/complete").status_code == 200          # legacy marker written
+    assert client.post("/jobs/111/complete").status_code == 200          # job-level marker written
     assert client.post("/jobs/111/fail").status_code == 200
     assert client.post("/jobs/111/reset").status_code == 200             # counter bumped
     db.execute(text("UPDATE jobs SET printer_id=9, status='printing' WHERE id=111")); db.commit()

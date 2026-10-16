@@ -485,7 +485,7 @@ class MoonrakerMonitor:
                     policy.classify_monitor_observation(
                         conn,
                         printer_id=self.printer_id,
-                        print_job_id=self._current_job_db_id,
+                        print_job_id=getattr(self, '_current_job_db_id', None),
                         observed_filename=status.filename or self._last_filename,
                     )
                     if policy
@@ -504,7 +504,7 @@ class MoonrakerMonitor:
                         return True
                     result = policy.terminal_monitor_observation(
                         conn,
-                        print_job_id=self._current_job_db_id,
+                        print_job_id=getattr(self, '_current_job_db_id', None),
                         printer_id=self.printer_id,
                         terminal_status=education_terminal_status,
                         ended_at=now_utc,
@@ -616,7 +616,7 @@ class MoonrakerMonitor:
             try:
                 from modules.archives.archive import create_print_archive
                 create_print_archive(
-                    print_job_id=self._current_job_db_id,
+                    print_job_id=getattr(self, '_current_job_db_id', None),
                     printer_id=self.printer_id,
                     success=(end_status == 'completed'),
                     result_status=end_status if end_status == 'cancelled' else None,
@@ -842,24 +842,14 @@ class MoonrakerMonitor:
         """), {'printer':self.printer_id,'org':job[1]}).fetchall()
         if len(spools) != 1:
             return
-        spool_id = spools[0][0]
-        # Once per print attempt, shared with operator completion (core.print_attempts):
-        # a duplicate end or a correction never deducts again; a reset reprint does.
-        from core.print_attempts import mark_filament_deducted, sqlalchemy_runner
-        if not mark_filament_deducted(sqlalchemy_runner(conn), scheduled_job_id):
-            return
-        updated = conn.execute(text("""
-            UPDATE spools SET remaining_weight_g=CASE
-                WHEN remaining_weight_g > :grams THEN remaining_weight_g-:grams ELSE 0 END
-            WHERE id=:id AND remaining_weight_g IS NOT NULL RETURNING id
-        """), {'id':spool_id,'grams':grams}).first()
-        if updated is None:
-            return
-        conn.execute(text("""
-            INSERT INTO spool_usage(spool_id,job_id,weight_used_g,notes)
-            VALUES(:spool,:job,:grams,:note)
-        """), {'spool':spool_id,'job':scheduled_job_id,'grams':grams,
-                'note':'Moonraker observed extrusion' if observed_grams is not None else 'Moonraker sliced estimate'})
+        # The filament ledger: once per print attempt, shared with operator
+        # completion and archive accounting; claimed only if something is deducted.
+        from core.filament_ledger import record_job_filament
+        from core.print_attempts import sqlalchemy_runner
+        return record_job_filament(sqlalchemy_runner(conn), scheduled_job_id, source="moonraker",
+                                   grams_by_spool={spools[0][0]: float(grams)},
+                                   print_job_id=getattr(self, '_current_job_db_id', None),
+                                   notes='observed extrusion' if observed_grams is not None else 'sliced estimate')
 
 
 # ------------------------------------------------------------------
