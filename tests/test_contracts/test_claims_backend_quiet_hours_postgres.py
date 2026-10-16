@@ -72,6 +72,12 @@ def pg_engine(pg_url):
                        "(3,'admin','admin@example.test','fixture','admin',TRUE,1)"))
         c.execute(text("INSERT INTO printers (id,name,model,is_active,api_type,org_id) VALUES (9,'P1S-09','P1S',TRUE,'bambu',1)"))
         c.execute(text("INSERT INTO alert_preferences(user_id,alert_type,email,browser_push) VALUES(3,'print_complete',TRUE,TRUE)"))
+        # Migration 032 is registered: webhook digests come from the per-alert deferral row the
+        # dispatcher records when quiet hours suppress the org webhook (record_suppressed).
+        from modules.notifications import deferred_deliveries
+        assert deferred_deliveries.record_suppressed(c, org_id=1, scope='org:1', recipients={}, alert_type='print_complete',
+                                                     severity='info', title='Synthetic finished', printer_id=9) == 1
+        c.execute(text("UPDATE quiet_hours_deferred_deliveries SET created_at=:stamp"), {'stamp': END.replace(hour=6)})
     yield engine, receipt
     engine.dispose()
 
