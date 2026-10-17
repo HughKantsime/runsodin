@@ -7,7 +7,7 @@ conftest.py
 
 Three-client auth model:
   1. no_headers    — sends nothing (should be blocked by API key middleware)
-  2. api_key_only  — sends API key but no JWT (SPA perimeter, read-only)
+  2. api_key_only  — sends the legacy global API key, no JWT (acts as the first admin, non-interactive)
   3. jwt(role)     — sends API key + JWT (full RBAC)
 
 Usage:
@@ -65,7 +65,7 @@ def make_request(method, path, auth_mode, token=None, body=None):
     """
     Make an API request with one of three auth modes:
       - "no_headers":   sends nothing
-      - "api_key_only": sends API key header only (no JWT)
+      - "api_key_only": sends the legacy global API key only (no JWT; the server treats it as the first admin)
       - "jwt":          sends API key + JWT Bearer token
     """
     url = f"{BASE_URL}{path}"

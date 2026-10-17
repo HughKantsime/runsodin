@@ -1,23 +1,22 @@
 """
-O.D.I.N. RBAC Exhaustive Test — v2.1
+O.D.I.N. RBAC Exhaustive Test — v2.2
 test_rbac.py
 
 Three-client auth model:
-  - no_headers:    nothing sent → should be blocked by API key middleware
-  - api_key_only:  API key only → SPA perimeter, GETs allowed by design
-  - viewer/operator/admin: API key + JWT → full RBAC
+  - no_headers:    nothing sent → blocked by the API key middleware
+  - api_key_only:  the legacy global API_KEY → authenticates as the first active admin, a
+                   non-interactive platform superadmin (core/dependencies.py, since fb8a9bb): the
+                   admin result, except CREDENTIAL_OPERATIONS (credential write guard: 403)
+  - viewer/operator/admin: API key + JWT → full RBAC (server-enforced permission matrix)
 
-Corrected expectations based on v2.1 run:
-  - Unauth GET on /api/* returns 200 (API key perimeter, by design)
-  - POST /api/printers requires operator (not admin)
-  - PATCH /api/orders requires admin (not operator)
-  - DELETE /api/printers, /api/orders: operator allowed (per design decision)
-  - Smart plug config: operator allowed
-  - POST /api/models: operator+ only (viewer cannot create)
-  - approve/reject/resubmit: state-dependent (test as stateful, not pure RBAC)
+License: LICENSE_GATED rows need a license feature. RBAC_LICENSE_TIER names the server's tier
+(default community: the live container, which cannot be given a test-signed license); on a
+tier without the feature every authorized caller gets the gate's 403.
+tests/test_contracts/test_rbac_licensed_matrix.py runs this file on an Enterprise server.
 
-Usage:
-    pytest tests/test_rbac.py -v --tb=short 2>&1 | tee rbac_v2_results.txt
+Usage (live container):
+    BASE_URL=... API_KEY=... ADMIN_USERNAME=... ADMIN_PASSWORD=... pytest tests/test_rbac.py
+Optional RBAC_RECORD=<file> appends each row's expected/actual status (diagnostics).
 """
 
 import pytest
@@ -271,7 +270,9 @@ ENDPOINT_MATRIX = [
     ("GET",  "/api/products/{product_id}", _api_read(), None, "Get product"),
     ("PATCH", "/api/products/{product_id}", _op_write(), {"description": "rbac"}, "Update product"),
     # DELETE products: grep line 7227 → require_role("operator"). Operator CAN delete.
-    ("DELETE", "/api/products/{product_id}", _op_write(), None, "Delete product — operator per code"),
+    # products.delete defaults to admin (the matrix default on main too, now server-enforced:
+    # FEATURES.md §11.3 (Permission matrix); core/rbac_policy.py).
+    ("DELETE", "/api/products/{product_id}", _admin_only(), None, "Delete product — products.delete (admin by default)"),
     ("POST", "/api/products/{product_id}/components", _op_write(), {"model_id": 1}, "Add BOM component"),
 
     # =========================================================================
@@ -639,7 +640,8 @@ ENDPOINT_MATRIX = [
     ("POST",   "/api/models/{model_id}/revisions",                     _op_write(), None, "Create model revision"),
     ("POST",   "/api/models/{model_id}/revisions/{rev_number}/revert", _op_write(), None, "Revert to revision"),
     ("POST",   "/api/models/{model_id}/schedule",                      _op_write(), {},   "Schedule model"),
-    ("DELETE", "/api/models/{model_id}/variants/{variant_id}",         _op_write(), None, "Delete model variant"),
+    # models.delete defaults to admin: CHANGELOG 2.0.0 "Operators lose API-only access to ... delete models".
+    ("DELETE", "/api/models/{model_id}/variants/{variant_id}",         _admin_only(), None, "Delete model variant — models.delete (admin by default)"),
 
     # =========================================================================
     # 51. Orders — missing sub-resources
@@ -654,7 +656,8 @@ ENDPOINT_MATRIX = [
     ("GET",    "/api/presets",                      _api_read(), None,                     "List presets"),
     ("POST",   "/api/presets",                      _op_write(), None,  "Create preset"),
     ("DELETE", "/api/presets/{preset_id}",          _op_write(), None,                     "Delete preset"),
-    ("POST",   "/api/presets/{preset_id}/schedule", _api_read(), {},                       "Schedule preset"),
+    # Scheduling a preset creates a job: jobs.create (admin, operator by default; FEATURES.md §11.3 (Permission matrix)).
+    ("POST",   "/api/presets/{preset_id}/schedule", _op_write(), {},                       "Schedule preset — jobs.create"),
 
     # =========================================================================
     # 53. Print Files — missing actions / template forms
@@ -734,9 +737,14 @@ ENDPOINT_MATRIX = [
     ("GET",    "/api/timelapses/{timelapse_id}/video",  _api_read(),   None, "Download timelapse video"),
     ("GET",    "/api/timelapses/{timelapse_id}/stream", _api_read(),   None, "Stream timelapse for playback"),
     ("GET",    "/api/timelapses/{timelapse_id}/download", _api_read(), None, "Download timelapse as attachment"),
-    ("POST",   "/api/timelapses/{timelapse_id}/trim",   _op_write(),   {"start_seconds": 0, "end_seconds": 10}, "Trim timelapse (operator+)"),
-    ("POST",   "/api/timelapses/{timelapse_id}/speed",  _op_write(),   {"multiplier": 2.0}, "Speed-adjust timelapse (operator+)"),
-    ("DELETE", "/api/timelapses/{timelapse_id}",        _admin_only(), None, "Delete timelapse"),
+    # Edits and deletion are conditional on the exact recording/lifetime (If-Match, sent by the web
+    # client: frontend/src/api/cameras.ts). Authorized callers without If-Match get 428 after the
+    # role check (certified: test_timelapse_edit_http.py missing_etag -> 428; test_timelapse_route_activation.py).
+    ("POST",   "/api/timelapses/{timelapse_id}/trim",   {**_op_write(), "operator": 428, "admin": 428},
+     {"start_seconds": 0, "end_seconds": 10}, "Trim timelapse (operator+, If-Match required)"),
+    ("POST",   "/api/timelapses/{timelapse_id}/speed",  {**_op_write(), "operator": 428, "admin": 428},
+     {"multiplier": 2.0}, "Speed-adjust timelapse (operator+, If-Match required)"),
+    ("DELETE", "/api/timelapses/{timelapse_id}",        {**_admin_only(), "admin": 428}, None, "Delete timelapse (admin, If-Match required)"),
 
     # =========================================================================
     # 62. Vision
@@ -764,7 +772,9 @@ ENDPOINT_MATRIX = [
     ("POST",   "/api/profiles",                       _op_write(),   {"name": "test", "slicer": "klipper", "category": "temperature", "raw_content": "{}"}, "Create profile (operator+)"),
     ("POST",   "/api/profiles/import",                _op_write(),   None, "Import profile file (operator+)"),
     ("GET",    "/api/profiles/{profile_id}",          _api_read(),   None, "Get profile"),
-    ("PUT",    "/api/profiles/{profile_id}",          _op_write(),   {"name": "updated"}, "Update profile (operator+)"),
+    # The fixture profile is the admin's; operators edit only their own (certified:
+    # test_profile_history_behavior.py::test_operator_cannot_mutate_same_org_other_creator).
+    ("PUT",    "/api/profiles/{profile_id}",          {**_op_write(), "operator": 403}, {"name": "updated"}, "Update profile (own, or admin)"),
     ("DELETE", "/api/profiles/{profile_id}",          _op_write(),   None, "Delete profile (operator+)"),
     ("GET",    "/api/profiles/{profile_id}/export",   _api_read(),   None, "Export profile download"),
     ("POST",   "/api/profiles/{profile_id}/apply",    _op_write(),   {"printer_id": 1}, "Apply Klipper profile (operator+)"),
@@ -847,9 +857,69 @@ def _resolve_body(body, test_data):
 # Parametrize
 # ---------------------------------------------------------------------------
 
+# Credential operations: the credential write guard (core/credential_write_guard.py) refuses
+# them to the non-interactive legacy-API-key admin with 403 "API tokens cannot create or change
+# credentials; sign in with a password session". Asserted explicitly as 403 for api_key_only.
+CREDENTIAL_OPERATIONS = {
+    ("POST", "/api/tokens"), ("DELETE", "/api/tokens/{token_id}"),                     # API tokens
+    ("DELETE", "/api/sessions/{session_id}"), ("DELETE", "/api/admin/sessions/{session_id}"),  # sessions
+    ("POST", "/api/auth/mfa/setup"), ("POST", "/api/auth/mfa/confirm"), ("DELETE", "/api/auth/mfa"),
+    ("DELETE", "/api/admin/users/{user_id}/mfa"), ("PUT", "/api/config/require-mfa"),   # MFA
+    ("PUT", "/api/admin/oidc"), ("PUT", "/api/smtp-config"),                           # SSO / SMTP secrets
+    ("POST", "/api/push/subscribe"),                                                   # push endpoint keys
+    ("POST", "/api/backups"), ("GET", "/api/backups/{backup_filename}"),               # backups carry every
+    ("DELETE", "/api/backups/{backup_filename}"), ("POST", "/api/backups/restore"),    # stored credential
+    ("GET", "/api/admin/logs"), ("GET", "/api/admin/logs/stream"),                     # install-wide logs and
+    ("GET", "/api/admin/support-bundle"),                                              # the support bundle
+}
+
+# License-gated rows: route -> license feature (license_manager.require_feature / feature_gate).
+# On a server whose tier lacks the feature every authorized caller gets the gate's 403.
+# The live container (no signed license can be installed in an image) runs Community;
+# tests/test_contracts/test_rbac_licensed_matrix.py runs the same table on Enterprise.
+LICENSE_GATED = {
+    **{route: "analytics" for route in (("GET", "/api/analytics"), ("GET", "/api/analytics/failures"),
+                                         ("GET", "/api/analytics/time-accuracy"), ("GET", "/api/reports/chargebacks"))},
+    **{route: "branding" for route in (("PUT", "/api/branding"), ("POST", "/api/branding/logo"),
+                                        ("POST", "/api/branding/favicon"))},
+    **{route: "email_notifications" for route in (("PUT", "/api/smtp-config"), ("POST", "/api/alerts/test-email"))},
+    **{route: "maintenance" for route in (("POST", "/api/maintenance/tasks"), ("PATCH", "/api/maintenance/tasks/{maintenance_task_id}"),
+                                           ("POST", "/api/maintenance/logs"), ("POST", "/api/maintenance/seed-defaults"))},
+    **{route: "orders" for route in (("POST", "/api/orders"), ("PATCH", "/api/orders/{order_id}"), ("POST", "/api/orders/{order_id}/items"),
+                                      ("PATCH", "/api/orders/{order_id}/items/{item_id}"), ("POST", "/api/orders/{order_id}/schedule"),
+                                      ("PATCH", "/api/orders/{order_id}/ship"))},
+    **{route: "products" for route in (("POST", "/api/products"), ("PATCH", "/api/products/{product_id}"),
+                                        ("POST", "/api/products/{product_id}/components"), ("POST", "/api/products/{product_id}/consumables"),
+                                        ("POST", "/api/consumables"), ("PATCH", "/api/consumables/{consumable_id}"),
+                                        ("POST", "/api/consumables/{consumable_id}/adjust"))},
+    **{route: "permissions" for route in (("PUT", "/api/permissions"), ("POST", "/api/permissions/reset"))},
+    ("PUT", "/api/admin/oidc"): "sso",
+    ("GET", "/api/education/usage-report"): "usage_reports",
+    **{route: "webhooks" for route in (("POST", "/api/webhooks"), ("PATCH", "/api/webhooks/{webhook_id}"),
+                                        ("POST", "/api/webhooks/{webhook_id}/test"))},
+    **{route: "job_approval" for route in (("POST", "/api/jobs/{job_id}/approve"), ("POST", "/api/jobs/{job_id}/resubmit"),
+                                            ("PUT", "/api/config/require-job-approval"))},
+    **{route: "print_quotas" for route in (("GET", "/api/quotas"), ("GET", "/api/admin/quotas"), ("PUT", "/api/admin/quotas/{user_id}"))},
+    **{route: "user_groups" for route in (("GET", "/api/groups"), ("POST", "/api/groups"), ("GET", "/api/groups/{group_id}"),
+                                           ("PATCH", "/api/groups/{group_id}"), ("DELETE", "/api/groups/{group_id}"))},
+    ("GET", "/api/export/audit-logs"): "audit_export",
+}
+# Lowest tier carrying each feature (license_manager.TIERS); Enterprise carries every one.
+_TIER_ORDER = ("community", "pro", "education", "enterprise")
+FEATURE_MIN_TIER = {**{f: "pro" for f in ("analytics", "branding", "email_notifications", "maintenance", "orders", "products",
+                                         "permissions", "sso", "usage_reports", "webhooks")},
+                    **{f: "education" for f in ("job_approval", "print_quotas", "user_groups")},
+                    "audit_export": "enterprise"}
+LICENSE_TIER = os.environ.get("RBAC_LICENSE_TIER", "community")
+
+
+def _tier_has(feature):
+    return _TIER_ORDER.index(LICENSE_TIER) >= _TIER_ORDER.index(FEATURE_MIN_TIER[feature])
+
 # Endpoints where DELETE should never run (session-breaking or not re-creatable)
 DESTRUCTIVE_SKIP = {
     "DELETE /api/license",                # License can't be re-created in test
+    "POST /api/license/unactivation-request",  # releases the installed license (licensed run loses its tier)
     "DELETE /api/sessions",               # Revokes ALL own sessions (breaks test runner tokens)
 }
 
@@ -961,10 +1031,29 @@ def _create_ephemeral(endpoint_key, admin_token, test_data):
     return None
 
 
+def _expectations(method, path, expected):
+    """Per-role expectations for one row on the server under test.
+
+    api_key_only: the legacy global API key authenticates as the first active admin, a
+    platform superadmin (core/dependencies.py, legacy_global_api_key, since fb8a9bb), as a
+    non-interactive principal. It therefore gets the admin result, except for credential
+    operations, which the credential write guard refuses with 403 (CREDENTIAL_OPERATIONS).
+    """
+    expected = dict(expected)
+    if expected.get("api_key_only") is not None and expected.get("admin") is not None:
+        expected["api_key_only"] = 403 if (method, path) in CREDENTIAL_OPERATIONS else expected["admin"]
+    feature = LICENSE_GATED.get((method, path))
+    if feature and not _tier_has(feature):
+        for role, status in expected.items():
+            if role != "no_headers" and status is not None:
+                expected[role] = 403  # the license gate refuses every authorized caller
+    return expected
+
+
 def _generate_params():
     params = []
     for method, path, expected, body, notes in ENDPOINT_MATRIX:
-        for role, exp_status in expected.items():
+        for role, exp_status in _expectations(method, path, expected).items():
             if exp_status is None:
                 continue
             test_id = f"{method} {path} [{role}]"
@@ -978,12 +1067,13 @@ def test_rbac(method, path_template, role, expected_status, body, notes, tokens,
 
     endpoint_key = f"{method} {path_template}"
 
-    # Hard-skip for truly session-breaking endpoints
-    if role in ("admin", "operator") and endpoint_key in DESTRUCTIVE_SKIP:
+    # Hard-skip for truly session-breaking endpoints. The legacy global API key acts as the
+    # first admin (core/dependencies.py, legacy_global_api_key), so api_key_only runs them too.
+    if role in ("admin", "operator", "api_key_only") and endpoint_key in DESTRUCTIVE_SKIP:
         pytest.skip(f"Skipping destructive call: {endpoint_key} [{role}]")
 
     # For destructive DELETEs, create ephemeral test data so we can actually test
-    if role in ("admin", "operator") and endpoint_key in _EPHEMERAL_CREATE:
+    if role in ("admin", "operator", "api_key_only") and endpoint_key in _EPHEMERAL_CREATE:
         ephemeral_path = _create_ephemeral(endpoint_key, admin_token, test_data)
         if ephemeral_path:
             path = ephemeral_path
@@ -1005,6 +1095,12 @@ def test_rbac(method, path_template, role, expected_status, body, notes, tokens,
 
     resp = make_request(method, path, auth_mode, token, resolved_body)
     actual = resp.status_code
+    if os.environ.get("RBAC_RECORD"):
+        import json as _json
+        with open(os.environ["RBAC_RECORD"], "a") as _record:
+            _record.write(_json.dumps({"method": method, "path": path_template, "role": role,
+                                       "expected": expected_status, "actual": actual,
+                                       "detail": resp.text[:240] if actual >= 400 else ""}) + "\n")
 
     # Exact match
 
@@ -1027,7 +1123,7 @@ def test_rbac(method, path_template, role, expected_status, body, notes, tokens,
 
     # LICENSE-LIMIT TOLERANCE
     # POST /api/printers or /api/users may 403 from license caps, not RBAC
-    if expected_status in (200, 201) and actual == 403 and role in ("admin", "operator"):
+    if expected_status in (200, 201) and actual == 403 and role in ("admin", "operator", "api_key_only"):
         if any(x in path for x in ["/api/printers", "/api/users"]):
             return  # License limit, not an RBAC bug
 
