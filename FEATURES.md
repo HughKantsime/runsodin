@@ -495,7 +495,7 @@
 - Operator: day-to-day production (create/edit jobs, spools, models, products and maintenance; create, schedule and ship orders — order edits are admin-only)
 - Admin: full system control (users, settings, branding, SSO, webhooks, backups, license, pricing)
 - Permission matrix (Settings → Access → Permissions, Pro): the server enforces every action key on every API route that performs that action, and every page key on its web page route (RoleGate) and on the page-only API reads (Timeline, Analytics, Education reports); a change applies on the next request. The platform superadmin is never locked out, and routes outside the matrix (account self-service, user and organization administration, platform settings) keep their fixed role check
-- Default matrix reproduces the role defaults above: viewers submit jobs and resubmit their own rejected jobs; operators run production; adding or deleting printers, deleting models and spools, editing orders and deleting products are admin-only
+- Default matrix reproduces the role defaults above: viewers submit jobs and resubmit their own rejected jobs; operators run production; adding or deleting printers, deleting models, editing orders and deleting products are admin-only
 
 ### 11.4 User Groups (v1.1.0)
 - Group management UI for organizing users

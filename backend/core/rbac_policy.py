@@ -54,7 +54,8 @@ RBAC_DEFAULT_ACTION_ACCESS = {
     "models.edit": ["admin", "operator"],
     "models.delete": ["admin"],
     "spools.edit": ["admin", "operator"],
-    "spools.delete": ["admin"],
+    # Operators archive spools (certified claim F06-6.1-03; the server always allowed it).
+    "spools.delete": ["admin", "operator"],
     "timeline.move": ["admin", "operator"],
     "upload.upload": ["admin", "operator"],
     "upload.schedule": ["admin", "operator"],

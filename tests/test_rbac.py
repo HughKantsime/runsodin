@@ -239,7 +239,7 @@ ENDPOINT_MATRIX = [
     ("POST", "/api/spools", _op_write(), {"filament_id": 1}, "Create spool"),
     ("GET",  "/api/spools/{spool_id}", _api_read(), None, "Get spool"),
     ("PATCH", "/api/spools/{spool_id}", _op_write(), {"notes": "rbac"}, "Update spool"),
-    ("DELETE", "/api/spools/{spool_id}", _admin_only(), None, "Delete spool — spools.delete (admin by default) — SKIP actual"),
+    ("DELETE", "/api/spools/{spool_id}", _op_write(), None, "Delete spool — spools.delete (operator/admin) — SKIP actual"),
     ("POST", "/api/spools/{spool_id}/load", _op_write(),
      {"printer_id": 1, "slot_number": 1}, "Load spool"),
     ("POST", "/api/spools/{spool_id}/unload", _op_write(), None, "Unload spool"),
