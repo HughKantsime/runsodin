@@ -114,18 +114,20 @@ def get_logs(
             stripped = chunk.rstrip(b"\r\n").decode("utf-8", errors="replace")
             if truncated:
                 stripped += " [line truncated]"
-            if level_upper and _line_level(stripped) != level_upper:
+            # Filter what the caller would see: searching raw lines would confirm redacted secrets.
+            shown = sanitize_log_line(stripped)
+            if level_upper and _line_level(shown) != level_upper:
                 continue
-            if search and search.lower() not in stripped.lower():
+            if search and search.lower() not in shown.lower():
                 continue
-            result.append((line_start, stripped))
+            result.append((line_start, shown))
 
         page = list(result)
         has_older = len(page) > lines
         if has_older:
             page = page[-lines:]
         next_cursor = f"{stat.st_dev}:{stat.st_ino}:{snapshot}:{page[0][0]}" if has_older else None
-    return {"lines": sanitize_log_lines([line for _, line in page]), "source": source, "next_cursor": next_cursor,
+    return {"lines": [line for _, line in page], "source": source, "next_cursor": next_cursor,
             "page_cursor": f"{stat.st_dev}:{stat.st_ino}:{snapshot}:{boundary}"}
 
 
@@ -156,12 +158,12 @@ async def stream_logs(
                 if not line:
                     await asyncio.sleep(0.5)
                     continue
-                stripped = line.rstrip("\n")
-                if level_upper and _line_level(stripped) != level_upper:
+                shown = sanitize_log_line(line.rstrip("\n"))  # filter what the caller would see
+                if level_upper and _line_level(shown) != level_upper:
                     continue
-                if search and search.lower() not in stripped.lower():
+                if search and search.lower() not in shown.lower():
                     continue
-                yield f"data: {json.dumps(sanitize_log_line(stripped))}\n\n"
+                yield f"data: {json.dumps(shown)}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
