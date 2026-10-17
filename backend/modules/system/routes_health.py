@@ -320,8 +320,12 @@ async def _fetch_license_challenge(license_server_url: str, installation_id: str
         raise HTTPException(status_code=502, detail="Could not reach license server.")
     if resp.status_code != 200:
         raise HTTPException(status_code=resp.status_code, detail="Could not get license challenge.")
-    nonce = resp.json().get("nonce")
-    if not nonce:
+    try:
+        answer = resp.json()
+    except Exception:
+        answer = None
+    nonce = answer.get("nonce") if isinstance(answer, dict) else None
+    if not isinstance(nonce, str) or not nonce:
         raise HTTPException(status_code=502, detail="License server returned no nonce.")
     return nonce
 
@@ -355,8 +359,9 @@ async def activate_license(
         nonce = await _fetch_license_challenge(license_server_url, installation_id)
         proof = {"nonce": nonce,
                  "bootstrap_signature": sign_license_challenge("activate-bootstrap", request.key, installation_id, nonce)}
-    except HTTPException as exc:
-        log.warning("License activation: no challenge from the license server (%s); sending without proof of possession", exc.status_code)
+    except Exception as exc:  # any challenge failure means "no proof available"
+        log.warning("License activation: no usable challenge from the license server (%s); sending without proof of possession",
+                    getattr(exc, "status_code", type(exc).__name__))
 
     # v1.8.9 (codex pass 13): DNS-pinned, no env proxy.
     from core.itar import pin_for_request, ItarOutboundBlocked, should_trust_env
