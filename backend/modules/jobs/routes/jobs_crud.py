@@ -1,6 +1,6 @@
 """Job CRUD, creation, bulk operations, and queue management."""
 
-from core.rbac import should_filter_org
+from core.rbac import should_filter_org, require_action
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
@@ -88,7 +88,7 @@ def check_filament_compatibility(
 
 
 @router.post("/bulk", response_model=List[JobResponse], status_code=status.HTTP_201_CREATED, tags=["Jobs"])
-def create_jobs_bulk(jobs: List[JobCreate], current_user: dict = Depends(require_role("operator", scope="write:jobs")), db: Session = Depends(get_db)):
+def create_jobs_bulk(jobs: List[JobCreate], current_user: dict = Depends(require_action("jobs.create", scope="write:jobs")), db: Session = Depends(get_db)):
     """Create multiple jobs at once."""
     from modules.models_library.services import calculate_job_cost
 
@@ -153,7 +153,7 @@ def create_jobs_bulk(jobs: List[JobCreate], current_user: dict = Depends(require
 @router.post("/batch", tags=["Jobs"])
 def create_jobs_batch(
     body: JobBatchRequest,
-    current_user: dict = Depends(require_role("operator", scope="write:jobs")),
+    current_user: dict = Depends(require_action("jobs.create", scope="write:jobs")),
     db: Session = Depends(get_db),
 ):
     """Send the same job to multiple printers at once (batch production).
@@ -221,7 +221,7 @@ def create_jobs_batch(
 # Static route registered before /jobs/{job_id} to prevent FastAPI from
 # treating "reorder" as a job_id integer.
 @router.patch("/reorder", tags=["Jobs"])
-async def reorder_jobs_static(req: JobReorderRequest, current_user: dict = Depends(require_role("operator", scope="write:jobs")), db: Session = Depends(get_db)):
+async def reorder_jobs_static(req: JobReorderRequest, current_user: dict = Depends(require_action("jobs.edit", scope="write:jobs")), db: Session = Depends(get_db)):
     """Reorder job queue. Sets queue_position on each job based on array index."""
     reordered = 0
     for position, job_id in enumerate(req.job_ids):
@@ -239,7 +239,7 @@ async def reorder_jobs_static(req: JobReorderRequest, current_user: dict = Depen
 
 
 @router.post("/bulk-update", tags=["Jobs"])
-async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_role("operator", scope="write:jobs")), db: Session = Depends(get_db)):
+async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_action("jobs.edit", scope="write:jobs")), db: Session = Depends(get_db)):
     """Bulk update job fields (status, priority) for multiple jobs."""
     job_ids = body.get("job_ids", [])
     if not job_ids or not isinstance(job_ids, list):
@@ -338,7 +338,7 @@ def create_job(
     # viewers can submit jobs for approval (handled internally by the
     # approval_required branch below). agent:write is the scoped-token
     # gate. See routes_controls.py::pause_printer for full rationale.
-    current_user: dict = Depends(require_role("viewer")),
+    current_user: dict = Depends(require_action("jobs.submit")),
     _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE, "write:jobs")),
 ):
     """Create a new print job (queue_job). Agent-surface v1.9.0 Phase 2.
@@ -516,9 +516,12 @@ def get_job(
 
 
 @router.patch("/{job_id}", response_model=JobResponse, tags=["Jobs"])
-async def update_job(job_id: int, updates: JobUpdate, request: Request, current_user: dict = Depends(require_role("viewer", scope="write:jobs")), db: Session = Depends(get_db)):
+async def update_job(job_id: int, updates: JobUpdate, request: Request, current_user: dict = Depends(require_action("jobs.edit", scope="write:jobs", fallback="jobs.resubmit")), db: Session = Depends(get_db)):
     """Update a job."""
-    correction = current_user.get('role') == 'viewer'
+    # Without jobs.edit, a caller holding jobs.resubmit may only correct their own
+    # rejected submission (require_action fallback; viewers by default).
+    from core.rbac import RBAC_LIMITED_TO
+    correction = current_user.get(RBAC_LIMITED_TO) == 'jobs.resubmit'
     if correction:
         raw = await request.json()
         if not isinstance(raw, dict) or set(raw) - {'item_name', 'quantity', 'notes', 'due_date'}:
@@ -592,7 +595,7 @@ async def update_job(job_id: int, updates: JobUpdate, request: Request, current_
 
 
 @router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Jobs"])
-def delete_job(job_id: int, current_user: dict = Depends(require_role("operator", scope="write:jobs")), db: Session = Depends(get_db)):
+def delete_job(job_id: int, current_user: dict = Depends(require_action("jobs.delete", scope="write:jobs")), db: Session = Depends(get_db)):
     """Delete a job."""
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
@@ -616,7 +619,7 @@ def delete_job(job_id: int, current_user: dict = Depends(require_role("operator"
 
 
 @router.post("/{job_id}/repeat", tags=["Jobs"])
-async def repeat_job(job_id: int, current_user: dict = Depends(require_role("operator", scope="write:jobs")), db: Session = Depends(get_db)):
+async def repeat_job(job_id: int, current_user: dict = Depends(require_action("jobs.create", scope="write:jobs")), db: Session = Depends(get_db)):
     """Clone a job for printing again. Creates a new pending job with same settings."""
     original = db.query(Job).filter(Job.id == job_id).first()
     if not original:

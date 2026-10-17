@@ -5,7 +5,7 @@ from core.timelapse_media_errors import RetirementUnavailable,EditUnavailable,No
 Timelapse list/video/delete, camera list/toggle/stream/WebRTC.
 """
 
-from core.rbac import should_filter_org
+from core.rbac import should_filter_org, require_action
 
 # Domain: printers
 # Depends on: core, organizations
@@ -305,7 +305,7 @@ def list_cameras(db: Session = Depends(get_db), current_user: dict = Depends(req
 
 
 @router.patch("/cameras/{printer_id}/toggle", tags=["Cameras"])
-def toggle_camera(printer_id: int, current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)):
+def toggle_camera(printer_id: int, current_user: dict = Depends(require_action("printers.edit", scope="write:printers")), db: Session = Depends(get_db)):
     """Toggle camera on/off for a printer."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:

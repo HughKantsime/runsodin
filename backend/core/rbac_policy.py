@@ -36,6 +36,9 @@ RBAC_DEFAULT_PAGE_ACCESS = {
 
 RBAC_DEFAULT_ACTION_ACCESS = {
     "settings.edit": ["admin"],
+    # Submitting a job (POST /jobs, schedule from a model): every role. Viewer
+    # submissions wait for approval when the approval workflow is on.
+    "jobs.submit": ["admin", "operator", "viewer"],
     "jobs.create": ["admin", "operator"],
     "jobs.edit": ["admin", "operator"],
     "jobs.cancel": ["admin", "operator"],
@@ -57,8 +60,7 @@ RBAC_DEFAULT_ACTION_ACCESS = {
     "upload.schedule": ["admin", "operator"],
     "upload.delete": ["admin", "operator"],
     "maintenance.log": ["admin", "operator"],
-    "maintenance.tasks": ["admin"],
-    "dashboard.actions": ["admin", "operator"],
+    "maintenance.tasks": ["admin", "operator"],
     "orders.create": ["admin", "operator"],
     "orders.edit": ["admin"],
     "orders.delete": ["admin", "operator"],
@@ -79,8 +81,11 @@ def get_rbac(db: Session):
     row = db.query(SystemConfig).filter(SystemConfig.key == "rbac_permissions").first()
     if row and row.value:
         data = row.value
-        page = {**RBAC_DEFAULT_PAGE_ACCESS, **data.get("page_access", {})}
-        action = {**RBAC_DEFAULT_ACTION_ACCESS, **data.get("action_access", {})}
+        # Stored overrides apply only to keys that exist (a retired key such as
+        # dashboard.actions is dropped instead of lingering in the matrix).
+        stored_pages, stored_actions = data.get("page_access", {}), data.get("action_access", {})
+        page = {key: stored_pages.get(key, roles) for key, roles in RBAC_DEFAULT_PAGE_ACCESS.items()}
+        action = {key: stored_actions.get(key, roles) for key, roles in RBAC_DEFAULT_ACTION_ACCESS.items()}
         return {"page_access": page, "action_access": action}
     return {"page_access": RBAC_DEFAULT_PAGE_ACCESS, "action_access": RBAC_DEFAULT_ACTION_ACCESS}
 
@@ -88,3 +93,8 @@ def get_rbac(db: Session):
 def action_roles(db: Session, action: str) -> list:
     """Roles granted ``action`` by the effective map (unknown actions grant nobody)."""
     return list(get_rbac(db)["action_access"].get(action) or [])
+
+
+def page_roles(db: Session, page: str) -> list:
+    """Roles granted ``page`` by the effective map (unknown pages grant nobody)."""
+    return list(get_rbac(db)["page_access"].get(page) or [])

@@ -11,6 +11,7 @@ from core.db import get_db
 from core.errors import ErrorCode, OdinError
 from core.middleware.dry_run import dry_run_preview, is_dry_run
 from core.rbac import (
+    require_action,
     AGENT_WRITE_SCOPE,
     check_org_access,
     require_any_scope,
@@ -30,7 +31,7 @@ router = APIRouter()
 # ====================================================================
 
 @router.post("/printers/{printer_id}/stop", tags=["Printers"])
-async def stop_printer(printer_id: int, current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)):
+async def stop_printer(printer_id: int, current_user: dict = Depends(require_action("printers.edit", scope="write:printers")), db: Session = Depends(get_db)):
     """Emergency stop - cancel current print."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
@@ -52,7 +53,8 @@ async def pause_printer(
     request: Request,
     # Stacked auth (Phase 2 canonical pattern — see
     # conductor/tracks/agent-native-phase2-safety_20260415/spec.md R3):
-    #   * require_role("operator") is the authoritative gate for JWT /
+    #   * require_action("printers.edit") (the role matrix; operators by
+    #     default) is the authoritative gate for JWT /
     #     cookie sessions. require_any_scope bypasses non-token auth
     #     entirely (core/rbac.py:193-196), so dropping the role dep
     #     would let any authenticated JWT — including viewers — pause
@@ -60,7 +62,7 @@ async def pause_printer(
     #   * require_any_scope("admin", AGENT_WRITE_SCOPE) is the
     #     authoritative gate for per-user scoped tokens.
     # BOTH must be present. Do not "simplify" to one.
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_action("printers.edit")),
     _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
     db: Session = Depends(get_db),
 ):
@@ -140,7 +142,7 @@ async def resume_printer(
     printer_id: int,
     request: Request,
     # Stacked auth — see pause_printer above for rationale. BOTH deps required.
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_action("printers.edit")),
     _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
     db: Session = Depends(get_db),
 ):
@@ -220,7 +222,7 @@ async def resume_printer(
 # ====================================================================
 
 @router.post("/printers/{printer_id}/clear-errors", tags=["Printers"])
-async def clear_printer_errors(printer_id: int, current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)):
+async def clear_printer_errors(printer_id: int, current_user: dict = Depends(require_action("printers.edit", scope="write:printers")), db: Session = Depends(get_db)):
     """Clear HMS/print errors on a Bambu printer."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
@@ -238,7 +240,7 @@ async def clear_printer_errors(printer_id: int, current_user: dict = Depends(req
 async def skip_printer_objects(
     printer_id: int,
     body: dict,
-    current_user: dict = Depends(require_role("operator", scope="write:printers")),
+    current_user: dict = Depends(require_action("printers.edit", scope="write:printers")),
     db: Session = Depends(get_db),
 ):
     """Skip objects during an active Bambu print. Body: {"object_ids": [0, 1]}"""
@@ -261,7 +263,7 @@ async def skip_printer_objects(
 async def set_printer_speed(
     printer_id: int,
     body: dict,
-    current_user: dict = Depends(require_role("operator", scope="write:printers")),
+    current_user: dict = Depends(require_action("printers.edit", scope="write:printers")),
     db: Session = Depends(get_db),
 ):
     """Set print speed on a Bambu printer. Body: {"speed": 2} (1=Silent, 2=Standard, 3=Sport, 4=Ludicrous)"""
@@ -289,7 +291,7 @@ async def set_printer_speed(
 async def set_fan_speed(
     printer_id: int,
     body: dict,
-    current_user: dict = Depends(require_role("operator", scope="write:printers")),
+    current_user: dict = Depends(require_action("printers.edit", scope="write:printers")),
     db: Session = Depends(get_db),
 ):
     """Set fan speed on a Bambu printer.
@@ -319,7 +321,7 @@ async def set_fan_speed(
 # ====================================================================
 
 @router.post("/printers/{printer_id}/lights", tags=["Printers"])
-def toggle_printer_lights(printer_id: int, current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)):
+def toggle_printer_lights(printer_id: int, current_user: dict = Depends(require_action("printers.edit", scope="write:printers")), db: Session = Depends(get_db)):
     """Toggle chamber lights on/off for a Bambu printer."""
     from datetime import datetime, timezone
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
@@ -413,7 +415,7 @@ def toggle_printer_lights(printer_id: int, current_user: dict = Depends(require_
 @router.post("/printers/{printer_id}/plate-cleared", tags=["Printers"])
 async def plate_cleared(
     printer_id: int,
-    current_user: dict = Depends(require_role("operator", scope="write:printers")),
+    current_user: dict = Depends(require_action("printers.edit", scope="write:printers")),
     db: Session = Depends(get_db),
 ):
     """Confirm plate is cleared, allowing the next queued job to dispatch."""

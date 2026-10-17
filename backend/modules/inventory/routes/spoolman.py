@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from core.spoolman_settings import get_spoolman_url
 from core.db import get_db
 from core.config import settings
-from core.rbac import require_role
+from core.rbac import require_role, require_action
 from modules.printers.schemas import SpoolmanSpool, SpoolmanSyncResult
 
 log = logging.getLogger("odin.api")
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/spoolman", tags=["Spoolman"])
 
 
 @router.post("/sync", response_model=SpoolmanSyncResult, tags=["Spoolman"])
-async def sync_spoolman(current_user: dict = Depends(require_role("operator", scope="write:spools")), db: Session = Depends(get_db)):
+async def sync_spoolman(current_user: dict = Depends(require_action("spools.edit", scope="write:spools")), db: Session = Depends(get_db)):
     """Sync filament data from Spoolman."""
     spoolman_url = get_spoolman_url(db)
     if not spoolman_url:

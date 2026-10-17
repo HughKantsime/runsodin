@@ -2,7 +2,7 @@
 
 from core.quota import charge_job_quota
 
-from core.rbac import should_filter_org
+from core.rbac import should_filter_org, require_action
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -66,7 +66,7 @@ def get_approval_setting(current_user: dict = Depends(require_role("viewer", sco
 
 
 @router.put("/config/require-job-approval", tags=["Config"])
-def set_approval_setting(body: dict, db: Session = Depends(get_db), current_user: dict = Depends(require_role("admin"))):
+def set_approval_setting(body: dict, db: Session = Depends(get_db), current_user: dict = Depends(require_action("settings.edit"))):
     """Toggle the job approval requirement. Admin only. Requires Education tier."""
     require_feature("job_approval")
     enabled = body.get("enabled", False)
@@ -245,7 +245,7 @@ class CreatePresetRequest(BaseModel):
 @router.post("/presets", tags=["Presets"], status_code=status.HTTP_201_CREATED)
 def create_preset(
     request_data: CreatePresetRequest,
-    current_user: dict = Depends(require_role("operator", scope="write:jobs")),
+    current_user: dict = Depends(require_action("jobs.create", scope="write:jobs")),
     db: Session = Depends(get_db),
 ):
     """Create a new print preset."""
@@ -270,7 +270,7 @@ def create_preset(
 @router.delete("/presets/{preset_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Presets"])
 def delete_preset(
     preset_id: int,
-    current_user: dict = Depends(require_role("operator", scope="write:jobs")),
+    current_user: dict = Depends(require_action("jobs.delete", scope="write:jobs")),
     db: Session = Depends(get_db),
 ):
     """Delete a print preset."""
@@ -284,7 +284,7 @@ def delete_preset(
 @router.post("/presets/{preset_id}/schedule", tags=["Presets"])
 def schedule_from_preset(
     preset_id: int,
-    current_user: dict = Depends(require_role("operator", scope="write:jobs")),
+    current_user: dict = Depends(require_action("jobs.create", scope="write:jobs")),
     db: Session = Depends(get_db),
 ):
     """Create a new job from a preset."""

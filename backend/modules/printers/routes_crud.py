@@ -1,6 +1,6 @@
 """Printer CRUD routes — create, read, update, delete, filament slots, test-connection, bulk-update."""
 
-from core.rbac import should_filter_org
+from core.rbac import should_filter_org, require_action
 
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -91,7 +91,7 @@ def list_all_tags(db: Session = Depends(get_db), current_user: dict = Depends(re
 @router.post("/printers", response_model=PrinterResponse, status_code=status.HTTP_201_CREATED, tags=["Printers"])
 def create_printer(
     printer: PrinterCreate,
-    current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)
+    current_user: dict = Depends(require_action("printers.add", scope="write:printers")), db: Session = Depends(get_db)
 ):
     """Create a new printer."""
     if printer.api_host:
@@ -172,7 +172,7 @@ class ReorderPrintersRequest(PydanticBaseModel):
 @router.post("/printers/reorder", tags=["Printers"])
 def reorder_printers(
     data: ReorderPrintersRequest,
-    current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)
+    current_user: dict = Depends(require_action("printers.reorder", scope="write:printers")), db: Session = Depends(get_db)
 ):
     """Update printer display order."""
     printer_ids = data.printer_ids
@@ -234,7 +234,7 @@ def get_printer(
 def update_printer(
     printer_id: int,
     updates: PrinterUpdate,
-    current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)
+    current_user: dict = Depends(require_action("printers.edit", scope="write:printers")), db: Session = Depends(get_db)
 ):
     """Update a printer."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
@@ -318,7 +318,7 @@ def update_printer(
 
 
 @router.delete("/printers/{printer_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Printers"])
-def delete_printer(printer_id: int, current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)):
+def delete_printer(printer_id: int, current_user: dict = Depends(require_action("printers.delete", scope="write:printers")), db: Session = Depends(get_db)):
     """Delete a printer."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
@@ -385,7 +385,7 @@ def update_filament_slot(
     printer_id: int,
     slot_number: int,
     updates: FilamentSlotUpdate,
-    current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)
+    current_user: dict = Depends(require_action("printers.slots", scope="write:printers")), db: Session = Depends(get_db)
 ):
     """Update a filament slot (e.g., load new filament)."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
@@ -527,7 +527,7 @@ async def bulk_update_printers(body: dict, current_user: dict = Depends(require_
 # ====================================================================
 
 @router.post("/printers/test-connection", tags=["Printers"])
-def test_printer_connection(request: TestConnectionRequest, current_user: dict = Depends(require_role("operator", scope="write:printers"))):
+def test_printer_connection(request: TestConnectionRequest, current_user: dict = Depends(require_action("printers.edit", scope="write:printers"))):
     """Test connection to a printer without saving."""
     _check_ssrf_blocklist(request.api_host)
     api_type = request.api_type.lower()

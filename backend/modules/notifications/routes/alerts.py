@@ -12,7 +12,7 @@ from core.db import get_db
 from core.dependencies import get_current_user, log_audit
 from core.errors import ErrorCode, OdinError
 from core.middleware.dry_run import dry_run_preview, is_dry_run
-from core.rbac import AGENT_READ_SCOPE, AGENT_WRITE_SCOPE, require_any_scope, require_role, require_superadmin, require_interactive_session
+from core.rbac import AGENT_READ_SCOPE, AGENT_WRITE_SCOPE, require_any_scope, require_role, require_superadmin, require_interactive_session, require_action
 from core.responses import build_next_actions, next_action
 from core.base import AlertType
 from core.models import SystemConfig
@@ -207,7 +207,7 @@ async def mark_alert_read(
     request: Request,
     # Stacked auth (Phase 2 canonical) — viewer floor for JWT, agent:write
     # for scoped tokens. See routes_controls.py::pause_printer for rationale.
-    current_user: dict = Depends(require_role("viewer")),
+    current_user: dict = Depends(require_action("alerts.read")),
     _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
     db: Session = Depends(get_db),
 ):
@@ -262,7 +262,7 @@ async def mark_alert_read(
 
 @router.post("/alerts/mark-all-read")
 async def mark_all_read(
-    current_user: dict = Depends(require_role("viewer")),
+    current_user: dict = Depends(require_action("alerts.read")),
     _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
     db: Session = Depends(get_db)
 ):
@@ -282,7 +282,7 @@ async def dismiss_alert(
     alert_id: int,
     request: Request,
     # Stacked auth (Phase 2 canonical).
-    current_user: dict = Depends(require_role("viewer")),
+    current_user: dict = Depends(require_action("alerts.read")),
     _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
     db: Session = Depends(get_db),
 ):

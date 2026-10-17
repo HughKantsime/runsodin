@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from core.spoolman_settings import get_spoolman_url
 from core.db import get_db
-from core.rbac import check_org_access, require_role
+from core.rbac import check_org_access, require_role, require_action
 from core.config import settings
 import core.crypto as crypto
 from modules.printers.models import Printer, FilamentSlot
@@ -84,7 +84,7 @@ def _owned_printer(db, printer_id, current_user):
 
 
 @router.post("/bambu/test-connection", tags=["Bambu"])
-async def test_bambu_printer_connection(request: BambuConnectionTest, current_user: dict = Depends(require_role("operator", scope="write:printers"))):
+async def test_bambu_printer_connection(request: BambuConnectionTest, current_user: dict = Depends(require_action("printers.edit", scope="write:printers"))):
     """Test connection to a Bambu Lab printer via local MQTT."""
     if not BAMBU_AVAILABLE:
         raise HTTPException(status_code=501, detail="Bambu integration not available. Install: pip install paho-mqtt")
@@ -101,7 +101,7 @@ async def test_bambu_printer_connection(request: BambuConnectionTest, current_us
 
 
 @router.post("/printers/{printer_id}/bambu/sync-ams", response_model=BambuSyncResult, tags=["Bambu"])
-async def sync_bambu_ams(printer_id: int, current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)):
+async def sync_bambu_ams(printer_id: int, current_user: dict = Depends(require_action("printers.edit", scope="write:printers")), db: Session = Depends(get_db)):
     """Sync AMS filament slots from a Bambu Lab printer."""
     if not BAMBU_AVAILABLE:
         raise HTTPException(status_code=501, detail="Bambu integration not available")
@@ -232,7 +232,7 @@ async def manual_slot_assignment(
     printer_id: int,
     slot_number: int,
     assignment: ManualSlotAssignment,
-    current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)
+    current_user: dict = Depends(require_action("printers.slots", scope="write:printers")), db: Session = Depends(get_db)
 ):
     """Manually assign filament to a slot when auto-matching fails."""
     _owned_printer(db, printer_id, current_user)

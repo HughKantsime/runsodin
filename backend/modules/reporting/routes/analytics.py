@@ -1,7 +1,7 @@
 """O.D.I.N. — Analytics, Stats, and Usage Reports."""
 
 from core.spoolman_settings import get_spoolman_url
-from core.rbac import should_filter_org
+from core.rbac import should_filter_org, require_page
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
@@ -190,7 +190,7 @@ async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(
 @router.get("/analytics", dependencies=[Depends(feature_gate("analytics"))])
 def get_analytics(
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("viewer", scope="read:analytics")),
+    current_user: dict = Depends(require_page("analytics", scope="read:analytics")),
     days: Optional[int] = Query(default=None, ge=1, le=365),
 ):
     """Get analytics data for dashboard.
@@ -461,7 +461,7 @@ def get_analytics(
 def get_failure_analytics(
     days: int = Query(default=30, ge=1, le=365),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("viewer", scope="read:analytics")),
+    current_user: dict = Depends(require_page("analytics", scope="read:analytics")),
 ):
     """Fleet failure analytics — rates by printer, model, filament, common reasons, HMS errors."""
     org = get_org_scope(current_user)
@@ -589,7 +589,7 @@ def get_failure_analytics(
 def get_time_accuracy(
     days: int = Query(default=30, ge=1, le=365),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("viewer", scope="read:analytics")),
+    current_user: dict = Depends(require_page("analytics", scope="read:analytics")),
 ):
     """Estimated vs actual print time accuracy stats."""
     org = get_org_scope(current_user)
@@ -680,7 +680,7 @@ def get_time_accuracy(
 def get_education_usage_report(
     days: int = Query(default=30, ge=7, le=90),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("operator", scope="read:analytics")),
+    current_user: dict = Depends(require_page("education_reports", scope="read:analytics")),
 ):
     """Education usage report — per-user job metrics and summary stats."""
     require_feature("usage_reports")

@@ -16,7 +16,7 @@ from sqlalchemy.exc import OperationalError, IntegrityError
 from core.spoolman_settings import get_spoolman_url
 from core.db import get_db
 from core.dependencies import log_audit
-from core.rbac import require_role, check_org_access
+from core.rbac import require_role, check_org_access, require_action
 from core.config import settings
 import core.crypto as crypto
 from modules.printers.models import Printer, FilamentSlot
@@ -140,7 +140,7 @@ def _lock_ams_mutation(db, printer_id, current_user, tags, acquired_connection):
 
 
 @router.post("/printers/{printer_id}/sync-ams", tags=["Printers"])
-def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)):
+def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action("printers.edit", scope="write:printers")), db: Session = Depends(get_db)):
     """Sync AMS filament state from printer."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer or not check_org_access(current_user, printer.org_id):

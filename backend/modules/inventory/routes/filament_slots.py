@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from core.db import get_db
-from core.rbac import require_role
+from core.rbac import require_role, require_action
 from modules.inventory.models import Spool
 from modules.printers.models import FilamentSlot, Printer
 
@@ -20,7 +20,7 @@ def assign_spool_to_slot(
     printer_id: int,
     slot_number: int,
     spool_id: int,
-    current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)
+    current_user: dict = Depends(require_action("printers.slots", scope="write:printers")), db: Session = Depends(get_db)
 ):
     """Assign a spool to a printer slot."""
     slot = db.query(FilamentSlot).filter(
@@ -52,7 +52,7 @@ def assign_spool_to_slot(
 def confirm_slot_assignment(
     printer_id: int,
     slot_number: int,
-    current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)
+    current_user: dict = Depends(require_action("printers.slots", scope="write:printers")), db: Session = Depends(get_db)
 ):
     """Confirm the spool assignment for a slot."""
     slot = db.query(FilamentSlot).filter(

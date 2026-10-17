@@ -9,7 +9,7 @@ import logging
 import math
 
 from core.db import get_db
-from core.rbac import require_role, check_org_access
+from core.rbac import require_role, check_org_access, require_action
 from core.models import SystemConfig
 from modules.models_library.models import Model
 from modules.inventory.models import FilamentLibrary
@@ -64,7 +64,7 @@ class PricingConfigRequest(PydanticBaseModel):
 @router.put("/pricing-config")
 def update_pricing_config(
     config_data: PricingConfigRequest,
-    current_user: dict = Depends(require_role("admin", scope="admin")),
+    current_user: dict = Depends(require_action("settings.edit", scope="admin")),
     db: Session = Depends(get_db)
 ):
     """Update system pricing configuration."""

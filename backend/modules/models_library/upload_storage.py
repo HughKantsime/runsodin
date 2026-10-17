@@ -46,7 +46,18 @@ async def _fresh_upload_actor(db, principal):
         fresh["_token_scopes"] = parse_token_scopes(token.scopes) or []
         if not token_scope_granted(fresh["_token_scopes"], "write:models"):
             raise HTTPException(status_code=403, detail="Upload authorization is no longer available")
-    return await require_role("operator", scope="write:models")(request=None, current_user=fresh)
+    # Re-check the upload.upload permission against the fresh account row (the
+    # role matrix is read again, so a change since the request began applies).
+    return await _recheck_upload_permission(db, fresh)
+
+
+async def _recheck_upload_permission(db, fresh):
+    from core.rbac import _check_token_scope, _is_platform_superadmin
+    from core.rbac_policy import action_roles
+    if not _is_platform_superadmin(fresh) and fresh.get("role") not in action_roles(db, "upload.upload"):
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    _check_token_scope(fresh, "write:models")
+    return fresh
 
 
 def _visible_upload_duplicate(db, file_hash, principal):
