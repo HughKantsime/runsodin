@@ -733,7 +733,6 @@
 - Pro (unlimited printers/users, all production features + usage reports)
 - Education (Pro + job approval + user groups + quotas)
 - Enterprise (Pro + MFA + IP allowlist + organizations + GDPR + compliance)
-- 14-day Pro trial: one per installation and per email; data is kept when it ends
 
 ### 20.2 License Enforcement
 - Ed25519 signed license files, verified locally (no phone home)
@@ -756,6 +755,9 @@
 - ODIN-XXXX-XXXX-XXXX key format with unambiguous charset
 - Ed25519 signing compatible with ODIN's embedded verifier
 - Default LICENSE_SERVER_URL=https://runsodin.com (configurable)
+
+### 20.4 Pro Trial
+- 14-day Pro trial: one per installation and per email; data is kept when it ends
 
 ---
 
