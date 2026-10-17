@@ -83,6 +83,8 @@ def _admin_read():
     return {"no_headers": 401, "api_key_only": 403, "viewer": 403, "operator": 403, "admin": 200}
 
 
+_ONLINE_LICENSE = {**_admin_only(), "admin": 400 if os.environ.get("RBAC_LICENSE_TIER", "community") == "community" else 502}
+
 ENDPOINT_MATRIX = [
     # =========================================================================
     # 1. Auth & Setup
@@ -630,8 +632,11 @@ ENDPOINT_MATRIX = [
     ("POST", "/api/license/unactivation-request", _admin_only(), {"nonce": "x"}, "Create signed offline unactivation request"),
     ("POST", "/api/license/activate",           _admin_only(), {},   "Activate license online"),
     ("POST", "/api/license/upload",             _admin_only(), None, "Upload license file"),
-    ("POST", "/api/license/unactivate",         _admin_only(), None, "Unactivate license online"),
-    ("POST", "/api/license/reactivate",         _admin_only(), None, "Reactivate current license"),
+    # Online unactivation/reactivation call the license portal. Test servers point
+    # LICENSE_SERVER_URL at a closed loopback port (no test reaches runsodin.com): a licensed
+    # server answers 502 "Could not reach license server"; Community has no license key: 400.
+    ("POST", "/api/license/unactivate",         _ONLINE_LICENSE, None, "Unactivate license online"),
+    ("POST", "/api/license/reactivate",         _ONLINE_LICENSE, None, "Reactivate current license"),
 
     # =========================================================================
     # 50. Models — missing actions
