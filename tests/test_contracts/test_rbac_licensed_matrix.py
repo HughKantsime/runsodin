@@ -48,5 +48,10 @@ def test_rbac_matrix_passes_on_an_enterprise_licensed_server(tmp_path_factory):
             extra[name] = os.environ[name]
     out = run_probe("rbac-licensed", PROBE, tmp_path_factory.mktemp("rbac-licensed"), extra_env=extra, timeout=1800)
     assert out["returncode"] == 0, (out["summary"], out["failures"])
-    assert out["_net_attempts"] == [] or all("192.168.99.99" in str(a) for a in out["_net_attempts"]), out["_net_attempts"]
+    # Every non-loopback attempt is refused by the harness. Expected ones only: the matrix's
+    # test-connection bodies (192.168.99.99) and route_utils._get_lan_ip's UDP connect to
+    # 8.8.8.8:80 (outbound-address probe; no packet is sent). Anything else is a phone-home.
+    unexpected = [a for a in out["_net_attempts"]
+                  if "192.168.99.99" not in str(a) and a != ["connect", "('8.8.8.8', 80)"]]
+    assert unexpected == [], unexpected
     assert ROOT.exists()
