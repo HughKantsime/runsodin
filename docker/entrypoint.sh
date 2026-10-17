@@ -129,16 +129,20 @@ rollback_restore_on_startup_error() {
     restore_exit_code=$?
     trap - ERR
     if [ "${restore_is_provisional}" = "1" ]; then
-        python3 -m modules.system.restore_coordinator --rollback || true
+        /usr/sbin/runuser -u odin -- python3 -m modules.system.restore_coordinator --rollback || true
     fi
     exit "${restore_exit_code}"
 }
 trap rollback_restore_on_startup_error ERR
 
+# Every database step below runs as the app user: hand it /data (the keys and directories
+# above were created by root) before any restore or migration writes there.
+chown -R odin:odin /data 2>/dev/null || true
+
 if [ "${ODIN_DB_BOOTSTRAP_OWNER:-1}" = "1" ]; then
     case "${DATABASE_URL}" in
         sqlite:///*)
-            python3 -m modules.system.restore_coordinator
+            /usr/sbin/runuser -u odin -- python3 -m modules.system.restore_coordinator
             if [ -f "$(dirname "${DATABASE_PATH}")/restore-pending.json" ]; then
                 restore_is_provisional=1
             fi
@@ -149,21 +153,14 @@ if [ "${ODIN_DB_BOOTSTRAP_OWNER:-1}" = "1" ]; then
             /usr/sbin/runuser -u odin -- python3 -m modules.system.restore_coordinator
             ;;
     esac
-    case "${DATABASE_URL}" in
-        postgresql://*|postgres://*)
-            # As the app user, like every PostgreSQL consumer: the restore gate accepts a
-            # data directory owned by root or by the reading process, and /data is odin's.
-            ODIN_DB_ROLE=bootstrap /usr/sbin/runuser -u odin -- python3 -m scripts.bootstrap_database
-            ;;
-        *)
-            ODIN_DB_ROLE=bootstrap python3 -m scripts.bootstrap_database
-            ;;
-    esac
+    # As the app user on every dialect: the PostgreSQL restore gate accepts a data
+    # directory owned by root or by the reading process, and /data is odin's.
+    ODIN_DB_ROLE=bootstrap /usr/sbin/runuser -u odin -- python3 -m scripts.bootstrap_database
     echo "  ✓ Upgrade migrations complete"
     /bin/sh /app/seed_edu_if_enabled.sh
     case "${DATABASE_URL}" in
         sqlite:///*)
-            python3 -m modules.system.restore_coordinator --finalize
+            /usr/sbin/runuser -u odin -- python3 -m modules.system.restore_coordinator --finalize
             restore_is_provisional=0
             ;;
     esac

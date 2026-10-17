@@ -14,9 +14,9 @@ ENTRYPOINT = (Path(__file__).resolve().parents[2] / "docker" / "entrypoint.sh").
 def test_postgres_bootstrap_runs_as_the_app_user():
     start = ENTRYPOINT.index('if [ "${ODIN_DB_BOOTSTRAP_OWNER:-1}" = "1" ]')
     block = ENTRYPOINT[start:ENTRYPOINT.index("python3 -m scripts.wait_for_database_schema", start)]
-    postgres = block[block.rindex("postgresql://*|postgres://*)"):]
-    assert postgres.split(";;")[0].strip().endswith(
-        "ODIN_DB_ROLE=bootstrap /usr/sbin/runuser -u odin -- python3 -m scripts.bootstrap_database")
+    # One bootstrap call for every dialect, as odin (O11 moved SQLite onto the same line).
+    assert block.count("python3 -m scripts.bootstrap_database") == 1
+    assert "ODIN_DB_ROLE=bootstrap /usr/sbin/runuser -u odin -- python3 -m scripts.bootstrap_database" in block
 
 
 def test_split_services_wait_for_the_schema_as_the_app_user():
