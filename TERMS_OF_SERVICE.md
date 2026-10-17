@@ -44,11 +44,11 @@ Subject to payment of applicable fees and this Agreement, we grant you a non-exc
 
 ### 3.3 Education Tier
 
-Subject to payment of applicable fees and this Agreement, we grant you a non-exclusive, non-transferable license to install and use the Software on **one (1) Instance per licensed site** for educational purposes. The Education Tier includes all Pro features plus job approval workflows, user groups and print quotas, for up to 9,999 printers and users.
+Subject to payment of applicable fees and this Agreement, we grant you a non-exclusive, non-transferable license to install and use the Software on **one (1) Instance per licensed site** for educational purposes. The Education Tier includes all Pro features plus job approval workflows, user groups and print quotas, with unlimited printers and users.
 
 ### 3.4 Enterprise Tier
 
-Subject to payment of applicable fees and this Agreement, we grant you a non-exclusive, non-transferable license to install and use the Software on **one (1) Instance per licensed site** for any lawful purpose. The Enterprise Tier includes all Education features plus audit-log CSV export and MQTT event republishing, for up to 9,999 printers and users. MFA, IP allowlisting, organizations and GDPR data export/anonymization are included in every tier, including the Community Tier.
+Subject to payment of applicable fees and this Agreement, we grant you a non-exclusive, non-transferable license to install and use the Software on **one (1) Instance per licensed site** for any lawful purpose. The Enterprise Tier includes all Education features plus audit-log CSV export and MQTT event republishing, with unlimited printers and users. MFA, IP allowlisting, organizations and GDPR data export/anonymization are included in every tier, including the Community Tier.
 
 ### 3.5 License Restrictions
 

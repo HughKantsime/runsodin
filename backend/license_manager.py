@@ -58,8 +58,8 @@ TIERS = {
     },
     "education": {
         "name": "Education",
-        "max_printers": 9999,
-        "max_users": 9999,
+        "max_printers": None,
+        "max_users": None,
         "features": [
             "multi_user", "rbac", "sso", "white_label",
             "permissions", "branding",
@@ -73,8 +73,8 @@ TIERS = {
     },
     "enterprise": {
         "name": "Enterprise",
-        "max_printers": 9999,
-        "max_users": 9999,
+        "max_printers": None,
+        "max_users": None,
         "features": [
             "multi_user", "rbac", "sso", "white_label",
             "permissions", "branding",
@@ -517,11 +517,10 @@ def verify_license_text(raw: str, installation_id_reader=None) -> LicenseInfo:
         if payload_features is not None:
             info.features = payload_features
         else:
-            info.features = [
-                feature
-                for feature in tier_def["features"]
-                if feature != "education_workflows"
-            ]
+            # null (the portal's blank feature list) means the tier's default
+            # features, education_workflows included for Education/Enterprise.
+            # An explicit list must still name education_workflows.
+            info.features = list(tier_def["features"])
         info.expired = False
 
         return info

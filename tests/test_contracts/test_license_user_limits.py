@@ -92,7 +92,7 @@ def test_null_education_limit_reaches_public_api(signed_license, monkeypatch):
     app.add_api_route("/license", routes_health.get_license_info)
     response = TestClient(app).get("/license")
     assert response.status_code == 200
-    assert response.json()["max_users"] == 9999
+    assert response.json()["max_users"] is None  # O13: Education is unlimited
     assert "sso" in response.json()["features"]
 
 
