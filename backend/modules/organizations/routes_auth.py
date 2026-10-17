@@ -16,7 +16,7 @@ from core.audit_actor import bind_verified_actor
 from core.db import get_db
 from core.db_compat import sql
 from core.dependencies import get_current_user, log_audit
-from core.rbac import require_role, require_scope, handler_enforces_token_scope, require_interactive_session
+from core.rbac import require_role, require_scope, handler_enforces_token_scope, require_interactive_session, require_action
 from core.auth_helpers import (
     _validate_password, _check_rate_limit, _record_login_attempt, _is_locked_out
 )
@@ -347,7 +347,7 @@ class RequireMFARequest(PydanticBaseModel):
 
 
 @router.put("/config/require-mfa", tags=["Config"], dependencies=[Depends(require_interactive_session())])
-async def set_require_mfa(body: RequireMFARequest, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+async def set_require_mfa(body: RequireMFARequest, current_user: dict = Depends(require_action("settings.edit")), db: Session = Depends(get_db)):
     """Set whether MFA is required for all users."""
     require = body.require_mfa
     db.execute(text("INSERT INTO system_config (key, value) VALUES ('require_mfa', :val) ON CONFLICT(key) DO UPDATE SET value = :val"),

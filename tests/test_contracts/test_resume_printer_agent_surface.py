@@ -38,7 +38,7 @@ class TestResumePrinterSourceContract:
         return src
 
     def test_stacks_role_and_agent_scope_dependencies(self, fn_src: str):
-        assert re.search(r'require_role\(\s*["\']operator["\']\s*\)', fn_src), (
+        assert re.search(r'(?:require_action\(\s*["\'][a-z_]+\.[a-z_]+["\'][^)]*\)|require_role\(\s*["\']operator["\']\s*\))', fn_src), (
             "resume_printer must keep require_role('operator') — portal UI operator "
             "JWT sessions depend on it (require_any_scope bypasses JWT entirely)."
         )

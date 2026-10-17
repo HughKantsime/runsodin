@@ -8,7 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
-from core.rbac import require_role, check_org_access
+from core.rbac import require_role, check_org_access, require_action
 from modules.printers.models import Printer, NozzleLifecycle
 from modules.printers.schemas import NozzleInstall, NozzleLifecycleResponse
 
@@ -57,7 +57,7 @@ def get_current_nozzle(printer_id: int, current_user: dict = Depends(require_rol
 
 @router.post("/printers/{printer_id}/nozzle", tags=["Telemetry"])
 def install_nozzle(printer_id: int, data: NozzleInstall,
-                   current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)):
+                   current_user: dict = Depends(require_action("printers.edit", scope="write:printers")), db: Session = Depends(get_db)):
     """Install a new nozzle (auto-retires the previous one)."""
     _nozzle_printer(printer_id, db, current_user, write=True)
     current = _current_nozzle(printer_id, db)
@@ -77,7 +77,7 @@ def install_nozzle(printer_id: int, data: NozzleInstall,
 
 @router.patch("/printers/{printer_id}/nozzle/{nozzle_id}/retire", tags=["Telemetry"])
 def retire_nozzle(printer_id: int, nozzle_id: int,
-                  current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)):
+                  current_user: dict = Depends(require_action("printers.edit", scope="write:printers")), db: Session = Depends(get_db)):
     """Retire a specific nozzle."""
     _nozzle_printer(printer_id, db, current_user, write=True)
     _current_nozzle(printer_id, db)

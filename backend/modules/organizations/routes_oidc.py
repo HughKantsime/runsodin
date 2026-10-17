@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from license_manager import feature_gate
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -524,7 +525,9 @@ async def get_oidc_config(current_user: dict = Depends(require_superadmin()), db
     return config
 
 
-@router.put("/admin/oidc", tags=["Admin"], dependencies=[Depends(require_interactive_session())])
+# Single sign-on is a Pro feature (license_manager.TIERS "sso"): configuring it
+# needs Pro; reading the stored configuration stays available after a downgrade.
+@router.put("/admin/oidc", tags=["Admin"], dependencies=[Depends(require_interactive_session()), Depends(feature_gate("sso"))])
 async def update_oidc_config(request: Request, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Update OIDC configuration. Superadmin only."""
     data = await request.json()

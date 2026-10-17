@@ -14,7 +14,8 @@ def test_bambu_serial_and_access_code_are_fernet_encrypted_at_rest(cert_app, rev
             "api_host": "192.0.2.77", "api_key": f"{SERIAL}|{ACCESS}"}
     review_db.execute(text("UPDATE printers SET slot_count=1,tags='[]',timelapse_enabled=0,shared=0 WHERE id IN (9,10)"))
     review_db.commit()
-    response = cert_app.post("/printers", headers=cert_app.roles["operator"], json=body)
+    # printers.add is admin-only in the default permission matrix
+    response = cert_app.post("/printers", headers=cert_app.roles["admin"], json=body)
     assert response.status_code == 201, response.text
     data = response.json()
     assert data["has_api_key"] is True and "api_key" not in data

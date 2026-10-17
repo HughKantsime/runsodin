@@ -21,6 +21,7 @@ import toast from 'react-hot-toast'
 
 import { timeline, printers, jobActions, jobs, printJobs } from '../../api'
 import DetailDrawer from '../../components/shared/DetailDrawer'
+import { canDo } from '../../permissions'
 import { Card, StatusBadge } from '../../components/ui'
 
 function parseUTC(dateStr) {
@@ -267,6 +268,8 @@ export default function Timeline() {
     const containerWidth = scrollAreaRef.current.clientWidth
     scrollAreaRef.current.scrollLeft = Math.max(0, nowLeft - containerWidth / 2)
   }, [timelineData, startDate, slotWidth])
+
+  const canMove = canDo('timeline.move')
 
   const moveJobMutation = useMutation({
     mutationFn: ({ jobId, printerId, scheduledStart }) =>
@@ -542,7 +545,8 @@ export default function Timeline() {
                       )}
 
                       {jobBlocks.map((block) => {
-                        const canDrag = block.status === 'scheduled' || block.status === 'pending'
+                        // Dragging is the RBAC action timeline.move (the server enforces the same permission).
+                        const canDrag = canMove && (block.status === 'scheduled' || block.status === 'pending')
                         const isDragging = dragUI.active && dragUI.jobId === block.job_id
                         return (
                           <div

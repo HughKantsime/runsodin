@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from core.db import get_db
 from core.errors import ErrorCode, OdinError
 from core.middleware.dry_run import dry_run_preview, is_dry_run
-from core.rbac import (AGENT_READ_SCOPE, AGENT_WRITE_SCOPE, require_any_scope, require_role,
+from core.rbac import (AGENT_READ_SCOPE, AGENT_WRITE_SCOPE, require_any_scope, require_role, require_action,
                        check_org_access, get_org_scope, should_filter_org)
 from core.responses import build_next_actions, next_action
 from modules.printers.models import Printer
@@ -120,7 +120,7 @@ def list_maintenance_tasks(
 
 
 @router.post("/maintenance/tasks", tags=["Maintenance"])
-def create_maintenance_task(data: MaintenanceTaskCreate, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
+def create_maintenance_task(data: MaintenanceTaskCreate, current_user: dict = Depends(require_action("maintenance.tasks", scope="write")), db: Session = Depends(get_db)):
     """Create a new maintenance task template."""
     task = MaintenanceTask(
         name=data.name,
@@ -138,7 +138,7 @@ def create_maintenance_task(data: MaintenanceTaskCreate, current_user: dict = De
 
 
 @router.patch("/maintenance/tasks/{task_id}", tags=["Maintenance"])
-def update_maintenance_task(task_id: int, data: MaintenanceTaskUpdate, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
+def update_maintenance_task(task_id: int, data: MaintenanceTaskUpdate, current_user: dict = Depends(require_action("maintenance.tasks", scope="write")), db: Session = Depends(get_db)):
     """Update a maintenance task template."""
     task = db.query(MaintenanceTask).filter(MaintenanceTask.id == task_id).first()
     if not task:
@@ -195,7 +195,7 @@ def create_maintenance_log(
     data: MaintenanceLogCreate,
     request: Request,
     # Stacked auth (Phase 2 canonical) — see routes_controls.py::pause_printer.
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_action("maintenance.log")),
     _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
     db: Session = Depends(get_db),
 ):

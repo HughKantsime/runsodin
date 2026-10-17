@@ -111,15 +111,15 @@ ENDPOINT_MATRIX = [
     # POST /api/printers — from grep: line 458 delete_printer has require_role("operator") 
     # but create returned 403 for operator AND admin in test. Needs investigation.
     # For now mark as admin_only (safest assumption — may be body/license issue)
-    ("POST", "/api/printers", _op_write(),
-     {"name": "RBAC Temp Printer", "api_type": "bambu"}, "Create printer — operator per code"),
+    ("POST", "/api/printers", _admin_only(),
+     {"name": "RBAC Temp Printer", "api_type": "bambu"}, "Create printer — printers.add (admin by default)"),
     ("POST", "/api/printers/reorder", _op_write(), {"order": {}}, "Reorder printers"),
     ("POST", "/api/printers/test-connection", _op_write(),
      {"api_type": "bambu", "api_host": "192.168.99.99"}, "Test connection"),
     ("GET",  "/api/printers/{printer_id}", _api_read(), None, "Get printer"),
     ("PATCH", "/api/printers/{printer_id}", _op_write(), {"nickname": "rbac-test"}, "Update printer"),
     # DELETE printers: from grep line 458 → require_role("operator"). Operator CAN delete.
-    ("DELETE", "/api/printers/{printer_id}", _op_write(), None, "Delete printer — operator allowed per code"),
+    ("DELETE", "/api/printers/{printer_id}", _admin_only(), None, "Delete printer — printers.delete (admin by default)"),
     ("POST", "/api/printers/{printer_id}/stop", _op_write(), None, "Emergency stop"),
     ("POST", "/api/printers/{printer_id}/pause", _op_write(), None, "Pause"),
     ("POST", "/api/printers/{printer_id}/resume", _op_write(), None, "Resume"),
@@ -225,7 +225,7 @@ ENDPOINT_MATRIX = [
     ("GET",  "/api/models-with-pricing", _api_read(), None, "Models with pricing"),
     ("GET",  "/api/models/{model_id}", _api_read(), None, "Get model"),
     ("PATCH", "/api/models/{model_id}", _op_write(), {"notes": "rbac"}, "Update model"),
-    ("DELETE", "/api/models/{model_id}", _op_write(), None, "Delete model — SKIP actual"),
+    ("DELETE", "/api/models/{model_id}", _admin_only(), None, "Delete model — models.delete (admin by default) — SKIP actual"),
     ("GET",  "/api/models/{model_id}/cost", _api_read(), None, "Model cost"),
     ("GET",  "/api/models/{model_id}/mesh", _api_read(), None, "Model mesh"),
     ("GET",  "/api/models/{model_id}/variants", _api_read(), None, "Model variants"),
@@ -239,7 +239,7 @@ ENDPOINT_MATRIX = [
     ("POST", "/api/spools", _op_write(), {"filament_id": 1}, "Create spool"),
     ("GET",  "/api/spools/{spool_id}", _api_read(), None, "Get spool"),
     ("PATCH", "/api/spools/{spool_id}", _op_write(), {"notes": "rbac"}, "Update spool"),
-    ("DELETE", "/api/spools/{spool_id}", _op_write(), None, "Delete spool — SKIP actual"),
+    ("DELETE", "/api/spools/{spool_id}", _op_write(), None, "Delete spool — spools.delete (operator/admin) — SKIP actual"),
     ("POST", "/api/spools/{spool_id}/load", _op_write(),
      {"printer_id": 1, "slot_number": 1}, "Load spool"),
     ("POST", "/api/spools/{spool_id}/unload", _op_write(), None, "Unload spool"),

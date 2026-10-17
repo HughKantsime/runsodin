@@ -39,7 +39,8 @@ TIERS = {
         "name": "Community",
         "max_printers": 5,
         "max_users": 1,
-        "features": [],
+        # Browser push is included in every tier (it is listed in each tier below too).
+        "features": ["push_notifications"],
     },
     "pro": {
         "name": "Pro",

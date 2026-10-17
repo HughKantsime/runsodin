@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 from core.db import get_db
-from core.rbac import require_role
+from core.rbac import require_role, require_action
 from core.finance_currency import read_currency, write_currency
 
 router = APIRouter(prefix='/orders', tags=['orders'])
@@ -48,7 +48,7 @@ def get_finance_settings(org_id: int | None = Query(None, gt=0), global_scope: b
 @router.put('/finance-settings')
 def put_finance_settings(data: CurrencyUpdate, org_id: int | None = Query(None, gt=0),
                          global_scope: bool = False,
-                         current_user: dict = Depends(require_role('admin', scope='admin')),
+                         current_user: dict = Depends(require_action("settings.edit", scope='admin')),
                          db: Session = Depends(get_db)):
     scope, key = finance_owner(current_user, org_id, global_scope)
     try:

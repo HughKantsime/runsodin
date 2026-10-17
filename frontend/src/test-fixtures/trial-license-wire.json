@@ -10,7 +10,7 @@
     "tier": "pro",
     "tier_name": "Pro",
     "issued_at": "2026-01-01",
-    "expires_at": "2026-10-31T00:31:40.078439+00:00",
+    "expires_at": "2026-10-31T12:51:11.552132+00:00",
     "expired": false,
     "trial": true,
     "trial_days_left": 14,
@@ -39,24 +39,26 @@
     "managed_externally": false,
     "binding_present": false,
     "binding_matches_current": false,
-    "license_sha256": "ad5f74dcf4a89903eab07141d61b682347677956a0a4bc9cd4aee89e0f9a1320"
+    "license_sha256": "64c58cdd39955afd2e978b45a32b41d5f341c7b95aaf3a6b74ec889f3bba7473"
   },
   "ended_license": {
     "valid": false,
     "tier": "pro",
     "tier_name": "Pro",
     "issued_at": "",
-    "expires_at": "2026-10-17T00:32:08.549952+00:00",
+    "expires_at": "2026-10-17T12:51:26.293035+00:00",
     "expired": true,
     "trial": true,
     "trial_days_left": 0,
     "max_printers": 5,
     "max_users": 1,
-    "features": [],
+    "features": [
+      "push_notifications"
+    ],
     "managed_externally": false,
     "binding_present": false,
     "binding_matches_current": false,
-    "license_sha256": "d9808630f3c3f838c7dea8f9b6a9e4d9effff39440ff2d0af3a83bf1cc241e8a"
+    "license_sha256": "30d9fba96786c2c9a0cec411fa17ecb383342ae1ae81ac8ccaeddd50ce03e304"
   },
   "trial_ending_notice": {
     "kind": "license_trial_ending",
@@ -65,7 +67,7 @@
     "message": "When it ends, Pro features stop accepting new or changed records and your data is kept. Activate a paid license key in Settings > License to keep Pro.",
     "link": "/settings?tab=license",
     "buy_url": "https://runsodin.com/pricing",
-    "expires_at": "2026-10-19T12:31:47.564505+00:00",
+    "expires_at": "2026-10-20T00:51:14.583302+00:00",
     "days_left": 3,
     "dismissible": true
   },
@@ -76,7 +78,7 @@
     "message": "When it expires, this server falls back to Community limits and your data is kept. Install a renewed license key in Settings > License before then.",
     "link": "/settings?tab=license",
     "buy_url": "https://runsodin.com/pricing",
-    "expires_at": "2026-11-06T00:31:56.518956+00:00",
+    "expires_at": "2026-11-06T12:51:18.196356+00:00",
     "days_left": 20,
     "dismissible": true
   }

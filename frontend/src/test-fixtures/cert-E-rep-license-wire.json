@@ -12,7 +12,9 @@
       "trial_days_left": null,
       "max_printers": 5,
       "max_users": 1,
-      "features": [],
+      "features": [
+        "push_notifications"
+      ],
       "managed_externally": false,
       "binding_present": false,
       "binding_matches_current": false

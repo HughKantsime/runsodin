@@ -168,19 +168,19 @@ function JobQueueItem({ job, onStart, onComplete, onCancel }) {
           <p className="text-sm text-[var(--brand-text-muted)] truncate">{job.printer?.name || 'Unassigned'} • {formatHours(job.duration_hours)}</p>
         </div>
         <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
-          {canDo('dashboard.actions') && job.status === 'scheduled' && (
+          {job.status === 'scheduled' && (
             <span className={clsx('px-2 py-1 rounded-md text-xs font-medium',
               job.status === 'scheduled' ? 'bg-blue-900/30 text-[var(--status-printing)]' :
               job.status === 'pending' ? 'bg-amber-900/30 text-amber-400' :
               'bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)]'
             )}>{job.status}</span>
           )}
-          {canDo('dashboard.actions') && job.status === 'printing' && (
+          {canDo('jobs.complete') && job.status === 'printing' && (
             <button onClick={() => onComplete(job.id)} className="p-1.5 md:p-2 bg-green-600 hover:bg-green-500 rounded-md transition-colors" aria-label="Mark job complete">
               <CheckCircle size={14} className="md:w-4 md:h-4" />
             </button>
           )}
-          {canDo('dashboard.actions') && (job.status === 'scheduled' || job.status === 'printing' || job.status === 'pending') && (
+          {canDo('jobs.cancel') && (job.status === 'scheduled' || job.status === 'printing' || job.status === 'pending') && (
             <button onClick={() => onCancel(job.id)} className="p-1.5 md:p-2 bg-[var(--brand-input-bg)] hover:bg-red-600 rounded-md transition-colors" aria-label="Cancel job">
               <XCircle size={14} className="md:w-4 md:h-4" />
             </button>

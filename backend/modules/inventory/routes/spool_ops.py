@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.dependencies import log_audit
-from core.rbac import require_role, check_org_access, get_org_scope, should_filter_org
+from core.rbac import require_role, check_org_access, get_org_scope, should_filter_org, require_action
 from modules.inventory.models import Spool
 from modules.printers.models import FilamentSlot, Printer
 from ._helpers import ScanAssignRequest, ScanAssignResponse, generate_single_label
@@ -151,7 +151,7 @@ def lookup_spool_by_qr(qr_code: str, current_user: dict = Depends(require_role("
 @router.post("/scan-assign", response_model=ScanAssignResponse, tags=["Spools"])
 def scan_assign_spool(
     data: ScanAssignRequest,
-    current_user: dict = Depends(require_role("operator", scope="write:spools")), db: Session = Depends(get_db)
+    current_user: dict = Depends(require_action("spools.edit", scope="write:spools")), db: Session = Depends(get_db)
 ):
     """
     Assign a spool to a printer slot by scanning its QR code.
@@ -253,7 +253,7 @@ def scan_assign_spool(
 
 
 @router.post("/bulk-update", tags=["Spools"])
-async def bulk_update_spools(body: dict, current_user: dict = Depends(require_role("operator", scope="write:spools")), db: Session = Depends(get_db)):
+async def bulk_update_spools(body: dict, current_user: dict = Depends(require_action("spools.edit", scope="write:spools")), db: Session = Depends(get_db)):
     """Bulk update spool fields for multiple spools."""
     spool_ids = body.get("spool_ids", [])
     if not spool_ids or not isinstance(spool_ids, list):

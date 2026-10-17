@@ -1,6 +1,6 @@
 """O.D.I.N. — Orders CRUD, Line Items, Schedule, Invoice, and Ship."""
 
-from core.rbac import should_filter_org
+from core.rbac import should_filter_org, require_action
 
 from fastapi import APIRouter, Depends, HTTPException, status, Response, Request
 from fastapi.responses import Response as FastAPIResponse
@@ -187,7 +187,7 @@ def _stage_prospective_order_resource(db, resource, kind, actor, owner):
 
 
 @router.post("", response_model=OrderResponse)
-def create_order(data: OrderCreate, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db), request: Request = None):
+def create_order(data: OrderCreate, current_user: dict = Depends(require_action("orders.create", scope="write")), db: Session = Depends(get_db), request: Request = None):
     """Create a new order with optional line items."""
     for item in data.items or []:
         product = db.query(Product).filter(Product.id == item.product_id).first()
@@ -249,7 +249,7 @@ def get_order(order_id: int, current_user: dict = Depends(require_role("viewer")
 
 
 @router.patch("/{order_id}", response_model=OrderResponse)
-def update_order(order_id: int, data: OrderUpdate, current_user: dict = Depends(require_role("admin", scope="write")), db: Session = Depends(get_db)):
+def update_order(order_id: int, data: OrderUpdate, current_user: dict = Depends(require_action("orders.edit", scope="write")), db: Session = Depends(get_db)):
     """Update an order."""
     order = db.query(Order).options(selectinload(Order.items)).filter(Order.id == order_id).first()
     if not order:
@@ -276,7 +276,7 @@ def update_order(order_id: int, data: OrderUpdate, current_user: dict = Depends(
 
 
 @router.delete("/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_order(order_id: int, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
+def delete_order(order_id: int, current_user: dict = Depends(require_action("orders.delete", scope="write")), db: Session = Depends(get_db)):
     """Delete an order."""
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
@@ -292,7 +292,7 @@ def delete_order(order_id: int, current_user: dict = Depends(require_role("opera
 # -------------- Order Items --------------
 
 @router.post("/{order_id}/items", response_model=OrderItemResponse)
-def add_order_item(order_id: int, data: OrderItemCreate, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
+def add_order_item(order_id: int, data: OrderItemCreate, current_user: dict = Depends(require_action("orders.create", scope="write")), db: Session = Depends(get_db)):
     """Add a line item to an order."""
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
@@ -324,7 +324,7 @@ def add_order_item(order_id: int, data: OrderItemCreate, current_user: dict = De
 
 
 @router.patch("/{order_id}/items/{item_id}", response_model=OrderItemResponse)
-def update_order_item(order_id: int, item_id: int, data: OrderItemUpdate, current_user: dict = Depends(require_role("admin", scope="write")), db: Session = Depends(get_db)):
+def update_order_item(order_id: int, item_id: int, data: OrderItemUpdate, current_user: dict = Depends(require_action("orders.edit", scope="write")), db: Session = Depends(get_db)):
     """Update an order line item."""
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
@@ -359,7 +359,7 @@ def update_order_item(order_id: int, item_id: int, data: OrderItemUpdate, curren
 
 
 @router.delete("/{order_id}/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_order_item(order_id: int, item_id: int, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
+def delete_order_item(order_id: int, item_id: int, current_user: dict = Depends(require_action("orders.delete", scope="write")), db: Session = Depends(get_db)):
     """Remove a line item from an order."""
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
@@ -382,7 +382,7 @@ def delete_order_item(order_id: int, item_id: int, current_user: dict = Depends(
 # -------------- Order Actions --------------
 
 @router.post("/{order_id}/schedule")
-def schedule_order(order_id: int, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
+def schedule_order(order_id: int, current_user: dict = Depends(require_action("orders.create", scope="write")), db: Session = Depends(get_db)):
     """Generate jobs for an order based on BOM."""
     order = db.query(Order).options(selectinload(Order.items)).filter(Order.id == order_id).first()
     if not order:
@@ -547,7 +547,7 @@ def get_order_invoice(
 
 
 @router.patch("/{order_id}/ship", response_model=OrderResponse)
-def ship_order(order_id: int, data: OrderShipRequest, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
+def ship_order(order_id: int, data: OrderShipRequest, current_user: dict = Depends(require_action("orders.ship", scope="write")), db: Session = Depends(get_db)):
     """Mark an order as shipped."""
     order = db.query(Order).options(selectinload(Order.items)).filter(Order.id == order_id).first()
     if not order:
@@ -573,7 +573,7 @@ def ship_order(order_id: int, data: OrderShipRequest, current_user: dict = Depen
 
 @router.post("/{order_id}/items/{item_id}/confirm-production", response_model=OrderResponse)
 def confirm_order_item_production(order_id: int, item_id: int, data: OrderProductionConfirmation,
-                                  current_user: dict = Depends(require_role("operator", scope="write")),
+                                  current_user: dict = Depends(require_action("orders.ship", scope="write")),
                                   db: Session = Depends(get_db)):
     """Explicitly record production without reconstructing historical requirements."""
     order = db.query(Order).filter(Order.id == order_id).first()

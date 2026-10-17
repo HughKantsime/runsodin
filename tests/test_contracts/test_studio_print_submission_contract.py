@@ -43,7 +43,8 @@ def test_studio_print_route_registered(route_src: str):
 
 
 def test_studio_print_uses_agent_write_auth(route_src: str):
-    assert re.search(r"require_role\(\s*['\"]operator['\"]\s*\)", route_src)
+    # The JWT floor is the jobs.create permission (operators by default).
+    assert re.search(r"require_action\(\s*['\"]jobs\.create['\"]\s*\)", route_src)
     assert re.search(
         r"require_any_scope\(\s*['\"]admin['\"]\s*,\s*AGENT_WRITE_SCOPE\s*\)",
         route_src,

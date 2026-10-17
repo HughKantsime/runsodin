@@ -2,7 +2,7 @@
 
 from core.quota import charge_job_quota
 
-from core.rbac import should_filter_org
+from core.rbac import should_filter_org, require_action
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File, Form
 from sqlalchemy.orm import Session
@@ -211,7 +211,7 @@ def list_models_with_pricing(
 
 
 @router.post("", response_model=ModelResponse, status_code=status.HTTP_201_CREATED)
-def create_model(model: ModelCreate, current_user: dict = Depends(require_role("operator", scope="write:models")), db: Session = Depends(get_db)):
+def create_model(model: ModelCreate, current_user: dict = Depends(require_action("models.create", scope="write:models")), db: Session = Depends(get_db)):
     """Create a new model definition."""
     # Convert color requirements to dict format
     color_req = None
@@ -252,7 +252,7 @@ def get_model(model_id: int, current_user: dict = Depends(require_role("viewer",
 
 
 @router.patch("/{model_id}", response_model=ModelResponse)
-def update_model(model_id: int, updates: ModelUpdate, current_user: dict = Depends(require_role("operator", scope="write:models")), db: Session = Depends(get_db)):
+def update_model(model_id: int, updates: ModelUpdate, current_user: dict = Depends(require_action("models.edit", scope="write:models")), db: Session = Depends(get_db)):
     """Update a model."""
     model = db.query(Model).filter(Model.id == model_id).first()
     if not model:
@@ -271,7 +271,7 @@ def update_model(model_id: int, updates: ModelUpdate, current_user: dict = Depen
 
 
 @router.delete("/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_model(model_id: int, current_user: dict = Depends(require_role("operator", scope="write:models")), db: Session = Depends(get_db)):
+def delete_model(model_id: int, current_user: dict = Depends(require_action("models.delete", scope="write:models")), db: Session = Depends(get_db)):
     """Delete a model."""
     model = db.query(Model).filter(Model.id == model_id).first()
     if not model:
@@ -354,7 +354,7 @@ def schedule_from_model(
     model_id: int,
     printer_id: Optional[int] = None,
     options: Optional[ModelScheduleOptions] = None,
-    current_user: dict = Depends(require_role("viewer", scope="write:jobs")), db: Session = Depends(get_db)
+    current_user: dict = Depends(require_action("jobs.submit", scope="write:jobs")), db: Session = Depends(get_db)
 ):
     """Create a print job from a model.
 
@@ -562,7 +562,7 @@ def _insert_revision(db, model_id, number, file_path, changelog, user_id, action
 async def create_model_revision(
     model_id: int, changelog: str = Query(""), file: UploadFile = File(None),
     changelog_form: Optional[str] = Form(None, alias="changelog"),
-    current_user: dict = Depends(require_role("operator", scope="write:models")), db: Session = Depends(get_db)
+    current_user: dict = Depends(require_action("models.create", scope="write:models")), db: Session = Depends(get_db)
 ):
     """Upload a revision, preserving fileless changelog revisions.
 
@@ -595,7 +595,7 @@ async def create_model_revision(
 @router.post("/{model_id}/revisions/{rev_number}/revert")
 async def revert_model_revision(
     model_id: int, rev_number: int,
-    current_user: dict = Depends(require_role("operator", scope="write:models")), db: Session = Depends(get_db)
+    current_user: dict = Depends(require_action("models.edit", scope="write:models")), db: Session = Depends(get_db)
 ):
     """Create a new revision from a verified payload or a deliberate fileless revision."""
     model = db.query(Model).filter(Model.id == model_id).first()
@@ -675,7 +675,7 @@ def get_model_variants(model_id: int, current_user: dict = Depends(require_role(
 
 
 @router.delete("/{model_id}/variants/{variant_id}")
-def delete_model_variant(model_id: int, variant_id: int, current_user: dict = Depends(require_role("operator", scope="write:models")), db: Session = Depends(get_db)):
+def delete_model_variant(model_id: int, variant_id: int, current_user: dict = Depends(require_action("models.delete", scope="write:models")), db: Session = Depends(get_db)):
     """Delete a variant from a model."""
     model = db.query(Model).filter(Model.id == model_id).first()
     if not model or not check_org_access(current_user, model.org_id):

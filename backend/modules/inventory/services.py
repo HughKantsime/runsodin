@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 
+from core.spoolman_settings import get_spoolman_url
 from core.config import settings
 from core.redaction import redact_urls
 from core.webhook_utils import _pin_dns, WebhookSSRFError
@@ -89,12 +90,12 @@ def push_consumption_to_spoolman(deductions: list) -> list:
         * Skips entries with spoolman_spool_id=None without raising.
           A job may involve spools that aren't linked to Spoolman; that's
           a supported state.
-        * No-op when settings.spoolman_url is empty — Spoolman integration
+        * No-op when the saved Spoolman URL (core.spoolman_settings) is empty — Spoolman integration
           is disabled.
     """
     errors: list = []
 
-    base = (settings.spoolman_url or "").rstrip("/")
+    base = get_spoolman_url().rstrip("/")
     if not base:
         return errors  # integration disabled; not an error
 
@@ -172,7 +173,7 @@ def deliver_spoolman_usage(spoolman_spool_id: int, grams: float):
     which would double-deduct).
     """
     import httpx
-    base = (settings.spoolman_url or "").rstrip("/")
+    base = get_spoolman_url().rstrip("/")
     if not base:
         return "pending", "spoolman_not_configured"
     try:

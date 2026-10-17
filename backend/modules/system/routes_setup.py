@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.dependencies import get_current_user
-from core.rbac import require_role, require_superadmin, require_interactive_session
+from core.rbac import require_role, require_superadmin, require_interactive_session, require_action
 from core.auth_helpers import _validate_password
 from core.base import FilamentType
 from modules.printers.models import Printer, FilamentSlot
@@ -491,7 +491,7 @@ async def setup_network_info(
 
 
 @router.post("/setup/network", tags=["Setup"])
-async def setup_save_network(request: Request, db: Session = Depends(get_db), current_user: dict = Depends(require_role("admin"))):
+async def setup_save_network(request: Request, db: Session = Depends(get_db), current_user: dict = Depends(require_action("settings.edit"))):
     """Save host IP for WebRTC camera streaming. Admin only."""
     if _setup_is_complete(db):
         raise HTTPException(status_code=403, detail="Setup already completed")

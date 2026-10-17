@@ -2,60 +2,14 @@
 
 Updated - see CHANGELOG for current version.
 
-## Whole-app certification repairs (unreleased)
+## Shipped in v2.0.0
 
-- Project ZIP v2 export/import restores archives and files (F02-2.8-38).
-- Atomic admin user deletion with credential revocation (F11-11.3-05).
-- Estimated per-order COGS/margin and revenue-weighted Average Margin (F09-9.3-02, F09-9.1-04).
-- Chargeback grams (F10-10.7-02).
-- Estimated cost in usage reports by user, printer and model (F10-10.8-01, F10-10.8-03).
-- Per-print smart-plug energy (F10-10.4-01); auto power cycle re-verified (F01-1.6-03).
-- Remaining confirmed gaps tracked in the local claim ledger.
-
-## Protected transfer session reuse (1.9.24 candidate)
-
-- Offer the control TLS session on protected passive Bambu transfers.
-- Connected classroom and monitor checks require actual TLS 1.2 resumption.
-- Separate cluster pilot prepared; school printer acceptance remains open.
-
-## SSO callback completion (1.9.17)
-
-- Exchange and verify callback sessions before provider initialization.
-- Fail closed on invalid callbacks; prevent callback URL caching.
-- Local regression and browser checks pass; school-side confirmation pending.
-
-## First-time SSO setup (unreleased)
-
-- Fix default administrator Organizations visibility and initial OIDC persistence.
-- Add tenant creation guidance, refresh, and independent configuration/load errors.
-- School-specific configuration 500 and live provider login still need school evidence.
-
-## Completed locally — Education license limits (unreleased)
-
-- Normalize signed null user caps to tier defaults; preserve explicit limits.
-- Regression coverage for license API output, manual account creation, and
-  tenant-scoped OIDC provisioning. School OIDC configuration requires separate
-  live verification.
-
-## Completed locally — release-control foundation (unreleased)
-
-- Ordinary push and pull-request workflows replaced by one owner-only manual
-  trusted-validation definition for immutable candidate refs.
-- Ten validation areas preserved behind a strict structured aggregate.
-- Installer smoke resources are uniquely named/labeled and cleanup is bound to
-  recorded identity plus ownership labels.
-- Local version bump creates a commit only; publish and production promotion
-  remain intentionally unavailable pending their successor specs.
-
-## Completed locally — EDU hardware certification (unreleased)
-
-- Four-protocol Bambu, Elegoo, Moonraker, and PrusaLink certification harness
-  with deterministic loopback replay, production parser/state seams, protected
-  passive observation, default-deny one-time active authorization, strict
-  privacy-preserving evidence, EDU readiness import, CI, and operator HTML.
-- Code-controlled replay is complete; it does not claim physical compatibility.
-  Live printer observation/exercise and the Telemetry V2 seven-day staging soak
-  remain blocked until real hardware and operator authorization are available.
+- ~~Project ZIP v2 export/import~~ — restores archives and print files into a new importer-owned project
+- ~~Atomic admin user deletion~~ — revokes every session, API token and device credential in one transaction
+- ~~Estimated per-order COGS and margin~~ — plus revenue-weighted Average Margin
+- ~~Chargeback grams~~ — filament grams in the chargeback report
+- ~~Estimated cost in usage reports~~ — by user, printer and model
+- ~~Per-print smart-plug energy~~ — energy recorded per print from the smart plug
 
 ## Shipped in v1.5.10
 
@@ -139,7 +93,7 @@ Updated - see CHANGELOG for current version.
 - ~~Archive data completeness~~ — `print_file_id`, `cost_estimate`, `plate_count` now captured on archive creation; unblocks AMS preview and 3D viewer
 - ~~3D model viewer in archives~~ — interactive Three.js preview from archive detail modal via existing mesh endpoint
 - ~~Cancelled print archiving~~ — JOB_CANCELLED event subscription; dedicated status instead of misreporting as "failed"
-- ~~Multi-filament deduction~~ — consumption distributed across all assigned spools instead of only slot 0
+- ~~Multi-filament deduction~~ — each assigned spool deducts its sliced per-slot estimate instead of only slot 0 (a single measured total is never split across spools)
 - ~~FEATURES.md corrections~~ — fixed inaccurate API paths and feature descriptions for archives
 
 ## Shipped in v1.4.6
@@ -185,7 +139,7 @@ Updated - see CHANGELOG for current version.
 ## Shipped in v1.3.75
 
 - ~~Multi-plate reprint~~ — plate selector in archive reprint and model schedule modals
-- ~~H2D external spools~~ — Ext-L/Ext-R parsed from vt_tray MQTT, displayed on printer cards
+- ~~H2D external spools~~ — Ext-L/Ext-R parsed from the vir_slot MQTT field, displayed on printer cards
 - ~~Scheduler target types~~ — specific/model/protocol targeting with filament compatibility check
 - ~~Bed cooled + queue notifications~~ — BED_COOLED, QUEUE_ADDED, QUEUE_SKIPPED, QUEUE_FAILED_START alert types
 - ~~Filament auto-deduction~~ — deduct from spool on print completion, sync to Spoolman
@@ -208,7 +162,7 @@ Updated - see CHANGELOG for current version.
 
 ## Shipped in v1.3.70
 
-- ~~500+ HMS error codes~~ (expanded from 42), clear HMS errors from UI, skip objects mid-print, print speed adjustment (25%–200%)
+- ~~597 HMS and print-action error codes~~ (331 HMS plus 266 print-action codes, expanded from 42), clear HMS errors from UI, skip objects mid-print, print speed mode switching (Silent / Standard / Sport / Ludicrous)
 - ~~Resizable printer cards~~ (S/M/L/XL with persistent preference)
 - ~~OBS streaming overlay~~ (`/overlay/:printerId` — no-auth page for OBS browser source)
 - ~~Live application log viewer~~ (9 sources, level filter, search, SSE streaming)
@@ -269,7 +223,7 @@ Updated - see CHANGELOG for current version.
 - ~~Scheduled Reports~~
 - ~~Curl-pipe-bash installer with preflight checks~~
 - ~~Self-updating updater with version diffing and rollback~~
-- ~~Installer test suite (59 unit + integration tests)~~
+- ~~Installer test suite (43 unit/static checks plus 17 Docker integration checks)~~
 - ~~Job matching improvements (time-window strategy, stale cleanup, deadlock/race fixes)~~
 - ~~Auto-create jobs on print completion~~
 - ~~Setup endpoint hardening (500 error fix)~~

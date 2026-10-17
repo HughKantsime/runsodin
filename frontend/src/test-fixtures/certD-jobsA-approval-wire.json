@@ -1141,10 +1141,6 @@
         "operator",
         "viewer"
       ],
-      "dashboard.actions": [
-        "admin",
-        "operator"
-      ],
       "jobs.approve": [
         "admin",
         "operator"
@@ -1182,12 +1178,18 @@
         "admin",
         "operator"
       ],
+      "jobs.submit": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
       "maintenance.log": [
         "admin",
         "operator"
       ],
       "maintenance.tasks": [
-        "admin"
+        "admin",
+        "operator"
       ],
       "models.create": [
         "admin",
@@ -1252,7 +1254,8 @@
         "admin"
       ],
       "spools.delete": [
-        "admin"
+        "admin",
+        "operator"
       ],
       "spools.edit": [
         "admin",

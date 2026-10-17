@@ -229,7 +229,12 @@ export default function GeneralTab() {
     onError: (err: any) => toast.error('Spoolman test failed: ' + (err?.message || 'Unknown error')),
   })
 
-  const handleSave = () => saveSettings.mutate(settings)
+  // SPOOLMAN_URL in the server environment overrides the saved URL; the server refuses to change it.
+  const spoolmanFromEnv = configData?.spoolman_url_from_env === true
+  const handleSave = () => {
+    const { spoolman_url, ...scheduling } = settings
+    saveSettings.mutate(spoolmanFromEnv ? scheduling : { spoolman_url, ...scheduling })
+  }
 
   return (
     <div className="max-w-4xl">
@@ -320,7 +325,11 @@ export default function GeneralTab() {
               value={settings.spoolman_url}
               onChange={(e) => setSettings(s => ({ ...s, spoolman_url: e.target.value }))}
               placeholder="http://192.168.1.100:7912"
+              disabled={spoolmanFromEnv}
             />
+            {spoolmanFromEnv && (
+              <p className="mt-1 text-xs text-[var(--brand-text-muted)]">Set by the server's SPOOLMAN_URL environment variable; change it there.</p>
+            )}
           </div>
           <div className="flex items-end">
             <Button

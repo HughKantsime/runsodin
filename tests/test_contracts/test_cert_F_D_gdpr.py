@@ -76,10 +76,11 @@ def _seed_user_world(o, username, role="operator"):
     _exec(o, "INSERT INTO print_files (filename, original_filename, created_by, storage_bytes, blob_state, uploaded_at) "
           "VALUES (:f, :f, :u, 10, 'present', CURRENT_TIMESTAMP)", f=m["upload"] + ".3mf", u=uid)
     _exec(o, "INSERT INTO projects (name, created_by) VALUES (:n, :u)", n=m["project"], u=uid)
-    # A real audited action performed BY the user (actor_user_id = uid, entity_type='printer').
-    r = o.post("/api/printers", headers=h, json={"name": m["audit"], "api_type": "moonraker", "api_host": "192.168.60.5"})
-    assert r.status_code == 201, r.text
-    assert o.sql("SELECT COUNT(*) FROM audit_logs WHERE actor_user_id=:u AND entity_type='printer'", u=uid)[0][0] == 1
+    # A real audited action performed BY the user (actor_user_id = uid): submitting a job (jobs.submit).
+    # (Adding a printer, the previous action here, is admin-only in the default permission matrix.)
+    r = o.post("/api/jobs", headers=h, json={"item_name": m["audit"], "duration_hours": 1})
+    assert r.status_code in (200, 201), r.text
+    assert o.sql("SELECT COUNT(*) FROM audit_logs WHERE actor_user_id=:u AND entity_type='job'", u=uid)[0][0] == 1
     return uid, h, m
 
 

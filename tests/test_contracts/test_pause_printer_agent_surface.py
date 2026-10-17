@@ -72,7 +72,7 @@ class TestPausePrinterSourceContract:
 
     def test_stacks_role_and_agent_scope_dependencies(self, fn_src: str):
         """Both require_role (JWT compat) AND require_any_scope (agent tokens)."""
-        assert re.search(r'require_role\(\s*["\']operator["\']\s*\)', fn_src), (
+        assert re.search(r'(?:require_action\(\s*["\'][a-z_]+\.[a-z_]+["\'][^)]*\)|require_role\(\s*["\']operator["\']\s*\))', fn_src), (
             "pause_printer must keep require_role('operator') so JWT operator "
             "sessions continue to authorize (backward-compat with portal UI)."
         )

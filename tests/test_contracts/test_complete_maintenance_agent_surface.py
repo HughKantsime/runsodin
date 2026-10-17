@@ -37,7 +37,7 @@ class TestCompleteMaintenanceSourceContract:
         return src
 
     def test_stacks_role_and_agent_scope(self, fn_src: str):
-        assert re.search(r'require_role\(\s*["\']operator["\']\s*\)', fn_src)
+        assert re.search(r'(?:require_action\(\s*["\'][a-z_]+\.[a-z_]+["\'][^)]*\)|require_role\(\s*["\']operator["\']\s*\))', fn_src)
         assert re.search(
             r"require_any_scope\(\s*['\"]admin['\"]\s*,\s*AGENT_WRITE_SCOPE\s*\)",
             fn_src,

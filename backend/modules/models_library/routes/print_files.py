@@ -20,7 +20,7 @@ from core.db import get_db
 from core.db_compat import execute_insert_returning_id
 from core.errors import ErrorCode, OdinError
 from core.middleware.dry_run import dry_run_preview, is_dry_run
-from core.rbac import AGENT_WRITE_SCOPE, check_org_access, require_any_scope, require_role
+from core.rbac import AGENT_WRITE_SCOPE, check_org_access, require_any_scope, require_role, require_action
 from core.responses import build_next_actions, next_action
 from modules.models_library.upload_storage import _fresh_upload_actor, _visible_upload_duplicate, _own_upload_model, _new_upload_path
 
@@ -141,7 +141,7 @@ async def _extract_preview_mesh(path):
 async def upload_3mf(
     request: Request,
     file: UploadFile = File(...),
-    current_user: dict = Depends(require_role("operator", scope="write:models")), db: Session = Depends(get_db)
+    current_user: dict = Depends(require_action("upload.upload", scope="write:models")), db: Session = Depends(get_db)
 ):
     """Upload and parse a print file (.3mf, .gcode, or .bgcode)."""
     from modules.models_library import print_file_meta as pfm
@@ -480,7 +480,7 @@ async def submit_studio_print(
     target_printer_id: int = Form(...),
     profile_metadata: Optional[str] = Form(None),
     note: Optional[str] = Form(None),
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_action("jobs.create")),
     _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
     db: Session = Depends(get_db),
 ):
@@ -655,14 +655,14 @@ def get_print_file(file_id: int, current_user: dict = Depends(require_role("view
 
 
 @router.delete("/print-files/{file_id}")
-def delete_print_file(file_id: int, current_user: dict = Depends(require_role("operator", scope="write:models")), db: Session = Depends(get_db)):
+def delete_print_file(file_id: int, current_user: dict = Depends(require_action("upload.delete", scope="write:models")), db: Session = Depends(get_db)):
     from modules.models_library.file_management import delete_generic_file
     return delete_generic_file(db, file_id, current_user)
 
 
 @router.post("/print-files/{file_id}/schedule")
 def schedule_print_file(file_id: int, printer_id: Optional[int] = None,
-                        current_user: dict = Depends(require_role("operator", scope="write:jobs")), db: Session = Depends(get_db)):
+                        current_user: dict = Depends(require_action("upload.schedule", scope="write:jobs")), db: Session = Depends(get_db)):
     from modules.models_library.file_management import schedule_generic_file
     return schedule_generic_file(db, file_id, printer_id, current_user)
 

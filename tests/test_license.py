@@ -191,7 +191,7 @@ class TestExpiredLicense:
         assert info.tier == "pro"  # Still shows original tier
         assert info.max_printers == 5  # Community limits
         assert info.max_users == 1
-        assert info.features == []  # Community features
+        assert info.features == ["push_notifications"]  # Community features (browser push is in every tier)
 
     def test_timestamp_expiry_is_not_truncated_to_utc_date(self, tmp_path, keypair):
         priv, pub_pem = keypair

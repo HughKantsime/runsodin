@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.db_compat import sql
-from core.rbac import require_role, check_org_access
+from core.rbac import require_role, check_org_access, require_action
 import core.crypto as crypto
 import modules.printers.smart_plug as smart_plug
 from modules.printers.models import Printer
@@ -116,7 +116,7 @@ def _validate_plug_host(plug_type, host):
 
 
 @router.put("/printers/{printer_id}/plug", tags=["Smart Plug"])
-async def update_plug_config(printer_id: int, request: Request, current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)):
+async def update_plug_config(printer_id: int, request: Request, current_user: dict = Depends(require_action("printers.edit", scope="write:printers")), db: Session = Depends(get_db)):
     """Update smart plug configuration (merge semantics).
 
     Only fields present in the body change; omitted fields keep their stored
@@ -191,7 +191,7 @@ async def update_plug_config(printer_id: int, request: Request, current_user: di
 
 
 @router.delete("/printers/{printer_id}/plug", tags=["Smart Plug"])
-async def remove_plug_config(printer_id: int, current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)):
+async def remove_plug_config(printer_id: int, current_user: dict = Depends(require_action("printers.edit", scope="write:printers")), db: Session = Depends(get_db)):
     """Remove smart plug configuration from a printer."""
     _require_printer_org_access(printer_id, current_user, db)
     db.execute(text("""
@@ -218,7 +218,7 @@ def _power_receipt(result):
 
 
 @router.post("/printers/{printer_id}/plug/on", tags=["Smart Plug"])
-async def plug_power_on(printer_id: int, current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)):
+async def plug_power_on(printer_id: int, current_user: dict = Depends(require_action("printers.plug", scope="write:printers")), db: Session = Depends(get_db)):
     """Turn on a printer's smart plug."""
     _require_printer_org_access(printer_id, current_user, db)
     result = smart_plug.power_on(printer_id)
@@ -226,7 +226,7 @@ async def plug_power_on(printer_id: int, current_user: dict = Depends(require_ro
 
 
 @router.post("/printers/{printer_id}/plug/off", tags=["Smart Plug"])
-async def plug_power_off(printer_id: int, current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)):
+async def plug_power_off(printer_id: int, current_user: dict = Depends(require_action("printers.plug", scope="write:printers")), db: Session = Depends(get_db)):
     """Turn off a printer's smart plug."""
     _require_printer_org_access(printer_id, current_user, db)
     result = smart_plug.power_off(printer_id)
@@ -234,7 +234,7 @@ async def plug_power_off(printer_id: int, current_user: dict = Depends(require_r
 
 
 @router.post("/printers/{printer_id}/plug/toggle", tags=["Smart Plug"])
-async def plug_power_toggle(printer_id: int, current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)):
+async def plug_power_toggle(printer_id: int, current_user: dict = Depends(require_action("printers.plug", scope="write:printers")), db: Session = Depends(get_db)):
     """Toggle a printer's smart plug."""
     _require_printer_org_access(printer_id, current_user, db)
     result = smart_plug.power_toggle(printer_id)
@@ -275,7 +275,7 @@ async def get_energy_rate(current_user: dict = Depends(require_role("viewer", sc
 
 
 @router.put("/settings/energy-rate", tags=["Smart Plug"])
-async def set_energy_rate(request: Request, current_user: dict = Depends(require_role("admin", scope="admin")), db: Session = Depends(get_db)):
+async def set_energy_rate(request: Request, current_user: dict = Depends(require_action("settings.edit", scope="admin")), db: Session = Depends(get_db)):
     """Set energy cost per kWh."""
     data = await request.json()
     if not isinstance(data, dict):

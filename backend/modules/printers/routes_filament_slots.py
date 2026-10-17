@@ -29,6 +29,7 @@ from core.dependencies import log_audit
 from core.errors import ErrorCode, OdinError
 from core.middleware.dry_run import dry_run_preview, is_dry_run
 from core.rbac import (
+    require_action,
     AGENT_WRITE_SCOPE,
     check_org_access,
     require_any_scope,
@@ -54,7 +55,7 @@ class AssignSpoolRequest(PydanticBaseModel):
 def assign_spool_to_slot(
     body: AssignSpoolRequest,
     request: Request,
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_action("printers.slots")),
     _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
     db: Session = Depends(get_db),
 ):

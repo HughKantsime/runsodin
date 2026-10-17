@@ -2,6 +2,43 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.0] - 2026-10-16
+
+<!-- release-date placeholder: set by ops/bump-version.sh -->
+<!-- summary: 2.0 breaking changes and upgrade notes -->
+
+### Removed
+
+- OPC UA and SQLCipher license feature flags. Neither was ever a working or advertised feature, and no license tier grants them any more.
+
+### Changed
+
+- The Settings > Permissions matrix is now enforced by the server: every action key guards the API routes that perform the action, and every page key guards its page and its page-only API reads; changes apply on the next request, and the platform superadmin is never locked out. Operators lose API-only access to add or delete printers and to delete models (the web UI never offered it); widen printers.add, printers.delete or models.delete in Settings > Permissions to restore it. The new key jobs.submit (every role by default) covers job submission, dashboard.actions is retired (the dashboard uses jobs.complete and jobs.cancel), and maintenance.tasks and spools.delete now default to admin and operator.
+- License tiers are enforced by the server, not only hidden in the UI. Pro gates writes to orders, products (including BOM and consumables) and maintenance, plus analytics, the analytics-based reports (chargebacks and the fleet_utilization, failure_analysis and chargeback_summary scheduled reports) and branding. Enterprise gates audit-log CSV export and MQTT event republishing. MFA, IP allowlist, organizations and GDPR export are included in every tier. A downgrade or expiry never deletes data.
+- The setup wizard's farm name is branding and is Pro-only: below Pro the field is disabled with a Pro note. A stored name appears as the app name once the install is licensed for Pro or above.
+- API tokens are refused on every credential and account-recovery operation; those need an interactive session.
+- Biometric (native app) tokens are all revoked on the first 2.0 start; users re-enrol.
+- Weekly quotas are keyed on ISO weeks, so the current week's count restarts once after the upgrade.
+- GET /api/alerts hides dismissed alerts by default. Pass include_dismissed=true to get every alert.
+- The Calculator and model cost divide only per-bed quantities (material, electricity and machine depreciation are divided by units per bed).
+- Spoolman consumption is sent with PUT /api/v1/spool/{id}/use.
+- Terms of Service and Privacy Policy: the tier descriptions now match the license tiers (MFA, IP allowlist, organizations and GDPR data export/anonymization are included in every tier; Enterprise adds audit-log CSV export and MQTT event republishing; Education covers up to 9,999 printers and users), and the stated AMS environment data retention is 90 days.
+- Bambu X1C/X1E/H2D built-in cameras (camera URL derived from the access code) are vision-monitored by default, up to vision_settings.max_threads concurrent printers (default 16; adjustable in Settings > Vigil AI).
+- Timelapse captures recorded as 'shared' before migration 033 have no stored capture-time tenancy fact. Once any organization exists on the install, those timelapses are visible to administrators only (fail closed). Installs with no organizations are unaffected.
+
+### Security
+
+- HTTP camera relay: HTTP/MJPEG cameras (for example Moonraker, PrusaLink and Elegoo webcams) now stream through an internal relay on O.D.I.N. (loopback peers only, per-printer token, destination pinned, no redirects) instead of go2rtc fetching the camera URL itself. go2rtc's RTSP server now listens on 127.0.0.1:8554 with per-boot credentials, so clients outside the container can no longer pull streams from that port.
+- OBS overlay camera URLs require a camera-only token (sole scope read:cameras, at most 365 days). Overlay URLs that carry an older token with other or additional scopes stop showing the camera: re-copy the overlay URL from the printer card, which mints a camera-only token. Creating a token that combines read:cameras with other scopes, or with an expiry over 365 days, is refused (422).
+- API tokens that combine read:cameras with any other scope are revoked on upgrade (deleted, with an audit entry) and refused if presented. This combination never shipped in a release. Re-create the token with only the scopes you need.
+- SSO: the one-time code now arrives in the URL fragment and is bound to a login cookie (odin_oidc_bind, Path=/api/auth/oidc) tied to that login's state. Reverse proxies must pass this cookie. Right after upgrading, a browser still controlled by the 1.9.x service worker may load the old page once, and that first SSO attempt does nothing; signing in again works, because the new service worker (cache odin-v2.0.0) takes over.
+
+### Upgrade notes
+
+- PostgreSQL backups taken by 1.9.x releases (025-, 026- and 027-era archives) are validated and imported into a fresh staging database by a frozen copy of the restore sources, then upgraded to the current schema before the restore is applied. Archives from unreleased builds between releases are refused with a clear message.
+- Docker secret ownership (docker-compose.enterprise.yml): the app's mounted PostgreSQL password secrets must be owned by uid/gid 10001 (the odin user) with mode 0400. The PostgreSQL restore coordinator runs as odin and refuses credentials it does not own. If you maintain your own compose file, set uid/gid 10001 on the app service's secrets.
+- A staged restore that fails before the target database is touched is moved aside with a failed_restore_<timestamp>.json report, and startup continues on the untouched database instead of restarting in a loop.
+
 ## [Unreleased] - Whole-app certification repairs
 
 ### Changed (API behavior)

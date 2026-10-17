@@ -265,6 +265,71 @@ def require_role(required_role: str, scope: str = None):
     return mark_token_scope_checker(role_checker, scope)
 
 
+RBAC_LIMITED_TO = "_rbac_limited_to"
+
+
+def _is_platform_superadmin(current_user: dict) -> bool:
+    return current_user.get("role") == "admin" and not current_user.get("group_id")
+
+
+def require_action(action: str, scope: str = None, fallback: str = None):
+    """FastAPI dependency enforcing a configured RBAC action permission.
+
+    The caller's role must be listed for ``action`` in the effective
+    page/action matrix (core.rbac_policy: Settings > Access > Permissions, or
+    the defaults), read on every request. The platform superadmin always
+    passes. API tokens are checked against their owner's role, and token scope
+    is enforced as in require_role. With ``fallback``, a caller holding only
+    the fallback action passes with ``current_user[RBAC_LIMITED_TO] = fallback``
+    and the handler restricts what it may do. Route mapping:
+    core.rbac_routes.ACTION_ROUTES.
+    """
+    from core.dependencies import get_current_user
+    from core.db import get_db
+    from core.rbac_policy import action_roles
+
+    def action_checker(request: Request, current_user: dict = Depends(get_current_user), db=Depends(get_db)):
+        if not current_user:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        if not _is_platform_superadmin(current_user) and current_user.get("role") not in action_roles(db, action):
+            if fallback and current_user.get("role") in action_roles(db, fallback):
+                current_user = {**current_user, RBAC_LIMITED_TO: fallback}
+            else:
+                raise HTTPException(status_code=403, detail="Insufficient permissions")
+        if scope:
+            _check_token_scope(current_user, scope)
+        else:
+            _generic_scope_check(request, current_user)
+        return current_user
+    action_checker.__odin_rbac_action__ = (action, fallback)
+    return mark_token_scope_checker(action_checker, scope)
+
+
+def require_page(page: str, scope: str = None):
+    """FastAPI dependency for a read endpoint that exists only to feed one page.
+
+    The caller's role must be listed for ``page`` in the effective page-access
+    matrix; the platform superadmin always passes. Route mapping:
+    core.rbac_routes.PAGE_ROUTES.
+    """
+    from core.dependencies import get_current_user
+    from core.db import get_db
+    from core.rbac_policy import page_roles
+
+    def page_checker(request: Request, current_user: dict = Depends(get_current_user), db=Depends(get_db)):
+        if not current_user:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        if not _is_platform_superadmin(current_user) and current_user.get("role") not in page_roles(db, page):
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+        if scope:
+            _check_token_scope(current_user, scope)
+        else:
+            _generic_scope_check(request, current_user)
+        return current_user
+    page_checker.__odin_rbac_page__ = page
+    return mark_token_scope_checker(page_checker, scope)
+
+
 def require_superadmin(scope: str = None):
     """FastAPI dependency that requires superadmin (admin role + no group_id).
 

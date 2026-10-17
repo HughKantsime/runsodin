@@ -1,6 +1,6 @@
 """O.D.I.N. — Vigil AI: Detections, Settings, Frames, Stats, and Training Data."""
 
-from core.rbac import should_filter_org
+from core.rbac import should_filter_org, require_action
 
 # Domain: vision
 # Depends on: core, printers, notifications, organizations
@@ -234,7 +234,7 @@ async def get_printer_vision_settings(
 async def update_printer_vision_settings(
     printer_id: int,
     request: Request,
-    current_user: dict = Depends(require_role("admin", scope="write:printers")),
+    current_user: dict = Depends(require_action("settings.edit", scope="write:printers")),
     db: Session = Depends(get_db),
 ):
     """Update per-printer vision settings."""

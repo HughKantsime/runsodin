@@ -35,6 +35,7 @@ from core.dependencies import log_audit
 from core.errors import ErrorCode, OdinError
 from core.middleware.dry_run import dry_run_preview, is_dry_run
 from core.rbac import (
+    require_action,
     AGENT_WRITE_SCOPE,
     check_org_access,
     require_any_scope,
@@ -72,7 +73,7 @@ def _get_job_or_raise(db: Session, job_id: int, current_user: dict) -> Job:
 def cancel_job(
     job_id: int,
     request: Request,
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_action("jobs.cancel")),
     _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
     db: Session = Depends(get_db),
 ):
@@ -133,7 +134,7 @@ def approve_job(
     job_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_action("jobs.approve")),
     _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
 ):
     """Approve a submitted job. Moves it to pending status. Agent-surface v1.9.0."""
@@ -210,7 +211,7 @@ def reject_job(
     body: _RejectJobRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_action("jobs.reject")),
     _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
 ):
     """Reject a submitted job with a required reason. Agent-surface v1.9.0."""

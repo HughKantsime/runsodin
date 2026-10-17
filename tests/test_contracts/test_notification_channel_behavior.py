@@ -58,7 +58,8 @@ def smtp_config(review_db, port, enabled=True):
     review_db.commit()
 
 
-def test_email_delivers_multipart_and_escapes_untrusted_text(channels_db, review_db, smtp_peer):
+def test_email_delivers_multipart_and_escapes_untrusted_text(channels_db, review_db, smtp_peer, pro_license):
+    # Alert email needs Pro (license_manager.TIERS email_notifications).
     port, received = smtp_peer
     smtp_config(review_db,port)
     channels_db.send_email(1,"job_completed","<b>Fixture title</b>","<img src=x onerror=evil()> & details")

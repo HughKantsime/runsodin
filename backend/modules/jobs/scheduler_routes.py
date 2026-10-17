@@ -1,6 +1,6 @@
 """O.D.I.N. — Scheduler & Timeline Routes"""
 
-from core.rbac import should_filter_org
+from core.rbac import should_filter_org, require_action, require_page
 
 # Domain: jobs
 # Depends on: core, printers, inventory, organizations
@@ -38,7 +38,7 @@ router = APIRouter()
 @router.post("/scheduler/run", response_model=ScheduleResult, tags=["Scheduler"])
 def run_scheduler_endpoint(
     config: Optional[SchedulerConfigSchema] = None,
-    current_user: dict = Depends(require_role("operator", scope="write:jobs")), db: Session = Depends(get_db)
+    current_user: dict = Depends(require_action("jobs.create", scope="write:jobs")), db: Session = Depends(get_db)
 ):
     """Run the scheduler to assign pending jobs to printers."""
     scheduler_config = None
@@ -113,7 +113,7 @@ def list_scheduler_runs(
 def get_timeline(
     start_date: Optional[datetime] = None,
     days: int = Query(default=7, ge=1, le=30),
-    current_user: dict = Depends(require_role("viewer", scope="read:jobs")),
+    current_user: dict = Depends(require_page("timeline", scope="read:jobs")),
     db: Session = Depends(get_db)
 ):
     """Get timeline view data for the scheduler."""

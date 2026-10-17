@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.db_compat import sql
-from core.rbac import require_role, check_org_access
+from core.rbac import require_role, check_org_access, require_action
 from modules.printers.models import Printer, FilamentSlot
 
 log = logging.getLogger("odin.api")
@@ -106,7 +106,7 @@ async def get_ams_current(printer_id: int, db: Session = Depends(get_db),
 @router.post("/printers/{printer_id}/ams/refresh", tags=["AMS"])
 async def refresh_ams_rfid(
     printer_id: int,
-    current_user: dict = Depends(require_role("operator", scope="write:printers")),
+    current_user: dict = Depends(require_action("printers.edit", scope="write:printers")),
     db: Session = Depends(get_db),
 ):
     """Trigger AMS RFID re-read on a Bambu printer."""
@@ -161,7 +161,7 @@ async def configure_ams_slot(
     ams_id: int,
     slot_id: int,
     body: AMSSlotConfigRequest,
-    current_user: dict = Depends(require_role("operator", scope="write:printers")),
+    current_user: dict = Depends(require_action("printers.edit", scope="write:printers")),
     db: Session = Depends(get_db),
 ):
     """Configure an AMS slot's filament settings (Bambu only).

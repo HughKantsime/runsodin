@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 import logging
 
 from core.db import get_db
-from core.rbac import require_role
+from core.rbac import require_role, require_action
 from modules.inventory.models import Consumable, ConsumableUsage
 from modules.orders.schemas import (
     ConsumableCreate, ConsumableUpdate, ConsumableResponse, ConsumableAdjust,
@@ -37,7 +37,7 @@ def list_consumables(status: str = None, current_user: dict = Depends(require_ro
 
 
 @router.post("")
-def create_consumable(data: ConsumableCreate, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
+def create_consumable(data: ConsumableCreate, current_user: dict = Depends(require_action("products.create", scope="write")), db: Session = Depends(get_db)):
     """Create a new consumable item."""
     item = Consumable(**data.model_dump())
     db.add(item)
@@ -84,7 +84,7 @@ def get_consumable(consumable_id: int, current_user: dict = Depends(require_role
 
 
 @router.patch("/{consumable_id}")
-def update_consumable(consumable_id: int, data: ConsumableUpdate, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
+def update_consumable(consumable_id: int, data: ConsumableUpdate, current_user: dict = Depends(require_action("products.edit", scope="write")), db: Session = Depends(get_db)):
     """Update a consumable."""
     item = db.query(Consumable).filter(Consumable.id == consumable_id).first()
     if not item:
@@ -100,7 +100,7 @@ def update_consumable(consumable_id: int, data: ConsumableUpdate, current_user: 
 
 
 @router.delete("/{consumable_id}")
-def delete_consumable(consumable_id: int, current_user: dict = Depends(require_role("admin", scope="write")), db: Session = Depends(get_db)):
+def delete_consumable(consumable_id: int, current_user: dict = Depends(require_action("products.delete", scope="write")), db: Session = Depends(get_db)):
     """Delete a consumable."""
     item = db.query(Consumable).filter(Consumable.id == consumable_id).first()
     if not item:
@@ -111,7 +111,7 @@ def delete_consumable(consumable_id: int, current_user: dict = Depends(require_r
 
 
 @router.post("/{consumable_id}/adjust")
-def adjust_consumable_stock(consumable_id: int, data: ConsumableAdjust, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
+def adjust_consumable_stock(consumable_id: int, data: ConsumableAdjust, current_user: dict = Depends(require_action("products.edit", scope="write")), db: Session = Depends(get_db)):
     """Manual stock adjustment (restock or deduct)."""
     item = db.query(Consumable).filter(Consumable.id == consumable_id).first()
     if not item:

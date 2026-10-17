@@ -886,6 +886,10 @@ class Scheduler:
 
 
 def run_scheduler(db: Session, config: Optional[SchedulerConfig] = None) -> SchedulerResult:
-    """Convenience function to run the scheduler."""
+    """Run the scheduler; without an explicit config it uses the saved blackout hours."""
+    if config is None:
+        from core.scheduler_settings import get_blackout
+        start, end = get_blackout(db)
+        config = SchedulerConfig.from_time_strings(blackout_start=start, blackout_end=end)
     scheduler = Scheduler(config)
     return scheduler.run(db)

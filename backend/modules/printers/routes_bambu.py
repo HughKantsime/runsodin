@@ -9,8 +9,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.orm import Session
 
+from core.spoolman_settings import get_spoolman_url
 from core.db import get_db
-from core.rbac import check_org_access, require_role
+from core.rbac import check_org_access, require_role, require_action
 from core.config import settings
 import core.crypto as crypto
 from modules.printers.models import Printer, FilamentSlot
@@ -83,7 +84,7 @@ def _owned_printer(db, printer_id, current_user):
 
 
 @router.post("/bambu/test-connection", tags=["Bambu"])
-async def test_bambu_printer_connection(request: BambuConnectionTest, current_user: dict = Depends(require_role("operator", scope="write:printers"))):
+async def test_bambu_printer_connection(request: BambuConnectionTest, current_user: dict = Depends(require_action("printers.edit", scope="write:printers"))):
     """Test connection to a Bambu Lab printer via local MQTT."""
     if not BAMBU_AVAILABLE:
         raise HTTPException(status_code=501, detail="Bambu integration not available. Install: pip install paho-mqtt")
@@ -100,7 +101,7 @@ async def test_bambu_printer_connection(request: BambuConnectionTest, current_us
 
 
 @router.post("/printers/{printer_id}/bambu/sync-ams", response_model=BambuSyncResult, tags=["Bambu"])
-async def sync_bambu_ams(printer_id: int, current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)):
+async def sync_bambu_ams(printer_id: int, current_user: dict = Depends(require_action("printers.edit", scope="write:printers")), db: Session = Depends(get_db)):
     """Sync AMS filament slots from a Bambu Lab printer."""
     if not BAMBU_AVAILABLE:
         raise HTTPException(status_code=501, detail="Bambu integration not available")
@@ -129,12 +130,13 @@ async def sync_bambu_ams(printer_id: int, current_user: dict = Depends(require_r
     ]
 
     spoolman_list = []
-    if settings.spoolman_url:
+    spoolman_url = get_spoolman_url(db)
+    if spoolman_url:
         try:
             from core.itar import pin_for_request, should_trust_env
-            with pin_for_request(settings.spoolman_url):
+            with pin_for_request(spoolman_url):
                 async with httpx.AsyncClient(trust_env=should_trust_env()) as client:
-                    resp = await client.get(f"{settings.spoolman_url}/api/v1/spool", timeout=5)
+                    resp = await client.get(f"{spoolman_url}/api/v1/spool", timeout=5)
                     if resp.status_code == 200:
                         for spool in resp.json():
                             filament = spool.get("filament", {})
@@ -230,7 +232,7 @@ async def manual_slot_assignment(
     printer_id: int,
     slot_number: int,
     assignment: ManualSlotAssignment,
-    current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)
+    current_user: dict = Depends(require_action("printers.slots", scope="write:printers")), db: Session = Depends(get_db)
 ):
     """Manually assign filament to a slot when auto-matching fails."""
     _owned_printer(db, printer_id, current_user)

@@ -6,8 +6,9 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from core.spoolman_settings import get_spoolman_url
 from core.db import get_db
-from core.rbac import require_role
+from core.rbac import require_role, require_action
 from modules.inventory.models import FilamentLibrary, Spool
 from ._helpers import FilamentCreateRequest, FilamentUpdateRequest
 
@@ -54,7 +55,7 @@ def list_filaments(
 
 
 @router.post("", tags=["Filaments"])
-def add_custom_filament(data: FilamentCreateRequest, current_user: dict = Depends(require_role("operator", scope="write:spools")), db: Session = Depends(get_db)):
+def add_custom_filament(data: FilamentCreateRequest, current_user: dict = Depends(require_action("spools.edit", scope="write:spools")), db: Session = Depends(get_db)):
     """Add a custom filament to the library."""
     if data.cost_per_gram is not None:
         _require_global_rate_writer(current_user)
@@ -80,12 +81,13 @@ async def get_combined_filaments(current_user: dict = Depends(require_role("view
 
     result = []
 
-    if settings.spoolman_url:
+    spoolman_url = get_spoolman_url(db)
+    if spoolman_url:
         try:
             from core.itar import pin_for_request, should_trust_env
-            with pin_for_request(settings.spoolman_url):
+            with pin_for_request(spoolman_url):
                 async with httpx.AsyncClient(trust_env=should_trust_env()) as client:
-                    resp = await client.get(f"{settings.spoolman_url}/api/v1/spool", timeout=5)
+                    resp = await client.get(f"{spoolman_url}/api/v1/spool", timeout=5)
                     if resp.status_code == 200:
                         spools = resp.json()
                         for spool in spools:
@@ -145,7 +147,7 @@ def get_filament(filament_id: str, current_user: dict = Depends(require_role("vi
 
 
 @router.patch("/{filament_id}", tags=["Filaments"])
-def update_filament(filament_id: str, updates: FilamentUpdateRequest, current_user: dict = Depends(require_role("operator", scope="write:spools")), db: Session = Depends(get_db)):
+def update_filament(filament_id: str, updates: FilamentUpdateRequest, current_user: dict = Depends(require_action("spools.edit", scope="write:spools")), db: Session = Depends(get_db)):
     """Update a filament in the library."""
     fid_str = filament_id.replace("lib_", "")
     try:
@@ -181,7 +183,7 @@ def update_filament(filament_id: str, updates: FilamentUpdateRequest, current_us
 
 
 @router.delete("/{filament_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Filaments"])
-def delete_filament(filament_id: str, current_user: dict = Depends(require_role("operator", scope="write:spools")), db: Session = Depends(get_db)):
+def delete_filament(filament_id: str, current_user: dict = Depends(require_action("spools.edit", scope="write:spools")), db: Session = Depends(get_db)):
     """Delete a filament from the library."""
     fid_str = filament_id.replace("lib_", "")
     try:

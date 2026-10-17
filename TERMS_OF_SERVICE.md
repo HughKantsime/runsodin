@@ -3,7 +3,7 @@
 **O.D.I.N. (Orchestrated Dispatch & Inventory Network)**
 
 **Effective Date:** February 14, 2026
-**Last Updated:** February 14, 2026
+**Last Updated:** October 16, 2026 <!-- release-date placeholder: set by ops/bump-version.sh -->
 
 **Sublab 3DP** ("Company," "we," "us," or "our")
 **Principal:** Shane Smith
@@ -26,7 +26,7 @@ If you do not agree to these terms, do not download, install, or use the Softwar
 - **"Community Tier"** means the free, limited edition of the Software (5 printers, 1 user).
 - **"Pro Tier"** means the paid commercial license at $15/month or $150/year.
 - **"Education Tier"** means the paid license at $300/year per site, designed for educational institutions.
-- **"Enterprise Tier"** means the paid license at $2,500-$5,000/year, with enhanced security and compliance features.
+- **"Enterprise Tier"** means the paid license at $2,500-$5,000/year, which adds audit-log CSV export and MQTT event republishing.
 - **"Instance"** means a single deployment of the Software on a single server or Docker host.
 - **"Vigil AI"** means the optional AI-based print failure detection system included in the Software.
 
@@ -44,11 +44,11 @@ Subject to payment of applicable fees and this Agreement, we grant you a non-exc
 
 ### 3.3 Education Tier
 
-Subject to payment of applicable fees and this Agreement, we grant you a non-exclusive, non-transferable license to install and use the Software on **one (1) Instance per licensed site** for educational purposes. The Education Tier includes all Pro features plus job approval workflows, user groups, print quotas, and usage chargebacks.
+Subject to payment of applicable fees and this Agreement, we grant you a non-exclusive, non-transferable license to install and use the Software on **one (1) Instance per licensed site** for educational purposes. The Education Tier includes all Pro features plus job approval workflows, user groups and print quotas, for up to 9,999 printers and users.
 
 ### 3.4 Enterprise Tier
 
-Subject to payment of applicable fees and this Agreement, we grant you a non-exclusive, non-transferable license to install and use the Software on **one (1) Instance per licensed site** for any lawful purpose. The Enterprise Tier includes all Education features plus MFA enforcement, IP allowlisting, organizations, GDPR data export/anonymization, and audit log export.
+Subject to payment of applicable fees and this Agreement, we grant you a non-exclusive, non-transferable license to install and use the Software on **one (1) Instance per licensed site** for any lawful purpose. The Enterprise Tier includes all Education features plus audit-log CSV export and MQTT event republishing, for up to 9,999 printers and users. MFA, IP allowlisting, organizations and GDPR data export/anonymization are included in every tier, including the Community Tier.
 
 ### 3.5 License Restrictions
 

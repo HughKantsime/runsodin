@@ -3,7 +3,7 @@
 **O.D.I.N. (Orchestrated Dispatch & Inventory Network)**
 
 **Effective Date:** February 14, 2026
-**Last Updated:** February 14, 2026
+**Last Updated:** October 16, 2026 <!-- release-date placeholder: set by ops/bump-version.sh -->
 
 **Sublab 3DP** ("Company," "we," "us," or "our")
 **Principal:** Shane Smith
@@ -250,8 +250,8 @@ Security of your O.D.I.N. instance is your responsibility. The Software includes
 - Bcrypt password hashing
 - JWT-based authentication with configurable session management
 - RBAC with three role levels (admin, operator, viewer)
-- IP allowlisting (Enterprise tier)
-- MFA / TOTP support (Enterprise tier)
+- IP allowlisting (all tiers)
+- MFA / TOTP support (all tiers)
 - Rate limiting on authentication endpoints
 - Account lockout after failed login attempts
 - Audit logging
@@ -279,11 +279,11 @@ We strongly recommend:
 
 ### 9.2 Data on Your Instance
 
-You control retention for all data on your O.D.I.N. instance. The Software includes configurable data retention policies (Enterprise tier) and manual cleanup tools. Default retention periods within the Software:
+You control retention for all data on your O.D.I.N. instance. The Software includes configurable data retention policies (all tiers) and manual cleanup tools. Default retention periods within the Software:
 
 - Telemetry snapshots: 90 days
 - HMS error history: 90 days
-- AMS environment data: 7 days
+- AMS environment data: 90 days
 - Audit logs, jobs, and other records: indefinite (until you delete them)
 
 ---

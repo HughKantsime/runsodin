@@ -39,32 +39,40 @@ const ROLE_META = {
 }
 
 // Group pages and actions for cleaner display
+// Every key here is enforced by the server (backend/core/rbac_routes.py); the
+// contract test test_rbac_matrix_completeness checks this list stays complete.
 const PAGE_GROUPS = [
-  { label: 'Monitor', pages: ['dashboard', 'printers', 'cameras'] },
+  { label: 'Monitor', pages: ['dashboard', 'printers', 'cameras', 'alerts'] },
   { label: 'Work', pages: ['jobs', 'timeline', 'upload', 'maintenance'] },
   { label: 'Library', pages: ['models', 'spools'] },
+  { label: 'Business', pages: ['orders', 'products'] },
   { label: 'Analyze', pages: ['analytics', 'calculator'] },
+  { label: 'Education', pages: ['education', 'education_reports'] },
   { label: 'System', pages: ['settings', 'admin', 'branding', 'audit'] },
 ]
 
 const ACTION_GROUPS = [
-  { label: 'Jobs', actions: ['jobs.create', 'jobs.edit', 'jobs.cancel', 'jobs.delete', 'jobs.start', 'jobs.complete'] },
-  { label: 'Printers', actions: ['printers.add', 'printers.edit', 'printers.delete', 'printers.slots', 'printers.reorder'] },
+  { label: 'Jobs', actions: ['jobs.submit', 'jobs.create', 'jobs.edit', 'jobs.cancel', 'jobs.delete', 'jobs.start', 'jobs.complete'] },
+  { label: 'Approval', actions: ['jobs.approve', 'jobs.reject', 'jobs.resubmit'] },
+  { label: 'Printers', actions: ['printers.add', 'printers.edit', 'printers.delete', 'printers.slots', 'printers.reorder', 'printers.plug'] },
   { label: 'Models', actions: ['models.create', 'models.edit', 'models.delete'] },
   { label: 'Spools', actions: ['spools.edit', 'spools.delete'] },
-  { label: 'Other', actions: ['timeline.move', 'upload.upload', 'upload.schedule', 'upload.delete', 'maintenance.log', 'maintenance.tasks', 'dashboard.actions'] },
+  { label: 'Orders', actions: ['orders.create', 'orders.edit', 'orders.delete', 'orders.ship'] },
+  { label: 'Products', actions: ['products.create', 'products.edit', 'products.delete'] },
+  { label: 'Other', actions: ['timeline.move', 'upload.upload', 'upload.schedule', 'upload.delete', 'maintenance.log', 'maintenance.tasks', 'alerts.read', 'settings.edit'] },
 ]
 
 // These combos can never be toggled off (safety)
 const LOCKED = {
   'admin:admin': true,
   'admin:settings': true,
+  'admin:audit': true,
 }
 
 function formatName(key: string) {
-  // "jobs.create" → "Create", "printers" → "Printers", "dashboard.actions" → "Actions"
+  // "jobs.create" → "Create", "printers" → "Printers", "education_reports" → "Education reports"
   const parts = key.split('.')
-  const word = parts.length > 1 ? parts[1] : parts[0]
+  const word = (parts.length > 1 ? parts[1] : parts[0]).replace(/_/g, ' ')
   return word.charAt(0).toUpperCase() + word.slice(1)
 }
 
