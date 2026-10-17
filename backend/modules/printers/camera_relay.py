@@ -54,49 +54,93 @@ def _secret_path() -> str:
     return os.path.join(os.path.dirname(GO2RTC_CONFIG) or ".", ".camera-relay-secret")
 
 
+class RelaySecretUnavailable(RuntimeError):
+    """No camera relay secret yet, in a process that must not create one (fails closed)."""
+
+
+def _may_rotate() -> bool:
+    """Only the API process owns the secret (ODIN_DB_ROLE api, or unset before supervisord
+    in the entrypoint and in local runs). Monitors, vision, timelapse and reports read it."""
+    return os.environ.get("ODIN_DB_ROLE", "api") in ("", "api")
+
+
+def _read_secret(path: str) -> str | None:
+    try:
+        with open(path) as handle:
+            value = handle.read().strip()
+    except OSError:
+        return None
+    return value if len(value) >= 32 else None
+
+
 def rotate_relay_secret() -> str:
-    """New per-boot secret (API start-up). Falls back to a process secret if unwritable."""
+    """New per-boot secret (API start-up), at most once per boot.
+
+    Under an exclusive lock beside the secret: when ODIN_BOOT_ID (exported once by the
+    container entrypoint) matches the boot marker and a secret exists, that secret is
+    kept, so a failed pre-start step cannot make every uvicorn worker rotate again.
+    Falls back to a process secret if the file is unwritable."""
+    import fcntl
     global _process_secret
-    value = secrets.token_hex(32)
     path = _secret_path()
+    boot = (os.environ.get("ODIN_BOOT_ID") or "").strip()
     with _secret_lock:
+        lock = None
         try:
-            # Keep the previous boot's secret: a go2rtc service that outlives an API
-            # restart still runs with credentials derived from it until it is reloaded.
-            try:
-                with open(path) as handle:
-                    previous = handle.read().strip()
-            except OSError:
-                previous = ""
-            if len(previous) >= 32:
-                tmp_previous = f"{path}.previous.{os.getpid()}.tmp"
-                fd = os.open(tmp_previous, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-                with os.fdopen(fd, "w") as handle:
-                    handle.write(previous)
-                os.replace(tmp_previous, f"{path}.previous")
-            tmp = f"{path}.{os.getpid()}.tmp"
-            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-            with os.fdopen(fd, "w") as handle:
-                handle.write(value)
-            os.replace(tmp, path)
+            lock = open(f"{path}.lock", "a")
+            fcntl.flock(lock, fcntl.LOCK_EX)
         except OSError:
-            log.warning("Camera relay secret file not writable; using a process-local secret")
-            _process_secret = value
-        return value
+            lock = None
+        try:
+            current = _read_secret(path)
+            if boot and current:
+                try:
+                    with open(f"{path}.boot") as marker:
+                        if marker.read().strip() == boot:
+                            return current  # already rotated in this boot
+                except OSError:
+                    pass
+            value = secrets.token_hex(32)
+            try:
+                # Keep the previous boot's secret: a go2rtc service that outlives an API
+                # restart still runs with credentials derived from it until it is reloaded.
+                if current:
+                    tmp_previous = f"{path}.previous.{os.getpid()}.tmp"
+                    fd = os.open(tmp_previous, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                    with os.fdopen(fd, "w") as handle:
+                        handle.write(current)
+                    os.replace(tmp_previous, f"{path}.previous")
+                tmp = f"{path}.{os.getpid()}.tmp"
+                fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(fd, "w") as handle:
+                    handle.write(value)
+                os.replace(tmp, path)
+                if boot:
+                    tmp_marker = f"{path}.boot.{os.getpid()}.tmp"
+                    fd = os.open(tmp_marker, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                    with os.fdopen(fd, "w") as handle:
+                        handle.write(boot)
+                    os.replace(tmp_marker, f"{path}.boot")
+            except OSError:
+                log.warning("Camera relay secret file not writable; using a process-local secret")
+                _process_secret = value
+            return value
+        finally:
+            if lock is not None:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+                lock.close()
 
 
 def relay_secret() -> str:
-    """Current per-boot secret, shared by API and monitor processes through its file."""
-    global _process_secret
-    try:
-        with open(_secret_path()) as handle:
-            value = handle.read().strip()
-        if len(value) >= 32:
-            return value
-    except OSError:
-        pass
+    """Current per-boot secret, shared by API and monitor processes through its file.
+    Only the API process creates a missing secret; any other process fails closed."""
+    value = _read_secret(_secret_path())
+    if value:
+        return value
     if _process_secret is not None:
         return _process_secret
+    if not _may_rotate():
+        raise RelaySecretUnavailable("camera relay secret not created yet (the API owns it)")
     value = rotate_relay_secret()
     return _process_secret if _process_secret is not None else value
 

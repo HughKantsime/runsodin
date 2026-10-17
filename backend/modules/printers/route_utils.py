@@ -714,7 +714,12 @@ def sync_go2rtc_config_raw():
     except Exception as e:
         log.error(f"go2rtc raw sync DB error: {e}")
         return
-    config = go2rtc_config_for(printers, lan_ip)
+    from modules.printers.camera_relay import RelaySecretUnavailable
+    try:
+        config = go2rtc_config_for(printers, lan_ip)
+    except RelaySecretUnavailable:
+        log.error("go2rtc raw sync skipped: the camera relay secret has not been created by the API yet")
+        return
     _go2rtc_restart_with_lock(config)
 
 

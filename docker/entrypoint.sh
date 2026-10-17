@@ -4,6 +4,10 @@ set -Eeuo pipefail
 # This availability flag is overwritten by trusted startup, never accepted as
 # an identity. The reader must still validate the root-owned runtime record.
 export ODIN_AMS_RUNTIME_READY=0
+# One id per container start, inherited by every supervisord program: the camera relay
+# secret rotates at most once per boot (modules/printers/camera_relay.py).
+ODIN_BOOT_ID="$(cat /proc/sys/kernel/random/uuid)"
+export ODIN_BOOT_ID
 export ODIN_BRANDING_DIRECTORY=/data/static/branding
 if /usr/local/bin/python3 -I -S /usr/local/libexec/odin-runtime-identity.py; then
     export ODIN_AMS_RUNTIME_READY=1
