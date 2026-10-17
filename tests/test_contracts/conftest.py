@@ -171,9 +171,11 @@ def _job_status_runtime_census(request):
     from sqlalchemy.engine import Engine
     from sqlalchemy.pool import Pool
     from tests.test_contracts.job_census import sql_status_writes
-    violations, traced = [], []
+    violations, active = [], [True]
 
     def trace(statement):
+        if not active[0]:
+            return  # a later test's connection reuse: this test's census is over
         lowered = statement.lower()
         if "jobs" in lowered and "status" in lowered and sql_status_writes(statement):
             origin = _unauthorised_writer()
@@ -185,7 +187,6 @@ def _job_status_runtime_census(request):
         # opened before the test, e.g. by module or session engines (checkout).
         if hasattr(dbapi_connection, "set_trace_callback"):
             dbapi_connection.set_trace_callback(trace)
-            traced.append(dbapi_connection)
 
     def on_status(target, value, oldvalue, initiator):
         if orm_inspect(target).persistent:
@@ -203,9 +204,9 @@ def _job_status_runtime_census(request):
         event.remove(Engine, "connect", attach)
         event.remove(Pool, "checkout", attach)
         event.remove(Job.status, "set", on_status)
-        for dbapi_connection in traced:
-            try:
-                dbapi_connection.set_trace_callback(None)
-            except Exception:
-                pass  # already closed
+        # Disable, never detach: set_trace_callback(None) from this thread on a connection a
+        # background thread is executing on (e.g. the Spoolman outbox delivery an archive event
+        # starts) deadlocks: that thread holds SQLite's connection mutex and waits for the GIL
+        # to run the callback, while this thread holds the GIL inside sqlite3_trace_v2.
+        active[0] = False
     assert violations == [], f"jobs.status written outside the state machine: {violations}"
