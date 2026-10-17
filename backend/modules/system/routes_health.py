@@ -345,6 +345,19 @@ async def activate_license(
     # pair can't succeed — they don't hold the private key.
     _priv, device_pubkey = get_device_keypair()
 
+    # Proof of possession of the device key over a portal nonce. The portal
+    # requires it for Pro trial keys (TRIAL_PROOF_REQUIRED without it) and
+    # ignores it for paid keys in 2.0, so a challenge the server cannot give
+    # (an older license server, the challenge rate limit) does not block paid
+    # activation: the request then goes without proof.
+    proof = {}
+    try:
+        nonce = await _fetch_license_challenge(license_server_url, installation_id)
+        proof = {"nonce": nonce,
+                 "bootstrap_signature": sign_license_challenge("activate-bootstrap", request.key, installation_id, nonce)}
+    except HTTPException as exc:
+        log.warning("License activation: no challenge from the license server (%s); sending without proof of possession", exc.status_code)
+
     # v1.8.9 (codex pass 13): DNS-pinned, no env proxy.
     from core.itar import pin_for_request, ItarOutboundBlocked, should_trust_env
     try:
@@ -356,6 +369,7 @@ async def activate_license(
                         "key": request.key,
                         "installation_id": installation_id,
                         "device_pubkey": device_pubkey,
+                        **proof,
                     },
                 )
     except ItarOutboundBlocked as ite:

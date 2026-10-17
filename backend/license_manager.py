@@ -486,10 +486,21 @@ def normalize_license_upload(content: bytes) -> str:
     return license_text
 
 
-def verify_license_text(raw: str, installation_id_reader=None) -> LicenseInfo:
+def _read_existing_device_pubkey() -> Optional[str]:
+    """This installation's device public key, or None when none exists (never creates one)."""
+    if not os.path.isfile(os.path.join(LICENSE_DIR, DEVICE_PRIVATE_KEY_FILENAME)):
+        return None
+    return get_device_keypair()[1]
+
+
+TRIAL_DEVICE_MISMATCH = "This trial license was issued to a different device key. Start or activate the trial from this server."
+
+
+def verify_license_text(raw: str, installation_id_reader=None, device_pubkey_reader=None) -> LicenseInfo:
     """Verify candidate bytes using runtime rules, without installing a file."""
     info = LicenseInfo()
     installation_id_reader = installation_id_reader or _read_existing_installation_id
+    device_pubkey_reader = device_pubkey_reader or _read_existing_device_pubkey
     try:
         # License format: two base64 blocks separated by a dot
         # <base64_payload>.<base64_signature>
@@ -537,6 +548,14 @@ def verify_license_text(raw: str, installation_id_reader=None) -> LicenseInfo:
                 return info
         elif license_binding_is_required():
             info.error = "License must be bound to this installation"
+            return info
+
+        # A trial license names the device key that requested it (portal 2.0):
+        # it is valid only on the server that holds that key. Paid licenses are
+        # not device-bound in 2.0.
+        trial_device = payload.get("device_pubkey") if is_trial else None
+        if trial_device is not None and trial_device != device_pubkey_reader():
+            info.error = TRIAL_DEVICE_MISMATCH
             return info
 
         # Check expiry
