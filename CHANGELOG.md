@@ -1833,7 +1833,7 @@ Track: `conductor/tracks/codex-adversarial-remediation_20260412/`.
 ### Added
 - **Implicit org scoping** — `get_org_scope()` and `check_org_access()` helpers; printers, jobs, spools, and models list/detail endpoints filtered by org_id (superadmins bypass, NULL org_id visible to all)
 - **Upgrade UX** — `UpgradeBanner` (session-dismissible amber banner for Community tier), `UpgradeModal` (friendly limit-hit modal with pricing link), Settings tier info card with upgrade CTA
-- **Compliance docs** — FERPA compliance statement, COPPA compliance for K-12, VPAT 2.5 accessibility template (WCAG 2.1 AA)
+- **FERPA/COPPA/VPAT guidance documents** — FERPA and COPPA guidance for K-12 deployments, VPAT 2.5 accessibility template (WCAG 2.1 AA)
 - **Cloudflare Pages deploy config** — SPA routing (`_redirects`), security headers (`_headers`), deployment guide for runsodin.com
 
 ### Changed

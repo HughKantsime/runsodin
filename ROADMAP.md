@@ -285,7 +285,7 @@ Updated - see CHANGELOG for current version.
 - ~~Marketing site: Features page, Install page, updated navigation~~
 - ~~Implicit org scoping: get_org_scope/check_org_access helpers, list/detail endpoint filtering~~
 - ~~Upgrade UX: UpgradeBanner, UpgradeModal, Settings tier card with limit detection~~
-- ~~Compliance docs: FERPA, COPPA, VPAT 2.5 accessibility template~~
+- ~~FERPA/COPPA/VPAT guidance documents (VPAT 2.5 accessibility template)~~
 - ~~README rewrite: badges, features, comparison table, install guide~~
 - ~~Cloudflare Pages deploy config for runsodin.com~~
 - ~~True light mode: 150+ CSS overrides, all 15 brand variables, status color remapping, card shadows~~

@@ -26,7 +26,7 @@ If you do not agree to these terms, do not download, install, or use the Softwar
 - **"Community Tier"** means the free, limited edition of the Software (5 printers, 1 user).
 - **"Pro Tier"** means the paid commercial license at $15/month or $150/year.
 - **"Education Tier"** means the paid license at $300/year per site, designed for educational institutions.
-- **"Enterprise Tier"** means the paid license at $2,500-$5,000/year, which adds audit-log CSV export and MQTT event republishing.
+- **"Enterprise Tier"** means the paid license, priced per agreement, which adds audit-log CSV export and MQTT event republishing.
 - **"Instance"** means a single deployment of the Software on a single server or Docker host.
 - **"Vigil AI"** means the optional AI-based print failure detection system included in the Software.
 
@@ -99,7 +99,7 @@ Current pricing is published on our website. All prices are in US Dollars (USD) 
 | Community | Free |
 | Pro | $15/month or $150/year |
 | Education | $300/year per site |
-| Enterprise | $2,500-$5,000/year (contact sales) |
+| Enterprise | Quoted per agreement (contact sales) |
 
 ### 5.2 Billing Cycle
 

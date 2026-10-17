@@ -558,7 +558,7 @@
 - Bambu camera RTSP credentials never persisted to DB — generated on demand from the encrypted printer access code (v1.3.62); manually entered camera URLs with credentials are stored Fernet-encrypted
 - Printer API keys, smart-plug tokens, SMTP/MQTT passwords, OIDC client secret and API-token secrets are never returned by the API (v1.3.57); webhook URLs are returned decrypted to admins for editing
 
-### 12.4 GDPR Compliance (v1.3.0)
+### 12.4 GDPR data rights (export and anonymization) (v1.3.0)
 - Full JSON export of all user data
 - Anonymization endpoint that preserves analytics while removing PII
 
@@ -931,7 +931,7 @@ apps link out when relevant. visionOS is not currently shipped.
 | v1.3.25 | 2026-02-13 | Toast notification system, React Error Boundary, ConfirmModal, 404 page, Dashboard clickable cards, Timeline touch/auto-scroll, Models search, upload progress bar, Settings Access accordion, admin user search, AuditLogs user column, Analytics date range, Order/Spool/Camera UX improvements, modal accessibility (~15 modals) |
 | v1.3.26 | 2026-02-14 | Backend router split: main.py (11,550 lines) → 13 router modules + deps.py; CORS hardening; JWT secret fail-fast; Legal docs (ToS, Privacy Policy, Vigil disclaimer) |
 | v1.3.27 | 2026-02-14 | API versioning (/api/v1/ with /api/ backwards compat), CSP + security headers, Alembic migrations (27 tables), bulk CSV user import, education mode toggle, marketing site pages, Vision SQLAlchemy unification, UI industrial polish, "O.D.I.N." branding across 12 files |
-| v1.3.28 | 2026-02-14 | Implicit org scoping (get_org_scope helpers), UpgradeBanner/UpgradeModal, FERPA/COPPA/VPAT compliance docs, README rewrite with badges and comparison table |
+| v1.3.28 | 2026-02-14 | Implicit org scoping (get_org_scope helpers), UpgradeBanner/UpgradeModal, FERPA/COPPA/VPAT guidance documents, README rewrite with badges and comparison table |
 | v1.3.29–1.3.32 | 2026-02-15–16 | True light mode (150+ CSS overrides, all 15 brand variables), theme-aware Recharts, BrandingContext specificity fix, MutationObserver theme toggle reactivity |
 | v1.3.33–1.3.36 | 2026-02-16 | Printer command allowlist, monitor DB centralization, legal/compliance audit remediation (self-hosted fonts, MFA encryption guard, periodic session cleanup, error sanitization, GDPR export/erase UI), code smell remediation (25 bare excepts, deprecated utcnow(), dead code), frontend API consolidation (6 local API layers removed) |
 | v1.3.37–1.3.44 | 2026-02-16–17 | Doc updates, datetime mismatch fixes, Analytics styling, standardized page headers (23 pages), setup wizard fixes, JWT library migration (python-jose → PyJWT, unmaintained → maintained) |
