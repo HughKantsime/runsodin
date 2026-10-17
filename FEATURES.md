@@ -733,6 +733,7 @@
 - Pro (unlimited printers/users, all production features + usage reports)
 - Education (Pro + job approval + user groups + quotas)
 - Enterprise (Pro + MFA + IP allowlist + organizations + GDPR + compliance)
+- 14-day Pro trial: one per installation and per email; data is kept when it ends
 
 ### 20.2 License Enforcement
 - Ed25519 signed license files, verified locally (no phone home)
