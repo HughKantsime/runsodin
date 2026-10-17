@@ -236,10 +236,10 @@ def test_education_includes_pro_features(tiers):
     assert set(tiers["pro"]["license"]["features"]) < set(tiers["education"]["license"]["features"])
 
 
-def test_education_caps_are_9999_not_unlimited(tiers):
-    """Records the 'Pro +' discrepancy: Pro is unlimited (null), Education/Enterprise default to 9999."""
+def test_education_and_enterprise_are_unlimited_like_pro(tiers):
+    """O13 (Hugh, 2026-10-17): Education and Enterprise are unlimited, the same as Pro (null caps)."""
     for t in ("education", "enterprise"):
-        assert tiers[t]["license"]["max_printers"] == 9999 and tiers[t]["license"]["max_users"] == 9999
+        assert tiers[t]["license"]["max_printers"] is None and tiers[t]["license"]["max_users"] is None
         assert tiers[t]["printer_create"] == [201] * 12
 
 

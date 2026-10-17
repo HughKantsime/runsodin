@@ -27,7 +27,9 @@ def test_installation_identity_requires_live_admin_role(token_client, review_db,
     result = client.get('/license/installation-id', headers=headers)
     assert result.status_code == (200 if role == 'admin' else 403)
     if role == 'admin':
-        assert result.json() == {'installation_id':'owned-synthetic-installation'}
+        # device_fingerprint is null until this installation has a device key (it is never created here).
+        assert result.json()['installation_id'] == 'owned-synthetic-installation'
+        assert set(result.json()) == {'installation_id', 'device_fingerprint'}
         assert calls == ['owned']
     else:
         assert calls == []

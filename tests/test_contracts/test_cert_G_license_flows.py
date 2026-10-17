@@ -357,7 +357,9 @@ def test_default_license_server_url_used_by_real_route(flow):
 
 def test_configured_license_server_url_used_by_real_route(custom_url):
     assert custom_url["status"] == 200
-    assert custom_url["urls"] == ["http://localhost:18999/api/v1/activate"]
+    # 2.0: activation first fetches a challenge for the device-key proof (review round 2, L1),
+    # from the same configured license server.
+    assert custom_url["urls"] == ["http://localhost:18999/api/v1/challenge", "http://localhost:18999/api/v1/activate"]
 
 
 # ---------- F20-20.2-06 / 20.3-05 offline seat hand-over A -> B (cert-fix-G review HIGH 1) ----------

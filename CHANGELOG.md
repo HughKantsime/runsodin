@@ -22,7 +22,9 @@ All notable changes to O.D.I.N. are documented here.
 - GET /api/alerts hides dismissed alerts by default. Pass include_dismissed=true to get every alert.
 - The Calculator and model cost divide only per-bed quantities (material, electricity and machine depreciation are divided by units per bed).
 - Spoolman consumption is sent with PUT /api/v1/spool/{id}/use.
-- Terms of Service and Privacy Policy: the tier descriptions now match the license tiers (MFA, IP allowlist, organizations and GDPR data export/anonymization are included in every tier; Enterprise adds audit-log CSV export and MQTT event republishing; Education covers up to 9,999 printers and users), and the stated AMS environment data retention is 90 days.
+- Education and Enterprise licenses are unlimited (printers and users), like Pro. A license whose feature list is left blank on the portal (`features: null`) gets the tier's default features, including the Education workflows for Education and Enterprise.
+- The 14-day Pro trial starts in Settings > License: ODIN signs the trial request with the installation's device key (online, or as a request code to paste on the license portal); the portal emails a confirmation link and shows the trial key once.
+- Terms of Service and Privacy Policy: the tier descriptions now match the license tiers (MFA, IP allowlist, organizations and GDPR data export/anonymization are included in every tier; Enterprise adds audit-log CSV export and MQTT event republishing; Education and Enterprise have unlimited printers and users, like Pro), and the stated AMS environment data retention is 90 days.
 - Bambu X1C/X1E/H2D built-in cameras (camera URL derived from the access code) are vision-monitored by default, up to vision_settings.max_threads concurrent printers (default 16; adjustable in Settings > Vigil AI).
 - Timelapse captures recorded as 'shared' before migration 033 have no stored capture-time tenancy fact. Once any organization exists on the install, those timelapses are visible to administrators only (fail closed). Installs with no organizations are unaffected.
 
@@ -38,6 +40,7 @@ All notable changes to O.D.I.N. are documented here.
 - PostgreSQL backups taken by 1.9.x releases (025-, 026- and 027-era archives) are validated and imported into a fresh staging database by a frozen copy of the restore sources, then upgraded to the current schema before the restore is applied. Archives from unreleased builds between releases are refused with a clear message.
 - Docker secret ownership (docker-compose.enterprise.yml): the app's mounted PostgreSQL password secrets must be owned by uid/gid 10001 (the odin user) with mode 0400. The PostgreSQL restore coordinator runs as odin and refuses credentials it does not own. If you maintain your own compose file, set uid/gid 10001 on the app service's secrets.
 - A staged restore that fails before the target database is touched is moved aside with a failed_restore_<timestamp>.json report, and startup continues on the untouched database instead of restarting in a loop.
+- Pro trial keys need O.D.I.N. 2.0. The trial is started from Settings > License in 2.0, and activating a trial key online requires proof of the 2.0 device key, so a 1.9.x server can neither start a trial nor activate a trial key online. No trial keys exist from before 2.0. Paid keys activate on 1.9.x and 2.0 as before.
 
 ## [Unreleased] - Whole-app certification repairs
 

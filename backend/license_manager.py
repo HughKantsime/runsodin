@@ -12,6 +12,7 @@ import json
 import base64
 import hashlib
 import os
+import re
 import uuid
 import tempfile
 from datetime import datetime, date, time as datetime_time, timezone
@@ -58,8 +59,8 @@ TIERS = {
     },
     "education": {
         "name": "Education",
-        "max_printers": 9999,
-        "max_users": 9999,
+        "max_printers": None,
+        "max_users": None,
         "features": [
             "multi_user", "rbac", "sso", "white_label",
             "permissions", "branding",
@@ -73,8 +74,8 @@ TIERS = {
     },
     "enterprise": {
         "name": "Enterprise",
-        "max_printers": 9999,
-        "max_users": 9999,
+        "max_printers": None,
+        "max_users": None,
         "features": [
             "multi_user", "rbac", "sso", "white_label",
             "permissions", "branding",
@@ -194,6 +195,77 @@ def sign_license_challenge(action: str, key: str, installation_id: str, nonce: s
     message = f"odin-license-v1\n{action}\n{key}\n{installation_id}\n{nonce}".encode("utf-8")
     sig = priv.sign(message)
     return base64.b64encode(sig).decode("ascii")
+
+
+# ── Pro trial request (signed with the device key) ──
+# The trial starts inside ODIN: the request is signed with the same device key
+# that activation binds, so the portal can key one-trial-per-installation on
+# something a stranger cannot claim. Canonical message (api/_lib/trial.js
+# trialRequestMessage on the portal must match):
+#   odin-trial-request-v1\n{installation_id}\n{device_pubkey}\n{email}\n{nonce}\n{issued_at}
+TRIAL_REQUEST_VERSION = 1
+TRIAL_REQUEST_CODE_PREFIX = "ODINTRIAL1."
+TRIAL_REQUEST_MAX_AGE_MINUTES = 15
+_EMAIL_LOCAL = r"[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*"
+_EMAIL_LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+_TRIAL_EMAIL_RE = re.compile(rf"^{_EMAIL_LOCAL}@{_EMAIL_LABEL}(?:\.{_EMAIL_LABEL})+$")
+
+
+def validate_trial_email(email: str) -> str:
+    """Exactly one addr-spec (no display name, list, quotes or trailing dot). Returns it trimmed."""
+    if not isinstance(email, str):
+        raise ValueError("A valid email address is required.")
+    value = email.strip()
+    if not value or len(value) > 254 or not _TRIAL_EMAIL_RE.fullmatch(value):
+        raise ValueError("A valid email address is required.")
+    return value
+
+
+def device_fingerprint(public_key_b64: Optional[str] = None) -> Optional[str]:
+    """SHA-256 (hex) of the raw device public key: the portal's one-trial key.
+
+    Without an argument it reads this installation's device key, and returns
+    None when no device key exists yet (it never creates one).
+    """
+    if public_key_b64 is None:
+        if not os.path.isfile(os.path.join(LICENSE_DIR, DEVICE_PRIVATE_KEY_FILENAME)):
+            return None
+        public_key_b64 = get_device_keypair()[1]
+    return hashlib.sha256(base64.b64decode(public_key_b64)).hexdigest()
+
+
+def short_fingerprint(fingerprint: str) -> str:
+    """The first 16 hex digits in groups of four, as the portal's email and confirm page show it."""
+    head = fingerprint[:16]
+    return " ".join(head[i:i + 4] for i in range(0, 16, 4))
+
+
+def trial_request_message(request: Dict[str, Any]) -> bytes:
+    return "\n".join([
+        "odin-trial-request-v1", request["installation_id"], request["device_pubkey"],
+        request["email"], request["nonce"], request["issued_at"],
+    ]).encode("utf-8")
+
+
+def build_trial_request(email: str) -> Dict[str, Any]:
+    """A Pro trial request for this installation, signed with its device key."""
+    request = {
+        "v": TRIAL_REQUEST_VERSION,
+        "installation_id": get_installation_id(),
+        "device_pubkey": get_device_keypair()[1],
+        "email": validate_trial_email(email),
+        "nonce": base64.urlsafe_b64encode(os.urandom(18)).decode("ascii").rstrip("="),
+        "issued_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    priv, _pub = get_device_keypair()
+    request["signature"] = base64.b64encode(priv.sign(trial_request_message(request))).decode("ascii")
+    return request
+
+
+def trial_request_code(request: Dict[str, Any]) -> str:
+    """The offline form of a trial request: pasted on the portal's trial page."""
+    raw = json.dumps(request, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    return TRIAL_REQUEST_CODE_PREFIX + base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 
 
 class LicenseInfo:
@@ -414,10 +486,21 @@ def normalize_license_upload(content: bytes) -> str:
     return license_text
 
 
-def verify_license_text(raw: str, installation_id_reader=None) -> LicenseInfo:
+def _read_existing_device_pubkey() -> Optional[str]:
+    """This installation's device public key, or None when none exists (never creates one)."""
+    if not os.path.isfile(os.path.join(LICENSE_DIR, DEVICE_PRIVATE_KEY_FILENAME)):
+        return None
+    return get_device_keypair()[1]
+
+
+TRIAL_DEVICE_MISMATCH = "This trial license was issued to a different device key. Start or activate the trial from this server."
+
+
+def verify_license_text(raw: str, installation_id_reader=None, device_pubkey_reader=None) -> LicenseInfo:
     """Verify candidate bytes using runtime rules, without installing a file."""
     info = LicenseInfo()
     installation_id_reader = installation_id_reader or _read_existing_installation_id
+    device_pubkey_reader = device_pubkey_reader or _read_existing_device_pubkey
     try:
         # License format: two base64 blocks separated by a dot
         # <base64_payload>.<base64_signature>
@@ -465,6 +548,14 @@ def verify_license_text(raw: str, installation_id_reader=None) -> LicenseInfo:
                 return info
         elif license_binding_is_required():
             info.error = "License must be bound to this installation"
+            return info
+
+        # A trial license names the device key that requested it (portal 2.0):
+        # it is valid only on the server that holds that key. Paid licenses are
+        # not device-bound in 2.0.
+        trial_device = payload.get("device_pubkey") if is_trial else None
+        if trial_device is not None and trial_device != device_pubkey_reader():
+            info.error = TRIAL_DEVICE_MISMATCH
             return info
 
         # Check expiry
@@ -517,11 +608,10 @@ def verify_license_text(raw: str, installation_id_reader=None) -> LicenseInfo:
         if payload_features is not None:
             info.features = payload_features
         else:
-            info.features = [
-                feature
-                for feature in tier_def["features"]
-                if feature != "education_workflows"
-            ]
+            # null (the portal's blank feature list) means the tier's default
+            # features, education_workflows included for Education/Enterprise.
+            # An explicit list must still name education_workflows.
+            info.features = list(tier_def["features"])
         info.expired = False
 
         return info

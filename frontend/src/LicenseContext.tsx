@@ -5,6 +5,8 @@ import type { PublicLicense } from './types/user'
 
 interface LicenseState {
   tier: string;
+  /** False for no license and for an ended or expired one (tier still names the lapsed tier). */
+  valid: boolean;
   licensee: string | null;
   expires: string | null;
   max_printers: PublicLicense['max_printers'];
@@ -29,7 +31,7 @@ interface LicenseContextValue extends LicenseState {
   maxUsers: PublicLicense['max_users'];
 }
 const LicenseContext = createContext<LicenseContextValue>({
-  tier: 'community', licensee: null, expires: null,
+  tier: 'community', valid: false, licensee: null, expires: null,
   max_printers: 5, max_users: 1, installation_id: null, features: [],
   managed_externally: false, loading: true, loadError: false,
   isPro: false, isEducation: false, isEnterprise: false,
@@ -52,7 +54,7 @@ export const PRO_SETTINGS_TABS = ['sso', 'webhooks', 'smtp']
 
 export function LicenseProvider({ children }: { children: ReactNode }) {
   const [license, setLicense] = useState<LicenseState>({
-    tier: 'community', licensee: null, expires: null, max_printers: 5, max_users: 1,
+    tier: 'community', valid: false, licensee: null, expires: null, max_printers: 5, max_users: 1,
     installation_id: null, features: [], managed_externally: false, loading: true, loadError: false,
   })
 
@@ -61,6 +63,7 @@ export function LicenseProvider({ children }: { children: ReactNode }) {
       const data = await licenseAPI.get()
       setLicense({
         tier: data.tier || 'community',
+        valid: data.valid === true,
         licensee: null,
         expires: data.expires_at || null,
         max_printers: data.max_printers === undefined ? 5 : data.max_printers,
@@ -73,7 +76,7 @@ export function LicenseProvider({ children }: { children: ReactNode }) {
       })
     } catch {
       setLicense({
-        tier: 'community', licensee: null, expires: null, max_printers: 5, max_users: 1,
+        tier: 'community', valid: false, licensee: null, expires: null, max_printers: 5, max_users: 1,
         installation_id: null, features: [], managed_externally: false, loading: false, loadError: true,
       })
     }
@@ -81,9 +84,10 @@ export function LicenseProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => { fetchLicense() }, [])
 
-  const isPro = ['pro', 'education', 'enterprise'].includes(license.tier)
-  const isEducation = ['education', 'enterprise'].includes(license.tier)
-  const isEnterprise = license.tier === 'enterprise'
+  // An ended trial or expired license keeps its tier name but grants nothing (O5).
+  const isPro = license.valid && ['pro', 'education', 'enterprise'].includes(license.tier)
+  const isEducation = license.valid && ['education', 'enterprise'].includes(license.tier)
+  const isEnterprise = license.valid && license.tier === 'enterprise'
   const effectiveFeatures = featuresFromLicense(license.features)
   const hasFeature = (feature: string) => effectiveFeatures.has(feature)
 

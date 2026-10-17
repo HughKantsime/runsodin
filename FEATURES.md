@@ -744,8 +744,8 @@
 ### 20.1 License Tiers
 - Community (free, 5 printers, 1 user; browser push notifications included)
 - Pro (unlimited printers/users, all production features + usage reports)
-- Education (Pro features + job approval + user groups + quotas; up to 9,999 printers and users)
-- Enterprise (Education features + audit-log CSV export and MQTT event republishing; up to 9,999 printers and users). MFA, IP allowlist, organizations and GDPR export are included in every tier, including Community.
+- Education (Pro features + job approval + user groups + quotas; unlimited printers and users)
+- Enterprise (Education features + audit-log CSV export and MQTT event republishing; unlimited printers and users). MFA, IP allowlist, organizations and GDPR export are included in every tier, including Community.
 
 ### 20.2 License Enforcement
 - Ed25519 signed license files, verified locally (no phone home)

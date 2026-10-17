@@ -267,8 +267,15 @@ def remove_license(
 
 @router.get("/license/installation-id", tags=["License"])
 def get_license_installation_id(current_user: dict = Depends(require_role("admin"))):
-    """Return the installation ID for this ODIN instance to an administrator."""
-    return {"installation_id": get_installation_id()}
+    """Return the installation ID (and, once it exists, the short device-key fingerprint) to an administrator.
+
+    The portal's trial confirmation email and page show the same two values,
+    so an admin can check that a trial link belongs to this server.
+    """
+    import license_manager as _lm
+    fingerprint = _lm.device_fingerprint()
+    return {"installation_id": get_installation_id(),
+            "device_fingerprint": _lm.short_fingerprint(fingerprint) if fingerprint else None}
 
 
 class LicenseActivateRequest(PydanticBaseModel):
@@ -307,8 +314,12 @@ async def _fetch_license_challenge(license_server_url: str, installation_id: str
         raise HTTPException(status_code=502, detail="Could not reach license server.")
     if resp.status_code != 200:
         raise HTTPException(status_code=resp.status_code, detail="Could not get license challenge.")
-    nonce = resp.json().get("nonce")
-    if not nonce:
+    try:
+        answer = resp.json()
+    except Exception:
+        answer = None
+    nonce = answer.get("nonce") if isinstance(answer, dict) else None
+    if not isinstance(nonce, str) or not nonce:
         raise HTTPException(status_code=502, detail="License server returned no nonce.")
     return nonce
 
@@ -332,6 +343,20 @@ async def activate_license(
     # pair can't succeed — they don't hold the private key.
     _priv, device_pubkey = get_device_keypair()
 
+    # Proof of possession of the device key over a portal nonce. The portal
+    # requires it for Pro trial keys (TRIAL_PROOF_REQUIRED without it) and
+    # ignores it for paid keys in 2.0, so a challenge the server cannot give
+    # (an older license server, the challenge rate limit) does not block paid
+    # activation: the request then goes without proof.
+    proof = {}
+    try:
+        nonce = await _fetch_license_challenge(license_server_url, installation_id)
+        proof = {"nonce": nonce,
+                 "bootstrap_signature": sign_license_challenge("activate-bootstrap", request.key, installation_id, nonce)}
+    except Exception as exc:  # any challenge failure means "no proof available"
+        log.warning("License activation: no usable challenge from the license server (%s); sending without proof of possession",
+                    getattr(exc, "status_code", type(exc).__name__))
+
     # v1.8.9 (codex pass 13): DNS-pinned, no env proxy.
     from core.itar import pin_for_request, ItarOutboundBlocked, should_trust_env
     try:
@@ -343,6 +368,7 @@ async def activate_license(
                         "key": request.key,
                         "installation_id": installation_id,
                         "device_pubkey": device_pubkey,
+                        **proof,
                     },
                 )
     except ItarOutboundBlocked as ite:
@@ -367,6 +393,70 @@ async def activate_license(
         "licensee": license_info.licensee, "expires_at": license_info.expires_at,
         "installation_id": installation_id,
     }
+
+
+class TrialRequestBody(PydanticBaseModel):
+    email: str
+    offline: bool = False
+
+
+@router.post("/license/trial-request", tags=["License"])
+async def request_pro_trial(
+    body: TrialRequestBody,
+    current_user: dict = Depends(require_superadmin(scope="write")),
+    license_mutation_allowed: None = Depends(require_license_mutation_enabled),
+):
+    """Start a 14-day Pro trial from inside ODIN. Superadmin only.
+
+    Builds a trial request signed with this installation's device key (the
+    key activation binds) for the admin's email. Online it is POSTed to the
+    licensing server, which emails a confirmation link; offline it is
+    returned as a request code to paste on the portal's trial page (valid
+    for 15 minutes). The key itself is shown once on the portal after the
+    email is confirmed and is activated here like any key.
+    """
+    import license_manager as _lm
+    if get_license().valid:
+        raise HTTPException(status_code=409, detail="This server already has a valid license.")
+    try:
+        trial_request = _lm.build_trial_request(body.email)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    # What the confirmation email and page will show: the admin checks them against these.
+    identity = {"installation_id": trial_request["installation_id"],
+                "device_fingerprint": _lm.short_fingerprint(_lm.device_fingerprint(trial_request["device_pubkey"]))}
+    if body.offline:
+        return {"request_code": _lm.trial_request_code(trial_request),
+                "expires_in_minutes": _lm.TRIAL_REQUEST_MAX_AGE_MINUTES, **identity}
+
+    license_server_url = settings.license_server_url
+    if license_server_url.startswith("http://") and not license_server_url.startswith("http://localhost") and not license_server_url.startswith("http://127."):
+        license_server_url = "https://" + license_server_url[7:]
+    from core.itar import pin_for_request, ItarOutboundBlocked, should_trust_env
+    try:
+        with pin_for_request(license_server_url):
+            async with httpx.AsyncClient(timeout=15, trust_env=should_trust_env()) as client:
+                resp = await client.post(f"{license_server_url}/api/v1/trial", json={"request": trial_request})
+    except ItarOutboundBlocked as ite:
+        raise HTTPException(status_code=502, detail=f"License server blocked by ITAR: {ite}")
+    except Exception as e:
+        log.error("Trial request failed — could not reach license server: %s", type(e).__name__)
+        raise HTTPException(status_code=502, detail="Could not reach the license server. Use the request code instead.")
+    try:
+        answer = resp.json()
+    except Exception:
+        answer = None
+    if not isinstance(answer, dict):
+        raise HTTPException(status_code=502, detail={"message": f"The license server sent an unreadable answer ({resp.status_code}).",
+                                                     "portal_status": resp.status_code, "portal_code": None})
+    if resp.status_code == 202 and answer.get("status") == "request_received":
+        return {"status": "request_sent", **identity}
+    portal_code = answer.get("code") if isinstance(answer.get("code"), str) else None
+    message = answer.get("error") if isinstance(answer.get("error"), str) else "The license server refused the trial request."
+    # 401/403 from the portal concern this server's signed request, not the
+    # admin's session: never pass them through (the UI would sign the admin out).
+    status = resp.status_code if resp.status_code in (400, 409, 429, 503) else 502
+    raise HTTPException(status_code=status, detail={"message": message, "portal_status": resp.status_code, "portal_code": portal_code})
 
 
 class OfflineActivationRequestBody(PydanticBaseModel):

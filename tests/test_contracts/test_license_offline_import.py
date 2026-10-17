@@ -200,7 +200,9 @@ def test_portal_null_feature_list_means_tier_default(owned_import, tier):
     assert result['status']=='activated' and result['tier']==tier
     info=lm.load_license()
     assert info.valid and info.error is None
-    assert info.to_dict()['features']==sorted(set(lm.TIERS[tier]['features'])-{'education_workflows'})
+    # O14: null means the tier defaults, education_workflows included for Education/Enterprise.
+    assert info.to_dict()['features']==sorted(lm.TIERS[tier]['features'])
+    assert info.has_feature('education_workflows') is (tier in ('education', 'enterprise'))
     assert info.has_feature('usage_reports')
 
 
