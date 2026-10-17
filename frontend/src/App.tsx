@@ -157,7 +157,7 @@ export default function App() {
           <ErrorBoundary>
           <Routes>
             <Route path="/" element={<Dashboard />} />
-            <Route path="/timeline" element={<Timeline />} />
+            <Route path="/timeline" element={<RoleGate page="timeline"><Timeline /></RoleGate>} />
             <Route path="/jobs" element={<Jobs />} />
             <Route path="/printers" element={<Printers />} />
             <Route path="/printers/:id" element={<PrinterDetail />} />
