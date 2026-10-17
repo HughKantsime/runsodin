@@ -57,7 +57,7 @@ def test_read_handler_has_stacked_auth(handler: str, path: Path):
     src = _get_function_source(path.read_text(), handler)
     assert src, f"{handler} missing from {path.name}"
 
-    assert re.search(r'require_role\(\s*["\']viewer["\']\s*\)', src), (
+    assert re.search(r'(?:require_action\(\s*["\'][a-z_]+\.[a-z_]+["\'][^)]*\)|require_role\(\s*["\']viewer["\']\s*\))', src), (
         f"{handler} in {path.name} must keep require_role('viewer') as JWT floor."
     )
     assert re.search(

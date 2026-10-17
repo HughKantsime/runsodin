@@ -35,7 +35,7 @@ def _get_function_source(source: str, name: str) -> str:
 def _check_canonical_write_pattern(fn_src: str, handler_name: str):
     """Shared per-route assertions for Phase 2 agent-advertised writes."""
     # Stacked auth.
-    assert re.search(r'require_role\(\s*["\'](?:viewer|operator)["\']\s*\)', fn_src), (
+    assert re.search(r'(?:require_action\(\s*["\'][a-z_]+\.[a-z_]+["\'][^)]*\)|require_role\(\s*["\'](?:viewer|operator)["\']\s*\))', fn_src), (
         f"{handler_name} must keep require_role as the JWT floor."
     )
     assert re.search(

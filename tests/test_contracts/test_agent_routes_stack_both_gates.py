@@ -68,7 +68,7 @@ def test_every_agent_route_has_require_role():
         if not src:
             missing.append(f"  {kind:5s} {handler}: handler not found in {path.name}")
             continue
-        if not re.search(r'require_role\(\s*["\'](?:viewer|operator|admin)["\']\s*\)', src):
+        if not re.search(r'(?:require_action\(\s*["\'][a-z_]+\.[a-z_]+["\'][^)]*\)|require_role\(\s*["\'](?:viewer|operator|admin)["\']\s*\))', src):
             missing.append(
                 f"  {kind:5s} {handler} ({path.name}): no require_role — "
                 "viewer JWTs will bypass auth."

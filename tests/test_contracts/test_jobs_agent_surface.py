@@ -41,7 +41,7 @@ def _get_function_source(source: str, name: str) -> str:
 def _assert_canonical_write(fn_src: str, handler: str):
     """Shared assertions for Phase 2 agent-advertised writes."""
     # Role floor (viewer OK for queue_job since it can submit-for-approval; operator for others).
-    assert re.search(r'require_role\(\s*["\'](?:viewer|operator)["\']\s*\)', fn_src), (
+    assert re.search(r'(?:require_action\(\s*["\'][a-z_]+\.[a-z_]+["\'][^)]*\)|require_role\(\s*["\'](?:viewer|operator)["\']\s*\))', fn_src), (
         f"{handler}: require_role(viewer|operator) missing (JWT floor)."
     )
     # Agent-write scope gate.

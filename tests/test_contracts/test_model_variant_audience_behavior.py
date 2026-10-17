@@ -59,7 +59,8 @@ def test_operation_path_alias_protects_generic_variant_delete_in_every_state(var
  headers=issue(['write:models'])
  review_db.execute(text('UPDATE api_tokens SET user_id=:uid WHERE id=(SELECT MAX(id) FROM api_tokens)'),{'uid':user_id});review_db.commit()
  response=client.delete('/models/101/variants/201',headers=headers)
- assert response.status_code==404,response.text
+ # models.delete is admin-only by default: the operator is refused before the alias check; the admin gets 404
+ assert response.status_code==(403 if user_id==2 else 404),response.text
  assert review_db.execute(text('SELECT COUNT(*) FROM print_files WHERE id=201')).scalar_one()==1
  assert review_db.execute(text("SELECT final_path FROM education_upload_operations WHERE operation_id='synthetic-variant-alias'")).scalar_one()=='/opaque/variant-201.3mf'
 
