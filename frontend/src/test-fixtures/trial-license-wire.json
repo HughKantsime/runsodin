@@ -1,0 +1,72 @@
+{
+  "scope": "Actual HTTP bodies from tests/test_contracts/test_trial_license.py probes (real app, signed trial licenses)",
+  "volatile_fields": [
+    "license_sha256",
+    "expires_at",
+    "issued_at"
+  ],
+  "active_license": {
+    "valid": true,
+    "tier": "pro",
+    "tier_name": "Pro",
+    "issued_at": "2026-01-01",
+    "expires_at": "2026-10-31T00:07:32.839434+00:00",
+    "expired": false,
+    "trial": true,
+    "trial_days_left": 14,
+    "max_printers": null,
+    "max_users": null,
+    "features": [
+      "analytics",
+      "bom",
+      "branding",
+      "care_counters",
+      "cost_calculator",
+      "csv_export",
+      "email_notifications",
+      "maintenance",
+      "multi_user",
+      "orders",
+      "permissions",
+      "products",
+      "push_notifications",
+      "rbac",
+      "sso",
+      "usage_reports",
+      "webhooks",
+      "white_label"
+    ],
+    "managed_externally": false,
+    "binding_present": false,
+    "binding_matches_current": false,
+    "license_sha256": "1f09f5eea0707e6bc89d8870b573ad1ffef6358971dbecda07f1f9f70882d2cc"
+  },
+  "ended_license": {
+    "valid": false,
+    "tier": "pro",
+    "tier_name": "Pro",
+    "issued_at": "",
+    "expires_at": "2026-10-17T00:07:45.295977+00:00",
+    "expired": true,
+    "trial": true,
+    "trial_days_left": 0,
+    "max_printers": 5,
+    "max_users": 1,
+    "features": [],
+    "managed_externally": false,
+    "binding_present": false,
+    "binding_matches_current": false,
+    "license_sha256": "b5323724dfe2e4a06373d650bd9f921e9df2eb4c516faf55c68f2bdea08f82bd"
+  },
+  "trial_ending_notice": {
+    "kind": "license_trial_ending",
+    "severity": "warning",
+    "title": "Pro trial ends in 3 days",
+    "message": "When it ends, Pro features stop accepting new or changed records and your data is kept. Activate a paid license key in Settings > License to keep Pro.",
+    "link": "/settings?tab=license",
+    "buy_url": "https://runsodin.com/pricing",
+    "expires_at": "2026-10-19T12:07:36.195609+00:00",
+    "days_left": 3,
+    "dismissible": true
+  }
+}
