@@ -13,6 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 
+from core.spoolman_settings import get_spoolman_url, set_spoolman_url, managed_by_environment
 from core.db import get_db
 from core.schema import schema_fingerprint, validate_schema
 from core.schema.bootstrap import import_all_models
@@ -57,13 +58,14 @@ async def version():
 async def health_check():
     """Check API health and connectivity."""
     spoolman_ok = False
-    if settings.spoolman_url:
+    spoolman_url = get_spoolman_url()
+    if spoolman_url:
         try:
             # v1.8.9 (codex pass 13): DNS-pinned + trust_env=should_trust_env().
             from core.itar import pin_for_request, should_trust_env
-            with pin_for_request(settings.spoolman_url):
+            with pin_for_request(spoolman_url):
                 async with httpx.AsyncClient(trust_env=should_trust_env()) as client:
-                    resp = await client.get(f"{settings.spoolman_url}/api/v1/health", timeout=5)
+                    resp = await client.get(f"{spoolman_url}/api/v1/health", timeout=5)
                     spoolman_ok = resp.status_code == 200
         except Exception as e:
             log.debug(f"Spoolman health check failed: {e}")
@@ -593,16 +595,14 @@ def get_unactivation_request(
 
 # ============== Config ==============
 
-ALLOWED_CONFIG_KEYS = {'SPOOLMAN_URL', 'BLACKOUT_START', 'BLACKOUT_END'}
-
-
 @router.get("/config", tags=["Config"])
 def get_config(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get current configuration."""
     from core.scheduler_settings import get_blackout
     blackout_start, blackout_end = get_blackout(db)
     return {
-        "spoolman_url": settings.spoolman_url,
+        "spoolman_url": get_spoolman_url(db) or None,
+        "spoolman_url_from_env": managed_by_environment(),
         "blackout_start": blackout_start,
         "blackout_end": blackout_end,
     }
@@ -610,48 +610,26 @@ def get_config(current_user: dict = Depends(require_role("viewer")), db: Session
 
 @router.put("/config", tags=["Config"])
 def update_config(config: ConfigUpdate, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
-    """Update configuration. The Spoolman URL is written to the .env file; blackout hours to the database."""
-    env_path = os.environ.get('ENV_FILE_PATH', '/data/.env')
-    env_vars = {}
-    try:
-        with open(env_path, 'r') as f:
-            for line in f:
-                if '=' in line:
-                    key, val = line.strip().split('=', 1)
-                    env_vars[key] = val
-    except FileNotFoundError:
-        pass
-
+    """Update configuration. Saved in the database and applied at once
+    (Spoolman URL: core.spoolman_settings; blackout hours: core.scheduler_settings)."""
     if config.spoolman_url is not None:
-        env_vars['SPOOLMAN_URL'] = config.spoolman_url
-    # Blackout hours are saved in the database and apply to the next scheduler run.
+        if managed_by_environment():
+            raise HTTPException(status_code=409, detail="The Spoolman URL is set by the SPOOLMAN_URL environment variable; change it there.")
+        set_spoolman_url(db, config.spoolman_url)
     if config.blackout_start is not None or config.blackout_end is not None:
         from core.scheduler_settings import set_blackout
         set_blackout(db, config.blackout_start, config.blackout_end)
 
-    import tempfile
-    dir_path = os.path.dirname(env_path) or '.'
-    try:
-        fd, tmp_path = tempfile.mkstemp(dir=dir_path, suffix='.env.tmp')
-        with os.fdopen(fd, 'w') as f:
-            for key, val in env_vars.items():
-                f.write(f"{key}={val}\n")
-        os.replace(tmp_path, env_path)
-    except Exception:
-        if 'tmp_path' in dir() and os.path.exists(tmp_path):
-            os.unlink(tmp_path)
-        raise
-
     log_audit(db, "config.updated", "system", details={"keys": [k for k in ["spoolman_url", "blackout_start", "blackout_end"] if getattr(config, k) is not None]})
     db.commit()
-    message = "Config updated. Restart backend to apply the Spoolman URL." if config.spoolman_url is not None else "Config updated."
-    return {"success": True, "message": message}
+    return {"success": True, "message": "Config updated."}
 
 
 @router.get("/spoolman/test", tags=["Spoolman"])
-async def test_spoolman_connection(current_user: dict = Depends(require_superadmin())):
+async def test_spoolman_connection(current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Test Spoolman connection. Admin only."""
-    if not settings.spoolman_url:
+    spoolman_url = get_spoolman_url(db)
+    if not spoolman_url:
         return {"success": False, "message": "Spoolman URL not configured"}
     # v1.8.9 (codex pass 15): ITAR guard on the admin test-button.
     # Without this, superadmins could trigger outbound to a public
@@ -659,11 +637,11 @@ async def test_spoolman_connection(current_user: dict = Depends(require_superadm
     # trivially bypassing the air-gap contract via an ad-hoc button.
     from core.itar import pin_for_request, should_trust_env, ItarOutboundBlocked
     try:
-        with pin_for_request(settings.spoolman_url):
+        with pin_for_request(spoolman_url):
             async with httpx.AsyncClient(trust_env=should_trust_env()) as client:
-                resp = await client.get(f"{settings.spoolman_url}/api/v1/health", timeout=5)
+                resp = await client.get(f"{spoolman_url}/api/v1/health", timeout=5)
                 if resp.status_code == 200:
-                    return {"success": True, "message": f"Connected to Spoolman at {settings.spoolman_url}"}
+                    return {"success": True, "message": f"Connected to Spoolman at {spoolman_url}"}
                 else:
                     return {"success": False, "message": f"Spoolman returned status {resp.status_code}"}
     except ItarOutboundBlocked as ite:

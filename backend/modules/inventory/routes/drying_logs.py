@@ -6,6 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from core.spoolman_settings import get_spoolman_url
 from core.db import get_db
 from core.rbac import require_role
 from modules.inventory.models import FilamentLibrary, Spool
@@ -80,12 +81,13 @@ async def get_combined_filaments(current_user: dict = Depends(require_role("view
 
     result = []
 
-    if settings.spoolman_url:
+    spoolman_url = get_spoolman_url(db)
+    if spoolman_url:
         try:
             from core.itar import pin_for_request, should_trust_env
-            with pin_for_request(settings.spoolman_url):
+            with pin_for_request(spoolman_url):
                 async with httpx.AsyncClient(trust_env=should_trust_env()) as client:
-                    resp = await client.get(f"{settings.spoolman_url}/api/v1/spool", timeout=5)
+                    resp = await client.get(f"{spoolman_url}/api/v1/spool", timeout=5)
                     if resp.status_code == 200:
                         spools = resp.json()
                         for spool in spools:

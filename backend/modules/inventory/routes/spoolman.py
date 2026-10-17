@@ -13,6 +13,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from core.spoolman_settings import get_spoolman_url
 from core.db import get_db
 from core.config import settings
 from core.rbac import require_role
@@ -25,16 +26,17 @@ router = APIRouter(prefix="/spoolman", tags=["Spoolman"])
 @router.post("/sync", response_model=SpoolmanSyncResult, tags=["Spoolman"])
 async def sync_spoolman(current_user: dict = Depends(require_role("operator", scope="write:spools")), db: Session = Depends(get_db)):
     """Sync filament data from Spoolman."""
-    if not settings.spoolman_url:
+    spoolman_url = get_spoolman_url(db)
+    if not spoolman_url:
         raise HTTPException(status_code=400, detail="Spoolman URL not configured")
 
     try:
         # v1.8.9 (codex pass 13): DNS-pinned + trust_env=should_trust_env().
         from core.itar import pin_for_request, ItarOutboundBlocked, should_trust_env
         try:
-            with pin_for_request(settings.spoolman_url):
+            with pin_for_request(spoolman_url):
                 async with httpx.AsyncClient(trust_env=should_trust_env()) as client:
-                    resp = await client.get(f"{settings.spoolman_url}/api/v1/spool", timeout=10)
+                    resp = await client.get(f"{spoolman_url}/api/v1/spool", timeout=10)
                     resp.raise_for_status()
                     spools = resp.json()
         except ItarOutboundBlocked as ite:
@@ -54,17 +56,18 @@ async def sync_spoolman(current_user: dict = Depends(require_role("operator", sc
 
 
 @router.get("/spools", response_model=List[SpoolmanSpool], tags=["Spoolman"])
-async def list_spoolman_spools(current_user: dict = Depends(require_role("viewer", scope="read:spools"))):
+async def list_spoolman_spools(current_user: dict = Depends(require_role("viewer", scope="read:spools")), db: Session = Depends(get_db)):
     """List available spools from Spoolman."""
-    if not settings.spoolman_url:
+    spoolman_url = get_spoolman_url(db)
+    if not spoolman_url:
         raise HTTPException(status_code=400, detail="Spoolman URL not configured")
 
     try:
         from core.itar import pin_for_request, ItarOutboundBlocked, should_trust_env
         try:
-            with pin_for_request(settings.spoolman_url):
+            with pin_for_request(spoolman_url):
                 async with httpx.AsyncClient(trust_env=should_trust_env()) as client:
-                    resp = await client.get(f"{settings.spoolman_url}/api/v1/spool", timeout=10)
+                    resp = await client.get(f"{spoolman_url}/api/v1/spool", timeout=10)
                     resp.raise_for_status()
                     spools_data = resp.json()
         except ItarOutboundBlocked as ite:
@@ -90,14 +93,15 @@ async def list_spoolman_spools(current_user: dict = Depends(require_role("viewer
 
 
 @router.get("/filaments", tags=["Spoolman"])
-async def get_spoolman_filaments(current_user: dict = Depends(require_role("viewer", scope="read:spools"))):
+async def get_spoolman_filaments(current_user: dict = Depends(require_role("viewer", scope="read:spools")), db: Session = Depends(get_db)):
     """Fetch all filament types from Spoolman."""
+    spoolman_url = get_spoolman_url(db)
     try:
         from core.itar import pin_for_request, ItarOutboundBlocked, should_trust_env
         try:
-            with pin_for_request(settings.spoolman_url or ""):
+            with pin_for_request(spoolman_url):
                 async with httpx.AsyncClient(trust_env=should_trust_env()) as client:
-                    response = await client.get(f"{settings.spoolman_url}/api/v1/filament", timeout=10.0)
+                    response = await client.get(f"{spoolman_url}/api/v1/filament", timeout=10.0)
                     response.raise_for_status()
                     return response.json()
         except ItarOutboundBlocked as ite:

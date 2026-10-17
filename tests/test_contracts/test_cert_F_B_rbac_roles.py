@@ -165,7 +165,7 @@ def admin_operations(o):
         ("users", "POST", "/api/users", {"username": "admin_made", "email": "admin_made@example.test", "password": strong_password(), "role": "viewer"},
          lambda: o.one("SELECT role FROM users WHERE username='admin_made'") is not None),
         ("settings", "PUT", "/api/config", {"spoolman_url": "http://192.0.2.77:7912"},
-         lambda: "192.0.2.77" in (o.dir / "odin.env").read_text()),
+         lambda: o.get("/api/config", headers=o.admin_bearer).json()["spoolman_url"] == "http://192.0.2.77:7912"),
         ("settings", "PUT", "/api/config/require-mfa", {"require_mfa": False}, lambda: True),
         ("branding", "PUT", "/api/branding", {"app_name": "Cert B Brand"},
          lambda: o.get("/api/branding").json()["app_name"] == "Cert B Brand"),

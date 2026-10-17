@@ -7,6 +7,7 @@ Called from printer_events.job_completed().
 
 import logging
 
+from core.spoolman_settings import get_spoolman_url
 from core.db_compat import sql
 # Resolved at call time: never a stale get_db bound at import.
 from core.db_live import live_get_db as get_db
@@ -172,8 +173,9 @@ def deliver_filament_outbox(limit: int = 100) -> dict:
     """
     counts = {state: 0 for state in _OUTBOX_STATES}
     counts["skipped"] = 0
-    from core.config import settings
-    if not (settings.spoolman_url or "").strip():
+    with get_db() as conn:
+        configured = bool(get_spoolman_url(conn=conn))
+    if not configured:
         # Integration not configured: leave rows pending, untouched, until it is.
         with get_db() as conn:
             cur = conn.cursor()

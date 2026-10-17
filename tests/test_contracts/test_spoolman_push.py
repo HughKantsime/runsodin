@@ -84,11 +84,11 @@ class TestPushHelperShape:
         )
 
     def test_helper_no_ops_when_disabled(self):
-        """Empty / unset settings.spoolman_url → no-op, no error."""
+        """Empty / unset Spoolman URL (core.spoolman_settings) → no-op, no error."""
         src = SPOOLMAN_PATH.read_text()
         fn = _get_function_source(src, "push_consumption_to_spoolman")
-        assert "settings.spoolman_url" in fn, (
-            "Helper must consult settings.spoolman_url to decide whether "
+        assert "get_spoolman_url()" in fn, (
+            "Helper must consult the saved Spoolman URL to decide whether "
             "to push at all. Pushing to an empty URL would be a bug."
         )
 

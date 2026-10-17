@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import null, text
 from sqlalchemy.exc import OperationalError, IntegrityError
 
+from core.spoolman_settings import get_spoolman_url
 from core.db import get_db
 from core.dependencies import log_audit
 from core.rbac import require_role, check_org_access
@@ -348,12 +349,13 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
     local_library = db.query(FilamentLibrary).all()
 
     spoolman_spools = []
-    if settings.spoolman_url:
+    spoolman_url = get_spoolman_url(db)
+    if spoolman_url:
         try:
             from core.itar import pin_for_request, should_trust_env
-            with pin_for_request(settings.spoolman_url):
+            with pin_for_request(spoolman_url):
                 with httpx.Client(timeout=5.0, trust_env=should_trust_env()) as client:
-                    resp = client.get(f"{settings.spoolman_url}/api/v1/spool")
+                    resp = client.get(f"{spoolman_url}/api/v1/spool")
                     if resp.status_code == 200:
                         spoolman_spools = resp.json()
         except Exception as e:

@@ -1,5 +1,6 @@
 """O.D.I.N. — Analytics, Stats, and Usage Reports."""
 
+from core.spoolman_settings import get_spoolman_url
 from core.rbac import should_filter_org
 
 from fastapi import APIRouter, Depends, Query
@@ -85,12 +86,13 @@ async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(
 
     # Check Spoolman connection
     spoolman_connected = False
-    if settings.spoolman_url:
+    spoolman_url = get_spoolman_url(db)
+    if spoolman_url:
         try:
             from core.itar import pin_for_request, should_trust_env
-            with pin_for_request(settings.spoolman_url):
+            with pin_for_request(spoolman_url):
                 async with httpx.AsyncClient(trust_env=should_trust_env()) as client:
-                    resp = await client.get(f"{settings.spoolman_url}/api/v1/health", timeout=3)
+                    resp = await client.get(f"{spoolman_url}/api/v1/health", timeout=3)
                     spoolman_connected = resp.status_code == 200
         except Exception as e:
             log.debug(f"Spoolman health check failed: {e}")

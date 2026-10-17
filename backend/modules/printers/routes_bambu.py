@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.orm import Session
 
+from core.spoolman_settings import get_spoolman_url
 from core.db import get_db
 from core.rbac import check_org_access, require_role
 from core.config import settings
@@ -129,12 +130,13 @@ async def sync_bambu_ams(printer_id: int, current_user: dict = Depends(require_r
     ]
 
     spoolman_list = []
-    if settings.spoolman_url:
+    spoolman_url = get_spoolman_url(db)
+    if spoolman_url:
         try:
             from core.itar import pin_for_request, should_trust_env
-            with pin_for_request(settings.spoolman_url):
+            with pin_for_request(spoolman_url):
                 async with httpx.AsyncClient(trust_env=should_trust_env()) as client:
-                    resp = await client.get(f"{settings.spoolman_url}/api/v1/spool", timeout=5)
+                    resp = await client.get(f"{spoolman_url}/api/v1/spool", timeout=5)
                     if resp.status_code == 200:
                         for spool in resp.json():
                             filament = spool.get("filament", {})

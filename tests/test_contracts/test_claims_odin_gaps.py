@@ -11,6 +11,9 @@ outermost boundaries are replaced: the scheduler's wall clock is pinned, and
 * Saved scheduler blackout hours (docs features/scheduler.md "Blackout Hours"):
   Settings > General saves them through PUT /api/config; the next scheduler run
   must honour them.
+* The Spoolman URL saved through the same PUT /api/config must be read back and
+  used by the Spoolman pull and push paths without a restart (a loopback
+  Spoolman peer stands in for the external service).
 * Pro gates in ``license_manager.TIERS`` (sso, permissions, email_notifications)
   are enforced by the server: configuration writes are refused below Pro, reads
   stay available after a downgrade, and alert email stops like webhooks do.
@@ -69,6 +72,51 @@ OUT["config_after_save"] = body(admin.get("/api/config"))
 run = admin.post("/api/scheduler/run")
 OUT["run"] = run.status_code
 OUT["scheduled"] = sql("SELECT status, printer_id, scheduled_start FROM jobs WHERE id=41")[0]
+'''
+
+SPOOLMAN_PROBE = r'''
+import json as _json, threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+SEEN = []
+class _Peer(BaseHTTPRequestHandler):
+    def log_message(self, *a): pass
+    def _send(self, body):
+        raw = _json.dumps(body).encode()
+        self.send_response(200); self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(raw))); self.end_headers(); self.wfile.write(raw)
+    def do_GET(self):
+        SEEN.append(("GET", self.path))
+        self._send([{"id": 7, "remaining_weight": 500, "filament": {"name": "Peer PLA", "material": "PLA"}}])
+    def do_PUT(self):
+        n = int(self.headers.get("Content-Length") or 0)
+        SEEN.append(("PUT", self.path, _json.loads(self.rfile.read(n) or b"{}")))
+        self._send({"id": 7})
+peer = ThreadingHTTPServer(("127.0.0.1", 0), _Peer)
+threading.Thread(target=peer.serve_forever, daemon=True).start()
+url = f"http://127.0.0.1:{peer.server_address[1]}"
+install_license("pro")
+seed_user("gap-admin", "admin")
+admin = login("gap-admin")
+OUT["before"] = body(admin.get("/api/config"))["spoolman_url"]
+OUT["save"] = admin.put("/api/config", json={"spoolman_url": url}).status_code
+OUT["read_back_matches"] = body(admin.get("/api/config"))["spoolman_url"] == url
+r = admin.get("/api/spoolman/spools")
+OUT["pull"] = {"status": r.status_code, "names": [s.get("filament_name") for s in body(r)] if r.status_code == 200 else body(r)}
+from modules.inventory.services import push_consumption_to_spoolman
+OUT["push_errors"] = push_consumption_to_spoolman([{"spoolman_spool_id": 7, "grams": 3.5}])
+OUT["peer"] = SEEN
+OUT["clear"] = admin.put("/api/config", json={"spoolman_url": ""}).status_code
+OUT["after_clear"] = body(admin.get("/api/config"))["spoolman_url"]
+OUT["pull_after_clear"] = admin.get("/api/spoolman/spools").status_code
+'''
+
+SPOOLMAN_ENV_PROBE = r'''
+seed_user("gap-admin", "admin")
+admin = login("gap-admin")
+OUT["config"] = body(admin.get("/api/config"))
+r = admin.put("/api/config", json={"spoolman_url": "http://127.0.0.1:9"})
+OUT["save"] = {"status": r.status_code, "body": body(r)}
+OUT["after"] = body(admin.get("/api/config"))["spoolman_url"]
 '''
 
 GATE_PROBE = r'''
@@ -141,6 +189,18 @@ def blackout(tmp_path_factory):
 
 
 @pytest.fixture(scope="module")
+def spoolman(tmp_path_factory):
+    root = tmp_path_factory.mktemp("claims-spoolman")
+    return run_probe("claims-spoolman", SPOOLMAN_PROBE, root, {"ENV_FILE_PATH": str(root / "data.env")})
+
+
+@pytest.fixture(scope="module")
+def spoolman_env(tmp_path_factory):
+    root = tmp_path_factory.mktemp("claims-spoolman-env")
+    return run_probe("claims-spoolman-env", SPOOLMAN_ENV_PROBE, root, {"SPOOLMAN_URL": "http://127.0.0.1:7912"})
+
+
+@pytest.fixture(scope="module")
 def gates(tmp_path_factory):
     root = tmp_path_factory.mktemp("claims-gates")
     return {t: run_probe(f"claims-gates-{t}", GATE_PROBE, root, {"CLAIMS_TIER": t}) for t in TIERS}
@@ -181,6 +241,37 @@ def test_scheduler_run_honours_saved_blackout_hours(blackout):
     status, printer, start = blackout["scheduled"]
     assert (status, printer) == ("scheduled", 21)
     assert str(start).startswith("2026-10-12 20:00"), start
+
+
+# ---------- saved Spoolman URL is read back and used ----------
+
+def test_saved_spoolman_url_is_read_back(spoolman):
+    assert spoolman["before"] in (None, "")
+    assert spoolman["save"] == 200 and spoolman["read_back_matches"] is True
+
+
+def test_saved_spoolman_url_is_used_by_pull_and_push_without_restart(spoolman):
+    assert spoolman["pull"] == {"status": 200, "names": ["Peer PLA"]}
+    assert spoolman["push_errors"] == []
+    assert ["GET", "/api/v1/spool"] in spoolman["peer"]
+    assert ["PUT", "/api/v1/spool/7/use", {"use_weight": 3.5}] in spoolman["peer"]
+
+
+def test_clearing_the_saved_spoolman_url_disables_the_integration(spoolman):
+    assert spoolman["clear"] == 200 and spoolman["after_clear"] in (None, "")
+    assert spoolman["pull_after_clear"] == 400
+
+
+def test_spoolman_url_from_the_environment_wins_and_cannot_be_changed_by_the_api(spoolman_env):
+    assert spoolman_env["config"]["spoolman_url"] == "http://127.0.0.1:7912"
+    assert spoolman_env["config"]["spoolman_url_from_env"] is True
+    assert spoolman_env["save"]["status"] == 409
+    assert "SPOOLMAN_URL environment variable" in spoolman_env["save"]["body"]["detail"]
+    assert spoolman_env["after"] == "http://127.0.0.1:7912"
+
+
+def test_no_network_during_spoolman_probe(spoolman):
+    assert spoolman["_net_attempts"] == []
 
 
 # ---------- Pro gates from license_manager.TIERS ----------
