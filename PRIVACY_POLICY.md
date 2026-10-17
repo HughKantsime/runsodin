@@ -201,7 +201,7 @@ If you are located in the European Economic Area, you have the right to lodge a 
 
 O.D.I.N. is not directed at children under 13. We do not knowingly collect personal information from children under 13 through our website or license issuance process.
 
-### 6.2 Educational Use (COPPA Compliance)
+### 6.2 Educational Use
 
 When O.D.I.N. is used in educational settings (K-12 schools) under the Education Tier:
 
@@ -217,7 +217,7 @@ When O.D.I.N. is used in educational settings (K-12 schools) under the Education
 - Enable print quotas to manage student usage
 - Review the Software's data retention settings
 
-Because O.D.I.N. is self-hosted and no student data is transmitted to Sublab 3DP, the Software is designed to support FERPA and COPPA compliance by default. However, the school remains responsible for its own compliance obligations.
+By default, O.D.I.N. runs on the school's own infrastructure and stores student data only in that deployment's database and file storage; it sends no telemetry or usage data to Sublab 3DP or any third party (Section 2.6); and administrators can export a user's data, anonymize user records and set data retention periods (Section 4.3). These are product behaviors, not a FERPA, COPPA or other compliance certification: self-hosting alone does not make a deployment compliant. Whether a deployment meets those obligations depends on how the school configures, operates and governs it, and remains the school's responsibility.
 
 ---
 
