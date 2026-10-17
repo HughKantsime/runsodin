@@ -245,6 +245,15 @@ async def update_user(user_id: int, body: UserUpdateRequest, current_user: dict 
             raise HTTPException(status_code=403, detail="Cannot move users to a different group")
     if "group_id" in updates and updates["group_id"] != target.group_id:
         assert_user_tenant_change_allowed(db, user_id)
+    if "group_id" in updates and updates["group_id"] is None and target.group_id is not None:
+        resulting_role = updates.get("role") or db.execute(
+            text("SELECT role FROM users WHERE id = :id"), {"id": user_id}).scalar()
+        if resulting_role == "admin":
+            # Clearing an admin's organization would make them a platform superadmin.
+            raise HTTPException(status_code=409, detail={
+                "message": "An admin with no organization becomes a platform superadmin; assign another "
+                           "organization or change the role first.",
+                "admins": [{"id": user_id}]})
 
     # Email and username are account-recovery material (a forgot-password link
     # goes to the stored email; the username names the account), so CHANGING
@@ -378,6 +387,22 @@ _USER_CREDENTIAL_TABLES = (
 # Quiet-hours deferred deliveries (migration 032): cleaned up with
 # the user and the org, as a no-op while the table does not exist.
 _DEFERRED_DELIVERIES_TABLE = "quiet_hours_deferred_deliveries"
+
+
+def assert_no_admins_left_without_org(db: Session, group_id: int) -> None:
+    """An admin with no organization is a platform superadmin (core.rbac). Removing an org or
+    group from its admins would silently promote them: refuse (409) and name them, so they
+    are reassigned or given another role first."""
+    admins = db.execute(
+        text("SELECT id, username FROM users WHERE group_id = :gid AND role = 'admin' ORDER BY id"),
+        {"gid": group_id},
+    ).fetchall()
+    if admins:
+        raise HTTPException(status_code=409, detail={
+            "message": "Reassign these admins to another organization (or change their role) first: "
+                       "an admin with no organization becomes a platform superadmin.",
+            "admins": [{"id": int(row.id), "username": row.username} for row in admins],
+        })
 
 
 def delete_deferred_deliveries(db, *, user_id=None, org_id=None):
@@ -608,6 +633,7 @@ async def delete_group(group_id: int, current_user: dict = Depends(require_super
     if not existing:
         raise HTTPException(status_code=404, detail="Group not found")
     assert_org_hard_delete_allowed(db, group_id)
+    assert_no_admins_left_without_org(db, group_id)
     db.execute(text("UPDATE users SET group_id = NULL WHERE group_id = :gid"), {"gid": group_id})
     delete_deferred_deliveries(db, org_id=group_id)
     db.execute(text("DELETE FROM groups WHERE id = :id"), {"id": group_id})

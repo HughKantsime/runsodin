@@ -162,7 +162,9 @@ async def delete_org(org_id: int, current_user: dict = Depends(require_superadmi
                     "and printers instead."),
         )
 
-    # Unlink members
+    # Unlink members; an admin left without an organization would become a platform superadmin.
+    from modules.organizations.routes_users import assert_no_admins_left_without_org
+    assert_no_admins_left_without_org(db, org_id)
     db.execute(text("UPDATE users SET group_id = NULL WHERE group_id = :id"), {"id": org_id})
     # Unlink resources (table names from constant allowlist, not user input)
     _ORG_RESOURCE_TABLES = ("printers", "models", "spools")
