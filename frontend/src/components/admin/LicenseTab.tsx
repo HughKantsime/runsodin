@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, type ChangeEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { User, PublicLicense } from '../../types/user'
-import { FileText, Key, Download } from 'lucide-react'
+import { FileText, Key, Download, Sparkles } from 'lucide-react'
 import { license as licenseApi, downloadBlob } from '../../api'
 import { Button, Card, Input } from '../ui'
 
@@ -99,6 +99,24 @@ export default function LicenseTab() {
       loadLicense()
     } catch (err) {
       setMessage({ type: 'error', text: 'Failed to remove license' })
+    }
+  }
+
+  const [trialEmail, setTrialEmail] = useState('')
+  const [trialBusy, setTrialBusy] = useState<'online' | 'offline' | null>(null)
+  const [trialResult, setTrialResult] = useState<{ sentTo?: string; code?: string; minutes?: number; error?: string } | null>(null)
+  const requestTrial = async (offline: boolean) => {
+    const email = trialEmail.trim()
+    if (!email || trialBusy) return
+    setTrialBusy(offline ? 'offline' : 'online')
+    setTrialResult(null)
+    try {
+      const data = await licenseApi.requestTrial(email, offline)
+      setTrialResult(offline ? { code: data.request_code, minutes: data.expires_in_minutes } : { sentTo: email })
+    } catch (err) {
+      setTrialResult({ error: err instanceof Error ? err.message : 'Trial request failed' })
+    } finally {
+      setTrialBusy(null)
     }
   }
 
@@ -248,6 +266,50 @@ export default function LicenseTab() {
       </Card>
 
       {idMessage && <p role="status">{idMessage}</p>}
+
+      {!managedExternally && licenseInfo && licenseInfo.valid !== true && licenseInfo.trial !== true && (
+        <Card padding="lg">
+          <div className="flex items-center gap-2 mb-3">
+            <Sparkles size={18} className="text-[var(--brand-primary)]" />
+            <h3 className="font-semibold" style={{ color: 'var(--brand-text-primary)' }}>Start 14-day Pro trial</h3>
+          </div>
+          <p className="text-sm text-[var(--brand-text-secondary)] mb-4">
+            ODIN signs the request with this installation&apos;s device key. We email a confirmation link; after you confirm,
+            the license portal shows your trial key once. Paste it under Activate License below. One trial per installation
+            and per email address; your data is kept when it ends.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Input aria-label="Trial email" type="email" value={trialEmail} onChange={e => setTrialEmail(e.target.value)}
+              placeholder="you@example.com" className="flex-1 min-w-[14rem] bg-[var(--brand-card-bg)]" autoComplete="email" />
+            <Button variant="primary" loading={trialBusy === 'online'} disabled={!trialEmail.trim() || trialBusy !== null} onClick={() => requestTrial(false)}>
+              Send trial request
+            </Button>
+            <Button variant="secondary" loading={trialBusy === 'offline'} disabled={!trialEmail.trim() || trialBusy !== null} onClick={() => requestTrial(true)}>
+              Get request code
+            </Button>
+          </div>
+          {trialResult?.sentTo && (
+            <p role="status" className="mt-3 text-sm text-green-400">
+              Check {trialResult.sentTo} for a confirmation link. It works once and expires in 24 hours.
+            </p>
+          )}
+          {trialResult?.code && (
+            <div className="mt-3 space-y-2">
+              <p className="text-xs text-[var(--brand-text-secondary)]">
+                Offline: paste this code on{' '}
+                <a href="https://runsodin.com/portal/trial" target="_blank" rel="noopener noreferrer" className="text-[var(--brand-primary)] underline">runsodin.com/portal/trial</a>{' '}
+                within {trialResult.minutes ?? 15} minutes, from any computer with internet access.
+              </p>
+              <textarea aria-label="Trial request code" readOnly value={trialResult.code} rows={3}
+                className="w-full font-mono text-xs rounded-md border border-[var(--brand-card-border)] bg-[var(--brand-card-bg)] p-2 text-[var(--brand-text-primary)]"
+                onFocus={e => e.currentTarget.select()} />
+            </div>
+          )}
+          {trialResult?.error && (
+            <p role="alert" className="mt-3 text-sm text-red-400">Trial request failed: {trialResult.error}</p>
+          )}
+        </Card>
+      )}
 
       {managedExternally ? (
         <Card padding="lg">

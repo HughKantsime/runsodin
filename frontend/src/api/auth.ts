@@ -159,6 +159,10 @@ export const license = {
     fetchAPI('/license/activation-request', { method: 'POST', body: JSON.stringify({ key, nonce }) }),
   getUnactivationRequest: (nonce: string): Promise<unknown> =>
     fetchAPI('/license/unactivation-request', { method: 'POST', body: JSON.stringify({ nonce }) }),
+  // Pro trial: ODIN signs the request with the device key. Online it goes to the
+  // license server; offline it comes back as a code to paste on the portal.
+  requestTrial: (email: string, offline: boolean): Promise<{ status?: 'request_sent'; request_code?: string; expires_in_minutes?: number }> =>
+    fetchAPI('/license/trial-request', { method: 'POST', body: JSON.stringify({ email, offline }) }),
 }
 
 export const permissions = {
