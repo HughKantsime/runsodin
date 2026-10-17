@@ -193,6 +193,73 @@ def _config_param_is_guarded(name: str | None, value: Any) -> bool:
     return _is_guarded_config_key(value, prefix=name is None or "key" in name.lower())
 
 
+_PLACEHOLDER = re.compile(r":(\w+)|\?|%\((\w+)\)s|\$(\d+)")
+
+
+def _bound_placeholders(sql: str, parameters: Any) -> list[tuple[int, int, Any]]:
+    """(start, end, bound value) for each placeholder in ``sql``, in order; the value is
+    _UNBOUND when it cannot be resolved."""
+    named = parameters if isinstance(parameters, dict) else {}
+    positional = list(parameters) if isinstance(parameters, (list, tuple)) else []
+    out, index = [], 0
+    for m in _PLACEHOLDER.finditer(sql):
+        if m.group(1) is not None or m.group(2) is not None:
+            value = named.get(m.group(1) or m.group(2), _UNBOUND)
+        elif m.group(3) is not None:
+            n = int(m.group(3)) - 1
+            value = positional[n] if 0 <= n < len(positional) else _UNBOUND
+        else:
+            value = positional[index] if index < len(positional) else _UNBOUND
+            index += 1
+        out.append((m.start(), m.end(), value))
+    return out
+
+
+_UNBOUND = object()
+
+
+def _like_can_match_prefix(pattern: str, prefix: str) -> bool:
+    """Whether some string starting with ``prefix`` matches the LIKE ``pattern``."""
+    def walk(i: int, j: int) -> bool:
+        if j == len(prefix):
+            return True  # the rest of the pattern can always produce some suffix
+        if i == len(pattern):
+            return False
+        token = pattern[i]
+        if token == "%":
+            return True
+        if token == "_" or token.lower() == prefix[j]:
+            return walk(i + 1, j + 1)
+        return False
+    return walk(0, 0)
+
+
+def _like_can_match_key(pattern: str, key: str) -> bool:
+    regex = "".join(".*" if c == "%" else "." if c == "_" else re.escape(c) for c in pattern)
+    return re.fullmatch(regex, key, re.I | re.S) is not None
+
+
+def _like_patterns_cannot_match_guarded(sql: str, rest: str, parameters: Any) -> bool:
+    """True only when every LIKE in the statement compares with a bound string pattern that
+    can match no guarded system_config key (exact keys and guarded prefixes). Literal,
+    column or unresolved patterns fail closed."""
+    offset = len(sql) - len(rest)
+    placeholders = _bound_placeholders(sql, parameters)
+    for like in re.finditer(r"\bLIKE\s+", rest, re.I):
+        start = offset + like.end()
+        bound = next((p for p in placeholders if p[0] == start), None)
+        if bound is None or not isinstance(bound[2], str):
+            return False
+        pattern = bound[2].strip()
+        if "\\" in pattern:
+            return False  # PostgreSQL's LIKE escapes with backslash by default; SQLite does not
+        if any(_like_can_match_key(pattern, key) for key in GUARDED_CONFIG_KEYS):
+            return False
+        if any(_like_can_match_prefix(pattern, guarded) for guarded in GUARDED_CONFIG_PREFIXES):
+            return False
+    return True
+
+
 def guarded_write_target(statement: str, parameters: Any) -> str | None:
     """Return the guarded target a statement writes, or None."""
     sql = _COMMENT.sub(" ", statement or "")
@@ -224,8 +291,10 @@ def guarded_write_target(statement: str, parameters: Any) -> str | None:
                 return "users"
         if table == "system_config":
             rest = sql[match.start():]
-            if re.search(r"\|\||\bCONCAT\s*\(|\bLIKE\b|\bGLOB\b", rest, re.I):
-                return "system_config"  # key built or pattern-matched: fail closed
+            if re.search(r"\|\||\bCONCAT\s*\(|\bGLOB\b|\bESCAPE\b", rest, re.I):
+                return "system_config"  # key built in SQL or glob-matched: fail closed
+            if re.search(r"\bLIKE\b", rest, re.I) and not _like_patterns_cannot_match_guarded(sql, rest, parameters):
+                return "system_config"  # pattern that could reach a guarded key: fail closed
             if verb in {"UPDATE", "DELETE"} and not _KEY_EQUALS.search(rest):
                 # ORM flushes address the row by primary key; the before_flush hook
                 # checks those objects' keys. Any other key-less write fails closed.
