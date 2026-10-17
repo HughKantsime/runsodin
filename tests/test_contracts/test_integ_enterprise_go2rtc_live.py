@@ -354,6 +354,33 @@ def test_vision_captures_frames_from_the_go2rtc_service(stack):
     assert result == {"base": "http://go2rtc:1984", "shape": [360, 640, 3]}, result
 
 
+def test_timelapse_is_captured_in_the_vision_container(stack):
+    """Review gap O12: enterprise compose ran no timelapse_capture program. It runs in the
+    vision container (go2rtc address and shared secret), so a printing timelapse-enabled
+    printer gets a recording with frames from the go2rtc service."""
+    procs = stack.exec("vision", "for p in /proc/[0-9]*; do tr '\\0' ' ' < $p/cmdline; echo; done", check=False)
+    assert "modules.archives.timelapse_capture" in procs, procs[-2000:]
+    pid = stack.ids["rtsp"]
+    seeded = stack.py("api", (
+        "import json\n"
+        "from sqlalchemy import text\n"
+        "from core.db import engine\n"
+        "with engine.begin() as c:\n"
+        f"    c.execute(text(\"UPDATE printers SET timelapse_enabled=TRUE, gcode_state='RUNNING' WHERE id={pid}\"))\n"
+        "    f=c.execute(text(\"INSERT INTO print_files(filename,original_filename,stored_path) VALUES('ent.3mf','ent.3mf','/data/uploads/ent.3mf') RETURNING id\")).scalar_one()\n"
+        f"    j=c.execute(text(\"INSERT INTO jobs(item_name,printer_id,print_file_id,status,actual_start,quantity,priority,hold) VALUES('Ent timelapse',{pid},:f,'printing',CURRENT_TIMESTAMP,1,3,FALSE) RETURNING id\"),{{'f':f}}).scalar_one()\n"
+        "print('ENT='+json.dumps(j))\n"))
+    query = ("import json\n"
+             "from sqlalchemy import text\n"
+             "from core.db import engine\n"
+             "with engine.connect() as c:\n"
+             f"    r=c.execute(text('SELECT id,frame_count FROM timelapses WHERE printer_id={pid} AND print_job_id={seeded}')).fetchall()\n"
+             "print('ENT='+json.dumps([list(x) for x in r]))\n")
+    rows = _wait(lambda: [r for r in stack.py("api", query) if r[1] and r[1] > 0], seconds=180, step=5,
+                 what="a timelapse recording with frames")
+    assert rows and rows[0][1] > 0, rows
+
+
 def test_api_restart_rotates_credentials_and_reloads_go2rtc_in_place(stack):
     go2rtc = stack.container("go2rtc")
     started = _docker("inspect", "-f", "{{.State.StartedAt}} {{.RestartCount}}", go2rtc).stdout.strip()
