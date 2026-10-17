@@ -311,7 +311,8 @@ def toggle_camera(printer_id: int, current_user: dict = Depends(require_action("
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
-    if not check_org_access(current_user, printer.org_id) and not printer.shared:
+    # Changing the camera is a change to the printer: org ownership only. Sharing grants viewing.
+    if not check_org_access(current_user, printer.org_id):
         raise HTTPException(status_code=404, detail="Printer not found")
 
     # Toggle the camera_enabled flag
