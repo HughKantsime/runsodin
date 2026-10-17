@@ -454,6 +454,7 @@ class DeviceDestinationBlocked(WebhookSSRFError):
 _METADATA_ADDRESSES = frozenset({
     ipaddress.ip_address("169.254.169.254"),
     ipaddress.ip_address("fd00:ec2::254"),
+    ipaddress.ip_address("100.100.100.200"),  # Alibaba Cloud metadata
 })
 _IPV4_THIS_NETWORK = ipaddress.ip_network("0.0.0.0/8")
 _IPV6_COMPAT = ipaddress.ip_network("::/96")

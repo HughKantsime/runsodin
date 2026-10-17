@@ -352,12 +352,8 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
     spoolman_url = get_spoolman_url(db)
     if spoolman_url:
         try:
-            from core.itar import pin_for_request, should_trust_env
-            with pin_for_request(spoolman_url):
-                with httpx.Client(timeout=5.0, trust_env=should_trust_env()) as client:
-                    resp = client.get(f"{spoolman_url}/api/v1/spool")
-                    if resp.status_code == 200:
-                        spoolman_spools = resp.json()
+            from core.spoolman_client import fetch_spools
+            spoolman_spools = fetch_spools(5)  # validated, pinned, projected (O1)
         except Exception as e:
             log.debug(f"Failed to fetch spoolman spools: {e}")
 
@@ -379,9 +375,9 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
             return None
         hex_lower = hex_code.lower()
         for spool in spoolman_spools:
-            filament = spool.get("filament", {})
-            spool_hex = filament.get("color_hex", "").lower()
-            spool_material = filament.get("material", "").upper()
+            filament = spool.get("filament") or {}
+            spool_hex = (filament.get("color_hex") or "").lower()
+            spool_material = (filament.get("material") or "").upper()
             if spool_hex and hex_lower:
                 if spool_hex == hex_lower:
                     if spool_material == filament_type.upper():
@@ -566,10 +562,10 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
 
             spoolman_match = find_spoolman_match(color_hex, ams_slot.filament_type)
             if spoolman_match:
-                filament = spoolman_match.get("filament", {})
-                vendor = filament.get("vendor", {})
-                vendor_name = vendor.get("name", "") if vendor else ""
-                filament_name = filament.get("name", "")
+                filament = spoolman_match.get("filament") or {}
+                vendor = filament.get("vendor") or {}
+                vendor_name = vendor.get("name") or ""
+                filament_name = filament.get("name") or ""
                 color_name = f"{vendor_name} {filament_name}".strip() if vendor_name else filament_name
                 spoolman_id = spoolman_match.get("id")
                 db_slot.filament_type = ftype

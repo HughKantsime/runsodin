@@ -93,16 +93,11 @@ class ConfigUpdate(BaseModel):
     def validate_url(cls, v):
         if v is None or v == '':
             return v
-        url_pattern = re.compile(
-            r'^https?://'
-            r'[a-zA-Z0-9]+'
-            r'[a-zA-Z0-9.-]*'
-            r'(:\d+)?'
-            r'(/.*)?$'
-        )
-        if not url_pattern.match(v):
-            raise ValueError('Invalid URL format. Must be http:// or https://')
-        return v
+        from core.spoolman_client import SpoolmanURLRefused, check_spoolman_url_shape
+        try:
+            return check_spoolman_url_shape(v)  # no userinfo, query or fragment (O1)
+        except SpoolmanURLRefused as exc:
+            raise ValueError(str(exc)) from None
 
     @field_validator('blackout_start', 'blackout_end')
     @classmethod

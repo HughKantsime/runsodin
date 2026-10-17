@@ -7,6 +7,8 @@ import pytest
 @pytest.fixture
 def spoolman_peer(monkeypatch):
     from modules.inventory import services
+    from tests.support.loopback_devices import allow_loopback_devices
+    allow_loopback_devices(monkeypatch)  # production refuses loopback Spoolman (O1); the double listens on 127.0.0.1
     received=[];status=[200]
     class Handler(BaseHTTPRequestHandler):
         def do_PUT(self):  # Spoolman declares PUT /api/v1/spool/{id}/use
@@ -58,25 +60,38 @@ def test_invalid_identity_stops_before_dns(monkeypatch,identity):
     with pytest.raises(ValueError):_post_spoolman_usage('http://spoolman.example.invalid',identity,1)
     assert calls==[]
 
+def _no_http(monkeypatch):
+    """Record any HTTP request the Spoolman client would make (core.webhook_utils.device_request)."""
+    import requests
+    calls=[]
+    monkeypatch.setattr(requests.Session,'request',lambda self,*a,**k:calls.append(a) or pytest.fail('HTTP attempted'))
+    return calls
+
+
+def _resolve(monkeypatch,addresses):
+    """Simulated DNS for the device policy's resolver (core.webhook_utils._real_getaddrinfo)."""
+    import socket
+    from core import webhook_utils
+    monkeypatch.setattr(webhook_utils,'_real_getaddrinfo',lambda host,port,*a,**k:[
+        (socket.AF_INET6 if ':' in ip else socket.AF_INET,socket.SOCK_STREAM,6,'',(ip,port)) for ip in addresses])
+
+
+REFUSED=(ValueError,)  # core.spoolman_client.SpoolmanURLRefused, core.webhook_utils.WebhookSSRFError
+
+
 @pytest.mark.parametrize('address',['169.254.169.254','0.0.0.0','224.0.0.1','fd00:ec2::254','100.100.100.200','::ffff:169.254.169.254'])
 def test_forbidden_destination_fails_before_http(monkeypatch,address):
     from modules.inventory.services import _post_spoolman_usage
-    from core.webhook_utils import WebhookSSRFError
-    import socket,httpx
-    monkeypatch.setattr(socket,'getaddrinfo',lambda *a,**k:[(socket.AF_INET,socket.SOCK_STREAM,6,'',(address,80))])
-    calls=[];monkeypatch.setattr(httpx,'Client',lambda **k:calls.append(k))
-    with pytest.raises(WebhookSSRFError):_post_spoolman_usage('http://configured.example.invalid',42,1)
+    _resolve(monkeypatch,[address]);calls=_no_http(monkeypatch)
+    with pytest.raises(REFUSED):_post_spoolman_usage('http://configured.example.invalid',42,1)
     assert calls==[]
 
 
 def test_public_destination_blocked_in_itar_before_http(monkeypatch):
     from modules.inventory.services import _post_spoolman_usage
-    from core.webhook_utils import WebhookSSRFError
-    import socket,httpx
     monkeypatch.setenv('ODIN_ITAR_MODE','1')
-    monkeypatch.setattr(socket,'getaddrinfo',lambda *a,**k:[(socket.AF_INET,socket.SOCK_STREAM,6,'',('8.8.8.8',80))])
-    calls=[];monkeypatch.setattr(httpx,'Client',lambda **k:calls.append(k))
-    with pytest.raises(WebhookSSRFError):_post_spoolman_usage('http://configured.example.invalid',42,1)
+    _resolve(monkeypatch,['8.8.8.8']);calls=_no_http(monkeypatch)
+    with pytest.raises(REFUSED):_post_spoolman_usage('http://configured.example.invalid',42,1)
     assert calls==[]
 
 
@@ -102,14 +117,11 @@ def test_dns_rebinding_is_pinned_to_validated_local_peer(spoolman_peer,monkeypat
 @pytest.mark.parametrize('itar,second',[(False,'metadata'),(True,'public')])
 def test_mixed_dns_answers_are_all_validated(monkeypatch,itar,second):
     from modules.inventory.services import _post_spoolman_usage
-    from core.webhook_utils import WebhookSSRFError
-    import socket,httpx
     if itar:monkeypatch.setenv('ODIN_ITAR_MODE','1')
     else:monkeypatch.delenv('ODIN_ITAR_MODE',raising=False)
     bad='8.8.8.8' if second=='public' else '169.254.169.254'
-    monkeypatch.setattr(socket,'getaddrinfo',lambda *a,**k:[(socket.AF_INET,socket.SOCK_STREAM,6,'',(ip,80)) for ip in ['127.0.0.1',bad]])
-    calls=[];monkeypatch.setattr(httpx,'Client',lambda **k:calls.append(k))
-    with pytest.raises(WebhookSSRFError):_post_spoolman_usage('http://configured.example.invalid',42,1)
+    _resolve(monkeypatch,['192.168.40.10',bad]);calls=_no_http(monkeypatch)
+    with pytest.raises(REFUSED):_post_spoolman_usage('http://configured.example.invalid',42,1)
     assert calls==[]
 
 

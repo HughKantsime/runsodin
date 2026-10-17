@@ -133,20 +133,17 @@ async def sync_bambu_ams(printer_id: int, current_user: dict = Depends(require_a
     spoolman_url = get_spoolman_url(db)
     if spoolman_url:
         try:
-            from core.itar import pin_for_request, should_trust_env
-            with pin_for_request(spoolman_url):
-                async with httpx.AsyncClient(trust_env=should_trust_env()) as client:
-                    resp = await client.get(f"{spoolman_url}/api/v1/spool", timeout=5)
-                    if resp.status_code == 200:
-                        for spool in resp.json():
-                            filament = spool.get("filament", {})
-                            spoolman_list.append({
-                                "id": f"spool_{spool['id']}",
-                                "brand": filament.get("vendor", {}).get("name", "Unknown"),
-                                "name": filament.get("name", "Unknown"),
-                                "material": filament.get("material", "PLA"),
-                                "color_hex": filament.get("color_hex"),
-                            })
+            from fastapi.concurrency import run_in_threadpool
+            from core.spoolman_client import fetch_spools
+            for spool in await run_in_threadpool(fetch_spools, 5):  # validated, pinned, projected (O1)
+                filament = spool["filament"]
+                spoolman_list.append({
+                    "id": f"spool_{spool['id']}",
+                    "brand": filament["vendor"].get("name") or "Unknown",
+                    "name": filament.get("name") or "Unknown",
+                    "material": filament.get("material") or "PLA",
+                    "color_hex": filament.get("color_hex"),
+                })
         except Exception as e:
             log.debug(f"Failed to fetch spoolman spools: {e}")
 

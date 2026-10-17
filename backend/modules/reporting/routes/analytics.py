@@ -88,14 +88,9 @@ async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(
     spoolman_connected = False
     spoolman_url = get_spoolman_url(db)
     if spoolman_url:
-        try:
-            from core.itar import pin_for_request, should_trust_env
-            with pin_for_request(spoolman_url):
-                async with httpx.AsyncClient(trust_env=should_trust_env()) as client:
-                    resp = await client.get(f"{spoolman_url}/api/v1/health", timeout=3)
-                    spoolman_connected = resp.status_code == 200
-        except Exception as e:
-            log.debug(f"Spoolman health check failed: {e}")
+        from fastapi.concurrency import run_in_threadpool
+        from core.spoolman_client import spoolman_healthy
+        spoolman_connected = await run_in_threadpool(spoolman_healthy, 3)  # validated, pinned (O1)
 
     # --- Printer utilization stats for Utilization page ---
     printer_stats = []

@@ -84,24 +84,20 @@ async def get_combined_filaments(current_user: dict = Depends(require_role("view
     spoolman_url = get_spoolman_url(db)
     if spoolman_url:
         try:
-            from core.itar import pin_for_request, should_trust_env
-            with pin_for_request(spoolman_url):
-                async with httpx.AsyncClient(trust_env=should_trust_env()) as client:
-                    resp = await client.get(f"{spoolman_url}/api/v1/spool", timeout=5)
-                    if resp.status_code == 200:
-                        spools = resp.json()
-                        for spool in spools:
-                            filament = spool.get("filament", {})
-                            result.append({
-                                "id": f"spool_{spool['id']}",
-                                "source": "spoolman",
-                                "brand": filament.get("vendor", {}).get("name", "Unknown"),
-                                "name": filament.get("name", "Unknown"),
-                                "material": filament.get("material", "PLA"),
-                                "color_hex": filament.get("color_hex"),
-                                "remaining_weight": spool.get("remaining_weight"),
-                                "display_name": f"{filament.get('name')} ({filament.get('material')}) - {int(spool.get('remaining_weight', 0))}g",
-                            })
+            from fastapi.concurrency import run_in_threadpool
+            from core.spoolman_client import fetch_spools
+            for spool in await run_in_threadpool(fetch_spools, 5):
+                filament = spool["filament"]
+                result.append({
+                    "id": f"spool_{spool['id']}",
+                    "source": "spoolman",
+                    "brand": filament["vendor"].get("name") or "Unknown",
+                    "name": filament.get("name") or "Unknown",
+                    "material": filament.get("material") or "PLA",
+                    "color_hex": filament.get("color_hex"),
+                    "remaining_weight": spool.get("remaining_weight"),
+                    "display_name": f"{filament.get('name')} ({filament.get('material')}) - {int(spool.get('remaining_weight') or 0)}g",
+                })
         except Exception as e:
             log.debug(f"Failed to fetch spoolman spools: {e}")
 

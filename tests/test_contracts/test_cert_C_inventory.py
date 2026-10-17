@@ -163,6 +163,8 @@ def test_spool_can_be_linked_to_spoolman_spool(inventory_client, review_db):
 
 @pytest.fixture
 def spoolman_server(monkeypatch):
+    from tests.support.loopback_devices import allow_loopback_devices
+    allow_loopback_devices(monkeypatch)  # production refuses loopback Spoolman (O1); the double listens on 127.0.0.1
     from core.config import settings
     inventory = [{'id': 7, 'remaining_weight': 640.5, 'filament': {'name': 'Cert PLA', 'material': 'PLA', 'color_hex': 'FF0000'}},
                  {'id': 8, 'remaining_weight': 120, 'filament': {'name': 'Cert PETG', 'material': 'PETG', 'color_hex': '000000'}}]

@@ -25,44 +25,18 @@ log = logging.getLogger("odin.api")
 
 
 def _post_spoolman_usage(base: str, spool_id: int, grams: float):
-    """Direct, DNS-pinned administrator-configured integration. No redirects/proxies.
+    """PUT one usage record through core.spoolman_client (the one validator: no userinfo,
+    query or fragment; device policy and ODIN's own endpoints refused; pinned; no redirects).
 
     Spoolman declares the usage endpoint as ``PUT /api/v1/spool/{id}/use``
     with body ``{"use_weight": grams}`` (the same verb archive delivery used);
     any other method is answered 405. Hardware acceptance: confirm against
     the deployed Spoolman version (HARDWARE_ACCEPTANCE_CHECKLIST).
     """
-    import ipaddress
-    import socket
-    from urllib.parse import urlsplit
-    import httpx
-    from core.itar import is_itar_mode
-
+    from core.spoolman_client import spoolman_request
     if isinstance(spool_id, bool) or not isinstance(spool_id, int) or spool_id <= 0:
         raise ValueError("Invalid Spoolman spool ID")
-    parsed = urlsplit(base)
-    if (parsed.scheme not in {"http", "https"} or not parsed.hostname or
-            parsed.username is not None or parsed.password is not None or
-            parsed.query or parsed.fragment):
-        raise ValueError("Invalid configured Spoolman base URL")
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
-    answers = socket.getaddrinfo(parsed.hostname, port, type=socket.SOCK_STREAM)
-    addresses = []
-    for answer in answers:
-        address = ipaddress.ip_address(answer[4][0])
-        checked = address.ipv4_mapped if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped else address
-        if (checked.is_link_local or checked.is_unspecified or checked.is_multicast or
-                (checked.is_reserved and not checked.is_loopback) or str(checked) in {"100.100.100.200", "fd00:ec2::254"}):
-            raise WebhookSSRFError("Configured Spoolman destination is forbidden")
-        if is_itar_mode() and not (checked.is_private or checked.is_loopback):
-            raise WebhookSSRFError("Configured Spoolman destination is public in ITAR mode")
-        addresses.append(str(address))
-    if not addresses:
-        raise WebhookSSRFError("Configured Spoolman destination has no addresses")
-    url = base.rstrip('/') + f"/api/v1/spool/{spool_id}/use"
-    with _pin_dns(parsed.hostname, port, addresses):
-        with httpx.Client(trust_env=False, follow_redirects=False, timeout=5) as client:
-            return client.put(url, json={"use_weight": grams})
+    return spoolman_request("PUT", f"/api/v1/spool/{spool_id}/use", url=base, json={"use_weight": grams}, timeout=5)
 
 def push_consumption_to_spoolman(deductions: list) -> list:
     """PUT usage records to the configured Spoolman instance.
@@ -108,7 +82,6 @@ def push_consumption_to_spoolman(deductions: list) -> list:
         if grams <= 0:
             continue  # nothing consumed (edge case)
 
-        url = f"{base}/api/v1/spool/{spoolman_id}/use"
         try:
             resp = _post_spoolman_usage(base, spoolman_id, grams)
             # Spoolman returns 200 on success. 4xx is usually a bad spool
@@ -173,14 +146,16 @@ def deliver_spoolman_usage(spoolman_spool_id: int, grams: float):
     which would double-deduct).
     """
     import httpx
+    import requests
     base = get_spoolman_url().rstrip("/")
     if not base:
         return "pending", "spoolman_not_configured"
     try:
         resp = _post_spoolman_usage(base, spoolman_spool_id, grams)
-    except (ValueError, WebhookSSRFError) as exc:
+    except (ValueError, WebhookSSRFError) as exc:  # SpoolmanURLRefused is a ValueError
         return "failed", f"refused: {redact_urls(exc)}"[:500]
-    except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+    except (httpx.ConnectError, httpx.ConnectTimeout, requests.exceptions.ConnectionError,
+            requests.exceptions.ConnectTimeout) as exc:
         return "pending", f"connect_failed: {type(exc).__name__}"
     except Exception as exc:
         return "outcome_unknown", f"transport: {type(exc).__name__}"

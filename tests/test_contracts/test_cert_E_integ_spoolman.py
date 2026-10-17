@@ -95,6 +95,8 @@ class SpoolmanPeer:
 @pytest.fixture
 def spoolman(monkeypatch):
     from core.config import settings
+    from tests.support.loopback_devices import allow_loopback_devices
+    allow_loopback_devices(monkeypatch)  # production refuses loopback Spoolman (O1); the double listens on 127.0.0.1
     peer = SpoolmanPeer()
     monkeypatch.setattr(settings, "spoolman_url", peer.url)
     monkeypatch.delenv("ODIN_ITAR_MODE", raising=False)
@@ -301,6 +303,8 @@ def test_printer_observed_completion_refused_by_spoolman_is_recorded_failed_not_
 def test_unreachable_spoolman_keeps_outbox_row_queued_for_retry(archive_case, monkeypatch):  # noqa: F811
     """Connection never established: the row returns to pending and a later run delivers it."""
     from core.config import settings
+    from tests.support.loopback_devices import allow_loopback_devices
+    allow_loopback_devices(monkeypatch)  # the closed port and the Spoolman double are on 127.0.0.1
     archive, engine = archive_case
     monkeypatch.setattr(archive, "_sync_spoolman_consumption", REAL_ARCHIVE_SYNC)
     monkeypatch.delenv("ODIN_ITAR_MODE", raising=False)
@@ -312,7 +316,7 @@ def test_unreachable_spoolman_keeps_outbox_row_queued_for_retry(archive_case, mo
     assert archive.deliver_filament_outbox()["pending"] == 1
     with engine.connect() as conn:
         assert tuple(conn.execute(text("SELECT state,outcome_reason FROM filament_delivery_outbox")).one()) == (
-            "pending", "connect_failed: ConnectError")
+            "pending", "connect_failed: ConnectionError")  # requests (core.spoolman_client)
     peer = SpoolmanPeer()
     try:
         monkeypatch.setattr(settings, "spoolman_url", peer.url)

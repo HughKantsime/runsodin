@@ -64,15 +64,9 @@ async def health_check():
         log.warning("Health check could not read the Spoolman URL (%s)", type(exc).__name__)
         spoolman_url = ""
     if spoolman_url:
-        try:
-            # v1.8.9 (codex pass 13): DNS-pinned + trust_env=should_trust_env().
-            from core.itar import pin_for_request, should_trust_env
-            with pin_for_request(spoolman_url):
-                async with httpx.AsyncClient(trust_env=should_trust_env()) as client:
-                    resp = await client.get(f"{spoolman_url}/api/v1/health", timeout=5)
-                    spoolman_ok = resp.status_code == 200
-        except Exception as e:
-            log.debug(f"Spoolman health check failed: {e}")
+        from fastapi.concurrency import run_in_threadpool
+        from core.spoolman_client import spoolman_healthy
+        spoolman_ok = await run_in_threadpool(spoolman_healthy, 5)
 
     return HealthCheck(
         status="ok",
@@ -619,6 +613,12 @@ def update_config(config: ConfigUpdate, current_user: dict = Depends(require_sup
     if config.spoolman_url is not None:
         if managed_by_environment():
             raise HTTPException(status_code=409, detail="The Spoolman URL is set by the SPOOLMAN_URL environment variable; change it there.")
+        if config.spoolman_url:
+            from core.spoolman_client import SpoolmanURLRefused, validate_spoolman_base
+            try:
+                validate_spoolman_base(config.spoolman_url)  # the same check every Spoolman call makes
+            except SpoolmanURLRefused as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from None
         set_spoolman_url(db, config.spoolman_url)
     if config.blackout_start is not None or config.blackout_end is not None:
         from core.scheduler_settings import set_blackout
@@ -639,17 +639,15 @@ async def test_spoolman_connection(current_user: dict = Depends(require_superadm
     # Without this, superadmins could trigger outbound to a public
     # Spoolman host from within an ODIN_ITAR_MODE=1 deployment —
     # trivially bypassing the air-gap contract via an ad-hoc button.
-    from core.itar import pin_for_request, should_trust_env, ItarOutboundBlocked
+    from fastapi.concurrency import run_in_threadpool
+    from core.spoolman_client import SpoolmanURLRefused, spoolman_request
     try:
-        with pin_for_request(spoolman_url):
-            async with httpx.AsyncClient(trust_env=should_trust_env()) as client:
-                resp = await client.get(f"{spoolman_url}/api/v1/health", timeout=5)
-                if resp.status_code == 200:
-                    return {"success": True, "message": f"Connected to Spoolman at {spoolman_url}"}
-                else:
-                    return {"success": False, "message": f"Spoolman returned status {resp.status_code}"}
-    except ItarOutboundBlocked as ite:
-        return {"success": False, "message": f"Blocked by ITAR: {ite}"}
+        resp = await run_in_threadpool(lambda: spoolman_request("GET", "/api/v1/health", timeout=5))
+        if resp.status_code == 200:
+            return {"success": True, "message": f"Connected to Spoolman at {spoolman_url}"}
+        return {"success": False, "message": f"Spoolman returned status {resp.status_code}"}
+    except SpoolmanURLRefused as refused:
+        return {"success": False, "message": str(refused)}
     except Exception as e:
         log.warning("Spoolman connection test failed: %s", e)
         return {"success": False, "message": "Connection failed. Check Spoolman URL and network connectivity."}
