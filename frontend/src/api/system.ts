@@ -25,14 +25,14 @@ export interface BackupEntry {
 }
 
 export interface SystemNotice {
-  kind: 'restore_quarantined' | 'license_trial_ending';
+  kind: 'restore_quarantined' | 'license_trial_ending' | 'license_expiring';
   severity: 'critical' | 'warning';
   title: string;
   message: string;
   archive?: string;
   failed_at?: string | null;
   link: string;
-  // license_trial_ending only
+  // license_trial_ending / license_expiring only
   buy_url?: string;
   expires_at?: string;
   days_left?: number;

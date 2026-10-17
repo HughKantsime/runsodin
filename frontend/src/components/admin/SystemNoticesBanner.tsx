@@ -8,9 +8,10 @@ import { useOrg } from '../../contexts/OrgContext'
 const LINK_LABEL: Record<SystemNotice['kind'], string> = {
   restore_quarantined: 'Open backups',
   license_trial_ending: 'Open license',
+  license_expiring: 'Open license',
 }
 
-/** Dashboard banner for superadmins: active system notices (a quarantined restore, a Pro trial ending). */
+/** Dashboard banner for superadmins: active system notices (a quarantined restore, a license expiring, a Pro trial ending). */
 export default function SystemNoticesBanner() {
   const org = useOrg()
   const queryClient = useQueryClient()
@@ -58,7 +59,7 @@ export default function SystemNoticesBanner() {
             <div className="flex items-center gap-3 shrink-0">
               {notice.buy_url && (
                 <a href={notice.buy_url} target="_blank" rel="noopener noreferrer" className="text-xs font-medium underline text-amber-200">
-                  Buy Pro
+                  {notice.kind === 'license_trial_ending' ? 'Buy Pro' : 'Renew license'}
                 </a>
               )}
               <Link to={notice.link} className={`text-xs font-medium underline ${warning ? 'text-amber-200' : 'text-red-200'}`}>
