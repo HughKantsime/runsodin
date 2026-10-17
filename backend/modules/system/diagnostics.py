@@ -220,6 +220,7 @@ def _spoolman_link_conflicts(current_user: dict) -> list | dict:
 
 
 LOGS_SUPERADMIN_ONLY = {"restricted": "Install-wide logs are available to the superadmin only"}
+LOGS_INTERACTIVE_ONLY = {"restricted": "Install-wide logs need an interactive superadmin session (not an API token)"}
 
 
 @router.get("/system/diagnostics")
@@ -269,9 +270,13 @@ async def get_diagnostics(current_user: dict = Depends(require_role("admin"))):
 
     # Install-wide log lines and the error buffer carry every tenant's activity:
     # superadmin only. Org admins get the rest of the bundle.
+    from core.rbac import is_interactive_session
     superadmin = current_user.get("role") == "admin" and not current_user.get("group_id")
     if not superadmin:
         result["recent_logs"] = result["error_buffer"] = LOGS_SUPERADMIN_ONLY
+    elif not is_interactive_session(current_user):
+        # Tokens (scoped or the legacy global key) never read log content.
+        result["recent_logs"] = result["error_buffer"] = LOGS_INTERACTIVE_ONLY
     else:
         # Recent logs (sanitized)
         try:

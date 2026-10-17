@@ -39,7 +39,7 @@ async def get_vapid_key(db: Session = Depends(get_db)):
     return {"public_key": keys["public_key"], "enabled": True}
 
 
-@router.post("/push/vapid-key/rotate")
+@router.post("/push/vapid-key/rotate", dependencies=[Depends(require_interactive_session())])
 async def rotate_vapid_key(current_user: dict = Depends(require_superadmin(scope="admin")),
                            db: Session = Depends(get_db)):
     """Generate a new VAPID pair and invalidate every push subscription. Superadmin only.

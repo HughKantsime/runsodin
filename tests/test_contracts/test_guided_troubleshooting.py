@@ -200,7 +200,7 @@ def test_report_logs_are_fixed_bounded_and_filtered(monkeypatch):
     def tail(path,limit):
         paths.append((path,limit));return ['PASS '+secret]
     monkeypatch.setattr(diagnostics,'_read_tail',tail)
-    result=t.support_report(t.ReportRequest(include_logs=True),{},None)
+    result=t.support_report(t.ReportRequest(include_logs=True),{'id':1,'role':'admin','group_id':None},None)  # interactive superadmin
     assert len(paths)==6 and all(limit==100 for _,limit in paths)
     assert secret not in str(result)
     assert set(result['recent_logs'])=={'backend','mqtt_monitor','moonraker_monitor','prusalink_monitor','elegoo_monitor','supervisord'}

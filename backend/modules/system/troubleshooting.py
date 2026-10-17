@@ -275,6 +275,9 @@ def support_report(request:ReportRequest,user=Depends(require_superadmin()),db:S
     report['sharing_notice']='Review before sharing. Free-form text can contain personal information. No email has been sent.'
     report['included']=['server check results','filtered problem description']
     if request.include_logs:
+        from core.rbac import CREDENTIAL_ROUTE_DETAIL, is_interactive_session
+        if not is_interactive_session(user):
+            raise HTTPException(403, CREDENTIAL_ROUTE_DETAIL)  # log content: interactive sessions only
         from modules.system.diagnostics import _read_tail
         from modules.system.sanitize import sanitize_log_lines
         report['recent_logs']={}
