@@ -129,6 +129,22 @@ Our marketing website may use:
 - **Essential cookies:** Session management for contact forms (if applicable)
 - **No tracking cookies:** We do not use advertising, retargeting, or third-party tracking cookies
 
+
+### 3.5 Pro Trial Requests
+
+A 14-day Pro trial is started in O.D.I.N. (Settings > License). O.D.I.N. signs the request with your installation's device key and sends it to our license portal (or you paste it there as a request code). We collect:
+
+- **Email address**, in cleartext on the pending request (to send the confirmation link) and on the trial license key once you confirm (as on a paid license).
+- **A one-way hash (SHA-256) of the normalized email address**, kept with the trial record to enforce one trial per email address.
+- **Installation ID, device public key and its fingerprint** (a SHA-256 hash of the device public key), kept with the trial record to enforce one trial per installation and to bind the trial key to that installation.
+- **The IP address the request came from.** It is kept on the pending request (deleted no later than 48 hours after the request) and on the trial record for 90 days, then removed.
+
+We send the confirmation email through **Resend** (Resend, Inc., United States), which processes your email address and the message only to deliver it. The trial key is shown once on the confirmation page and is not emailed.
+
+**Purpose:** Delivering the trial you asked for and preventing abuse of the one-trial limit.
+**Legal basis (GDPR):** Steps taken at your request before a contract (Article 6(1)(b)) and our legitimate interest in preventing abuse of free trials (Article 6(1)(f)).
+**Retention:** Pending requests: no more than 48 hours. Trial records (email hash, installation ID, device key fingerprint): as long as needed to enforce one trial per installation and per email address. Request IP on the trial record: 90 days. Trial license key records: as for license records.
+
 ---
 
 ## 4. Data Processing Relationship
@@ -229,7 +245,7 @@ Because O.D.I.N. runs on your infrastructure, no international data transfer occ
 
 ### 7.2 License and Support Data
 
-Sublab 3DP is based in the United States. If you are located outside the United States, the limited data we collect (license information, support interactions) may be stored and processed in the United States. For EEA residents, this transfer is based on:
+Sublab 3DP is based in the United States. If you are located outside the United States, the limited data we collect (license information, Pro trial requests, support interactions) may be stored and processed in the United States. For EEA residents, this transfer is based on:
 
 - Standard Contractual Clauses (SCCs) where required
 - Our legitimate interest in providing the contracted services
@@ -273,6 +289,9 @@ We strongly recommend:
 | Data Type | Retention Period |
 |-----------|-----------------|
 | License records | Duration of license + 7 years |
+| Pending Pro trial requests (email, email hash, installation ID, device key, IP) | No more than 48 hours |
+| Pro trial records (email hash, installation ID, device key fingerprint) | As long as needed to enforce one trial per installation and email |
+| IP address on a Pro trial record | 90 days |
 | Support correspondence | 3 years after last interaction |
 | Website analytics (aggregate) | 2 years |
 | Payment records | As required by tax law (typically 7 years) |
