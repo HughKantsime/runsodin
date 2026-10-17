@@ -597,18 +597,20 @@ ALLOWED_CONFIG_KEYS = {'SPOOLMAN_URL', 'BLACKOUT_START', 'BLACKOUT_END'}
 
 
 @router.get("/config", tags=["Config"])
-def get_config(current_user: dict = Depends(require_role("viewer"))):
+def get_config(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get current configuration."""
+    from core.scheduler_settings import get_blackout
+    blackout_start, blackout_end = get_blackout(db)
     return {
         "spoolman_url": settings.spoolman_url,
-        "blackout_start": settings.blackout_start,
-        "blackout_end": settings.blackout_end,
+        "blackout_start": blackout_start,
+        "blackout_end": blackout_end,
     }
 
 
 @router.put("/config", tags=["Config"])
 def update_config(config: ConfigUpdate, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
-    """Update configuration. Writes to .env file."""
+    """Update configuration. The Spoolman URL is written to the .env file; blackout hours to the database."""
     env_path = os.environ.get('ENV_FILE_PATH', '/data/.env')
     env_vars = {}
     try:
@@ -622,10 +624,10 @@ def update_config(config: ConfigUpdate, current_user: dict = Depends(require_sup
 
     if config.spoolman_url is not None:
         env_vars['SPOOLMAN_URL'] = config.spoolman_url
-    if config.blackout_start is not None:
-        env_vars['BLACKOUT_START'] = config.blackout_start
-    if config.blackout_end is not None:
-        env_vars['BLACKOUT_END'] = config.blackout_end
+    # Blackout hours are saved in the database and apply to the next scheduler run.
+    if config.blackout_start is not None or config.blackout_end is not None:
+        from core.scheduler_settings import set_blackout
+        set_blackout(db, config.blackout_start, config.blackout_end)
 
     import tempfile
     dir_path = os.path.dirname(env_path) or '.'
@@ -642,7 +644,8 @@ def update_config(config: ConfigUpdate, current_user: dict = Depends(require_sup
 
     log_audit(db, "config.updated", "system", details={"keys": [k for k in ["spoolman_url", "blackout_start", "blackout_end"] if getattr(config, k) is not None]})
     db.commit()
-    return {"success": True, "message": "Config updated. Restart backend to apply changes."}
+    message = "Config updated. Restart backend to apply the Spoolman URL." if config.spoolman_url is not None else "Config updated."
+    return {"success": True, "message": message}
 
 
 @router.get("/spoolman/test", tags=["Spoolman"])
