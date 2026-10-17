@@ -443,10 +443,21 @@ async def request_pro_trial(
     except Exception as e:
         log.error("Trial request failed — could not reach license server: %s", type(e).__name__)
         raise HTTPException(status_code=502, detail="Could not reach the license server. Use the request code instead.")
-    if resp.status_code != 202:
-        detail = resp.json().get("error", "Trial request failed") if resp.headers.get("content-type", "").startswith("application/json") else f"License server returned {resp.status_code}"
-        raise HTTPException(status_code=resp.status_code if 400 <= resp.status_code < 600 else 502, detail=detail)
-    return {"status": "request_sent", **identity}
+    try:
+        answer = resp.json()
+    except Exception:
+        answer = None
+    if not isinstance(answer, dict):
+        raise HTTPException(status_code=502, detail={"message": f"The license server sent an unreadable answer ({resp.status_code}).",
+                                                     "portal_status": resp.status_code, "portal_code": None})
+    if resp.status_code == 202 and answer.get("status") == "request_received":
+        return {"status": "request_sent", **identity}
+    portal_code = answer.get("code") if isinstance(answer.get("code"), str) else None
+    message = answer.get("error") if isinstance(answer.get("error"), str) else "The license server refused the trial request."
+    # 401/403 from the portal concern this server's signed request, not the
+    # admin's session: never pass them through (the UI would sign the admin out).
+    status = resp.status_code if resp.status_code in (400, 409, 429, 503) else 502
+    raise HTTPException(status_code=status, detail={"message": message, "portal_status": resp.status_code, "portal_code": portal_code})
 
 
 class OfflineActivationRequestBody(PydanticBaseModel):
