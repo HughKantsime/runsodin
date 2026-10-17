@@ -1,4 +1,4 @@
-"""System config routes — IP allowlist, retention, quiet hours, MQTT republish, metrics, HMS lookup."""
+"""System config routes — Spoolman URL and blackout hours (/config, /spoolman/test), IP allowlist, retention, quiet hours, MQTT republish, metrics, HMS lookup."""
 
 import json
 import time
@@ -17,6 +17,8 @@ from core.db import get_db
 from core.dependencies import log_audit
 from core.rbac import require_role, require_superadmin, get_org_scope, should_filter_org
 import core.crypto as crypto
+from core.spoolman_settings import get_spoolman_url, set_spoolman_url, managed_by_environment
+from modules.system.schemas import ConfigUpdate
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -547,3 +549,65 @@ async def lookup_hms(code: str, current_user: dict = Depends(require_role("viewe
     except Exception as e:
         log.error(f"HMS code lookup failed: {e}")
         raise HTTPException(500, "Internal server error")
+
+
+# ============== Config ==============
+
+@router.get("/config", tags=["Config"])
+def get_config(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+    """Get current configuration."""
+    from core.scheduler_settings import get_blackout
+    blackout_start, blackout_end = get_blackout(db)
+    return {
+        "spoolman_url": get_spoolman_url(db) or None,
+        "spoolman_url_from_env": managed_by_environment(),
+        "blackout_start": blackout_start,
+        "blackout_end": blackout_end,
+    }
+
+
+@router.put("/config", tags=["Config"])
+def update_config(config: ConfigUpdate, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+    """Update configuration. Saved in the database and applied at once
+    (Spoolman URL: core.spoolman_settings; blackout hours: core.scheduler_settings)."""
+    if config.spoolman_url is not None:
+        if managed_by_environment():
+            raise HTTPException(status_code=409, detail="The Spoolman URL is set by the SPOOLMAN_URL environment variable; change it there.")
+        if config.spoolman_url:
+            from core.spoolman_client import SpoolmanURLRefused, validate_spoolman_base
+            try:
+                validate_spoolman_base(config.spoolman_url)  # the same check every Spoolman call makes
+            except SpoolmanURLRefused as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from None
+        set_spoolman_url(db, config.spoolman_url)
+    if config.blackout_start is not None or config.blackout_end is not None:
+        from core.scheduler_settings import set_blackout
+        set_blackout(db, config.blackout_start, config.blackout_end)
+
+    log_audit(db, "config.updated", "system", details={"keys": [k for k in ["spoolman_url", "blackout_start", "blackout_end"] if getattr(config, k) is not None]})
+    db.commit()
+    return {"success": True, "message": "Config updated."}
+
+
+@router.get("/spoolman/test", tags=["Spoolman"])
+async def test_spoolman_connection(current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+    """Test Spoolman connection. Admin only."""
+    spoolman_url = get_spoolman_url(db)
+    if not spoolman_url:
+        return {"success": False, "message": "Spoolman URL not configured"}
+    # v1.8.9 (codex pass 15): ITAR guard on the admin test-button.
+    # Without this, superadmins could trigger outbound to a public
+    # Spoolman host from within an ODIN_ITAR_MODE=1 deployment —
+    # trivially bypassing the air-gap contract via an ad-hoc button.
+    from fastapi.concurrency import run_in_threadpool
+    from core.spoolman_client import SpoolmanURLRefused, spoolman_request
+    try:
+        resp = await run_in_threadpool(lambda: spoolman_request("GET", "/api/v1/health", timeout=5))
+        if resp.status_code == 200:
+            return {"success": True, "message": f"Connected to Spoolman at {spoolman_url}"}
+        return {"success": False, "message": f"Spoolman returned status {resp.status_code}"}
+    except SpoolmanURLRefused as refused:
+        return {"success": False, "message": str(refused)}
+    except Exception as e:
+        log.warning("Spoolman connection test failed: %s", e)
+        return {"success": False, "message": "Connection failed. Check Spoolman URL and network connectivity."}

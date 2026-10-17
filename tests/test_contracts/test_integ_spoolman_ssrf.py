@@ -31,9 +31,9 @@ def app(review_db, monkeypatch):  # noqa: F811
     from core.db import get_db
     from core.dependencies import get_current_user
     from modules.inventory.routes import drying_logs, spoolman
-    from modules.system import routes_health
+    from modules.system import routes_config
     application = FastAPI()
-    for router in (spoolman.router, drying_logs.router, routes_health.router):
+    for router in (spoolman.router, drying_logs.router, routes_config.router):
         application.include_router(router, prefix="/api")
     application.dependency_overrides[get_db] = lambda: review_db
     application.dependency_overrides[get_current_user] = lambda: SUPER

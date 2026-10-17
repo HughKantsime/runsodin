@@ -82,7 +82,7 @@ class PaginatedResponse(BaseModel):
     pages: int
 
 
-# PUT /config body (routes_health.update_config).
+# PUT /config body (routes_config.update_config).
 class ConfigUpdate(BaseModel):
     spoolman_url: Optional[str] = None
     blackout_start: Optional[str] = None

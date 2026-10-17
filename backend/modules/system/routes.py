@@ -1,8 +1,8 @@
 """O.D.I.N. — System Routes (aggregator)
 
 Sub-router responsibilities:
-  routes_health.py      — Health check, license management, config (spoolman/blackout), spoolman test
-  routes_config.py      — IP allowlist, retention policy, quiet hours, MQTT republish, metrics, HMS codes
+  routes_health.py      — Health check, license management
+  routes_config.py      — Config (Spoolman URL/blackout), Spoolman test, IP allowlist, retention policy, quiet hours, MQTT republish, metrics, HMS codes
   routes_setup.py       — Setup wizard (status, admin, test-printer, printer, complete, network)
   routes_backup.py      — Backup/restore (create, list, download, delete, restore)
   routes_settings.py    — Branding (logo, favicon), education mode, language
