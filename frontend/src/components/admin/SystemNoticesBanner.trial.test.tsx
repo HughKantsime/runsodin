@@ -45,3 +45,16 @@ test('a failed dismissal keeps the notice visible', async () => {
   await waitFor(() => expect(api.dismiss).toHaveBeenCalled())
   expect(await screen.findByRole('alert')).toHaveTextContent('Pro trial ends in 3 days')
 })
+
+test('the 30-day license expiry notice links to the license tab, offers renewal and is dismissible', async () => {
+  notices = [wire.license_expiring_notice]
+  api.dismiss.mockImplementation(async () => { notices = []; return { status: 'dismissed', kind: 'license_expiring' } })
+  banner()
+  const alert = await screen.findByRole('alert')
+  expect(alert).toHaveTextContent('Pro license expires in 20 days')
+  expect(screen.getByRole('link', { name: 'Open license' })).toHaveAttribute('href', '/settings?tab=license')
+  expect(screen.getByRole('link', { name: 'Renew license' })).toHaveAttribute('href', 'https://runsodin.com/pricing')
+  fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+  await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
+  expect(api.dismiss).toHaveBeenCalledExactlyOnceWith('license_expiring')
+})

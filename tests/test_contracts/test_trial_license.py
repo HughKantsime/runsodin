@@ -155,6 +155,12 @@ def test_no_trial_notice_while_more_than_three_days_are_left(active):
     assert [n for n in active["notices"]["notices"] if n["kind"] == "license_trial_ending"] == []
 
 
+def test_a_running_trial_shows_the_30_day_license_expiry_notice(active):
+    expiring = [n for n in active["notices"]["notices"] if n["kind"] == "license_expiring"]
+    assert len(expiring) == 1
+    assert expiring[0]["title"] == "Pro trial expires in 14 days" and expiring[0]["days_left"] == 14
+
+
 NOTICE = r'''
 from datetime import datetime, timedelta, timezone
 seed_user("trial-admin", "admin"); seed_user("trial-admin-2", "admin")
@@ -169,16 +175,18 @@ OUT["second_fetch"] = kinds(a)
 OUT["operator"] = kinds(op)
 OUT["operator_dismiss"] = op.post("/api/system/notices/license_trial_ending/dismiss").status_code
 OUT["unknown_kind"] = a.post("/api/system/notices/restore_quarantined/dismiss").status_code
+OUT["expiring_dismiss_in_trial_window"] = a.post("/api/system/notices/license_expiring/dismiss").status_code
 OUT["dismiss"] = {"status": (r := a.post("/api/system/notices/license_trial_ending/dismiss")).status_code, "body": body(r)}
 OUT["after_dismiss"] = kinds(a)
 OUT["after_dismiss_relogin"] = kinds(login("trial-admin"))
 OUT["other_admin"] = kinds(a2)
 OUT["dismiss_again"] = a.post("/api/system/notices/license_trial_ending/dismiss").status_code
 OUT["stored"] = sql("SELECT key, value FROM system_config WHERE key LIKE 'notice_dismissed:%'")
-# A paid key: no trial notice at all, and nothing to dismiss.
+# A paid key far from expiry: no notice at all, and nothing to dismiss.
 install_license("pro", expires_at="2099-01-01")
 OUT["paid"] = kinds(a2)
 OUT["paid_dismiss"] = a2.post("/api/system/notices/license_trial_ending/dismiss").status_code
+OUT["paid_dismiss_expiring"] = a2.post("/api/system/notices/license_expiring/dismiss").status_code
 '''
 
 
@@ -208,10 +216,74 @@ def test_the_trial_notice_is_shown_once_per_admin(notice):
     assert len(notice["stored"]) == 1 and notice["stored"][0][0].startswith("notice_dismissed:license_trial_ending:")
 
 
+def test_inside_three_days_the_trial_notice_replaces_the_expiry_notice(notice):
+    assert [n["kind"] for n in notice["first"][1]] == ["license_trial_ending"]
+    assert notice["expiring_dismiss_in_trial_window"] == 404
+
+
 def test_trial_notice_is_admin_only_and_only_for_trials(notice):
     assert notice["operator"][0] == 403 and notice["operator_dismiss"] == 403
     assert notice["unknown_kind"] == 404
-    assert notice["paid"] == [200, []] and notice["paid_dismiss"] == 404
+    assert notice["paid"] == [200, []] and notice["paid_dismiss"] == 404 and notice["paid_dismiss_expiring"] == 404
+
+
+EXPIRING = r'''
+from datetime import datetime, timedelta, timezone, date
+seed_user("exp-admin", "admin"); seed_user("exp-admin-2", "admin"); seed_user("exp-operator", "operator")
+a = login("exp-admin"); a2 = login("exp-admin-2"); op = login("exp-operator")
+def notices(c):
+    r = c.get("/api/system/notices")
+    return [r.status_code, body(r).get("notices", []) if r.status_code == 200 else body(r)]
+def at(**d): return (datetime.now(timezone.utc) + timedelta(**d)).isoformat()
+install_license("pro", expires_at=at(days=31, hours=1))
+OUT["31_days"] = notices(a)
+install_license("enterprise", expires_at=at(days=29, hours=12))
+OUT["30_days_enterprise"] = notices(a)
+install_license("pro", expires_at=at(days=20))
+OUT["20_days"] = notices(a)
+OUT["operator"] = notices(op)
+OUT["operator_dismiss"] = op.post("/api/system/notices/license_expiring/dismiss").status_code
+OUT["dismiss"] = a.post("/api/system/notices/license_expiring/dismiss").status_code
+OUT["after_dismiss"] = notices(a)
+OUT["after_dismiss_relogin"] = notices(login("exp-admin"))
+OUT["other_admin"] = notices(a2)
+# A license that is still short (renewal not yet bought) but re-issued warns again.
+install_license("pro", expires_at=at(days=10), licensee="Renewed Farm")
+OUT["reissued"] = notices(a)
+# Date-only expiry (historical licenses): valid through the end of that UTC day.
+install_license("pro", expires_at=(date.today() + timedelta(days=5)).isoformat())
+OUT["date_only"] = notices(a2)
+# Renewed far out: the notice clears.
+install_license("pro", expires_at=at(days=365))
+OUT["renewed"] = notices(a2)
+'''
+
+
+@pytest.fixture(scope="module")
+def expiring(tmp_path_factory):
+    return run_probe("license-expiring", EXPIRING, tmp_path_factory.mktemp("license-expiring"))
+
+
+def test_superadmins_get_a_warning_when_a_license_has_30_days_or_fewer_left(expiring):
+    assert expiring["31_days"] == [200, []]
+    (n,) = expiring["30_days_enterprise"][1]
+    assert n["kind"] == "license_expiring" and n["title"] == "Enterprise license expires in 30 days"
+    (n,) = expiring["20_days"][1]
+    assert (n["kind"], n["title"], n["days_left"], n["severity"]) == ("license_expiring", "Pro license expires in 20 days", 20, "warning")
+    assert n["dismissible"] is True and n["link"] == "/settings?tab=license" and "data is kept" in n["message"]
+    assert [x["days_left"] for x in expiring["date_only"][1]] in ([5], [6])  # end of that UTC day
+
+
+def test_the_license_expiry_notice_is_dismissible_per_admin(expiring):
+    assert expiring["dismiss"] == 200
+    assert expiring["after_dismiss"] == [200, []] and expiring["after_dismiss_relogin"] == [200, []]
+    assert [x["kind"] for x in expiring["other_admin"][1]] == ["license_expiring"]
+    assert [x["title"] for x in expiring["reissued"][1]] == ["Pro license expires in 10 days"]  # new license, new notice
+    assert expiring["renewed"] == [200, []]
+
+
+def test_the_license_expiry_notice_is_superadmin_only(expiring):
+    assert expiring["operator"][0] == 403 and expiring["operator_dismiss"] == 403
 
 
 EXPIRY = r'''
@@ -357,7 +429,7 @@ WIRE_FIXTURE = "frontend/src/test-fixtures/trial-license-wire.json"
 VOLATILE = ("license_sha256", "expires_at", "issued_at")
 
 
-def test_trial_wire_capture(active, notice, expired):
+def test_trial_wire_capture(active, notice, expired, expiring):
     """Captured /api/license (active and ended trial) and /system/notices bodies the UI tests consume."""
     from pathlib import Path
     trial_notice = [n for n in notice["first"][1] if n["kind"] == "license_trial_ending"][0]
@@ -365,6 +437,7 @@ def test_trial_wire_capture(active, notice, expired):
         "active_license": active["license"],
         "ended_license": expired["after"]["license"],
         "trial_ending_notice": trial_notice,
+        "license_expiring_notice": expiring["20_days"][1][0],
     }
     strip = lambda d: {k: v for k, v in d.items() if k not in VOLATILE}
     path = Path(__file__).resolve().parents[2] / WIRE_FIXTURE
