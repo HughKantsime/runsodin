@@ -61,6 +61,6 @@ test('Community deep link to a free tab still opens it', async () => {
 test('Simple view deep link ?tab=vision opens General, since the Vigil AI tab is hidden', async () => {
  api.mode = 'simple'; mount('/settings?tab=vision')
  await screen.findByRole('heading', { name: 'Interface Mode' })
- expect(screen.queryByRole('button', { name: 'Vigil AI', exact: true })).not.toBeInTheDocument()
+ expect(screen.queryByRole('button', { name: /^Vigil AI$/ })).not.toBeInTheDocument()
  expect(screen.queryByText('Vigil boundary')).not.toBeInTheDocument()
 })
