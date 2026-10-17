@@ -24,7 +24,7 @@ from sqlalchemy.exc import OperationalError
 
 from core.db import get_db
 from core.dependencies import get_current_user
-from core.rbac import check_org_access, get_org_scope, require_role, require_superadmin
+from core.rbac import check_org_access, get_org_scope, require_action, require_role, require_superadmin
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -544,7 +544,7 @@ def ams_preview(
 def reprint_archive(
     archive_id: int,
     body: ReprintRequest,
-    user=Depends(require_role("operator", scope="write:jobs")),
+    user=Depends(require_action("jobs.create", scope="write:jobs")),  # a reprint creates a job
     db: Session = Depends(get_db),
 ):
     """Reprint an archived job on a specified printer with optional AMS remapping."""

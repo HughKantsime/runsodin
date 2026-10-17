@@ -30,7 +30,7 @@ from sqlalchemy.orm import Session
 from core.db import get_db
 from core.db_compat import execute_insert_returning_id, sql
 from core.dependencies import get_current_user, log_audit
-from core.rbac import require_role, get_org_scope, check_org_access
+from core.rbac import require_action, require_role, get_org_scope, check_org_access
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -482,7 +482,7 @@ async def apply_profile(
     profile_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("operator", scope="write:printers")),
+    current_user: dict = Depends(require_action("printers.edit", scope="write:printers")),  # changes the printer
     _profile_reader: dict = Depends(require_role("viewer", scope="read:models")),
 ):
     """Apply a Klipper profile to a printer via Moonraker GCode API."""
