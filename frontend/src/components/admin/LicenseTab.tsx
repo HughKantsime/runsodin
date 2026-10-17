@@ -167,6 +167,9 @@ export default function LicenseTab() {
   }
 
   const tier = licenseInfo?.tier || 'community'
+  const trialActive = licenseInfo?.trial === true && licenseInfo.valid === true
+  const trialEnded = licenseInfo?.trial === true && licenseInfo.expired === true
+  const trialDaysLeft = licenseInfo?.trial_days_left ?? 0
   const managedExternally = licenseInfo?.managed_externally === true
   const tierColors: Record<string, string> = {
     community: 'text-[var(--brand-text-secondary)]',
@@ -182,6 +185,32 @@ export default function LicenseTab() {
           <FileText size={18} className="text-[var(--brand-primary)]" />
           <h3 className="font-semibold" style={{ color: 'var(--brand-text-primary)' }}>Current License</h3>
         </div>
+        {(trialActive || trialEnded) && (
+          <div
+            role="status"
+            data-testid="license-trial-status"
+            className={`mb-4 flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm ${trialActive ? 'border-[var(--brand-primary)]/40 bg-[var(--brand-primary)]/10' : 'border-amber-500/40 bg-amber-500/10'}`}
+          >
+            <div>
+              <p className="font-semibold text-[var(--brand-text-primary)]">
+                {trialActive ? `Pro trial — ${trialDaysLeft} ${trialDaysLeft === 1 ? 'day' : 'days'} left` : 'Trial ended'}
+              </p>
+              <p className="text-xs text-[var(--brand-text-secondary)]">
+                {trialActive
+                  ? 'All Pro features are on until the trial ends. Your data is kept when it ends.'
+                  : 'Pro features no longer accept new or changed records. Your data is kept: you can still view, export and delete it.'}
+              </p>
+            </div>
+            <a
+              href="https://runsodin.com/pricing"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs font-medium text-[var(--brand-primary)] underline"
+            >
+              Buy a license
+            </a>
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-4 text-sm">
           <div>
             <span className="text-[var(--brand-text-muted)]">Tier:</span>

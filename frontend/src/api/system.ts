@@ -25,18 +25,25 @@ export interface BackupEntry {
 }
 
 export interface SystemNotice {
-  kind: 'restore_quarantined';
+  kind: 'restore_quarantined' | 'license_trial_ending';
   severity: 'critical' | 'warning';
   title: string;
   message: string;
   archive?: string;
   failed_at?: string | null;
   link: string;
+  // license_trial_ending only
+  buy_url?: string;
+  expires_at?: string;
+  days_left?: number;
+  dismissible?: boolean;
 }
 
 /** Superadmin-only notices derived from current server state (GET /system/notices). */
 export const systemNotices = {
   list: (): Promise<{ notices: SystemNotice[] }> => fetchAPI('/system/notices'),
+  dismiss: (kind: SystemNotice['kind']): Promise<{ status: string; kind: string }> =>
+    fetchAPI(`/system/notices/${encodeURIComponent(kind)}/dismiss`, { method: 'POST' }),
 }
 
 export interface StagedRestore {
