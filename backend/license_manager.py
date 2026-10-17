@@ -217,16 +217,21 @@ class LicenseInfo:
         self.expiry_deadline: Optional[datetime] = None  # set for valid licenses
         self.trial = False  # signed "trial": true (portal Pro trial), kept after expiry
 
-    def trial_days_left(self, now: Optional[datetime] = None) -> Optional[int]:
-        """Whole days left on a trial (rounded up; 0 once ended), None if not a trial."""
-        if not self.trial:
-            return None
+    def days_left(self, now: Optional[datetime] = None) -> Optional[int]:
+        """Whole days until a valid license expires (rounded up), None when not valid."""
         if not self.valid or self.expiry_deadline is None:
-            return 0
+            return None
         remaining = (self.expiry_deadline - (now or datetime.now(timezone.utc))).total_seconds()
         if remaining <= 0:
             return 0
         return int(-(-remaining // 86400))
+
+    def trial_days_left(self, now: Optional[datetime] = None) -> Optional[int]:
+        """Whole days left on a trial (rounded up; 0 once ended), None if not a trial."""
+        if not self.trial:
+            return None
+        days = self.days_left(now)
+        return 0 if days is None else days
 
     def has_feature(self, feature: str) -> bool:
         """Check if the current license includes a feature.
