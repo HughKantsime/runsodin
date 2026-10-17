@@ -2,60 +2,14 @@
 
 Updated - see CHANGELOG for current version.
 
-## Whole-app certification repairs (unreleased)
+## Shipped in v2.0.0
 
-- Project ZIP v2 export/import restores archives and files (F02-2.8-38).
-- Atomic admin user deletion with credential revocation (F11-11.3-05).
-- Estimated per-order COGS/margin and revenue-weighted Average Margin (F09-9.3-02, F09-9.1-04).
-- Chargeback grams (F10-10.7-02).
-- Estimated cost in usage reports by user, printer and model (F10-10.8-01, F10-10.8-03).
-- Per-print smart-plug energy (F10-10.4-01); auto power cycle re-verified (F01-1.6-03).
-- Remaining confirmed gaps tracked in the local claim ledger.
-
-## Protected transfer session reuse (1.9.24 candidate)
-
-- Offer the control TLS session on protected passive Bambu transfers.
-- Connected classroom and monitor checks require actual TLS 1.2 resumption.
-- Separate cluster pilot prepared; school printer acceptance remains open.
-
-## SSO callback completion (1.9.17)
-
-- Exchange and verify callback sessions before provider initialization.
-- Fail closed on invalid callbacks; prevent callback URL caching.
-- Local regression and browser checks pass; school-side confirmation pending.
-
-## First-time SSO setup (unreleased)
-
-- Fix default administrator Organizations visibility and initial OIDC persistence.
-- Add tenant creation guidance, refresh, and independent configuration/load errors.
-- School-specific configuration 500 and live provider login still need school evidence.
-
-## Completed locally — Education license limits (unreleased)
-
-- Normalize signed null user caps to tier defaults; preserve explicit limits.
-- Regression coverage for license API output, manual account creation, and
-  tenant-scoped OIDC provisioning. School OIDC configuration requires separate
-  live verification.
-
-## Completed locally — release-control foundation (unreleased)
-
-- Ordinary push and pull-request workflows replaced by one owner-only manual
-  trusted-validation definition for immutable candidate refs.
-- Ten validation areas preserved behind a strict structured aggregate.
-- Installer smoke resources are uniquely named/labeled and cleanup is bound to
-  recorded identity plus ownership labels.
-- Local version bump creates a commit only; publish and production promotion
-  remain intentionally unavailable pending their successor specs.
-
-## Completed locally — EDU hardware certification (unreleased)
-
-- Four-protocol Bambu, Elegoo, Moonraker, and PrusaLink certification harness
-  with deterministic loopback replay, production parser/state seams, protected
-  passive observation, default-deny one-time active authorization, strict
-  privacy-preserving evidence, EDU readiness import, CI, and operator HTML.
-- Code-controlled replay is complete; it does not claim physical compatibility.
-  Live printer observation/exercise and the Telemetry V2 seven-day staging soak
-  remain blocked until real hardware and operator authorization are available.
+- ~~Project ZIP v2 export/import~~ — restores archives and print files into a new importer-owned project
+- ~~Atomic admin user deletion~~ — revokes every session, API token and device credential in one transaction
+- ~~Estimated per-order COGS and margin~~ — plus revenue-weighted Average Margin
+- ~~Chargeback grams~~ — filament grams in the chargeback report
+- ~~Estimated cost in usage reports~~ — by user, printer and model
+- ~~Per-print smart-plug energy~~ — energy recorded per print from the smart plug
 
 ## Shipped in v1.5.10
 

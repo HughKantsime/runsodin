@@ -83,6 +83,6 @@ def test_RE09_controls_have_no_publish_or_deploy_command():
 
 
 def test_RE10_release_foundation_is_documented_in_all_formats():
+    # ROADMAP.md lists product features only (internal release work was removed from it for 2.0).
     assert "release-control foundation" in (ROOT / "CHANGELOG.md").read_text().lower()
-    assert "release-control foundation" in (ROOT / "ROADMAP.md").read_text().lower()
     assert (ROOT / "docs/RELEASE_CONTROL_FOUNDATION.html").is_file()
