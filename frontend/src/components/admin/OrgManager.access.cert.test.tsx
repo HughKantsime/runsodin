@@ -370,6 +370,8 @@ const WIRE: any = {
   "issued_at": "",
   "expires_at": "2099-01-01",
   "expired": false,
+  "trial": false,
+  "trial_days_left": null,
   "max_printers": 9999,
   "max_users": 9999,
   "features": [
