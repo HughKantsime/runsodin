@@ -88,6 +88,10 @@ TIERS = {
     },
 }
 
+# Pro trial (spec .claude/specs/pro-trial.md): the portal signs "trial": true
+# into a 14-day Pro license. Admins get a one-time notice this many days out.
+TRIAL_NOTICE_DAYS = 3
+
 # Where license files are stored
 LICENSE_DIR = os.environ.get("LICENSE_DIR", "/data")
 LICENSE_FILENAME = "odin.license"
@@ -211,6 +215,18 @@ class LicenseInfo:
         self.binding_matches_current = False
         self.license_sha256 = ""
         self.expiry_deadline: Optional[datetime] = None  # set for valid licenses
+        self.trial = False  # signed "trial": true (portal Pro trial), kept after expiry
+
+    def trial_days_left(self, now: Optional[datetime] = None) -> Optional[int]:
+        """Whole days left on a trial (rounded up; 0 once ended), None if not a trial."""
+        if not self.trial:
+            return None
+        if not self.valid or self.expiry_deadline is None:
+            return 0
+        remaining = (self.expiry_deadline - (now or datetime.now(timezone.utc))).total_seconds()
+        if remaining <= 0:
+            return 0
+        return int(-(-remaining // 86400))
 
     def has_feature(self, feature: str) -> bool:
         """Check if the current license includes a feature.
@@ -245,6 +261,8 @@ class LicenseInfo:
             "issued_at": self.issued_at,
             "expires_at": self.expires_at,
             "expired": self.expired,
+            "trial": self.trial,
+            "trial_days_left": self.trial_days_left(),
             "max_printers": self.max_printers,
             "max_users": self.max_users,
             "features": self.effective_features(),
@@ -272,6 +290,8 @@ class LicenseInfo:
             "issued_at": self.issued_at,
             "expires_at": self.expires_at,
             "expired": self.expired,
+            "trial": self.trial,
+            "trial_days_left": self.trial_days_left(),
             "max_printers": self.max_printers,
             "max_users": self.max_users,
             "features": self.effective_features(),
@@ -426,6 +446,10 @@ def verify_license_text(raw: str, installation_id_reader=None) -> LicenseInfo:
                 info.error = f"License missing required field: {field}"
                 return info
 
+        # Only a signed boolean true marks a trial (the signature covers it).
+        # Reported for valid and expired licenses, not for refused ones.
+        is_trial = payload.get("trial") is True
+
         payload_install_id = payload.get("installation_id")
         info.binding_present = bool(payload_install_id)
         if payload_install_id:
@@ -447,6 +471,7 @@ def verify_license_text(raw: str, installation_id_reader=None) -> LicenseInfo:
             info.tier = payload["tier"]
             info.licensee = payload.get("licensee", "")
             info.expires_at = payload["expires_at"]
+            info.trial = is_trial
             # Fall back to community features
             info.max_printers = TIERS["community"]["max_printers"]
             info.max_users = TIERS["community"]["max_users"]
@@ -476,6 +501,7 @@ def verify_license_text(raw: str, installation_id_reader=None) -> LicenseInfo:
         info.issued_at = payload.get("issued_at", "")
         info.expires_at = payload["expires_at"]
         info.expiry_deadline = expires
+        info.trial = is_trial
         max_printers = payload.get("max_printers")
         info.max_printers = tier_def["max_printers"] if max_printers is None else max_printers
         # The activation service uses null for an unspecified tier-default cap.
