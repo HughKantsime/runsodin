@@ -1698,7 +1698,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 170,
+      "line": 214,
       "path": "backend/modules/printers/camera_relay.py",
       "pattern": "qmark-parameter",
       "reason": "Single read-only qmark lookup through the shared get_db DBAPI adapter, which binds qmark SQL on both providers; IS TRUE boolean predicates are valid on SQLite and PostgreSQL",
@@ -2250,7 +2250,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 176,
+      "line": 178,
       "path": "backend/modules/system/routes_admin.py",
       "pattern": "sqlite3",
       "reason": "SQLite integrity-check branch; PostgreSQL uses provider-specific health checks",
@@ -2258,7 +2258,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 251,
+      "line": 253,
       "path": "backend/modules/system/routes_admin.py",
       "pattern": "PRAGMA",
       "reason": "SQLite integrity-check branch; PostgreSQL uses provider-specific health checks",
