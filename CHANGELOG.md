@@ -4,7 +4,7 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [2.0.0] - 2026-10-16
 
-<!-- Release date is a placeholder; set the real date at release time. VERSION is bumped by ops/bump-version.sh. -->
+<!-- release-date placeholder: set by ops/bump-version.sh -->
 <!-- summary: 2.0 breaking changes and upgrade notes -->
 
 ### Removed
@@ -21,6 +21,7 @@ All notable changes to O.D.I.N. are documented here.
 - GET /api/alerts hides dismissed alerts by default. Pass include_dismissed=true to get every alert.
 - The Calculator and model cost divide only per-bed quantities (material, electricity and machine depreciation are divided by units per bed).
 - Spoolman consumption is sent with PUT /api/v1/spool/{id}/use.
+- Terms of Service and Privacy Policy: the tier descriptions now match the license tiers (MFA, IP allowlist, organizations and GDPR data export/anonymization are included in every tier; Enterprise adds audit-log CSV export and MQTT event republishing; Education covers up to 9,999 printers and users), and the stated AMS environment data retention is 90 days.
 - Bambu X1C/X1E/H2D built-in cameras (camera URL derived from the access code) are vision-monitored by default, up to vision_settings.max_threads concurrent printers (default 16; adjustable in Settings > Vigil AI).
 - Timelapse captures recorded as 'shared' before migration 033 have no stored capture-time tenancy fact. Once any organization exists on the install, those timelapses are visible to administrators only (fail closed). Installs with no organizations are unaffected.
 

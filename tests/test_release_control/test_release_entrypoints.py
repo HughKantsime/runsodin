@@ -13,6 +13,11 @@ def bumped_repo(tmp_path_factory):
     for directory in ("ops", "frontend/src", "frontend/public", "backend/core", "install", "design"):
         (root / directory).mkdir(parents=True, exist_ok=True)
     shutil.copy2(ROOT / "ops/bump-version.sh", root / "ops/bump-version.sh")
+    shutil.copy2(ROOT / "ops/set-release-date.mjs", root / "ops/set-release-date.mjs")
+    marker = "<!-- release-date placeholder: set by ops/bump-version.sh -->"
+    (root / "CHANGELOG.md").write_text(f"# Changelog\n\n## [1.0.1] - 2000-01-01\n\n{marker}\n\n### Fixed\n\n- Synthetic.\n")
+    for legal in ("TERMS_OF_SERVICE.md", "PRIVACY_POLICY.md"):
+        (root / legal).write_text(f"# Synthetic\n\n**Last Updated:** January 1, 2000 {marker}\n")
     (root / "VERSION").write_text("1.0.0\n")
     (root / "frontend/package.json").write_text('{"name":"odin","version":"1.0.0"}\n')
     (root / "frontend/package-lock.json").write_text('{"name":"odin","version":"1.0.0","packages":{"":{"version":"1.0.0"}}}\n')
@@ -36,6 +41,17 @@ def bumped_repo(tmp_path_factory):
 def test_RE01_bump_creates_one_local_commit(bumped_repo):
     assert subprocess.check_output(["git", "rev-list", "--count", "HEAD"], cwd=bumped_repo, text=True).strip() == "2"
     assert (bumped_repo / "VERSION").read_text().strip() == "1.0.1"
+
+
+def test_RE01b_bump_dates_the_changelog_and_legal_pages_in_its_commit(bumped_repo):
+    changelog = (bumped_repo / "CHANGELOG.md").read_text()
+    assert "## [1.0.1] - 2000-01-01" not in changelog and "placeholder" not in changelog
+    for legal in ("TERMS_OF_SERVICE.md", "PRIVACY_POLICY.md"):
+        text = (bumped_repo / legal).read_text()
+        assert "January 1, 2000" not in text and "placeholder" not in text
+    committed = subprocess.check_output(["git", "show", "--name-only", "--format=", "HEAD"], cwd=bumped_repo, text=True).split()
+    assert {"CHANGELOG.md", "TERMS_OF_SERVICE.md", "PRIVACY_POLICY.md", "VERSION"} <= set(committed)
+    assert subprocess.check_output(["git", "status", "--porcelain"], cwd=bumped_repo, text=True) == ""
 
 
 def test_RE02_bump_creates_no_tag(bumped_repo):
