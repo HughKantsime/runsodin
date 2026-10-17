@@ -1698,7 +1698,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 147,
+      "line": 170,
       "path": "backend/modules/printers/camera_relay.py",
       "pattern": "qmark-parameter",
       "reason": "Single read-only qmark lookup through the shared get_db DBAPI adapter, which binds qmark SQL on both providers; IS TRUE boolean predicates are valid on SQLite and PostgreSQL",
