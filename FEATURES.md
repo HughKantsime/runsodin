@@ -268,6 +268,14 @@
 - Operators/admins bypass approval — their jobs go directly to Pending
 - Targeted approval alerts routed to group owner (v1.1.0)
 
+### 4.11 Education Cost-Center Workflow (Education)
+- Requires an Education or Enterprise license that includes the Education workflow entitlement (`education_workflows`); without it the Education capabilities report no access
+- Tenant admins create cost centers (for example a class or club), grant users the student and/or manager role on each, and entitle active, non-shared printers of their organization; every change is revisioned, audited and safe to replay
+- Students submit a sliced Bambu `.3mf` (with a printable `Metadata/plate_1.gcode`) to a cost center where they hold a student grant; uploads are streamed against a storage reserve, and students see only their own submissions
+- Managers (teachers and staff) see the submission queue only for the cost centers they manage and preview compatibility against an entitled printer: printer API type, bed size (either orientation), nozzle diameter, loaded materials and, when the file names one, the printer model; missing or unrecognized evidence fails closed
+- Managers approve a submission to an entitled, compatible printer (optionally with an explicit AMS tray mapping from a current AMS report and plate) or reject it with a recorded reason; dispatch re-checks the entitlement, the pinned file and the printer's current materials before any printer command
+- Google Classroom import (optional): an admin authorizes read-only course and roster access (PKCE; no coursework, grades or roster writes), previews a course's teachers and students with the change against the mapped cost center, and explicitly imports them — teachers get manager grants, students get student grants and new accounts are viewers; a later import revokes grants of removed members, and disconnecting removes the stored Google tokens but keeps imported users, cost centers, grants and submissions
+
 ### 4.7 Per-Job Time Tracking (v1.2.0)
 - Actual print duration tracked alongside slicer estimate
 - Time data visible on job detail and available in exports
@@ -475,7 +483,7 @@
 
 ### 11.1 Authentication
 - httpOnly session cookie auth (XSS-resistant) — JWT stored in `Secure; SameSite=Strict` cookie; Bearer token and X-API-Key fallbacks preserved for API clients (v1.3.59)
-- OIDC/SSO via Microsoft Entra ID with auto-user provisioning (viewer role in a configured default organization); redirect_uri pinned to OIDC_REDIRECT_URI when set — otherwise it is derived from the request Host, so set OIDC_REDIRECT_URI or TRUSTED_HOSTS to prevent Host-header injection (v1.3.67)
+- OIDC/SSO via Microsoft Entra ID, Google Workspace or a generic OIDC provider, with auto-user provisioning (viewer role in a configured default organization); Google sign-in requires a verified email and a signed hosted-domain claim within the configured allowed domains; redirect_uri pinned to OIDC_REDIRECT_URI when set — otherwise it is derived from the request Host, so set OIDC_REDIRECT_URI or TRUSTED_HOSTS to prevent Host-header injection (v1.3.67)
 - Unified JWT signing for local auth and OIDC
 - WebSocket tokens scoped to WebSocket connections only — cannot be replayed against REST endpoints (v1.3.63)
 - **Email-based user onboarding** — admin creates user with "Send welcome email" option; system generates random password and sends invite email via configured SMTP
@@ -880,7 +888,7 @@ conveniences a browser tab can't provide.
 - Vigil vision-detection review and training feedback
 - Timelapse playback and editing
 - Print-file upload
-- Microsoft Entra ID SSO login
+- Microsoft Entra ID and Google Workspace SSO login
 - TOTP MFA enrollment
 
 The macOS app exposes an "Open Web UI" menu item for these; the iOS
