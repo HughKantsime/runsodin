@@ -114,7 +114,8 @@ def test_postgres_racing_claims_admit_exactly_one_sender(pg_engine, claim):
     assert again is False
 
 
-def test_postgres_daemon_email_uses_http_saved_smtp_config(pg_engine, smtp_peer, monkeypatch):
+def test_postgres_daemon_email_uses_http_saved_smtp_config(pg_engine, smtp_peer, monkeypatch, pro_license):
+    # Saving SMTP settings and alert email delivery need Pro (license_manager.TIERS email_notifications).
     from core import db_utils
     from core.db import get_db
     from core.dependencies import get_current_user

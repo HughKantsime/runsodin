@@ -264,7 +264,10 @@ def send_webhook(alert_type: str, title: str, message: str, severity: str = "inf
 
 def send_email(user_id: int, alert_type: str, title: str, message: str,
                printer_id: int = None, job_id: int = None):
-    """Send email notification to user."""
+    """Send email notification to user (Pro: license feature email_notifications)."""
+    from core.license_manager import get_license
+    if not get_license().has_feature("email_notifications"):
+        return
 
     try:
         with get_db() as conn:

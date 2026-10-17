@@ -14,7 +14,8 @@ sys.path.insert(0, str(BACKEND)) if str(BACKEND) not in sys.path else None
 
 
 @pytest.fixture
-def setup_client(tmp_path, monkeypatch):
+def setup_client(tmp_path, monkeypatch, pro_license):
+    # Configuring SSO and custom permissions needs Pro (license_manager.TIERS).
     from core.schema import bootstrap_database
     from core.db import get_db
     from core.dependencies import get_current_user

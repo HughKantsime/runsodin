@@ -1,6 +1,7 @@
 """O.D.I.N. — Alerts, Alert Preferences, and SMTP Configuration."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from license_manager import feature_gate
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import text
 from typing import List, Optional
@@ -445,7 +446,9 @@ async def get_smtp_config(
     )
 
 
-@router.put("/smtp-config", dependencies=[Depends(require_interactive_session())])
+# Email notifications are a Pro feature (license_manager.TIERS "email_notifications"):
+# saving SMTP settings and sending a test needs Pro; reading them stays available.
+@router.put("/smtp-config", dependencies=[Depends(require_interactive_session()), Depends(feature_gate("email_notifications"))])
 async def update_smtp_config(
     data: SmtpConfigBase,
     current_user: dict = Depends(require_superadmin()),
@@ -492,7 +495,7 @@ async def update_smtp_config(
     return {"status": "ok", "message": "SMTP configuration updated"}
 
 
-@router.post("/alerts/test-email")
+@router.post("/alerts/test-email", dependencies=[Depends(feature_gate("email_notifications"))])
 async def send_test_email(
     current_user: dict = Depends(require_role("admin")),
     db: Session = Depends(get_db)

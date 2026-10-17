@@ -255,7 +255,10 @@ def _get_smtp_config(db):
 
 
 def _deliver_email(db, user_id, title, message, severity):
-    """Send email notification in a background thread."""
+    """Send email notification in a background thread (Pro: email_notifications)."""
+    from core.license_manager import get_license
+    if not get_license().has_feature("email_notifications"):
+        return
     smtp_config = _get_smtp_config(db)
     if not smtp_config:
         return
