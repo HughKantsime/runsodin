@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "artifacts/application-certification/cert-F/C-ui-wire.json"
 UI = {
     "rolegate": ROOT / "frontend/src/components/auth/RoleGate.settings-audit.cert.test.tsx",
+    "rolegate_timeline": ROOT / "frontend/src/components/auth/RoleGate.timeline.cert.test.tsx",
     "quota": ROOT / "frontend/src/components/admin/QuotaManager.quotas.cert.test.tsx",
     "allowlist": ROOT / "frontend/src/components/admin/IPAllowlistSettings.allowlist.cert.test.tsx",
 }
