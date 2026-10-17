@@ -230,8 +230,20 @@ def active_system_notices() -> list[dict]:
 
 @router.get("/system/notices", tags=["System"])
 def system_notices(current_user: dict = Depends(require_superadmin(scope="admin"))):
-    """Active system notices for superadmins (restore quarantine)."""
-    return {"notices": active_system_notices()}
+    """Active system notices for superadmins (restore quarantine, license expiring, Pro trial ending)."""
+    from modules.system.license_notices import license_notices
+    return {"notices": active_system_notices() + license_notices(current_user.get("id"))}
+
+
+@router.post("/system/notices/{kind}/dismiss", tags=["System"])
+def dismiss_system_notice(kind: str, current_user: dict = Depends(require_superadmin(scope="admin"))):
+    """Dismiss a dismissible notice for the calling admin (the license expiry notices are)."""
+    from modules.system.license_notices import DISMISSIBLE_KINDS, dismiss_license_notice
+    if kind not in DISMISSIBLE_KINDS:
+        raise HTTPException(status_code=404, detail="Unknown or non-dismissible notice")
+    if not dismiss_license_notice(kind, current_user.get("id")):
+        raise HTTPException(status_code=404, detail="No active notice to dismiss")
+    return {"status": "dismissed", "kind": kind}
 
 
 def _safe_backup_path(filename: str) -> Path:

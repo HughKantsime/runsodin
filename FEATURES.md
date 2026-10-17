@@ -756,6 +756,9 @@
 - Ed25519 signing compatible with ODIN's embedded verifier
 - Default LICENSE_SERVER_URL=https://runsodin.com (configurable)
 
+### 20.4 Pro Trial
+- 14-day Pro trial: one per installation and per email; data is kept when it ends
+
 ---
 
 ## 21. Supported Printer Protocols

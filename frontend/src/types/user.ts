@@ -165,6 +165,10 @@ export interface PublicLicense {
   issued_at: string;
   expires_at: string | null;
   expired: boolean;
+  /** Signed Pro trial license (portal 14-day trial); stays true after it ends. */
+  trial: boolean;
+  /** Whole days left on a trial (0 once ended); null when not a trial. */
+  trial_days_left: number | null;
   max_printers: number | null;
   max_users: number | null;
   features: string[];
