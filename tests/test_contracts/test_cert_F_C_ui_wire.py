@@ -21,6 +21,7 @@ OUT = ROOT / "artifacts/application-certification/cert-F/C-ui-wire.json"
 UI = {
     "rolegate": ROOT / "frontend/src/components/auth/RoleGate.settings-audit.cert.test.tsx",
     "rolegate_timeline": ROOT / "frontend/src/components/auth/RoleGate.timeline.cert.test.tsx",
+    "rolegate_pages": ROOT / "frontend/src/components/auth/RoleGate.pages.cert.test.tsx",
     "quota": ROOT / "frontend/src/components/admin/QuotaManager.quotas.cert.test.tsx",
     "allowlist": ROOT / "frontend/src/components/admin/IPAllowlistSettings.allowlist.cert.test.tsx",
 }

@@ -156,31 +156,31 @@ export default function App() {
           <div role="status" aria-live="polite" aria-atomic="true" className="sr-only" id="sr-status" />
           <ErrorBoundary>
           <Routes>
-            <Route path="/" element={<Dashboard />} />
+            <Route path="/" element={<RoleGate page="dashboard"><Dashboard /></RoleGate>} />
             <Route path="/timeline" element={<RoleGate page="timeline"><Timeline /></RoleGate>} />
-            <Route path="/jobs" element={<Jobs />} />
-            <Route path="/printers" element={<Printers />} />
-            <Route path="/printers/:id" element={<PrinterDetail />} />
-            <Route path="/models" element={<Models />} />
+            <Route path="/jobs" element={<RoleGate page="jobs"><Jobs /></RoleGate>} />
+            <Route path="/printers" element={<RoleGate page="printers"><Printers /></RoleGate>} />
+            <Route path="/printers/:id" element={<RoleGate page="printers"><PrinterDetail /></RoleGate>} />
+            <Route path="/models" element={<RoleGate page="models"><Models /></RoleGate>} />
             <Route path="/profiles" element={<Profiles />} />
-            <Route path="/calculator" element={<CalculatorPage />} />
-            <Route path="/analytics" element={<ProGate feature="analytics"><Analytics /></ProGate>} />
-            <Route path="/utilization" element={<ProGate feature="analytics"><Utilization /></ProGate>} />
-            <Route path="/upload" element={<Upload />} />
-            <Route path="/spools" element={<Spools />} />
-            <Route path="/consumables" element={<ProGate feature="products"><Consumables /></ProGate>} />
+            <Route path="/calculator" element={<RoleGate page="calculator"><CalculatorPage /></RoleGate>} />
+            <Route path="/analytics" element={<RoleGate page="analytics"><ProGate feature="analytics"><Analytics /></ProGate></RoleGate>} />
+            <Route path="/utilization" element={<RoleGate page="analytics"><ProGate feature="analytics"><Utilization /></ProGate></RoleGate>} />
+            <Route path="/upload" element={<RoleGate page="upload"><Upload /></RoleGate>} />
+            <Route path="/spools" element={<RoleGate page="spools"><Spools /></RoleGate>} />
+            <Route path="/consumables" element={<RoleGate page="products"><ProGate feature="products"><Consumables /></ProGate></RoleGate>} />
             <Route path="/settings" element={<RoleGate page="settings"><SettingsPage /></RoleGate>} />
-            <Route path="/admin" element={<Navigate to="/settings" replace />} />
-            <Route path="/permissions" element={<ProGate feature="permissions"><Navigate to="/settings" replace /></ProGate>} />
-            <Route path="/maintenance" element={<ProGate feature="maintenance"><Maintenance /></ProGate>} />
-            <Route path="/cameras" element={<Cameras />} />
-            <Route path="/cameras/:id" element={<CameraDetail />} />
-            <Route path="/branding" element={<ProGate feature="branding"><Navigate to="/settings" replace /></ProGate>} />
-            <Route path="/products" element={<ProGate feature="products"><Products /></ProGate>} />
-            <Route path="/orders" element={<ProGate feature="orders"><Orders /></ProGate>} />
-            <Route path="/alerts" element={<Alerts />} />
+            <Route path="/admin" element={<RoleGate page="admin"><Navigate to="/settings" replace /></RoleGate>} />
+            <Route path="/permissions" element={<RoleGate page="admin"><ProGate feature="permissions"><Navigate to="/settings" replace /></ProGate></RoleGate>} />
+            <Route path="/maintenance" element={<RoleGate page="maintenance"><ProGate feature="maintenance"><Maintenance /></ProGate></RoleGate>} />
+            <Route path="/cameras" element={<RoleGate page="cameras"><Cameras /></RoleGate>} />
+            <Route path="/cameras/:id" element={<RoleGate page="cameras"><CameraDetail /></RoleGate>} />
+            <Route path="/branding" element={<RoleGate page="branding"><ProGate feature="branding"><Navigate to="/settings" replace /></ProGate></RoleGate>} />
+            <Route path="/products" element={<RoleGate page="products"><ProGate feature="products"><Products /></ProGate></RoleGate>} />
+            <Route path="/orders" element={<RoleGate page="orders"><ProGate feature="orders"><Orders /></ProGate></RoleGate>} />
+            <Route path="/alerts" element={<RoleGate page="alerts"><Alerts /></RoleGate>} />
             <Route path="/detections" element={<Detections />} />
-            <Route path="/education-reports" element={<ProGate feature="usage_reports" tier="Pro"><EducationReports /></ProGate>} />
+            <Route path="/education-reports" element={<RoleGate page="education_reports"><ProGate feature="usage_reports" tier="Pro"><EducationReports /></ProGate></RoleGate>} />
             <Route path="/education" element={<RoleGate page="education"><ProGate feature="education_workflows" tier="Education"><EducationWorkbench /></ProGate></RoleGate>} />
             <Route path="/timelapses" element={<Timelapses />} />
             <Route path="/archives" element={<ArchivesPage />} />
