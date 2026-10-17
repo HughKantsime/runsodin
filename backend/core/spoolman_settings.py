@@ -12,7 +12,7 @@ from typing import Optional
 
 from core.config import settings
 
-SPOOLMAN_KEY = "spoolman_url"
+SPOOLMAN_KEY = "spoolman_url"  # also spelled out in the raw query below
 
 
 def _decode(value) -> Optional[str]:
@@ -43,7 +43,8 @@ def get_spoolman_url(db=None, conn=None) -> str:
         stored = _decode(row.value) if row else None
     elif conn is not None:
         cur = conn.cursor()
-        cur.execute("SELECT value FROM system_config WHERE key = ?", (SPOOLMAN_KEY,))
+        # Constant key literal (no driver-specific placeholder needed on SQLite or PostgreSQL).
+        cur.execute("SELECT value FROM system_config WHERE key = 'spoolman_url'")
         row = cur.fetchone()
         stored = _decode(row[0]) if row else None
     else:

@@ -58,7 +58,11 @@ async def version():
 async def health_check():
     """Check API health and connectivity."""
     spoolman_ok = False
-    spoolman_url = get_spoolman_url()
+    try:
+        spoolman_url = get_spoolman_url()
+    except Exception as exc:  # the health probe must answer even when the database is unavailable
+        log.warning("Health check could not read the Spoolman URL (%s)", type(exc).__name__)
+        spoolman_url = ""
     if spoolman_url:
         try:
             # v1.8.9 (codex pass 13): DNS-pinned + trust_env=should_trust_env().
