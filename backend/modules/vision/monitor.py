@@ -8,7 +8,7 @@ with the existing alert/event pipeline.
 
 Architecture:
   - One thread per actively-printing printer with camera
-  - Frame capture: GET http://127.0.0.1:1984/api/frame.jpeg?src=printer_{id}
+  - Frame capture: GET <go2rtc API>/api/frame.jpeg?src=printer_{id} (loopback, or ODIN_GO2RTC_API_URL)
   - Preprocessing: cv2.imdecode -> resize 640x640 -> normalize -> NCHW
   - Inference: onnxruntime.InferenceSession.run()
   - Post-processing: NMS, confidence filter, alert dispatch

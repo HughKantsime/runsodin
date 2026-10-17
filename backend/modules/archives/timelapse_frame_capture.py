@@ -118,7 +118,7 @@ def _capture_authority(db, *, nonce, timelapse_id, printer_id, job_id, allow_end
     return row
 
 
-def capture_owned_frame(*,sessions,root,http,base,printer_id,timelapse_id,nonce,job_id):
+def capture_owned_frame(*,sessions,root,http,base,printer_id,timelapse_id,nonce,job_id,auth=None):
     from modules.archives.timelapse_frame_publication import FrameJournal
     directory=None
     try:
@@ -137,7 +137,7 @@ def capture_owned_frame(*,sessions,root,http,base,printer_id,timelapse_id,nonce,
                 journal.inventory(directory)
                 deadline=time.monotonic()+10
                 data=bytearray()
-                with http.stream('GET',f'{base}/api/frame.jpeg?src=printer_{printer_id}',timeout=5,follow_redirects=False,headers={'Accept-Encoding':'identity'}) as response:
+                with http.stream('GET',f'{base}/api/frame.jpeg?src=printer_{printer_id}',timeout=5,follow_redirects=False,headers={'Accept-Encoding':'identity'},**({'auth':auth} if auth else {})) as response:
                     if response.status_code!=200 or response.headers.get('content-encoding','identity').lower() not in ('','identity'):return False
                     for chunk in response.iter_raw(chunk_size=65536):
                         if type(chunk) is not bytes or len(data)+len(chunk)>MAX_BYTES or time.monotonic()>=deadline:return False

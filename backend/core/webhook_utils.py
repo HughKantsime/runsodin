@@ -554,7 +554,8 @@ def _proc_default_gateways():
 def own_interface_addresses() -> frozenset:
     """Every address that reaches this ODIN instance, enumerated now (not cached):
     the container's/host's interfaces, its hostname's addresses, the default gateway
-    (the Docker host) and the configured host IP (ODIN_HOST_IP / system_config host_ip)."""
+    (the Docker host), the configured host IP (ODIN_HOST_IP / system_config host_ip) and
+    a separate go2rtc service's addresses (ODIN_GO2RTC_API_URL)."""
     addresses = _proc_ipv4_local() | _proc_ipv6_local() | _proc_default_gateways()
     try:
         for info in _real_getaddrinfo(socket.gethostname(), None):
@@ -573,6 +574,18 @@ def own_interface_addresses() -> frozenset:
     configured = os.environ.get("ODIN_HOST_IP")
     if configured:
         addresses.add(configured.strip())
+    # A separate go2rtc service (enterprise compose) is part of ODIN too: its API and
+    # RTSP ports re-serve every printer's stream.
+    go2rtc_url = (os.environ.get("ODIN_GO2RTC_API_URL") or "").strip()
+    if go2rtc_url:
+        from urllib.parse import urlsplit
+        go2rtc_host = urlsplit(go2rtc_url).hostname
+        if go2rtc_host:
+            try:
+                for info in _real_getaddrinfo(go2rtc_host, None):
+                    addresses.add(info[4][0])
+            except (socket.gaierror, OSError, UnicodeError):
+                pass
     try:
         from core.db_utils import get_db
         with get_db() as conn:

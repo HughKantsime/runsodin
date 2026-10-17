@@ -31,6 +31,7 @@ from modules.printers.models import Printer
 from modules.archives.models import Timelapse
 from core.timelapse_access import assert_timelapse_access,timelapse_visibility,visible_printer_name,inherit_timelapse_owner
 from modules.printers.routes import get_camera_url, sync_go2rtc_config
+from modules.printers.go2rtc_access import go2rtc_api_url, go2rtc_client_kwargs
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -370,9 +371,9 @@ async def camera_webrtc(printer_id: int, request: Request, db: Session = Depends
     # Only sync if the stream is genuinely missing — never restart just
     # because go2rtc is temporarily unreachable (e.g. mid-restart).
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(**go2rtc_client_kwargs()) as client:
             streams_resp = await client.get(
-                "http://127.0.0.1:1984/api/streams", timeout=2.0,
+                f"{go2rtc_api_url()}/api/streams", timeout=2.0,
             )
             if streams_resp.status_code == 200:
                 streams = streams_resp.json()
@@ -384,9 +385,9 @@ async def camera_webrtc(printer_id: int, request: Request, db: Session = Depends
         sync_go2rtc_config(db)
 
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(**go2rtc_client_kwargs()) as client:
             resp = await client.post(
-                f"http://127.0.0.1:1984/api/webrtc?src={stream_name}",
+                f"{go2rtc_api_url()}/api/webrtc?src={stream_name}",
                 content=body,
                 headers={"Content-Type": request.headers.get("content-type", "application/sdp")},
                 timeout=5.0,
@@ -404,7 +405,6 @@ async def camera_webrtc(printer_id: int, request: Request, db: Session = Depends
 # OBS overlay camera (public route, token required)
 # ====================================================================
 
-GO2RTC_API = "http://127.0.0.1:1984"
 
 
 def overlay_camera_principal(db: Session, token: Optional[str], printer: Optional[Printer]) -> dict:
@@ -507,8 +507,8 @@ async def overlay_camera_stream(printer_id: int, token: Optional[str] = Query(No
         # Same rule as the WebRTC route: sync only when go2rtc answers and lacks the
         # stream; an unreachable go2rtc is reported, never "fixed" by a restart.
         try:
-            async with httpx.AsyncClient() as probe:
-                listed = await probe.get(f"{GO2RTC_API}/api/streams", timeout=2.0)
+            async with httpx.AsyncClient(**go2rtc_client_kwargs()) as probe:
+                listed = await probe.get(f"{go2rtc_api_url()}/api/streams", timeout=2.0)
             known = listed.json() if listed.status_code == 200 else None
         except (httpx.HTTPError, ValueError):
             raise HTTPException(status_code=502, detail="go2rtc is not reachable")
@@ -517,9 +517,9 @@ async def overlay_camera_stream(printer_id: int, token: Optional[str] = Query(No
                 with Session(bind=bind) as session:
                     sync_go2rtc_config(session)
             await run_in_threadpool(_sync)
-        client = httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=30.0))
+        client = httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=30.0), **go2rtc_client_kwargs())
         try:
-            upstream = await client.send(client.build_request("GET", f"{GO2RTC_API}/api/stream.mjpeg", params={"src": stream_name}), stream=True)
+            upstream = await client.send(client.build_request("GET", f"{go2rtc_api_url()}/api/stream.mjpeg", params={"src": stream_name}), stream=True)
         except httpx.HTTPError:
             raise HTTPException(status_code=502, detail="go2rtc is not reachable")
         content_type = upstream.headers.get("content-type", "")

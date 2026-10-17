@@ -86,6 +86,7 @@ ALLOWED_PATTERNS = [
     ".printer_models",    # Printer model metadata (data file)
     ".threemf_parser",    # 3MF file parsing utility
     ".route_utils",       # Shared SSRF blocklist, go2rtc config sync
+    ".go2rtc_access",     # go2rtc API address + per-boot credentials (vision/timelapse frame capture)
     ".dispatch import",   # Printer dispatch (send job to printer HW)
     ".archive import",    # Print archive service (create_print_archive shared by monitors)
 

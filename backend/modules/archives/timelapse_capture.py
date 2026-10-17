@@ -26,7 +26,9 @@ logging.basicConfig(
 log = logging.getLogger("odin.timelapse")
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////data/odin.db")
-GO2RTC_BASE = "http://127.0.0.1:1984"
+from modules.printers.go2rtc_access import go2rtc_api_url, go2rtc_client_kwargs
+
+GO2RTC_BASE = go2rtc_api_url()  # loopback in the single container; ODIN_GO2RTC_API_URL otherwise
 TIMELAPSE_DIR = Path("/data/timelapses")
 CAPTURE_INTERVAL = 30  # seconds between frames
 FFMPEG_FPS = 30  # output video framerate
@@ -155,7 +157,8 @@ def capture_frame(printer_id: int, timelapse_id: int, *, nonce=None, job_id=None
     """Never infer a capture lifetime from a reusable numeric ID."""
     from modules.archives.timelapse_frame_capture import capture_owned_frame
     return capture_owned_frame(sessions=SessionLocal,root=TIMELAPSE_DIR,http=httpx,base=GO2RTC_BASE,
-        printer_id=printer_id,timelapse_id=timelapse_id,nonce=nonce,job_id=job_id)
+        printer_id=printer_id,timelapse_id=timelapse_id,nonce=nonce,job_id=job_id,
+        auth=go2rtc_client_kwargs().get('auth'))
 
 
 def encode_timelapse(timelapse_id: int, *, printer_id=None, nonce=None, job_id=None) -> bool:

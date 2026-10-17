@@ -420,7 +420,9 @@ def go2rtc_config_for(printers, lan_ip) -> dict:
     overlay) is the relay itself for HTTP cameras (it passes multipart/image
     bodies through) and an on-demand ffmpeg transcode of the main stream for RTSP.
     """
+    from modules.printers.go2rtc_access import go2rtc_api_credentials, go2rtc_api_listen, go2rtc_is_remote
     rtsp_user, rtsp_password = go2rtc_rtsp_credentials()
+    api_user, api_password = go2rtc_api_credentials()
     streams = {}
     for p in printers:
         source = go2rtc_stream_source(get_camera_url(p), p.id)
@@ -436,13 +438,19 @@ def go2rtc_config_for(printers, lan_ip) -> dict:
             # main stream from go2rtc's own loopback RTSP server, with its
             # per-boot credentials.
             streams[mjpeg_stream_name(p.id)] = f"ffmpeg:{go2rtc_rtsp_url(f'printer_{p.id}')}#video=mjpeg"
-    if not lan_ip:
+    if not lan_ip and not go2rtc_is_remote():
+        # Beside go2rtc, this container's outbound address is go2rtc's. When go2rtc is its
+        # own service it never is, and each writer (api, monitors) would advertise its own
+        # address: only ODIN_HOST_IP / system_config host_ip is used then.
         lan_ip = _get_lan_ip()
     webrtc_config = {"listen": "0.0.0.0:8555"}
     if lan_ip:
         webrtc_config["candidates"] = [f"{lan_ip}:8555"]
     return {
-        "api": {"listen": "127.0.0.1:1984"},
+        # Loopback beside the API (single container); the compose network when go2rtc is
+        # its own service (ODIN_GO2RTC_API_URL), never published. Off loopback go2rtc
+        # requires these per-boot credentials, so no other container can read a stream.
+        "api": {"listen": go2rtc_api_listen(), "username": api_user, "password": api_password},
         # go2rtc's RTSP server re-serves every printer stream: loopback only, and
         # authenticated with per-boot credentials only ODIN's own sources carry.
         "rtsp": {"listen": GO2RTC_RTSP_LISTEN, "username": rtsp_user, "password": rtsp_password},
@@ -532,7 +540,6 @@ def _go2rtc_restart_with_lock(config: Optional[dict], *, force: bool = False, _p
     """
     import hashlib
     import json
-    import subprocess
     import math
     path = _path or GO2RTC_CONFIG
     lock_path = _lock_path or _GO2RTC_LOCKFILE
@@ -596,11 +603,7 @@ def _go2rtc_restart_with_lock(config: Optional[dict], *, force: bool = False, _p
             return
         state['last_attempt'] = now
         _go2rtc_atomic_write(state_path, json.dumps(state))
-        try:
-            result = subprocess.run(['supervisorctl', 'restart', 'go2rtc'], capture_output=True, timeout=5)
-            succeeded = result.returncode == 0
-        except Exception:
-            succeeded = False
+        succeeded = _go2rtc_reload()
         if succeeded:
             state['applied'] = fingerprint
             _go2rtc_atomic_write(state_path, json.dumps(state))
@@ -621,16 +624,48 @@ def _go2rtc_restart_with_lock(config: Optional[dict], *, force: bool = False, _p
             lockfd.close()
 
 
+def _go2rtc_reload() -> bool:
+    """Make go2rtc load the config file: supervisord beside the API, otherwise go2rtc's
+    own POST /api/restart (reloads in place) with the credentials it is running with."""
+    import subprocess
+    from modules.printers.go2rtc_access import (
+        go2rtc_api_url, go2rtc_is_remote, go2rtc_restart_credential_candidates,
+    )
+    if not go2rtc_is_remote():
+        try:
+            result = subprocess.run(['supervisorctl', 'restart', 'go2rtc'], capture_output=True, timeout=5)
+            return result.returncode == 0
+        except Exception:
+            return False
+    import httpx
+    for auth in go2rtc_restart_credential_candidates():
+        try:
+            response = httpx.post(f"{go2rtc_api_url()}/api/restart", auth=auth, timeout=5)
+        except httpx.HTTPError:
+            return False
+        if response.status_code == 200:
+            return True
+        if response.status_code != 401:
+            return False
+    log.warning('go2rtc refused every ODIN credential; restart the go2rtc service to load the current configuration')
+    return False
+
+
 def write_go2rtc_config_before_start(config: dict, *, _path=None) -> None:
-    """Container start, before supervisord starts go2rtc: write the config and record it as
-    applied, so go2rtc boots with this boot's RTSP credentials and relay tokens and the
-    API's start-up sync finds nothing to restart."""
+    """Container start, before supervisord: write the config. In the single container it
+    is recorded as applied, so go2rtc boots with this boot's credentials and relay tokens
+    and the API's start-up sync finds nothing to restart."""
     import hashlib
     import json
     path = _path or GO2RTC_CONFIG
     content = yaml.safe_dump(config)
     _go2rtc_atomic_write(path, content)
     os.chmod(path, 0o600)
+    from modules.printers.go2rtc_access import go2rtc_is_remote
+    if go2rtc_is_remote():
+        # A separate go2rtc service may already be running an older config: leave it
+        # pending so the API's start-up sync reloads it.
+        return
     state = _go2rtc_read_state(path)
     state['applied'] = hashlib.sha256(yaml.safe_dump(config, sort_keys=True).encode()).hexdigest()
     _go2rtc_atomic_write(path + '.sync-state.json', json.dumps(state))

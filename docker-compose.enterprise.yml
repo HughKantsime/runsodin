@@ -85,6 +85,11 @@ services:
       ODIN_CAMERA_RELAY_BASE_URL: http://api:8000
       ODIN_CAMERA_RELAY_PEERS: go2rtc
       ODIN_CAMERA_RELAY_SECRET_FILE: /data/.camera-relay-secret
+      # go2rtc's API on the compose network (never published). ODIN writes its config
+      # to the shared go2rtc-config volume and reloads it through this API with
+      # per-boot credentials; the sync lock lives on the same volume.
+      ODIN_GO2RTC_API_URL: http://go2rtc:1984
+      GO2RTC_LOCKFILE: /app/go2rtc/.sync.lock
     secrets:
       - source: postgres_app_password
         target: postgres_app_password
@@ -100,6 +105,7 @@ services:
       - "8000:8000"
     volumes:
       - odin-data:/data
+      - go2rtc-config:/app/go2rtc
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/ready"]
       interval: 30s
@@ -125,6 +131,8 @@ services:
       ODIN_DB_BOOTSTRAP_OWNER: "0"
       ODIN_DB_ROLE: monitor-bambu
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      # Monitors also write the go2rtc config (camera discovery): same WebRTC candidate.
+      ODIN_HOST_IP: ${ODIN_HOST_IP:-}
       TZ: ${TZ:-America/New_York}
       # go2rtc runs as its own container: it reaches the camera relay on the API
       # service, the relay trusts the go2rtc service (HMAC token still required),
@@ -132,6 +140,11 @@ services:
       ODIN_CAMERA_RELAY_BASE_URL: http://api:8000
       ODIN_CAMERA_RELAY_PEERS: go2rtc
       ODIN_CAMERA_RELAY_SECRET_FILE: /data/.camera-relay-secret
+      # go2rtc's API on the compose network (never published). ODIN writes its config
+      # to the shared go2rtc-config volume and reloads it through this API with
+      # per-boot credentials; the sync lock lives on the same volume.
+      ODIN_GO2RTC_API_URL: http://go2rtc:1984
+      GO2RTC_LOCKFILE: /app/go2rtc/.sync.lock
     secrets:
       - source: postgres_app_password
         target: postgres_app_password
@@ -140,6 +153,7 @@ services:
         mode: 0400
     volumes:
       - odin-data:/data
+      - go2rtc-config:/app/go2rtc
     # Monitors need LAN access for printer discovery
     # network_mode: host  # Uncomment if printers are on the same network
 
@@ -163,6 +177,9 @@ services:
       ODIN_DB_ROLE: vision
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       TZ: ${TZ:-America/New_York}
+      # Frames come from go2rtc's API with the per-boot credentials (shared secret on /data).
+      ODIN_GO2RTC_API_URL: http://go2rtc:1984
+      ODIN_CAMERA_RELAY_SECRET_FILE: /data/.camera-relay-secret
     secrets:
       - source: postgres_app_password
         target: postgres_app_password
@@ -184,13 +201,19 @@ services:
   go2rtc:
     image: alexxit/go2rtc@sha256:61b8f04efe0f9025739ce0e5e5a5e0748b64c1e4bdb5ae707e9d0966150175e7
     restart: unless-stopped
+    # Starts only after the API has written this boot's config, so it never runs on
+    # go2rtc's defaults (unauthenticated RTSP and API on every interface).
+    depends_on:
+      api:
+        condition: service_healthy
     ports:
       - "8555:8555"  # WebRTC (must stay published for ICE)
-    # go2rtc's API (1984) is reachable on the compose network only, never published.
+    # go2rtc's API (1984) is reachable on the compose network only, never published, and
+    # requires ODIN's per-boot credentials. RTSP (8554) listens on go2rtc's loopback only.
     expose:
       - "1984"
     volumes:
-      - ./odin-data/go2rtc:/config
+      - go2rtc-config:/config:ro  # written by api/monitors
     environment:
       TZ: ${TZ:-America/New_York}
 
@@ -225,6 +248,7 @@ services:
 volumes:
   postgres-data:
   odin-data:
+  go2rtc-config:
 
 secrets:
   postgres_admin_password:

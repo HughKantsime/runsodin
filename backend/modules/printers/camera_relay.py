@@ -61,6 +61,19 @@ def rotate_relay_secret() -> str:
     path = _secret_path()
     with _secret_lock:
         try:
+            # Keep the previous boot's secret: a go2rtc service that outlives an API
+            # restart still runs with credentials derived from it until it is reloaded.
+            try:
+                with open(path) as handle:
+                    previous = handle.read().strip()
+            except OSError:
+                previous = ""
+            if len(previous) >= 32:
+                tmp_previous = f"{path}.previous.{os.getpid()}.tmp"
+                fd = os.open(tmp_previous, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(fd, "w") as handle:
+                    handle.write(previous)
+                os.replace(tmp_previous, f"{path}.previous")
             tmp = f"{path}.{os.getpid()}.tmp"
             fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             with os.fdopen(fd, "w") as handle:
@@ -86,6 +99,16 @@ def relay_secret() -> str:
         return _process_secret
     value = rotate_relay_secret()
     return _process_secret if _process_secret is not None else value
+
+
+def previous_relay_secret():
+    """The secret before the last rotation, or None."""
+    try:
+        with open(f"{_secret_path()}.previous") as handle:
+            value = handle.read().strip()
+    except OSError:
+        return None
+    return value if len(value) >= 32 else None
 
 
 def relay_token(printer_id: int) -> str:
