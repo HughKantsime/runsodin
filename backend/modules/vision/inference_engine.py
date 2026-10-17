@@ -78,7 +78,9 @@ class VisionInferenceEngine:
                 with engine.connect() as conn:
                     rows = conn.execute(text(
                         "SELECT id,name,detection_type,filename,input_size,metadata_json "
-                        "FROM vision_models WHERE is_active IS TRUE"
+                        # is_active is an INTEGER 0/1 column on both dialects: PostgreSQL
+                        # refuses "integer IS TRUE".
+                        "FROM vision_models WHERE is_active <> 0"
                     )).mappings().fetchall()
             except Exception:
                 with self._lock:

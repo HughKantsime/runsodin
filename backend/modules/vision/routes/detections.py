@@ -255,6 +255,16 @@ async def update_printer_vision_settings(
     updates = {k: v for k, v in body.items() if k in allowed}
     if not updates:
         raise HTTPException(status_code=400, detail="No valid fields to update")
+    for key in ("enabled", "spaghetti_enabled", "first_layer_enabled", "detachment_enabled",
+                "build_plate_empty_enabled", "auto_pause", "collect_training_data"):
+        # INTEGER 0/1 columns on both dialects: JSON booleans are stored as 1/0; anything
+        # else is refused (SQLite would store it as is, PostgreSQL would fail the write).
+        if key in updates:
+            value = updates[key]
+            if value is True or value is False or (type(value) is int and value in (0, 1)):
+                updates[key] = int(value)
+            else:
+                raise HTTPException(status_code=422, detail=f"{key} must be true/false or 0/1")
     for key, value in updates.items():
         if key.endswith("_threshold") and (
             isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 1

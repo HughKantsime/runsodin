@@ -48,6 +48,15 @@ async def _profile_request_body(request: Request) -> dict:
         raise HTTPException(status_code=400, detail="Profile body must be valid JSON")
     if not isinstance(body, dict):
         raise HTTPException(status_code=400, detail="Profile body must be a JSON object")
+    for key in ("is_shared", "is_default"):
+        # INTEGER 0/1 columns on both dialects: JSON booleans are stored as 1/0 (PostgreSQL
+        # refuses a boolean bound into an integer column); anything else is refused.
+        if key in body:
+            value = body[key]
+            if value is True or value is False or (type(value) is int and value in (0, 1)):
+                body[key] = int(value)
+            else:
+                raise HTTPException(status_code=422, detail=f"{key} must be true/false or 0/1")
     return body
 
 

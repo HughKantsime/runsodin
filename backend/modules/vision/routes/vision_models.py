@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy.orm import Session
-from sqlalchemy import delete
+from sqlalchemy import delete, func
 from typing import Optional
 import logging
 import os
@@ -174,7 +174,8 @@ async def delete_vision_model(
     # cleanup that accounts for live sessions and legacy shared filenames.
     try:
         result = db.execute(delete(VisionModel).where(
-            VisionModel.id == model_id, VisionModel.is_active.is_not(True)
+            # INTEGER 0/1 on both dialects: PostgreSQL refuses "integer IS NOT TRUE".
+            VisionModel.id == model_id, func.coalesce(VisionModel.is_active, 0) == 0
         ))
         if result.rowcount != 1:
             db.rollback()
