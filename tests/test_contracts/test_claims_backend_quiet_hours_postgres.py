@@ -107,6 +107,7 @@ def digest(monkeypatch):
     return report_runner, calls
 
 
+@pytest.mark.usefixtures("pro_license")  # digest email is Pro (email_notifications; review O6)
 def test_postgres_racing_workers_and_restart_deliver_each_channel_once(pg_engine, digest, pg_url):
     engine, receipt = pg_engine
     runner, calls = digest

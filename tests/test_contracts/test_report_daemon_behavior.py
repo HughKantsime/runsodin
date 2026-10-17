@@ -1,6 +1,9 @@
 """Real schedule polling with an isolated database and substituted mail transport."""
 import json
 import pytest
+
+# Report and digest emails are Pro (email_notifications; review O6).
+pytestmark = pytest.mark.usefixtures("pro_license")
 from sqlalchemy import text
 from tests.test_contracts.test_education_review_workflow import review_db
 

@@ -352,6 +352,12 @@ def generate_chargeback_summary(session, filters):
 ANALYTICS_REPORT_TYPES = frozenset({"fleet_utilization", "failure_analysis", "chargeback_summary"})
 
 
+def email_is_licensed() -> bool:
+    """Report and digest emails are Pro (email_notifications), like alert email."""
+    from license_manager import get_license
+    return get_license().has_feature("email_notifications")
+
+
 def report_type_is_licensed(report_type) -> bool:
     if report_type not in ANALYTICS_REPORT_TYPES:
         return True
@@ -387,6 +393,9 @@ def process_due_reports(session):
     smtp_config = get_smtp_config(session)
     if not smtp_config:
         log.warning("Reports due but SMTP not configured, skipping")
+        return
+    if not email_is_licensed():
+        log.warning("Reports due but the license has no email notifications (Pro), skipping")
         return
 
     for row in rows:
@@ -850,6 +859,9 @@ def process_quiet_hours_digest(session):
             push_alerts += [a for a in authorized_deferred if a["channel"] == "push"]
             email_on,push_on = bool(email_alerts),bool(push_alerts)
             email_ok = push_ok = None
+            email_unlicensed = email_on and not email_is_licensed()
+            if email_unlicensed:
+                email_on = False  # digest email needs email_notifications (Pro), like alert email
 
             # Delivery is best-effort post-claim. A failure here logs ERROR
             # but does NOT undo the claim — undoing would re-open the
@@ -858,8 +870,8 @@ def process_quiet_hours_digest(session):
             # v1.8.8: also record per-delivery status in the row so the
             # Alerts page can surface "delivered / failed" without
             # scraping logs.
-            delivery_ok = bool(email_on or push_on)
-            failure_reasons: list[str] = [] if delivery_ok else ["no_enabled_channel"]
+            delivery_ok = bool(email_on or push_on) and not email_unlicensed
+            failure_reasons: list[str] = ["email:unlicensed"] if email_unlicensed else ([] if delivery_ok else ["no_enabled_channel"])
             if email_on and not smtp_config:
                 delivery_ok = False
                 failure_reasons.append("email:unconfigured")
@@ -946,6 +958,8 @@ def run_report(schedule: dict) -> None:
         smtp_config = get_smtp_config(session)
         if not smtp_config:
             raise RuntimeError("SMTP not configured")
+        if not email_is_licensed():
+            raise RuntimeError("Report emails need a license with email notifications (Pro)")
 
         report_type = schedule.get("report_type")
         generator = GENERATORS.get(report_type)

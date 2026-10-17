@@ -1,5 +1,8 @@
 """Isolated HTTP schedule records and delivery outcomes, no real email."""
 import pytest
+
+# Report and digest emails are Pro (email_notifications; review O6).
+pytestmark = pytest.mark.usefixtures("pro_license")
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from tests.test_contracts.test_education_review_workflow import review_db

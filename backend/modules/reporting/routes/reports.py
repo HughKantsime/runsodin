@@ -147,7 +147,7 @@ async def list_report_schedules(current_user: dict = Depends(require_superadmin(
     } for r in rows]
 
 
-@router.post("/report-schedules")
+@router.post("/report-schedules", dependencies=[Depends(feature_gate("email_notifications"))])
 async def create_report_schedule(body: dict, current_user: dict = Depends(require_superadmin(scope="admin")), db: Session = Depends(get_db)):
     """Create a new scheduled report. Superadmin only."""
     body = _validated_schedule_fields(body)
@@ -226,7 +226,7 @@ async def update_report_schedule(schedule_id: int, body: dict, current_user: dic
     return {"status": "ok"}
 
 
-@router.post("/report-schedules/{schedule_id}/run")
+@router.post("/report-schedules/{schedule_id}/run", dependencies=[Depends(feature_gate("email_notifications"))])
 async def run_report_now(schedule_id: int, current_user: dict = Depends(require_superadmin(scope="admin")), db: Session = Depends(get_db)):
     """Immediately generate and email a scheduled report. Superadmin only."""
     row = db.execute(text("SELECT * FROM report_schedules WHERE id = :id"), {"id": schedule_id}).fetchone()

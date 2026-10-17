@@ -274,8 +274,12 @@ PRO_GATED = {
     "maintenance": "maintenance", "maintenance_seed": "maintenance",
     "branding": "branding", "branding_logo": "branding",
     "org_branding": "branding", "org_branding_logo": "branding",
-    "chargebacks": "analytics", "report_schedule_failure_analysis": "analytics",
-    "report_schedule_fleet_utilization": "analytics", "report_schedule_chargeback_summary": "analytics",
+    "chargebacks": "analytics",
+    # A scheduled report is an email: email_notifications gates every report type (review O6),
+    # before the analytics check of the analytics-derived types.
+    "report_schedule_failure_analysis": "email_notifications", "report_schedule_fleet_utilization": "email_notifications",
+    "report_schedule_chargeback_summary": "email_notifications", "report_schedule_job_summary": "email_notifications",
+    "report_schedule_filament": "email_notifications",
 }
 
 
@@ -302,7 +306,7 @@ def test_enterprise_gate_mqtt_event_republish(tiers):
     assert {t: tiers[t]["mqtt_republished"] for t in TIERS} == {"community": 0, "pro": 0, "education": 0, "enterprise": 2}
 
 
-@pytest.mark.parametrize("call_name", ["report_schedule_job_summary", "report_schedule_filament", "metrics", "org_settings_free", "org_branding_clear", "orders_list", "products_list", "maintenance_tasks_list", "maintenance_status",
+@pytest.mark.parametrize("call_name", ["metrics", "org_settings_free", "org_branding_clear", "orders_list", "products_list", "maintenance_tasks_list", "maintenance_status",
                                        "branding_read", "stats"])
 def test_reads_stay_available_on_every_tier(tiers, call_name):
     for t in TIERS:
@@ -397,14 +401,14 @@ def test_downgraded_install_cannot_create_or_change_pro_records(downgraded):
 
 def test_report_run_now_of_an_analytics_schedule_needs_pro(tiers):
     c = tiers["community"]["features"]["report_run_now_analytics"]
-    assert c["status"] == 403 and "analytics" in c["body"]["detail"]
+    assert c["status"] == 403 and "email_notifications" in c["body"]["detail"]  # report emails are Pro (O6)
     for t in ("pro", "education", "enterprise"):
         assert tiers[t]["features"]["report_run_now_analytics"]["status"] == 400  # entitled; probe has no SMTP
 
 
 def test_report_runner_skips_analytics_schedules_without_the_entitlement(tiers):
-    assert tiers["community"]["runner_sent"] == ["O.D.I.N. Report: due-js"]
-    assert len(tiers["community"]["runner_log"]) == 1 and "due-fa" in tiers["community"]["runner_log"][0]
+    # Community has no email_notifications: no report email at all (review O6).
+    assert tiers["community"]["runner_sent"] == []
     for t in ("pro", "education", "enterprise"):
         assert tiers[t]["runner_sent"] == ["O.D.I.N. Report: due-fa", "O.D.I.N. Report: due-js"]
         assert tiers[t]["runner_log"] == []
