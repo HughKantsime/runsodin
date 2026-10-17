@@ -494,6 +494,8 @@
 - Viewer: read-only, plus job submission (jobs wait for approval when approval mode is on; otherwise they join the queue)
 - Operator: day-to-day production (create/edit jobs, spools, models, products and maintenance; create, schedule and ship orders — order edits are admin-only)
 - Admin: full system control (users, settings, branding, SSO, webhooks, backups, license, pricing)
+- Permission matrix (Settings → Access → Permissions, Pro): the server enforces every action key on every API route that performs that action, and every page key on its web page route (RoleGate) and on the page-only API reads (Timeline, Analytics, Education reports); a change applies on the next request. The platform superadmin is never locked out, and routes outside the matrix (account self-service, user and organization administration, platform settings) keep their fixed role check
+- Default matrix reproduces the role defaults above: viewers submit jobs and resubmit their own rejected jobs; operators run production; adding or deleting printers, deleting models and spools, editing orders and deleting products are admin-only
 
 ### 11.4 User Groups (v1.1.0)
 - Group management UI for organizing users
@@ -531,7 +533,7 @@
 - Password complexity: minimum 8 characters, uppercase + lowercase + number
 - Login attempt audit trail with IP addresses; password change audit events (v1.3.58)
 - Setup/complete endpoint hardened against 500 errors after wizard completion (v1.3.15)
-- Settings and Audit routes guarded by `RoleGate` — direct URL access blocked for non-admins (v1.3.18)
+- Every page route guarded by `RoleGate` on its page-access key — direct URL access is blocked for roles without the page (Settings and Audit since v1.3.18)
 - Password change revokes all existing sessions (v1.3.66)
 - MFA pending token blacklisted immediately after use — prevents session duplication (v1.3.63)
 
