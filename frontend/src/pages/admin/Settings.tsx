@@ -87,6 +87,9 @@ export default function Settings() {
     ...t,
     disabled: !lic.isPro && PRO_TABS.includes(t.id),
   }))
+  // A deep link (?tab=...) gets the same gating as the tab bar: a tab that is
+  // disabled for this license or hidden in this view opens General instead.
+  const shownTab = TABS.find(t => t.id === activeTab && !t.disabled) ? activeTab : 'general'
 
   return (
     <div className="p-4 md:p-6">
@@ -96,7 +99,7 @@ export default function Settings() {
       <div className="mb-6 overflow-x-auto pb-1 -mx-1 px-1">
         <TabBar
           tabs={TABS.map(t => ({ value: t.id, label: t.label, icon: t.icon }))}
-          active={activeTab}
+          active={shownTab}
           onChange={(val) => {
             const tab = TABS.find(t => t.id === val)
             if (!tab?.disabled) setActiveTab(val)
@@ -105,13 +108,13 @@ export default function Settings() {
       </div>
 
       {/* ==================== GENERAL TAB ==================== */}
-      {activeTab === 'general' && <GeneralTab />}
+      {shownTab === 'general' && <GeneralTab />}
 
       {/* ==================== NOTIFICATIONS TAB ==================== */}
-      {activeTab === 'notifications' && <NotificationsTab />}
+      {shownTab === 'notifications' && <NotificationsTab />}
 
       {/* ==================== ACCESS TAB (Users + Permissions + SSO + MFA) ==================== */}
-      {activeTab === 'access' && <div className="max-w-4xl space-y-3">
+      {shownTab === 'access' && <div className="max-w-4xl space-y-3">
         <AccessAccordion title="Users & Groups" icon={Users} defaultOpen>
           <Admin />
           <div className="border-t border-[var(--brand-card-border)] pt-6 mt-6">
@@ -145,24 +148,24 @@ export default function Settings() {
       </div>}
 
       {/* ==================== INTEGRATIONS TAB (Webhooks) ==================== */}
-      {activeTab === 'integrations' && <div className="max-w-4xl">
+      {shownTab === 'integrations' && <div className="max-w-4xl">
         <WebhookSettings />
       </div>}
 
       {/* ==================== VISION AI TAB ==================== */}
-      {activeTab === 'vision' && <VisionSettingsTab />}
+      {shownTab === 'vision' && <VisionSettingsTab />}
 
       {/* ==================== BRANDING TAB ==================== */}
-      {activeTab === 'branding' && <Branding />}
+      {shownTab === 'branding' && <Branding />}
 
       {/* ==================== LICENSE TAB ==================== */}
-      {activeTab === 'license' && <div className="max-w-4xl"><LicenseTab /></div>}
+      {shownTab === 'license' && <div className="max-w-4xl"><LicenseTab /></div>}
 
       {/* ==================== SYSTEM TAB ==================== */}
-      {activeTab === 'system' && <SystemTab />}
+      {shownTab === 'system' && <SystemTab />}
 
       {/* ==================== LOGS TAB ==================== */}
-      {activeTab === 'logs' && <div className="max-w-6xl">
+      {shownTab === 'logs' && <div className="max-w-6xl">
         <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 md:p-6">
           <div className="flex items-center gap-2 md:gap-3 mb-4">
             <ScrollText size={18} className="text-[var(--brand-primary)]" />
