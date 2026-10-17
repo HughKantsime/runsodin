@@ -4,11 +4,10 @@ Delivered through the existing system-notice mechanism (GET /system/notices,
 Dashboard SystemNoticesBanner), not the alerts table. Both are derived from the
 installed license and dismissible per admin:
 
-* ``license_expiring``: any valid license (paid or trial) with
+* ``license_expiring``: a valid paid (non-trial) license with
   LICENSE_EXPIRY_NOTICE_DAYS (30) or fewer days left.
 * ``license_trial_ending``: a valid Pro trial with TRIAL_NOTICE_DAYS (3) or
-  fewer days left. In that window it replaces ``license_expiring`` for the
-  trial, so the admin sees one expiry banner, not two.
+  fewer days left. A trial gets only this notice, never ``license_expiring``.
 
 A dismissal is stored in the existing system_config key-value table under a
 key tied to the notice kind and the installed license's digest, so it lasts
@@ -56,7 +55,9 @@ def _active_notice(kind: Optional[str] = None):
     days = info.days_left()
     if days is None:
         return None
-    if info.trial and days <= license_manager.TRIAL_NOTICE_DAYS:
+    if info.trial:
+        if days > license_manager.TRIAL_NOTICE_DAYS:
+            return None
         active = TRIAL_ENDING_KIND
     elif days <= LICENSE_EXPIRY_NOTICE_DAYS:
         active = EXPIRING_KIND
@@ -73,8 +74,8 @@ def _notice_body(kind: str, info, days: int) -> dict:
         message = ("When it ends, Pro features stop accepting new or changed records and your data is kept. "
                    "Activate a paid license key in Settings > License to keep Pro.")
     else:
-        what = "Pro trial" if info.trial else f"{license_manager.TIERS.get(info.tier, {}).get('name', info.tier)} license"
-        title = f"{what} expires in {_plural(days)}"
+        tier_name = license_manager.TIERS.get(info.tier, {}).get("name", info.tier)
+        title = f"{tier_name} license expires in {_plural(days)}"
         message = ("When it expires, this server falls back to Community limits and your data is kept. "
                    "Install a renewed license key in Settings > License before then.")
     return {

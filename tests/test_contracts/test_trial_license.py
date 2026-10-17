@@ -155,10 +155,10 @@ def test_no_trial_notice_while_more_than_three_days_are_left(active):
     assert [n for n in active["notices"]["notices"] if n["kind"] == "license_trial_ending"] == []
 
 
-def test_a_running_trial_shows_the_30_day_license_expiry_notice(active):
-    expiring = [n for n in active["notices"]["notices"] if n["kind"] == "license_expiring"]
-    assert len(expiring) == 1
-    assert expiring[0]["title"] == "Pro trial expires in 14 days" and expiring[0]["days_left"] == 14
+def test_a_trial_never_gets_the_30_day_license_expiry_notice(active, notice):
+    assert active["notices"]["notices"] == []  # 14 days left: no notice at all
+    assert [n["kind"] for n in notice["first"][1]] == ["license_trial_ending"]
+    assert notice["expiring_dismiss_in_trial_window"] == 404
 
 
 NOTICE = r'''
@@ -216,11 +216,6 @@ def test_the_trial_notice_is_shown_once_per_admin(notice):
     assert len(notice["stored"]) == 1 and notice["stored"][0][0].startswith("notice_dismissed:license_trial_ending:")
 
 
-def test_inside_three_days_the_trial_notice_replaces_the_expiry_notice(notice):
-    assert [n["kind"] for n in notice["first"][1]] == ["license_trial_ending"]
-    assert notice["expiring_dismiss_in_trial_window"] == 404
-
-
 def test_trial_notice_is_admin_only_and_only_for_trials(notice):
     assert notice["operator"][0] == 403 and notice["operator_dismiss"] == 403
     assert notice["unknown_kind"] == 404
@@ -253,6 +248,10 @@ OUT["reissued"] = notices(a)
 # Date-only expiry (historical licenses): valid through the end of that UTC day.
 install_license("pro", expires_at=(date.today() + timedelta(days=5)).isoformat())
 OUT["date_only"] = notices(a2)
+# A trial inside 30 days (but more than 3) gets no license expiry notice.
+install_license("pro", trial=True, expires_at=at(days=10))
+OUT["trial_10_days"] = notices(a2)
+OUT["trial_dismiss_expiring"] = a2.post("/api/system/notices/license_expiring/dismiss").status_code
 # Renewed far out: the notice clears.
 install_license("pro", expires_at=at(days=365))
 OUT["renewed"] = notices(a2)
@@ -280,6 +279,10 @@ def test_the_license_expiry_notice_is_dismissible_per_admin(expiring):
     assert [x["kind"] for x in expiring["other_admin"][1]] == ["license_expiring"]
     assert [x["title"] for x in expiring["reissued"][1]] == ["Pro license expires in 10 days"]  # new license, new notice
     assert expiring["renewed"] == [200, []]
+
+
+def test_trials_are_exempt_from_the_30_day_notice(expiring):
+    assert expiring["trial_10_days"] == [200, []] and expiring["trial_dismiss_expiring"] == 404
 
 
 def test_the_license_expiry_notice_is_superadmin_only(expiring):
