@@ -14,7 +14,7 @@ from core.order_production import prepare_job_write, reconcile_job_write
 from core.db import get_db
 from core.db_compat import sql
 from core.dependencies import get_current_user, log_audit
-from core.rbac import require_role, check_org_access
+from core.rbac import require_role, require_action, check_org_access
 from core.base import JobStatus, AlertType, AlertSeverity
 from modules.jobs.models import Job
 from modules.printers.models import Printer
@@ -554,9 +554,9 @@ def link_job_to_print(job_id: int, print_job_id: int, current_user: dict = Depen
 def move_job(
     job_id: int,
     request: MoveJobRequest,
-    current_user: dict = Depends(require_role("operator", scope="write:jobs")), db: Session = Depends(get_db)
+    current_user: dict = Depends(require_action("timeline.move", scope="write:jobs")), db: Session = Depends(get_db)
 ):
-    """Move a job to a different printer and/or time slot."""
+    """Move a job to a different printer and/or time slot (RBAC action timeline.move)."""
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")

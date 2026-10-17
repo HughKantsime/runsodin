@@ -11,85 +11,11 @@ from core.db import get_db
 from core.dependencies import log_audit
 from core.rbac import require_role, require_superadmin
 from core.models import SystemConfig
+# The defaults and the effective map live in core (shared with core.rbac.require_action).
+from core.rbac_policy import RBAC_DEFAULT_PAGE_ACCESS, RBAC_DEFAULT_ACTION_ACCESS, get_rbac as _get_rbac
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
-
-
-# ============== RBAC defaults ==============
-
-RBAC_DEFAULT_PAGE_ACCESS = {
-    "dashboard": ["admin", "operator", "viewer"],
-    "timeline": ["admin", "operator", "viewer"],
-    "jobs": ["admin", "operator", "viewer"],
-    "printers": ["admin", "operator", "viewer"],
-    "models": ["admin", "operator", "viewer"],
-    "spools": ["admin", "operator", "viewer"],
-    "cameras": ["admin", "operator", "viewer"],
-    "analytics": ["admin", "operator", "viewer"],
-    "calculator": ["admin", "operator", "viewer"],
-    "upload": ["admin", "operator"],
-    "maintenance": ["admin", "operator"],
-    "settings": ["admin"],
-    "admin": ["admin"],
-    # /audit (frontend RoleGate page="audit"); the audit-log API is superadmin-only.
-    "audit": ["admin"],
-    "branding": ["admin"],
-    "education_reports": ["admin", "operator"],
-    "education": ["admin", "operator", "viewer"],
-    "orders": ["admin", "operator", "viewer"],
-    "products": ["admin", "operator", "viewer"],
-    "alerts": ["admin", "operator", "viewer"],
-}
-
-RBAC_DEFAULT_ACTION_ACCESS = {
-    "settings.edit": ["admin"],
-    "jobs.create": ["admin", "operator"],
-    "jobs.edit": ["admin", "operator"],
-    "jobs.cancel": ["admin", "operator"],
-    "jobs.delete": ["admin", "operator"],
-    "jobs.start": ["admin", "operator"],
-    "jobs.complete": ["admin", "operator"],
-    "printers.add": ["admin"],
-    "printers.edit": ["admin", "operator"],
-    "printers.delete": ["admin"],
-    "printers.slots": ["admin", "operator"],
-    "printers.reorder": ["admin", "operator"],
-    "models.create": ["admin", "operator"],
-    "models.edit": ["admin", "operator"],
-    "models.delete": ["admin"],
-    "spools.edit": ["admin", "operator"],
-    "spools.delete": ["admin"],
-    "timeline.move": ["admin", "operator"],
-    "upload.upload": ["admin", "operator"],
-    "upload.schedule": ["admin", "operator"],
-    "upload.delete": ["admin", "operator"],
-    "maintenance.log": ["admin", "operator"],
-    "maintenance.tasks": ["admin"],
-    "dashboard.actions": ["admin", "operator"],
-    "orders.create": ["admin", "operator"],
-    "orders.edit": ["admin"],
-    "orders.delete": ["admin", "operator"],
-    "orders.ship": ["admin", "operator"],
-    "products.create": ["admin", "operator"],
-    "products.edit": ["admin", "operator"],
-    "products.delete": ["admin"],
-    "jobs.approve": ["admin", "operator"],
-    "jobs.reject": ["admin", "operator"],
-    "jobs.resubmit": ["admin", "operator", "viewer"],
-    "alerts.read": ["admin", "operator", "viewer"],
-    "printers.plug": ["admin", "operator"],
-}
-
-
-def _get_rbac(db: Session):
-    row = db.query(SystemConfig).filter(SystemConfig.key == "rbac_permissions").first()
-    if row and row.value:
-        data = row.value
-        page = {**RBAC_DEFAULT_PAGE_ACCESS, **data.get("page_access", {})}
-        action = {**RBAC_DEFAULT_ACTION_ACCESS, **data.get("action_access", {})}
-        return {"page_access": page, "action_access": action}
-    return {"page_access": RBAC_DEFAULT_PAGE_ACCESS, "action_access": RBAC_DEFAULT_ACTION_ACCESS}
 
 
 # ============== Endpoints ==============

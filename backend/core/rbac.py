@@ -265,6 +265,30 @@ def require_role(required_role: str, scope: str = None):
     return mark_token_scope_checker(role_checker, scope)
 
 
+def require_action(action: str, scope: str = None):
+    """FastAPI dependency enforcing a configured RBAC action permission.
+
+    The caller's role must be listed for ``action`` in the effective
+    page/action map (core.rbac_policy: Settings > Access > Permissions, or the
+    defaults). Token scope is enforced as in require_role.
+    """
+    from core.dependencies import get_current_user
+    from core.db import get_db
+    from core.rbac_policy import action_roles
+
+    def action_checker(request: Request, current_user: dict = Depends(get_current_user), db=Depends(get_db)):
+        if not current_user:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        if current_user.get("role") not in action_roles(db, action):
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+        if scope:
+            _check_token_scope(current_user, scope)
+        else:
+            _generic_scope_check(request, current_user)
+        return current_user
+    return mark_token_scope_checker(action_checker, scope)
+
+
 def require_superadmin(scope: str = None):
     """FastAPI dependency that requires superadmin (admin role + no group_id).
 
