@@ -91,6 +91,11 @@ class _Peer(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length") or 0)
         SEEN.append(("PUT", self.path, _json.loads(self.rfile.read(n) or b"{}")))
         self._send({"id": 7})
+# TEST ONLY (as tests.support.loopback_devices): production refuses loopback Spoolman
+# destinations (review O1); this Spoolman double listens on 127.0.0.1.
+import core.webhook_utils as _device_policy
+_real_blocked = _device_policy.is_blocked_device_address
+_device_policy.is_blocked_device_address = lambda ip: False if str(ip) in ("127.0.0.1", "::1") else _real_blocked(ip)
 peer = ThreadingHTTPServer(("127.0.0.1", 0), _Peer)
 threading.Thread(target=peer.serve_forever, daemon=True).start()
 url = f"http://127.0.0.1:{peer.server_address[1]}"
