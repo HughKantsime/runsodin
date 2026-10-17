@@ -21,7 +21,7 @@ function renderTab() {
 }
 
 test('Community: "Start 14-day Pro trial" sends a device-signed request for the email and says check your email', async () => {
-  api.requestTrial.mockResolvedValue({ status: 'request_sent' })
+  api.requestTrial.mockResolvedValue({ status: 'request_sent', installation_id: '6f1c2e9a-3b4d-4c5e-8f70-112233445566', device_fingerprint: 'abcd ef01 2345 6789' })
   renderTab()
   const heading = await screen.findByRole('heading', { name: 'Start 14-day Pro trial' })
   expect(heading).toBeInTheDocument()
@@ -29,16 +29,32 @@ test('Community: "Start 14-day Pro trial" sends a device-signed request for the 
   fireEvent.click(screen.getByRole('button', { name: 'Send trial request' }))
   await waitFor(() => expect(api.requestTrial).toHaveBeenCalledExactlyOnceWith('owner@example.com', false))
   expect(await screen.findByText(/Check owner@example.com for a confirmation link/)).toBeInTheDocument()
+  // The values the portal's email and confirm page show, with the check instruction.
+  const identity = screen.getByTestId('trial-identity')
+  expect(identity).toHaveTextContent('Installation ID: 6f1c2e9a-3b4d-4c5e-8f70-112233445566')
+  expect(identity).toHaveTextContent('Device key: abcd ef01 2345 6789')
+  expect(identity).toHaveTextContent('Only confirm if this matches Settings > License in your ODIN.')
+})
+
+test('Show installation ID also shows the device key the trial email and confirm page show', async () => {
+  const { license } = await import('../../api')
+  ;(license.getInstallationId as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ installation_id: '6f1c2e9a-3b4d-4c5e-8f70-112233445566', device_fingerprint: 'abcd ef01 2345 6789' })
+  renderTab()
+  fireEvent.click(await screen.findByRole('button', { name: 'Show installation ID' }))
+  expect(await screen.findByText('6f1c2e9a-3b4d-4c5e-8f70-112233445566')).toBeInTheDocument()
+  expect(screen.getByTestId('device-key')).toHaveTextContent('Device key: abcd ef01 2345 6789')
+  expect(screen.getByTestId('device-key')).toHaveTextContent('Only confirm if they match')
 })
 
 test('offline: "Get request code" shows the code to paste on the portal', async () => {
-  api.requestTrial.mockResolvedValue({ request_code: 'ODINTRIAL1.eyJ2IjoxfQ', expires_in_minutes: 15 })
+  api.requestTrial.mockResolvedValue({ request_code: 'ODINTRIAL1.eyJ2IjoxfQ', expires_in_minutes: 15, installation_id: '6f1c2e9a-3b4d-4c5e-8f70-112233445566', device_fingerprint: 'abcd ef01 2345 6789' })
   renderTab()
   fireEvent.change(await screen.findByLabelText('Trial email'), { target: { value: 'school@example.org' } })
   fireEvent.click(screen.getByRole('button', { name: 'Get request code' }))
   await waitFor(() => expect(api.requestTrial).toHaveBeenCalledExactlyOnceWith('school@example.org', true))
   expect(await screen.findByLabelText('Trial request code')).toHaveValue('ODINTRIAL1.eyJ2IjoxfQ')
   expect(screen.getByText(/within 15 minutes/)).toBeInTheDocument()
+  expect(screen.getByTestId('trial-identity')).toHaveTextContent('Device key: abcd ef01 2345 6789')
   expect(screen.getByRole('link', { name: 'runsodin.com/portal/trial' })).toHaveAttribute('href', 'https://runsodin.com/portal/trial')
 })
 

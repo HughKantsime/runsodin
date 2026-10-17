@@ -11,7 +11,7 @@ export default function LicenseTab() {
   const audience = (user: User | null | undefined) => user?.role === 'admin' && Number.isInteger(user.id) && user.id > 0 ? JSON.stringify([user.id, user.role, user.group_id ?? null]) : null
   const currentAudience = audience(principal)
   const generation = useRef(0)
-  const [installation, setInstallation] = useState<{ audience: string; id: string } | null>(null)
+  const [installation, setInstallation] = useState<{ audience: string; id: string; device: string | null } | null>(null)
   const [idBusy, setIdBusy] = useState(false)
   const [idMessage, setIdMessage] = useState<string | null>(null)
   useEffect(() => {
@@ -32,7 +32,7 @@ export default function LicenseTab() {
       const data = await licenseApi.getInstallationId()
       if (stillCurrent(owner, stamp)) {
         if (typeof data.installation_id !== 'string' || !data.installation_id) throw new Error('Invalid identity response')
-        setInstallation({ audience: owner, id: data.installation_id })
+        setInstallation({ audience: owner, id: data.installation_id, device: typeof data.device_fingerprint === 'string' ? data.device_fingerprint : null })
       }
     } catch {
       if (stillCurrent(owner, stamp)) setIdMessage('Could not load installation ID. Try again.')
@@ -104,7 +104,7 @@ export default function LicenseTab() {
 
   const [trialEmail, setTrialEmail] = useState('')
   const [trialBusy, setTrialBusy] = useState<'online' | 'offline' | null>(null)
-  const [trialResult, setTrialResult] = useState<{ sentTo?: string; code?: string; minutes?: number; error?: string } | null>(null)
+  const [trialResult, setTrialResult] = useState<{ sentTo?: string; code?: string; minutes?: number; error?: string; installationId?: string; device?: string } | null>(null)
   const requestTrial = async (offline: boolean) => {
     const email = trialEmail.trim()
     if (!email || trialBusy) return
@@ -112,7 +112,8 @@ export default function LicenseTab() {
     setTrialResult(null)
     try {
       const data = await licenseApi.requestTrial(email, offline)
-      setTrialResult(offline ? { code: data.request_code, minutes: data.expires_in_minutes } : { sentTo: email })
+      const identity = { installationId: data.installation_id, device: data.device_fingerprint }
+      setTrialResult(offline ? { code: data.request_code, minutes: data.expires_in_minutes, ...identity } : { sentTo: email, ...identity })
     } catch (err) {
       setTrialResult({ error: err instanceof Error ? err.message : 'Trial request failed' })
     } finally {
@@ -261,6 +262,12 @@ export default function LicenseTab() {
               <code className="text-xs text-[var(--brand-text-secondary)] bg-[var(--brand-card-bg)] px-2 py-1 rounded font-mono flex-1 select-all">{installation?.audience === currentAudience ? installation.id : ''}</code>
               <button disabled={idBusy} onClick={installation?.audience === currentAudience ? copyInstallId : showInstallId} className="text-xs text-[var(--brand-primary)] hover:text-[var(--brand-primary)] transition-colors px-2 py-1">{installation?.audience === currentAudience ? 'Copy' : 'Show installation ID'}</button>
             </div>
+            {installation?.audience === currentAudience && installation.device && (
+              <p className="mt-2 text-xs text-[var(--brand-text-muted)]" data-testid="device-key">
+                Device key: <code className="font-mono text-[var(--brand-text-secondary)]">{installation.device}</code>
+                {' '}&mdash; a Pro trial confirmation email and page show this installation ID and device key. Only confirm if they match.
+              </p>
+            )}
           </div>
         )}
       </Card>
@@ -303,6 +310,14 @@ export default function LicenseTab() {
               <textarea aria-label="Trial request code" readOnly value={trialResult.code} rows={3}
                 className="w-full font-mono text-xs rounded-md border border-[var(--brand-card-border)] bg-[var(--brand-card-bg)] p-2 text-[var(--brand-text-primary)]"
                 onFocus={e => e.currentTarget.select()} />
+            </div>
+          )}
+          {(trialResult?.sentTo || trialResult?.code) && trialResult.installationId && (
+            <div data-testid="trial-identity" className="mt-3 rounded-md border border-[var(--brand-card-border)] p-3 text-xs text-[var(--brand-text-secondary)]">
+              <p className="mb-1">The confirmation email and page show this server&apos;s identity:</p>
+              <p>Installation ID: <code className="font-mono text-[var(--brand-text-primary)]">{trialResult.installationId}</code></p>
+              <p>Device key: <code className="font-mono text-[var(--brand-text-primary)]">{trialResult.device}</code></p>
+              <p className="mt-1 font-medium text-[var(--brand-text-primary)]">Only confirm if this matches Settings &gt; License in your ODIN.</p>
             </div>
           )}
           {trialResult?.error && (

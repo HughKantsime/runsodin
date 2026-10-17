@@ -81,11 +81,13 @@ class FakeAsyncClient:
 RH.httpx = types.SimpleNamespace(AsyncClient=FakeAsyncClient)
 seed_user("t-admin", "admin"); seed_user("t-op", "operator")
 a = login("t-admin"); op = login("t-op")
+OUT["identity_before_key"] = body(a.get("/api/license/installation-id"))
 r = a.post("/api/license/trial-request", json={"email": "owner@example.com"})
 OUT["online"] = {"status": r.status_code, "body": body(r)}
 OUT["portal_calls"] = PORTAL["calls"][:]
 OUT["device_pubkey"] = LM.get_device_keypair()[1]
 OUT["installation_id"] = LM.get_installation_id()
+OUT["identity"] = body(a.get("/api/license/installation-id"))
 n = len(PORTAL["calls"])
 r = a.post("/api/license/trial-request", json={"email": "owner@example.com", "offline": True})
 OUT["offline"] = {"status": r.status_code, "body": body(r)}
@@ -106,7 +108,7 @@ def trial_route(tmp_path_factory):
 
 
 def test_settings_start_trial_posts_the_signed_request_to_the_portal(trial_route):
-    assert trial_route["online"] == {"status": 200, "body": {"status": "request_sent"}}
+    assert trial_route["online"]["status"] == 200 and trial_route["online"]["body"]["status"] == "request_sent"
     (url, payload), = trial_route["portal_calls"]
     assert url.endswith("/api/v1/trial")
     r = payload["request"]
@@ -114,6 +116,17 @@ def test_settings_start_trial_posts_the_signed_request_to_the_portal(trial_route
     assert r["email"] == "owner@example.com"
     _verify(r)
     assert trial_route["_net_attempts"] == []
+
+
+def test_settings_license_shows_the_identity_the_confirmation_email_and_page_show(trial_route):
+    import hashlib
+    short = hashlib.sha256(base64.b64decode(trial_route["device_pubkey"])).hexdigest()[:16]
+    expected = " ".join(short[i:i + 4] for i in range(0, 16, 4))
+    assert trial_route["identity_before_key"]["device_fingerprint"] is None  # never created just to be shown
+    assert trial_route["identity"] == {"installation_id": trial_route["installation_id"], "device_fingerprint": expected}
+    online = trial_route["online"]["body"]
+    assert (online["installation_id"], online["device_fingerprint"]) == (trial_route["installation_id"], expected)
+    assert trial_route["offline"]["body"]["device_fingerprint"] == expected
 
 
 def test_offline_start_returns_a_request_code_without_any_network(trial_route):

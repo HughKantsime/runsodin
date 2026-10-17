@@ -273,8 +273,15 @@ def remove_license(
 
 @router.get("/license/installation-id", tags=["License"])
 def get_license_installation_id(current_user: dict = Depends(require_role("admin"))):
-    """Return the installation ID for this ODIN instance to an administrator."""
-    return {"installation_id": get_installation_id()}
+    """Return the installation ID (and, once it exists, the short device-key fingerprint) to an administrator.
+
+    The portal's trial confirmation email and page show the same two values,
+    so an admin can check that a trial link belongs to this server.
+    """
+    import license_manager as _lm
+    fingerprint = _lm.device_fingerprint()
+    return {"installation_id": get_installation_id(),
+            "device_fingerprint": _lm.short_fingerprint(fingerprint) if fingerprint else None}
 
 
 class LicenseActivateRequest(PydanticBaseModel):
@@ -402,9 +409,12 @@ async def request_pro_trial(
         trial_request = _lm.build_trial_request(body.email)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    # What the confirmation email and page will show: the admin checks them against these.
+    identity = {"installation_id": trial_request["installation_id"],
+                "device_fingerprint": _lm.short_fingerprint(_lm.device_fingerprint(trial_request["device_pubkey"]))}
     if body.offline:
         return {"request_code": _lm.trial_request_code(trial_request),
-                "expires_in_minutes": _lm.TRIAL_REQUEST_MAX_AGE_MINUTES}
+                "expires_in_minutes": _lm.TRIAL_REQUEST_MAX_AGE_MINUTES, **identity}
 
     license_server_url = settings.license_server_url
     if license_server_url.startswith("http://") and not license_server_url.startswith("http://localhost") and not license_server_url.startswith("http://127."):
@@ -422,7 +432,7 @@ async def request_pro_trial(
     if resp.status_code != 202:
         detail = resp.json().get("error", "Trial request failed") if resp.headers.get("content-type", "").startswith("application/json") else f"License server returned {resp.status_code}"
         raise HTTPException(status_code=resp.status_code if 400 <= resp.status_code < 600 else 502, detail=detail)
-    return {"status": "request_sent"}
+    return {"status": "request_sent", **identity}
 
 
 class OfflineActivationRequestBody(PydanticBaseModel):

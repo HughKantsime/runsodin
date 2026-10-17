@@ -221,6 +221,25 @@ def validate_trial_email(email: str) -> str:
     return value
 
 
+def device_fingerprint(public_key_b64: Optional[str] = None) -> Optional[str]:
+    """SHA-256 (hex) of the raw device public key: the portal's one-trial key.
+
+    Without an argument it reads this installation's device key, and returns
+    None when no device key exists yet (it never creates one).
+    """
+    if public_key_b64 is None:
+        if not os.path.isfile(os.path.join(LICENSE_DIR, DEVICE_PRIVATE_KEY_FILENAME)):
+            return None
+        public_key_b64 = get_device_keypair()[1]
+    return hashlib.sha256(base64.b64decode(public_key_b64)).hexdigest()
+
+
+def short_fingerprint(fingerprint: str) -> str:
+    """The first 16 hex digits in groups of four, as the portal's email and confirm page show it."""
+    head = fingerprint[:16]
+    return " ".join(head[i:i + 4] for i in range(0, 16, 4))
+
+
 def trial_request_message(request: Dict[str, Any]) -> bytes:
     return "\n".join([
         "odin-trial-request-v1", request["installation_id"], request["device_pubkey"],
