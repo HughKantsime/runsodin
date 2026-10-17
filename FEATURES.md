@@ -351,7 +351,7 @@
 
 ### 6.6 Spoolman Integration
 - `spoolman_spool_id` field for linking O.D.I.N. spools to external Spoolman instance
-- Spoolman integration: browse spools from an external Spoolman instance (read-through, not imported into O.D.I.N.); push consumption back on job completion via `PUT /api/v1/spool/{id}/use`
+- Spoolman integration: browse spools from an external Spoolman instance (read-through, not imported into O.D.I.N.); push consumption back on job completion (manual and printer-observed) via `PUT /api/v1/spool/{id}/use`
 - **Auto-deduction** — filament consumption auto-deducted from the assigned spool on print completion; consumption_json stored in the archive; pushed back to Spoolman when the spool is linked (fails loud via job.notes if Spoolman is unreachable, no silent drops)
 - **Filament usage tracking** — Bambu: AMS remain % delta × initial_weight_g; Moonraker: print_stats.filament_used (mm→g). A measured total is deducted from the spool only for single-spool prints; multi-filament prints deduct each assigned spool's sliced per-slot estimate, and a single measured total is never split across spools.
 
@@ -623,7 +623,7 @@
 
 ### 14.5 Spoolman
 - Link O.D.I.N. spools to external Spoolman instance via `spoolman_spool_id`
-- Spoolman sync (v1.8.5): list Spoolman spools on demand (no import into ODIN inventory); push consumption back on job completion via `PUT /api/v1/spool/{id}/use`
+- Spoolman sync (v1.8.5): list Spoolman spools on demand (no import into ODIN inventory); push consumption back on job completion (manual and printer-observed) via `PUT /api/v1/spool/{id}/use`
 - SSRF-safe dispatch via a dedicated DNS-pinned Spoolman client (`_post_spoolman_usage`: user-configured Spoolman URL resolved and validated, metadata/link-local destinations refused, no redirects or proxies, public destinations blocked in ITAR mode)
 - Unreachable Spoolman instance is a loud failure — logged + appended to `job.notes` — never a silent drop
 
