@@ -145,7 +145,16 @@ if [ "${ODIN_DB_BOOTSTRAP_OWNER:-1}" = "1" ]; then
             /usr/sbin/runuser -u odin -- python3 -m modules.system.restore_coordinator
             ;;
     esac
-    ODIN_DB_ROLE=bootstrap python3 -m scripts.bootstrap_database
+    case "${DATABASE_URL}" in
+        postgresql://*|postgres://*)
+            # As the app user, like every PostgreSQL consumer: the restore gate accepts a
+            # data directory owned by root or by the reading process, and /data is odin's.
+            ODIN_DB_ROLE=bootstrap /usr/sbin/runuser -u odin -- python3 -m scripts.bootstrap_database
+            ;;
+        *)
+            ODIN_DB_ROLE=bootstrap python3 -m scripts.bootstrap_database
+            ;;
+    esac
     echo "  ✓ Upgrade migrations complete"
     /bin/sh /app/seed_edu_if_enabled.sh
     case "${DATABASE_URL}" in
@@ -155,7 +164,9 @@ if [ "${ODIN_DB_BOOTSTRAP_OWNER:-1}" = "1" ]; then
             ;;
     esac
 else
-    python3 -m scripts.wait_for_database_schema
+    # Split services (monitors, vision, reports) only read the schema: as the app user,
+    # for the same restore-gate ownership rule.
+    /usr/sbin/runuser -u odin -- python3 -m scripts.wait_for_database_schema
 fi
 
 trap - ERR
