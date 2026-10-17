@@ -119,6 +119,31 @@ OUT["save"] = {"status": r.status_code, "body": body(r)}
 OUT["after"] = body(admin.get("/api/config"))["spoolman_url"]
 '''
 
+PUSH_PROBE = r'''
+import sys, types
+SENT = []
+class _WPE(Exception):
+    response = None
+fake = types.ModuleType("pywebpush")
+fake.WebPushException = _WPE
+def _webpush(subscription_info, data, vapid_private_key, vapid_claims, **kw):
+    SENT.append({"endpoint": subscription_info["endpoint"], "title": json.loads(data)["title"]})
+fake.webpush = _webpush
+sys.modules["pywebpush"] = fake          # boundary: the browser vendor's push service
+uid = seed_user("gap-community", "admin")
+install_license(None)                    # Community (no license file)
+c = login("gap-community")
+import license_manager as LM
+OUT["has_feature"] = LM.get_license().has_feature("push_notifications")
+OUT["tier"] = LM.get_license().tier
+OUT["vapid"] = c.get("/api/push/vapid-key").status_code
+r = c.post("/api/push/subscribe", json={"endpoint": "https://push.example.test/sub/1", "keys": {"p256dh": "BSyntheticKey", "auth": "synthetic-auth"}})
+OUT["subscribe"] = r.status_code
+from modules.notifications.channels import send_push_notification
+OUT["delivered"] = send_push_notification(uid, "print_failed", "Gap push", "message")
+OUT["sent"] = SENT
+'''
+
 GATE_PROBE = r'''
 import smtplib
 SENT = []
@@ -198,6 +223,11 @@ def spoolman(tmp_path_factory):
 def spoolman_env(tmp_path_factory):
     root = tmp_path_factory.mktemp("claims-spoolman-env")
     return run_probe("claims-spoolman-env", SPOOLMAN_ENV_PROBE, root, {"SPOOLMAN_URL": "http://127.0.0.1:7912"})
+
+
+@pytest.fixture(scope="module")
+def community_push(tmp_path_factory):
+    return run_probe("claims-community-push", PUSH_PROBE, tmp_path_factory.mktemp("claims-community-push"))
 
 
 @pytest.fixture(scope="module")
@@ -311,3 +341,18 @@ def test_alert_email_is_delivered_on_pro(gates):
 
 def test_no_network_during_gate_probes(gates):
     assert all(gates[t]["_net_attempts"] == [] for t in TIERS)
+
+
+# ---------- browser push is a Community feature ----------
+
+def test_push_notifications_is_a_community_feature_in_tiers():
+    from license_manager import TIERS
+    assert "push_notifications" in TIERS["community"]["features"]
+    assert all("push_notifications" in TIERS[t]["features"] for t in TIERS)
+
+
+def test_community_registers_browser_push_and_receives_it(community_push):
+    assert community_push["tier"] == "community" and community_push["has_feature"] is True
+    assert community_push["vapid"] == 200 and community_push["subscribe"] in (200, 201)
+    assert community_push["delivered"] is True
+    assert community_push["sent"] == [{"endpoint": "https://push.example.test/sub/1", "title": "Gap push"}]
