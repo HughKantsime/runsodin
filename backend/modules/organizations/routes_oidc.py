@@ -3,6 +3,7 @@
 import hashlib
 import hmac
 import logging
+import os
 import secrets
 from urllib.parse import urlsplit
 from datetime import datetime, timedelta, timezone
@@ -55,9 +56,32 @@ def _redirect_uri(request: Request) -> str:
 
 def _binding_cookie_path(request: Request) -> str:
     # The callback's directory (".../auth/oidc"), which also covers the exchange.
-    # Taken from the redirect_uri, not the login URL, so a login started under
-    # /api/v1 still reaches the /api callback.
     return urlsplit(_redirect_uri(request)).path.rsplit("/", 1)[0] or "/"
+
+
+def _binding_cookie_paths(request: Request) -> list[str]:
+    """One path covering the /api and /api/v1 callback and exchange (the web client exchanges
+    on /api/auth/oidc/exchange): the API base of OIDC_REDIRECT_URI's directory, "/api"
+    normally or e.g. "/odin/api" behind a path-prefix proxy. One cookie, so clients that look
+    cookies up by name see one value."""
+    directory = _binding_cookie_path(request)
+    for suffix in ("/v1/auth/oidc", "/auth/oidc"):
+        if directory.endswith(suffix):
+            return [directory[: -len(suffix)] or "/"]
+    return ["/api"]
+
+
+def _binding_cookie_secure(request: Request) -> bool:
+    """COOKIE_SECURE when it is set (behind a TLS-terminating proxy the app sees http);
+    otherwise the request scheme."""
+    if os.environ.get("COOKIE_SECURE") is not None:
+        return bool(_settings.cookie_secure)
+    return request.url.scheme == "https"
+
+
+def _delete_binding_cookies(response, request: Request) -> None:
+    for path in _binding_cookie_paths(request):
+        response.delete_cookie(OIDC_BINDING_COOKIE, path=path)
 
 
 class OIDCIdentityError(RuntimeError):
@@ -335,9 +359,10 @@ async def oidc_login(request: Request, db: Session = Depends(get_db)):
     from fastapi.responses import RedirectResponse
     response = RedirectResponse(url=url, status_code=302)
     # SameSite=Lax so the IdP's top-level redirect back to the callback carries it.
-    response.set_cookie(key=OIDC_BINDING_COOKIE, value=oidc_state_binding(state),
-                        httponly=True, secure=_settings.cookie_secure and request.url.scheme == "https", samesite="lax",
-                        path=_binding_cookie_path(request), max_age=_OIDC_BINDING_MAX_AGE)
+    binding, secure = oidc_state_binding(state), _binding_cookie_secure(request)
+    for path in _binding_cookie_paths(request):
+        response.set_cookie(key=OIDC_BINDING_COOKIE, value=binding, httponly=True, secure=secure,
+                            samesite="lax", path=path, max_age=_OIDC_BINDING_MAX_AGE)
     return response
 
 
@@ -495,7 +520,7 @@ async def oidc_exchange_code(body: dict, request: Request, db: Session = Depends
     if continuation is not None:
         from fastapi.responses import JSONResponse
         pending = JSONResponse(continuation)
-        pending.delete_cookie(OIDC_BINDING_COOKIE, path=_binding_cookie_path(request))
+        _delete_binding_cookies(pending, request)
         return pending
     client_ip = request.client.host if request.client else "unknown"
     if _record_session(db, user.id, access_token, client_ip, request.headers.get("user-agent", "")) is not True:
@@ -503,7 +528,7 @@ async def oidc_exchange_code(body: dict, request: Request, db: Session = Depends
 
     from fastapi.responses import JSONResponse
     resp = JSONResponse({"access_token": access_token, "token_type": "bearer"})
-    resp.delete_cookie(OIDC_BINDING_COOKIE, path=_binding_cookie_path(request))
+    _delete_binding_cookies(resp, request)
     resp.set_cookie(key="session", value=access_token, httponly=True,
                     secure=_settings.cookie_secure, samesite=_settings.cookie_samesite,
                     path="/", max_age=86400)

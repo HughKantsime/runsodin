@@ -636,7 +636,7 @@ def test_oidc_login_sets_httponly_lax_binding_cookie(oidc_db, monkeypatch):
     assert response.status_code == 302
     header = response.headers["set-cookie"].lower()
     assert header.startswith("odin_oidc_bind=") and "httponly" in header and "samesite=lax" in header
-    assert "path=/api/auth/oidc" in header and "max-age=600" in header
+    assert "path=/api;" in header and "max-age=600" in header  # covers the /api and /api/v1 exchange and callback (O7)
     assert len(response.cookies["odin_oidc_bind"]) >= 32
 
 
