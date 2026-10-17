@@ -375,6 +375,56 @@ async def activate_license(
     }
 
 
+class TrialRequestBody(PydanticBaseModel):
+    email: str
+    offline: bool = False
+
+
+@router.post("/license/trial-request", tags=["License"])
+async def request_pro_trial(
+    body: TrialRequestBody,
+    current_user: dict = Depends(require_superadmin(scope="write")),
+    license_mutation_allowed: None = Depends(require_license_mutation_enabled),
+):
+    """Start a 14-day Pro trial from inside ODIN. Superadmin only.
+
+    Builds a trial request signed with this installation's device key (the
+    key activation binds) for the admin's email. Online it is POSTed to the
+    licensing server, which emails a confirmation link; offline it is
+    returned as a request code to paste on the portal's trial page (valid
+    for 15 minutes). The key itself is shown once on the portal after the
+    email is confirmed and is activated here like any key.
+    """
+    import license_manager as _lm
+    if get_license().valid:
+        raise HTTPException(status_code=409, detail="This server already has a valid license.")
+    try:
+        trial_request = _lm.build_trial_request(body.email)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if body.offline:
+        return {"request_code": _lm.trial_request_code(trial_request),
+                "expires_in_minutes": _lm.TRIAL_REQUEST_MAX_AGE_MINUTES}
+
+    license_server_url = settings.license_server_url
+    if license_server_url.startswith("http://") and not license_server_url.startswith("http://localhost") and not license_server_url.startswith("http://127."):
+        license_server_url = "https://" + license_server_url[7:]
+    from core.itar import pin_for_request, ItarOutboundBlocked, should_trust_env
+    try:
+        with pin_for_request(license_server_url):
+            async with httpx.AsyncClient(timeout=15, trust_env=should_trust_env()) as client:
+                resp = await client.post(f"{license_server_url}/api/v1/trial", json={"request": trial_request})
+    except ItarOutboundBlocked as ite:
+        raise HTTPException(status_code=502, detail=f"License server blocked by ITAR: {ite}")
+    except Exception as e:
+        log.error("Trial request failed — could not reach license server: %s", type(e).__name__)
+        raise HTTPException(status_code=502, detail="Could not reach the license server. Use the request code instead.")
+    if resp.status_code != 202:
+        detail = resp.json().get("error", "Trial request failed") if resp.headers.get("content-type", "").startswith("application/json") else f"License server returned {resp.status_code}"
+        raise HTTPException(status_code=resp.status_code if 400 <= resp.status_code < 600 else 502, detail=detail)
+    return {"status": "request_sent"}
+
+
 class OfflineActivationRequestBody(PydanticBaseModel):
     key: str
     nonce: str  # issued by GET /api/v1/challenge on the licensing server

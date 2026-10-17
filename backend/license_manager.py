@@ -12,6 +12,7 @@ import json
 import base64
 import hashlib
 import os
+import re
 import uuid
 import tempfile
 from datetime import datetime, date, time as datetime_time, timezone
@@ -194,6 +195,58 @@ def sign_license_challenge(action: str, key: str, installation_id: str, nonce: s
     message = f"odin-license-v1\n{action}\n{key}\n{installation_id}\n{nonce}".encode("utf-8")
     sig = priv.sign(message)
     return base64.b64encode(sig).decode("ascii")
+
+
+# ── Pro trial request (signed with the device key) ──
+# The trial starts inside ODIN: the request is signed with the same device key
+# that activation binds, so the portal can key one-trial-per-installation on
+# something a stranger cannot claim. Canonical message (api/_lib/trial.js
+# trialRequestMessage on the portal must match):
+#   odin-trial-request-v1\n{installation_id}\n{device_pubkey}\n{email}\n{nonce}\n{issued_at}
+TRIAL_REQUEST_VERSION = 1
+TRIAL_REQUEST_CODE_PREFIX = "ODINTRIAL1."
+TRIAL_REQUEST_MAX_AGE_MINUTES = 15
+_EMAIL_LOCAL = r"[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*"
+_EMAIL_LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+_TRIAL_EMAIL_RE = re.compile(rf"^{_EMAIL_LOCAL}@{_EMAIL_LABEL}(?:\.{_EMAIL_LABEL})+$")
+
+
+def validate_trial_email(email: str) -> str:
+    """Exactly one addr-spec (no display name, list, quotes or trailing dot). Returns it trimmed."""
+    if not isinstance(email, str):
+        raise ValueError("A valid email address is required.")
+    value = email.strip()
+    if not value or len(value) > 254 or not _TRIAL_EMAIL_RE.fullmatch(value):
+        raise ValueError("A valid email address is required.")
+    return value
+
+
+def trial_request_message(request: Dict[str, Any]) -> bytes:
+    return "\n".join([
+        "odin-trial-request-v1", request["installation_id"], request["device_pubkey"],
+        request["email"], request["nonce"], request["issued_at"],
+    ]).encode("utf-8")
+
+
+def build_trial_request(email: str) -> Dict[str, Any]:
+    """A Pro trial request for this installation, signed with its device key."""
+    request = {
+        "v": TRIAL_REQUEST_VERSION,
+        "installation_id": get_installation_id(),
+        "device_pubkey": get_device_keypair()[1],
+        "email": validate_trial_email(email),
+        "nonce": base64.urlsafe_b64encode(os.urandom(18)).decode("ascii").rstrip("="),
+        "issued_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    priv, _pub = get_device_keypair()
+    request["signature"] = base64.b64encode(priv.sign(trial_request_message(request))).decode("ascii")
+    return request
+
+
+def trial_request_code(request: Dict[str, Any]) -> str:
+    """The offline form of a trial request: pasted on the portal's trial page."""
+    raw = json.dumps(request, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    return TRIAL_REQUEST_CODE_PREFIX + base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 
 
 class LicenseInfo:
