@@ -43,8 +43,38 @@ def _pytest_target(target: str, tests: str, timeout: int) -> int:
     return 0 if result["status"] == "pass" else 1
 
 
+# Measured 2026-10-18 on the M4 runner: 667 files / about 12,600 tests in 17 batches of 40
+# files ran in 1,587 s wall with 6 concurrent batches (slowest batch 1,322 s). Serial
+# pytest over the same suite takes about two hours.
+CONTRACT_BATCH_JOBS = 6
+CONTRACT_BATCH_TIMEOUT_SECONDS = 1800
+CONTRACT_TIMEOUT_SECONDS = 3600
+
+
 def contracts() -> int:
-    return _pytest_target("contracts", "tests/test_contracts/", 1200)
+    """Contract suite in concurrent file batches (ops.release_control.contract_batches).
+
+    Runs on the bootstrapped .venv-stress interpreter (backend/requirements.txt, e.g.
+    psycopg), with PYTHONPATH for the worker subprocesses some tests spawn, and the
+    runner's Docker host and Playwright browsers like the candidate and EDU gates."""
+    directory = _directory("contracts")
+    junit = directory / "junit.xml"
+    python = ROOT / ".venv-stress" / "bin" / "python"
+    if not python.is_file():
+        raise SystemExit(f"contract gate interpreter missing: {python} (bootstrap .venv-stress first)")
+    result = execute(
+        gate_id="contracts",
+        command=[str(python), "-m", "ops.release_control.contract_batches",
+                 "--tests", "tests/test_contracts", "--junit", "{junit}",
+                 "--work", str(directory / "batches"), "--jobs", str(CONTRACT_BATCH_JOBS),
+                 "--batch-timeout", str(CONTRACT_BATCH_TIMEOUT_SECONDS)],
+        output=directory / "result.json", timeout=CONTRACT_TIMEOUT_SECONDS, junit=junit,
+        environment_allowlist=("ADMIN_USERNAME", "ADMIN_PASSWORD", "PYTHONPATH",
+                               "DOCKER_HOST", "PLAYWRIGHT_BROWSERS_PATH"),
+        environment_overrides={"ADMIN_USERNAME": "ci", "ADMIN_PASSWORD": "ci", "PYTHONPATH": "backend:."},
+    )
+    render(result, directory / "index.html")
+    return 0 if result["status"] == "pass" else 1
 
 
 def telemetry_contracts() -> int:
