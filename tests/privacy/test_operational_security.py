@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import shutil
-from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
@@ -104,50 +103,39 @@ def test_cors_allows_only_explicit_origin(monkeypatch):
     assert "Access-Control-Allow-Origin" not in denied.headers
 
 
-def test_successful_login_sets_httponly_secure_samesite_cookie(monkeypatch):
+def test_successful_login_sets_httponly_secure_samesite_cookie(tmp_path, monkeypatch):
+    # A real bootstrapped database: login records the attempt, the session and the
+    # verified actor, and fails closed (503) when it cannot, so a stub session that
+    # records nothing no longer stands in for it.
     monkeypatch.setenv("JWT_SECRET_KEY", "synthetic-operational-cookie-secret")
+    from pathlib import Path
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.orm import sessionmaker
+    from core.auth import hash_password
+    from core.schema import bootstrap_database
     from modules.organizations import routes_auth
 
-    user = SimpleNamespace(
-        id=1,
-        username="student@school.test",
-        password_hash="synthetic-hash",
-        role="viewer",
-        is_active=True,
-        mfa_enabled=False,
-    )
-
-    class _Result:
-        def __init__(self, row=None):
-            self.row = row
-
-        def fetchone(self):
-            return self.row
-
-    class _LoginSession:
-        def execute(self, statement, *_args, **_kwargs):
-            sql = str(statement)
-            if "SELECT * FROM users" in sql:
-                return _Result(user)
-            return _Result()
-
-        def commit(self):
-            return None
-
-    session = _LoginSession()
-    monkeypatch.setattr(routes_auth, "_check_rate_limit", lambda *_args: False)
-    monkeypatch.setattr(routes_auth, "_is_locked_out", lambda *_args: False)
-    monkeypatch.setattr(routes_auth, "verify_password", lambda *_args: True)
-    monkeypatch.setattr(routes_auth, "_record_login_attempt", lambda *_args: None)
-    monkeypatch.setattr(routes_auth, "_record_session", lambda *_args: None)
-    monkeypatch.setattr(routes_auth, "log_audit", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(routes_auth, "create_access_token", lambda *_args, **_kwargs: "synthetic-session")
+    engine = create_engine(f"sqlite:///{tmp_path / 'login.db'}")
+    bootstrap_database(engine, Path(__file__).resolve().parents[2] / "backend")
+    with engine.begin() as connection:
+        connection.execute(text(
+            "INSERT INTO users (id, username, email, password_hash, role, is_active) "
+            "VALUES (1, 'student@school.test', 'student@school.test', :hash, 'viewer', 1)"),
+            {"hash": hash_password("synthetic-password")})
+    sessions = sessionmaker(bind=engine)
     monkeypatch.setattr(routes_auth._settings, "cookie_secure", True)
     monkeypatch.setattr(routes_auth._settings, "cookie_samesite", "strict")
 
+    def database():
+        session = sessions()
+        try:
+            yield session
+        finally:
+            session.close()
+
     app = FastAPI()
     app.include_router(routes_auth.router, prefix="/api")
-    app.dependency_overrides[routes_auth.get_db] = lambda: session
+    app.dependency_overrides[routes_auth.get_db] = database
     response = TestClient(app).post(
         "/api/auth/login",
         data={"username": "student@school.test", "password": "synthetic-password"},
@@ -155,7 +143,7 @@ def test_successful_login_sets_httponly_secure_samesite_cookie(monkeypatch):
 
     assert response.status_code == 200
     cookie = response.headers["set-cookie"].lower()
-    assert "session=synthetic-session" in cookie
+    assert "session=" + response.json()["access_token"].lower() in cookie
     assert "httponly" in cookie
     assert "secure" in cookie
     assert "samesite=strict" in cookie
