@@ -41,6 +41,9 @@ def test_normal_exit_group_and_control_channels_independently_confirmed():
 def test_pending_duplicate_close_uncertainty_survives_absent_group():
     group=module.OwnedSenderGroup([sys.executable,'-c','pass'])
     try:
+        # As in the sibling tests: retire after the worker exited, so group absence does not
+        # depend on how quickly the OS reaps a SIGKILLed worker that was still starting.
+        assert group.wait_worker(time.monotonic()+2).worker_exited_normally
         group._uncertain_channel_fds.append(999999) # Synthetic, never retried.
         receipt=group.retire()
         assert receipt.group_empty and not receipt.channels_closed

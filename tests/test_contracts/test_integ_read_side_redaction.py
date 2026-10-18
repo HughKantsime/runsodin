@@ -52,7 +52,9 @@ def _clean(text):
     return not any(secret in text for secret in SECRETS)
 
 
-@pytest.mark.parametrize("line", GO2RTC_LOG + SUPERVISORD_LOG + STDOUT_BACKEND)
+# Index ids: the lines carry synthetic secrets, which must not appear in test names (JUnit).
+@pytest.mark.parametrize("line", GO2RTC_LOG + SUPERVISORD_LOG + STDOUT_BACKEND,
+                         ids=[f"line-{index}" for index in range(len(GO2RTC_LOG + SUPERVISORD_LOG + STDOUT_BACKEND))])
 def test_sanitize_log_line_applies_the_write_side_rules(line):
     from modules.system.sanitize import sanitize_log_line
     assert _clean(sanitize_log_line(line)), sanitize_log_line(line)
