@@ -19,8 +19,8 @@ export default function JobTableHeader({ sortField, sortDirection, onSort, allSe
       <tr>
         <th scope="col" className="px-2 py-3 w-10">
           <div className="flex items-center gap-1">
-            <input type="checkbox" checked={allSelected} onChange={onSelectAll} className="rounded border-[var(--brand-text-muted)]" aria-label="Select all jobs" />
-            <button type="button" onClick={() => onSort('queue')} className="text-xs text-[var(--brand-text-secondary)] hover:text-[var(--brand-text-primary)] flex items-center" aria-label="Sort by queue order" title="Queue order">
+            <input type="checkbox" checked={allSelected} onChange={onSelectAll} className="h-6 w-6 shrink-0 rounded border-[var(--brand-text-muted)]" aria-label="Select all jobs" />
+            <button type="button" onClick={() => onSort('queue')} className="text-xs text-[var(--brand-text-secondary)] hover:text-[var(--brand-text-primary)] flex items-center justify-center min-h-6 min-w-6" aria-label="Sort by queue order" title="Queue order">
               # <SortIcon field="queue" sortField={sortField} sortDirection={sortDirection} />
             </button>
           </div>

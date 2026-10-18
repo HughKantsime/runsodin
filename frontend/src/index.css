@@ -311,7 +311,7 @@ html.light .bg-farm-900 {
 /* Red — errors, failures */
 html.light .bg-red-900\/30 { background-color: #fef2f2; }
 html.light .bg-red-900\/50 { background-color: #fee2e2; }
-html.light .text-red-400 { color: #dc2626; }
+html.light .text-red-400 { color: #b91c1c; } /* red-700: 5.93:1 on the light page bg #f4f5f7 (red-600 was 4.43) */
 html.light .text-red-300 { color: #ef4444; }
 html.light .text-red-500 { color: #b91c1c; }
 html.light .border-red-700\/30 { border-color: #fca5a5; }
