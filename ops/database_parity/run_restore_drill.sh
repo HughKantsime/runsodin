@@ -233,10 +233,16 @@ printf 'database-parity-topology: {"api":"%s","worker":"%s","postgres_image_id":
 docker rm -f "${worker_container}" "${api_container}" >/dev/null
 
 step="legacy upgrade scenarios"
+# Steps below run as the image's root user without the app data volume. 2.0 engines check
+# the PostgreSQL restore state in ODIN_DATA_DIR (core/postgres_restore_gate.py), which must
+# be owned by the caller; each gets an empty root-owned one (no staged restore) and, for the
+# app runtime, a branding directory in it (the image's static/branding is a symlink).
 docker run --rm \
     --network "${network}" \
     --entrypoint python3 \
     --workdir /workspace \
+    --tmpfs /run/odin-parity-data:rw,mode=0755 \
+    -e ODIN_DATA_DIR=/run/odin-parity-data \
     -e DATABASE_URL="${target_url}" \
     -e DATABASE_PASSWORD_FILE=/run/secrets/postgres_app_password \
     -e PYTHONPATH=/app/backend:/workspace \
@@ -256,6 +262,9 @@ docker run --rm \
     -e DATABASE_PASSWORD_FILE=/run/secrets/postgres_app_password \
     -e DATABASE_MAINTENANCE_PASSWORD_FILE=/run/secrets/postgres_maintenance_password \
     -e ODIN_DB_ROLE=api \
+    --tmpfs /run/odin-parity-data:rw,mode=0755 \
+    -e ODIN_DATA_DIR=/run/odin-parity-data \
+    -e ODIN_BRANDING_DIRECTORY=/run/odin-parity-data/static/branding \
     -e PYTHONPATH=/app/backend:/workspace \
     --mount "type=bind,src=${app_password_file},dst=/run/secrets/postgres_app_password,readonly" \
     --mount "type=bind,src=${maintenance_password_file},dst=/run/secrets/postgres_maintenance_password,readonly" \
@@ -266,8 +275,11 @@ docker run --rm \
     2>&1 | tee "${runtime_diagnostic_file}"
 
 step="offline restore scenarios"
+# Runs as odin, as docker/entrypoint.sh runs restores: /data is odin's, and the restore
+# gate admits only the owner of the data directory.
 docker run --rm \
     --network "${network}" \
+    --user odin \
     --entrypoint python3 \
     --workdir /app/backend \
     -e DATABASE_URL="${target_url}" \
@@ -290,6 +302,9 @@ restored_runtime="$(docker run --rm \
     -e DATABASE_URL="${target_url}" \
     -e DATABASE_PASSWORD_FILE=/run/secrets/postgres_app_password \
     -e ODIN_DB_ROLE=api \
+    --tmpfs /run/odin-parity-data:rw,mode=0755 \
+    -e ODIN_DATA_DIR=/run/odin-parity-data \
+    -e ODIN_BRANDING_DIRECTORY=/run/odin-parity-data/static/branding \
     -e ODIN_PARITY_MODE=verify-restored \
     -e ODIN_EXPECTED_DATABASE_DIALECT=postgresql \
     -e PYTHONPATH=/app/backend:/workspace \

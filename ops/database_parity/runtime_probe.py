@@ -507,19 +507,14 @@ def exercise_cross_domain_workflow(
     admin_models = {item["name"] for item in items(client.get("/api/models", headers=admin))}
     assert "ODIN Hidden Tenant Model" in admin_models
 
-    webhook = client.post(
+    # The parity image is the exact unlicensed release image (Community): Pro routes are
+    # refused with the license error; their behaviour is proved by the contract suite under
+    # a substituted trust root (docs/TRUSTED_VALIDATION_SCOPE.md).
+    assert_license_refusal(client.post(
         "/api/webhooks",
-        json={
-            "name": "ODIN Parity Webhook",
-            "url": "https://example.com/odin-parity",
-            "webhook_type": "discord",
-        },
+        json={"name": "ODIN Parity Webhook", "url": "https://example.com/odin-parity", "webhook_type": "discord"},
         headers=admin,
-    )
-    assert webhook.status_code == 200, webhook.text
-    webhooks = items(client.get("/api/webhooks", headers=admin))
-    webhook_id = next(item["id"] for item in webhooks if item["name"] == "ODIN Parity Webhook")
-    assert client.delete(f"/api/webhooks/{webhook_id}", headers=admin).status_code == 200
+    ), "webhooks")
 
     profile = client.post(
         "/api/profiles",
@@ -535,19 +530,12 @@ def exercise_cross_domain_workflow(
     profile_id = int(profile.json()["id"])
     assert client.delete(f"/api/profiles/{profile_id}", headers=operator).status_code == 204
 
-    report = client.post(
+    assert_license_refusal(client.post(
         "/api/report-schedules",
-        json={
-            "name": "ODIN Parity Report",
-            "report_type": "job_summary",
-            "frequency": "weekly",
-            "recipients": ["parity@example.invalid"],
-        },
+        json={"name": "ODIN Parity Report", "report_type": "job_summary", "frequency": "weekly",
+              "recipients": ["parity@example.invalid"]},
         headers=admin,
-    )
-    assert report.status_code == 200, report.text
-    report_id = int(report.json()["id"])
-    assert client.delete(f"/api/report-schedules/{report_id}", headers=admin).status_code == 200
+    ), "email_notifications")
 
     uploaded = client.post(
         "/api/print-files/upload",
@@ -567,6 +555,15 @@ def exercise_cross_domain_workflow(
         for item in items(client.get("/api/backups", headers=admin))
     )
     assert client.delete(f"/api/backups/{backup_name}", headers=admin).status_code == 204
+
+
+def assert_license_refusal(response, feature: str) -> None:
+    """A Pro route on the Community parity image: 403 with the license error."""
+    assert response.status_code == 403, response.text
+    body = response.json()
+    assert body["error"]["code"] == "permission_denied", body
+    assert f"Feature '{feature}' requires Pro" in body["detail"], body
+    assert "Current tier: community" in body["detail"], body
 
 
 def verify_restored_runtime(
@@ -691,10 +688,9 @@ def run() -> None:
         )
         assert updated.status_code == 200, updated.text
         assert updated.json()["notes"] == "postgres parity round trip"
-        assert (
-            client.delete(f"/api/models/{model_id}", headers=operator).status_code
-            == 204
-        )
+        # models.delete is admin-only in the 2.0 default matrix (core/rbac_policy.py).
+        assert client.delete(f"/api/models/{model_id}", headers=operator).status_code == 403
+        assert client.delete(f"/api/models/{model_id}", headers=admin).status_code == 204
 
         token_response = client.post("/api/auth/ws-token", headers=admin)
         assert token_response.status_code == 200, token_response.text
