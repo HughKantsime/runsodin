@@ -62,6 +62,12 @@ def assert_original_raw_semantics(db,identifier,columns):
         row.pop('payload_sha256');row.pop('plate_index')
         if 'print_file_id' not in columns.split(','):
             row.pop('print_file_id')
+    # The reference row is inserted later, so its CURRENT_TIMESTAMP defaults may fall in the
+    # next second: both rows must carry default timestamps, not identical ones.
+    from datetime import datetime
+    for column in ('created_at', 'updated_at'):
+        stamps = [datetime.fromisoformat(str(row.pop(column))) for row in (actual, original)]
+        assert abs((stamps[1] - stamps[0]).total_seconds()) <= 5, (column, stamps)
     assert actual==original
     db.rollback()
 
