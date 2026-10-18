@@ -402,7 +402,7 @@ def stage_alert(
         raise
 
     # Quiet hours: save alert to DB but suppress external notifications
-    _suppress_external = should_suppress_notification(org_id=_printer_org_id)
+    _suppress_external = should_suppress_notification(org_id=_printer_org_id, db=db)
 
     preferences = db.query(AlertPreference).filter(
         AlertPreference.alert_type == alert_type
@@ -492,10 +492,19 @@ def deliver_staged_alert(db: Session, plan: Optional[StagedAlert]):
     """Best-effort external delivery. Caller must have confirmed its commit first."""
     if plan is None:
         return
+    from core.dispatch_connection import dispatch_scope
+    # One connection for this dispatch's after-commit work (core.dispatch_connection).
+    with dispatch_scope(db.get_bind()):
+        _deliver_staged_alert(db, plan)
+
+
+def _deliver_staged_alert(db: Session, plan: StagedAlert):
+    from core.dispatch_connection import dispatch_transaction
     from modules.notifications.recipient_policy import resolve_alert_scope
     try:
-        eligible, org_id = resolve_alert_scope(db, printer_id=plan.printer_id,
-            job_id=plan.job_id, spool_id=plan.spool_id)
+        with dispatch_transaction(db.get_bind()) as scope_connection:
+            eligible, org_id = resolve_alert_scope(scope_connection, printer_id=plan.printer_id,
+                job_id=plan.job_id, spool_id=plan.spool_id)
         if org_id != plan.org_id:
             return
         recipients = sorted(set(plan.in_app_users) & eligible)
@@ -518,9 +527,10 @@ def deliver_staged_alert(db: Session, plan: Optional[StagedAlert]):
                 # Push may remove expired subscriptions. Keep that cleanup in
                 # its own transaction, separate from the committed job session.
                 try:
-                    with Session(db.get_bind()) as push_db:
+                    with dispatch_transaction(db.get_bind()) as push_connection, Session(bind=push_connection) as push_db:
                         _deliver_browser_push(push_db, uid, plan.title, plan.message, plan.severity.value)
                         if push_db.deleted:
+                            # Joins the dispatch transaction; a failure rolls the cleanup back.
                             push_db.commit()
                 except Exception:
                     logger.warning("Postcommit push delivery or cleanup failed")
@@ -534,7 +544,8 @@ def deliver_staged_alert(db: Session, plan: Optional[StagedAlert]):
         else:
             from core.registry import registry
             provider = registry.get_provider("OrgSettingsProvider")
-            settings = provider.get_org_settings(db, org_id) if provider else {}
+            with dispatch_transaction(db.get_bind()) as settings_connection:
+                settings = provider.get_org_settings(settings_connection, org_id) if provider else {}
             if settings.get("webhook_url"):
                 _send_org_webhook(settings["webhook_url"], settings.get("webhook_type", "generic"),
                     plan.alert_type.value, plan.title, plan.message, plan.severity.value)

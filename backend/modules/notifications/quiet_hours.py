@@ -126,12 +126,14 @@ def governed_by(owner, digest_org_id, conn=None) -> bool:
     return owner is None or governing_scope(owner, conn) == "system"
 
 
-def should_suppress_notification(org_id: int = None) -> bool:
+def should_suppress_notification(org_id: int = None, db=None) -> bool:
     """Returns True if real-time notifications should be suppressed.
-    Checks org-level quiet hours first (if org_id given), then system-level."""
+    Checks org-level quiet hours first (if org_id given), then system-level.
+    ``db``: the caller's session or connection, reused for the org read (no new connection)."""
     if org_id:
         try:
-            with engine.connect() as conn:
+            from contextlib import nullcontext
+            with (nullcontext(db) if db is not None else engine.connect()) as conn:
                 row = conn.execute(text("SELECT settings_json FROM groups WHERE id = :oid"), {"oid": org_id}).mappings().fetchone()
                 if row and row["settings_json"]:
                     settings = json.loads(row["settings_json"])

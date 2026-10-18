@@ -475,12 +475,9 @@ def create_job(
         alert_plan = stage_alert(db, AlertType.QUEUE_ADDED, AlertSeverity.INFO,
             f"Job added to queue: {job.item_name or 'Untitled'}",
             job_id=db_job.id, target_user_ids=[current_user["id"]])
-    # An uncertain commit must not trigger external delivery or automatic retry.
-    db.commit()
-    deliver_staged_alert(db, alert_plan)
-
     # Return JobResponse fields + next_actions as a dict. response_model
-    # is intentionally omitted on this route — see docstring.
+    # is intentionally omitted on this route — see docstring. Built from the flushed,
+    # refreshed row before the commit, so the response needs no second connection.
     response = JobResponse.model_validate(db_job, from_attributes=True).model_dump(mode="json")
     response["next_actions"] = build_next_actions(
         next_action(
@@ -494,6 +491,9 @@ def create_job(
             "see queue depth after insertion",
         ),
     )
+    # An uncertain commit must not trigger external delivery or automatic retry.
+    db.commit()
+    deliver_staged_alert(db, alert_plan)
     return response
 
 
