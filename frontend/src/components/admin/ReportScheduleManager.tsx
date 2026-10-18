@@ -4,6 +4,7 @@ import { Plus, Trash2, Calendar, X, Pause, Play, Zap } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { reportSchedules } from '../../api'
 import { useLicense } from '../../LicenseContext'
+import RequiresLicense from '../shared/RequiresLicense'
 
 const REPORT_TYPES = ['fleet_utilization', 'job_summary', 'filament_consumption', 'failure_analysis', 'chargeback_summary']
 // Analytics-derived report types need the Pro "analytics" entitlement (backend: 403 below Pro).
@@ -12,7 +13,11 @@ const FREQUENCIES = ['daily', 'weekly', 'monthly']
 
 export default function ReportScheduleManager() {
   const queryClient = useQueryClient()
-  const analyticsLicensed = useLicense().hasFeature('analytics')
+  const license = useLicense()
+  const analyticsLicensed = license.hasFeature('analytics')
+  // Creating and running schedules are Pro "email_notifications" (backend 403 below Pro);
+  // existing schedules stay listed and can be paused or deleted.
+  const emailLicensed = license.hasFeature('email_notifications')
   const availableTypes = REPORT_TYPES.filter(t => analyticsLicensed || !ANALYTICS_REPORT_TYPES.includes(t))
   const emptyForm = { name: '', report_type: availableTypes[0], frequency: 'weekly', recipients: '' }
   const [showCreate, setShowCreate] = useState(false)
@@ -59,16 +64,20 @@ export default function ReportScheduleManager() {
           <Calendar size={18} className="text-[var(--brand-primary)]" />
           <h2 className="text-lg font-display font-semibold">Scheduled Reports</h2>
         </div>
-        <button onClick={() => setShowCreate(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)] rounded-md text-sm">
-          <Plus size={14} /> New Schedule
-        </button>
+        {emailLicensed && (
+          <button onClick={() => setShowCreate(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)] rounded-md text-sm">
+            <Plus size={14} /> New Schedule
+          </button>
+        )}
       </div>
+
+      {!emailLicensed && <div className="mb-4"><RequiresLicense what="Scheduled email reports" /></div>}
 
       <p className="text-xs text-[var(--brand-text-muted)] mb-4">
         Define report schedules. Reports are generated based on the configured frequency and delivered to recipients.
       </p>
 
-      {showCreate && (
+      {emailLicensed && showCreate && (
         <div className="mb-4 p-4 bg-[var(--brand-input-bg)] rounded-md border border-[var(--brand-card-border)] space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-[var(--brand-text-primary)]">New Report Schedule</span>
@@ -126,11 +135,12 @@ export default function ReportScheduleManager() {
           <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={() => runNow.mutate(s.id)}
-              disabled={runNow.isPending || (!analyticsLicensed && ANALYTICS_REPORT_TYPES.includes(s.report_type))}
+              disabled={runNow.isPending || !emailLicensed || (!analyticsLicensed && ANALYTICS_REPORT_TYPES.includes(s.report_type))}
               aria-busy={runNow.isPending}
               aria-label={`Run "${s.name}" now`}
               className="p-1.5 text-[var(--brand-text-muted)] hover:text-[var(--brand-primary)] rounded-md disabled:opacity-50"
-              title={!analyticsLicensed && ANALYTICS_REPORT_TYPES.includes(s.report_type) ? 'Requires a Pro license (analytics)' : 'Send now'}
+              title={!emailLicensed ? 'Requires a Pro license (email reports)'
+                : !analyticsLicensed && ANALYTICS_REPORT_TYPES.includes(s.report_type) ? 'Requires a Pro license (analytics)' : 'Send now'}
             >
               <Zap size={14} />
             </button>

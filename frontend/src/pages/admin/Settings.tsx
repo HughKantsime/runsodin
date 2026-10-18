@@ -24,6 +24,7 @@ import SystemTab from '../../components/admin/SystemTab'
 import LicenseTab from '../../components/admin/LicenseTab'
 import { useLicense } from '../../LicenseContext'
 import ProBadge from '../../components/shared/ProBadge'
+import RequiresLicense from '../../components/shared/RequiresLicense'
 import { pricingConfig } from '../../api'
 import { PageHeader, TabBar } from '../../components/ui'
 
@@ -44,15 +45,6 @@ function AccessAccordion({ title, icon: Icon, children, defaultOpen = false }: {
   )
 }
 
-// Inline upsell for a Pro-only section inside a tab that is otherwise free.
-function RequiresLicense({ tier = 'Pro', what }: { tier?: string; what: string }) {
-  return (
-    <p className="flex items-center gap-2 text-sm text-[var(--brand-text-secondary)]">
-      <Lock size={14} className="text-[var(--brand-primary)]" />
-      <span>{what} requires an O.D.I.N. <span className="text-[var(--brand-primary)] font-medium">{tier}</span> license.</span>
-    </p>
-  )
-}
 
 export default function Settings() {
   // Deep links such as the system-notice banner's /settings?tab=system#backups.

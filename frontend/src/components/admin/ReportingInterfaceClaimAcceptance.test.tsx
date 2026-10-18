@@ -7,14 +7,14 @@ const api=vi.hoisted(()=>({report:vi.fn(),list:vi.fn(),create:vi.fn(),update:vi.
 vi.mock('../../api',()=>({chargebacks:{report:api.report},reportSchedules:{list:api.list,create:api.create,update:api.update,delete:api.remove,runNow:api.run},fetchAPI:vi.fn().mockResolvedValue({}),config:{getNetwork:vi.fn().mockResolvedValue({})},backups:{list:vi.fn().mockResolvedValue([])},downloadBlob:api.download,getEnergyRate:vi.fn().mockResolvedValue({energy_cost_per_kwh:.2}),setEnergyRate:vi.fn()}))
 vi.mock('../../permissions',()=>({clearSensitiveBrowserState:vi.fn()}))
 // License fixture: chargebacks and analytics report types are Pro "analytics" features.
-const lic=vi.hoisted(()=>({features:['analytics'] as string[]}))
+const lic=vi.hoisted(()=>({features:['analytics','email_notifications'] as string[]}))
 vi.mock('../../LicenseContext',()=>({useLicense:()=>({hasFeature:(f:string)=>lic.features.includes(f)})}))
 vi.mock('./BackupRestore',()=>({default:()=>null}))
 vi.mock('./TroubleshootingPanel',()=>({default:()=>null}))
 vi.mock('./DataRetentionSettings',()=>({default:()=>null}))
 vi.mock('recharts',()=>({ResponsiveContainer:({children}:any)=><div>{children}</div>,BarChart:({data,children}:any)=><div data-testid='energy-series'>{JSON.stringify(data)}{children}</div>,Bar:()=>null,XAxis:()=>null,YAxis:()=>null,CartesianGrid:()=>null,Tooltip:()=>null}))
 beforeEach(()=>{
- lic.features=['analytics']
+ lic.features=['analytics','email_notifications']
  api.report.mockResolvedValue([{user_id:8,username:'Synthetic student',job_count:4,total_hours:2.5,total_grams:125,total_cost:7.25,currency:'USD'}])
  api.list.mockResolvedValue([{id:19,name:'Synthetic weekly report',report_type:'job_summary',frequency:'weekly',recipients:['synthetic@example.invalid'],is_active:true}])
  api.create.mockResolvedValue({});api.update.mockResolvedValue({});api.download.mockResolvedValue(undefined)
@@ -55,8 +55,10 @@ test('F10-10.9-04 schedule pause targets exact ID without sending any report',as
  expect(api.run).not.toHaveBeenCalled();expect(api.remove).not.toHaveBeenCalled()
 })
 
-test('below Pro the chargeback report is hidden, analytics report types are not offered and their run-now is locked',async()=>{
- lic.features=[]
+test('without analytics the chargeback report is hidden, analytics report types are not offered and their run-now is locked',async()=>{
+ // Isolates the analytics gate: email reports licensed, analytics not (Community locks the whole form,
+ // see ReportScheduleManager.community.test.tsx).
+ lic.features=['email_notifications']
  api.list.mockResolvedValue([{id:21,name:'Synthetic failure report',report_type:'failure_analysis',frequency:'weekly',recipients:['synthetic@example.invalid'],is_active:true},{id:19,name:'Synthetic weekly report',report_type:'job_summary',frequency:'weekly',recipients:['synthetic@example.invalid'],is_active:true}])
  system();await screen.findByText('Synthetic failure report')
  expect(api.report).not.toHaveBeenCalled()

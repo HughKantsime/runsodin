@@ -207,21 +207,18 @@ def test_compiled_token_permission_selection_and_real_revoke(role_page_factory):
     assert response.status_code==401
 
 
-def test_compiled_community_report_schedule_refusal_is_visible(role_page_factory,admin):
-    """Scheduled reports (email_notifications) are Pro: the compiled UI shows the license refusal."""
+def test_compiled_community_report_schedule_form_is_locked(role_page_factory,admin):
+    """Scheduled reports (email_notifications) are Pro: on Community the form is locked with the
+    Settings upgrade notice instead of being submittable and then refused."""
     before=admin.get(f'{BASE_URL}/api/report-schedules',timeout=10)
     assert before.status_code==200
     page=role_page_factory('admin')
     _goto(page,'/settings')
     page.get_by_role('button',name='System',exact=True).click()
     expect(page.get_by_role('heading',name='Scheduled Reports',exact=True)).to_be_visible()
-    page.get_by_role('button',name='New Schedule',exact=True).click()
-    page.locator('#rs-name').fill('Synthetic compiled report')
-    page.locator('#rs-type').select_option('job_summary')
-    page.locator('#rs-recipients').fill('synthetic@example.invalid')
-    page.get_by_role('button',name='Create Schedule',exact=True).click()
-    expect(page.get_by_role('status').filter(has_text="Create schedule failed: Feature 'email_notifications' requires Pro")).to_contain_text('Current tier: community')
-    expect(page.get_by_text('Synthetic compiled report',exact=True)).to_have_count(0)
+    expect(page.get_by_text('Scheduled email reports requires an O.D.I.N.',exact=False)).to_be_visible()
+    expect(page.get_by_role('button',name='New Schedule',exact=True)).to_have_count(0)
+    expect(page.locator('#rs-name')).to_have_count(0)
     assert admin.get(f'{BASE_URL}/api/report-schedules',timeout=10).json()==before.json()
 
 
