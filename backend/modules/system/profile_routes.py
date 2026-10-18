@@ -566,9 +566,9 @@ def _profile_snapshot_current(db,profile_id,printer_id,row,current_user,key,expe
         if recording and dialect=='sqlite':
             db.execute(text('BEGIN IMMEDIATE'))
         suffix=' FOR UPDATE NOWAIT' if recording and dialect=='postgresql' else ''
-        fresh=db.execute(text('SELECT * FROM printer_profiles WHERE id=:id'+suffix),{'id':profile_id}).fetchone()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- only a constant dialect lock suffix is appended; values are bound
+        fresh=db.execute(text('SELECT * FROM printer_profiles WHERE id=:id'+suffix),{'id':profile_id}).fetchone()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: lock suffix selected from the closed set {'', ' FOR UPDATE NOWAIT'}; values are bound
         if recording:
-            db.execute(text('SELECT id FROM printers WHERE id=:id'+suffix),{'id':printer_id}).first()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- only a constant dialect lock suffix is appended; values are bound
+            db.execute(text('SELECT id FROM printers WHERE id=:id'+suffix),{'id':printer_id}).first()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: lock suffix selected from the closed set {'', ' FOR UPDATE NOWAIT'}; values are bound
         printer=_accessible_profile_printer(db,printer_id,current_user)
         identity=build_identity(_get_printer_info(printer_id,connection=db),key)
         if (not fresh or not check_org_access(current_user,fresh.org_id)
@@ -610,7 +610,7 @@ def _apply_profile_commands(db,profile_id,target_printer_id,row,printer,gcodes,t
         raise HTTPException(409,'Profile target ownership changed; reconcile before retrying')
     _profile_snapshot_current(db,profile_id,target_printer_id,row,current_user,key,expected_identity,recording=True)
     if not failures:
-        changed=db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- only sql.* dialect helpers with literal arguments are interpolated; values are bound
+        changed=db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragments from core.db_compat sql.* dialect helpers called with literal arguments (closed per-dialect output); values are bound
             f"""
             UPDATE printer_profiles
             SET last_applied_at = {sql.now()}, last_applied_printer_id = :pid

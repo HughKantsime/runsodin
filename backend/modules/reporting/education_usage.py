@@ -127,7 +127,7 @@ def build_education_usage_report(days:int,db:Session,current_user:dict)->dict:
     else:
         proof='('+proved_job_owner_sql()+') AND ('+proved_education_job_sql()+')'
         scope='' if platform else ' AND u.group_id=:org AND j.charged_to_org_id=:org AND ('+proof+')'
-        rows=db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- predicate is code-built from constant SQL fragments; principal values are bound
+        rows=db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragments: proved_job_owner_sql()/proved_education_job_sql() constant builders and a scope chosen from a closed literal pair; values are bound
             '''SELECT j.id,j.status,j.approved_by,j.rejected_reason,j.quantity,
           j.duration_hours,j.estimated_cost,j.actual_start,j.actual_end,j.scheduled_start,j.scheduled_end,
           j.created_at,j.submitted_by,j.printer_id,j.model_id,u.username,u.email,u.role,

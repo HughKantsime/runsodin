@@ -94,7 +94,7 @@ def freeze_unit_valuation(executor, scope, plan, attempt_id, material_plan, mate
         view.execute(text('LOCK TABLE public.finance_currency_settings IN SHARE MODE NOWAIT'))
     else:
         view.execute(text('UPDATE finance_currency_settings SET currency=currency WHERE 0'))
-    config = view.execute(text('SELECT currency FROM finance_currency_settings WHERE owner_scope=:scope AND owner_key=:key' + (' FOR SHARE NOWAIT' if view.dialect.name == 'postgresql' else '')), {'scope': target['owner_scope'], 'key': target['owner_key']}).first()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- only a constant dialect lock suffix is appended; values are bound
+    config = view.execute(text('SELECT currency FROM finance_currency_settings WHERE owner_scope=:scope AND owner_key=:key' + (' FOR SHARE NOWAIT' if view.dialect.name == 'postgresql' else '')), {'scope': target['owner_scope'], 'key': target['owner_key']}).first()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: lock suffix selected from the closed set {'', ' FOR SHARE NOWAIT'}; values are bound
     target_currency = config[0] if config is not None else None
     target['currency'] = target_currency
     for identifier in identifiers:

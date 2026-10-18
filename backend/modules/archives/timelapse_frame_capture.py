@@ -64,7 +64,7 @@ def _lock_camera_graph(db, job_id):
     if db.get_bind().dialect.name != 'postgresql':
         return
     for table in ('education_submissions', 'education_upload_operations'):
-        db.execute(text(f'LOCK TABLE {table} IN SHARE MODE NOWAIT'))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- lock helper receives literal table/column/predicate strings only; values are bound
+        db.execute(text(f'LOCK TABLE {table} IN SHARE MODE NOWAIT'))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table iterates the literal ('education_submissions','education_upload_operations') tuple (closed set)
     job = db.execute(text('SELECT print_file_id,model_id FROM jobs WHERE id=:id'), {'id': job_id}).mappings().one()
     if job['print_file_id'] is None:
         db.execute(text('LOCK TABLE print_files IN SHARE MODE NOWAIT'))
@@ -113,8 +113,8 @@ def _capture_authority(db, *, nonce, timelapse_id, printer_id, job_id, allow_end
         raise ValueError('Capture ticket unavailable')
     for table,identifier in (('jobs',job_id),('printers',printer_id),('timelapses',timelapse_id)):
         if db.get_bind().dialect.name=='postgresql':
-            if db.execute(text(f'SELECT id FROM {table} WHERE id=:id FOR UPDATE NOWAIT'),{'id':identifier}).first() is None:raise ValueError('Capture authority unavailable')  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- lock helper receives literal table/column/predicate strings only; values are bound
-        elif db.execute(text(f'UPDATE {table} SET id=id WHERE id=:id'),{'id':identifier}).rowcount!=1:raise ValueError('Capture authority unavailable')  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- lock helper receives literal table/column/predicate strings only; values are bound
+            if db.execute(text(f'SELECT id FROM {table} WHERE id=:id FOR UPDATE NOWAIT'),{'id':identifier}).first() is None:raise ValueError('Capture authority unavailable')  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table iterates the literal ('jobs','printers','timelapses') tuple in this function (closed set); values are bound
+        elif db.execute(text(f'UPDATE {table} SET id=id WHERE id=:id'),{'id':identifier}).rowcount!=1:raise ValueError('Capture authority unavailable')  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table iterates the literal ('jobs','printers','timelapses') tuple in this function (closed set); values are bound
     row=dict(db.execute(text('SELECT printer_id,print_job_id,filename,status,ownership_operation_id,retirement_operation_id FROM timelapses WHERE id=:id'),{'id':timelapse_id}).mappings().one())
     owner=db.execute(select(anchors).where(anchors.c.operation_id==nonce)).mappings().one()
     job=db.execute(text('SELECT printer_id,status FROM jobs WHERE id=:id'),{'id':job_id}).mappings().one()

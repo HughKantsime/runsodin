@@ -12,7 +12,7 @@ def _locked_user(db,user_id):
         connection=db.connection().connection.driver_connection
         if not connection.in_transaction:db.execute(text('BEGIN IMMEDIATE'))
     suffix=' FOR UPDATE' if dialect=='postgresql' else ''
-    return db.execute(text('SELECT id,username,role,is_active,mfa_enabled,password_hash FROM users WHERE id=:id'+suffix),{'id':user_id}).fetchone()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- only a constant dialect lock suffix is appended; values are bound
+    return db.execute(text('SELECT id,username,role,is_active,mfa_enabled,password_hash FROM users WHERE id=:id'+suffix),{'id':user_id}).fetchone()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: lock suffix selected from the closed set {'', ' FOR UPDATE'}; values are bound
 
 
 def cancel_pending_enrollments(db,user_id):

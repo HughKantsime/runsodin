@@ -41,7 +41,7 @@ def list_generic_files(db, actor, limit, include_scheduled):
     files, offset = [], 0
     while len(files) < limit:
         predicate = '' if include_scheduled else ' WHERE job_id IS NULL'
-        candidates = db.execute(text('SELECT id FROM print_files' + predicate + ' ORDER BY uploaded_at DESC,id DESC LIMIT 100 OFFSET :offset'), {'offset': offset}).fetchall()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- only a constant WHERE fragment is appended; values are bound
+        candidates = db.execute(text('SELECT id FROM print_files' + predicate + ' ORDER BY uploaded_at DESC,id DESC LIMIT 100 OFFSET :offset'), {'offset': offset}).fetchall()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: predicate selected from the closed set {'', ' WHERE job_id IS NULL'}; values are bound
         if not candidates:
             break
         offset += len(candidates)

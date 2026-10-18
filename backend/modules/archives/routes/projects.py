@@ -92,7 +92,7 @@ def _locked_project(db, project_id):
             db.rollback()
             raise HTTPException(status_code=409, detail="Project changed concurrently; retry") from None
     suffix = " FOR UPDATE" if dialect == 'postgresql' else ""
-    return db.execute(text("SELECT * FROM projects WHERE id = :id" + suffix), {"id": project_id}).fetchone()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- only a constant dialect lock suffix is appended; values are bound
+    return db.execute(text("SELECT * FROM projects WHERE id = :id" + suffix), {"id": project_id}).fetchone()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: lock suffix selected from the closed set {'', ' FOR UPDATE'}; values are bound
 
 
 def _lock_assignment_owners(db, archive_ids):
@@ -191,7 +191,7 @@ def get_project(
 
     archive_scope, archive_params = _archive_visibility(user)
     archives = db.execute(
-        text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- predicate is code-built from constant SQL fragments; principal values are bound
+        text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- trusted-plugin SQL from EducationPolicyProvider.archive_audience_sql() (constant per its interface contract) plus module-constant fragments; principal values are bound
             "SELECT a.*, p.name AS printer_name, p.nickname AS printer_nickname "
             "FROM print_archives a "
             "LEFT JOIN printers p ON p.id = a.printer_id "
@@ -314,7 +314,7 @@ def export_project(
     project = dict(row._mapping)
     archive_scope, archive_params = _archive_visibility(user)
     archives = db.execute(
-        text(f"SELECT a.*, CASE WHEN {generic_archive_audience_sql()} THEN 0 ELSE 1 END AS education_linked "  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- predicate is code-built from constant SQL fragments; principal values are bound
+        text(f"SELECT a.*, CASE WHEN {generic_archive_audience_sql()} THEN 0 ELSE 1 END AS education_linked "  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant generic_archive_audience_sql() fragment plus trusted-plugin SQL from EducationPolicyProvider.archive_audience_sql() (constant per its interface contract) plus module-constant fragments; principal values are bound
              "FROM print_archives a LEFT JOIN printers ap ON ap.id = a.printer_id "
              f"WHERE a.project_id = :pid AND {archive_scope} ORDER BY a.id"),
         {"pid": project_id, **archive_params},

@@ -54,7 +54,7 @@ def revoke_sessions_and_biometric(db, user_id, *, keep_jti=None, blacklist_hours
     for session in rows:
         if keep_jti is not None and session.token_jti == keep_jti:
             continue
-        db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) "  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- only sql.* dialect helpers with literal arguments are interpolated; values are bound
+        db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) "  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragments from core.db_compat sql.* dialect helpers called with literal arguments (closed per-dialect output); values are bound
                         f"VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),
                    {'jti': session.token_jti, 'exp': expiry})
     if keep_jti is None:

@@ -72,7 +72,7 @@ def retirement_receipt(engine,operation_id,principal):
             keys=('timelapse_id','printer_id','filename','owner_state','owner_org_id')
             if record is None or owner is None or record['state']!='complete' or record['completed_at'] is None or tuple(record[k] for k in keys)!=tuple(owner[k] for k in keys):raise DrainUnavailable('unknown_authority')
             policy,parameters=immutable_timelapse_policy(principal,mutation=True)
-            found=db.execute(text('SELECT a.operation_id FROM '+_PROJECTION+' WHERE a.operation_id=:_operation AND '+policy),{**parameters,'_operation':operation_id}).first()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- predicate is code-built from constant SQL fragments; principal values are bound
+            found=db.execute(text('SELECT a.operation_id FROM '+_PROJECTION+' WHERE a.operation_id=:_operation AND '+policy),{**parameters,'_operation':operation_id}).first()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- trusted-plugin SQL from EducationPolicyProvider.archive_audience_sql() (constant per its interface contract) plus module-constant fragments; principal values are bound
             if found is None:raise DrainUnavailable('unknown_authority')
             _completed_evidence(db,record)
         return RetiredMedia(operation_id)

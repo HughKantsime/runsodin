@@ -39,7 +39,7 @@ def _load(db,tid,principal,nonce,root,*,lock=False,graph_scope=None,budget=None)
     i=_rows(db,intent,intent.c.operation_id==nonce,lock=lock)
     if len(b)!=1 or len(i)!=1 or b[0]['phase']!='sealed' or i[0]['state'] not in ('pending','in_flight'):_refuse('phase_uncertain')
     if (i[0]['root_device'],i[0]['root_inode'])!=(root.device,root.inode):_refuse('ownership_changed')
-    if not db.execute(text('SELECT 1 FROM '+bindings.name+' n WHERE operation_id=:op AND '+static_binding_proof('n')+' AND '+seal_proof('n',db.get_bind().dialect.name=='sqlite',admission=False)),{'op':nonce}).first():_refuse('phase_uncertain')  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- predicate is code-built from constant SQL fragments; principal values are bound
+    if not db.execute(text('SELECT 1 FROM '+bindings.name+' n WHERE operation_id=:op AND '+static_binding_proof('n')+' AND '+seal_proof('n',db.get_bind().dialect.name=='sqlite',admission=False)),{'op':nonce}).first():_refuse('phase_uncertain')  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragments: bindings.name table constant and static_binding_proof()/seal_proof() constant builders over a literal alias; values are bound
     lifetime=b[0]['lifetime_nonce']
     tables={
       'objects':(objects,objects.c.operation_id==nonce),'members':(members,members.c.operation_id==nonce),
@@ -448,7 +448,7 @@ def sealed_lifetime_receipt(engine,evidence,*,operation_id,original_id=None):
         if selected and original_id is not None and selected[0]['timelapse_id']!=original_id:_refuse('unknown_authority')
         if not selected or selected[0]['state']!='complete':raise NoCompletedReceiptYet()
         policy,parameters=immutable_timelapse_policy(principal,mutation=True)
-        if not db.execute(text('SELECT a.operation_id FROM '+_PROJECTION+' WHERE a.operation_id=:op AND '+policy),dict(parameters,op=operation_id)).first():_refuse('unknown_authority')  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- predicate is code-built from constant SQL fragments; principal values are bound
-        if not db.execute(text('SELECT 1 FROM timelapse_retirements n WHERE operation_id=:op AND '+completion_proof('n')),{'op':operation_id}).first():_refuse('phase_uncertain')  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- predicate is code-built from constant SQL fragments; principal values are bound
+        if not db.execute(text('SELECT a.operation_id FROM '+_PROJECTION+' WHERE a.operation_id=:op AND '+policy),dict(parameters,op=operation_id)).first():_refuse('unknown_authority')  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- trusted-plugin SQL from EducationPolicyProvider.archive_audience_sql() (constant per its interface contract) plus module-constant fragments; principal values are bound
+        if not db.execute(text('SELECT 1 FROM timelapse_retirements n WHERE operation_id=:op AND '+completion_proof('n')),{'op':operation_id}).first():_refuse('phase_uncertain')  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: completion_proof() constant builder over a literal alias; values are bound
         db.rollback()
     return RetiredMedia(operation_id)

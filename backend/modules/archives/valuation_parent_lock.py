@@ -13,7 +13,7 @@ def lock_financial_attempt(db,attempt_id):
     postgres=db.dialect.name=='postgresql' if hasattr(db,'dialect') else db.get_bind().dialect.name=='postgresql'
     for table,identifier in [('jobs',before[0]),('print_jobs',attempt_id)]:
         sql=f'SELECT id FROM {table} WHERE id=:id FOR UPDATE NOWAIT' if postgres else f'UPDATE {table} SET id=id WHERE id=:id RETURNING id'
-        if db.execute(text(sql),{'id':identifier}).first() is None:  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- lock helper receives literal table/column/predicate strings only; values are bound
+        if db.execute(text(sql),{'id':identifier}).first() is None:  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table iterates the literal ('jobs','print_jobs') list in this function (closed set); values are bound
             raise ValueError('Valuation parent disappeared')
     after=db.execute(text('SELECT scheduled_job_id,economic_birth_nonce,economic_uid FROM print_jobs WHERE id=:id'),{'id':attempt_id}).first()
     if after is None or tuple(after)!=tuple(before):

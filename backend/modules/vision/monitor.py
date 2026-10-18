@@ -172,7 +172,7 @@ class VisionMonitorDaemon:
             printing, printing_params = state_sql_in("p.gcode_state", PRINTING_STATES, "printing")
             idle, idle_params = state_sql_in("p.gcode_state", IDLE_STATES, "idle")
             with engine.connect() as conn:
-                rows = conn.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- state predicate from state_sql_in with bound state parameters
+                rows = conn.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: state_sql_in() over the PRINTING_STATES/IDLE_STATES module constants; states are bound
                     f"""
                     SELECT p.id, p.name, p.nickname, p.gcode_state,
                            p.camera_url, p.api_type, p.api_key, p.api_host, p.model,

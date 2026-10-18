@@ -34,12 +34,12 @@ def _graph(conn, printer_id, tags):
     matches = []
     if tags:
         placeholders = ','.join('?' for _ in tags)
-        matches = conn.execute(f'SELECT id,rfid_tag FROM spools WHERE rfid_tag IN ({placeholders})', tuple(tags)).fetchall()  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- only generated placeholders are interpolated; values are bound
+        matches = conn.execute(f'SELECT id,rfid_tag FROM spools WHERE rfid_tag IN ({placeholders})', tuple(tags)).fetchall()  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- only '?' placeholders generated from the bound value count; values are bound
     ids = {row[1] for row in slots if row[1] is not None} | {row[0] for row in matches}
     spools = _rows(conn, 'spools', ids, _SPOOL_COLUMNS)
     if ids:
         placeholders = ','.join('?' for _ in ids)
-        previous = conn.execute(f'SELECT id,assigned_spool_id,printer_id,slot_number FROM filament_slots WHERE assigned_spool_id IN ({placeholders})', tuple(sorted(ids))).fetchall()  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- only generated placeholders are interpolated; values are bound
+        previous = conn.execute(f'SELECT id,assigned_spool_id,printer_id,slot_number FROM filament_slots WHERE assigned_spool_id IN ({placeholders})', tuple(sorted(ids))).fetchall()  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- only '?' placeholders generated from the bound value count; values are bound
         slots = list({row[0]: row for row in slots + previous}.values())
     for spool in spools:
         if spool[2] is not None:
@@ -162,7 +162,7 @@ def _clear_unplugged_ht(conn, printer_id, reported):
     """
     from modules.printers.telemetry.bambu.ams_identity import AMS_HT_FIRST_SLOT
     suffix = ' FOR UPDATE' if getattr(conn, '_postgres', False) else ''
-    rows = conn.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- only a constant dialect lock suffix is appended; values are bound
+    rows = conn.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- constant fragment: lock suffix selected from the closed set {'', ' FOR UPDATE'}; values are bound
         f'SELECT id,assigned_spool_id,slot_number FROM filament_slots WHERE printer_id=? AND slot_number>=? ORDER BY id{suffix}',
         (printer_id, AMS_HT_FIRST_SLOT)).fetchall()
     for slot_id, assigned, number in rows:

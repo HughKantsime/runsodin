@@ -112,7 +112,7 @@ def assert_file_preview_allowed(db: Session, *, file_id: int, principal: dict) -
     ), {"file_id": file_id}).fetchall()
     if not references:
         raise _not_found()  # Operation-only files require recovery, not generic access.
-    visible = db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- predicate is code-built from constant SQL fragments; principal values are bound
+    visible = db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragments: _BASE_SELECT and _SUBMISSION_AUDIENCE module constants of core.education_archive_audience; values are bound
         _BASE_SELECT
         + " JOIN print_files f ON f.id=s.print_file_id AND f.org_id=s.org_id"
         + " AND f.created_by=s.submitted_by"

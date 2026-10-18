@@ -384,7 +384,7 @@ class PrinterVisionThread(threading.Thread):
         """Index a collected frame for annotation; not a detection (status 'training')."""
         try:
             with engine.begin() as conn:
-                conn.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- interpolates only the TRAINING_SAMPLE constant and sql.now(); values are bound
+                conn.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragments: the TRAINING_SAMPLE module constant and sql.now() dialect helper; values are bound
                     "INSERT INTO vision_detections (printer_id, print_job_id, detection_type, confidence, "
                     f"status, frame_path, created_at) VALUES (:pid, :jid, '{TRAINING_SAMPLE}', 0, 'training', :fpath, {sql.now()})"),
                     {"pid": self.printer_id, "jid": self.print_job_id, "fpath": frame_path})

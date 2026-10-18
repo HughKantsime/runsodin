@@ -13,7 +13,7 @@ def load_bounded_snapshot(db, *, attempt_id, birth_nonce, identity_uid):
             else 'length(CAST(spool_snapshot AS BLOB))')
     # The same statement binds the previously proved lifetime and rejects an
     # oversized value before the driver transfers the payload into Python.
-    row = db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- only a constant dialect size expression is interpolated; values are bound
+    row = db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: size expression selected from a closed pair of literal dialect expressions; values are bound
         f'''SELECT spool_snapshot FROM print_jobs
         WHERE id=:id AND economic_birth_nonce=:birth AND economic_uid=:uid
         AND (spool_snapshot IS NULL OR {size} <= :budget)'''),

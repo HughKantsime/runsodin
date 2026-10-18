@@ -707,7 +707,7 @@ class PrinterMonitor:
                         persist_light_observation(conn, self.printer_id, lights_on, cooldown_row[0] if cooldown_row else None)
                         for column, (value, stamp, observed_at) in pending_nozzles.items():
                             # Column names come only from the fixed observation map above.
-                            conn.execute(f'UPDATE printers SET {column}=?,{stamp}=? WHERE id=?',  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- column names come from the fixed nozzle observation map; values are bound
+                            conn.execute(f'UPDATE printers SET {column}=?,{stamp}=? WHERE id=?',  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- column/stamp names come from the literal nozzle column tuples in _on_status (closed set); values are bound
                                          (value, observed_at.isoformat(), self.printer_id))
                         conn.commit()
                         self._pending_right_nozzle = {}

@@ -348,7 +348,7 @@ def get_suppressed_alerts_for_window(
                 if conn.dialect.name == "sqlite" else "created_at>=:start AND created_at<:end"
             )
             query = "SELECT id,user_id,alert_type,severity,title,message,printer_id,job_id,spool_id,created_at FROM alerts WHERE " + predicate + " ORDER BY created_at DESC"
-            rows = conn.execute(text(query), {"start": window_start, "end": window_end}).mappings().all()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- predicate is a constant dialect choice; values are bound
+            rows = conn.execute(text(query), {"start": window_start, "end": window_end}).mappings().all()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: predicate selected from a closed pair of literal dialect comparisons; values are bound
             result = []
             for row in rows:
                 try:

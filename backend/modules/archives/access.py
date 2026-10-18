@@ -28,7 +28,7 @@ def archive_visibility(principal):
 
 def assert_archive_access(db, archive_id, principal):
     condition, parameters = archive_visibility(principal)
-    found = db.execute(text("SELECT a.id FROM print_archives a WHERE a.id=:_arc_id AND " + condition),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- predicate is code-built from constant SQL fragments; principal values are bound
+    found = db.execute(text("SELECT a.id FROM print_archives a WHERE a.id=:_arc_id AND " + condition),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- trusted-plugin SQL from EducationPolicyProvider.archive_audience_sql() (constant per its interface contract) plus module-constant fragments; principal values are bound
                        {**parameters, "_arc_id": archive_id}).first()
     if found is None:
         raise HTTPException(status_code=404, detail="Archive not found")

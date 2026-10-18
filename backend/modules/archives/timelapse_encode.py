@@ -55,8 +55,8 @@ class EncodeJournal(FrameJournal):
     def _authority(self,db,*,allow_ended=True,op=None,completed=False):
         for table,identifier in (('jobs',self.job_id),('printers',self.pid),('timelapses',self.tid)):
             if db.get_bind().dialect.name=='postgresql':
-                if db.execute(text(f'SELECT id FROM {table} WHERE id=:id FOR UPDATE NOWAIT'),{'id':identifier}).first() is None:_refuse()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- lock helper receives literal table/column/predicate strings only; values are bound
-            elif db.execute(text(f'UPDATE {table} SET id=id WHERE id=:id'),{'id':identifier}).rowcount!=1:_refuse()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- lock helper receives literal table/column/predicate strings only; values are bound
+                if db.execute(text(f'SELECT id FROM {table} WHERE id=:id FOR UPDATE NOWAIT'),{'id':identifier}).first() is None:_refuse()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table iterates the literal ('jobs','printers','timelapses') tuple in this function (closed set); values are bound
+            elif db.execute(text(f'UPDATE {table} SET id=id WHERE id=:id'),{'id':identifier}).rowcount!=1:_refuse()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table iterates the literal ('jobs','printers','timelapses') tuple in this function (closed set); values are bound
         row=dict(db.execute(text('SELECT printer_id,print_job_id,filename,status,ownership_operation_id,retirement_operation_id,frame_count,duration_seconds,file_size_mb,completed_at '
             'FROM timelapses WHERE id=:id'),{'id':self.tid}).mappings().one())
         owner=dict(db.execute(select(anchors).where(anchors.c.operation_id==self.nonce)).mappings().one())

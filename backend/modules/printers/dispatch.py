@@ -200,7 +200,7 @@ def _get_next_scheduled_job(printer_id: int) -> Optional[dict]:
     try:
         with engine.connect() as conn:
             row = conn.execute(
-                text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- join fragment is the SELECTED_PRINT_FILE_JOIN_SQL constant; values are bound
+                text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: the SELECTED_PRINT_FILE_JOIN_SQL module constant; values are bound
                     f"""
                 SELECT j.id, j.item_name, pf.stored_path, pf.original_filename
                 FROM jobs j
@@ -232,7 +232,7 @@ def _load_job(job_id: int, *, connection=None) -> Optional[dict]:
     try:
         with (nullcontext(connection) if connection is not None else engine.connect()) as conn:
             row = conn.execute(
-                text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- join fragment is the SELECTED_PRINT_FILE_JOIN_SQL constant; values are bound
+                text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: the SELECTED_PRINT_FILE_JOIN_SQL module constant; values are bound
                     f"""
                 SELECT j.id, j.model_id, j.item_name, j.status, j.printer_id, j.hold, j.order_item_id,
                        j.charged_to_user_id, j.charged_to_org_id, j.submitted_by,

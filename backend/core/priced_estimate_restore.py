@@ -180,7 +180,7 @@ class _Stage:
         self.lease.check()
         name=(('public.' if self.public else 'pg_temp.') if self.pg else '')+self.names[table]
         if self.pg:identity=self.db.execute(text('SELECT to_regclass(:name)::oid'),{'name':name}).scalar_one()
-        else:identity=self.db.execute(text("SELECT rootpage FROM "+('sqlite_schema' if self.public else 'sqlite_temp_schema')+" WHERE name=:name"),{'name':name}).scalar_one_or_none()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- only a constant sqlite catalog name is chosen; values are bound
+        else:identity=self.db.execute(text("SELECT rootpage FROM "+('sqlite_schema' if self.public else 'sqlite_temp_schema')+" WHERE name=:name"),{'name':name}).scalar_one_or_none()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: catalog name selected from the closed pair sqlite_schema/sqlite_temp_schema; values are bound
         if identity!=self.identities[table]:_refuse()
         return name
     def query(self,sql,params=None):

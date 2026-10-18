@@ -799,7 +799,7 @@ class MoonrakerMonitor:
         # Parent -> print record -> job is the same order as terminal handlers.
         print_query = text("SELECT printer_id,scheduled_job_id,status FROM print_jobs WHERE id=:id")
         if conn.dialect.name == 'postgresql':
-            print_query = text(str(print_query) + " FOR UPDATE")  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- appends a constant FOR UPDATE to a literal statement
+            print_query = text(str(print_query) + " FOR UPDATE")  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: literal ' FOR UPDATE' appended to a literal statement
         current = conn.execute(print_query, {'id':self._current_job_db_id}).first()
         if (not current or current[0] != self.printer_id or current[2] not in ('running', 'printing')
                 or current[1] not in (None, scheduled_job_id)):

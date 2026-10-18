@@ -668,7 +668,7 @@ def _revoke_legacy_biometric_tokens(engine) -> None:
             return
         deleted = connection.execute(text("DELETE FROM biometric_tokens")).rowcount
         connection.execute(
-            text(f"{sql.insert_or_ignore_prefix()} system_config (key, value) "  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- only sql.* dialect helpers with literal arguments are interpolated; values are bound
+            text(f"{sql.insert_or_ignore_prefix()} system_config (key, value) "  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragments from core.db_compat sql.* dialect helpers called with literal arguments (closed per-dialect output); values are bound
                  f"VALUES (:k, :v){sql.on_conflict_ignore('key')}"),
             {"k": marker, "v": "true"},
         )
