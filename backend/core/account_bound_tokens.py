@@ -105,7 +105,7 @@ def _owner(c,nonce,identifier):
 def _sign(payload):
     import jwt
     from core import auth
-    return jwt.encode(payload,auth.SECRET_KEY,algorithm=auth.ALGORITHM)
+    return jwt.encode(payload,auth.SECRET_KEY,algorithm=auth.ALGORITHM)  # nosemgrep: python.jwt.security.audit.jwt-exposed-data.jwt-python-exposed-data -- payload holds identifiers, role, purpose and timestamps only; no secrets
 
 def stage_account_token(executor,boundary,*,account_nonce,user_id,purpose,issued_epoch_ms,expires_epoch_ms,claims):
     if type(boundary) is not _Boundary:raise AccountTokenError('Private account token boundary required')
