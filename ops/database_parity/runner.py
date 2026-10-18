@@ -383,6 +383,9 @@ def _run_sqlite_exact_image(
                     "read -r JWT_SECRET_KEY < /data/.jwt_secret; "
                     "read -r ENCRYPTION_KEY < /data/.encryption_key; "
                     "export JWT_SECRET_KEY ENCRYPTION_KEY; "
+                    # docker exec skips the entrypoint; mirror its branding export
+                    # (docker/entrypoint.sh), as /app/backend/static/branding is a symlink.
+                    "export ODIN_BRANDING_DIRECTORY=/data/static/branding; "
                     "cd /app/backend; "
                     "export PYTHONPATH=/app/backend; "
                     "exec python3 /workspace/runtime_probe.py"
@@ -435,6 +438,7 @@ def _run_sqlite_exact_image(
                     "read -r JWT_SECRET_KEY < /data/.jwt_secret; "
                     "read -r ENCRYPTION_KEY < /data/.encryption_key; "
                     "export JWT_SECRET_KEY ENCRYPTION_KEY ODIN_PARITY_MODE=verify-restored; "
+                    "export ODIN_BRANDING_DIRECTORY=/data/static/branding; "
                     "exec python3 /workspace/runtime_probe.py"
                 ),
             ]
