@@ -57,6 +57,8 @@ jobs:
             -r backend/requirements.txt -r ops/hardware_certification/requirements.txt
           python3.11 -m venv .venv-stress
           .venv-stress/bin/pip install --disable-pip-version-check -r backend/requirements.txt
+          python3.11 -m venv .venv-contracts
+          .venv-contracts/bin/pip install --disable-pip-version-check -r tests/requirements-contracts.txt
           npm --prefix frontend ci
           PLAYWRIGHT_SKIP_BROWSER_GC=1 python3.11 -m playwright install chromium
 

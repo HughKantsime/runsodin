@@ -54,14 +54,14 @@ CONTRACT_TIMEOUT_SECONDS = 3600
 def contracts() -> int:
     """Contract suite in concurrent file batches (ops.release_control.contract_batches).
 
-    Runs on the bootstrapped .venv-stress interpreter (backend/requirements.txt, e.g.
-    psycopg), with PYTHONPATH for the worker subprocesses some tests spawn, and the
+    Runs on the bootstrapped .venv-contracts interpreter (tests/requirements-contracts.txt:
+    backend/requirements.txt plus pytest, playwright and pypdf), with PYTHONPATH for the worker subprocesses some tests spawn, and the
     runner's Docker host and Playwright browsers like the candidate and EDU gates."""
     directory = _directory("contracts")
     junit = directory / "junit.xml"
-    python = ROOT / ".venv-stress" / "bin" / "python"
+    python = ROOT / ".venv-contracts" / "bin" / "python"
     if not python.is_file():
-        raise SystemExit(f"contract gate interpreter missing: {python} (bootstrap .venv-stress first)")
+        raise SystemExit(f"contract gate interpreter missing: {python} (bootstrap .venv-contracts first)")
     result = execute(
         gate_id="contracts",
         command=[str(python), "-m", "ops.release_control.contract_batches",

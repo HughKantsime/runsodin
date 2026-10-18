@@ -72,6 +72,8 @@ def test_WF12_workflow_has_no_release_side_effect_or_secret_surface():
     assert "npm --prefix frontend ci" in source
     assert "python3.11 -m venv .hardware-cert-venv" in source
     assert "python3.11 -m venv .venv-stress" in source
+    assert "python3.11 -m venv .venv-contracts" in source
+    assert ".venv-contracts/bin/pip install --disable-pip-version-check -r tests/requirements-contracts.txt" in source
     inventory = load_inventory()
     for component in inventory["components"]:
         assert component["working_directory"] == "."

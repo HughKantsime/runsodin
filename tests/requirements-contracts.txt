@@ -1,0 +1,6 @@
+# Interpreter for the contract gate (CV02): the backend's exact requirements plus the
+# test runner and the browser driver the contract suite uses.
+-r ../backend/requirements.txt
+pytest==9.0.3
+playwright==1.62.0
+pypdf==6.10.0
