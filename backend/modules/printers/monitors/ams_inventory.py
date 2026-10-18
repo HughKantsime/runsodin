@@ -13,13 +13,20 @@ def remaining_percent(value):
     return result if 0 <= result <= 100 else None
 
 
+_SPOOL_COLUMNS = 'id,org_id,location_printer_id,initial_weight_g,remaining_weight_g,location_slot'
+# Closed set of table -> column lists that _rows may select.
+_ROW_SELECTIONS = {'spools': frozenset({_SPOOL_COLUMNS}), 'printers': frozenset({'id', 'id,org_id'}),
+                   'filament_slots': frozenset({'id'})}
+
+
 def _rows(conn, table, ids, columns, lock=False):
+    if columns not in _ROW_SELECTIONS.get(table, ()):
+        raise ValueError('Unsupported AMS inventory selection')
     if not ids:
         return []
     placeholders = ','.join('?' for _ in ids)
     suffix = ' FOR UPDATE NOWAIT' if lock and getattr(conn, '_postgres', False) else ''
-    # Names come only from fixed internal callers; values remain bound.
-    return conn.execute(f'SELECT {columns} FROM {table} WHERE id IN ({placeholders}) ORDER BY id{suffix}', tuple(sorted(ids))).fetchall()
+    return conn.execute(f'SELECT {columns} FROM {table} WHERE id IN ({placeholders}) ORDER BY id{suffix}', tuple(sorted(ids))).fetchall()  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- table/columns checked against the _ROW_SELECTIONS allowlist; placeholders are generated ?; values are bound
 
 
 def _graph(conn, printer_id, tags):
@@ -27,12 +34,12 @@ def _graph(conn, printer_id, tags):
     matches = []
     if tags:
         placeholders = ','.join('?' for _ in tags)
-        matches = conn.execute(f'SELECT id,rfid_tag FROM spools WHERE rfid_tag IN ({placeholders})', tuple(tags)).fetchall()
+        matches = conn.execute(f'SELECT id,rfid_tag FROM spools WHERE rfid_tag IN ({placeholders})', tuple(tags)).fetchall()  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- only '?' placeholders generated from the bound value count; values are bound
     ids = {row[1] for row in slots if row[1] is not None} | {row[0] for row in matches}
-    spools = _rows(conn, 'spools', ids, 'id,org_id,location_printer_id,initial_weight_g,remaining_weight_g,location_slot')
+    spools = _rows(conn, 'spools', ids, _SPOOL_COLUMNS)
     if ids:
         placeholders = ','.join('?' for _ in ids)
-        previous = conn.execute(f'SELECT id,assigned_spool_id,printer_id,slot_number FROM filament_slots WHERE assigned_spool_id IN ({placeholders})', tuple(sorted(ids))).fetchall()
+        previous = conn.execute(f'SELECT id,assigned_spool_id,printer_id,slot_number FROM filament_slots WHERE assigned_spool_id IN ({placeholders})', tuple(sorted(ids))).fetchall()  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- only '?' placeholders generated from the bound value count; values are bound
         slots = list({row[0]: row for row in slots + previous}.values())
     for spool in spools:
         if spool[2] is not None:
@@ -76,7 +83,7 @@ def sync_ams_inventory(conn, printer_id, units):
     printer_ids = {printer_id} | {value[0] for value in before[1].values() if value[0] is not None} | {value[1] for value in before[0].values()}
     printers = {row[0]: row[1] for row in _rows(conn, 'printers', printer_ids, 'id,org_id', lock=True)}
     _rows(conn, 'filament_slots', set(before[0]), 'id', lock=True)
-    spools = {row[0]: row for row in _rows(conn, 'spools', set(before[1]), 'id,org_id,location_printer_id,initial_weight_g,remaining_weight_g,location_slot', lock=True)}
+    spools = {row[0]: row for row in _rows(conn, 'spools', set(before[1]), _SPOOL_COLUMNS, lock=True)}
     if _graph(conn, printer_id, tags) != before or set(printers) != printer_ids:
         raise ValueError('AMS association changed')
     org = printers[printer_id]
@@ -155,7 +162,7 @@ def _clear_unplugged_ht(conn, printer_id, reported):
     """
     from modules.printers.telemetry.bambu.ams_identity import AMS_HT_FIRST_SLOT
     suffix = ' FOR UPDATE' if getattr(conn, '_postgres', False) else ''
-    rows = conn.execute(
+    rows = conn.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- constant fragment: lock suffix selected from the closed set {'', ' FOR UPDATE'}; values are bound
         f'SELECT id,assigned_spool_id,slot_number FROM filament_slots WHERE printer_id=? AND slot_number>=? ORDER BY id{suffix}',
         (printer_id, AMS_HT_FIRST_SLOT)).fetchall()
     for slot_id, assigned, number in rows:

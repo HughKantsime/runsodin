@@ -35,7 +35,7 @@ def stage_session(db,user_id,access_token,ip,user_agent,enrollment_jti=None):
         user=db.execute(text("SELECT username,is_active FROM users WHERE id=:uid"),{"uid":user_id}).fetchone()
         if not user or not user.is_active or user.username!=subject:
             return False
-        db.execute(text(f"{sql.insert_or_ignore_prefix()} active_sessions "
+        db.execute(text(f"{sql.insert_or_ignore_prefix()} active_sessions "  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragments from core.db_compat sql.* dialect helpers called with literal arguments (closed per-dialect output); values are bound
                         "(user_id,token_jti,ip_address,user_agent) VALUES(:uid,:jti,:ip,:ua)"
                         f"{sql.on_conflict_ignore('token_jti')}"),
                    {"uid":user_id,"jti":jti,"ip":ip,"ua":(user_agent or "")[:500]})

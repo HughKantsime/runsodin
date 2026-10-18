@@ -668,7 +668,7 @@ def _revoke_legacy_biometric_tokens(engine) -> None:
             return
         deleted = connection.execute(text("DELETE FROM biometric_tokens")).rowcount
         connection.execute(
-            text(f"{sql.insert_or_ignore_prefix()} system_config (key, value) "
+            text(f"{sql.insert_or_ignore_prefix()} system_config (key, value) "  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragments from core.db_compat sql.* dialect helpers called with literal arguments (closed per-dialect output); values are bound
                  f"VALUES (:k, :v){sql.on_conflict_ignore('key')}"),
             {"k": marker, "v": "true"},
         )
@@ -773,7 +773,7 @@ def create_app() -> FastAPI:
         try:
             _revoke_legacy_biometric_tokens(engine)
         except Exception as e:
-            log.warning("One-time biometric token revocation did not complete: %s", e)
+            log.warning("One-time biometric token revocation did not complete: %s", e)  # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure -- static message; exception comes from SQL whose only bound values are the marker key, never token data
 
         # v1.8.9 codex pass 4: second ITAR audit, now that DB is
         # populated. The early `create_app`-level check only sees
@@ -834,7 +834,7 @@ def create_app() -> FastAPI:
             if revoked:
                 log.warning("Revoked %d legacy combined read:cameras API token(s)", revoked)
         except Exception as e:
-            log.warning("Legacy camera token revocation failed on startup: %s", type(e).__name__)
+            log.warning("Legacy camera token revocation failed on startup: %s", type(e).__name__)  # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure -- logs only the exception class name
 
         broadcast_task = asyncio.create_task(_ws_broadcaster())
         cleanup_task = asyncio.create_task(_periodic_cleanup())

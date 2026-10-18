@@ -22,12 +22,20 @@ class _Refused(RuntimeError):
     pass
 
 
+# Closed set of (table, no-op lock column) pairs locked by admission and by the
+# shared callers in core.dispatch_observations, attempt_start_plan and
+# attempt_start_observation.
+_ADMISSION_LOCK_TARGETS=frozenset({('jobs','status'),('printers','is_active'),('models','name'),('print_files','stored_path'),
+                                   ('print_jobs','status'),('printer_dispatch_claims','token')})
+
+
 def _lock(conn,table,identifier,column):
-    # Only callers' constant table/column names reach this private function.
+    if (table,column) not in _ADMISSION_LOCK_TARGETS:
+        raise ValueError('Unsupported admission lock target')
     statement=(f'SELECT 1 FROM {table} WHERE id=:id FOR UPDATE NOWAIT'
                if conn.dialect.name=='postgresql' else
                f'UPDATE {table} SET {column}={column} WHERE id=:id RETURNING 1')
-    if conn.execute(text(statement),{'id':identifier}).first() is None:
+    if conn.execute(text(statement),{'id':identifier}).first() is None:  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table/column checked against the _ADMISSION_LOCK_TARGETS allowlist; values are bound
         raise _Refused('Dispatch resource is no longer available')
 
 

@@ -20,7 +20,7 @@ def verify_retained_basis(db, unit):
             raise ValueError('Retained valuation registry differs')
         columns = ('evidence_nonce','spool_uid','birth_nonce','revision','owner_scope','owner_key',
                    'currency','price_decimal','net_weight_g_decimal','weight_basis','provenance')
-        row = db.execute(text('SELECT '+','.join(columns)+' FROM spool_purchase_evidence WHERE evidence_nonce=:nonce'),
+        row = db.execute(text('SELECT '+','.join(columns)+' FROM spool_purchase_evidence WHERE evidence_nonce=:nonce'),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- column list is a literal tuple; values are bound
                          {'nonce':source['evidence_nonce']}).first()
         expected = tuple(source[key] if key not in ('owner_scope','owner_key') else target[key] for key in columns)
         if row is None or tuple(row) != expected:

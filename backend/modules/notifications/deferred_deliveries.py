@@ -72,7 +72,7 @@ def record_suppressed(executor, *, org_id, scope, recipients, alert_type, severi
     if webhook:
         rows.append({**base, "id": uuid.uuid4().hex, "user_id": None, "channel": "webhook"})
     for row in rows:
-        executor.execute(text(
+        executor.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table is the TABLE module constant; values are bound
             f"INSERT INTO {TABLE}(id,user_id,org_id,scope_key,channel,alert_type,severity,title,message,"
             "printer_id,job_id,spool_id,state) VALUES(:id,:user_id,:org_id,:scope,:channel,:atype,:sev,:title,"
             ":msg,:pid,:jid,:sid,'pending')"), row)
@@ -92,7 +92,7 @@ def pending_for_window(executor, scope, window_start, window_end, channels=("ema
     if not wanted:
         return []
     channel_list = ",".join(f"'{c}'" for c in wanted)  # literals from the fixed CHANNELS tuple
-    rows = executor.execute(text(
+    rows = executor.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table is the TABLE constant; channels checked against the CHANNELS allowlist; values are bound
         f"SELECT id,user_id,org_id,channel,alert_type,severity,title,message,printer_id,job_id,spool_id,created_at "
         f"FROM {TABLE} WHERE scope_key=:scope AND state='pending' AND channel IN ({channel_list}) AND {predicate} "
         "ORDER BY created_at, id"),
@@ -113,7 +113,7 @@ def mark(executor, ids, state, reason=None) -> int:
         return 0
     count = 0
     for row_id in ids:
-        result = executor.execute(text(
+        result = executor.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table is the TABLE module constant; values are bound
             f"UPDATE {TABLE} SET state=:state, outcome_reason=:reason, delivered_at=CURRENT_TIMESTAMP "
             "WHERE id=:id AND state='pending'"), {"state": state, "reason": reason, "id": row_id})
         count += result.rowcount or 0
@@ -131,7 +131,7 @@ def purge(executor, now=None) -> int:
     for states, days in ((("sent",), SENT_RETENTION_DAYS), (("failed", "pending"), UNSENT_RETENTION_DAYS)):
         cutoff = _sqlite_stamp(now - timedelta(days=days), dialect)
         placeholders = ",".join(f"'{state}'" for state in states)  # fixed literals only
-        result = executor.execute(text(f"DELETE FROM {TABLE} WHERE state IN ({placeholders}) AND {clock}"),
+        result = executor.execute(text(f"DELETE FROM {TABLE} WHERE state IN ({placeholders}) AND {clock}"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table is the TABLE module constant; states are literals from a fixed tuple and clock is a closed literal dialect pair; cutoff is bound
                                   {"cutoff": cutoff})
         removed += result.rowcount or 0
     return removed

@@ -42,6 +42,18 @@ def valid_jpeg(payload):
     return image is not None and image.shape==dimensions
 
 
+# Closed set of tables whose exact rows _lock_camera_graph row-locks.
+_CAMERA_GRAPH_LOCK_TABLES = frozenset({'print_files', 'education_cost_centers', 'models', 'users'})
+
+
+def _lock_graph_rows(db, table, identifiers):
+    if table not in _CAMERA_GRAPH_LOCK_TABLES:
+        raise ValueError('Unsupported capture graph lock target')
+    for identifier in sorted(set(identifiers)):
+        if db.execute(text(f'SELECT id FROM {table} WHERE id=:id FOR UPDATE NOWAIT'), {'id': identifier}).first() is None:  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table checked against the _CAMERA_GRAPH_LOCK_TABLES allowlist; values are bound
+            raise ValueError('Capture graph authority unavailable')
+
+
 def _lock_camera_graph(db, job_id):
     """Fence every mutable input to capture_content_owner; caller owns locks.
 
@@ -52,7 +64,7 @@ def _lock_camera_graph(db, job_id):
     if db.get_bind().dialect.name != 'postgresql':
         return
     for table in ('education_submissions', 'education_upload_operations'):
-        db.execute(text(f'LOCK TABLE {table} IN SHARE MODE NOWAIT'))
+        db.execute(text(f'LOCK TABLE {table} IN SHARE MODE NOWAIT'))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table iterates the literal ('education_submissions','education_upload_operations') tuple (closed set)
     job = db.execute(text('SELECT print_file_id,model_id FROM jobs WHERE id=:id'), {'id': job_id}).mappings().one()
     if job['print_file_id'] is None:
         db.execute(text('LOCK TABLE print_files IN SHARE MODE NOWAIT'))
@@ -62,10 +74,7 @@ def _lock_camera_graph(db, job_id):
     if len(files) != 1:
         raise ValueError('Capture file authority unavailable')
     file_id = files[0]
-    def lock(table, identifiers):
-        for identifier in sorted(set(identifiers)):
-            if db.execute(text(f'SELECT id FROM {table} WHERE id=:id FOR UPDATE NOWAIT'), {'id': identifier}).first() is None:
-                raise ValueError('Capture graph authority unavailable')
+    lock = lambda table, identifiers: _lock_graph_rows(db, table, identifiers)
     # The file lock protects stored_path/model_id before selecting its graph.
     lock('print_files', [file_id])
     education = db.execute(text('SELECT model_id,submitted_by,cost_center_id FROM education_submissions '
@@ -104,8 +113,8 @@ def _capture_authority(db, *, nonce, timelapse_id, printer_id, job_id, allow_end
         raise ValueError('Capture ticket unavailable')
     for table,identifier in (('jobs',job_id),('printers',printer_id),('timelapses',timelapse_id)):
         if db.get_bind().dialect.name=='postgresql':
-            if db.execute(text(f'SELECT id FROM {table} WHERE id=:id FOR UPDATE NOWAIT'),{'id':identifier}).first() is None:raise ValueError('Capture authority unavailable')
-        elif db.execute(text(f'UPDATE {table} SET id=id WHERE id=:id'),{'id':identifier}).rowcount!=1:raise ValueError('Capture authority unavailable')
+            if db.execute(text(f'SELECT id FROM {table} WHERE id=:id FOR UPDATE NOWAIT'),{'id':identifier}).first() is None:raise ValueError('Capture authority unavailable')  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table iterates the literal ('jobs','printers','timelapses') tuple in this function (closed set); values are bound
+        elif db.execute(text(f'UPDATE {table} SET id=id WHERE id=:id'),{'id':identifier}).rowcount!=1:raise ValueError('Capture authority unavailable')  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table iterates the literal ('jobs','printers','timelapses') tuple in this function (closed set); values are bound
     row=dict(db.execute(text('SELECT printer_id,print_job_id,filename,status,ownership_operation_id,retirement_operation_id FROM timelapses WHERE id=:id'),{'id':timelapse_id}).mappings().one())
     owner=db.execute(select(anchors).where(anchors.c.operation_id==nonce)).mappings().one()
     job=db.execute(text('SELECT printer_id,status FROM jobs WHERE id=:id'),{'id':job_id}).mappings().one()

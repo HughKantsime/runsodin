@@ -30,7 +30,7 @@ FIELDS = {
 
 
 def capture(executor, job_id):
-    row = executor.execute(text(SNAPSHOT_SQL), {'id':job_id}).mappings().first()
+    row = executor.execute(text(SNAPSHOT_SQL), {'id':job_id}).mappings().first()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- statement is the SNAPSHOT_SQL module constant; values are bound
     if row is None: return None
     snapshot = dict(row)
     for name, kind in FIELDS.items():

@@ -39,7 +39,7 @@ def verify_financial_reader(db, request, actor):
     else:
         db.execute(text('UPDATE users SET id=id WHERE id=:id'), {'id': identifier})
         suffix = ''
-    user = db.execute(text('SELECT id,username,role,group_id,is_active FROM users WHERE id=:id' + suffix), {'id': identifier}).first()
+    user = db.execute(text('SELECT id,username,role,group_id,is_active FROM users WHERE id=:id' + suffix), {'id': identifier}).first()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: lock suffix selected from the closed set {'', ' FOR UPDATE NOWAIT'}; values are bound
     if (not user or user.username != actor.get('username') or not has_permission(user.role, 'viewer')
             or user.role != actor.get('role') or user.group_id != actor.get('group_id') or not user.is_active):
         _refuse()
@@ -49,7 +49,7 @@ def verify_financial_reader(db, request, actor):
         token_id = actor.get('_token_id')
         if not isinstance(raw, str) or not raw.startswith('odin_') or type(token_id) is not int:
             _refuse()
-        token = db.execute(text('SELECT id,user_id,token_prefix,token_hash,scopes,expires_at FROM api_tokens WHERE id=:id' + suffix), {'id': token_id}).first()
+        token = db.execute(text('SELECT id,user_id,token_prefix,token_hash,scopes,expires_at FROM api_tokens WHERE id=:id' + suffix), {'id': token_id}).first()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: lock suffix selected from the closed set {'', ' FOR UPDATE NOWAIT'}; values are bound
         if not token or token.user_id != identifier or token.token_prefix != raw[:10] or not verify_password(raw, token.token_hash):
             _refuse()
         scopes = parse_token_scopes(token.scopes)
@@ -86,7 +86,7 @@ def verify_financial_reader(db, request, actor):
         if kind == 'session_jwt':
             # Deliberately stricter for financial attestation than legacy cookie
             # admission: a genuine tracked login is required for financial reads.
-            session = db.execute(text('SELECT user_id FROM active_sessions WHERE token_jti=:jti' + suffix), {'jti': jti}).first()
+            session = db.execute(text('SELECT user_id FROM active_sessions WHERE token_jti=:jti' + suffix), {'jti': jti}).first()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: lock suffix selected from the closed set {'', ' FOR UPDATE NOWAIT'}; values are bound
             if not session or session.user_id != identifier:
                 _refuse()
 

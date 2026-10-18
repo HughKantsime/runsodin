@@ -115,7 +115,8 @@ def create_print_archive(print_job_id: int, printer_id: int, success: bool,
                 owner_state = owner.get('state', 'unresolved')
                 owner_source = owner.get('source', 'missing_job_file')
                 education_id = owner.get('education_submission_id')
-                cur.execute(f"""INSERT INTO print_archives
+                cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- constant fragment: sql.returning_id() dialect helper (closed per-dialect output); values are bound
+                    f"""INSERT INTO print_archives
                     (job_id,print_job_id,printer_id,user_id,print_name,status,started_at,completed_at,
                      actual_duration_seconds,filament_used_grams,cost_estimate,thumbnail_b64,file_path,print_file_id,plate_count,
                      org_id,ownership_state,ownership_source,education_submission_id)

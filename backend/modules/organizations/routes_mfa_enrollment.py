@@ -53,11 +53,11 @@ def _authority(request,db):
         connection=db.connection().connection.driver_connection
         if not connection.in_transaction:db.execute(text('BEGIN IMMEDIATE'))
     suffix=' FOR UPDATE' if dialect=='postgresql' else ''
-    user=db.execute(text('SELECT * FROM users WHERE id=:id AND username=:sub'+suffix),
+    user=db.execute(text('SELECT * FROM users WHERE id=:id AND username=:sub'+suffix),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: lock suffix selected from the closed set {'', ' FOR UPDATE'}; values are bound
                     {'id':payload['user_id'],'sub':payload['sub']}).fetchone()
     if not user or not user.is_active or user.mfa_enabled:
         raise HTTPException(status_code=401,detail='Enrollment is no longer available. Restart sign-in.')
-    row=db.execute(text('SELECT * FROM mfa_enrollments WHERE jti=:jti'+suffix),
+    row=db.execute(text('SELECT * FROM mfa_enrollments WHERE jti=:jti'+suffix),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: lock suffix selected from the closed set {'', ' FOR UPDATE'}; values are bound
                    {'jti':payload['jti']}).fetchone()
     revoked=db.execute(text('SELECT 1 FROM token_blacklist WHERE jti=:jti'),{'jti':payload['jti']}).fetchone()
     if (not row or row.user_id!=user.id or row.state!='pending'
@@ -121,7 +121,7 @@ def confirm(body:dict,request:Request,db:Session=Depends(get_db)):
                            {'now':now,'jti':payload['jti'],'uid':user.id,'exp':payload['exp'],'secret':row.encrypted_pending_secret})
         changed=db.execute(text('UPDATE users SET mfa_enabled=TRUE,mfa_secret=:secret WHERE id=:id AND username=:sub AND is_active=TRUE AND mfa_enabled=FALSE'),
                            {'secret':row.encrypted_pending_secret,'id':user.id,'sub':payload['sub']})
-        used=db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist(jti,expires_at) VALUES(:jti,:exp){sql.on_conflict_ignore('jti')}"),
+        used=db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist(jti,expires_at) VALUES(:jti,:exp){sql.on_conflict_ignore('jti')}"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragments from core.db_compat sql.* dialect helpers called with literal arguments (closed per-dialect output); values are bound
                         {'jti':payload['jti'],'exp':datetime.fromtimestamp(payload['exp'],tz=timezone.utc).isoformat()})
         if claimed.rowcount!=1 or changed.rowcount!=1 or used.rowcount!=1:
             raise HTTPException(status_code=409,detail='Enrollment changed. Restart sign-in.')

@@ -136,7 +136,7 @@ def project_recent(db,user,org_id=None):
  FROM jobs j WHERE j.status IN ('completed','failed')) a
  WHERE {tenant} AND (NOT ({_EDUCATION_ASSOCIATION}) OR {protected})
  ORDER BY {order} DESC NULLS LAST,a.id DESC LIMIT 8"""
-    rows=db.execute(text(query),{'org':effective,'_arc_org':user.get('group_id'),'_arc_user':user['id'],
+    rows=db.execute(text(query),{'org':effective,'_arc_org':user.get('group_id'),'_arc_user':user['id'],  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- trusted-plugin SQL from EducationPolicyProvider.archive_audience_sql() (constant per its interface contract) plus module-constant fragments; principal values are bound
         '_arc_admin':1 if user.get('role')=='admin' and user.get('group_id') is not None else 0}).mappings().all()
     result=[]
     for row in rows:

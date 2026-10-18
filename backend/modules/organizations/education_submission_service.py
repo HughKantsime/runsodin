@@ -563,10 +563,10 @@ def _lock_job_birth_authority(db: Session, operation_id: str, principal: dict, c
         if changed.rowcount != 1:
             raise OdinError(ErrorCode.not_found, "Upload authorization changed", status=404)
     suffix = " FOR UPDATE NOWAIT" if pg else ""
-    user = db.execute(text("SELECT id,group_id,is_active FROM users WHERE id=:id" + suffix), {"id": user_id}).one_or_none()
-    center = db.execute(text("SELECT id,org_id,state FROM education_cost_centers WHERE id=:id" + suffix), {"id": cost_center_id}).one_or_none()
-    grants = db.execute(text("SELECT user_id,org_id,cost_center_id,role,state FROM education_cost_center_grants WHERE user_id=:user AND org_id=:org AND cost_center_id=:center AND role='student'" + suffix), {"user": user_id, "org": org_id, "center": cost_center_id}).all()
-    operation = db.execute(text("SELECT operation_id,org_id,user_id,state FROM education_upload_operations WHERE operation_id=:id" + suffix), {"id": operation_id}).one_or_none()
+    user = db.execute(text("SELECT id,group_id,is_active FROM users WHERE id=:id" + suffix), {"id": user_id}).one_or_none()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: lock suffix selected from the closed set {'', ' FOR UPDATE NOWAIT'}; values are bound
+    center = db.execute(text("SELECT id,org_id,state FROM education_cost_centers WHERE id=:id" + suffix), {"id": cost_center_id}).one_or_none()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: lock suffix selected from the closed set {'', ' FOR UPDATE NOWAIT'}; values are bound
+    grants = db.execute(text("SELECT user_id,org_id,cost_center_id,role,state FROM education_cost_center_grants WHERE user_id=:user AND org_id=:org AND cost_center_id=:center AND role='student'" + suffix), {"user": user_id, "org": org_id, "center": cost_center_id}).all()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: lock suffix selected from the closed set {'', ' FOR UPDATE NOWAIT'}; values are bound
+    operation = db.execute(text("SELECT operation_id,org_id,user_id,state FROM education_upload_operations WHERE operation_id=:id" + suffix), {"id": operation_id}).one_or_none()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: lock suffix selected from the closed set {'', ' FOR UPDATE NOWAIT'}; values are bound
     if (user is None or tuple(user) != (user_id, org_id, True)
             or center is None or tuple(center) != (cost_center_id, org_id, "active")
             or len(grants) != 1 or tuple(grants[0]) != (user_id, org_id, cost_center_id, "student", "active")

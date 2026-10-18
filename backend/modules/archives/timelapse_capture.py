@@ -46,7 +46,8 @@ def get_active_printers(session) -> list:
     from core.printer_utils import PRINTING_STATES, state_sql_in
     # Protocol-neutral: Bambu reports RUNNING, Moonraker/PrusaLink/Elegoo PRINTING.
     printing, params = state_sql_in("p.gcode_state", PRINTING_STATES, "state")
-    rows = session.execute(text(f"""
+    rows = session.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: state_sql_in() over the PRINTING_STATES/IDLE_STATES module constants; states are bound
+        f"""
         SELECT p.id, p.name
         FROM printers p
         WHERE p.timelapse_enabled IS TRUE
@@ -129,7 +130,8 @@ def get_or_create_timelapse(session, printer_id: int, job_id: int, *, return_tic
         nonce = uuid.uuid4().hex
         ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         filename = f"printer_{printer_id}/{ts}_{nonce}.mp4"
-        session.execute(text(f"""
+        session.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragments from core.db_compat sql.* dialect helpers called with literal arguments (closed per-dialect output); values are bound
+            f"""
             INSERT INTO timelapses(printer_id,print_job_id,filename,frame_count,status,created_at,ownership_operation_id)
             VALUES(:pid,:jid,:filename,0,'capturing',{sql.now()},:nonce)
         """), {"pid":printer_id,"jid":job_id,"filename":filename,"nonce":nonce})

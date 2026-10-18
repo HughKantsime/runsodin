@@ -180,7 +180,7 @@ async def run_retention_cleanup(current_user: dict = Depends(require_superadmin(
             last = 0
             count = 0
             while upper is not None and last < upper:
-                candidates = list(db.execute(text(
+                candidates = list(db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: expired() selects one of two literal dialect comparisons; values are bound
                     "SELECT id FROM jobs WHERE id>:last AND id<=:upper "
                     "AND status IN ('completed','failed','cancelled') AND " + expired("updated_at") +
                     " ORDER BY id LIMIT 256" + ("" if sqlite else " FOR UPDATE")
@@ -190,7 +190,8 @@ async def run_retention_cleanup(current_user: dict = Depends(require_superadmin(
                 last = candidates[-1]
                 # A separate statement observes authority committed while the
                 # candidate lock waited. Never add unlocked/new candidates.
-                statement = text("""DELETE FROM jobs WHERE id IN :candidate_ids
+                statement = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: expired() selects one of two literal dialect comparisons; values are bound
+                    """DELETE FROM jobs WHERE id IN :candidate_ids
                     AND status IN ('completed','failed','cancelled')
                     AND order_item_id IS NULL
                     AND NOT EXISTS (SELECT 1 FROM order_production_jobs p WHERE p.job_id=jobs.id)
@@ -208,12 +209,12 @@ async def run_retention_cleanup(current_user: dict = Depends(require_superadmin(
 
         if config["audit_logs_days"] > 0:
             cutoff = now - timedelta(days=config["audit_logs_days"])
-            r = db.execute(text("DELETE FROM audit_logs WHERE " + expired("timestamp")), {"cutoff": cutoff})
+            r = db.execute(text("DELETE FROM audit_logs WHERE " + expired("timestamp")), {"cutoff": cutoff})  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: expired() selects one of two literal dialect comparisons; cutoff is bound
             deleted["audit_logs"] = r.rowcount
 
         if config["alert_history_days"] > 0:
             cutoff = now - timedelta(days=config["alert_history_days"])
-            r = db.execute(text("DELETE FROM alerts WHERE " + expired("created_at")), {"cutoff": cutoff})
+            r = db.execute(text("DELETE FROM alerts WHERE " + expired("created_at")), {"cutoff": cutoff})  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: expired() selects one of two literal dialect comparisons; cutoff is bound
             deleted["alerts"] = r.rowcount
 
         refused = {}
@@ -393,7 +394,7 @@ async def prometheus_metrics(db: Session = Depends(get_db), current_user: dict =
     def label_value(value):
         return str(value).replace("\\", "\\\\").replace("\n", "\\n").replace('"', '\\"')
 
-    printers_all = db.execute(text(
+    printers_all = db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragments: tenant_clause() and alert_clause select from closed literal clauses; org and user are bound
         "SELECT * FROM printers WHERE is_active IS TRUE" + tenant_clause("org_id", shared=True)
     ), params).fetchall()
     total_printers = len(printers_all)
@@ -482,7 +483,7 @@ async def prometheus_metrics(db: Session = Depends(get_db), current_user: dict =
         lines.append(f"odin_printer_print_hours_total{{{labels}}} {total_hours}")
         lines.append(f"odin_printer_print_count_total{{{labels}}} {total_prints}")
 
-    job_counts = db.execute(text("SELECT status, COUNT(*) as cnt FROM jobs WHERE 1=1"
+    job_counts = db.execute(text("SELECT status, COUNT(*) as cnt FROM jobs WHERE 1=1"  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragments: tenant_clause() and alert_clause select from closed literal clauses; org and user are bound
                                  + tenant_clause("charged_to_org_id") + " GROUP BY status"), params).fetchall()
     lines.append("# HELP odin_jobs_by_status Number of jobs by status")
     lines.append("# TYPE odin_jobs_by_status gauge")
@@ -490,13 +491,14 @@ async def prometheus_metrics(db: Session = Depends(get_db), current_user: dict =
         r = dict(row._mapping)
         lines.append(f'odin_jobs_by_status{{status="{label_value(r["status"])}"}} {r["cnt"]}')
 
-    queue = db.execute(text("SELECT COUNT(*) as cnt FROM jobs WHERE status IN ('pending', 'scheduled', 'submitted')"
+    queue = db.execute(text("SELECT COUNT(*) as cnt FROM jobs WHERE status IN ('pending', 'scheduled', 'submitted')"  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragments: tenant_clause() and alert_clause select from closed literal clauses; org and user are bound
                             + tenant_clause("charged_to_org_id")), params).fetchone()
     lines.append("# HELP odin_queue_depth Jobs waiting to print")
     lines.append("# TYPE odin_queue_depth gauge")
     lines.append(f"odin_queue_depth {dict(queue._mapping)['cnt']}")
 
-    spool_data = db.execute(text("""
+    spool_data = db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragments: tenant_clause() and alert_clause select from closed literal clauses; org and user are bound
+        """
         SELECT COUNT(*) as total, SUM(CASE WHEN remaining_weight_g < 100 THEN 1 ELSE 0 END) as low
         FROM spools WHERE remaining_weight_g IS NOT NULL
     """ + tenant_clause("org_id")), params).fetchone()
@@ -508,7 +510,7 @@ async def prometheus_metrics(db: Session = Depends(get_db), current_user: dict =
     lines.append("# TYPE odin_spools_low gauge")
     lines.append(f"odin_spools_low {sd['low'] or 0}")
 
-    order_data = db.execute(text("SELECT status, COUNT(*) as cnt FROM orders WHERE 1=1"
+    order_data = db.execute(text("SELECT status, COUNT(*) as cnt FROM orders WHERE 1=1"  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragments: tenant_clause() and alert_clause select from closed literal clauses; org and user are bound
                                  + tenant_clause("org_id") + " GROUP BY status"), params).fetchall()
     lines.append("# HELP odin_orders_by_status Orders by status")
     lines.append("# TYPE odin_orders_by_status gauge")
@@ -517,7 +519,7 @@ async def prometheus_metrics(db: Session = Depends(get_db), current_user: dict =
         lines.append(f'odin_orders_by_status{{status="{label_value(r["status"])}"}} {r["cnt"]}')
 
     alert_clause = " AND user_id = :user_id" if scoped else ""
-    unread = db.execute(text("SELECT COUNT(*) as cnt FROM alerts WHERE is_read IS FALSE"
+    unread = db.execute(text("SELECT COUNT(*) as cnt FROM alerts WHERE is_read IS FALSE"  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragments: tenant_clause() and alert_clause select from closed literal clauses; org and user are bound
                             + alert_clause), params).fetchone()
     lines.append("# HELP odin_alerts_unread Unread alerts")
     lines.append("# TYPE odin_alerts_unread gauge")
@@ -527,7 +529,7 @@ async def prometheus_metrics(db: Session = Depends(get_db), current_user: dict =
     # running build, and process uptime.
     lines.append("# HELP odin_database_up Database answered this scrape's queries (1 = up)")
     lines.append("# TYPE odin_database_up gauge")
-    lines.append(f"odin_database_up {1 if db.execute(text('SELECT 1')).scalar() == 1 else 0}")
+    lines.append(f"odin_database_up {1 if db.execute(text('SELECT 1')).scalar() == 1 else 0}")  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- literal SELECT 1
     lines.append("# HELP odin_build_info Running O.D.I.N. build")
     lines.append("# TYPE odin_build_info gauge")
     lines.append(f'odin_build_info{{version="{label_value(_odin_version())}"}} 1')

@@ -180,7 +180,7 @@ class _Stage:
         self.lease.check()
         name=(('public.' if self.public else 'pg_temp.') if self.pg else '')+self.names[table]
         if self.pg:identity=self.db.execute(text('SELECT to_regclass(:name)::oid'),{'name':name}).scalar_one()
-        else:identity=self.db.execute(text("SELECT rootpage FROM "+('sqlite_schema' if self.public else 'sqlite_temp_schema')+" WHERE name=:name"),{'name':name}).scalar_one_or_none()
+        else:identity=self.db.execute(text("SELECT rootpage FROM "+('sqlite_schema' if self.public else 'sqlite_temp_schema')+" WHERE name=:name"),{'name':name}).scalar_one_or_none()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: catalog name selected from the closed pair sqlite_schema/sqlite_temp_schema; values are bound
         if identity!=self.identities[table]:_refuse()
         return name
     def query(self,sql,params=None):
@@ -190,7 +190,7 @@ class _Stage:
         orders={schema.SOURCE:'source_uid,revision',schema.SELECTION_HISTORY:'owner_scope,owner_key,revision',schema.RECEIPT:'job_uid,receipt_revision',schema.COMPONENT:'receipt_uid,component_name',schema.REFERENCE_HISTORY:'job_uid,revision'}
         if table not in schema.TABLES or order not in ('',orders.get(table,'')):_refuse()
         self.lease.sql_timeout()
-        clause=text('SELECT * FROM '+self.name(table)+((' ORDER BY '+order) if order else ''))
+        clause=text('SELECT * FROM '+self.name(table)+((' ORDER BY '+order) if order else ''))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table checked against the schema.TABLES allowlist and order against the fixed orders map
         if self.pg:clause=clause.execution_options(stream_results=True,max_row_buffer=128)
         result=self.db.execute(clause).mappings();error=None
         try:
@@ -371,7 +371,7 @@ def restore_priced_tables(connection,stream,*,table_data,budget,profile=PROFILE)
     lease.sql_timeout();validation.validate_schema(connection)
     for table in schema.TABLES:
         lease.sql_timeout()
-        if connection.execute(text('SELECT 1 FROM public.'+table+' LIMIT 1')).first():_refuse()
+        if connection.execute(text('SELECT 1 FROM public.'+table+' LIMIT 1')).first():_refuse()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table iterates the schema.TABLES constants
     stage=_Stage(lease);events=iter(extract_copy(stream,table_data=table_data,budget=budget,profile=profile))
     for event in events:
         if type(event) is not CopyStart:_refuse()

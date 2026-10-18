@@ -11,7 +11,7 @@ def resolve_alert_scope(db, *, printer_id=None, job_id=None, spool_id=None):
         if identity is None:
             continue
         # Table/column identifiers come exclusively from the fixed list above.
-        row = db.execute(text(f'SELECT {column} AS org_id FROM {table} WHERE id=:id'),
+        row = db.execute(text(f'SELECT {column} AS org_id FROM {table} WHERE id=:id'),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table/column iterate the literal references list in resolve_alert_scope (closed set); values are bound
                          {'id': identity}).mappings().first()
         if row is None:
             raise ValueError('Alert resource not found')

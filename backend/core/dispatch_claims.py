@@ -70,6 +70,20 @@ def record_outcome(engine,token,status):
     return _change(engine,token,update(TABLE).where(TABLE.c.state=='adapter_entered').values(state=status,updated_at=func.now()))
 
 
+# Closed set of (table, no-op lock column) pairs retire_terminal_locked locks.
+_TERMINAL_LOCK_TARGETS=frozenset({('printers','is_active'),('print_jobs','status'),('jobs','status')})
+
+
+def _lock_terminal_resource(conn,table,identifier,column):
+    if (table,column) not in _TERMINAL_LOCK_TARGETS:
+        raise ValueError('Unsupported terminal lock target')
+    statement=(f'SELECT 1 FROM {table} WHERE id=:id FOR UPDATE NOWAIT'
+               if conn.dialect.name=='postgresql' else
+               f'UPDATE {table} SET {column}={column} WHERE id=:id RETURNING 1')
+    if conn.execute(text(statement),{'id':identifier}).first() is None:  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table/column checked against the _TERMINAL_LOCK_TARGETS allowlist; values are bound
+        raise RuntimeError('Terminal resource unavailable')
+
+
 def retire_terminal_locked(engine,*,printer_id,physical_key,configuration_key,owner_org_id,target_handle,key,expected_observation_id=None):
     """Retire one accepted, exactly observed terminal under target exclusion.
 
@@ -81,13 +95,6 @@ def retire_terminal_locked(engine,*,printer_id,physical_key,configuration_key,ow
     from sqlalchemy import text
     from core.order_production import prepare_job_write
     from core.dispatch_receipts import observed_filename_matches
-    def _lock(conn,table,identifier,column):
-        # Table/column names are fixed constants supplied below.
-        statement=(f'SELECT 1 FROM {table} WHERE id=:id FOR UPDATE NOWAIT'
-                   if conn.dialect.name=='postgresql' else
-                   f'UPDATE {table} SET {column}={column} WHERE id=:id RETURNING 1')
-        if conn.execute(text(statement),{'id':identifier}).first() is None:
-            raise RuntimeError('Terminal resource unavailable')
     if (type(printer_id) is not int or printer_id<=0 or type(key) is not bytes or len(key)<32
             or any(type(v) is not str or re.fullmatch('[0-9a-f]{64}',v) is None for v in (physical_key,configuration_key))
             or owner_org_id is not None and (type(owner_org_id) is not int or owner_org_id<=0)):
@@ -116,7 +123,7 @@ def retire_terminal_locked(engine,*,printer_id,physical_key,configuration_key,ow
                 claim=conn.execute(statement).mappings().one_or_none()
                 identity_fields=('printer_id','job_id','physical_key','configuration_key','payload_sha256','token','owner_org_id','state')
                 if claim is None or any(claim[k]!=peek[k] for k in identity_fields):return 'retained'
-                _lock(conn,'printers',printer_id,'is_active')
+                _lock_terminal_resource(conn,'printers',printer_id,'is_active')
                 from core.dispatch_receipt_schema import DispatchAttemptReceipt
                 receipts=DispatchAttemptReceipt.__table__
                 query=select(receipts).where(receipts.c.claim_token==claim['token'])
@@ -126,8 +133,8 @@ def retire_terminal_locked(engine,*,printer_id,physical_key,configuration_key,ow
                         or receipt['configuration_key']!=configuration_key or receipt['observed_print_job_id'] is None):
                     return 'retained'
                 if expected_observation_id is not None and receipt['observed_print_job_id']!=expected_observation_id:return 'retained'
-                _lock(conn,'print_jobs',receipt['observed_print_job_id'],'status')
-                _lock(conn,'jobs',claim['job_id'],'status')
+                _lock_terminal_resource(conn,'print_jobs',receipt['observed_print_job_id'],'status')
+                _lock_terminal_resource(conn,'jobs',claim['job_id'],'status')
                 observed=conn.execute(text('SELECT printer_id,scheduled_job_id,status,ended_at,started_at,filename,job_name FROM print_jobs WHERE id=:id'),{'id':receipt['observed_print_job_id']}).mappings().one()
                 job=conn.execute(text('SELECT printer_id,status,actual_end,actual_start,payload_sha256 FROM jobs WHERE id=:id'),{'id':claim['job_id']}).mappings().one()
                 if (observed['printer_id']!=printer_id or observed['scheduled_job_id']!=claim['job_id']

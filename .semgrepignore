@@ -1,0 +1,80 @@
+# A .semgrepignore file replaces Semgrep's built-in ignore list, so the
+# built-in defaults (semgrep 1.163.0, Semgrepignore.ml) are reproduced
+# verbatim below. Nothing that was scanned without this file stops being
+# scanned, except the two frozen bundle directories at the end.
+
+# Administrative folder or file used by popular version control systems
+.git
+.svn
+_darcs
+# Paths to files and folders that are typically large and ignorable
+build/
+vendor/
+dist/
+*.min.js
+.env/
+.tox/
+# Package managers
+node_modules/
+.npm/
+.yarn/
+.venv/
+_opam/
+_build/
+_cargo/
+# Common test paths
+test/
+tests/
+testsuite/
+*_test.go
+
+# Frozen restore bundles. Each file is a byte copy of a past live source,
+# pinned by SHA-256 in the sibling manifest.json (whose own hash is pinned in
+# integrity.py check_package); editing any byte, including adding a
+# nosemgrep comment, fails restore verification. The live copies of this code
+# under backend/core and backend/modules are still scanned.
+# Frozen preserved027 snapshot of code whose live copy is scanned:
+/backend/core/schema/preserved027/bundle/
+# Frozen preserved029 snapshot of code whose live copy is scanned:
+/backend/core/schema/preserved029/bundle/
+
+# Byte-pinned live sources. Each file's exact SHA-256 is pinned by the source
+# named in the comment above it; any edit, including a nosemgrep comment,
+# breaks that pin, and re-pinning is a release-rule change. Every finding in
+# these files was reviewed (constant identifiers and fragments, all values
+# bound). tests/test_contracts/test_semgrepignore_pins.py fails if a line
+# here names a file that is not hash-pinned by one of these sources.
+# migration 024 helper pin (024_audit_actor SOURCE_PINS); prepriced_restore_contract.py; prepriced027 catalogue.json
+/backend/core/audit_actor.py
+# migration 024 helper pin (024_audit_actor SOURCE_PINS); pre026_restore_contract.py SOURCE_PINS; prepriced_restore_contract.py; prepriced027 catalogue.json
+/backend/core/audit_actor_schema.py
+# migration 026 helper pin (026_global_order_origins SOURCE_SHA256); pre026_restore_contract.py EXTRA026_SOURCE_PINS; prepriced_restore_contract.py; prepriced027 catalogue.json
+/backend/core/global_order_origin_schema.py
+# migration 029 helper pin (029_project_imports SOURCE_PINS)
+/backend/core/project_import_schema.py
+# migration 029 helper pin (029_project_imports SOURCE_PINS)
+/backend/core/project_import_validation.py
+# migration 009 helper pin (009_cost_foundation HELPER_SHA256); pre026_restore_contract.py SOURCE_PINS; prepriced_restore_contract.py; prepriced027 catalogue.json
+/backend/core/schema/cost_contract_signature.py
+# migrator checksum (odin_schema_migrations); pre026_restore_contract.py SOURCE_PINS; prepriced_restore_contract.py; prepriced027 catalogue.json
+/backend/core/schema/migrations/004_quiet_hours_scoped_claims.py
+# migrator checksum (odin_schema_migrations); pre026_restore_contract.py SOURCE_PINS; prepriced_restore_contract.py; prepriced027 catalogue.json
+/backend/core/schema/migrations/006_print_job_measurements.py
+# migrator checksum (odin_schema_migrations); pre026_restore_contract.py SOURCE_PINS; prepriced_restore_contract.py; prepriced027 catalogue.json
+/backend/core/schema/migrations/007_attempt_accounting.py
+# migrator checksum (odin_schema_migrations); pre026_restore_contract.py SOURCE_PINS; prepriced_restore_contract.py; prepriced027 catalogue.json
+/backend/core/schema/migrations/010_h2d_nozzle_observations.py
+# migrator checksum (odin_schema_migrations); pre026_restore_contract.py SOURCE_PINS; prepriced_restore_contract.py; prepriced027 catalogue.json
+/backend/core/schema/migrations/013_observation_received_time.py
+# migrator checksum (odin_schema_migrations); pre026_restore_contract.py SOURCE_PINS; prepriced_restore_contract.py; prepriced027 catalogue.json
+/backend/core/schema/migrations/021_economic_identity.py
+# migrator checksum (odin_schema_migrations); pre026_restore_contract.py SOURCE_PINS; prepriced_restore_contract.py; prepriced027 catalogue.json
+/backend/core/schema/migrations/022_economic_source_lifetimes.py
+# migration 025 helper pin (025_spool_purchase_evidence SOURCE_PINS); pre026_restore_contract.py SOURCE_PINS; prepriced_restore_contract.py; prepriced027 catalogue.json
+/backend/core/spool_purchase_schema.py
+# migration 023 helper pin (023_timelapse_retirement_membership SOURCE_PINS); pre026_restore_contract.py SOURCE_PINS; prepriced_restore_contract.py; prepriced027 catalogue.json
+/backend/core/timelapse_retirement_membership_validation.py
+# prepriced_restore_contract.py PROFILE_JSON sources; prepriced027 catalogue.json
+/backend/modules/system/backup_service.py
+# committed-completion-boundary fixture (source-current.json job_events_sha256)
+/backend/modules/notifications/job_events.py

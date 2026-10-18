@@ -321,7 +321,7 @@ async def delete_user(user_id: int, current_user: dict = Depends(require_role("a
     # Lock the account first so a concurrent login cannot add a session mid-delete.
     if db.get_bind().dialect.name == "sqlite":
         db.execute(text("UPDATE users SET id = id WHERE id = :id"), {"id": user_id})
-    target = db.execute(text("SELECT role, group_id FROM users WHERE id = :id" +
+    target = db.execute(text("SELECT role, group_id FROM users WHERE id = :id" +  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: lock suffix selected from the closed set {'', ' FOR UPDATE'}; values are bound
                              (" FOR UPDATE" if db.get_bind().dialect.name == "postgresql" else "")),
                         {"id": user_id}).fetchone()
     if not target:
@@ -410,9 +410,9 @@ def delete_deferred_deliveries(db, *, user_id=None, org_id=None):
     if not _inspect(db.connection()).has_table(_DEFERRED_DELIVERIES_TABLE):
         return 0
     if user_id is not None:
-        return db.execute(text(f"DELETE FROM {_DEFERRED_DELIVERIES_TABLE} WHERE user_id = :uid"),
+        return db.execute(text(f"DELETE FROM {_DEFERRED_DELIVERIES_TABLE} WHERE user_id = :uid"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table is the _DEFERRED_DELIVERIES_TABLE module constant; values are bound
                           {"uid": user_id}).rowcount or 0
-    return db.execute(text(f"DELETE FROM {_DEFERRED_DELIVERIES_TABLE} WHERE org_id = :oid OR scope_key = :scope"),
+    return db.execute(text(f"DELETE FROM {_DEFERRED_DELIVERIES_TABLE} WHERE org_id = :oid OR scope_key = :scope"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table is the _DEFERRED_DELIVERIES_TABLE module constant; values are bound
                       {"oid": org_id, "scope": f"org:{int(org_id)}"}).rowcount or 0
 
 
@@ -423,11 +423,11 @@ def _revoke_user_credentials(db, user_id):
         text("SELECT token_jti FROM active_sessions WHERE user_id = :uid AND token_jti IS NOT NULL"),
         {"uid": user_id})]
     for jti in jtis:
-        db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) "
+        db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) "  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragments from core.db_compat sql.* dialect helpers called with literal arguments (closed per-dialect output); values are bound
                         f"VALUES (:jti, :expires){sql.on_conflict_ignore('jti')}"),
                    {"jti": jti, "expires": expires})
     for table, column in _USER_CREDENTIAL_TABLES:
-        db.execute(text(f"DELETE FROM {table} WHERE {column} = :uid"), {"uid": user_id})
+        db.execute(text(f"DELETE FROM {table} WHERE {column} = :uid"), {"uid": user_id})  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table/column iterate the _USER_CREDENTIAL_TABLES module constant; values are bound
     delete_deferred_deliveries(db, user_id=user_id)
 
 

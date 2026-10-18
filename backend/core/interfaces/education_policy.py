@@ -52,6 +52,13 @@ class EducationPolicyProvider(ABC):
 
         Return a correlated predicate using archive alias a and bound principal
         parameters _arc_org, _arc_user, _arc_admin. Never include user text.
+
+        Security contract: callers splice the returned string into SQL text
+        as trusted in-process plugin SQL (semgrep sites are annotated on that
+        basis). The hook must return constant SQL: the same string on every
+        call, built only from literals in the plugin's own code, with every
+        value referenced as a bound parameter. It must never interpolate
+        request, principal, database or configuration values.
         """
         return generic_archive_audience_sql()
 
