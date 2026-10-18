@@ -41,21 +41,35 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=F
 # pollers we'd serialize behind the single SQLite writer, causing auth
 # latency spikes and SQLITE_BUSY on unrelated reads.
 #
-# Fix: cache "last time we updated this jti" in-process and skip the write
-# if it's fresh (default: within the last 5 minutes). This means
-# active_sessions.last_seen_at is accurate to within 5 minutes, not
-# real-time — documented in decision log. Alternative (Redis cache or
-# async queue) is a bigger change we'll take later if staleness causes
-# problems.
-#
-# The cache is intentionally process-local: each worker tracks its own
-# recent writes. Worst case with multiple workers, the same jti may get
-# written up to N times per interval (once per worker). That's still
-# orders of magnitude fewer writes than the original "every request"
-# behavior.
+# Fix: two gates in front of the write.
+#   1. In-process: skip if this worker refreshed the jti within the interval
+#      (no SQL at all).
+#   2. Stored value: read last_seen_at and write only when it is NULL or older
+#      than the interval. The UPDATE repeats that condition, so racing workers
+#      cannot both rewrite and a newer value is never moved back. A fresh row
+#      costs a read and no SQLite write lock, across workers.
+# The interval is ODIN_SESSION_LAST_SEEN_INTERVAL_SECONDS (default 60, 1..86400).
+# Consumers: the session lists (display/order), the privacy export, and the
+# retention cleanup that drops sessions idle for 48 h; none needs finer than a
+# minute, and the 1-day maximum stays well inside the 48 h idle cutoff.
+# api_tokens.last_used_at is throttled the same way.
 import threading as _threading
 
-_LAST_SEEN_MIN_INTERVAL_SECONDS = 300  # 5 minutes
+_DEFAULT_LAST_SEEN_INTERVAL_SECONDS = 60
+_MAX_LAST_SEEN_INTERVAL_SECONDS = 86400
+
+
+def _last_seen_interval_from_env(environ) -> int:
+    """Validated refresh interval for session/token bookkeeping; invalid values fail loudly."""
+    raw = environ.get("ODIN_SESSION_LAST_SEEN_INTERVAL_SECONDS")
+    if raw is None or raw == "":
+        return _DEFAULT_LAST_SEEN_INTERVAL_SECONDS
+    if not raw.isdigit() or not 1 <= int(raw) <= _MAX_LAST_SEEN_INTERVAL_SECONDS:
+        raise ValueError("ODIN_SESSION_LAST_SEEN_INTERVAL_SECONDS must be an integer from 1 to 86400")
+    return int(raw)
+
+
+_LAST_SEEN_MIN_INTERVAL_SECONDS = _last_seen_interval_from_env(os.environ)
 _last_seen_cache: dict[str, float] = {}
 _last_seen_lock = _threading.Lock()
 
@@ -85,6 +99,40 @@ def _forget_last_seen(jti: str) -> None:
         return
     with _last_seen_lock:
         _last_seen_cache.pop(jti, None)
+
+
+def _stale_cutoff(now):
+    from datetime import timedelta
+    return now - timedelta(seconds=_LAST_SEEN_MIN_INTERVAL_SECONDS)
+
+
+def _is_fresh(stored, cutoff) -> bool:
+    if stored is None:
+        return False
+    try:
+        from core.db_compat import as_utc_datetime
+        return as_utc_datetime(stored) >= cutoff
+    except (TypeError, ValueError, OverflowError):
+        return False  # unreadable stored value: refresh it
+
+
+def _touch_session_last_seen(db: Session, jti: str, now=None) -> bool:
+    """Refresh active_sessions.last_seen_at only if the stored value is stale.
+
+    Returns True when a row was rewritten (and committed)."""
+    now = now or datetime.now(timezone.utc)
+    cutoff = _stale_cutoff(now)
+    stored = db.execute(text("SELECT last_seen_at FROM active_sessions WHERE token_jti = :jti"),
+                        {"jti": jti}).fetchone()
+    if stored is None or _is_fresh(stored[0], cutoff):
+        return False
+    updated = db.execute(
+        text("UPDATE active_sessions SET last_seen_at = :now WHERE token_jti = :jti "
+             "AND (last_seen_at IS NULL OR last_seen_at < :cutoff)"),
+        {"now": now, "jti": jti, "cutoff": cutoff},
+    ).rowcount
+    db.commit()
+    return bool(updated)
 
 
 def token_predates_account(payload, row) -> bool:
@@ -237,12 +285,17 @@ def resolve_user_api_token(api_key: str, db: Session) -> Optional[dict]:
     # the auth — the agent would see a 500 on every scoped-
     # token call under any concurrent write load, which is
     # exactly what the v1.9.1 sweep 2026-04-16 surfaced.
+    # Throttled like last_seen_at: a fresh stored value costs no write.
     try:
-        db.execute(
-            text("UPDATE api_tokens SET last_used_at = :now WHERE id = :id"),
-            {"now": datetime.now(timezone.utc), "id": candidate.id},
-        )
-        db.commit()
+        now = datetime.now(timezone.utc)
+        cutoff = _stale_cutoff(now)
+        if not _is_fresh(candidate.last_used_at, cutoff):
+            db.execute(
+                text("UPDATE api_tokens SET last_used_at = :now WHERE id = :id "
+                     "AND (last_used_at IS NULL OR last_used_at < :cutoff)"),
+                {"now": now, "id": candidate.id, "cutoff": cutoff},
+            )
+            db.commit()
     except Exception as exc:
         try:
             db.rollback()
@@ -322,11 +375,7 @@ async def get_current_user(
                             # since our last write for this jti. Otherwise SQLite
                             # serializes every authenticated read behind a writer.
                             if _should_write_last_seen(jti):
-                                db.execute(
-                                    text("UPDATE active_sessions SET last_seen_at = :now WHERE token_jti = :jti"),
-                                    {"now": datetime.now(timezone.utc), "jti": jti},
-                                )
-                                db.commit()
+                                _touch_session_last_seen(db, jti)
                             user = db.execute(
                                 text("SELECT * FROM users WHERE username = :username"),
                                 {"username": token_data.username},
@@ -362,11 +411,7 @@ async def get_current_user(
                         return None
                     # R6: batched last_seen_at — write only if cache says it's stale.
                     if _should_write_last_seen(jti):
-                        db.execute(
-                            text("UPDATE active_sessions SET last_seen_at = :now WHERE token_jti = :jti"),
-                            {"now": datetime.now(timezone.utc), "jti": jti},
-                        )
-                        db.commit()
+                        _touch_session_last_seen(db, jti)
             except Exception:
                 log.debug("Failed to update session last_seen_at", exc_info=True)
             user = db.execute(

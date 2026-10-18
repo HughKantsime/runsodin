@@ -306,7 +306,8 @@ async def get_my_quota(current_user: dict = Depends(require_role("viewer")), db:
     """Get current user's quota config and usage."""
     require_feature("print_quotas")
     period = current_user.get("quota_period") or "monthly"
-    usage = _get_quota_usage(db, current_user["id"], period)
+    # A read: a missing period row means zero usage; charging creates it.
+    usage = _get_quota_usage(db, current_user["id"], period, create=False)
     return {
         "quota_grams": current_user.get("quota_grams"),
         "quota_hours": current_user.get("quota_hours"),

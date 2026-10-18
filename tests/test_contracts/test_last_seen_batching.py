@@ -8,8 +8,9 @@ Guards R6 from the 2026-04-12 Codex adversarial review:
     the single writer lock and producing SQLITE_BUSY errors on otherwise
     read-only paths.
 
-Fix: in-process cache of "last write time per jti", with a 5-minute
-minimum interval between writes. This test exercises the cache logic
+Fix: in-process cache of "last write time per jti", with a minimum interval
+between writes (ODIN_SESSION_LAST_SEEN_INTERVAL_SECONDS, default 60 s), in front
+of a stored-value check (test_auth_bookkeeping_throttle.py). This test exercises the cache logic
 directly — it does not require a running DB.
 
 Run without container: pytest tests/test_contracts/test_last_seen_batching.py -v
@@ -134,13 +135,19 @@ class TestGetCurrentUserUsesCache:
                 break
         assert fn_src, "get_current_user is missing"
 
-        # The UPDATE active_sessions SET last_seen_at statements should be
-        # conditional on _should_write_last_seen
-        update_count = fn_src.count("UPDATE active_sessions SET last_seen_at")
+        # Every last_seen write goes through _touch_session_last_seen (which writes
+        # only a stale stored value), and every touch is behind the in-process gate.
+        assert "UPDATE active_sessions" not in fn_src
+        touch_count = fn_src.count("_touch_session_last_seen(db, jti)")
         gate_count = fn_src.count("_should_write_last_seen(jti)")
-        assert update_count == gate_count and update_count >= 2, (
-            f"Expected every last_seen UPDATE to be gated by "
-            f"_should_write_last_seen. Found {update_count} UPDATEs and "
-            f"{gate_count} gates. If any UPDATE runs unconditionally, "
+        assert touch_count == gate_count and touch_count >= 2, (
+            f"Expected every last_seen touch to be gated by "
+            f"_should_write_last_seen. Found {touch_count} touches and "
+            f"{gate_count} gates. If any write runs unconditionally, "
             f"SQLite will thrash under concurrent reads."
         )
+        touch = ast.get_source_segment(src_text, next(
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == "_touch_session_last_seen"))
+        assert touch.count("UPDATE active_sessions SET last_seen_at") == 1
+        assert "last_seen_at IS NULL OR last_seen_at < :cutoff" in touch
