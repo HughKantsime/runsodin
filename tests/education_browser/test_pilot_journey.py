@@ -249,7 +249,10 @@ def test_bounded_malformed_archive_http_corpus_leaves_no_submissions(pilot):
     duplicate = io.BytesIO()
     with zipfile.ZipFile(duplicate,'w') as target, zipfile.ZipFile(io.BytesIO(valid)) as source:
         for item in source.infolist(): target.writestr(item.filename,source.read(item))
-        target.writestr('Metadata/plate_1.gcode','G28')
+        # The duplicate member is the malformation under test; assert zipfile's warning here
+        # instead of letting it reach the run log (where it names a print file).
+        with pytest.warns(UserWarning, match='Duplicate name'):
+            target.writestr('Metadata/plate_1.gcode','G28')
     expanded = bytearray(valid)
     start = expanded.find(b'PK\x01\x02')
     struct.pack_into('<I',expanded,start+24,600*1024**2)
