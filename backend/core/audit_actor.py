@@ -123,7 +123,7 @@ def stamp_actor(mapper,connection,entry):
         connection.execute(text('UPDATE audit_logs SET ip_address=NULL WHERE id=:id'),{'id':entry.id})
         # Cross-Session unknown needs no actor SQL on legacy schema.
         if not same:return
-    result=connection.execute(text('UPDATE audit_logs SET actor_user_id=:uid,actor_username=:name,actor_auth_kind=:kind'+(',ip_address=NULL' if suppressed else '')+' WHERE id=:id AND actor_user_id IS NULL AND actor_username IS NULL AND actor_auth_kind IS NULL'),
+    result=connection.execute(text('UPDATE audit_logs SET actor_user_id=:uid,actor_username=:name,actor_auth_kind=:kind'+(',ip_address=NULL' if suppressed else '')+' WHERE id=:id AND actor_user_id IS NULL AND actor_username IS NULL AND actor_auth_kind IS NULL'),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- only a constant ip_address clause is optionally appended; values are bound
         {'id':entry.id,'uid':None if suppressed else snapshot.user_id,'name':None if suppressed else snapshot.username,'kind':None if suppressed else snapshot.auth_kind})
     if result.rowcount!=1:raise RuntimeError('Audit actor stamp could not be confirmed')
 

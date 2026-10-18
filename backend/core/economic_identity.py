@@ -37,14 +37,14 @@ def _capture_fresh(resource, kind, *, owner_org_id, global_authority=False):
 
 
 def _row(db, table, identifier):
-    row = db.execute(text(f'SELECT * FROM {table} WHERE id=:id'), {'id': identifier}).mappings().one_or_none()
+    row = db.execute(text(f'SELECT * FROM {table} WHERE id=:id'), {'id': identifier}).mappings().one_or_none()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table comes from the fixed _TABLES map or literal callers; values are bound
     if row is None:
         raise EconomicIdentityError('Economic source no longer exists')
     return row
 
 
 def _lock(db, table, identifier):
-    if db.execute(text(f'UPDATE {table} SET id=id WHERE id=:id'), {'id': identifier}).rowcount != 1:
+    if db.execute(text(f'UPDATE {table} SET id=id WHERE id=:id'), {'id': identifier}).rowcount != 1:  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table comes from the fixed _TABLES map or literal callers; values are bound
         raise EconomicIdentityError('Economic source no longer exists')
     return _row(db, table, identifier)
 
@@ -114,7 +114,7 @@ def _allocate_created(db, capability):
         db.execute(text('INSERT INTO cost_order_memberships(child_uid,child_kind,order_uid,owner_scope,owner_key) VALUES(:uid,:kind,:order,:scope,:owner)'), {'uid': uid, 'kind': kind, 'order': order['economic_uid'], 'scope': owner[0], 'owner': owner[1]})
     if item is not None:
         db.execute(text('INSERT INTO cost_job_bindings(job_uid,order_uid,item_uid,owner_scope,owner_key) VALUES(:uid,:order,:item,:scope,:owner)'), {'uid': uid, 'order': order['economic_uid'], 'item': item['economic_uid'], 'scope': owner[0], 'owner': owner[1]})
-    if db.execute(text(f'UPDATE {table} SET economic_uid=:uid WHERE id=:id AND economic_uid IS NULL'), {'uid': uid, 'id': identifier}).rowcount != 1:
+    if db.execute(text(f'UPDATE {table} SET economic_uid=:uid WHERE id=:id AND economic_uid IS NULL'), {'uid': uid, 'id': identifier}).rowcount != 1:  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table comes from the fixed _TABLES map or literal callers; values are bound
         raise EconomicIdentityError('Economic allocation lost race; rollback required')
     return uid
 

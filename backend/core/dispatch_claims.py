@@ -86,7 +86,7 @@ def retire_terminal_locked(engine,*,printer_id,physical_key,configuration_key,ow
         statement=(f'SELECT 1 FROM {table} WHERE id=:id FOR UPDATE NOWAIT'
                    if conn.dialect.name=='postgresql' else
                    f'UPDATE {table} SET {column}={column} WHERE id=:id RETURNING 1')
-        if conn.execute(text(statement),{'id':identifier}).first() is None:
+        if conn.execute(text(statement),{'id':identifier}).first() is None:  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- lock helper receives literal table/column/predicate strings only; values are bound
             raise RuntimeError('Terminal resource unavailable')
     if (type(printer_id) is not int or printer_id<=0 or type(key) is not bytes or len(key)<32
             or any(type(v) is not str or re.fullmatch('[0-9a-f]{64}',v) is None for v in (physical_key,configuration_key))

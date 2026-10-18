@@ -78,7 +78,8 @@ def charge_job_quota(db, actor, count=1):
     # A missing row has zero recorded usage, but a batch must still fit.
     insert_guard = ":count <= :jobs" if "jobs" in limits else "1=1"
     with db.no_autoflush:
-        result = db.execute(text(f"""INSERT INTO quota_usage (user_id, period_key, jobs_used)
+        result = db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- column names come from the fixed jobs/grams/hours tuple; values are bound
+            f"""INSERT INTO quota_usage (user_id, period_key, jobs_used)
             SELECT :uid, :pk, :count WHERE {insert_guard}
             ON CONFLICT(user_id, period_key) DO UPDATE SET
                 jobs_used = COALESCE(quota_usage.jobs_used, 0) + :count,

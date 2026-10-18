@@ -46,7 +46,7 @@ def assert_timelapse_access(db,media,principal,*,mutation=False):
         AND timelapses.filename=:_media_filename
         AND (timelapses.print_job_id=:_media_job OR (timelapses.print_job_id IS NULL AND :_media_job IS NULL))
         AND (timelapses.ownership_operation_id=:_media_nonce OR (timelapses.ownership_operation_id IS NULL AND :_media_nonce IS NULL))"""
-    found=db.execute(text('SELECT timelapses.id FROM timelapses WHERE '+identity+' AND '+condition),{
+    found=db.execute(text('SELECT timelapses.id FROM timelapses WHERE '+identity+' AND '+condition),{  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- predicate is code-built from constant SQL fragments; principal values are bound
         **parameters,'_media_id':media.id,'_media_printer':media.printer_id,
         '_media_filename':media.filename,'_media_job':media.print_job_id,'_media_nonce':media.ownership_operation_id,
     }).first()
