@@ -147,3 +147,21 @@ def test_unexpected_anchor_exit_is_not_positive_quiescence():
     try:
         assert not group.retire().group_empty
     finally:cleanup_for_test(group)
+
+
+def test_exiting_members_probe_is_retried_until_the_group_is_absent(tmp_path,monkeypatch):
+    """XNU answers kill(-pgid,0) with EPERM while killed members are still exiting
+    (zombies awaiting their new parent). That is not absence and not a verdict:
+    the probe retries within the budget and confirms only on ESRCH."""
+    path=tmp_path/'ready';group=OwnedSenderGroup(worker(path),cleanup_seconds=2);ready(path)
+    real=os.killpg;probes=[]
+    def exiting_then_real(pid,sig):
+        if sig==0:
+            probes.append(pid)
+            if len(probes)<=3:raise PermissionError('members exiting')
+        return real(pid,sig)
+    monkeypatch.setattr(os,'killpg',exiting_then_real)
+    try:
+        receipt=group.retire()
+        assert receipt.group_empty and len(probes)>3
+    finally:cleanup_for_test(group)

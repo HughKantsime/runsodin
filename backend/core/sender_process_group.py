@@ -373,6 +373,11 @@ class OwnedSenderGroup:
                         group_empty=True
                         reason='Owned leader reaped and group absent'
                         break
+                    except PermissionError:
+                        # XNU reports EPERM while the killed members are still
+                        # exiting (zombies awaiting reparent/reap). Not absence:
+                        # keep probing within the budget; only ESRCH confirms.
+                        pass
                     if time.monotonic()>=deadline:
                         raise RuntimeError('Group absence unconfirmed')
                     time.sleep(min(0.01,max(0,deadline-time.monotonic())))
