@@ -78,6 +78,7 @@ def test_capture(tmp_path):
     assert wire["allowlist_put_lockout"]["status"] == 400
     assert "198.51.100.23" in wire["allowlist_put_lockout"]["body"]["detail"]
     assert wire["allowlist_put_invalid"]["status"] == 400
+    OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(wire, indent=1, sort_keys=True))
 
 

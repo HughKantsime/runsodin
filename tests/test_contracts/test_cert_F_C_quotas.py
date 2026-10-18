@@ -34,6 +34,7 @@ def odin(tmp_path_factory):
     o.capture = {}
     yield o
     o.stop()
+    CAPTURE.parent.mkdir(parents=True, exist_ok=True)
     CAPTURE.write_text(json.dumps(o.capture, indent=1, sort_keys=True, default=str))
 
 

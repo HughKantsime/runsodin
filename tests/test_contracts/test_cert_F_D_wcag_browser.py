@@ -210,6 +210,7 @@ def census(tmp_path_factory, build_dir):
         "bars_without_role": sorted({(rt, b) for rt, r in results.items() for b in r["barsWithoutRole"]}),
     }
     summary["report_schedule_seed_status"] = o.sched.status_code
+    RECEIPT.parent.mkdir(parents=True, exist_ok=True)
     RECEIPT.write_text(json.dumps({"summary": summary, "per_route": results}, indent=1, default=list))
     return results, summary
 

@@ -68,6 +68,7 @@ def test_images_are_published_to_ghcr_hughkantsime_odin():
     index = json.loads(body)
     platforms = {(m["platform"]["os"], m["platform"]["architecture"]) for m in index.get("manifests", []) if "platform" in m}
     assert {("linux", "amd64"), ("linux", "arm64")} <= platforms, platforms
+    (ROOT / "artifacts/application-certification/cert-H").mkdir(parents=True, exist_ok=True)
     (ROOT / "artifacts/application-certification/cert-H/ghcr-tags.json").write_text(json.dumps(sorted(tags), indent=0))
 
 

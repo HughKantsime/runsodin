@@ -24,6 +24,7 @@ CAPTURE = RECEIPTS / "B-wire-captures.json"
 def capture(key, value):
     data = json.loads(CAPTURE.read_text()) if CAPTURE.exists() else {}
     data[key] = value
+    CAPTURE.parent.mkdir(parents=True, exist_ok=True)
     CAPTURE.write_text(json.dumps(data, indent=1, default=str))
 
 
@@ -200,6 +201,7 @@ def test_census_every_mutating_route_refuses_read_only_token(odin, tmp_path_fact
         url = re.sub(r"\{[^}]+\}", "99999", p).replace(":path", "")
         rows.append([m, p, requests.request(m, odin.url + url, json={}, headers=key(ro), timeout=30).status_code])
     unscoped = [r for r in rows if r[2] != 403]
+    RECEIPTS.mkdir(parents=True, exist_ok=True)
     (RECEIPTS / "B-token-scope-census.json").write_text(json.dumps({
         "probed": len(rows), "histogram": dict(Counter(str(r[2]) for r in rows)), "not_refused_by_scope": unscoped}, indent=1))
     assert unscoped == []

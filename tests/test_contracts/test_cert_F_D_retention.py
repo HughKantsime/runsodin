@@ -23,6 +23,7 @@ def odin(tmp_path_factory):
     o.H = o.admin_headers()
     o.wire = {}
     yield o
+    FIXTURE_OUT.parent.mkdir(parents=True, exist_ok=True)
     FIXTURE_OUT.write_text(json.dumps(o.wire, indent=1, sort_keys=True))
     o.stop()
 

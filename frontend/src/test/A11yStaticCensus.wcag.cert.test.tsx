@@ -111,6 +111,7 @@ const summary = {
   th_scope_col_files: [...new Set(C.th.filter(t => t.scope === 'col').map(t => t.file))],
   progressbar_role_elements: C.progressbars.map(p => `${p.file}:${p.line}`),
 }
+fs.mkdirSync(path.dirname(RECEIPT), { recursive: true })
 fs.writeFileSync(RECEIPT, JSON.stringify(summary, null, 1))
 afterEach(cleanup)
 

@@ -344,6 +344,7 @@ def test_no_stored_secret_in_any_get_response(odin):
                     "api_token_value", "smtp_password", "mqtt_password", "camera_password"}
     from pathlib import Path
     out = Path(__file__).resolve().parents[2] / "artifacts/application-certification/cert-F/D-secret-crawl.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"get_routes_crawled": crawled, "status_counts": statuses, "secret_categories": sorted(o.secrets),
                                "exposures": sorted(set(leaks))}, indent=1))
     assert [l for l in leaks if l[1] in api_key_like] == []
