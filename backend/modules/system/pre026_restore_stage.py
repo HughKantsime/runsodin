@@ -173,7 +173,7 @@ def prepared_archive(archive,target_url,maintenance_url,password_file,maintenanc
         if engine is not None:engine.dispose()
         try:
             if created:  # Only a database this code created.
-                with maintenance.connect() as c:c.exec_driver_sql('DROP DATABASE IF EXISTS "'+name+'" WITH (FORCE)')
+                with maintenance.connect() as c:artifacts.drop_database(c,name)
             artifacts.forget(directory,name)
         finally:
             maintenance.dispose()

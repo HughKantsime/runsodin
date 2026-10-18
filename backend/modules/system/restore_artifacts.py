@@ -103,6 +103,37 @@ def forget(backups: Path, name: str) -> None:
                 child.rmdir()
 
 
+_INSUFFICIENT_PRIVILEGE = "42501"
+_OBJECT_IN_USE = "55006"
+
+
+def drop_database(connection, name: str, *, attempts: int = 5) -> None:
+    """DROP DATABASE IF EXISTS on an autocommit maintenance connection, robustly.
+
+    WITH (FORCE) ends lingering sessions of the maintenance role. On PostgreSQL a
+    non-superuser's FORCE refuses outright while an autovacuum worker (which a fresh
+    bulk restore invites) is processing the database, whereas a plain DROP DATABASE
+    cancels autovacuum itself; so a refusal falls back to the plain form, and a plain
+    drop that finds a session still attached retries FORCE.
+    """
+    import time
+    from sqlalchemy.exc import DBAPIError
+    if not _NAME.fullmatch(name):
+        raise ValueError("Unsafe restore database name")
+    quoted = '"' + name + '"'
+    statements = ("DROP DATABASE IF EXISTS " + quoted + " WITH (FORCE)", "DROP DATABASE IF EXISTS " + quoted)
+    for attempt in range(attempts):
+        for statement in statements:
+            try:
+                connection.exec_driver_sql(statement)
+                return
+            except DBAPIError as exc:
+                state = getattr(exc.orig, "sqlstate", None)
+                if state not in (_INSUFFICIENT_PRIVILEGE, _OBJECT_IN_USE) or attempt == attempts - 1 and statement is statements[-1]:
+                    raise
+        time.sleep(0.2 * (attempt + 1))
+
+
 def drop_databases(maintenance_url: str, maintenance_password_file: str | None, names) -> list[str]:
     names = sorted(name for name in set(names) if _NAME.fullmatch(name))
     if not names:
@@ -112,7 +143,7 @@ def drop_databases(maintenance_url: str, maintenance_password_file: str | None, 
     try:
         with engine.connect() as connection:
             for name in names:
-                connection.exec_driver_sql('DROP DATABASE IF EXISTS "' + name + '" WITH (FORCE)')
+                drop_database(connection, name)
     finally:
         engine.dispose()
     return names
