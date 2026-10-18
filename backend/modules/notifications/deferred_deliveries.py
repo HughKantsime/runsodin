@@ -92,7 +92,7 @@ def pending_for_window(executor, scope, window_start, window_end, channels=("ema
     if not wanted:
         return []
     channel_list = ",".join(f"'{c}'" for c in wanted)  # literals from the fixed CHANNELS tuple
-    rows = executor.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table is a module constant; channel/state literals come from fixed tuples; values are bound
+    rows = executor.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table is the TABLE constant; channels checked against the CHANNELS allowlist; values are bound
         f"SELECT id,user_id,org_id,channel,alert_type,severity,title,message,printer_id,job_id,spool_id,created_at "
         f"FROM {TABLE} WHERE scope_key=:scope AND state='pending' AND channel IN ({channel_list}) AND {predicate} "
         "ORDER BY created_at, id"),

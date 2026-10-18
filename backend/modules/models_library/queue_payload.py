@@ -31,7 +31,7 @@ def lock_queue_reference(db, table, identifier, fields):
         raise ValueError('Unsupported queue reference fields')
     suffix = ' FOR UPDATE NOWAIT' if db.get_bind().dialect.name == 'postgresql' else ''
     try:
-        return db.execute(text(f"SELECT {','.join(fields)} FROM {table} WHERE id=:id{suffix}"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table and fields are checked against fixed tuples; values are bound
+        return db.execute(text(f"SELECT {','.join(fields)} FROM {table} WHERE id=:id{suffix}"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table checked against the ('models','printers') allowlist and fields against the permitted tuple; values are bound
                           {'id': identifier}).first()
     except OperationalError as exc:
         if getattr(exc.orig, 'pgcode', None) == '55P03' or getattr(exc.orig, 'sqlstate', None) == '55P03':
@@ -49,7 +49,7 @@ def assert_unchanged(db, table, captured):
     permitted = FILE_FIELDS if table == 'print_files' else (('id', 'org_id') if table == 'models' else TARGET_FIELDS)
     if table not in ('print_files', 'models', 'printers') or tuple(captured) != permitted:
         raise ValueError('Unsupported queue comparison')
-    current = db.execute(text(f"SELECT {','.join(permitted)} FROM {table} WHERE id=:id"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table and fields are checked against fixed tuples; values are bound
+    current = db.execute(text(f"SELECT {','.join(permitted)} FROM {table} WHERE id=:id"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table checked against the ('print_files','models','printers') allowlist and columns against the permitted tuple; values are bound
                          {'id': captured['id']}).first()
     if current is None or capture(current, permitted) != captured:
         raise HTTPException(409, 'Queue source changed; refresh before retrying')

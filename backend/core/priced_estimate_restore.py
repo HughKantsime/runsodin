@@ -190,7 +190,7 @@ class _Stage:
         orders={schema.SOURCE:'source_uid,revision',schema.SELECTION_HISTORY:'owner_scope,owner_key,revision',schema.RECEIPT:'job_uid,receipt_revision',schema.COMPONENT:'receipt_uid,component_name',schema.REFERENCE_HISTORY:'job_uid,revision'}
         if table not in schema.TABLES or order not in ('',orders.get(table,'')):_refuse()
         self.lease.sql_timeout()
-        clause=text('SELECT * FROM '+self.name(table)+((' ORDER BY '+order) if order else ''))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table checked against schema.TABLES and order against a fixed map
+        clause=text('SELECT * FROM '+self.name(table)+((' ORDER BY '+order) if order else ''))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table checked against the schema.TABLES allowlist and order against the fixed orders map
         if self.pg:clause=clause.execution_options(stream_results=True,max_row_buffer=128)
         result=self.db.execute(clause).mappings();error=None
         try:

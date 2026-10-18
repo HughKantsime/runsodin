@@ -17,9 +17,9 @@ def _lock_rows(db, table, identifiers):
         # Repair must not block while holding a different callback's source lock.
         # Education and generic completion intentionally have different orders.
         if db.get_bind().dialect.name == 'postgresql':
-            db.execute(text(f'SELECT {key} FROM {table} WHERE {key}=:key FOR UPDATE NOWAIT'),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table/key come from the fixed _LOCK_KEYS map; values are bound
+            db.execute(text(f'SELECT {key} FROM {table} WHERE {key}=:key FOR UPDATE NOWAIT'),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table checked against the _LOCK_KEYS allowlist (key lookup); values are bound
                        {'key': identifier})
-        db.execute(text(f'UPDATE {table} SET {key}={key} WHERE {key}=:key'), {'key':identifier})  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table/key come from the fixed _LOCK_KEYS map; values are bound
+        db.execute(text(f'UPDATE {table} SET {key}={key} WHERE {key}=:key'), {'key':identifier})  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table checked against the _LOCK_KEYS allowlist (key lookup); values are bound
 
 
 def _rows(db, table, identifiers):
@@ -27,7 +27,7 @@ def _rows(db, table, identifiers):
     values = sorted(set(x for x in identifiers if x is not None))
     if not values:
         return []
-    return db.execute(text(f'SELECT * FROM {table} WHERE {key} IN :keys')  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table/key come from the fixed _LOCK_KEYS map; values are bound
+    return db.execute(text(f'SELECT * FROM {table} WHERE {key} IN :keys')  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table checked against the _LOCK_KEYS allowlist (key lookup); values are bound
                       .bindparams(bindparam('keys',expanding=True)), {'keys':values}).mappings().all()
 
 

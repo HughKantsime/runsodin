@@ -168,7 +168,7 @@ def schedule_generic_file(db, file_id, printer_id, actor):
         assert_generic_model_reference_allowed(db, row.model_id)
         assert_payload_unchanged(row.stored_path, payload_hash)
         capture_predicate, capture_parameters = file_snapshot_predicate(file_capture)
-        linked = db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- predicate from file_snapshot_predicate over fixed FILE_FIELDS; values are bound
+        linked = db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- columns checked against the FILE_FIELDS allowlist in file_snapshot_predicate; values are bound
             f'''UPDATE print_files SET job_id=:job WHERE id=:id AND job_id IS NULL
             AND {capture_predicate}
             AND (org_id=:org OR (org_id IS NULL AND CAST(:org AS INTEGER) IS NULL))

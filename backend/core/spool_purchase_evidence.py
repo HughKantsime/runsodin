@@ -92,7 +92,7 @@ def write_purchase(db,id,actor,purchase,expected_revision,*,legacy_fields=None):
             if set(legacy_fields)-{'price','initial_weight_g'}:raise ValueError('Unsupported purchase legacy fields')
             updates.update(legacy_fields)
         assignments=','.join(name+'=:'+name for name in updates)
-        result=db.execute(text('UPDATE spools SET '+assignments+' WHERE id=:id AND economic_uid=:uid AND economic_birth_nonce=:birth AND COALESCE(purchase_revision,0)=:expected'),{**updates,'id':id,'uid':row['economic_uid'],'birth':row['economic_birth_nonce'],'expected':current})  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- column names pass a fixed allowlist; values are bound
+        result=db.execute(text('UPDATE spools SET '+assignments+' WHERE id=:id AND economic_uid=:uid AND economic_birth_nonce=:birth AND COALESCE(purchase_revision,0)=:expected'),{**updates,'id':id,'uid':row['economic_uid'],'birth':row['economic_birth_nonce'],'expected':current})  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- extra columns checked against the {price, initial_weight_g} allowlist; values are bound
         if result.rowcount!=1:raise RuntimeError('Purchase transition could not be confirmed')
         savepoint.commit()
     except BaseException:
