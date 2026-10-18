@@ -225,7 +225,7 @@ Updated - see CHANGELOG for current version.
 - ~~Self-updating updater with version diffing and rollback~~
 - ~~Installer test suite (43 unit/static checks plus 17 Docker integration checks)~~
 - ~~Job matching improvements (time-window strategy, stale cleanup, deadlock/race fixes)~~
-- ~~Auto-create jobs on print completion~~
+- ~~Auto-create jobs on Bambu print completion~~
 - ~~Setup endpoint hardening (500 error fix)~~
 - ~~Usage reports added to Pro tier~~
 - ~~PRINTER_ERROR alert type~~

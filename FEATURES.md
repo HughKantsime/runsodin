@@ -921,7 +921,7 @@ apps link out when relevant. visionOS is not currently shipped.
 | v1.3.0 | 2026-02-12 | TOTP MFA, scoped API tokens, session management, IP allowlist, organizations, print quotas, cost chargebacks, GDPR, data retention, scheduled reports (definitions), bulk operations, backup restore UI, model versioning, WCAG 2.1, Vigil AI failure detection |
 | v1.3.1–1.3.4 | 2026-02-12 | Bugfixes: vision_monitor crash-loop prevention, numpy<2 pin for ONNX compatibility, SQLAlchemy connection pool leak in middleware, "Vision AI" → "Vigil AI" rename |
 | v1.3.5–1.3.9 | 2026-02-12 | Printer controls routing, unique MQTT client_id, camera auto-discovery revert, Bambu pause/resume, print_jobs schema migration |
-| v1.3.10–1.3.12 | 2026-02-12 | Alert dispatch fixes, auto-create jobs on completion, timezone fixes, auto-job field defaults |
+| v1.3.10–1.3.12 | 2026-02-12 | Alert dispatch fixes, auto-create jobs on Bambu print completion, timezone fixes, auto-job field defaults |
 | v1.3.13–1.3.14 | 2026-02-12 | Time-window job matching, stale schedule cleanup, deadlock/race condition/timezone fixes |
 | v1.3.15 | 2026-02-13 | Sandbox test config |
 | v1.3.16 | 2026-02-13 | Curl-pipe-bash installer, self-updating updater, installer test suite (59 tests), setup endpoint hardening, usage reports added to Pro tier, PRINTER_ERROR alert type, uppercase status enum consistency |

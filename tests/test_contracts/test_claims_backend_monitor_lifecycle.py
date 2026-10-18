@@ -231,10 +231,11 @@ def test_bambu_unlinked_completion_auto_creates_and_links_job(scenarios):
     assert s['returned_linked_job_id'] == 1
 
 
-@pytest.mark.xfail(strict=True, reason='SCOPE: generic job_events.job_completed (PrusaLink/Elegoo) never '
-                   'creates a jobs row for unlinked prints; only Bambu mqtt_job_lifecycle does')
+# Documented limitation (FEATURES.md 4.2: "Auto-create jobs on Bambu print completion"): the
+# generic job_events.job_completed path (PrusaLink/Elegoo) records the print but creates no
+# jobs row for an unlinked print; only Bambu's mqtt_job_lifecycle does.
 @pytest.mark.parametrize('scenario', ['prusalink_unlinked_completion', 'elegoo_printing_finished'])
-def test_non_bambu_unlinked_completion_auto_creates_job(scenarios, scenario):
+def test_non_bambu_unlinked_completion_records_the_print_but_creates_no_job(scenarios, scenario):
     s = scenarios[scenario]
     assert [r[1] for r in s['print_jobs']] == ['completed']
-    assert s['jobs'], 'no jobs row created on completion'
+    assert s['jobs'] == []
