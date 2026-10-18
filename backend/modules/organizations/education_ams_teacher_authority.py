@@ -32,7 +32,7 @@ def lock_teacher_ams_context(db,*,principal,submission_id,printer_id,revision):
             # Table/column/predicate strings are fixed internal constants.
             query=(f'SELECT 1 FROM {table} WHERE {where} FOR UPDATE NOWAIT' if postgres
                    else f'UPDATE {table} SET {column}={column} WHERE {where} RETURNING 1')
-            if db.execute(text(query),params).first() is None:raise ValueError()
+            if db.execute(text(query),params).first() is None:raise ValueError()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- lock helper receives literal table/column/predicate strings only; values are bound
         lock('users','id=:user_id AND group_id=:org_id AND is_active IS TRUE','is_active')
         user=db.execute(text('SELECT role FROM users WHERE id=:user_id AND group_id=:org_id'),params).mappings().one()
         current={**principal,'role':user['role']}

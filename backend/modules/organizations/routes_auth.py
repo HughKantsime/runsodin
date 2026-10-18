@@ -181,7 +181,7 @@ async def mfa_verify(request: Request, body: dict, db: Session = Depends(get_db)
     if datetime.now(timezone.utc) >= expiry_datetime:
         raise HTTPException(status_code=401, detail="Invalid or expired MFA token")
     try:
-        consumption = db.execute(text(
+        consumption = db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- only sql.* dialect helpers with literal arguments are interpolated; values are bound
             f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) "
             f"VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),
             {"jti": payload["jti"], "exp": expiry_datetime.isoformat()})
@@ -571,7 +571,7 @@ async def reset_password(request: Request, body: ResetPasswordRequest, db: Sessi
             "julianday(expires_at) > julianday(:now)"
             if db.get_bind().dialect.name == "sqlite" else "expires_at > :now"
         )
-        claimed = db.execute(text(
+        claimed = db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant dialect expiry predicate; values are bound
             "UPDATE password_reset_tokens SET used = 1 "
             "WHERE id = :id AND user_id = :uid AND used = 0 AND " + expiry_predicate
         ), {"id": row.id, "uid": row.user_id, "now": now.isoformat()}).rowcount

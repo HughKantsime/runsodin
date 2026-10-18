@@ -812,7 +812,7 @@ def lock_dispatch_reservation(executor, *, reservation: dict) -> bool:
     # Identifiers below are internal constants, never request text.
     for table,where,column in locks:
         sql=f'SELECT 1 FROM {table} WHERE {where} FOR UPDATE NOWAIT' if postgres else f'UPDATE {table} SET {column}={column} WHERE {where} RETURNING 1'
-        if executor.execute(text(sql),reservation).first() is None:return False
+        if executor.execute(text(sql),reservation).first() is None:return False  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- lock helper receives literal table/column/predicate strings only; values are bound
     context=authorize_dispatch(executor,job_id=reservation['job_id'],printer_id=reservation['printer_id'],expected_revision=reservation['authority_revision'])
     if not context or not context.get('authorized') or context['id']!=reservation['submission_id'] or context['org_id']!=reservation['org_id'] or context['cost_center_id']!=reservation['cost_center_id']:
         return False
@@ -1030,7 +1030,7 @@ def lock_start_authority(executor, context):
         ('education_monitor_claims','claim_id=:claim_id','updated_at'),
     ):
         statement=(f'SELECT 1 FROM {table} WHERE {where} FOR UPDATE NOWAIT' if view.dialect.name=='postgresql' else f'UPDATE {table} SET {column}={column} WHERE {where} RETURNING 1')
-        if view.execute(text(statement),context).first() is None:
+        if view.execute(text(statement),context).first() is None:  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- lock helper receives literal table/column/predicate strings only; values are bound
             return False
     return recheck_start_authority(executor,context)
 
@@ -1126,7 +1126,7 @@ def claim_monitor_observation(
             ('print_jobs','id=:print_job_id AND printer_id=:printer_id','status'),
         ):
             statement=(f'SELECT 1 FROM {table} WHERE {where} FOR UPDATE NOWAIT' if view.dialect.name=='postgresql' else f'UPDATE {table} SET {column}={column} WHERE {where} RETURNING 1')
-            if view.execute(text(statement),{**context,'print_job_id':print_job_id}).first() is None:
+            if view.execute(text(statement),{**context,'print_job_id':print_job_id}).first() is None:  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- lock helper receives literal table/column/predicate strings only; values are bound
                 return {'education_owned':True,'education_reserved':True,'authorized':False,'transitioned':False}
         linked = adapter.fetchone(
             "SELECT id FROM print_jobs WHERE id=:print_job_id AND printer_id=:printer_id "

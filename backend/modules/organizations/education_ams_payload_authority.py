@@ -66,11 +66,11 @@ def lock_and_recheck_payload_graph(db,*,captured,principal):
         operation_where='operation_id=:operation AND org_id=:org AND user_id=:creator'
         operation_lock=('SELECT 1 FROM education_upload_operations WHERE '+operation_where+' FOR UPDATE NOWAIT' if postgres
                         else 'UPDATE education_upload_operations SET updated_at=updated_at WHERE '+operation_where+' RETURNING 1')
-        if db.execute(text(operation_lock),params).first() is None:raise ValueError()
+        if db.execute(text(operation_lock),params).first() is None:raise ValueError()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- lock helper receives literal table/column/predicate strings only; values are bound
         for table,column,key in (('models','name','model'),('print_files','filename','file')):
             query=(f'SELECT 1 FROM {table} WHERE id=:{key} AND org_id=:org FOR UPDATE NOWAIT' if postgres
                    else f'UPDATE {table} SET {column}={column} WHERE id=:{key} AND org_id=:org RETURNING 1')
-            if db.execute(text(query),params).first() is None:raise ValueError()
+            if db.execute(text(query),params).first() is None:raise ValueError()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- lock helper receives literal table/column/predicate strings only; values are bound
         current=capture_payload_graph(db,submission_id=captured.submission_id,revision=captured.revision,principal=principal)
         if current!=captured:raise ValueError()
         return current
