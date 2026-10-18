@@ -25,6 +25,18 @@ os.environ.setdefault("COOKIE_SECURE", "false")
 
 import pytest
 
+
+def pytest_collection_modifyitems(config, items):
+    """Qualified-source checks marked preserved029_bundle run only against the bundle."""
+    from tests.test_contracts._preserved029_target import running_against_bundle
+    if running_against_bundle():
+        return
+    deselected = [item for item in items if item.get_closest_marker("preserved029_bundle")]
+    if deselected:
+        config.hook.pytest_deselected(items=deselected)
+        items[:] = [item for item in items if not item.get_closest_marker("preserved029_bundle")]
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _clear_rate_limits():
     """Contract tests own their state and must never discover/restart a live server.
