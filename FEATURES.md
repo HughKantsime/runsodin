@@ -376,6 +376,7 @@
 
 ## 7. Consumables (v1.0.33)
 
+### 7.1 Consumable Inventory
 - Non-printed supplies: screws, magnets, rubber feet, packaging, labels, glue, etc.
 - Full CRUD page with stock levels, low-stock alerts, search/filter
 - Product BOM includes consumables alongside printed components
