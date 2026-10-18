@@ -30,6 +30,11 @@ cd "$REPO"
 
 PYBIN="$REPO/.venv-stress/bin/python3"
 
+# The device destination policy refuses loopback printers. The broker here is an
+# ephemeral mosquitto on 127.0.0.1, so the backend and monitor load the TEST-ONLY
+# exemption for exactly 127.0.0.1 and ::1 (tests/support/loopback_device_policy).
+LOOPBACK_DEVICES="$REPO/tests/support/loopback_device_policy"
+
 # All credentials below are for an EPHEMERAL local SQLite stress DB that
 # only exists during this script's run. They grant zero access to anything
 # outside this process. Generated at runtime so nothing pattern-matches a
@@ -54,51 +59,21 @@ trap cleanup EXIT
 # Wipe DB
 rm -f odin_stress.db odin_stress.db-wal odin_stress.db-shm
 
-# Migrations: ORM create_all FIRST (so system_config etc. exist), then SQL migrations.
-DATABASE_URL="sqlite:///$REPO/odin_stress.db" \
-DATABASE_PATH="$REPO/odin_stress.db" \
-STRESS_ADMIN_PW="$ADMIN_PW" \
-PYTHONPATH=backend "$PYBIN" -c "
-import importlib
-from pathlib import Path
-# Force-load ORM models so Base.metadata is populated before create_all
-# Mirror entrypoint.sh exactly: import core.models first (SystemConfig), then
-# module models in the same order as the prod entrypoint.
-import core.models
-for mod_path in [
-    'modules.printers.models',
-    'modules.jobs.models',
-    'modules.inventory.models',
-    'modules.models_library.models',
-    'modules.vision.models',
-    'modules.notifications.models',
-    'modules.orders.models',
-    'modules.archives.models',
-    'modules.system.models',
-]:
-    try: importlib.import_module(mod_path)
-    except Exception as e: print(f'skip {mod_path}: {e}')
-from core.base import Base
-from core.db import engine, run_core_migrations, run_module_migrations
-Base.metadata.create_all(bind=engine)
-run_core_migrations()
-run_module_migrations(Path('backend/modules'))
-import sqlite3
-c = sqlite3.connect('odin_stress.db')
-# Force-run module migrations that didn't auto-trigger
-for module in ['printers', 'jobs', 'archives']:
-    p = f'backend/modules/{module}/migrations/001_initial.sql'
-    try: c.executescript(open(p).read()); c.commit()
-    except FileNotFoundError: pass
-    except Exception as e: pass
+# Schema: the canonical bootstrap, the same command docker/entrypoint.sh runs
+# (scripts.bootstrap_database), then the stress admin user.
+{
+(cd backend && ODIN_DB_ROLE=bootstrap DATABASE_URL="sqlite:///$REPO/odin_stress.db" "$PYBIN" -m scripts.bootstrap_database)
+STRESS_ADMIN_PW="$ADMIN_PW" PYTHONPATH=backend "$PYBIN" -c "
+import os, sqlite3
 from passlib.context import CryptContext
-import os
 hash_ = CryptContext(schemes=['bcrypt']).hash(os.environ['STRESS_ADMIN_PW'])
+c = sqlite3.connect('odin_stress.db')
 c.execute('INSERT OR IGNORE INTO users (username, password_hash, role, is_active, mfa_enabled) VALUES (?, ?, ?, ?, ?)',
           ('stress-admin', hash_, 'admin', 1, 0))
 c.commit()
 print('migrate done')
-" >"$CELL_DIR/migrate.log" 2>&1
+"
+} >"$CELL_DIR/migrate.log" 2>&1
 
 # Start backend
 DATABASE_URL="sqlite:///$REPO/odin_stress.db" \
@@ -112,7 +87,7 @@ ODIN_BAMBU_INSECURE_BROKER_HOSTS='mosquitto,127.0.0.1,localhost' \
 ODIN_BAMBU_INSECURE_BROKER_PORT="$MOSQ_PORT" \
 ODIN_STRESS_INSTRUMENTATION="$CELL_DIR" \
 ODIN_DB_PATH="$REPO/odin_stress.db" \
-PYTHONPATH=backend \
+PYTHONPATH="$LOOPBACK_DEVICES:backend" \
 "$PYBIN" -m uvicorn main:app --host 127.0.0.1 --port 8000 \
     >"$CELL_DIR/backend.log" 2>&1 &
 echo $! > /tmp/odin-stress-backend.pid
@@ -134,7 +109,7 @@ if [ -z "$TOKEN" ]; then
 fi
 
 ODIN_ACCESS_TOKEN="$TOKEN" API_KEY="$API_KEY_VAL" PYTHONPATH=backend:. "$PYBIN" -m tests.stress.mqtt.bootstrap_printers \
-    --count "$N" --base-url http://127.0.0.1:8000 --api-host mosquitto \
+    --count "$N" --base-url http://127.0.0.1:8000 --api-host 127.0.0.1 \
     --out "$CELL_DIR/bootstrap.json" >"$CELL_DIR/bootstrap.log" 2>&1
 
 # Start monitor (with sys.modules alias for V2 import-path bug)
@@ -149,7 +124,7 @@ ODIN_BAMBU_INSECURE_BROKER_HOSTS='mosquitto,127.0.0.1,localhost' \
 ODIN_BAMBU_INSECURE_BROKER_PORT="$MOSQ_PORT" \
 ODIN_STRESS_INSTRUMENTATION="$CELL_DIR" \
 ODIN_DB_PATH="$REPO/odin_stress.db" \
-PYTHONPATH=backend:. \
+PYTHONPATH="$LOOPBACK_DEVICES:backend:." \
 "$PYBIN" -m tests.stress.mqtt.run_monitor \
     >"$CELL_DIR/mqtt_monitor.log" 2>&1 &
 echo $! > /tmp/odin-stress-monitor.pid
