@@ -1,6 +1,6 @@
 """Cert group H — F22-22.6-01..04 documentation wiki, rendered in headless Chromium.
 
-CERT_H_DOCS_BUILD: a `docusaurus build` output of odin-site/docs built from a scratch
+CERT_H_DOCS_BUILD: a `docusaurus build` output of odin-site/docs (ODIN_SITE_DOCS) built from a scratch
 copy (served here on 127.0.0.1:27461). CERT_H_NETWORK=1 additionally checks the live
 docs.runsodin.com read-only.
 """
@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-SITE_DOCS = ROOT.parent / "odin-site/docs"
+SITE_DOCS = Path(os.environ.get("ODIN_SITE_DOCS", ROOT.parent / "odin-site/docs"))
 BUILD = os.environ.get("CERT_H_DOCS_BUILD", "")
 LIVE = "https://docs.runsodin.com"
 NETWORK = os.environ.get("CERT_H_NETWORK") == "1"
