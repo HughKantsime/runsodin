@@ -542,7 +542,7 @@
 - Login attempt audit trail with IP addresses; password change audit events (v1.3.58)
 - Setup/complete endpoint hardened against 500 errors after wizard completion (v1.3.15)
 - Every page route guarded by `RoleGate` on its page-access key — direct URL access is blocked for roles without the page (Settings and Audit since v1.3.18)
-- Password change revokes all existing sessions (v1.3.66)
+- Password change revokes all other sessions: changing your own password keeps the session you changed it from; an admin changing another user's password, or a reset link, revokes all of that user's sessions (v1.3.66)
 - MFA pending token blacklisted immediately after use — prevents session duplication (v1.3.63)
 
 ### 12.2 IP Allowlisting (v1.3.0)
