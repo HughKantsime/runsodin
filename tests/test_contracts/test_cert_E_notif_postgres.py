@@ -47,7 +47,7 @@ def pg_engine():
             assert time.monotonic() < deadline, 'owned PostgreSQL not ready'
             time.sleep(0.3)
         port = _docker('port', name, '5432/tcp').stdout.strip().rsplit(':', 1)[-1]
-        url = f'postgresql+psycopg2://postgres:{password}@127.0.0.1:{port}/postgres'
+        url = f'postgresql+psycopg://postgres:{password}@127.0.0.1:{port}/postgres'
         engine = create_engine(url, pool_size=10)
         for _ in range(50):
             try:

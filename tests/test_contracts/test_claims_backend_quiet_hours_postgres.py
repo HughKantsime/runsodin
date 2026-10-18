@@ -47,7 +47,7 @@ def pg_url():
             time.sleep(0.3)
         port = _docker('port', name, '5432/tcp').stdout.strip().rsplit(':', 1)[-1]
         receipt['server_version'] = _docker('exec', name, 'psql', '-U', 'postgres', '-tAc', 'SHOW server_version').stdout.strip()
-        url = f'postgresql+psycopg2://postgres:{password}@127.0.0.1:{port}/postgres'
+        url = f'postgresql+psycopg://postgres:{password}@127.0.0.1:{port}/postgres'
         for _ in range(50):
             try:
                 create_engine(url).connect().close(); break

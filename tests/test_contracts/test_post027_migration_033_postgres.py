@@ -25,7 +25,7 @@ def _docker(*args, timeout=60):
 
 @pytest.fixture(scope="module")
 def pg_engine():
-    pytest.importorskip("psycopg2")
+    import psycopg  # noqa: F401 - the product driver (backend/requirements.txt); a missing driver fails loud
     if not shutil.which("docker") or _docker("info", timeout=20).returncode:
         pytest.skip("Docker unavailable")
     name = "certfixB_m033_" + uuid.uuid4().hex[:10]
@@ -39,7 +39,7 @@ def pg_engine():
             assert time.monotonic() < deadline, "owned PostgreSQL not ready"
             time.sleep(0.3)
         port = _docker("port", name, "5432/tcp").stdout.strip().rsplit(":", 1)[-1]
-        engine = create_engine(f"postgresql+psycopg2://postgres:{password}@127.0.0.1:{port}/postgres")
+        engine = create_engine(f"postgresql+psycopg://postgres:{password}@127.0.0.1:{port}/postgres")
         for _ in range(100):
             try:
                 engine.connect().close()
