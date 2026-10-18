@@ -129,7 +129,7 @@ def create_database_engine(
             # copied or restored file from silently running in rollback mode.
             cursor = dbapi_connection.cursor()
             try:
-                cursor.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
+                cursor.execute("PRAGMA busy_timeout=5000")  # = SQLITE_BUSY_TIMEOUT_MS (pinned by test)
                 cursor.execute("PRAGMA journal_mode=WAL")
                 cursor.execute("PRAGMA foreign_keys=ON")
             finally:
