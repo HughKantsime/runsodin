@@ -14,9 +14,14 @@ class Capture:
 
 @pytest.mark.parametrize('domain,column,cast',[('paths','stored_path','VARCHAR'),('operations','operation_id','VARCHAR'),('files','id','INTEGER'),('models','model_id','INTEGER')])
 def test_empty_domains_retain_postgres_comparison_types(domain,column,cast):
+    # _bounded runs only its allowlisted alias statements; use the one that
+    # compares this column with this empty domain.
+    from modules.archives import valuation_content_visibility as module
+    statement=next(s for s in sorted(module._BOUNDED_STATEMENTS) if f' {column} IN :{domain}' in s)
+    domains=tuple(d for d in module._EXPANSION_TYPES if f':{d}' in statement)
     db=Capture()
-    _bounded(db,f'SELECT id FROM owned_aliases WHERE {column} IN :{domain}',{domain:[]},(domain,))
-    assert f'CAST(NULL AS {cast})' in db.sql
+    _bounded(db,statement,{d:[] for d in domains}|{'job':None},domains)
+    assert f' {column} IN (SELECT CAST(NULL AS {cast}) WHERE 1!=1)' in db.sql
     assert 'LIMIT 17' in db.sql
 
 

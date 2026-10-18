@@ -29,11 +29,11 @@ def _refuse():
 
 
 def _bounded(db,sql,params,expanding=()):
+    if any(key not in _EXPANSION_TYPES for key in expanding):
+        raise ValueError('Unknown content alias expansion domain')
     if sql not in _BOUNDED_STATEMENTS:
         raise ValueError('Unsupported content alias statement')
     query=text(sql+' LIMIT 17')  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- statement checked against the _BOUNDED_STATEMENTS allowlist; values are bound
-    if any(key not in _EXPANSION_TYPES for key in expanding):
-        raise ValueError('Unknown content alias expansion domain')
     if expanding:query=query.bindparams(*(bindparam(key,expanding=True,type_=_EXPANSION_TYPES[key]) for key in expanding))
     rows=db.execute(query,params).mappings().all()
     if len(rows)>_LIMIT:_refuse()

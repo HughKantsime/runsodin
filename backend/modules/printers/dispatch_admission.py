@@ -22,8 +22,11 @@ class _Refused(RuntimeError):
     pass
 
 
-# Closed set of (table, no-op lock column) pairs that admission locks.
-_ADMISSION_LOCK_TARGETS=frozenset({('jobs','status'),('printers','is_active'),('models','name'),('print_files','stored_path')})
+# Closed set of (table, no-op lock column) pairs locked by admission and by the
+# shared callers in core.dispatch_observations, attempt_start_plan and
+# attempt_start_observation.
+_ADMISSION_LOCK_TARGETS=frozenset({('jobs','status'),('printers','is_active'),('models','name'),('print_files','stored_path'),
+                                   ('print_jobs','status'),('printer_dispatch_claims','token')})
 
 
 def _lock(conn,table,identifier,column):
