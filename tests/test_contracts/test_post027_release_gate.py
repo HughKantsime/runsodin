@@ -67,13 +67,17 @@ def test_every_ledger_variant_an_archive_can_record_is_routed_or_refused_by_name
     from modules.system.pre026_restore_stage import identify_contract, PRESERVED029
     tmp_path, archive = fake_pg_restore
     from core.schema import bootstrap
-    registries = [POST027_MIGRATIONS, POST027_MIGRATIONS + (("python:099-future-synthetic", "core.schema.migrations.099_future"),)]
-    for registry in registries:
+    # The synthetic 099 registry is a future build: under it a released ledger such as 2.0.0's
+    # is an intermediate prefix by construction (that release's archives would then need a
+    # preservedNNN bundle), so the stranding check applies to the real registry only.
+    registries = [(POST027_MIGRATIONS, True),
+                  (POST027_MIGRATIONS + (("python:099-future-synthetic", "core.schema.migrations.099_future"),), False)]
+    for registry, real in registries:
         monkeypatch.setattr(bootstrap, "POST027_MIGRATIONS", registry)
-        _variants(tmp_path, archive, monkeypatch, [migration_id for migration_id, _ in registry])
+        _variants(tmp_path, archive, monkeypatch, [migration_id for migration_id, _ in registry], check_released=real)
 
 
-def _variants(tmp_path, archive, monkeypatch, current):
+def _variants(tmp_path, archive, monkeypatch, current, check_released=True):
     from core.schema import pre026_restore_contract as C
     from modules.system.backup_service import BackupValidationError
     from modules.system.pre026_restore_stage import identify_contract, PRESERVED029
@@ -92,7 +96,8 @@ def _variants(tmp_path, archive, monkeypatch, current):
             else:
                 with pytest.raises(BackupValidationError, match="intermediate post-027 build"):
                     identify_contract(archive, "postgresql://o@pg/odin", None, tmp_path)
-                assert prefix not in releases.values(), (prefix, "a released ledger would be stranded: add a preservedNNN bundle")
+                if check_released:
+                    assert prefix not in releases.values(), (prefix, "a released ledger would be stranded: add a preservedNNN bundle")
 
 
 def test_publish_workflow_gate_without_a_ledger_file_fails_with_a_clear_message(tmp_path):
