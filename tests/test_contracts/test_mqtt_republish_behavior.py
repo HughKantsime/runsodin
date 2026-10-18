@@ -193,3 +193,35 @@ def test_simultaneous_callers_select_only_one_connected_replacement(configured,m
     with ThreadPoolExecutor(max_workers=4) as pool:results=list(pool.map(lambda _:get(),range(4)))
     assert all(value is selected for value in results)
     assert calls==['connect','start'] and configured._client is selected
+
+
+def _count_connects(module, monkeypatch):
+    calls = []
+    real = module.engine.connect
+    def connect(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+    monkeypatch.setattr(module.engine, "connect", connect)
+    return calls
+
+
+def test_disabled_republish_config_is_cached_like_an_enabled_one(republisher, monkeypatch):
+    # Disabled (no mqtt_republish_enabled row): one read within the TTL, not one per event.
+    calls = _count_connects(republisher, monkeypatch)
+    assert republisher._get_config() is None and republisher._get_config() is None
+    assert len(calls) == 1
+    republisher.invalidate_cache()
+    assert republisher._get_config() is None and len(calls) == 2
+
+
+def test_disabled_republish_skips_alert_scope_and_job_lookups(republisher, monkeypatch):
+    from modules.notifications import recipient_policy
+    def refuse(*args, **kwargs):
+        raise AssertionError("republish disabled: no alert scope or quiet-hours work")
+    monkeypatch.setattr(recipient_policy, "resolve_alert_scope", refuse)
+    monkeypatch.setattr(republisher, "_printer_topic_name", refuse)
+    published = []
+    monkeypatch.setattr(republisher, "_publish", lambda *args: published.append(args))
+    republisher._on_alert_dispatched(SimpleNamespace(data={"alert_type": "job_submitted", "job_id": 1}))
+    republisher._on_job_event(SimpleNamespace(event_type="job.completed", data={"printer_id": 9}))
+    assert published == []

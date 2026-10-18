@@ -36,6 +36,9 @@ _client_lock = threading.Lock()
 _config_cache = None
 _config_ts = 0
 CONFIG_TTL = 30  # seconds — reload config every 30s
+# A disabled config is cached for the same TTL as an enabled one (it was re-read on
+# every event); a failed read is never cached.
+_DISABLED = object()
 
 
 def _get_config() -> Optional[Dict[str, Any]]:
@@ -44,7 +47,7 @@ def _get_config() -> Optional[Dict[str, Any]]:
 
     now = time.time()
     if _config_cache is not None and (now - _config_ts) < CONFIG_TTL:
-        return _config_cache
+        return None if _config_cache is _DISABLED else _config_cache
 
     try:
         with engine.connect() as conn:
@@ -53,7 +56,7 @@ def _get_config() -> Optional[Dict[str, Any]]:
             rows = {r._mapping["key"]: config_text(r._mapping["value"]) for r in result.fetchall()}
 
         if rows.get("mqtt_republish_enabled", "").lower() not in ("true", "1", "yes"):
-            _config_cache = None
+            _config_cache = _DISABLED
             _config_ts = now
             return None
 
@@ -423,6 +426,8 @@ def _printer_topic_name(printer_id):
 
 def _on_job_event(event) -> None:
     """Republish job lifecycle events under the printer's status topic name."""
+    if _get_config() is None:
+        return  # republish disabled: no printer-name lookup
     data = event.data
     printer_id = data.get("printer_id")
     printer_name = data.get("printer_name") or _printer_topic_name(printer_id) or f"printer_{printer_id}"
@@ -432,6 +437,8 @@ def _on_job_event(event) -> None:
 
 def _on_alert_dispatched(event) -> None:
     """Republish alert notifications."""
+    if _get_config() is None:
+        return  # republish disabled: no alert-scope or quiet-hours reads
     data = event.data
     # Alert MQTT is external delivery; in-app events remain live during quiet hours.
     try:
