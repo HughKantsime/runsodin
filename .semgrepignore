@@ -1,0 +1,39 @@
+# A .semgrepignore file replaces Semgrep's built-in ignore list, so the
+# built-in defaults (semgrep 1.163.0, Semgrepignore.ml) are reproduced
+# verbatim below. Nothing that was scanned without this file stops being
+# scanned, except the two frozen bundle directories at the end.
+
+# Administrative folder or file used by popular version control systems
+.git
+.svn
+_darcs
+# Paths to files and folders that are typically large and ignorable
+build/
+vendor/
+dist/
+*.min.js
+.env/
+.tox/
+# Package managers
+node_modules/
+.npm/
+.yarn/
+.venv/
+_opam/
+_build/
+_cargo/
+# Common test paths
+test/
+tests/
+testsuite/
+*_test.go
+
+# Frozen restore bundles. Each file is a byte copy of a past live source,
+# pinned by SHA-256 in the sibling manifest.json (whose own hash is pinned in
+# integrity.py check_package); editing any byte, including adding a
+# nosemgrep comment, fails restore verification. The live copies of this code
+# under backend/core and backend/modules are still scanned.
+# Frozen preserved027 snapshot of code whose live copy is scanned:
+/backend/core/schema/preserved027/bundle/
+# Frozen preserved029 snapshot of code whose live copy is scanned:
+/backend/core/schema/preserved029/bundle/
