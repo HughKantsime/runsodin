@@ -174,7 +174,8 @@
   "1.9.24": [],
   "2.0.0": [
    "python:032-quiet-hours-deferred-deliveries",
-   "python:033-timelapse-capture-tenancy"
+   "python:033-timelapse-capture-tenancy",
+   "python:034-alert-outbox"
   ]
  }
 }

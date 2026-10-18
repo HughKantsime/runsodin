@@ -38,6 +38,9 @@ def main():
         from core.quiet_hours_deferral_schema import TABLE as DEFERRED, EXPECTED_COLUMNS
         from core.quiet_hours_deferral_schema import validate as validate_032
         from core.timelapse_capture_tenancy_schema import TABLE as TENANCY, validate as validate_033
+        import importlib
+        _m034 = importlib.import_module('core.schema.migrations.034_alert_outbox')
+        OUTBOX, validate_034 = _m034.TABLE, _m034.validate
 
         def fresh(name):
             with admin.connect() as c:
@@ -49,6 +52,7 @@ def main():
             with engine.connect() as c:
                 validate_032(c)
                 validate_033(c)
+                validate_034(c)
                 return {r[0] for r in c.execute(text("SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=:t"), {'t': DEFERRED})} == EXPECTED_COLUMNS
 
         # 1. Fresh PostgreSQL boot, twice.
@@ -130,11 +134,15 @@ def main():
             c.execute(text("INSERT INTO timelapse_ownership_anchors(operation_id,timelapse_id,printer_id,filename,owner_state,"
                            "ownership_source,capture_printer_shared) VALUES('roundtrip033',1,1,'roundtrip.mp4','unresolved','capture_unresolved',FALSE)"))
             c.execute(text("INSERT INTO " + TENANCY + "(operation_id,captured_single_tenant) VALUES('roundtrip033',TRUE)"))
+            # Migration 034: an undispatched alert outbox row (with its job) survives too.
+            c.execute(text("INSERT INTO jobs(id,item_name,status) VALUES(990034,'roundtrip034','pending')"))
+            c.execute(text("INSERT INTO " + OUTBOX + "(job_id,alert_kind) VALUES(990034,'queue_added')"))
         backup, backup_metadata = b.create_postgres_backup(target, maintenance_url=maintenance, **args)
         with engine.begin() as c:
             c.execute(text("UPDATE system_config SET value='\"after-backup\"' WHERE key='historical_marker'"))
             c.execute(text("DELETE FROM " + DEFERRED))
             c.execute(text("DELETE FROM " + TENANCY))
+            c.execute(text("DELETE FROM " + OUTBOX))
         current = b.validate_postgres_restore(backup, target, maintenance, **args)
         assert 'source_schema_version' not in current and current['restore_validated']
         b.stage_postgres_restore(backup, target, maintenance, **args); engine.dispose()
@@ -144,8 +152,10 @@ def main():
             validate_executables(c)
             assert c.execute(text("SELECT id,title FROM " + DEFERRED)).all() == [('roundtrip032', 'kept')]
             assert c.execute(text("SELECT operation_id,captured_single_tenant FROM " + TENANCY)).all() == [('roundtrip033', True)]
+            assert c.execute(text("SELECT job_id,alert_kind,attempts FROM " + OUTBOX)).all() == [(990034, 'queue_added', 0)]
         print('post027-native-current-backup-restore-roundtrip-data-and-032-row-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-033-capture-tenancy-row-pass', flush=True)
+        print('post027-native-current-backup-restore-roundtrip-034-alert-outbox-row-pass', flush=True)
 
         engine.dispose()
 

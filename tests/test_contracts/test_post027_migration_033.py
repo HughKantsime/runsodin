@@ -41,7 +41,9 @@ def test_fresh_sqlite_boot_applies_033_once_and_is_idempotent(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'fresh.db'}")
     try:
         first = bootstrap_database(engine)
-        assert first["applied"][-3:] == ["python:032-quiet-hours-deferred-deliveries", M.MIGRATION_ID, "orm-baseline:1"]
+        applied = first["applied"]
+        assert applied.count(M.MIGRATION_ID) == 1 and applied[-1] == "orm-baseline:1"
+        assert applied.index("python:032-quiet-hours-deferred-deliveries") < applied.index(M.MIGRATION_ID)
         assert {c["name"] for c in inspect(engine).get_columns(TABLE)} == EXPECTED_COLUMNS
         second = bootstrap_database(engine)
         assert second["applied"] == [] and second["schema_fingerprint"] == first["schema_fingerprint"]

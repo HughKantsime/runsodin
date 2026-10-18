@@ -78,6 +78,9 @@ POLICY_INVENTORY = (
     _entry("notifications.error_handling", "printer/job error topics", "submission/job/alert", "notify", "trusted notification worker", ("Education outbox",), "test_education_monitor_policy.py", "guarded"),
     _entry("notifications.alert_dispatch", "dispatch_alert", "Education alert", "external-sink", "none for Education", ("email", "push", "webhook"), "test_education_notification_privacy.py", "batch2_required"),
     _entry("notifications.alert_dispatcher", "alert dispatcher worker", "Education alert", "external-sink", "none for Education", ("email", "push", "webhook"), "test_education_notification_privacy.py", "batch2_required"),
+    # The outbox only replays job alerts through alert_dispatcher.stage_alert/_deliver_staged_alert
+    # (same recipient policy and sinks as the dispatcher entry above).
+    _entry("notifications.alert_outbox", "alert outbox dispatch and replay", "Education alert", "external-sink", "none for Education", ("email", "push", "webhook"), "test_education_notification_privacy.py", "batch2_required"),
     _entry("notifications.quiet_hours", "digest collector", "Education alert", "external-sink", "none for Education", ("digest",), "test_education_notification_privacy.py", "batch2_required"),
     _entry("notifications.mqtt_republish", "MQTT republisher", "Education event", "external-sink", "none for Education", ("MQTT",), "test_education_notification_privacy.py", "batch2_required"),
     _entry("push.fanout", "push fanout", "Education alert", "external-sink", "none for Education", ("APNS", "web push"), "test_education_notification_privacy.py", "batch2_required"),

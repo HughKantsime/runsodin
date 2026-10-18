@@ -53,6 +53,9 @@ POST027_RAW_TABLES = {
     "python:033-timelapse-capture-tenancy": {
         "timelapse_capture_tenancy": frozenset("operation_id captured_single_tenant created_at".split()),
     },
+    "python:034-alert-outbox": {
+        "alert_outbox": frozenset("id job_id alert_kind actor_user_id attempts created_at".split()),
+    },
 }
 
 

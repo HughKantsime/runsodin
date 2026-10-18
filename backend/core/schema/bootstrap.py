@@ -30,6 +30,7 @@ RAW_REQUIRED_TABLES = frozenset(
         "power_target_operations",
         "quiet_hours_deferred_deliveries",
         "timelapse_capture_tenancy",
+        "alert_outbox",
         "cost_identities",
         "cost_order_memberships",
         "cost_job_bindings",
@@ -128,6 +129,7 @@ RAW_REQUIRED_COLUMNS = {
     # Post-027 032: on its own MetaData (core/quiet_hours_deferral_schema.py), so listed here
     # for validation and the backup inventory.
     "timelapse_capture_tenancy": frozenset("operation_id captured_single_tenant created_at".split()),
+    "alert_outbox": frozenset("id job_id alert_kind actor_user_id attempts created_at".split()),
     "quiet_hours_deferred_deliveries": frozenset("id user_id org_id scope_key channel alert_type severity title message printer_id job_id spool_id state outcome_reason created_at delivered_at".split()),
 
     "ams_read_generations": frozenset("generation_id printer_id owner_org_id configuration_key runtime_incarnation started_at state completed_at invalidated_at".split()),
@@ -281,6 +283,7 @@ CURRENT_ORM_BASELINE = "main_audit_20261012"
 POST027_MIGRATIONS = (
     ("python:032-quiet-hours-deferred-deliveries", "core.schema.migrations.032_quiet_hours_deferred_deliveries"),
     ("python:033-timelapse-capture-tenancy", "core.schema.migrations.033_timelapse_capture_tenancy"),
+    ("python:034-alert-outbox", "core.schema.migrations.034_alert_outbox"),
 )
 
 

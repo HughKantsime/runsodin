@@ -123,9 +123,10 @@ def test_queue_added_origin_targets_creator_not_other_configured_users(approval_
 @pytest.mark.parametrize("failure", ["audit", "quota", "preferences", "alert", "scope", "commit", "uncertain_commit"])
 def test_creation_transaction_failures_never_deliver_external(approval_client, review_db, monkeypatch, approval, failure):
     """In-transaction failures (audit, quota, commit) roll the creation back and deliver
-    nothing. The alert is a side write staged after the commit in its own transaction
-    (dispatch_alert_after_commit): a failure there (preferences, alert row, scope) leaves
-    the committed job, audit and quota charge intact, writes no alert and delivers nothing."""
+    nothing. The alert is never lost: the creation commits one alert_outbox row with the
+    job, and the fan-out runs after the commit. A failure there (preferences, alert row,
+    scope) or an uncertain commit leaves the row; once the cause is gone the replay sweep
+    stages the alert exactly once and only then delivers."""
     from core.base import AlertType
     from modules.notifications import alert_dispatcher
     from modules.notifications.models import AlertPreference
@@ -148,19 +149,23 @@ def test_creation_transaction_failures_never_deliver_external(approval_client, r
     monkeypatch.setattr(alert_dispatcher, "_deliver_staged_alert", lambda *args: called.append(True))
     def fail(*args, **kwargs):
         raise RuntimeError("Synthetic transaction failure")
+    restore = None
     if failure == "scope":
         from modules.notifications import recipient_policy
+        restore = (recipient_policy, "resolve_alert_scope", recipient_policy.resolve_alert_scope)
         monkeypatch.setattr(recipient_policy, "resolve_alert_scope", fail)
     elif failure == "audit":
         monkeypatch.setattr(jobs_crud, "log_audit", fail)
     elif failure == "preferences":
         original = alert_dispatcher.seed_alert_preferences
+        restore = (alert_dispatcher, "seed_alert_preferences", original)
         def seed_then_fail(*args, **kwargs):
             original(*args, **kwargs)
             fail()
         monkeypatch.setattr(alert_dispatcher, "seed_alert_preferences", seed_then_fail)
     elif failure == "alert":
         original = alert_dispatcher._deliver_in_app
+        restore = (alert_dispatcher, "_deliver_in_app", original)
         def alert_then_fail(*args, **kwargs):
             original(*args, **kwargs)
             fail()
@@ -190,14 +195,28 @@ def test_creation_transaction_failures_never_deliver_external(approval_client, r
     review_db.rollback()
     after = {t: review_db.execute(text(f"SELECT COUNT(*) FROM {t}")).scalar_one() for t in tables}
     if failure == "uncertain_commit" or side_write:
-        # The job transaction committed; its side write did not (or never ran).
+        # The job transaction committed with its outbox row; the alert is not lost.
         assert after["jobs"] == before["jobs"] + 1
         assert after["audit_logs"] == before["audit_logs"] + 1
         assert after["quota_usage"] == before["quota_usage"] + 1
         assert after["alerts"] == before["alerts"]
-        assert after["alert_preferences"] == before["alert_preferences"]
+        assert review_db.execute(text("SELECT COUNT(*) FROM alert_outbox")).scalar_one() == 1
+        from modules.notifications import alert_outbox
+        if failure == "uncertain_commit":
+            monkeypatch.setattr(Session, "commit", original)
+        else:
+            monkeypatch.setattr(*restore)
+        assert [alert_outbox.sweep(review_db.get_bind(), older_than_seconds=0) for _ in range(2)] == [1, 0]
+        review_db.rollback()
+        final = {t: review_db.execute(text(f"SELECT COUNT(*) FROM {t}")).scalar_one() for t in tables}
+        assert review_db.execute(text("SELECT COUNT(*) FROM alert_outbox")).scalar_one() == 0
+        if failure == "preferences":
+            assert final["alert_preferences"] > before["alert_preferences"]  # defaults seeded on replay
+        else:
+            assert final["alerts"] == before["alerts"] + 1 and called == [True]
     else:
         assert after == before
+        assert review_db.execute(text("SELECT COUNT(*) FROM alert_outbox")).scalar_one() == 0
 
 
 @pytest.mark.parametrize("approval", [False, True])

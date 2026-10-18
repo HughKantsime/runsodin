@@ -835,9 +835,13 @@ def create_app() -> FastAPI:
 
         broadcast_task = asyncio.create_task(_ws_broadcaster())
         cleanup_task = asyncio.create_task(_periodic_cleanup())
+        # Replays job alerts a crash or a failed dispatch left in the outbox (migration 034).
+        from modules.notifications.alert_outbox import run_sweeper
+        outbox_task = asyncio.create_task(run_sweeper())
         yield
         broadcast_task.cancel()
         cleanup_task.cancel()
+        outbox_task.cancel()
         app.state.branding_assets.close()
 
     # -----------------------------------------------------------------------

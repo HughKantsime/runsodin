@@ -94,6 +94,7 @@ _ALLOWED_PYTHON_MIGRATIONS = frozenset(
         # Post-027: keep in step with bootstrap.POST027_MIGRATIONS.
         "core.schema.migrations.032_quiet_hours_deferred_deliveries",
         "core.schema.migrations.033_timelapse_capture_tenancy",
+        "core.schema.migrations.034_alert_outbox",
     }
 )
 

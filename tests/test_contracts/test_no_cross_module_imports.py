@@ -73,6 +73,8 @@ ALLOWED_PATTERNS = [
     ".event_dispatcher",
     ".mqtt_republish",
     ".alert_dispatch",    # alert_dispatch.py and alert_dispatcher.py (notification layer)
+    ".alert_outbox",      # notifications/alert_outbox.py: the transactional outbox job routes
+                          # write their alert into, replayed through alert_dispatcher (same layer).
     ".channels import",   # notifications/channels.py — delivery primitives (send_push_notification,
                           # send_webhook, send_email). Sibling of alert_dispatch in role;
                           # both are the sanctioned notification-delivery surface.

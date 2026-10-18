@@ -171,25 +171,21 @@ def approve_job(
     # Everything the approval needs is read before its first write; the conditional
     # status UPDATE takes SQLite's writer, then the audit and the commit follow at once.
     from modules.jobs.state_machine import transition_job
-    submitted_by, item_name = job.submitted_by, job.item_name
+    submitted_by = job.submitted_by
     if not transition_job(db, job_id, JobStatus.PENDING, "approval", extra_fields={
             "approved_by": current_user["id"], "approved_at": datetime.now(timezone.utc)}):
         db.rollback()
         raise OdinError(ErrorCode.invalid_state_transition, "Job is no longer awaiting approval",
                         status=409, retriable=False)
-    # Audit is atomic with the approval it records.
+    # Audit is atomic with the approval it records; so is the alert it owes (one outbox
+    # row, fanned out after the commit by modules.notifications.alert_outbox).
     log_audit(db, "job.approved", "job", job.id, {"approved_by": current_user["id"]})
-
+    import modules.notifications.alert_outbox as alert_outbox
+    outbox_id = alert_outbox.enqueue(db, job_id, "job_approved", current_user["id"]) if submitted_by else None
     db.commit()
-    # Notify submitter after the commit, in a transaction of its own: the alert is a
-    # side write, so it never extends the approval's writer hold and a failure there
-    # never undoes the approval.
-    if submitted_by:
-        from modules.notifications.alert_dispatcher import dispatch_alert_after_commit
-        dispatch_alert_after_commit(
-            db, AlertType.JOB_APPROVED, AlertSeverity.INFO, f"Job approved: {item_name or 'Untitled'}",
-            f"Approved by {current_user.get('display_name') or current_user.get('username', 'an approver')}",
-            job_id=job_id, target_user_ids=[submitted_by])
+    if outbox_id is not None:
+        # A failure here leaves the row for the replay sweep; it never undoes the approval.
+        alert_outbox.dispatch(db.get_bind(), outbox_id)
 
     return {
         "status": "approved",
