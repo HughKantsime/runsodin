@@ -18,7 +18,6 @@ from pathlib import Path
 
 from fastapi import Request
 from core.audit_actor import register_request_session, clear_session
-from sqlalchemy import event, text
 from sqlalchemy.orm import sessionmaker
 
 from core.config import settings
@@ -82,18 +81,11 @@ live_engine = _CurrentEngine()
 
 # Configure connection behavior based on database type
 if IS_SQLITE:
-    # SQLite-specific pragmas for performance and safety
-    with engine.connect() as conn:
-        conn.execute(text("PRAGMA journal_mode=WAL"))
-        conn.execute(text("PRAGMA busy_timeout=5000"))
-        conn.execute(text("PRAGMA foreign_keys=ON"))
-
-    @event.listens_for(engine, "connect")
-    def _set_sqlite_pragma(dbapi_connection, connection_record):
-        """Enable foreign key enforcement on every new SQLite connection."""
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
+    # Connection PRAGMAs (busy_timeout, journal_mode=WAL, foreign_keys) are set on
+    # every connection by core.database_config.create_database_engine. Open one now
+    # so a misconfigured or unwritable database fails at import, as before.
+    with engine.connect():
+        pass
 
 elif not IS_POSTGRES:
     raise ValueError(

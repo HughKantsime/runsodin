@@ -99,6 +99,10 @@ def application_name(role: str) -> str:
         raise DatabaseConfigurationError(f"Unsupported ODIN database role: {role}") from exc
 
 
+# Writers wait this long for SQLite's writer lock before SQLITE_BUSY.
+SQLITE_BUSY_TIMEOUT_MS = 5000
+
+
 def create_database_engine(
     database_url: str,
     *,
@@ -117,12 +121,19 @@ def create_database_engine(
         )
 
         @event.listens_for(sqlite_engine, "connect")
-        def _enforce_sqlite_foreign_keys(dbapi_connection, connection_record):
-            # Every role (api, bootstrap, workers) gets the same FK semantics;
-            # migrations such as 025 refuse to run without them.
+        def _configure_sqlite_connection(dbapi_connection, connection_record):
+            # The single source of SQLite connection settings, applied to every
+            # new DBAPI connection (ORM and raw) for every role (api, bootstrap,
+            # workers). foreign_keys: migrations such as 025 refuse to run without
+            # them. journal_mode is persistent per file; asserting it here keeps a
+            # copied or restored file from silently running in rollback mode.
             cursor = dbapi_connection.cursor()
-            cursor.execute("PRAGMA foreign_keys=ON")
-            cursor.close()
+            try:
+                cursor.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA foreign_keys=ON")
+            finally:
+                cursor.close()
 
         return sqlite_engine
     restore_data_directory = os.getenv('ODIN_DATA_DIR', '/data')

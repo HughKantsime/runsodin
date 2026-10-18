@@ -282,7 +282,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 116,
+      "line": 120,
       "path": "backend/core/database_config.py",
       "pattern": "check_same_thread",
       "reason": "SQLite engine branch; PostgreSQL engine creation does not receive SQLite connect args",
@@ -290,42 +290,26 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 124,
+      "line": 132,
       "path": "backend/core/database_config.py",
       "pattern": "PRAGMA",
       "reason": "SQLite engine branch; PostgreSQL engine creation does not receive SQLite connect args",
-      "source": "cursor.execute(\"PRAGMA foreign_keys=ON\")"
+      "source": "cursor.execute(f\"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}\")"
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 87,
-      "path": "backend/core/db.py",
+      "line": 133,
+      "path": "backend/core/database_config.py",
       "pattern": "PRAGMA",
-      "reason": "SQLite connection event hooks guarded by the configured provider",
-      "source": "conn.execute(text(\"PRAGMA journal_mode=WAL\"))"
+      "reason": "SQLite engine branch; PostgreSQL engine creation does not receive SQLite connect args",
+      "source": "cursor.execute(\"PRAGMA journal_mode=WAL\")"
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 88,
-      "path": "backend/core/db.py",
+      "line": 134,
+      "path": "backend/core/database_config.py",
       "pattern": "PRAGMA",
-      "reason": "SQLite connection event hooks guarded by the configured provider",
-      "source": "conn.execute(text(\"PRAGMA busy_timeout=5000\"))"
-    },
-    {
-      "classification": "sqlite-provider-only",
-      "line": 89,
-      "path": "backend/core/db.py",
-      "pattern": "PRAGMA",
-      "reason": "SQLite connection event hooks guarded by the configured provider",
-      "source": "conn.execute(text(\"PRAGMA foreign_keys=ON\"))"
-    },
-    {
-      "classification": "sqlite-provider-only",
-      "line": 95,
-      "path": "backend/core/db.py",
-      "pattern": "PRAGMA",
-      "reason": "SQLite connection event hooks guarded by the configured provider",
+      "reason": "SQLite engine branch; PostgreSQL engine creation does not receive SQLite connect args",
       "source": "cursor.execute(\"PRAGMA foreign_keys=ON\")"
     },
     {
