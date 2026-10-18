@@ -3,10 +3,13 @@
 Applied when the URL is saved (PUT /config) and on every Spoolman call (GET and PUT).
 The base URL must be http(s)://host[:port][/path] with no userinfo, query or fragment.
 Its host is resolved and every address must pass the device destination policy
-(core.webhook_utils: no loopback, link-local, metadata, multicast or reserved address)
-and must not be one of ODIN's own service endpoints; in ITAR mode it must be private.
-Requests are pinned to the validated addresses (core.webhook_utils.pinned_device_destination),
-never follow redirects and ignore environment proxies.
+(core.webhook_utils: no link-local, metadata, multicast, unspecified or reserved address)
+with one difference (review O1-b): loopback is allowed, because Spoolman beside a
+bare-metal or host-network ODIN install (http://localhost:7912) is a supported setup.
+No address may be one of ODIN's own service endpoints (is_own_service_endpoint, and
+loopback on any of ODIN's own service ports); in ITAR mode it must be private.
+Requests are pinned to the validated addresses, never follow redirects and ignore
+environment proxies.
 """
 from __future__ import annotations
 
@@ -46,17 +49,55 @@ def _check_itar(addresses) -> None:
 def validate_spoolman_base(url: str) -> str:
     """Full validation including resolution (used when the URL is saved): the normalized
     base URL, or SpoolmanURLRefused."""
-    from core.webhook_utils import DeviceDestinationBlocked, device_destination_ips
     base = check_spoolman_url_shape(url)
+    _destination(base)
+    return base
+
+
+def _is_loopback(address) -> bool:
+    from core.webhook_utils import _embedded_ipv4
+    addr = ipaddress.ip_address(str(address).split("%", 1)[0])
+    embedded = _embedded_ipv4(addr)
+    return addr.is_loopback or (embedded is not None and embedded.is_loopback)
+
+
+def spoolman_destination_ips(hostname: str, port: int) -> list:
+    """The validated addresses of a Spoolman host: the device policy with loopback
+    allowed, minus ODIN's own service endpoints. Raises SpoolmanURLRefused."""
+    import socket
+    from core import webhook_utils
+    try:
+        name = webhook_utils.normalize_hostname(hostname)
+        infos = webhook_utils._real_getaddrinfo(name, port, type=socket.SOCK_STREAM)
+    except (socket.gaierror, UnicodeError, OSError):
+        raise SpoolmanURLRefused(f"Spoolman destination refused: host {hostname!r} could not be resolved") from None
+    addresses = []
+    for *_ignored, sockaddr in infos:
+        ip = sockaddr[0]
+        try:
+            loopback = _is_loopback(ip)
+        except ValueError:
+            raise SpoolmanURLRefused("Spoolman destination refused: invalid address") from None
+        if loopback:
+            # Loopback is always one of ODIN's own addresses.
+            if port in webhook_utils.own_service_ports():
+                raise SpoolmanURLRefused(f"Spoolman destination refused: port {port} is one of ODIN's own services")
+        elif webhook_utils.is_blocked_device_address(ip):
+            raise SpoolmanURLRefused(f"Spoolman destination refused: host {hostname!r} resolves to a blocked address")
+        if webhook_utils.is_own_service_endpoint(ip, port):
+            raise SpoolmanURLRefused(f"Spoolman destination refused: port {port} is one of ODIN's own services")
+        if ip not in addresses:
+            addresses.append(ip)
+    if not addresses:
+        raise SpoolmanURLRefused(f"Spoolman destination refused: host {hostname!r} returned no addresses")
+    _check_itar(addresses)
+    return addresses
+
+
+def _destination(base: str):
     parsed = urlsplit(base)
     port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
-    host = parsed.hostname if ":" not in parsed.hostname else f"[{parsed.hostname}]"
-    try:
-        addresses = device_destination_ips(host, port)
-    except DeviceDestinationBlocked as exc:
-        raise SpoolmanURLRefused(f"Spoolman destination refused: {exc}") from None
-    _check_itar(addresses)
-    return base
+    return parsed.hostname, port, spoolman_destination_ips(parsed.hostname, port)
 
 
 def spoolman_request(method: str, path: str, *, url: str | None = None, timeout: float = 10, **kwargs):
@@ -67,21 +108,18 @@ def spoolman_request(method: str, path: str, *, url: str | None = None, timeout:
     returned as the response, never followed; environment proxies are ignored."""
     import requests
     from core.spoolman_settings import get_spoolman_url
-    from core.webhook_utils import DeviceDestinationBlocked, pinned_device_destination
+    from core.webhook_utils import _pin_dns
     base = check_spoolman_url_shape(url if url is not None else get_spoolman_url())
     if not path.startswith("/"):
         raise ValueError("Spoolman path must be absolute")
     kwargs.pop("allow_redirects", None)
     kwargs.pop("proxies", None)
-    try:
-        with requests.Session() as session:
-            session.trust_env = False
-            session.proxies = {}
-            with pinned_device_destination(base + path) as addresses:
-                _check_itar(addresses)
-                return session.request(method, base + path, timeout=timeout, allow_redirects=False, **kwargs)
-    except DeviceDestinationBlocked as exc:
-        raise SpoolmanURLRefused(f"Spoolman destination refused: {exc}") from None
+    hostname, port, addresses = _destination(base)
+    with requests.Session() as session:
+        session.trust_env = False
+        session.proxies = {}
+        with _pin_dns(hostname, port, addresses):
+            return session.request(method, base + path, timeout=timeout, allow_redirects=False, **kwargs)
 
 
 def spool_summary(spool: dict) -> dict:

@@ -4,8 +4,8 @@ The URL check accepted http://127.0.0.1:1984/api/streams?x= (a query string make
 "{base}/api/v1/spool" call land on go2rtc's API), and the GET routes fetched with no
 destination policy at all and reflected the raw upstream body. Now every Spoolman call
 (GET and PUT) and the save go through core.spoolman_client: no userinfo, query or
-fragment; resolved and pinned addresses that pass the device policy (no loopback,
-link-local, metadata) and are not ODIN's own service endpoints; no redirects. Routes
+fragment; resolved and pinned addresses that pass the device policy (no link-local,
+metadata; loopback is allowed since O1-b) and are not ODIN's own service endpoints; no redirects. Routes
 return only the fields ODIN uses."""
 import json
 import re
@@ -23,7 +23,7 @@ from tests.test_contracts.test_education_review_workflow import review_db  # noq
 ROOT = Path(__file__).resolve().parents[2]
 SUPER = {"id": 1, "role": "admin", "group_id": None, "is_active": True}
 BAD = ["http://127.0.0.1:1984/api/streams?x=", "http://spoolman.test:7912/#frag", "http://user:pw@spoolman.test:7912",
-       "http://169.254.169.254", "http://[::1]:7912", "http://localhost:7912"]
+       "http://169.254.169.254", "http://127.0.0.1:8000", "http://[::1]:8555"]
 
 
 @pytest.fixture
