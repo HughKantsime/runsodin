@@ -64,6 +64,42 @@ def test_candidate_community_refuses_failure_and_time_reports(viewer,base_url):
     _license_refusal(viewer.get(f'{base_url}/api/analytics/time-accuracy',timeout=10), 'analytics')
 
 
+def test_candidate_community_refuses_pro_writes_and_keeps_existing_records(admin, viewer, base_url):
+    """Record-keeping Pro features keep existing data readable; every Pro write is refused."""
+    product=next(row for row in _items(_json(viewer.get(f'{base_url}/api/products',timeout=10)))
+                 if row.get('sku')=='ODIN-CANDIDATE-001')
+    order=next(row for row in _items(_json(viewer.get(f'{base_url}/api/orders',timeout=10)))
+               if row.get('order_number')=='ODIN-CANDIDATE-ORDER-001')
+    assert viewer.get(f'{base_url}/api/products/{product["id"]}',timeout=10).status_code==200
+    assert viewer.get(f'{base_url}/api/orders/{order["id"]}',timeout=10).status_code==200
+    tasks=admin.get(f'{base_url}/api/maintenance/tasks',timeout=10)
+    assert tasks.status_code==200, tasks.text
+    refused=[
+        (admin.post(f'{base_url}/api/products',json={'name':'Synthetic Community product','price':0},timeout=10),'products'),
+        (admin.patch(f'{base_url}/api/products/{product["id"]}',json={'price':0},timeout=10),'products'),
+        (admin.post(f'{base_url}/api/consumables',json={'name':'Synthetic Community supply','current_stock':3},timeout=10),'products'),
+        (admin.patch(f'{base_url}/api/orders/{order["id"]}',json={'revenue':0},timeout=10),'orders'),
+        (admin.post(f'{base_url}/api/maintenance/tasks',json={'name':'Synthetic Community task','interval_days':30},timeout=10),'maintenance'),
+        (admin.put(f'{base_url}/api/branding',json={'app_name':'Synthetic Community branding'},timeout=10),'branding'),
+        (admin.post(f'{base_url}/api/report-schedules',json={'name':'Synthetic Community report','report_type':'job_summary',
+                    'frequency':'weekly','recipients':['synthetic@example.invalid']},timeout=10),'email_notifications'),
+        (viewer.get(f'{base_url}/api/analytics',timeout=10),'analytics'),
+    ]
+    for response, feature in refused:
+        _license_refusal(response, feature)
+    assert _json(viewer.get(f'{base_url}/api/products/{product["id"]}',timeout=10))['price']==product['price']
+    assert _json(viewer.get(f'{base_url}/api/orders/{order["id"]}',timeout=10))['revenue']==order['revenue']
+    assert _json(admin.get(f'{base_url}/api/maintenance/tasks',timeout=10))==_json(tasks)
+    assert _json(admin.get(f'{base_url}/api/branding',timeout=10))['app_name']!='Synthetic Community branding'
+    # The energy rate is configuration on every tier (only its analytics widget is Pro).
+    original=_json(admin.get(f'{base_url}/api/settings/energy-rate',timeout=10))['energy_cost_per_kwh']
+    try:
+        assert admin.put(f'{base_url}/api/settings/energy-rate',json={'energy_cost_per_kwh':0},timeout=10).status_code==200
+        assert _json(admin.get(f'{base_url}/api/settings/energy-rate',timeout=10))['energy_cost_per_kwh']==0
+    finally:
+        assert admin.put(f'{base_url}/api/settings/energy-rate',json={'energy_cost_per_kwh':original},timeout=10).status_code==200
+
+
 def test_candidate_health_spa_static_setup_and_perimeter(base_url: str, api_key: str, admin):
     live = requests.get(f"{base_url}/health", timeout=10)
     assert live.status_code == 200
