@@ -32,7 +32,7 @@ const rows = [
   { id: 'A02', route: '/', fixture: 'fleet.json', personas: ['admin', 'operator', 'viewer'], themes: ['dark', 'light', 'high-contrast'], viewports: [[1440, 900], [768, 1024], [390, 844]] },
   { id: 'A03', routes: ['/printers', '/printers/1'], fixture: 'fleet.json', personas: ['operator', 'viewer'], themes: ['dark', 'high-contrast'], viewports: [[1440, 900], [390, 844]] },
   { id: 'A04', route: '/jobs', fixture: 'jobs.json', personas: ['admin', 'operator', 'viewer'], themes: ['dark', 'light', 'high-contrast'], viewports: [[1440, 900], [390, 844]] },
-  { id: 'A05', route: '/upload', fixture: 'jobs.json', personas: ['viewer'], themes: ['dark', 'high-contrast'], viewports: [[1440, 900], [390, 844]] },
+  { id: 'A05', route: '/upload', fixture: 'jobs.json', personas: ['operator'], themes: ['dark', 'high-contrast'], viewports: [[1440, 900], [390, 844]] },
   { id: 'A06', route: '/settings', tab: 'Access', fixture: 'admin.json', personas: ['admin'], themes: ['light', 'high-contrast'], viewports: [[1440, 900], [390, 844]] },
   { id: 'A07', route: '/settings', tab: 'System', fixture: 'admin.json', personas: ['admin'], themes: ['dark', 'high-contrast'], viewports: [[1440, 900], [390, 844]] },
   { id: 'A08', route: '/education-reports', fixture: 'reports.json', personas: ['admin', 'operator'], themes: ['dark', 'high-contrast'], viewports: [[1440, 900], [390, 844]] },
@@ -50,7 +50,9 @@ function fixture(name, method, path, persona) {
     return { declared: true, status: 200, body: { id: 1, username: `${role}@school.test`, email: `${role}@school.test`, role, group_id: 1 } }
   }
   if (declared?.$dynamic === 'permissions') {
-    return { declared: true, status: 200, body: { page_access: { settings: ['admin'], audit: ['admin'] }, action_access: { 'jobs.approve': ['admin', 'operator'] } } }
+    // The server's default matrix (core/rbac_policy.py); 2.0 pages enforce every page key,
+    // so a partial matrix would redirect personas away from the pages under audit.
+    return { declared: true, status: 200, body: fixtureDocument('permissions.json') }
   }
   return { declared: true, status: declared.$status ?? 200, body: declared.$body ?? declared }
 }
@@ -264,7 +266,7 @@ await runKeyboardCase('K03', '/', 'fleet.json', 'admin', { width: 1440, height: 
   assertions.push({ name: 'escape closes modal and restores focus', pass: await trigger.evaluate((element) => document.activeElement === element) })
 })
 
-await runKeyboardCase('K04', '/upload', 'jobs.json', 'viewer', { width: 1440, height: 900 }, async (page, assertions) => {
+await runKeyboardCase('K04', '/upload', 'jobs.json', 'operator', { width: 1440, height: 900 }, async (page, assertions) => {
   const input = page.locator('#file-upload')
   await page.locator('body').focus()
   let reached = false

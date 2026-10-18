@@ -1,0 +1,236 @@
+{
+  "action_access": {
+    "alerts.read": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "jobs.approve": [
+      "admin",
+      "operator"
+    ],
+    "jobs.cancel": [
+      "admin",
+      "operator"
+    ],
+    "jobs.complete": [
+      "admin",
+      "operator"
+    ],
+    "jobs.create": [
+      "admin",
+      "operator"
+    ],
+    "jobs.delete": [
+      "admin",
+      "operator"
+    ],
+    "jobs.edit": [
+      "admin",
+      "operator"
+    ],
+    "jobs.reject": [
+      "admin",
+      "operator"
+    ],
+    "jobs.resubmit": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "jobs.start": [
+      "admin",
+      "operator"
+    ],
+    "jobs.submit": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "maintenance.log": [
+      "admin",
+      "operator"
+    ],
+    "maintenance.tasks": [
+      "admin",
+      "operator"
+    ],
+    "models.create": [
+      "admin",
+      "operator"
+    ],
+    "models.delete": [
+      "admin"
+    ],
+    "models.edit": [
+      "admin",
+      "operator"
+    ],
+    "orders.create": [
+      "admin",
+      "operator"
+    ],
+    "orders.delete": [
+      "admin",
+      "operator"
+    ],
+    "orders.edit": [
+      "admin"
+    ],
+    "orders.ship": [
+      "admin",
+      "operator"
+    ],
+    "printers.add": [
+      "admin"
+    ],
+    "printers.delete": [
+      "admin"
+    ],
+    "printers.edit": [
+      "admin",
+      "operator"
+    ],
+    "printers.plug": [
+      "admin",
+      "operator"
+    ],
+    "printers.reorder": [
+      "admin",
+      "operator"
+    ],
+    "printers.slots": [
+      "admin",
+      "operator"
+    ],
+    "products.create": [
+      "admin",
+      "operator"
+    ],
+    "products.delete": [
+      "admin"
+    ],
+    "products.edit": [
+      "admin",
+      "operator"
+    ],
+    "settings.edit": [
+      "admin"
+    ],
+    "spools.delete": [
+      "admin",
+      "operator"
+    ],
+    "spools.edit": [
+      "admin",
+      "operator"
+    ],
+    "timeline.move": [
+      "admin",
+      "operator"
+    ],
+    "upload.delete": [
+      "admin",
+      "operator"
+    ],
+    "upload.schedule": [
+      "admin",
+      "operator"
+    ],
+    "upload.upload": [
+      "admin",
+      "operator"
+    ]
+  },
+  "page_access": {
+    "admin": [
+      "admin"
+    ],
+    "alerts": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "analytics": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "audit": [
+      "admin"
+    ],
+    "branding": [
+      "admin"
+    ],
+    "calculator": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "cameras": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "dashboard": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "education": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "education_reports": [
+      "admin",
+      "operator"
+    ],
+    "jobs": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "maintenance": [
+      "admin",
+      "operator"
+    ],
+    "models": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "orders": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "printers": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "products": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "settings": [
+      "admin"
+    ],
+    "spools": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "timeline": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "upload": [
+      "admin",
+      "operator"
+    ]
+  }
+}

@@ -1,5 +1,7 @@
 {
   "GET /api/auth/me": {"$dynamic": "current_user"},
+  "GET /api/auth/me/theme": {"accent_color": "#6366f1", "sidebar_style": "dark", "background": "default"},
+  "GET /api/cameras": [],
   "GET /api/permissions": {"$dynamic": "permissions"},
   "POST /api/auth/ws-token": {"$body": {"token": ""}},
   "GET /api/auth/capabilities": {"smtp_enabled": false},
