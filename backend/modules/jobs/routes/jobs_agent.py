@@ -168,14 +168,15 @@ def approve_job(
             notes="Would set jobs.status=pending + approved_by/at; would dispatch JOB_APPROVED alert to submitter.",
         )
 
+    # Everything the approval needs is read before its first write; the conditional
+    # status UPDATE takes SQLite's writer, then the audit and the commit follow at once.
     from modules.jobs.state_machine import transition_job
+    submitted_by, item_name = job.submitted_by, job.item_name
     if not transition_job(db, job_id, JobStatus.PENDING, "approval", extra_fields={
             "approved_by": current_user["id"], "approved_at": datetime.now(timezone.utc)}):
         db.rollback()
         raise OdinError(ErrorCode.invalid_state_transition, "Job is no longer awaiting approval",
                         status=409, retriable=False)
-    db.refresh(job)
-    submitted_by, item_name = job.submitted_by, job.item_name
     # Audit is atomic with the approval it records.
     log_audit(db, "job.approved", "job", job.id, {"approved_by": current_user["id"]})
 
