@@ -1,0 +1,12 @@
+# Reviewed synthetic test values in git history (gitleaks fingerprints: commit:file:rule:line).
+# Each is a fixed test literal, not a credential; add an entry only after the same review.
+# 32-hex education print-file token parsed by test_education_monitor_policy (0123456789abcdef x2).
+8b7ec5423e9fe174a26e03de1721875f080bc33e:tests/test_contracts/test_education_monitor_policy.py:generic-api-key:106
+# The bare header string '-----BEGIN PRIVATE KEY-----' printed to prove the gate redacts it; no key body.
+c323d454f3092d1057dbbd8aaa880f7659256b9f:tests/test_release_control/test_result_policy.py:private-key:83
+# 'Synthetic-Parity-Secret-...' literal for a disposable PostgreSQL bootstrap test container.
+35268befcbba2f9173bd2e9860d93f128de58796:tests/test_contracts/test_database_bootstrap_foundation.py:generic-api-key:463
+# Synthetic JWT-shaped string ('signaturebytes') used to prove candidate log redaction.
+0a967d94769363fd52f90a72e880be0b5845ba14:tests/test_contracts/test_candidate_gate_tools.py:jwt:158
+# 'ODIN-TEST-KEY1-...' synthetic license-key string for device-key proof-of-possession tests.
+a5535fa3b885c84f5b61b2527d90afeb38eac2fa:tests/test_contracts/test_license_pop.py:generic-api-key:92
