@@ -550,6 +550,7 @@
 - CIDR-based middleware enforcement
 - Lock-out protection (can't lock yourself out)
 - IPAllowlistSettings component
+- Policy cached per API worker for 2 s (`ODIN_IP_ALLOWLIST_CACHE_SECONDS`, 0–30; 0 disables): a change applies at once on the worker that saved it and within that bound on the others; an unreadable policy denies requests
 
 ### 12.3 Data Protection
 - Fernet encryption at rest for: printer API keys, SMTP passwords, MQTT republish passwords, camera URLs with embedded credentials, webhook URLs (Discord/Slack/Telegram/ntfy), org webhook settings, and the access token held behind single-use 2-minute OIDC exchange codes (v1.3.62–v1.3.67)

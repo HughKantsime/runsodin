@@ -423,15 +423,12 @@ def _ip_allowlist_denial(session_factory, client_ip):
     reverse proxy). The check fails closed.
     """
     try:
-        db = session_factory()
-        try:
-            row = db.execute(text("SELECT value FROM system_config WHERE key = 'ip_allowlist'")).fetchone()
-        finally:
-            db.close()
-        if not row:
+        # Cached per worker for a short TTL (core.ip_allowlist_cache); a failed read denies.
+        from core.ip_allowlist_cache import policy
+        config = policy(session_factory)
+        if not config:
             return None
         import ipaddress
-        config = json.loads(row[0]) if isinstance(row[0], str) else row[0]
         if not (config and config.get("enabled") and config.get("cidrs")):
             return None
         from core.net_identity import is_loopback

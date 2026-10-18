@@ -94,6 +94,9 @@ async def set_ip_allowlist(request: Request, body: IPAllowlistRequest, current_u
 
     log_audit(db, "ip_allowlist_updated", details=f"Enabled={enabled}, {len(cidrs)} CIDRs")
     db.commit()
+    # This worker applies the change at once; other workers within the cache TTL.
+    from core.ip_allowlist_cache import invalidate
+    invalidate()
     return config
 
 
