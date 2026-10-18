@@ -20,7 +20,7 @@ def apply(connection):
             validate_column_shape(connection, 'printers', name, translate_statement(definition, connection.dialect.name))
     for name, definition in COLUMNS.items():
         if name not in existing:
-            connection.execute(text(translate_statement(f'ALTER TABLE printers ADD COLUMN {name} {definition}', connection.dialect.name)))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- DDL/validation SQL built from module constants only; no runtime input
+            connection.execute(text(translate_statement(f'ALTER TABLE printers ADD COLUMN {name} {definition}', connection.dialect.name)))
     validate(connection)
 
 

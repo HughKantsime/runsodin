@@ -57,14 +57,14 @@ def pg_triggers():
  return {table+'_membership_guard':f"CREATE TRIGGER {table}_membership_guard BEFORE "+' OR '.join(events)+f" ON public.{table} FOR EACH ROW EXECUTE FUNCTION public.{table}_membership_guard()" for table,events in conditions().items()}
 def validate_retained(c):
  for b in c.execute(bindings.select()).mappings():
-  if not c.execute(text(f'SELECT 1 FROM {B} n WHERE operation_id=:op AND '+static_binding_proof('n')),{'op':b['operation_id']}).first():raise MigrationError('Retirement binding authority differs')  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table names and proof fragments are module constants; values are bound
+  if not c.execute(text(f'SELECT 1 FROM {B} n WHERE operation_id=:op AND '+static_binding_proof('n')),{'op':b['operation_id']}).first():raise MigrationError('Retirement binding authority differs')
   if b['phase']!='sealed':raise MigrationError('Retirement membership incomplete')
-  count=c.execute(text(f'SELECT count(*) FROM {M} WHERE operation_id=:op'),{'op':b['operation_id']}).scalar_one()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table names and proof fragments are module constants; values are bound
+  count=c.execute(text(f'SELECT count(*) FROM {M} WHERE operation_id=:op'),{'op':b['operation_id']}).scalar_one()
   if count!=b['object_count']:raise MigrationError('Retirement membership count differs')
   i=c.execute(text('SELECT state FROM timelapse_retirements WHERE operation_id=:op'),{'op':b['operation_id']}).scalar_one()
   if i=='complete':
-   if not c.execute(text('SELECT 1 FROM timelapse_retirements n WHERE operation_id=:op AND '+completion_proof('n')),{'op':b['operation_id']}).first():raise MigrationError('Retirement completion differs')  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table names and proof fragments are module constants; values are bound
+   if not c.execute(text('SELECT 1 FROM timelapse_retirements n WHERE operation_id=:op AND '+completion_proof('n')),{'op':b['operation_id']}).first():raise MigrationError('Retirement completion differs')
   elif i=='pending':
-   if not c.execute(text(f'SELECT 1 FROM {B} n WHERE operation_id=:op AND '+seal_proof('n',c.dialect.name=='sqlite',admission=False)),{'op':b['operation_id']}).first():raise MigrationError('Retirement membership authority differs')  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table names and proof fragments are module constants; values are bound
+   if not c.execute(text(f'SELECT 1 FROM {B} n WHERE operation_id=:op AND '+seal_proof('n',c.dialect.name=='sqlite',admission=False)),{'op':b['operation_id']}).first():raise MigrationError('Retirement membership authority differs')
  for r in c.execute(receipts.select()).mappings():
-  if not c.execute(text(f'SELECT 1 FROM {R} n WHERE operation_id=:op AND object_index=:idx AND '+receipt_proof('n')),{'op':r['operation_id'],'idx':r['object_index']}).first():raise MigrationError('Retirement container evidence differs')  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table names and proof fragments are module constants; values are bound
+  if not c.execute(text(f'SELECT 1 FROM {R} n WHERE operation_id=:op AND object_index=:idx AND '+receipt_proof('n')),{'op':r['operation_id'],'idx':r['object_index']}).first():raise MigrationError('Retirement container evidence differs')

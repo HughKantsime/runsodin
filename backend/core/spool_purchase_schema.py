@@ -175,22 +175,21 @@ def validate(c):
         raw_source=c.execute(text("SELECT sql FROM sqlite_master WHERE type='table' AND name='spools'")).scalar_one()
         for declaration in ("purchase_evidence_nonce TEXT REFERENCES spool_purchase_evidence(evidence_nonce) ON DELETE RESTRICT", "purchase_revision INTEGER CONSTRAINT spools_purchase_revision_check CHECK(purchase_revision IS NULL OR (typeof(purchase_revision)='integer' AND purchase_revision BETWEEN 1 AND 2147483647))"):
             if _normal(declaration) not in _normal(raw_source):raise MigrationError('Purchase source declaration differs')
-    for r in c.execute(text(f'SELECT price_decimal,net_weight_g_decimal,recorded_at FROM {TABLE}')).all():  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- DDL/validation SQL built from module constants only; no runtime input
+    for r in c.execute(text(f'SELECT price_decimal,net_weight_g_decimal,recorded_at FROM {TABLE}')).all():
         if not canonical_decimal(r[0]) or not canonical_decimal(r[1],positive=True):raise MigrationError('Retained purchase decimal differs')
         from datetime import datetime
         try:
             dt=r[2] if isinstance(r[2],datetime) else datetime.strptime(r[2],'%Y-%m-%d %H:%M:%S')
             if not pg and dt.strftime('%Y-%m-%d %H:%M:%S')!=r[2]:raise ValueError()
         except (ValueError,TypeError):raise MigrationError('Retained purchase timestamp differs') from None
-    bad=c.execute(text(f"SELECT 1 FROM {TABLE} e LEFT JOIN cost_source_lifetimes l ON l.birth_nonce=e.birth_nonce WHERE l.state IS DISTINCT FROM 'known' OR l.resource_kind IS DISTINCT FROM 'spool' OR l.identity_uid IS DISTINCT FROM e.spool_uid OR l.owner_scope IS DISTINCT FROM e.owner_scope OR l.owner_key IS DISTINCT FROM e.owner_key LIMIT 1")).first()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- DDL/validation SQL built from module constants only; no runtime input
+    bad=c.execute(text(f"SELECT 1 FROM {TABLE} e LEFT JOIN cost_source_lifetimes l ON l.birth_nonce=e.birth_nonce WHERE l.state IS DISTINCT FROM 'known' OR l.resource_kind IS DISTINCT FROM 'spool' OR l.identity_uid IS DISTINCT FROM e.spool_uid OR l.owner_scope IS DISTINCT FROM e.owner_scope OR l.owner_key IS DISTINCT FROM e.owner_key LIMIT 1")).first()
     if bad:raise MigrationError('Retained purchase lifetime differs')
-    if c.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- DDL/validation SQL built from module constants only; no runtime input
-        f"""SELECT 1 FROM spools s JOIN
+    if c.execute(text(f"""SELECT 1 FROM spools s JOIN
         (SELECT spool_uid,birth_nonce,MAX(revision) AS retained_revision FROM {TABLE} GROUP BY spool_uid,birth_nonce) e
         ON e.spool_uid=s.economic_uid AND e.birth_nonce=s.economic_birth_nonce
         WHERE s.purchase_revision IS NULL OR s.purchase_revision<e.retained_revision LIMIT 1""")).first():
         raise MigrationError('Retained purchase counter precedes history')
-    if c.execute(text(f'SELECT 1 FROM spools s WHERE s.purchase_evidence_nonce IS NOT NULL AND NOT ({_pointer_proof("s")}) LIMIT 1')).first():raise MigrationError('Retained purchase pointer differs')  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- DDL/validation SQL built from module constants only; no runtime input
+    if c.execute(text(f'SELECT 1 FROM spools s WHERE s.purchase_evidence_nonce IS NOT NULL AND NOT ({_pointer_proof("s")}) LIMIT 1')).first():raise MigrationError('Retained purchase pointer differs')
 
 
 def apply(c):

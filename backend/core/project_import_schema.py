@@ -65,7 +65,7 @@ def definition(pg):
         def facts(prefix,kind,nullable=True):
             for n in REGULAR_FACTS if kind=='regular' else FACTS:
                 key=prefix+n
-                if n=='kind':text(key,nullable,f"{key}='{kind}'")  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- local column-builder helper named text, not sqlalchemy.text
+                if n=='kind':text(key,nullable,f"{key}='{kind}'")
                 elif n=='digest_sha256':text(key,nullable,hex_check(key,64,pg))
                 elif n=='mode':integer(key,nullable,448 if kind=='directory' else 384,448 if kind=='directory' else 384)
                 elif n in ('inode','service_uid','link_count','birth_ns'):integer(key,True if n=='birth_ns' else nullable,1,1 if n=='link_count' and kind=='regular' else MAX_INT)
@@ -165,7 +165,7 @@ def definition(pg):
     check("(object_key='directory' AND kind='directory' AND mode=448 AND byte_count IS NULL AND digest_sha256 IS NULL) OR (object_key<>'directory' AND kind='regular' AND mode=384 AND link_count=1 AND byte_count IS NOT NULL AND digest_sha256 IS NOT NULL)")
     time('recorded_at',default=now)
     for prefix in ('predecessor','related'):
-        for n in ('object_key','domain'):text(prefix+'_'+n,True)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- local column-builder helper named text, not sqlalchemy.text
+        for n in ('object_key','domain'):text(prefix+'_'+n,True)
         integer(prefix+'_revision',True,1,129)
         ns=tuple(prefix+'_'+n for n in ('object_key','domain','revision'));check('('+all_null(ns)+') OR ('+all_present(ns)+')')
         fk(['operation_id',*ns],CHECKPOINT,['operation_id','object_key','checkpoint_domain','domain_revision'])

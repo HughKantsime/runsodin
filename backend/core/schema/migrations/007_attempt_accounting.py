@@ -88,7 +88,7 @@ def apply(connection):
  for table,columns in COLUMNS.items():
   actual={item['name'] for item in inspect(connection).get_columns(table)}
   for name,definition in columns.items():
-   if name not in actual:connection.execute(text(f'ALTER TABLE {table} ADD COLUMN {name} {definition}'))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- DDL/validation SQL built from module constants only; no runtime input
+   if name not in actual:connection.execute(text(f'ALTER TABLE {table} ADD COLUMN {name} {definition}'))
  outbox.create(connection,checkfirst=True)
  # Legacy NULL attempt IDs remain untouched, including existing duplicates.
  connection.execute(text('CREATE UNIQUE INDEX IF NOT EXISTS uq_spool_usage_attempt_spool ON spool_usage(print_job_id,spool_id) WHERE print_job_id IS NOT NULL'))

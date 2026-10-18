@@ -16,7 +16,7 @@ def apply(connection):
             validate_column_shape(connection, 'print_jobs', name, definition)
     for name, definition in COLUMNS.items():
         if name not in existing:
-            connection.execute(text(f'ALTER TABLE print_jobs ADD COLUMN {name} {definition}'))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- DDL/validation SQL built from module constants only; no runtime input
+            connection.execute(text(f'ALTER TABLE print_jobs ADD COLUMN {name} {definition}'))
 
 
 def validate(connection):

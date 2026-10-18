@@ -20,8 +20,7 @@ def apply(connection):
         identity='BIGSERIAL PRIMARY KEY' if connection.dialect.name=='postgresql' else 'INTEGER PRIMARY KEY AUTOINCREMENT'
         user_column='user_id INTEGER NOT NULL,' if table==TABLES[0] else ''
         unique='user_id,scope_key,window_ended_at' if table==TABLES[0] else 'scope_key,window_ended_at'
-        connection.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- DDL/validation SQL built from module constants only; no runtime input
-            f'''CREATE TABLE {replacement} (
+        connection.execute(text(f'''CREATE TABLE {replacement} (
             id {identity}, {user_column} org_id INTEGER,
             scope_key TEXT NOT NULL, window_ended_at TEXT NOT NULL,
             sent_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -30,15 +29,15 @@ def apply(connection):
         # Old per-user claims covered all scopes. Old NULL org claims may be
         # duplicated. Keep all rows, using distinct legacy keys for org rows.
         legacy="'legacy'" if table==TABLES[0] else "'legacy:' || CAST(id AS TEXT)"
-        connection.execute(text(f'INSERT INTO {replacement} ({names},scope_key) SELECT {names},{legacy} FROM {table}'))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- DDL/validation SQL built from module constants only; no runtime input
-        connection.execute(text(f'DROP TABLE {table}'))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- DDL/validation SQL built from module constants only; no runtime input
-        connection.execute(text(f'ALTER TABLE {replacement} RENAME TO {table}'))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- DDL/validation SQL built from module constants only; no runtime input
+        connection.execute(text(f'INSERT INTO {replacement} ({names},scope_key) SELECT {names},{legacy} FROM {table}'))
+        connection.execute(text(f'DROP TABLE {table}'))
+        connection.execute(text(f'ALTER TABLE {replacement} RENAME TO {table}'))
         prefix='qhds' if table==TABLES[0] else 'qhods'
-        connection.execute(text(f'CREATE INDEX idx_{prefix}_window_ended_at ON {table}(window_ended_at)'))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- DDL/validation SQL built from module constants only; no runtime input
+        connection.execute(text(f'CREATE INDEX idx_{prefix}_window_ended_at ON {table}(window_ended_at)'))
         if table==TABLES[0]:
-            connection.execute(text(f'CREATE INDEX idx_{prefix}_org_id ON {table}(org_id)'))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- DDL/validation SQL built from module constants only; no runtime input
+            connection.execute(text(f'CREATE INDEX idx_{prefix}_org_id ON {table}(org_id)'))
         if connection.dialect.name=='postgresql':
-            connection.execute(text(f"SELECT setval(pg_get_serial_sequence('{table}','id'), COALESCE(MAX(id),1), MAX(id) IS NOT NULL) FROM {table}"))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- DDL/validation SQL built from module constants only; no runtime input
+            connection.execute(text(f"SELECT setval(pg_get_serial_sequence('{table}','id'), COALESCE(MAX(id),1), MAX(id) IS NOT NULL) FROM {table}"))
 
 
 def validate(connection):

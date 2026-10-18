@@ -172,7 +172,7 @@ def _canonical_sqlite_triggers():
             if kind == "trigger":
                 add(name, table, definition)
         for suffix in _LATE_TRIGGER_MODULES:
-            module = importlib.import_module('core.schema.migrations.' + suffix)  # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import -- suffix iterates the _LATE_TRIGGER_MODULES constant tuple
+            module = importlib.import_module('core.schema.migrations.' + suffix)
             if suffix.startswith('021_'):
                 definitions = {}
                 for table in module.TABLES:

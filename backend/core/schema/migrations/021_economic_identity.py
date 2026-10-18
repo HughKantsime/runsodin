@@ -65,7 +65,7 @@ END;"""
 
 def _validate_data(connection):
     for table in TABLES:
-        invalid = connection.execute(text(f'SELECT id FROM {table} AS source WHERE economic_uid IS NOT NULL AND NOT {_association(table, "source")} LIMIT 1')).first()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- DDL/validation SQL built from module constants only; no runtime input
+        invalid = connection.execute(text(f'SELECT id FROM {table} AS source WHERE economic_uid IS NOT NULL AND NOT {_association(table, "source")} LIMIT 1')).first()
         if invalid:
             raise MigrationError('Economic source association differs')
 

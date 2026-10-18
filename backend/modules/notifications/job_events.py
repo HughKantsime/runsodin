@@ -54,7 +54,7 @@ def job_started(
             conn.execute('BEGIN IMMEDIATE')
             try:
                 result=observe_start(conn,printer_id=printer_id,filename=job_name,job_name=job_name,
-                    physical_values={'started_at':conn.execute('SELECT '+sql.now()).fetchone()[0],  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- appends only the sql.now() constant to a literal SELECT
+                    physical_values={'started_at':conn.execute('SELECT '+sql.now()).fetchone()[0],
                                      'total_layers':total_layers},source='printer-event-first-start')
                 job_id=result.id
                 education_result={'education_owned':result.education_sensitive,'education_reserved':result.education_sensitive}
