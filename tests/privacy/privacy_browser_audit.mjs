@@ -21,9 +21,17 @@ function loadFixture(name, seen = new Set()) {
 }
 
 const declared = { ...loadFixture('fleet.json'), ...loadFixture('admin.json') }
+const defaultPermissions = JSON.parse(fs.readFileSync(new URL('../accessibility/default_permissions.json', import.meta.url), 'utf8'))
 const state = { authenticated: false, erased: false }
 const unexpected = []
 const requests = []
+
+function syntheticSessionToken() {
+  // Unsigned, shape-only stand-in (the browser never verifies signatures; the server is mocked).
+  const encode = value => Buffer.from(JSON.stringify(value)).toString('base64url')
+  const claims = { sub: 'admin@school.test', role: 'admin', exp: Math.floor(Date.now() / 1000) + 3600 }
+  return `${encode({ alg: 'none', typ: 'JWT' })}.${encode(claims)}.synthetic`
+}
 
 async function apiRoute(route) {
   const request = route.request()
@@ -34,7 +42,8 @@ async function apiRoute(route) {
   if (key === 'POST /api/auth/login') {
     state.authenticated = true
     state.erased = false
-    return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' })
+    // 2.0 sign-in checks the response: a bearer token whose sub and role match /api/auth/me.
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ access_token: syntheticSessionToken(), token_type: 'bearer' }) })
   }
   if (key === 'POST /api/auth/logout') {
     state.authenticated = false
@@ -52,7 +61,8 @@ async function apiRoute(route) {
     return route.fulfill({ status: state.authenticated ? 200 : 401, contentType: 'application/json', body: JSON.stringify(body) })
   }
   if (key === 'GET /api/permissions') {
-    const body = { page_access: { settings: ['admin'], audit: ['admin'] }, action_access: { 'jobs.approve': ['admin', 'operator'] } }
+    // The server's default matrix (core/rbac_policy.py): 2.0 pages enforce every page key.
+    const body = defaultPermissions
     return route.fulfill({ status: state.authenticated ? 200 : 401, contentType: 'application/json', body: JSON.stringify(body) })
   }
   if (key === 'POST /api/auth/ws-token') {
