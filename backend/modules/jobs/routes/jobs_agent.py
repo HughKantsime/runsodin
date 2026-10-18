@@ -176,28 +176,32 @@ def approve_job(
                         status=409, retriable=False)
     db.refresh(job)
     log_audit(db, "job.approved", "job", job.id, {"approved_by": current_user["id"]})
-    db.commit()
-    db.refresh(job)
 
-    # Notify submitter
+    # Notify submitter: the alert is staged in the approval's transaction (as a job create
+    # stages its alert) inside a savepoint, so a staging failure never undoes the approval,
+    # and it is delivered after the commit.
+    from modules.notifications.alert_dispatcher import deliver_staged_alert, stage_alert
+    alert_plan = None
     if job.submitted_by:
         try:
-            from modules.notifications.alert_dispatcher import dispatch_alert
-            dispatch_alert(
-                db=db,
-                alert_type=AlertType.JOB_APPROVED,
-                severity=AlertSeverity.INFO,
-                title=f"Job approved: {job.item_name or 'Untitled'}",
-                message=f"Approved by {current_user.get('display_name') or current_user.get('username', 'an approver')}",
-                job_id=job.id,
-                target_user_ids=[job.submitted_by],
-            )
+            with db.begin_nested():
+                alert_plan = stage_alert(
+                    db, AlertType.JOB_APPROVED, AlertSeverity.INFO,
+                    f"Job approved: {job.item_name or 'Untitled'}",
+                    f"Approved by {current_user.get('display_name') or current_user.get('username', 'an approver')}",
+                    job_id=job.id, target_user_ids=[job.submitted_by])
         except Exception as e:
-            logger.warning(f"Failed to dispatch job_approved alert: {e}")
+            alert_plan = None
+            logger.warning(f"Failed to stage job_approved alert: {e}")
+    db.commit()
+    try:
+        deliver_staged_alert(db, alert_plan)
+    except Exception as e:
+        logger.warning(f"Failed to deliver job_approved alert: {e}")
 
     return {
         "status": "approved",
-        "job_id": job.id,
+        "job_id": job_id,
         "next_actions": build_next_actions(
             next_action("get_job", {"id": job_id}, "confirm approved state"),
             next_action("list_queue", {}, "see job moved to queue"),

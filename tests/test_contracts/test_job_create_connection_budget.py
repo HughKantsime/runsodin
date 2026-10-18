@@ -1,4 +1,4 @@
-"""Connections a job create opens, pinned (cv06 api_load).
+"""Connections a job create and a job approval open, pinned (cv06 api_load).
 
 On SQLite every new connection re-parses the 2.0 schema (about 1.4 ms), and the engine
 opens one per session (NullPool). A job create opened five: the request session, the
@@ -32,15 +32,32 @@ with TestClient(app) as client:
         client.post("/api/jobs", headers=headers, json={"item_name": f"warm-{index}", "quantity": 1, "duration_hours": 0.25})
     opened.clear()
     response = client.post("/api/jobs", headers=headers, json={"item_name": "measured", "quantity": 1, "duration_hours": 0.25})
-    print(json.dumps({"status": response.status_code, "opened": opened}))
+    created = {"status": response.status_code, "opened": list(opened)}
+    operator = {"Authorization": "Bearer " + tokens["operator"][0]}
+    client.post("/api/jobs/10290/approve", headers=operator)  # warm
+    opened.clear()
+    response = client.post("/api/jobs/10291/approve", headers=operator)
+    print(json.dumps({"create": created, "approve": {"status": response.status_code, "opened": list(opened)}}))
 '''
 
 
-def test_a_job_create_opens_two_database_connections(tmp_path):
+def _measure(tmp_path):
     result = subprocess.run([sys.executable, "-c", PROBE], cwd=ROOT, capture_output=True, text=True, timeout=300,
                             env={"PATH": "/usr/bin:/bin", "PYTHONPATH": f"{ROOT / 'backend'}:{ROOT}",
                                  "HOME": str(tmp_path), "TMPDIR": str(tmp_path)})
     assert result.returncode == 0, result.stderr[-3000:]
-    measured = json.loads(result.stdout.strip().splitlines()[-1])
+    return json.loads(result.stdout.strip().splitlines()[-1])
+
+
+def test_a_job_create_opens_two_database_connections(tmp_path):
+    measured = _measure(tmp_path)["create"]
     assert measured["status"] == 201
+    assert len(measured["opened"]) == 2, measured["opened"]
+
+
+def test_a_job_approval_opens_two_database_connections(tmp_path):
+    # The approval alert is staged in the approval's transaction (as a create stages its
+    # alert) and delivered on one dispatch connection; the response needs no refresh.
+    measured = _measure(tmp_path)["approve"]
+    assert measured["status"] == 200
     assert len(measured["opened"]) == 2, measured["opened"]
