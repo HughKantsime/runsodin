@@ -101,7 +101,7 @@ def _shape(connection):
 
 
 def _rows(connection,table):
-    cursor=connection.execute(text('SELECT * FROM '+table).execution_options(stream_results=True,max_row_buffer=128)).mappings()
+    cursor=connection.execute(text('SELECT * FROM '+table).execution_options(stream_results=True,max_row_buffer=128)).mappings()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- identifiers are module constants; values are bound
     try:
         while True:
             rows=cursor.fetchmany(128)
@@ -115,31 +115,31 @@ def validate_data(connection):
     for table,(_,constraints) in schema.definition(pg).items():
         for predicate in constraints:
             if predicate.startswith('CHECK('):
-                if connection.execute(text('SELECT 1 FROM '+table+' WHERE ('+predicate[6:-1]+') IS NOT TRUE LIMIT 1')).first():_refuse()
+                if connection.execute(text('SELECT 1 FROM '+table+' WHERE ('+predicate[6:-1]+') IS NOT TRUE LIMIT 1')).first():_refuse()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- CHECK predicates come from code-built schema.definition(); table is a schema constant
     for row in _rows(connection,schema.ROOT):
         if row['expected_sha256']!=schema.marker_sha(row['generation']):_refuse()
     for row in _rows(connection,schema.OP):
         if row['operation_marker_sha256']!=schema.marker_sha(row['storage_root_generation'],row['operation_id'],row['directory_birth_nonce']):_refuse()
-        count=connection.execute(text('SELECT count(*) FROM '+schema.MEMBER+' WHERE operation_id=:op'),{'op':row['operation_id']}).scalar_one()
+        count=connection.execute(text('SELECT count(*) FROM '+schema.MEMBER+' WHERE operation_id=:op'),{'op':row['operation_id']}).scalar_one()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- identifiers are module constants; values are bound
         if count>row['declared_members'] or (row['state']=='committed' and count!=row['declared_members']):_refuse()
-        if connection.execute(text('SELECT 1 FROM '+schema.MEMBER+' WHERE operation_id=:op AND member_index>=:count LIMIT 1'),{'op':row['operation_id'],'count':row['declared_members']}).first():_refuse()
+        if connection.execute(text('SELECT 1 FROM '+schema.MEMBER+' WHERE operation_id=:op AND member_index>=:count LIMIT 1'),{'op':row['operation_id'],'count':row['declared_members']}).first():_refuse()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- identifiers are module constants; values are bound
         if row['state']=='committed':
-            for member in connection.execute(text('SELECT * FROM '+schema.MEMBER+' WHERE operation_id=:op'),{'op':row['operation_id']}).mappings():
+            for member in connection.execute(text('SELECT * FROM '+schema.MEMBER+' WHERE operation_id=:op'),{'op':row['operation_id']}).mappings():  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- identifiers are module constants; values are bound
                 if member['archive_birth_id'] is None or (member['expected_relative_path'] is not None and (member['file_birth_id'] is None or member['sealed_revision']!=1 or member['verified_size']!=member['expected_size'] or member['verified_sha256']!=member['expected_sha256'])):_refuse()
         elif row['project_birth_id'] is not None:_refuse()
     for table in schema.SOURCE_TABLES:
         target=schema.OP if table=='projects' else schema.MEMBER
         idcol='project_birth_id' if table=='projects' else 'archive_birth_id' if table=='print_archives' else 'file_birth_id';nonce='project_birth_nonce' if table=='projects' else 'member_nonce'
         sql=f'SELECT 1 FROM {table} s LEFT JOIN {target} b ON b.{idcol}=s.id AND b.{nonce}=s.{schema.SOURCE} '+('' if table=='projects' else 'LEFT JOIN '+schema.OP+' o ON o.operation_id=b.operation_id ')+f"WHERE s.{schema.SOURCE} IS NOT NULL AND (b.{nonce} IS NULL OR "+("b.state<>'committed'" if table=='projects' else "o.state<>'committed'")+') LIMIT 1'
-        if connection.execute(text(sql)).first():_refuse()
+        if connection.execute(text(sql)).first():_refuse()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- identifiers are module constants; values are bound
     _retained_links(connection)
     for row in _rows(connection,schema.CLEANUP):
         if row['object_key']=='directory':continue
-        linked=connection.execute(text('SELECT * FROM '+schema.CHECKPOINT+" WHERE operation_id=:op AND object_key='directory' AND checkpoint_domain='cleanup_metadata' AND cleanup_object_key=:key"),{'op':row['operation_id'],'key':row['object_key']}).mappings().all()
+        linked=connection.execute(text('SELECT * FROM '+schema.CHECKPOINT+" WHERE operation_id=:op AND object_key='directory' AND checkpoint_domain='cleanup_metadata' AND cleanup_object_key=:key"),{'op':row['operation_id'],'key':row['object_key']}).mappings().all()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- identifiers are module constants; values are bound
         if row['state']=='intent' or (row['state']=='uncertain' and row['revision']==2):
             if linked:_refuse()
         elif len(linked)!=1 or linked[0]['domain_revision']!=row['parent_receipt_revision'] or linked[0]['cleanup_transition_revision']!=2 or linked[0]['root_generation']!=row['root_generation']:_refuse()
-    if connection.execute(text('SELECT 1 FROM '+schema.CHECKPOINT+" c LEFT JOIN "+schema.CLEANUP+" j ON j.operation_id=c.operation_id AND j.object_key=c.cleanup_object_key WHERE c.checkpoint_domain='cleanup_metadata' AND (j.object_key IS NULL OR j.state NOT IN ('unlinked','complete','uncertain') OR (j.state='uncertain' AND j.revision<>3) OR j.parent_receipt_revision IS DISTINCT FROM c.domain_revision) LIMIT 1")).first():_refuse()
+    if connection.execute(text('SELECT 1 FROM '+schema.CHECKPOINT+" c LEFT JOIN "+schema.CLEANUP+" j ON j.operation_id=c.operation_id AND j.object_key=c.cleanup_object_key WHERE c.checkpoint_domain='cleanup_metadata' AND (j.object_key IS NULL OR j.state NOT IN ('unlinked','complete','uncertain') OR (j.state='uncertain' AND j.revision<>3) OR j.parent_receipt_revision IS DISTINCT FROM c.domain_revision) LIMIT 1")).first():_refuse()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- identifiers are module constants; values are bound
 
 
 
@@ -151,17 +151,17 @@ def _retained_links(connection):
             sql=f"SELECT 1 FROM print_files f JOIN {schema.MEMBER} m ON m.member_nonce=f.project_import_nonce JOIN {schema.OP} o USING(operation_id) WHERE f.project_import_nonce IS NOT NULL AND (f.id IS DISTINCT FROM m.file_birth_id OR ({schema.owner_sql('o','f')}) IS NOT TRUE OR f.created_by IS DISTINCT FROM o.requested_by OR f.model_id IS NOT NULL OR f.job_id IS NOT NULL OR f.stored_path NOT LIKE '%/'||o.relative_directory||'/'||m.expected_relative_path) LIMIT 1"
         else:
             sql=f"SELECT 1 FROM print_archives a JOIN {schema.MEMBER} m ON m.member_nonce=a.project_import_nonce JOIN {schema.OP} o USING(operation_id) LEFT JOIN print_files f ON f.id=m.file_birth_id AND f.project_import_nonce=m.member_nonce WHERE a.project_import_nonce IS NOT NULL AND (a.id IS DISTINCT FROM m.archive_birth_id OR ({schema.owner_sql('o','a')}) IS NOT TRUE OR a.ownership_state IS DISTINCT FROM 'known' OR a.project_id IS DISTINCT FROM o.project_birth_id OR a.job_id IS NOT NULL OR a.print_job_id IS NOT NULL OR a.printer_id IS NOT NULL OR a.user_id IS NOT NULL OR (m.expected_relative_path IS NULL AND (a.file_path IS NOT NULL OR a.print_file_id IS NOT NULL)) OR (m.expected_relative_path IS NOT NULL AND (a.print_file_id IS DISTINCT FROM m.file_birth_id OR (f.id IS NOT NULL AND a.file_path IS DISTINCT FROM f.stored_path)))) LIMIT 1"
-        if connection.execute(text(sql)).first():_refuse()
+        if connection.execute(text(sql)).first():_refuse()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- identifiers are module constants; values are bound
     for row in _rows(connection,schema.CHECKPOINT):
-        op=connection.execute(text('SELECT * FROM '+schema.OP+' WHERE operation_id=:op'),{'op':row['operation_id']}).mappings().one()
+        op=connection.execute(text('SELECT * FROM '+schema.OP+' WHERE operation_id=:op'),{'op':row['operation_id']}).mappings().one()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- identifiers are module constants; values are bound
         key=row['object_key'];domain=row['checkpoint_domain']
         if row['root_generation']!=op['storage_root_generation']:_refuse()
-        root=connection.execute(text('SELECT * FROM '+schema.ROOT+' WHERE generation=:g'),{'g':row['root_generation']}).mappings().one()
+        root=connection.execute(text('SELECT * FROM '+schema.ROOT+' WHERE generation=:g'),{'g':row['root_generation']}).mappings().one()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- identifiers are module constants; values are bound
         if row['device']!=root['namespace_sealed_device'] or row['service_uid']!=root['namespace_sealed_service_uid']:_refuse()
         if key=='directory':nonce=op['directory_birth_nonce']
         elif key=='operation_birth':nonce=op['operation_marker_birth_nonce']
         else:
-            member=connection.execute(text('SELECT * FROM '+schema.MEMBER+' WHERE operation_id=:op AND member_index=:i'),{'op':row['operation_id'],'i':row['member_index']}).mappings().one()
+            member=connection.execute(text('SELECT * FROM '+schema.MEMBER+' WHERE operation_id=:op AND member_index=:i'),{'op':row['operation_id'],'i':row['member_index']}).mappings().one()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- identifiers are module constants; values are bound
             if member['expected_relative_path'] is None:_refuse()
             nonce=member['member_nonce']
             if domain=='content' and (row['byte_count']!=member['expected_size'] or row['digest_sha256']!=member['expected_sha256']):_refuse()
@@ -172,20 +172,20 @@ def _retained_links(connection):
             if any(row[k] is not None for k in ('predecessor_object_key','predecessor_domain','predecessor_revision')):_refuse()
             if row['kind']=='regular' and (row['byte_count']!=0 or row['digest_sha256']!=schema.EMPTY_SHA):_refuse()
         else:
-            birth=connection.execute(text('SELECT * FROM '+schema.CHECKPOINT+" WHERE operation_id=:op AND object_key=:key AND checkpoint_domain='birth' AND domain_revision=1"),{'op':row['operation_id'],'key':key}).mappings().one()
+            birth=connection.execute(text('SELECT * FROM '+schema.CHECKPOINT+" WHERE operation_id=:op AND object_key=:key AND checkpoint_domain='birth' AND domain_revision=1"),{'op':row['operation_id'],'key':key}).mappings().one()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- identifiers are module constants; values are bound
             if any(row[k]!=birth[k] for k in ('root_generation','object_birth_nonce','device','inode','kind','mode','service_uid','birth_ns')):_refuse()
         if domain=='content':
             if key!='directory' and (row['predecessor_object_key'],row['predecessor_domain'],row['predecessor_revision'])!=(key,'birth',1):_refuse()
             if key=='directory':
-                parents=connection.execute(text('SELECT count(*) FROM '+schema.CHECKPOINT+" WHERE operation_id=:op AND checkpoint_domain='owned_metadata'"),{'op':row['operation_id']}).scalar_one()
+                parents=connection.execute(text('SELECT count(*) FROM '+schema.CHECKPOINT+" WHERE operation_id=:op AND checkpoint_domain='owned_metadata'"),{'op':row['operation_id']}).scalar_one()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- identifiers are module constants; values are bound
                 expected=('directory','owned_metadata',parents) if parents else ('directory','birth',1)
                 if (row['predecessor_object_key'],row['predecessor_domain'],row['predecessor_revision'])!=expected:_refuse()
-                if not connection.execute(text('SELECT 1 FROM '+schema.CHECKPOINT+" WHERE operation_id=:op AND object_key='operation_birth' AND checkpoint_domain='content'"),{'op':row['operation_id']}).first():_refuse()
-                born=connection.execute(text('SELECT count(*) FROM '+schema.CHECKPOINT+" WHERE operation_id=:op AND checkpoint_domain='birth' AND object_key NOT IN ('directory','operation_birth')"),{'op':row['operation_id']}).scalar_one()
+                if not connection.execute(text('SELECT 1 FROM '+schema.CHECKPOINT+" WHERE operation_id=:op AND object_key='operation_birth' AND checkpoint_domain='content'"),{'op':row['operation_id']}).first():_refuse()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- identifiers are module constants; values are bound
+                born=connection.execute(text('SELECT count(*) FROM '+schema.CHECKPOINT+" WHERE operation_id=:op AND checkpoint_domain='birth' AND object_key NOT IN ('directory','operation_birth')"),{'op':row['operation_id']}).scalar_one()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- identifiers are module constants; values are bound
                 if born!=parents:_refuse()
-                if connection.execute(text('SELECT 1 FROM '+schema.MEMBER+" m WHERE m.operation_id=:op AND m.expected_relative_path IS NOT NULL AND NOT EXISTS(SELECT 1 FROM "+schema.CHECKPOINT+" c WHERE c.operation_id=m.operation_id AND c.object_key=CAST(m.member_index AS TEXT) AND c.checkpoint_domain='content') LIMIT 1"),{'op':row['operation_id']}).first():_refuse()
+                if connection.execute(text('SELECT 1 FROM '+schema.MEMBER+" m WHERE m.operation_id=:op AND m.expected_relative_path IS NOT NULL AND NOT EXISTS(SELECT 1 FROM "+schema.CHECKPOINT+" c WHERE c.operation_id=m.operation_id AND c.object_key=CAST(m.member_index AS TEXT) AND c.checkpoint_domain='content') LIMIT 1"),{'op':row['operation_id']}).first():_refuse()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- identifiers are module constants; values are bound
         if domain=='failure_identity':
-            content=connection.execute(text('SELECT * FROM '+schema.CHECKPOINT+" WHERE operation_id=:op AND object_key=:key AND checkpoint_domain='content'"),{'op':row['operation_id'],'key':key}).mappings().one_or_none()
+            content=connection.execute(text('SELECT * FROM '+schema.CHECKPOINT+" WHERE operation_id=:op AND object_key=:key AND checkpoint_domain='content'"),{'op':row['operation_id'],'key':key}).mappings().one_or_none()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- identifiers are module constants; values are bound
             expected=(key,'content' if content is not None else 'birth',1)
             if (row['predecessor_object_key'],row['predecessor_domain'],row['predecessor_revision'])!=expected:_refuse()
             if content is not None and any(content[k]!=row[k] for k in ('byte_count','digest_sha256')):_refuse()
@@ -193,7 +193,7 @@ def _retained_links(connection):
             if row['related_domain']!='birth' or row['related_revision']!=1 or row['related_object_key'] in ('directory','operation_birth'):_refuse()
             if row['predecessor_object_key']!='directory' or (row['domain_revision']==1 and (row['predecessor_domain'],row['predecessor_revision'])!=('birth',1)) or (row['domain_revision']>1 and (row['predecessor_domain'],row['predecessor_revision'])!=('owned_metadata',row['domain_revision']-1)):_refuse()
     for op in _rows(connection,schema.OP):
-        rows=connection.execute(text('SELECT checkpoint_domain,domain_revision,related_object_key FROM '+schema.CHECKPOINT+' WHERE operation_id=:op'),{'op':op['operation_id']}).all()
+        rows=connection.execute(text('SELECT checkpoint_domain,domain_revision,related_object_key FROM '+schema.CHECKPOINT+' WHERE operation_id=:op'),{'op':op['operation_id']}).all()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- identifiers are module constants; values are bound
         if len(rows)>647:_refuse()
         for domain in ('owned_metadata','cleanup_metadata'):
             selected=[r for r in rows if r[0]==domain]

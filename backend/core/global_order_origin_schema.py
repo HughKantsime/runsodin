@@ -164,9 +164,9 @@ def validate(c):
         if normal(index)!=normal(f'CREATE UNIQUE INDEX {INDEX} ON orders({SOURCE})'): raise MigrationError('Global source index differs')
     # Check retained data independently of guards, including deleted source history.
     for table in TABLES:
-        if c.execute(text(f"SELECT 1 FROM {table} e WHERE e.resource_kind IS DISTINCT FROM 'order' OR e.owner_scope IS DISTINCT FROM 'global' OR e.owner_key IS DISTINCT FROM 0 OR NOT ({registry('e')}) LIMIT 1")).first(): raise MigrationError('Global provenance retained registry differs')
-    if c.execute(text(f'SELECT 1 FROM {ORIGINS} o JOIN {EXCLUSIONS} e USING(order_uid) LIMIT 1')).first(): raise MigrationError('Global provenance ledgers overlap')
-    for nonce,proof,recorded in c.execute(text(f'SELECT origin_nonce,proof_kind,recorded_at FROM {ORIGINS}')):
+        if c.execute(text(f"SELECT 1 FROM {table} e WHERE e.resource_kind IS DISTINCT FROM 'order' OR e.owner_scope IS DISTINCT FROM 'global' OR e.owner_key IS DISTINCT FROM 0 OR NOT ({registry('e')}) LIMIT 1")).first(): raise MigrationError('Global provenance retained registry differs')  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- DDL/validation SQL built from module constants only; no runtime input
+    if c.execute(text(f'SELECT 1 FROM {ORIGINS} o JOIN {EXCLUSIONS} e USING(order_uid) LIMIT 1')).first(): raise MigrationError('Global provenance ledgers overlap')  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- DDL/validation SQL built from module constants only; no runtime input
+    for nonce,proof,recorded in c.execute(text(f'SELECT origin_nonce,proof_kind,recorded_at FROM {ORIGINS}')):  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- DDL/validation SQL built from module constants only; no runtime input
         from datetime import datetime
         if proof!='verified_platform_admin_global_creation': raise MigrationError('Global provenance retained proof differs')
         try:
@@ -175,8 +175,8 @@ def validate(c):
             elif datetime.strptime(recorded,'%Y-%m-%d %H:%M:%S').strftime('%Y-%m-%d %H:%M:%S')!=recorded: raise ValueError()
         except (ValueError,TypeError): raise MigrationError('Global provenance retained time differs') from None
         if not isinstance(nonce,str) or not re.fullmatch('[0-9a-f]{32}',nonce): raise MigrationError('Global provenance retained nonce differs')
-    if c.execute(text(f"SELECT 1 FROM orders s LEFT JOIN {ORIGINS} o ON o.order_uid=s.economic_uid WHERE s.{SOURCE} IS NOT NULL AND (s.org_id IS NOT NULL OR s.economic_uid IS NULL OR o.order_uid IS NULL OR o.origin_nonce IS DISTINCT FROM s.{SOURCE}) LIMIT 1")).first(): raise MigrationError('Global provenance live source lacks exact origin')
-    if c.execute(text(f"SELECT 1 FROM {ORIGINS} o JOIN orders s ON s.economic_uid=o.order_uid WHERE s.org_id IS NOT NULL OR s.{SOURCE} IS DISTINCT FROM o.origin_nonce LIMIT 1")).first(): raise MigrationError('Global provenance origin differs from live source')
+    if c.execute(text(f"SELECT 1 FROM orders s LEFT JOIN {ORIGINS} o ON o.order_uid=s.economic_uid WHERE s.{SOURCE} IS NOT NULL AND (s.org_id IS NOT NULL OR s.economic_uid IS NULL OR o.order_uid IS NULL OR o.origin_nonce IS DISTINCT FROM s.{SOURCE}) LIMIT 1")).first(): raise MigrationError('Global provenance live source lacks exact origin')  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- DDL/validation SQL built from module constants only; no runtime input
+    if c.execute(text(f"SELECT 1 FROM {ORIGINS} o JOIN orders s ON s.economic_uid=o.order_uid WHERE s.org_id IS NOT NULL OR s.{SOURCE} IS DISTINCT FROM o.origin_nonce LIMIT 1")).first(): raise MigrationError('Global provenance origin differs from live source')  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- DDL/validation SQL built from module constants only; no runtime input
 
 def apply(c):
     boundary(c)
@@ -188,8 +188,8 @@ def apply(c):
         footprint=footprint or bool(c.execute(text("SELECT 1 FROM sqlite_master WHERE name LIKE 'orders_global_origin_%' OR name LIKE 'cost_global_origin%' OR name LIKE 'cost_global_order_origin%'")).first())
     if footprint:
         validate(c)
-        if c.execute(text(f'SELECT 1 FROM {ORIGINS} LIMIT 1')).first() or c.execute(text(f'SELECT 1 FROM orders WHERE {SOURCE} IS NOT NULL LIMIT 1')).first(): raise MigrationError('Global provenance unrecorded adoption is not unused')
-        missing=c.execute(text(f"SELECT identity_uid FROM cost_identities WHERE resource_kind='order' AND owner_scope='global' AND owner_key=0 EXCEPT SELECT order_uid FROM {EXCLUSIONS}")).first()
+        if c.execute(text(f'SELECT 1 FROM {ORIGINS} LIMIT 1')).first() or c.execute(text(f'SELECT 1 FROM orders WHERE {SOURCE} IS NOT NULL LIMIT 1')).first(): raise MigrationError('Global provenance unrecorded adoption is not unused')  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- DDL/validation SQL built from module constants only; no runtime input
+        missing=c.execute(text(f"SELECT identity_uid FROM cost_identities WHERE resource_kind='order' AND owner_scope='global' AND owner_key=0 EXCEPT SELECT order_uid FROM {EXCLUSIONS}")).first()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- DDL/validation SQL built from module constants only; no runtime input
         if missing: raise MigrationError('Global provenance cutover exclusions differ')
         return
     importlib.import_module('core.schema.migrations.009_cost_foundation').validate(c)

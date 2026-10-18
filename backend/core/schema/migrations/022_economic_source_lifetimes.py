@@ -176,7 +176,7 @@ def validate(connection):
             raise MigrationError('Economic birth trigger shape differs')
         if connection.exec_driver_sql('PRAGMA foreign_key_check').first():raise MigrationError('Economic birth foreign data differs')
     for table,kind in TABLES.items():
-        bad=connection.execute(text(f"SELECT s.id FROM {table} s LEFT JOIN {HISTORY} l ON l.birth_nonce=s.economic_birth_nonce WHERE (s.economic_birth_nonce IS NOT NULL AND (l.birth_nonce IS NULL OR l.resource_kind!=:kind OR l.resource_id!=s.id)) OR (s.economic_uid IS NOT NULL AND (l.birth_nonce IS NULL OR l.state!='known' OR l.identity_uid IS DISTINCT FROM s.economic_uid)) LIMIT 1"),{'kind':kind}).first()
+        bad=connection.execute(text(f"SELECT s.id FROM {table} s LEFT JOIN {HISTORY} l ON l.birth_nonce=s.economic_birth_nonce WHERE (s.economic_birth_nonce IS NOT NULL AND (l.birth_nonce IS NULL OR l.resource_kind!=:kind OR l.resource_id!=s.id)) OR (s.economic_uid IS NOT NULL AND (l.birth_nonce IS NULL OR l.state!='known' OR l.identity_uid IS DISTINCT FROM s.economic_uid)) LIMIT 1"),{'kind':kind}).first()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- DDL/validation SQL built from module constants only; no runtime input
         if bad:raise MigrationError('Economic birth association differs')
 
 

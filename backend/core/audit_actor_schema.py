@@ -99,7 +99,7 @@ def validate(connection):
         connection.execute(text('CREATE TEMP TABLE audit_actor_reference (actor_user_id INTEGER,actor_username VARCHAR(128),actor_auth_kind VARCHAR(32))'))
         connection.execute(text(ledger_ddl(True,'audit_erasure_reference',True)))
         try:
-            for name,sql in checks(True).items():connection.execute(text(f'ALTER TABLE audit_actor_reference ADD CONSTRAINT {name} CHECK ({sql})'))
+            for name,sql in checks(True).items():connection.execute(text(f'ALTER TABLE audit_actor_reference ADD CONSTRAINT {name} CHECK ({sql})'))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- DDL/validation SQL built from module constants only; no runtime input
             if _pg_checks(connection,'audit_logs')!=_pg_checks(connection,'pg_temp.audit_actor_reference') or _pg_checks(connection,LEDGER)!=_pg_checks(connection,'pg_temp.audit_erasure_reference'):raise MigrationError('Audit check definition differs')
             ref={c['name']:c for c in inspect(connection).get_columns('audit_erasure_reference',schema=connection.execute(text('SELECT pg_my_temp_schema()::regnamespace::text')).scalar_one())}
             if str(lc[1]['type'])!=str(ref['erased_at']['type']) or normal(lc[1]['default'])!=normal(ref['erased_at']['default']):raise MigrationError('Audit timestamp default/type differs')
@@ -131,12 +131,12 @@ def validate(connection):
     for row in connection.execute(text('SELECT actor_user_id,actor_username,actor_auth_kind FROM audit_logs WHERE actor_auth_kind IS NOT NULL')).all():
         from core.audit_actor import valid_snapshot
         if not valid_snapshot(*row):raise MigrationError('Retained audit actor differs')
-    for uid,dt in connection.execute(text(f'SELECT user_id,erased_at FROM {LEDGER}')).all():
+    for uid,dt in connection.execute(text(f'SELECT user_id,erased_at FROM {LEDGER}')).all():  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- DDL/validation SQL built from module constants only; no runtime input
         try:
             parsed=dt if isinstance(dt,datetime) else datetime.strptime(dt,'%Y-%m-%d %H:%M:%S')
             if not pg and parsed.strftime('%Y-%m-%d %H:%M:%S')!=dt:raise ValueError()
         except (ValueError,TypeError):raise MigrationError('Retained erasure time differs') from None
-    if connection.execute(text(f'SELECT 1 FROM audit_logs a JOIN {LEDGER} e ON a.actor_user_id=e.user_id LIMIT 1')).first():raise MigrationError('Retained erased actor remains')
+    if connection.execute(text(f'SELECT 1 FROM audit_logs a JOIN {LEDGER} e ON a.actor_user_id=e.user_id LIMIT 1')).first():raise MigrationError('Retained erased actor remains')  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- DDL/validation SQL built from module constants only; no runtime input
 
 
 def apply(connection):
@@ -158,10 +158,10 @@ def apply(connection):
     for column,kind,check in zip(ACTOR_COLUMNS,('INTEGER','VARCHAR(128)','VARCHAR(32)'),definitions):
         sql=f'ALTER TABLE audit_logs ADD COLUMN {column} {kind}'
         if not pg:sql+=f' CONSTRAINT {check} CHECK ({definitions[check]})'
-        connection.execute(text(sql))
+        connection.execute(text(sql))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- DDL/validation SQL built from module constants only; no runtime input
     if pg:
-        for name,sql in definitions.items():connection.execute(text(f'ALTER TABLE audit_logs ADD CONSTRAINT {name} CHECK ({sql})'))
+        for name,sql in definitions.items():connection.execute(text(f'ALTER TABLE audit_logs ADD CONSTRAINT {name} CHECK ({sql})'))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- DDL/validation SQL built from module constants only; no runtime input
     connection.execute(text(ledger_ddl(pg)))
-    if pg:connection.execute(text(f"CREATE FUNCTION {FUNCTION}() RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path=pg_catalog AS $$"+PG_BODY+'$$'))
+    if pg:connection.execute(text(f"CREATE FUNCTION {FUNCTION}() RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path=pg_catalog AS $$"+PG_BODY+'$$'))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- DDL/validation SQL built from module constants only; no runtime input
     for sql in trigger_sql(pg).values():connection.execute(text(sql))
     validate(connection)

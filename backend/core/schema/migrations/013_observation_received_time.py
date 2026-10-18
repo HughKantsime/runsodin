@@ -17,5 +17,5 @@ def apply(connection):
         connection.exec_driver_sql('BEGIN IMMEDIATE')
     columns={column['name'] for column in inspect(connection).get_columns(TABLE)}
     if COLUMN not in columns:
-        connection.execute(text(translate_statement(f'ALTER TABLE {TABLE} ADD COLUMN {COLUMN} {DEFINITION}',connection.dialect.name)))
+        connection.execute(text(translate_statement(f'ALTER TABLE {TABLE} ADD COLUMN {COLUMN} {DEFINITION}',connection.dialect.name)))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- DDL/validation SQL built from module constants only; no runtime input
     validate(connection)

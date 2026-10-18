@@ -6,7 +6,7 @@ FUNCTIONS=('cost_anchor_immutable','cost_participation_guard')
 
 
 def sqlite_signature(connection):
-    rows=connection.execute(text("SELECT type,name,tbl_name,sql FROM sqlite_master WHERE tbl_name IN ("+','.join(':t'+str(i) for i in range(len(TABLES)))+") ORDER BY type,name"), {'t'+str(i):t for i,t in enumerate(TABLES)}).all()
+    rows=connection.execute(text("SELECT type,name,tbl_name,sql FROM sqlite_master WHERE tbl_name IN ("+','.join(':t'+str(i) for i in range(len(TABLES)))+") ORDER BY type,name"), {'t'+str(i):t for i,t in enumerate(TABLES)}).all()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- only generated placeholders are interpolated; values are bound
     return [list(row) for row in rows]
 
 
