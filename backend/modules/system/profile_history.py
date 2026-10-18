@@ -96,7 +96,7 @@ def write_revision(db, profile_id, actor, *, content=None, changelog=None, rever
         fields.update({key: value for key, value in (updates or {}).items() if key in allowed})
         sets = ', '.join(f'{key}=:{key}' for key in fields)
         fields['id'] = profile_id
-        db.execute(text(f'UPDATE printer_profiles SET {sets},updated_at=CURRENT_TIMESTAMP WHERE id=:id'), fields)
+        db.execute(text(f'UPDATE printer_profiles SET {sets},updated_at=CURRENT_TIMESTAMP WHERE id=:id'), fields)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- column names pass a fixed allowlist; values are bound
         log_audit(db, 'update', 'profile', profile_id, {'revision_number': number, 'reverted_from': revert_to})
         db.flush()
         db.commit()

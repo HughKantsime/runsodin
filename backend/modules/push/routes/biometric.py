@@ -125,7 +125,7 @@ async def refresh_with_biometric_token(
             db.execute(text('UPDATE users SET id=id WHERE id=:id'), {'id': bio_token.user_id})
         suffix = ' FOR UPDATE NOWAIT' if db.get_bind().dialect.name == 'postgresql' else ''
         user_row = db.execute(
-            text('SELECT * FROM users WHERE id=:id AND is_active IS TRUE' + suffix),
+            text('SELECT * FROM users WHERE id=:id AND is_active IS TRUE' + suffix),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- only a constant dialect lock suffix is appended; values are bound
             {'id': bio_token.user_id},
         ).fetchone()
     except Exception:

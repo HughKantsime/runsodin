@@ -112,7 +112,7 @@ async def chargeback_report(
             params["end"] = datetime.combine(end_day + timedelta(days=1), time.min)
     query += " GROUP BY j.charged_to_user_id, u.username ORDER BY total_cost DESC"
 
-    rows = db.execute(text(query), params).fetchall()
+    rows = db.execute(text(query), params).fetchall()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- query built from constant fragments; dates and org are bound
     from modules.reporting.education_usage import report_currency
     currency = None if platform else report_currency(db, current_user)
     return [{
