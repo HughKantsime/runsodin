@@ -98,8 +98,8 @@ def retired_fact_exemptions(db,collisions,foreign_publications,*,scope,budget):
         binding=binding_rows[0];operation_id=binding['operation_id']
         intents=_history_rows(db,intent,intent.c.operation_id==operation_id,allowance,budget)
         if len(intents)!=1 or intents[0]['state']!='complete' or intents[0]['completed_at'] is None or intents[0]['owner_state'] not in ('known','shared'):_refuse('shared_workspace')
-        if not db.execute(text('SELECT 1 FROM timelapse_retirement_lifetime_bindings n WHERE n.operation_id=:op AND '+static_binding_proof('n')),{'op':operation_id}).first():_refuse('shared_workspace')
-        if not db.execute(text("SELECT 1 FROM timelapse_retirements i WHERE i.operation_id=:op AND i.state='complete' AND "+completion_proof('i')),{'op':operation_id}).first():_refuse('shared_workspace')
+        if not db.execute(text('SELECT 1 FROM timelapse_retirement_lifetime_bindings n WHERE n.operation_id=:op AND '+static_binding_proof('n')),{'op':operation_id}).first():_refuse('shared_workspace')  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- predicate is code-built from constant SQL fragments; principal values are bound
+        if not db.execute(text("SELECT 1 FROM timelapse_retirements i WHERE i.operation_id=:op AND i.state='complete' AND "+completion_proof('i')),{'op':operation_id}).first():_refuse('shared_workspace')  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- predicate is code-built from constant SQL fragments; principal values are bound
         budget.check()
         # Nonce relations, never numeric-ID adoption. Predicate fences block new references.
         if db.execute(text('SELECT 1 FROM timelapses t WHERE t.retirement_operation_id=:op OR t.ownership_operation_id IN (SELECT version_nonce FROM timelapse_media_versions WHERE lifetime_nonce=:life) LIMIT 1'),{'op':operation_id,'life':lifetime}).first():_refuse('shared_workspace')

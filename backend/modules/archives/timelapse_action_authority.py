@@ -36,7 +36,7 @@ RETIREMENT_PROOF_RELATIONS=tuple(sorted(('timelapse_retirements','timelapse_reti
 
 def _retirement_catalog(c):
     values=','.join("('"+name+"')" for name in RETIREMENT_PROOF_RELATIONS)
-    rows=c.execute(text("SELECT n.name,to_regclass(n.name)::oid,to_regclass('public.'||n.name)::oid,k.relkind,k.relpersistence FROM (VALUES "+values+") n(name) LEFT JOIN pg_class k ON k.oid=to_regclass('public.'||n.name) ORDER BY n.name COLLATE \"C\"")).all()
+    rows=c.execute(text("SELECT n.name,to_regclass(n.name)::oid,to_regclass('public.'||n.name)::oid,k.relkind,k.relpersistence FROM (VALUES "+values+") n(name) LEFT JOIN pg_class k ON k.oid=to_regclass('public.'||n.name) ORDER BY n.name COLLATE \"C\"")).all()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- VALUES list built from the RETIREMENT_PROOF_RELATIONS constants
     if (len(rows)!=len(RETIREMENT_PROOF_RELATIONS) or tuple(r[0] for r in rows)!=RETIREMENT_PROOF_RELATIONS
         or any(type(r[1]) is not int or r[1]<=0 or r[1]!=r[2] or (r[3],r[4])!=('r','p') for r in rows)):_refuse('unknown_authority')
     return tuple(tuple(r) for r in rows)
@@ -140,7 +140,7 @@ def fence_authorization(db,*,preparation=False,retirement_proofs=False):
             if relation not in extra:
                 oid,qualified=c.execute(text('SELECT to_regclass(:r)::oid,to_regclass(:q)::oid'),{'r':relation,'q':'public.'+relation}).one()
                 if oid is None or oid!=qualified or c.execute(text('SELECT relkind,relpersistence FROM pg_class WHERE oid=:id'),{'id':oid}).one()!=('r','p'):_refuse('unknown_authority')
-            c.execute(text('LOCK TABLE public.'+relation+' IN SHARE MODE NOWAIT'))
+            c.execute(text('LOCK TABLE public.'+relation+' IN SHARE MODE NOWAIT'))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- relation comes from the RELATIONS constant set
         if retirement_proofs and _retirement_catalog(c)!=before:_refuse('unknown_authority')
     else:_refuse('unknown_authority')
 

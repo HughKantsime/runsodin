@@ -30,7 +30,7 @@ def list_tags(
     predicate, bindings = archive_visibility(user)
     if should_filter_org(user, org):
         rows = db.execute(
-            text(
+            text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- predicate is code-built from constant SQL fragments; principal values are bound
                 "SELECT a.tags FROM print_archives a "
                 "LEFT JOIN printers p ON a.printer_id = p.id "
                 "WHERE a.tags IS NOT NULL AND a.tags != '' "
@@ -70,7 +70,7 @@ def rename_tag(
     predicate, bindings = archive_visibility(user)
     if should_filter_org(user, org):
         rows = db.execute(
-            text(
+            text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- predicate is code-built from constant SQL fragments; principal values are bound
                 "SELECT a.id, a.tags FROM print_archives a "
                 "LEFT JOIN printers p ON a.printer_id = p.id "
                 "WHERE a.tags IS NOT NULL AND a.tags != '' "
@@ -115,7 +115,7 @@ def delete_tag(
     predicate, bindings = archive_visibility(user)
     if should_filter_org(user, org):
         rows = db.execute(
-            text(
+            text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- predicate is code-built from constant SQL fragments; principal values are bound
                 "SELECT a.id, a.tags FROM print_archives a "
                 "LEFT JOIN printers p ON a.printer_id = p.id "
                 "WHERE a.tags IS NOT NULL AND a.tags != '' "

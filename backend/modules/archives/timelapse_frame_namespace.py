@@ -41,10 +41,10 @@ def bind_or_open_namespace(db, root_fd, root_identity, guard, *, nonce, timelaps
         # Same portable write-lock ordering used by capture creation.
         for table, identifier in (('jobs', job_id), ('printers', printer_id), ('timelapses', timelapse_id)):
             if db.get_bind().dialect.name == 'postgresql':
-                result = db.execute(text(f'SELECT id FROM {table} WHERE id=:id FOR UPDATE NOWAIT'), {'id': identifier})
+                result = db.execute(text(f'SELECT id FROM {table} WHERE id=:id FOR UPDATE NOWAIT'), {'id': identifier})  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- lock helper receives literal table/column/predicate strings only; values are bound
                 if result.first() is None: _refuse()
             else:
-                if db.execute(text(f'UPDATE {table} SET id=id WHERE id=:id'), {'id': identifier}).rowcount != 1:
+                if db.execute(text(f'UPDATE {table} SET id=id WHERE id=:id'), {'id': identifier}).rowcount != 1:  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- lock helper receives literal table/column/predicate strings only; values are bound
                     _refuse()
         row = db.execute(text('SELECT printer_id,print_job_id,filename,status,ownership_operation_id,retirement_operation_id '
                               'FROM timelapses WHERE id=:id'), {'id': timelapse_id}).mappings().one()

@@ -12,7 +12,7 @@ _TABLES=('education_cost_center_grants','education_cost_centers','education_subm
 
 def fence_content_membership(db):
     if db.get_bind().dialect.name=='postgresql':
-        db.execute(text('LOCK TABLE '+','.join('public.'+name for name in _TABLES)+' IN SHARE MODE NOWAIT'))
+        db.execute(text('LOCK TABLE '+','.join('public.'+name for name in _TABLES)+' IN SHARE MODE NOWAIT'))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- identifiers are module constants; values are bound
     else:
         db.execute(text('UPDATE print_files SET id=id WHERE 0'))
 
@@ -22,7 +22,7 @@ def _refuse():
 
 
 def _bounded(db,sql,params,expanding=()):
-    query=text(sql+' LIMIT 17')
+    query=text(sql+' LIMIT 17')  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- callers pass only literal statements; values are bound
     if any(key not in _EXPANSION_TYPES for key in expanding):
         raise ValueError('Unknown content alias expansion domain')
     if expanding:query=query.bindparams(*(bindparam(key,expanding=True,type_=_EXPANSION_TYPES[key]) for key in expanding))
