@@ -261,6 +261,24 @@ def test_postgres_restore_drill_uses_a_docker_shared_secret_path() -> None:
     assert "SELECT COUNT(*) FROM pg_roles" in runner
 
 
+def test_postgres_offline_restore_drill_uses_the_odin_data_volume() -> None:
+    """The restore drill's /data is ODIN's application volume, never the cluster.
+
+    PGDATA belongs to the postgres user (mode 0700); the 2.0 restore gate
+    (core/postgres_restore_gate.py) correctly refuses a data directory the
+    caller cannot open or does not own, and backups must not land in PGDATA.
+    """
+    runner = (ROOT / "ops" / "database_parity" / "run_restore_drill.sh").read_text(
+        encoding="utf-8"
+    )
+    offline = runner.split('step="offline restore scenarios"', 1)[1].split(
+        'step="post-restore runtime restart"', 1
+    )[0]
+    assert "--user odin" in offline
+    assert 'type=volume,src=${application_volume},dst=/data' in offline
+    assert "${data_volume}" not in offline
+
+
 def test_enterprise_postgres_uses_separate_least_privilege_identities() -> None:
     compose = (ROOT / "docker-compose.enterprise.yml").read_text(encoding="utf-8")
     init_roles = (

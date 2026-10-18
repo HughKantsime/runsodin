@@ -275,8 +275,10 @@ docker run --rm \
     2>&1 | tee "${runtime_diagnostic_file}"
 
 step="offline restore scenarios"
-# Runs as odin, as docker/entrypoint.sh runs restores: /data is odin's, and the restore
-# gate admits only the owner of the data directory.
+# Runs as odin, as docker/entrypoint.sh runs restores, on ODIN's application data volume
+# (odin-owned, created by the API container's entrypoint). The restore gate admits only a
+# data directory its caller can open and owns; the PostgreSQL cluster volume (postgres,
+# 0700) is never ODIN's /data, and backups must not be written into PGDATA.
 docker run --rm \
     --network "${network}" \
     --user odin \
@@ -289,7 +291,7 @@ docker run --rm \
     -e PYTHONPATH=/app/backend \
     --mount "type=bind,src=${app_password_file},dst=/run/secrets/postgres_app_password,readonly" \
     --mount "type=bind,src=${maintenance_password_file},dst=/run/secrets/postgres_maintenance_password,readonly" \
-    -v "${data_volume}:/data" \
+    --mount "type=volume,src=${application_volume},dst=/data" \
     -v "$(pwd)/ops/database_parity/restore_drill.py:/tmp/restore_drill.py:ro" \
     "${image}" \
     /tmp/restore_drill.py
