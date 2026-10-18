@@ -171,7 +171,8 @@ def record_job_started(
                         needs_reschedule = True
 
                 # ---- Job matching (3 strategies) ----
-                cur.execute(f"""
+                cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- only generated placeholders are interpolated; values are bound
+                    f"""
                     SELECT DISTINCT j.id, pf.filename, j.item_name, m.name as model_name,
                            pf.layer_count, j.status, j.scheduled_start
                     FROM jobs j
@@ -266,7 +267,8 @@ def record_job_started(
                 # ---- Ad-hoc print: bump displaced scheduled jobs ----
                 if not linked_job_id and candidates:
                     log.info(f"[{printer_name}] No auto-match for '{job_base}' ({total_layers} layers) - ad-hoc print")
-                    cur.execute(f"""
+                    cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- only generated placeholders are interpolated; values are bound
+                        f"""
                         SELECT id, item_name FROM jobs
                         WHERE printer_id = ? AND status = 'scheduled'
                           AND id IN ({candidate_placeholders})

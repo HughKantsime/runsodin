@@ -601,7 +601,7 @@ async def submit_studio_print(
             assert_generic_model_reference_allowed(db, row.model_id)
             assert_payload_unchanged(row.stored_path, payload_hash)
             predicate, parameters = file_snapshot_predicate(file_capture)
-            linked = db.execute(text(f'UPDATE print_files SET job_id=:job WHERE {predicate} AND job_id IS NULL'),
+            linked = db.execute(text(f'UPDATE print_files SET job_id=:job WHERE {predicate} AND job_id IS NULL'),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- predicate from file_snapshot_predicate over fixed FILE_FIELDS; values are bound
                                 {**parameters, 'job': job_id})
             if linked.rowcount != 1:
                 raise HTTPException(409, 'Print file changed; refresh before scheduling')

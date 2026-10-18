@@ -27,7 +27,7 @@ def _lock(conn,table,identifier,column):
     statement=(f'SELECT 1 FROM {table} WHERE id=:id FOR UPDATE NOWAIT'
                if conn.dialect.name=='postgresql' else
                f'UPDATE {table} SET {column}={column} WHERE id=:id RETURNING 1')
-    if conn.execute(text(statement),{'id':identifier}).first() is None:
+    if conn.execute(text(statement),{'id':identifier}).first() is None:  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- lock helper receives literal table/column/predicate strings only; values are bound
         raise _Refused('Dispatch resource is no longer available')
 
 

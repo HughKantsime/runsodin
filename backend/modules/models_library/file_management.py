@@ -41,7 +41,7 @@ def list_generic_files(db, actor, limit, include_scheduled):
     files, offset = [], 0
     while len(files) < limit:
         predicate = '' if include_scheduled else ' WHERE job_id IS NULL'
-        candidates = db.execute(text('SELECT id FROM print_files' + predicate + ' ORDER BY uploaded_at DESC,id DESC LIMIT 100 OFFSET :offset'), {'offset': offset}).fetchall()
+        candidates = db.execute(text('SELECT id FROM print_files' + predicate + ' ORDER BY uploaded_at DESC,id DESC LIMIT 100 OFFSET :offset'), {'offset': offset}).fetchall()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- only a constant WHERE fragment is appended; values are bound
         if not candidates:
             break
         offset += len(candidates)
@@ -168,7 +168,8 @@ def schedule_generic_file(db, file_id, printer_id, actor):
         assert_generic_model_reference_allowed(db, row.model_id)
         assert_payload_unchanged(row.stored_path, payload_hash)
         capture_predicate, capture_parameters = file_snapshot_predicate(file_capture)
-        linked = db.execute(text(f'''UPDATE print_files SET job_id=:job WHERE id=:id AND job_id IS NULL
+        linked = db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- predicate from file_snapshot_predicate over fixed FILE_FIELDS; values are bound
+            f'''UPDATE print_files SET job_id=:job WHERE id=:id AND job_id IS NULL
             AND {capture_predicate}
             AND (org_id=:org OR (org_id IS NULL AND CAST(:org AS INTEGER) IS NULL))
             AND (model_id=:model OR (model_id IS NULL AND CAST(:model AS INTEGER) IS NULL))

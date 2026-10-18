@@ -19,7 +19,7 @@ def _rows(conn, table, ids, columns, lock=False):
     placeholders = ','.join('?' for _ in ids)
     suffix = ' FOR UPDATE NOWAIT' if lock and getattr(conn, '_postgres', False) else ''
     # Names come only from fixed internal callers; values remain bound.
-    return conn.execute(f'SELECT {columns} FROM {table} WHERE id IN ({placeholders}) ORDER BY id{suffix}', tuple(sorted(ids))).fetchall()
+    return conn.execute(f'SELECT {columns} FROM {table} WHERE id IN ({placeholders}) ORDER BY id{suffix}', tuple(sorted(ids))).fetchall()  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- table/columns come from fixed internal callers; generated placeholders; values are bound
 
 
 def _graph(conn, printer_id, tags):
@@ -27,12 +27,12 @@ def _graph(conn, printer_id, tags):
     matches = []
     if tags:
         placeholders = ','.join('?' for _ in tags)
-        matches = conn.execute(f'SELECT id,rfid_tag FROM spools WHERE rfid_tag IN ({placeholders})', tuple(tags)).fetchall()
+        matches = conn.execute(f'SELECT id,rfid_tag FROM spools WHERE rfid_tag IN ({placeholders})', tuple(tags)).fetchall()  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- only generated placeholders are interpolated; values are bound
     ids = {row[1] for row in slots if row[1] is not None} | {row[0] for row in matches}
     spools = _rows(conn, 'spools', ids, 'id,org_id,location_printer_id,initial_weight_g,remaining_weight_g,location_slot')
     if ids:
         placeholders = ','.join('?' for _ in ids)
-        previous = conn.execute(f'SELECT id,assigned_spool_id,printer_id,slot_number FROM filament_slots WHERE assigned_spool_id IN ({placeholders})', tuple(sorted(ids))).fetchall()
+        previous = conn.execute(f'SELECT id,assigned_spool_id,printer_id,slot_number FROM filament_slots WHERE assigned_spool_id IN ({placeholders})', tuple(sorted(ids))).fetchall()  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- only generated placeholders are interpolated; values are bound
         slots = list({row[0]: row for row in slots + previous}.values())
     for spool in spools:
         if spool[2] is not None:
@@ -155,7 +155,7 @@ def _clear_unplugged_ht(conn, printer_id, reported):
     """
     from modules.printers.telemetry.bambu.ams_identity import AMS_HT_FIRST_SLOT
     suffix = ' FOR UPDATE' if getattr(conn, '_postgres', False) else ''
-    rows = conn.execute(
+    rows = conn.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- only a constant dialect lock suffix is appended; values are bound
         f'SELECT id,assigned_spool_id,slot_number FROM filament_slots WHERE printer_id=? AND slot_number>=? ORDER BY id{suffix}',
         (printer_id, AMS_HT_FIRST_SLOT)).fetchall()
     for slot_id, assigned, number in rows:
