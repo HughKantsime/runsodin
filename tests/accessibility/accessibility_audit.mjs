@@ -21,6 +21,8 @@ function loadFixture(name, seen = new Set()) {
   return { ...inherited, ...Object.fromEntries(Object.entries(document).filter(([key]) => !key.startsWith('$'))) }
 }
 
+// The server's default matrix (core/rbac_policy.py), kept equal by tests/test_contracts/test_accessibility_permissions_fixture.py.
+const defaultPermissions = JSON.parse(fs.readFileSync(new URL('./default_permissions.json', import.meta.url), 'utf8'))
 const fixtureDocuments = new Map()
 function fixtureDocument(name) {
   if (!fixtureDocuments.has(name)) fixtureDocuments.set(name, loadFixture(name))
@@ -52,7 +54,7 @@ function fixture(name, method, path, persona) {
   if (declared?.$dynamic === 'permissions') {
     // The server's default matrix (core/rbac_policy.py); 2.0 pages enforce every page key,
     // so a partial matrix would redirect personas away from the pages under audit.
-    return { declared: true, status: 200, body: fixtureDocument('permissions.json') }
+    return { declared: true, status: 200, body: defaultPermissions }
   }
   return { declared: true, status: declared.$status ?? 200, body: declared.$body ?? declared }
 }
