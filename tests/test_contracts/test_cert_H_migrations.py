@@ -130,6 +130,7 @@ def _boot(name: str, image: str, volume: str, port: int, timeout: float) -> tupl
     return False, (logs.stdout + logs.stderr)[-4000:]
 
 
+@pytest.mark.live_environment
 @pytest.mark.skipif(not IMAGE or shutil.which("docker") is None, reason="CERT_H_IMAGE and docker required")
 def test_database_written_by_published_v1_9_24_upgrades_with_current_source_image():
     name = f"certh-mig-{os.getpid()}"

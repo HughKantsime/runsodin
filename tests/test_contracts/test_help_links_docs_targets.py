@@ -21,10 +21,13 @@ SITE_DOCS = Path(os.environ.get("ODIN_SITE_DOCS", ROOT.parent / "odin-site/docs"
 BUILD = os.environ.get("CERT_H_DOCS_BUILD", "")
 BASE = "https://docs.runsodin.com"
 
-pytestmark = pytest.mark.skipif(
+# live_environment: needs a built image, Docker, network or an external checkout; the contract
+# gate deselects it (tests/test_contracts/live_environment_inventory.txt) and the certification
+# batches run it with the environment set.
+pytestmark = [pytest.mark.live_environment, pytest.mark.skipif(
     not (SITE_DOCS / "sidebars.js").is_file(),
     reason=f"odin-site docs source not found at {SITE_DOCS} (set ODIN_SITE_DOCS)",
-)
+)]
 
 
 def _entries() -> dict[str, str]:

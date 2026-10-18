@@ -51,7 +51,10 @@ VERSION = (ROOT / "VERSION").read_text().strip()
 ANSI = re.compile(r"\x1b\[")
 BASE_PATH = f"{Path(DOCKER).parent if DOCKER else '/usr/local/bin'}:/usr/bin:/bin:/usr/sbin:/sbin"
 
-pytestmark = pytest.mark.skipif(not IMAGE or DOCKER is None, reason="CERT_H_IMAGE and docker required")
+# live_environment: needs a built image, Docker, network or an external checkout; the contract
+# gate deselects it (tests/test_contracts/live_environment_inventory.txt) and the certification
+# batches run it with the environment set.
+pytestmark = [pytest.mark.live_environment, pytest.mark.skipif(not IMAGE or DOCKER is None, reason="CERT_H_IMAGE and docker required")]
 
 RUN = "certh-" + uuid.uuid4().hex[:8]
 STATE: dict = {}

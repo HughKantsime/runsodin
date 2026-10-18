@@ -42,9 +42,12 @@ PROGRAMS = {
 }
 SECRET_FILES = (".encryption_key", ".jwt_secret", ".odin-install-id")
 
-pytestmark = pytest.mark.skipif(
+# live_environment: needs a built image, Docker, network or an external checkout; the contract
+# gate deselects it (tests/test_contracts/live_environment_inventory.txt) and the certification
+# batches run it with the environment set.
+pytestmark = [pytest.mark.live_environment, pytest.mark.skipif(
     not IMAGE or shutil.which("docker") is None, reason="CERT_H_IMAGE and docker required"
-)
+)]
 
 
 def _docker(*args: str, check: bool = True, timeout: int = 180) -> subprocess.CompletedProcess:

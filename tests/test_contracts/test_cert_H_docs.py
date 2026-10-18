@@ -33,7 +33,10 @@ CLAIMED = {"introduction", "getting started", "configuration", "security", "feat
            "integrations", "api reference", "troubleshooting"}
 SETTINGS_HELP = re.search(r"'/settings': \{ url: '([^']+)'", (ROOT / "frontend/src/utils/helpLinks.ts").read_text()).group(1)
 
-pytestmark = pytest.mark.skipif(not BUILD, reason="CERT_H_DOCS_BUILD required")
+# live_environment: needs a built image, Docker, network or an external checkout; the contract
+# gate deselects it (tests/test_contracts/live_environment_inventory.txt) and the certification
+# batches run it with the environment set.
+pytestmark = [pytest.mark.live_environment, pytest.mark.skipif(not BUILD, reason="CERT_H_DOCS_BUILD required")]
 
 
 def _ids() -> list[str]:

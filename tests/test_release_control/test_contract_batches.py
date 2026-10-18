@@ -54,3 +54,50 @@ def test_an_empty_suite_is_a_failure(tmp_path):
     suite = _suite(tmp_path / "suite", {})
     assert contract_batches.main(["--tests", str(suite), "--junit", str(tmp_path / "junit.xml"),
                                   "--work", str(tmp_path / "work")]) == 1
+
+
+_MARKED = {
+    "test_plain.py": "def test_ok():\n    assert True\n",
+    "test_live.py": "import pytest\n\n@pytest.mark.live_environment\ndef test_needs_stack():\n    pytest.skip('no stack')\n",
+}
+
+
+def test_marked_tests_are_deselected_when_the_inventory_matches(tmp_path):
+    suite = _suite(tmp_path / "suite", _MARKED)
+    inventory = tmp_path / "inventory.txt"
+    inventory.write_text("# reviewed\ntest_live.py::test_needs_stack\n")  # ids relative to pytest's rootdir
+    junit = tmp_path / "junit.xml"
+    code = contract_batches.main(["--tests", str(suite), "--junit", str(junit), "--work", str(tmp_path / "work"),
+                                  "--exclude-marker", "live_environment", "--inventory", str(inventory)])
+    assert code == 0
+    counts = parse_junit(junit)
+    assert (counts.tests, counts.passed, counts.skipped) == (1, 1, 0)
+
+
+def test_a_deselection_missing_from_the_inventory_fails_the_run(tmp_path, capsys):
+    suite = _suite(tmp_path / "suite", _MARKED)
+    inventory = tmp_path / "inventory.txt"
+    inventory.write_text("# nothing reviewed\n")
+    code = contract_batches.main(["--tests", str(suite), "--junit", str(tmp_path / "junit.xml"),
+                                  "--work", str(tmp_path / "work"),
+                                  "--exclude-marker", "live_environment", "--inventory", str(inventory)])
+    assert code == 1
+    assert "deselected but not in the inventory" in capsys.readouterr().out
+
+
+def test_an_inventory_entry_no_longer_marked_fails_the_run(tmp_path, capsys):
+    suite = _suite(tmp_path / "suite", _MARKED)
+    inventory = tmp_path / "inventory.txt"
+    inventory.write_text("test_live.py::test_needs_stack\ntest_plain.py::test_ok\n")
+    code = contract_batches.main(["--tests", str(suite), "--junit", str(tmp_path / "junit.xml"),
+                                  "--work", str(tmp_path / "work"),
+                                  "--exclude-marker", "live_environment", "--inventory", str(inventory)])
+    assert code == 1
+    assert "in the inventory but not deselected" in capsys.readouterr().out
+
+
+def test_the_committed_live_inventory_matches_the_marked_contract_tests():
+    from pathlib import Path
+    root = Path(contract_batches.ROOT)
+    inventory = contract_batches.read_inventory(root / "tests/test_contracts/live_environment_inventory.txt")
+    assert contract_batches.marked_node_ids("tests/test_contracts", "live_environment") == inventory

@@ -12,7 +12,10 @@ from tests.test_contracts.test_education_review_workflow import review_db
 
 MODEL=os.environ.get('ODIN_REAL_VISION_MODEL')
 LFS_OID='0a6ebd8e30dbf6a450c50f9c0a5406f04ba7eb1c99fd5996e888c78bb383b9aa'
-pytestmark=pytest.mark.skipif(not MODEL or not Path(MODEL).is_file(),reason='ODIN_REAL_VISION_MODEL not provided')
+# live_environment: needs a built image, Docker, network or an external checkout; the contract
+# gate deselects it (tests/test_contracts/live_environment_inventory.txt) and the certification
+# batches run it with the environment set.
+pytestmark = [pytest.mark.live_environment, pytest.mark.skipif(not MODEL or not Path(MODEL).is_file(),reason='ODIN_REAL_VISION_MODEL not provided')]
 
 
 @pytest.mark.parametrize('kind',['first_layer','detachment','build_plate_empty','spaghetti'])

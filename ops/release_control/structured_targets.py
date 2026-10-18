@@ -67,7 +67,10 @@ def contracts() -> int:
         command=[str(python), "-m", "ops.release_control.contract_batches",
                  "--tests", "tests/test_contracts", "--junit", "{junit}",
                  "--work", str(directory / "batches"), "--jobs", str(CONTRACT_BATCH_JOBS),
-                 "--batch-timeout", str(CONTRACT_BATCH_TIMEOUT_SECONDS)],
+                 "--batch-timeout", str(CONTRACT_BATCH_TIMEOUT_SECONDS),
+                 # Live-environment suites leave this gate only by the committed inventory.
+                 "--exclude-marker", "live_environment",
+                 "--inventory", "tests/test_contracts/live_environment_inventory.txt"],
         output=directory / "result.json", timeout=CONTRACT_TIMEOUT_SECONDS, junit=junit,
         environment_allowlist=("ADMIN_USERNAME", "ADMIN_PASSWORD", "PYTHONPATH",
                                "DOCKER_HOST", "PLAYWRIGHT_BROWSERS_PATH"),

@@ -59,10 +59,13 @@ def _port_free(port):
     return True
 
 
-pytestmark = pytest.mark.skipif(
+# live_environment: needs a built image, Docker, network or an external checkout; the contract
+# gate deselects it (tests/test_contracts/live_environment_inventory.txt) and the certification
+# batches run it with the environment set.
+pytestmark = [pytest.mark.live_environment, pytest.mark.skipif(
     not IMAGE or shutil.which("docker") is None or _docker("image", "inspect", IMAGE, check=False).returncode != 0,
     reason="CERT_ENT_IMAGE (a built ODIN image) and docker are required",
-)
+)]
 
 
 class Stack:

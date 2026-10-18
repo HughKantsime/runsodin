@@ -23,11 +23,14 @@ import pytest
 
 from tests.test_contracts.test_cert_B_live_harness import CERT, FIXTURES, IMAGE, NAME, Live, chrome_available, docker, port_free, ports_free, HTTP_PORT
 
-pytestmark = pytest.mark.skipif(
+# live_environment: needs a built image, Docker, network or an external checkout; the contract
+# gate deselects it (tests/test_contracts/live_environment_inventory.txt) and the certification
+# batches run it with the environment set.
+pytestmark = [pytest.mark.live_environment, pytest.mark.skipif(
     shutil.which("docker") is None or docker("image", "inspect", IMAGE, check=False).returncode != 0
     or not chrome_available() or shutil.which("node") is None,
     reason="docker, the ODIN image (CERT_B_IMAGE), node and Google Chrome are required",
-)
+)]
 
 RTSP = "CertB RTSP X1C"
 KLIPPER = "CertB Klipper"

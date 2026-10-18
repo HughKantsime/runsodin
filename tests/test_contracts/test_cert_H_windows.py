@@ -38,6 +38,7 @@ def _ctx():
         return ssl.create_default_context()
 
 
+@pytest.mark.live_environment
 @pytest.mark.skipif(os.environ.get("CERT_H_NETWORK") != "1", reason="CERT_H_NETWORK=1 required")
 @pytest.mark.parametrize("rel", ["install/install.ps1", "install/docker-compose.yml"])
 def test_documented_raw_urls_serve_the_shipped_files(rel):
@@ -117,6 +118,7 @@ def _offsets(zones: set[str]) -> dict[str, tuple[str, str, bool]]:
     return {z: (jan, jul, present == "y") for z, jan, jul, present in rows}
 
 
+@pytest.mark.live_environment
 @pytest.mark.skipif(not IMAGE or shutil.which("docker") is None, reason="CERT_H_IMAGE and docker required")
 def test_windows_timezone_value_written_by_installer_is_honoured_by_container():
     converted = _run_converter()

@@ -33,7 +33,10 @@ try:
 except ImportError:  # pragma: no cover
     _CTX = ssl.create_default_context()
 
-pytestmark = pytest.mark.skipif(os.environ.get("CERT_H_NETWORK") != "1", reason="CERT_H_NETWORK=1 required")
+# live_environment: needs a built image, Docker, network or an external checkout; the contract
+# gate deselects it (tests/test_contracts/live_environment_inventory.txt) and the certification
+# batches run it with the environment set.
+pytestmark = [pytest.mark.live_environment, pytest.mark.skipif(os.environ.get("CERT_H_NETWORK") != "1", reason="CERT_H_NETWORK=1 required")]
 
 
 def _token() -> str:

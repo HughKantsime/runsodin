@@ -10,7 +10,12 @@ exits non-zero, times out or writes no JUnit makes the whole run fail.
 
 Usage:
   python3.11 -m ops.release_control.contract_batches --tests tests/test_contracts \
-      --junit <junit.xml> --work <dir> [--jobs 6] [--batch-size 40] [--batch-timeout 1800]
+      --junit <junit.xml> --work <dir> [--jobs 6] [--batch-size 40] [--batch-timeout 1800] \
+      [--exclude-marker live_environment --inventory <node-id list>]
+
+With --exclude-marker, tests carrying that marker are deselected from every batch, and the
+run fails unless the deselected node ids equal the committed --inventory exactly, so no test
+can leave the gate without a reviewed inventory change.
 """
 
 from __future__ import annotations
@@ -60,13 +65,35 @@ def plan(files: list[str], batch_size: int) -> list[Batch]:
             for index, start in enumerate(range(0, len(files), batch_size))]
 
 
-def run_batch(batch: Batch, work: Path, timeout: int) -> BatchResult:
+def marked_node_ids(tests: str, marker: str) -> list[str]:
+    """Node ids under ``tests`` that carry ``marker`` (pytest collection, no execution)."""
+    completed = subprocess.run(
+        [sys.executable, "-m", "pytest", tests, "--collect-only", "-q", "-p", "no:cacheprovider", "-m", marker],
+        cwd=ROOT, capture_output=True, text=True, timeout=600, check=False)
+    if completed.returncode not in (0, 5):  # 5: nothing carries the marker
+        raise SystemExit(f"collecting {marker} tests failed:\n{completed.stdout[-2000:]}{completed.stderr[-2000:]}")
+    return sorted(line.strip() for line in completed.stdout.splitlines() if "::" in line)
+
+
+def read_inventory(path: Path) -> list[str]:
+    return sorted(line.strip() for line in path.read_text(encoding="utf-8").splitlines()
+                  if line.strip() and not line.lstrip().startswith("#"))
+
+
+def inventory_problems(actual: list[str], inventory: list[str]) -> list[str]:
+    added, removed = sorted(set(actual) - set(inventory)), sorted(set(inventory) - set(actual))
+    return ([f"deselected but not in the inventory: {node}" for node in added]
+            + [f"in the inventory but not deselected: {node}" for node in removed])
+
+
+def run_batch(batch: Batch, work: Path, timeout: int, marker: str | None = None) -> BatchResult:
     junit = work / f"{batch.name}.xml"
     log = work / f"{batch.name}.log"
     temp = Path(tempfile.mkdtemp(prefix=f"odin-{batch.name}-"))
     command = [sys.executable, "-m", "pytest", *batch.files, "-v", "--tb=short",
                "-o", "xfail_strict=true", "-p", "no:cacheprovider",
-               f"--basetemp={temp / 't'}", f"--junitxml={junit}"]
+               f"--basetemp={temp / 't'}", f"--junitxml={junit}",
+               *(["-m", f"not {marker}"] if marker else [])]
     started = time.monotonic()
     timed_out = False
     exit_code: int | None = None
@@ -112,7 +139,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--jobs", type=int, default=6)
     parser.add_argument("--batch-size", type=int, default=40)
     parser.add_argument("--batch-timeout", type=int, default=1800)
+    parser.add_argument("--exclude-marker")
+    parser.add_argument("--inventory", type=Path)
     args = parser.parse_args(argv)
+    if bool(args.exclude_marker) != bool(args.inventory):
+        raise SystemExit("--exclude-marker and --inventory go together")
     if args.jobs < 1:
         raise SystemExit("--jobs must be at least 1")
     batches = plan(discover(args.tests), args.batch_size)
@@ -121,9 +152,15 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     args.work.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
+    inventory_findings: list[str] = []
+    if args.exclude_marker:
+        deselected = marked_node_ids(args.tests, args.exclude_marker)
+        inventory_findings = inventory_problems(deselected, read_inventory(args.inventory))
+        print(f"{args.exclude_marker}: {len(deselected)} deselected; inventory "
+              f"{'matches' if not inventory_findings else 'DIFFERS'}")
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
-        results = list(pool.map(lambda batch: run_batch(batch, args.work, args.batch_timeout), batches))
-    problems = merge(results, args.junit)
+        results = list(pool.map(lambda batch: run_batch(batch, args.work, args.batch_timeout, args.exclude_marker), batches))
+    problems = merge(results, args.junit) + inventory_findings
     for result in results:
         state = "timeout" if result.timed_out else f"exit={result.exit_code}"
         print(f"{result.batch.name} files={len(result.batch.files)} {state} seconds={result.seconds}")
