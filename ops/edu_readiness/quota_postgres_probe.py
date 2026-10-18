@@ -44,7 +44,7 @@ checks.append('job_quota_rollback')
 for kind in ['grams','hours']:
     with engine.begin() as conn:
         conn.execute(text('DELETE FROM quota_usage'))
-        conn.execute(text(f'INSERT INTO quota_usage(user_id,period_key,{kind}_used) VALUES(1,:pk,5)'),{'pk':_get_period_key('monthly')})
+        conn.execute(text(f'INSERT INTO quota_usage(user_id,period_key,{kind}_used) VALUES(1,:pk,5)'),{'pk':_get_period_key('monthly')})  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- kind iterates a literal grams/hours list in this probe script
     with Session(engine) as db:
         try:charge_job_quota(db,{'id':1,'quota_'+kind:5})
         except OdinError as exc:assert exc.status==429;db.rollback()
