@@ -161,6 +161,8 @@ for key in sorted(CASES):
     res = R[key] = {"default_roles": roles, "allowed_user": allowed, "refused_user": denied}
     res["default_allowed"] = call(allowed, key)
     res["default_refused"] = call(denied, key) if denied else None
+    # An admin-only key is also refused to an operator, not only to a viewer.
+    res["default_refused_operator"] = call("operator", key) if "operator" not in roles else None
     set_roles(key, [x for x in roles if x != role_of[allowed]])
     res["narrowed_allowed"] = call(allowed, key)
     if denied:
@@ -171,6 +173,34 @@ for key in sorted(CASES):
         res["superadmin_after_reset"] = call("super", key)["status"]
     except Exception:
         res["superadmin_after_reset"] = traceback.format_exc()[-400:]
+
+# Page-only API reads (core.rbac_routes.PAGE_ROUTES): the page key governs the API, and a
+# change applies on the next request, with no restart in between.
+from core.rbac_routes import PAGE_ROUTES
+def set_page(page, roles):
+    perms = json.loads(json.dumps(DEFAULTS))
+    perms["page_access"][page] = roles
+    r = SUPER.put("/api/permissions", json=perms)
+    assert r.status_code == 200, r.text
+
+def page_get(user, path):
+    r = C[user].get(path + ("?days=30" if path.endswith("usage-report") else ""))
+    return {"status": r.status_code, "path": path, "detail": (body(r) if r.status_code >= 300 else None)}
+
+P = OUT["pages"] = {}
+for page, routes in sorted(PAGE_ROUTES.items()):
+    roles = DEFAULTS["page_access"][page]
+    for method, path in routes:
+        res = P[path] = {"page": page, "default_roles": roles}
+        res["default_operator"] = page_get("operator", path)
+        set_page(page, [x for x in roles if x != "operator"])
+        res["narrowed_operator"] = page_get("operator", path)
+        set_page(page, [x for x in roles if x != "viewer"])
+        res["narrowed_viewer"] = page_get("viewer", path)
+        set_page(page, sorted(set(roles) | {"viewer"}))
+        res["widened_viewer"] = page_get("viewer", path)
+        SUPER.post("/api/permissions/reset")
+        res["reset_viewer"] = page_get("viewer", path)
 '''
 
 
@@ -192,9 +222,14 @@ def _denied(r):
             and r["detail"].get("detail") == "Insufficient permissions")
 
 
-from core.rbac_routes import ACTION_ROUTES  # noqa: E402
+from core.rbac_policy import RBAC_DEFAULT_ACTION_ACCESS, RBAC_DEFAULT_PAGE_ACCESS  # noqa: E402
+from core.rbac_routes import ACTION_ROUTES, PAGE_ROUTES  # noqa: E402
 
 KEYS = sorted(ACTION_ROUTES)
+# Keys some role lacks by default (keys every role holds have no refused role to test).
+REFUSABLE = [key for key in KEYS if {"viewer", "operator"} - set(RBAC_DEFAULT_ACTION_ACCESS[key])]
+ADMIN_ONLY = [key for key in KEYS if "operator" not in RBAC_DEFAULT_ACTION_ACCESS[key]]
+PAGE_PATHS = sorted(path for routes in PAGE_ROUTES.values() for _method, path in routes)
 
 
 def test_every_action_key_has_a_behaviour_case(matrix):
@@ -207,12 +242,20 @@ def test_default_matrix_allows_the_holder(matrix, key):
     assert _ok(r["default_allowed"]), r
 
 
-@pytest.mark.parametrize("key", KEYS)
+@pytest.mark.parametrize("key", REFUSABLE)
 def test_default_matrix_refuses_a_role_without_the_key(matrix, key):
     r = matrix["results"][key]
-    if r["refused_user"] is None:
-        pytest.skip("every role holds this key by default")
     assert _denied(r["default_refused"]), r
+
+
+def test_admin_only_keys_include_the_named_ones():
+    assert {"printers.add", "printers.delete", "models.delete", "products.delete"} <= set(ADMIN_ONLY)
+
+
+@pytest.mark.parametrize("key", ADMIN_ONLY)
+def test_default_matrix_refuses_an_operator_an_admin_only_key(matrix, key):
+    r = matrix["results"][key]
+    assert _denied(r["default_refused_operator"]), r
 
 
 @pytest.mark.parametrize("key", KEYS)
@@ -221,12 +264,32 @@ def test_narrowing_the_key_refuses_the_previous_holder(matrix, key):
     assert _denied(r["narrowed_allowed"]), r
 
 
-@pytest.mark.parametrize("key", KEYS)
+@pytest.mark.parametrize("key", REFUSABLE)
 def test_widening_the_key_admits_the_previously_refused_role(matrix, key):
     r = matrix["results"][key]
-    if r["refused_user"] is None:
-        pytest.skip("every role holds this key by default")
     assert _ok(r["widened_refused"]), r
+
+
+def test_every_page_only_route_has_a_behaviour_case(matrix):
+    assert sorted(matrix["pages"]) == PAGE_PATHS
+    assert {"/api/timeline", "/api/analytics", "/api/education/usage-report"} <= set(PAGE_PATHS)
+
+
+@pytest.mark.parametrize("path", PAGE_PATHS)
+def test_page_key_narrowing_refuses_on_the_next_request(matrix, path):
+    r = matrix["pages"][path]
+    assert "operator" in RBAC_DEFAULT_PAGE_ACCESS[r["page"]]
+    assert _ok(r["default_operator"]), r
+    assert _denied(r["narrowed_operator"]), r
+    assert _denied(r["narrowed_viewer"]), r
+
+
+@pytest.mark.parametrize("path", PAGE_PATHS)
+def test_page_key_widening_admits_on_the_next_request(matrix, path):
+    r = matrix["pages"][path]
+    assert _ok(r["widened_viewer"]), r
+    # After a reset the viewer has the page again only if the default grants it.
+    assert _ok(r["reset_viewer"]) == ("viewer" in RBAC_DEFAULT_PAGE_ACCESS[r["page"]]), r
 
 
 @pytest.mark.parametrize("key", KEYS)
