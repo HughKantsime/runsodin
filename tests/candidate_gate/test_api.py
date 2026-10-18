@@ -24,37 +24,44 @@ def _items(payload):
     raise AssertionError(f"response does not contain an item list: {payload}")
 
 
-def test_candidate_customer_invoice_packaged_fonts_and_permissions(operator, viewer, base_url):
+# The candidate is the exact unlicensed release image (Community). Pro features are refused
+# with the license error here; their behaviour is proved by the contract suite under a
+# substituted license trust root (see docs/TRUSTED_VALIDATION_SCOPE.md).
+def _license_refusal(response, feature):
+    assert response.status_code == 403, response.text
+    body = _json(response)
+    assert body["error"]["code"] == "permission_denied", body
+    assert f"Feature '{feature}' requires Pro" in body["detail"] and "Current tier: community" in body["detail"], body
+
+
+def test_candidate_community_refuses_new_orders_but_renders_existing_invoices(operator, viewer, base_url):
     products=_items(_json(operator.get(f'{base_url}/api/products',timeout=10)))
     product=next(row for row in products if row.get('sku')=='ODIN-CANDIDATE-001')
-    created=operator.post(f'{base_url}/api/orders',json={
+    _license_refusal(operator.post(f'{base_url}/api/orders',json={
         'order_number':'Synthetic 客户 invoice', 'customer_name':'Synthetic José 日本語 한국어',
-        'revenue':0, 'shipping_charged':0, 'platform_fees':2, 'payment_fees':1,
         'items':[{'product_id':product['id'],'quantity':1,'unit_price':0}],
-    },timeout=10)
-    assert created.status_code==200
-    identifier=_json(created)['id']
-    assert viewer.get(f'{base_url}/api/orders/{identifier}/invoice.pdf',timeout=10).status_code==403
-    response=operator.get(f'{base_url}/api/orders/{identifier}/invoice.pdf',timeout=15)
-    assert response.status_code==200
-    assert response.headers['content-disposition']==f'attachment; filename="invoice_{identifier}.pdf"'
+    },timeout=10), 'orders')
+    # Existing records stay readable on Community (keep_existing_records): the seeded order's
+    # invoice still renders from the packaged fonts in this exact image.
+    order=next(row for row in _items(_json(viewer.get(f'{base_url}/api/orders',timeout=10)))
+               if row.get('order_number')=='ODIN-CANDIDATE-ORDER-001')
+    assert viewer.get(f'{base_url}/api/orders/{order["id"]}/invoice.pdf',timeout=10).status_code==403
+    response=operator.get(f'{base_url}/api/orders/{order["id"]}/invoice.pdf',timeout=15)
+    assert response.status_code==200, response.text
+    assert response.headers['content-disposition']==f'attachment; filename="invoice_{order["id"]}.pdf"'
     assert response.content.startswith(b'%PDF-')
-    text='\n'.join(page.extract_text() for page in PdfReader(BytesIO(response.content)).pages)
-    assert all(value in text for value in ['客户','José','日本語','한국어','Invoice Total:','$0.00'])
+    reader=PdfReader(BytesIO(response.content))
+    text='\n'.join(page.extract_text() for page in reader.pages)
+    assert all(value in text for value in ['Candidate Student','Invoice Total:'])
     assert all(value not in text for value in ['Platform Fees','Payment Fees','Cost Analysis','Profit:'])
+    fonts={str(font.get_object().get('/BaseFont')) for page in reader.pages
+           for font in (page.get('/Resources') or {}).get('/Font', {}).values()}
+    assert any('NotoSans' in name for name in fonts), fonts  # the image's packaged fonts (invoice_generator)
 
 
-def test_candidate_failure_and_time_reports_are_operational(viewer,base_url):
-    failures=viewer.get(f'{base_url}/api/analytics/failures',timeout=10)
-    assert failures.status_code==200
-    data=_json(failures)
-    assert all(key in data for key in ('total_completed','total_failed','by_printer','by_model','hms_errors'))
-    timing=viewer.get(f'{base_url}/api/analytics/time-accuracy',timeout=10)
-    assert timing.status_code==200
-    data=_json(timing)
-    assert data['estimate_basis']=='retained_schedule_interval'
-    assert isinstance(data['jobs_with_unknown_estimate'],int)
-    assert len(data['recent'])<=50
+def test_candidate_community_refuses_failure_and_time_reports(viewer,base_url):
+    _license_refusal(viewer.get(f'{base_url}/api/analytics/failures',timeout=10), 'analytics')
+    _license_refusal(viewer.get(f'{base_url}/api/analytics/time-accuracy',timeout=10), 'analytics')
 
 
 def test_candidate_health_spa_static_setup_and_perimeter(base_url: str, api_key: str, admin):
@@ -187,7 +194,10 @@ def test_candidate_seeded_domain_graph_and_mutation_round_trip(admin, operator, 
     )
     assert updated.status_code == 200, updated.text
     assert _json(updated)["notes"] == "candidate round trip"
-    deleted = operator.delete(f"{base_url}/api/models/{model_id}", timeout=10)
+    # models.delete is admin-only in the 2.0 default matrix (core/rbac_policy.py).
+    refused = operator.delete(f"{base_url}/api/models/{model_id}", timeout=10)
+    assert refused.status_code == 403 and _json(refused)["detail"] == "Insufficient permissions", refused.text
+    deleted = admin.delete(f"{base_url}/api/models/{model_id}", timeout=10)
     assert deleted.status_code == 204, deleted.text
     assert viewer.get(f"{base_url}/api/models/{model_id}", timeout=10).status_code == 404
 
