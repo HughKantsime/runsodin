@@ -136,7 +136,7 @@ def test_real_3mf_upload_reaches_model_library(role_page_factory):
     """Upload reaches the library; Quick Print queues only a dispatchable (sliced) file.
 
     2.0 file-bound jobs carry a validated plate (core.print_payload.validate_plate): an
-    unsliced 3MF has no plate G-code, so Quick Print is refused and the refusal is shown.
+    unsliced 3MF has no plate G-code, so Quick Print is offered disabled with the reason.
     """
     assert FIXTURE.is_file() and SLICED_FIXTURE.is_file()
     page = role_page_factory("admin")
@@ -145,8 +145,8 @@ def test_real_3mf_upload_reaches_model_library(role_page_factory):
     expect(page.get_by_text("Added to Model Library", exact=True)).to_be_visible(timeout=30_000)
     expect(page.get_by_role("heading", name="ODIN Candidate Upload Cube", exact=True)).to_be_visible()
     expect(page.get_by_text("This file is not sliced. Print time and filament usage are estimates.", exact=True)).to_be_visible()
-    page.get_by_role("button", name="Quick Print", exact=True).click()
-    expect(page.get_by_text("Quick print failed: Selected print plate is not present in the stored file", exact=True)).to_be_visible(timeout=20_000)
+    expect(page.get_by_role("button", name="Quick Print", exact=True)).to_be_disabled()
+    expect(page.get_by_text("This 3MF has no sliced plate (Metadata/plate_1.gcode).", exact=False)).to_be_visible()
     expect(page.get_by_role("button", name="Queued!", exact=True)).to_have_count(0)
 
     page.get_by_role("button", name="Upload Another", exact=True).click()
