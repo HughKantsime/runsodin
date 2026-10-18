@@ -111,6 +111,8 @@ def test_student_upload_teacher_approval_operator_schedule_and_isolation(pilot):
     review = teacher.get_by_role('heading',name=item_name,exact=True).locator('xpath=ancestor::div[contains(@class,"rounded")][1]')
     review.get_by_role('button',name='Review',exact=True).click()
     teacher.get_by_label('Authorized printer').select_option('9')
+    # 2.0: a Bambu approval names its filament supply; the printer default is the pre-AMS workflow.
+    teacher.get_by_label('Filament supply').select_option('default')
     expect(teacher.get_by_role('button',name='Approve and queue',exact=True)).to_be_enabled()
     with teacher.expect_response(lambda r: f'/submissions/{submission["id"]}/approve' in r.url) as approved:
         teacher.get_by_role('button',name='Approve and queue',exact=True).click()
