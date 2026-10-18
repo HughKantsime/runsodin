@@ -143,7 +143,8 @@ def list_orders(
     if platform:
         query = query.filter(Order.platform == platform)
 
-    orders = query.options(selectinload(Order.items)).order_by(Order.created_at.desc()).all()
+    # Newest first; orders created in the same second list by id, deterministically.
+    orders = query.options(selectinload(Order.items)).order_by(Order.created_at.desc(), Order.id.asc()).all()
 
     products = {}
     def product_for(product_id):

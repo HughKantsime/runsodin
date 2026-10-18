@@ -56,6 +56,10 @@ def test_capture_orders_wire_from_real_http(bom_client, review_db, monkeypatch):
         response = client.post('/orders', json=body)
         assert response.status_code == 200, response.text
         made[key] = response.json()['id']
+    # created_at has one-second resolution: orders created across a second boundary
+    # would list in a different order. Give them one creation time (ties list by id).
+    review_db.execute(text("UPDATE orders SET created_at='2026-01-01 00:00:00'"))
+    review_db.commit()
     # Drive the first order to fulfilled through real schedule + job completions.
     assert client.post(f"/orders/{made['fulfilled']}/schedule").status_code == 200
     jobs = list(review_db.execute(text('SELECT job_id FROM order_production_jobs ORDER BY job_id')).scalars())
