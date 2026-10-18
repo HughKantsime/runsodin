@@ -113,6 +113,44 @@ def _fd_count() -> int:
         return 0
 
 
+def _seed_jobs(engine, users) -> None:
+    """Seed queue jobs through the product's queue-birth path (economic identity
+    attested), so owner-proved reports count them as they would real submissions.
+    The canary is job 9002 and the seed jobs are 10000-10299: SQLite gives a new row
+    max(id)+1, so a temporary floor row fixes where each run of ids starts."""
+    from sqlalchemy import text
+    from sqlalchemy.orm import Session
+    from core.base import JobStatus
+    from modules.jobs.models import Job
+    from modules.jobs.queue_creation import _stage_prospective_queue_job
+
+    roles = {user["id"]: user for user in users}
+    runs = (
+        (9001, [("foreign-tenant-canary", 2, 29)]),
+        (9999, [(f"seed-{i}", 1, (i % 25) + 1) for i in range(300)]),
+    )
+    with Session(engine) as session:
+        for floor, rows in runs:
+            session.execute(text(
+                "INSERT INTO jobs (id, item_name, quantity, priority, status, hold, is_locked) "
+                "VALUES (:id, 'id-floor', 1, 3, 'submitted', 0, 0)"), {"id": floor})
+            for name, org, user_id in rows:
+                job = Job(item_name=name, quantity=1, priority=3, status=JobStatus.SUBMITTED,
+                          duration_hours=0.25, submitted_by=user_id, charged_to_user_id=user_id,
+                          charged_to_org_id=org, hold=False, is_locked=False)
+                actor = {"id": user_id, "role": roles[user_id]["role"], "group_id": roles[user_id]["group_id"]}
+                _stage_prospective_queue_job(session, job, actor)
+                session.flush()
+            session.execute(text("DELETE FROM jobs WHERE id = :id"), {"id": floor})
+        session.commit()
+        ids = [row[0] for row in session.execute(text("SELECT id FROM jobs ORDER BY id"))]
+        attested = session.execute(text(
+            "SELECT COUNT(*) FROM jobs j JOIN cost_identities c ON c.identity_uid = j.economic_uid "
+            "AND c.resource_kind = 'job' AND c.resource_id = j.id")).scalar_one()
+    if ids != [9002, *range(10000, 10300)] or attested != len(ids):
+        raise RuntimeError("load fixture jobs were not seeded with the expected ids and identities")
+
+
 def _prepare_database(path: Path):
     # This harness must own a fresh process: imported engines/license paths are immutable.
     if "core.db" in sys.modules or "license_manager" in sys.modules:
@@ -166,17 +204,8 @@ def _prepare_database(path: Path):
             "(9002, 'Synthetic-B', 'Fixture', 'moonraker', 1, 2, 0, 4, '[]', 0), "
             "(9003, 'Synthetic-Shared', 'Fixture', 'prusalink', 1, 2, 1, 4, '[]', 0)"
         ))
-        seed_jobs = [
-            {"id": 10000 + i, "name": f"seed-{i}", "org": 1, "user": (i % 25) + 1}
-            for i in range(300)
-        ]
-        seed_jobs.append({"id": 9002, "name": "foreign-tenant-canary", "org": 2, "user": 29})
-        connection.execute(text(
-            "INSERT INTO jobs "
-            "(id, item_name, quantity, priority, status, duration_hours, submitted_by, charged_to_user_id, charged_to_org_id, hold, is_locked) "
-            "VALUES (:id, :name, 1, 3, 'submitted', 0.25, :user, :user, :org, 0, 0)"
-        ), seed_jobs)
         connection.execute(text("INSERT INTO system_config (key, value) VALUES ('require_job_approval', 'true')"))
+    _seed_jobs(engine, users)
 
     import license_manager
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
