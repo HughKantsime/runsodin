@@ -2,9 +2,8 @@
 
 All notable changes to O.D.I.N. are documented here.
 
-## [2.0.0] - 2026-10-16
+## [2.0.0] - 2026-10-17
 
-<!-- release-date placeholder: set by ops/bump-version.sh -->
 <!-- summary: 2.0 breaking changes and upgrade notes -->
 
 ### Removed
