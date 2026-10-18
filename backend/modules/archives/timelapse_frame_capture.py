@@ -42,6 +42,18 @@ def valid_jpeg(payload):
     return image is not None and image.shape==dimensions
 
 
+# Closed set of tables whose exact rows _lock_camera_graph row-locks.
+_CAMERA_GRAPH_LOCK_TABLES = frozenset({'print_files', 'education_cost_centers', 'models', 'users'})
+
+
+def _lock_graph_rows(db, table, identifiers):
+    if table not in _CAMERA_GRAPH_LOCK_TABLES:
+        raise ValueError('Unsupported capture graph lock target')
+    for identifier in sorted(set(identifiers)):
+        if db.execute(text(f'SELECT id FROM {table} WHERE id=:id FOR UPDATE NOWAIT'), {'id': identifier}).first() is None:  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table checked against the _CAMERA_GRAPH_LOCK_TABLES allowlist; values are bound
+            raise ValueError('Capture graph authority unavailable')
+
+
 def _lock_camera_graph(db, job_id):
     """Fence every mutable input to capture_content_owner; caller owns locks.
 
@@ -62,10 +74,7 @@ def _lock_camera_graph(db, job_id):
     if len(files) != 1:
         raise ValueError('Capture file authority unavailable')
     file_id = files[0]
-    def lock(table, identifiers):
-        for identifier in sorted(set(identifiers)):
-            if db.execute(text(f'SELECT id FROM {table} WHERE id=:id FOR UPDATE NOWAIT'), {'id': identifier}).first() is None:  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- lock helper receives literal table/column/predicate strings only; values are bound
-                raise ValueError('Capture graph authority unavailable')
+    lock = lambda table, identifiers: _lock_graph_rows(db, table, identifiers)
     # The file lock protects stored_path/model_id before selecting its graph.
     lock('print_files', [file_id])
     education = db.execute(text('SELECT model_id,submitted_by,cost_center_id FROM education_submissions '

@@ -19,6 +19,24 @@ class TeacherAMSContext:
     revision:int
 
 
+# Closed set of (table, predicate, no-op column) row locks for teacher AMS review.
+_TEACHER_LOCKS=frozenset({
+    ('users','id=:user_id AND group_id=:org_id AND is_active IS TRUE','is_active'),
+    ('education_cost_centers',"id=:center_id AND org_id=:org_id AND state='active'",'revision'),
+    ('education_cost_center_grants',"org_id=:org_id AND cost_center_id=:center_id AND user_id=:user_id AND role='manager' AND state='active'",'state'),
+    ('education_cost_center_printers',"org_id=:org_id AND cost_center_id=:center_id AND printer_id=:printer_id AND state='active'",'state'),
+    ('education_submissions','id=:submission_id AND org_id=:org_id AND job_id=:job_id','updated_at'),
+    ('jobs','id=:job_id AND charged_to_org_id=:org_id','status'),
+})
+
+
+def _lock_teacher_row(db,postgres,params,table,where,column):
+    if (table,where,column) not in _TEACHER_LOCKS:raise ValueError('Unsupported teacher lock target')
+    query=(f'SELECT 1 FROM {table} WHERE {where} FOR UPDATE NOWAIT' if postgres
+           else f'UPDATE {table} SET {column}={column} WHERE {where} RETURNING 1')
+    if db.execute(text(query),params).first() is None:raise ValueError()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- table/predicate/column checked against the _TEACHER_LOCKS allowlist; values are bound
+
+
 def lock_teacher_ams_context(db,*,principal,submission_id,printer_id,revision):
     """Caller owns rollback. Authenticate before locks, no network in transaction."""
     try:
@@ -28,11 +46,7 @@ def lock_teacher_ams_context(db,*,principal,submission_id,printer_id,revision):
         if db.get_bind().dialect.name not in ('postgresql','sqlite'):raise ValueError()
         params={'user_id':principal['id'],'org_id':principal['group_id'],'submission_id':submission_id,
                 'printer_id':printer_id}
-        def lock(table,where,column):
-            # Table/column/predicate strings are fixed internal constants.
-            query=(f'SELECT 1 FROM {table} WHERE {where} FOR UPDATE NOWAIT' if postgres
-                   else f'UPDATE {table} SET {column}={column} WHERE {where} RETURNING 1')
-            if db.execute(text(query),params).first() is None:raise ValueError()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- lock helper receives literal table/column/predicate strings only; values are bound
+        lock=lambda table,where,column:_lock_teacher_row(db,postgres,params,table,where,column)
         lock('users','id=:user_id AND group_id=:org_id AND is_active IS TRUE','is_active')
         user=db.execute(text('SELECT role FROM users WHERE id=:user_id AND group_id=:org_id'),params).mappings().one()
         current={**principal,'role':user['role']}
