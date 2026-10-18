@@ -44,9 +44,11 @@ def invalidate() -> None:
         _entries.clear()
 
 
-def _database_key(session) -> str:
-    bind = session.get_bind()
-    return str(bind.url)
+def _database_key(session, session_factory) -> str:
+    get_bind = getattr(session, "get_bind", None)
+    if get_bind is None:  # a session-like object without a bind: key by its factory
+        return f"factory:{id(session_factory)}"
+    return str(get_bind().url)
 
 
 def policy(session_factory: Callable, *, clock: Callable[[], float] = time.monotonic) -> dict | None:
@@ -54,7 +56,7 @@ def policy(session_factory: Callable, *, clock: Callable[[], float] = time.monot
     ttl = cache_ttl_seconds()
     db = session_factory()
     try:
-        key = _database_key(db)
+        key = _database_key(db, session_factory)
         with _lock:
             cached = _entries.get(key)
             if ttl > 0 and cached is not None and clock() - cached[0] < ttl:

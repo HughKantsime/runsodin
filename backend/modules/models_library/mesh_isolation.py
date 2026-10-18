@@ -581,3 +581,14 @@ def plate_summaries_blocking(path, *, timeout: float = TIMEOUT_SECONDS) -> Analy
     """Per-plate summaries of a stored package, parsed in the bounded child (same pool,
     admission and deadline as uploads). Blocking: for sync routes. Raises Busy."""
     return analyze_blocking(path, mode="plates", timeout=timeout)
+
+
+def quick_print_readiness(plate1_gcode: bool) -> dict:
+    """Whether Quick Print (POST /models/{id}/schedule) can queue this 3MF: the schedule
+    path requires its plate 1 G-code (core.print_payload.validate_plate). Decided by the
+    isolated analysis child, never by parsing the archive in this process."""
+    if not plate1_gcode:
+        return {"quick_print_ready": False, "quick_print_blocked_reason":
+                "This 3MF has no sliced plate (Metadata/plate_1.gcode). Slice it in Bambu Studio "
+                "or OrcaSlicer and upload the sliced .gcode.3mf to print it."}
+    return {"quick_print_ready": True, "quick_print_blocked_reason": None}

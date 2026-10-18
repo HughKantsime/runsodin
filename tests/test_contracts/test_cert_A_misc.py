@@ -334,5 +334,8 @@ def test_live_engine_stays_out_of_engine_type_checks():
     for name in users:
         source = (backend / name).read_text(errors="ignore")
         for call in re.findall(r"(\w+)\(engine\b", source):
-            assert call in {"bind_generic_observation", "retire_observed_terminal", "Session"}, (name, call)
+            # dispatch_transaction (core.dispatch_connection) uses the engine only through
+            # attributes (.url, .begin(), .connect()), never isinstance/inspect.
+            assert call in {"bind_generic_observation", "retire_observed_terminal", "Session",
+                            "dispatch_transaction"}, (name, call)
 

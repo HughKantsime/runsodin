@@ -44,9 +44,8 @@ def push_event(event_type: str, data: dict, *, audience: dict | None = None):
     try:
         payload = json.dumps({"type": event_type, "data": data, **({"_audience": audience} if audience else {})})
         # Its own transaction; on the dispatch's shared connection when one is open.
-        from core.db import current_engine
         from core.dispatch_connection import dispatch_transaction
-        with dispatch_transaction(current_engine()) as conn:
+        with dispatch_transaction(engine) as conn:
             conn.execute(
                 text(
                     "INSERT INTO ws_events (event_type, data, created_at) "
