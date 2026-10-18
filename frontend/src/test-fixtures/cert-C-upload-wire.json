@@ -24,6 +24,8 @@
     ],
     "thumbnail_b64": "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAQUlEQVQoFZXBAQEAAADBMIrI+YhiyWBziR4u0cMlerhED5fo4RI9XKKHS/RwiR4u0cMlerhED5fo4RI9XKKHS/QYlPUV8XrjFQAAAAAASUVORK5CYII=",
     "is_sliced": true,
+    "quick_print_ready": true,
+    "quick_print_blocked_reason": null,
     "model_id": 13,
     "is_new_model": true,
     "quantity_per_bed": 3,

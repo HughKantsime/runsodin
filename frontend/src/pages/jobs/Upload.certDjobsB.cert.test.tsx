@@ -17,7 +17,7 @@ vi.mock('../../api', () => ({
 vi.mock('../../permissions', () => ({ getCurrentUser: () => ({ id: 3, role: 'operator' }), canDo: () => true }))
 vi.mock('react-hot-toast', () => ({ default: { success: api.success, error: api.error } }))
 
-const uploadBody = { ...wire.quick_print_upload, project_name: 'Synthetic quick cube' }
+let uploadBody: Record<string, unknown> = { ...wire.quick_print_upload, project_name: 'Synthetic quick cube' }
 class UploadRequest {
   status = 200; responseText = JSON.stringify(uploadBody); withCredentials = false
   upload = { addEventListener: vi.fn() }; handlers: Record<string, () => void> = {}
@@ -33,7 +33,7 @@ function mount() {
   return view
 }
 beforeEach(() => { vi.stubGlobal('XMLHttpRequest', UploadRequest) })
-afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals() })
+afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals(); uploadBody = { ...wire.quick_print_upload, project_name: 'Synthetic quick cube' } })
 
 describe('F04-4.2-07 Quick Print on upload success (producer wire)', () => {
   it('click queues exactly the uploaded model with no options and locks against duplicates', async () => {
@@ -63,6 +63,20 @@ describe('F04-4.2-07 Quick Print on upload success (producer wire)', () => {
     resolve({ ...wire.quick_print_schedule, job_id: 101 })
     expect(await screen.findByRole('button', { name: 'Queued!' })).toBeDisabled()
     expect(api.schedule).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('Quick Print is offered only for a file the scheduler accepts', () => {
+  it('an upload without plate G-code shows Quick Print disabled with the reason and never queues', async () => {
+    const reason = 'This 3MF has no sliced plate (Metadata/plate_1.gcode). Slice it in Bambu Studio or OrcaSlicer and upload the sliced .gcode.3mf to print it.'
+    uploadBody = { ...uploadBody, quick_print_ready: false, quick_print_blocked_reason: reason }
+    mount()
+    const button = await screen.findByRole('button', { name: 'Quick Print' })
+    expect(button).toBeDisabled()
+    expect(button).toHaveAttribute('title', reason)
+    expect(screen.getByText(reason)).toBeInTheDocument()
+    fireEvent.click(button)
+    expect(api.schedule).not.toHaveBeenCalled()
   })
 })
 

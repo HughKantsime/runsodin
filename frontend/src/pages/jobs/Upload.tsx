@@ -99,6 +99,9 @@ function UploadSuccess({ data, onUploadAnother, onViewLibrary, onScheduleNow, on
     onSuccess: () => { setQuickPrinted(true); toast.success('Job queued') },
     onError: (err) => toast.error('Quick print failed: ' + err.message),
   })
+  // The upload says when the scheduler would refuse this file (no plate G-code).
+  const quickPrintBlocked = data.quick_print_ready === false
+  const quickPrintReason = data.quick_print_blocked_reason || 'This file cannot be queued as uploaded.'
 
   return (
     <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] overflow-hidden">
@@ -209,6 +212,9 @@ function UploadSuccess({ data, onUploadAnother, onViewLibrary, onScheduleNow, on
               <p className="text-amber-400 text-sm">This file is not sliced. Print time and filament usage are estimates.</p>
             </div>
           )}
+          {data.model_id && quickPrintBlocked && (
+            <p id="quick-print-blocked-reason" className="text-sm text-[var(--brand-text-secondary)] mb-4">{quickPrintReason}</p>
+          )}
         </div>
       </div>
 
@@ -219,9 +225,10 @@ function UploadSuccess({ data, onUploadAnother, onViewLibrary, onScheduleNow, on
         {data.model_id && (
           <button
             onClick={() => quickPrintMut.mutate()}
-            disabled={quickPrintMut.isPending || quickPrinted}
-            className="flex items-center gap-2 px-4 py-2 rounded-md bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-medium transition-colors text-sm"
-            title="Auto-assign to an available printer and queue immediately"
+            disabled={quickPrintBlocked || quickPrintMut.isPending || quickPrinted}
+            className="flex items-center gap-2 px-4 py-2 rounded-md bg-amber-600 hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium transition-colors text-sm"
+            title={quickPrintBlocked ? quickPrintReason : 'Auto-assign to an available printer and queue immediately'}
+            aria-describedby={quickPrintBlocked ? 'quick-print-blocked-reason' : undefined}
           >
             <Zap size={16} />
             {quickPrinted ? 'Queued!' : quickPrintMut.isPending ? 'Queuing...' : 'Quick Print'}

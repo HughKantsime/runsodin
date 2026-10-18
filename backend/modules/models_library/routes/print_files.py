@@ -28,6 +28,17 @@ log = logging.getLogger("odin.api")
 
 router = APIRouter(tags=["Print Files"])
 
+
+def _quick_print_readiness(plate1_gcode: bool) -> dict:
+    """Whether Quick Print (POST /models/{id}/schedule) can queue this 3MF: the schedule
+    path requires its plate 1 G-code (core.print_payload.validate_plate). Decided by the
+    isolated analysis child, never by parsing the archive in this process."""
+    if not plate1_gcode:
+        return {"quick_print_ready": False, "quick_print_blocked_reason":
+                "This 3MF has no sliced plate (Metadata/plate_1.gcode). Slice it in Bambu Studio "
+                "or OrcaSlicer and upload the sliced .gcode.3mf to print it."}
+    return {"quick_print_ready": True, "quick_print_blocked_reason": None}
+
 ALLOWED_PRINT_FILE_EXTENSIONS = {".3mf", ".gcode", ".bgcode"}
 
 
@@ -339,6 +350,7 @@ async def upload_3mf(
                 } for f in metadata.filaments],
                 "thumbnail_b64": metadata.thumbnail_b64,
                 "is_sliced": metadata.print_time_seconds > 0,
+                **_quick_print_readiness(analysis.plate1_gcode),
                 "model_id": model_id,
                 "is_new_model": is_new_model,
                 "quantity_per_bed": stored_quantity,  # model's stored sellable pieces per plate
@@ -431,6 +443,8 @@ async def upload_3mf(
                 "filaments": [],
                 "thumbnail_b64": None,
                 "is_sliced": True,
+                "quick_print_ready": True,
+                "quick_print_blocked_reason": None,
                 "model_id": model_id,
                 "is_new_model": is_new_model,
                 "printer_model": None,

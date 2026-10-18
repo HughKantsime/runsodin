@@ -180,7 +180,8 @@ def _good():
         ticket = mesh_isolation.reserve(30)
         analysis = mesh_isolation.run_admitted(SLICED, ticket)
         GOOD = {"status": "ok", "metadata": analysis.metadata, "plate_objects": analysis.plate_objects,
-                "plate_count": analysis.plate_count, "file_meta": analysis.file_meta}
+                "plate_count": analysis.plate_count, "plate1_gcode": analysis.plate1_gcode,
+                "file_meta": analysis.file_meta}
     return json.loads(json.dumps(GOOD))
 
 
@@ -197,6 +198,7 @@ def _mutations():
         "plate_count zero": change(("plate_count",), 0),
         "plate_count bool": change(("plate_count",), True),
         "plate_count huge": change(("plate_count",), 10**9),
+        "plate1_gcode not a bool": change(("plate1_gcode",), 1),
         "plate objects not a list": change(("plate_objects",), {"a": 1}),
         "plate object shape": change(("plate_objects",), [{"name": "x"}]),
         "metadata not a dict": change(("metadata",), ["x"]),

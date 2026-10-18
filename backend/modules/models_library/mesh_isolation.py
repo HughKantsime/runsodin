@@ -84,6 +84,7 @@ class Analysis:
     metadata: Optional[dict] = None
     plate_objects: list = field(default_factory=list)
     plate_count: int = 1
+    plate1_gcode: bool = False        # nonempty Metadata/plate_1.gcode (what scheduling needs)
     file_meta: Optional[dict] = None
     mesh: Optional[dict] = None
     plates: Optional[list] = None
@@ -440,7 +441,9 @@ def validate_analysis(parsed) -> Analysis:
         return Analysis(status="failed")
     if parsed["status"] != "ok":
         return Analysis(status=parsed["status"]) if set(parsed) == {"status"} else Analysis(status="failed")
-    if set(parsed) != {"status", "metadata", "plate_objects", "plate_count", "file_meta"}:
+    if set(parsed) != {"status", "metadata", "plate_objects", "plate_count", "plate1_gcode", "file_meta"}:
+        return Analysis(status="failed")
+    if type(parsed["plate1_gcode"]) is not bool:
         return Analysis(status="failed")
     metadata, objects, count, file_meta = (parsed["metadata"], parsed["plate_objects"], parsed["plate_count"],
                                            parsed["file_meta"])
@@ -451,7 +454,8 @@ def validate_analysis(parsed) -> Analysis:
         return Analysis(status="failed")
     if not _integer(count, 1, 1024) or not _file_meta(file_meta):
         return Analysis(status="failed")
-    return Analysis(status="ok", metadata=metadata, plate_objects=objects, plate_count=count, file_meta=file_meta)
+    return Analysis(status="ok", metadata=metadata, plate_objects=objects, plate_count=count,
+                    plate1_gcode=parsed["plate1_gcode"], file_meta=file_meta)
 
 
 def _plate_summary(value):

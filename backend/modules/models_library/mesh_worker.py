@@ -80,6 +80,10 @@ def _analysis(path: str, name: str, mode: str) -> dict:
                 if len(printable) != 1 or printable[0].is_dir() or printable[0].file_size <= 0:
                     return {"status": "no_plate"}
             plate_objects = extract_objects_from_plate(package)
+            # Plate 1 G-code the schedule path needs (core.print_payload.validate_plate):
+            # exactly one nonempty Metadata/plate_1.gcode member.
+            plate_one = [entry for entry in entries if entry.filename == "Metadata/plate_1.gcode"]
+            plate1_gcode = len(plate_one) == 1 and not plate_one[0].is_dir() and plate_one[0].file_size > 0
     except ArchiveRefused as refused:
         return {"status": "too_large" if refused.reason in ("too_large", "member_too_large") else "too_many_members"}
     except zipfile.BadZipFile:
@@ -89,7 +93,8 @@ def _analysis(path: str, name: str, mode: str) -> dict:
         return {"status": "unparsed"}
     plate_count = len({n for n in names if re.fullmatch(r"Metadata/plate_[1-9][0-9]*\.gcode", n)}) or 1
     return {"status": "ok", "metadata": dataclasses.asdict(metadata), "plate_objects": plate_objects,
-            "plate_count": plate_count, "file_meta": extract_print_file_meta(path, ".3mf")}
+            "plate_count": plate_count, "plate1_gcode": plate1_gcode,
+            "file_meta": extract_print_file_meta(path, ".3mf")}
 
 
 def _plates(path: str) -> dict:
