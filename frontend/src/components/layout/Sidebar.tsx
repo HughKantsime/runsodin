@@ -77,8 +77,10 @@ export function NavGroup({ label, collapsed, open, onToggle }) {
       <div style={{ borderTop: '1px solid var(--brand-sidebar-border)' }} />
       {!collapsed && (
         <button
+          type="button"
           onClick={onToggle}
-          className="flex items-center justify-between w-full px-3 mt-1.5 group"
+          aria-expanded={open}
+          className="flex items-center justify-between w-full min-h-11 md:min-h-6 px-3 mt-1.5 group"
         >
           <span className="text-[10px] uppercase font-mono font-medium"
             style={{ color: 'var(--brand-text-muted)', letterSpacing: '0.2em' }}>
