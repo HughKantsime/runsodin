@@ -1,5 +1,4 @@
 """Discovery transport to encrypted DB/config, using owned synthetic sources only."""
-from contextlib import contextmanager
 from types import SimpleNamespace
 
 import pytest
@@ -11,16 +10,7 @@ from tests.test_contracts.test_printer_offline_behavior import offline_store, re
 
 @pytest.fixture
 def discovery_store(offline_store, captured_config, monkeypatch):
-    from core.db_utils import _ConnectionAdapter
-    from modules.notifications import printer_health
-    @contextmanager
-    def database():
-        raw = offline_store.get_bind().raw_connection()
-        try:
-            yield _ConnectionAdapter(raw, False)
-        finally:
-            raw.close()
-    monkeypatch.setattr(printer_health, 'get_db', database)
+    # captured_config points core.db_utils at offline_store; printer_health resolves get_db at call time.
     with offline_store.get_bind().begin() as conn:
         conn.execute(text("UPDATE printers SET api_type='moonraker',api_host='192.168.50.20',camera_enabled=TRUE,is_active=TRUE,camera_url=NULL WHERE id=199"))
     return offline_store, captured_config

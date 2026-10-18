@@ -222,3 +222,97 @@ def _job_status_runtime_census(request):
         # to run the callback, while this thread holds the GIL inside sqlite3_trace_v2.
         active[0] = False
     assert violations == [], f"jobs.status written outside the state machine: {violations}"
+
+
+_TESTS_DIR = str(Path(__file__).resolve().parents[1]) + os.sep
+_BACKEND_DIR = str(_BACKEND) + os.sep
+
+
+def _test_defined(value):
+    """True when value is a callable defined in a test module (a test double).
+
+    Judged by the defining module's file, not code.co_filename: pytest's
+    assertion-rewrite cache can carry a stale co_filename from another checkout.
+    """
+    for candidate in (value, getattr(value, "__wrapped__", None), getattr(value, "__func__", None)):
+        if candidate is None or not hasattr(candidate, "__code__"):
+            continue
+        module = sys.modules.get(getattr(candidate, "__module__", None) or "")
+        if (getattr(module, "__file__", None) or "").startswith(_TESTS_DIR):
+            return True
+    return False
+
+
+_REPORTED_LEAKS = set()
+# id(double) -> (double, the value the patched target held before). Filled by the
+# MonkeyPatch.setattr wrapper below for the current test; cleared after its teardown.
+_INSTALLED = {}
+
+
+def _record_monkeypatch_setattr():
+    from _pytest.monkeypatch import MonkeyPatch, notset
+    original = MonkeyPatch.setattr
+    if getattr(original, "_records_doubles", False):
+        return
+
+    def setattr(self, *args, **kwargs):
+        before = len(self._setattr)
+        result = original(self, *args, **kwargs)
+        if len(self._setattr) > before:
+            target, name, oldval = self._setattr[-1]
+            value = getattr(target, name, notset)
+            if oldval is not notset and callable(value) and _test_defined(value):
+                _INSTALLED[id(value)] = (value, oldval)
+        return result
+    setattr._records_doubles = True
+    MonkeyPatch.setattr = setattr
+
+
+_record_monkeypatch_setattr()
+
+
+def _leaked_test_doubles():
+    """Rebind, or report, backend module attributes still holding a test double.
+
+    A module first imported inside a monkeypatch window binds the double through a
+    plain ``from x import name``; monkeypatch restores x but not that importer. When
+    the double came from this test's monkeypatch, the importer gets the value the
+    patched target held before (exactly what an import outside the window binds).
+    Anything else is reported once, against the test that left it behind.
+    """
+    leaks = []
+    for name, module in list(sys.modules.items()):
+        filename = getattr(module, "__file__", None) or ""
+        if not filename.startswith(_BACKEND_DIR):
+            continue
+        namespace = vars(module)
+        for attr, value in list(namespace.items()):
+            if not callable(value) or not _test_defined(value):
+                continue
+            original = value
+            while True:  # the same target patched twice: follow back to the pre-test value
+                installed = _INSTALLED.get(id(original))
+                if installed is None or installed[0] is not original:
+                    break
+                original = installed[1]
+            if original is not value and not (callable(original) and _test_defined(original)):
+                namespace[attr] = original
+                continue
+            key = (name, attr, id(value))
+            if key not in _REPORTED_LEAKS:
+                _REPORTED_LEAKS.add(key)  # blame the test that leaked it, once
+                leaks.append(f"{name}.{attr}")
+    return leaks
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_teardown(item, nextitem):
+    """After every fixture is torn down, no backend module may still hold a test double."""
+    outcome = yield
+    try:
+        outcome.get_result()
+        leaks = _leaked_test_doubles()
+    finally:
+        _INSTALLED.clear()
+    if leaks:
+        pytest.fail("test double outlived its test in backend module(s): " + ", ".join(sorted(leaks)), pytrace=False)

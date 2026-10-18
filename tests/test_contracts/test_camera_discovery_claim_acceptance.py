@@ -1,5 +1,4 @@
 """Owned camera discovery/registration assertions, no hardware or playable-video claim."""
-from contextlib import contextmanager
 from types import SimpleNamespace
 import pytest
 from sqlalchemy import text
@@ -10,18 +9,12 @@ from tests.test_contracts.test_printer_offline_behavior import offline_store, re
 @pytest.fixture
 def captured_config(offline_store, monkeypatch):
     from core import db_utils
-    from core.db_utils import _ConnectionAdapter
     from modules.printers import route_utils
     monkeypatch.setenv('ENCRYPTION_KEY', Fernet.generate_key().decode())
     configs=[]
-    @contextmanager
-    def database():
-        connection=offline_store.get_bind().raw_connection()
-        try:yield _ConnectionAdapter(connection,False)
-        finally:connection.close()
-    monkeypatch.setattr(db_utils,'get_db',database)
-    from modules.notifications import printer_health
-    monkeypatch.setattr(printer_health,'get_db',database)
+    # Rebind the engine get_db reads at call time, never get_db itself: a module
+    # first imported while get_db is replaced keeps the replacement forever.
+    monkeypatch.setattr(db_utils,'engine',offline_store.get_bind())
     monkeypatch.setattr(route_utils,'_go2rtc_restart_with_lock',lambda value:configs.append(value))
     return configs
 
