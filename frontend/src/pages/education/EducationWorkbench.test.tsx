@@ -1,6 +1,6 @@
 import React from 'react'
 import { MemoryRouter } from 'react-router-dom'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import EducationWorkbench from './EducationWorkbench'
 const state = vi.hoisted(() => ({
@@ -17,7 +17,7 @@ vi.mock('@tanstack/react-query', () => ({
 }))
 vi.mock('../../components/education/CostCenterManager', () => ({ default: () => null }))
 vi.mock('../../components/education/ClassroomManager', () => ({ default: () => null }))
-vi.mock('../../components/education/SubmissionQueue', () => ({ default: () => null }))
+vi.mock('../../components/education/SubmissionQueue', () => ({ default: ({ reviewable }: { reviewable: boolean }) => <div data-testid="submission-queue">{reviewable ? 'review' : 'mine'}</div> }))
 vi.mock('../../components/education/SubmissionUploadModal', () => ({ default: () => null, educationAudience: () => 'owned-student' }))
 vi.mock('../../components/education/ReadinessPanel', () => ({ default: () => null }))
 beforeEach(() => { Object.assign(state.capabilities, { education_enabled: true, student: false, manager: false, tenant_admin: false }); state.licensed = true; state.error = false; state.loading = false; state.licenseError = false })
@@ -30,3 +30,13 @@ it('does not interpret failed requests as license failures', () => { state.error
 it('waits for license loading before showing an access failure', () => { state.loading = true; state.licensed = false; render(<MemoryRouter><EducationWorkbench /></MemoryRouter>); expect(screen.getByText('Loading Education workspace…')).toBeInTheDocument(); expect(screen.queryByText('Education entitlement required')).not.toBeInTheDocument() })
 
 it('shows a license request failure as unavailable access rather than missing entitlement', () => { state.licenseError = true; state.licensed = false; render(<MemoryRouter><EducationWorkbench /></MemoryRouter>); expect(screen.getByText('Unable to load Education access')).toBeInTheDocument(); expect(screen.queryByText('Education entitlement required')).not.toBeInTheDocument() })
+
+it('renders exactly one submission queue as the tabs change', () => {
+  // Both queues once shared key={audience} as siblings, so switching tabs left a stale queue mounted.
+  Object.assign(state.capabilities, { student: true, manager: true })
+  render(<MemoryRouter><EducationWorkbench /></MemoryRouter>)
+  for (const [tab, expected] of [['My submissions', 'mine'], ['Review queue', 'review'], ['My submissions', 'mine']] as const) {
+    fireEvent.click(screen.getByRole('button', { name: tab }))
+    expect(screen.getAllByTestId('submission-queue').map((node) => node.textContent)).toEqual([expected])
+  }
+})

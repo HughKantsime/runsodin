@@ -187,7 +187,7 @@ export default function EducationWorkbench() {
       )}
 
       {activeTab === 'submissions' && (
-        <SubmissionQueue key={audience} centers={studentCenters} reviewable={false} mineOnly onRevise={(submission) => {
+        <SubmissionQueue key={`submissions-${audience}`} centers={studentCenters} reviewable={false} mineOnly onRevise={(submission) => {
           setRevision(submission)
           setUploadOpen(true)
         }} />
@@ -195,7 +195,7 @@ export default function EducationWorkbench() {
 
       {activeTab === 'review' && (
         <SubmissionQueue
-          key={audience}
+          key={`review-${audience}`}
           centers={capabilities.tenant_admin ? activeCenters : managedCenters}
           reviewable
         />
