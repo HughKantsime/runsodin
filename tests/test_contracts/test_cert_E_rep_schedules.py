@@ -210,8 +210,14 @@ def test_daemon_main_loop_executes_due_schedule_and_delivers_html_over_smtp(revi
     monkeypatch.setattr(report_runner, 'SessionLocal', sessionmaker(bind=review_db.get_bind()))
     monkeypatch.setattr(report_runner, 'process_quiet_hours_digest', lambda session: None)
     sleeps = []
+    import threading
+    loop_thread, real_sleep = threading.current_thread(), report_runner.time.sleep
 
     def stop(seconds):
+        # report_runner.time is the process-wide time module: a daemon thread another
+        # test left running (a bed-cool monitor, say) must keep its real sleep.
+        if threading.current_thread() is not loop_thread:
+            return real_sleep(seconds)
         sleeps.append(seconds)
         raise _StopLoop()
 
