@@ -122,6 +122,10 @@ def test_queue_added_origin_targets_creator_not_other_configured_users(approval_
 @pytest.mark.parametrize("approval", [False, True])
 @pytest.mark.parametrize("failure", ["audit", "quota", "preferences", "alert", "scope", "commit", "uncertain_commit"])
 def test_creation_transaction_failures_never_deliver_external(approval_client, review_db, monkeypatch, approval, failure):
+    """In-transaction failures (audit, quota, commit) roll the creation back and deliver
+    nothing. The alert is a side write staged after the commit in its own transaction
+    (dispatch_alert_after_commit): a failure there (preferences, alert row, scope) leaves
+    the committed job, audit and quota charge intact, writes no alert and delivers nothing."""
     from core.base import AlertType
     from modules.notifications import alert_dispatcher
     from modules.notifications.models import AlertPreference
@@ -141,7 +145,7 @@ def test_creation_transaction_failures_never_deliver_external(approval_client, r
     tables = ["jobs", "audit_logs", "quota_usage", "alerts", "alert_preferences"]
     before = {t: review_db.execute(text(f"SELECT COUNT(*) FROM {t}")).scalar_one() for t in tables}
     called = []
-    monkeypatch.setattr(alert_dispatcher, "deliver_staged_alert", lambda *args: called.append(True))
+    monkeypatch.setattr(alert_dispatcher, "_deliver_staged_alert", lambda *args: called.append(True))
     def fail(*args, **kwargs):
         raise RuntimeError("Synthetic transaction failure")
     if failure == "scope":
@@ -175,16 +179,23 @@ def test_creation_transaction_failures_never_deliver_external(approval_client, r
                 original(db)
             fail()
         monkeypatch.setattr(Session, "commit", commit)
-    with pytest.raises(RuntimeError, match="Synthetic transaction failure"):
-        client.post("/api/v1/jobs", json={"item_name": "Synthetic failed creation"})
+    side_write = failure in ("preferences", "alert", "scope")
+    if side_write:
+        response = client.post("/api/v1/jobs", json={"item_name": "Synthetic side-write failure"})
+        assert response.status_code == 201, response.text
+    else:
+        with pytest.raises(RuntimeError, match="Synthetic transaction failure"):
+            client.post("/api/v1/jobs", json={"item_name": "Synthetic failed creation"})
     assert called == []
     review_db.rollback()
     after = {t: review_db.execute(text(f"SELECT COUNT(*) FROM {t}")).scalar_one() for t in tables}
-    if failure == "uncertain_commit":
+    if failure == "uncertain_commit" or side_write:
+        # The job transaction committed; its side write did not (or never ran).
         assert after["jobs"] == before["jobs"] + 1
-        assert after["alerts"] == before["alerts"] + 1
         assert after["audit_logs"] == before["audit_logs"] + 1
         assert after["quota_usage"] == before["quota_usage"] + 1
+        assert after["alerts"] == before["alerts"]
+        assert after["alert_preferences"] == before["alert_preferences"]
     else:
         assert after == before
 
@@ -211,7 +222,7 @@ def test_job_external_delivery_runs_only_after_persisted_commit(approval_client,
             assert independent.execute(text("SELECT COUNT(*) FROM jobs WHERE id=:id"), {"id":plan.job_id}).scalar_one() == 1
             assert independent.execute(text("SELECT COUNT(*) FROM alerts WHERE job_id=:id"), {"id":plan.job_id}).scalar_one() == 1
         observed.append(plan.alert_type)
-    monkeypatch.setattr(alert_dispatcher, "deliver_staged_alert", deliver)
+    monkeypatch.setattr(alert_dispatcher, "_deliver_staged_alert", deliver)
     response = client.post("/api/v1/jobs", json={"item_name":"Synthetic committed delivery"})
     assert response.status_code == 201, response.text
     assert observed == [typ]

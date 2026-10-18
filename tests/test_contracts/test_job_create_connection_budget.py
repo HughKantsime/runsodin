@@ -56,8 +56,8 @@ def test_a_job_create_opens_two_database_connections(tmp_path):
 
 
 def test_a_job_approval_opens_two_database_connections(tmp_path):
-    # The approval alert is staged in the approval's transaction (as a create stages its
-    # alert) and delivered on one dispatch connection; the response needs no refresh.
+    # The approval alert is staged and delivered after the commit on one dispatch
+    # connection (as a create's alert); the response needs no refresh.
     measured = _measure(tmp_path)["approve"]
     assert measured["status"] == 200
     assert len(measured["opened"]) == 2, measured["opened"]

@@ -454,27 +454,26 @@ def create_job(
         required_tags=job.required_tags or [],
         **_target_columns(job, pinned_printer_id),
     )
+    # Reads the alert needs happen before the first write, so the writer lock is
+    # held only for the job's own writes (quota, job, identity, audit).
+    from modules.notifications.alert_dispatcher import (
+        dispatch_alert_after_commit, get_job_approval_reviewer_ids,
+    )
+    alert = None
+    if initial_status == "submitted":
+        alert = (AlertType.JOB_SUBMITTED, f"Job awaiting approval: {job.item_name or 'Untitled'}",
+                 f"{current_user.get('display_name') or current_user.get('username', 'A user')} submitted a print job",
+                 get_job_approval_reviewer_ids(db, current_user))
+    elif initial_status == "pending" and current_user:
+        alert = (AlertType.QUEUE_ADDED, f"Job added to queue: {job.item_name or 'Untitled'}", "",
+                 [current_user["id"]])
+
     charge_job_quota(db, current_user)
     _stage_prospective_queue_job(db, db_job, current_user)
     db.flush()
     db.refresh(db_job)
+    # Audit is atomic with the job it records.
     log_audit(db, "job.created", "job", db_job.id, {"item_name": db_job.item_name, "status": str(initial_status)})
-
-    # Stage alerts in the same transaction as job, audit and quota writes.
-    from modules.notifications.alert_dispatcher import (
-        stage_alert, deliver_staged_alert, get_job_approval_reviewer_ids,
-    )
-    alert_plan = None
-    if initial_status == "submitted":
-        target_ids = get_job_approval_reviewer_ids(db, current_user)
-        alert_plan = stage_alert(db, AlertType.JOB_SUBMITTED, AlertSeverity.INFO,
-            f"Job awaiting approval: {job.item_name or 'Untitled'}",
-            f"{current_user.get('display_name') or current_user.get('username', 'A user')} submitted a print job",
-            job_id=db_job.id, target_user_ids=target_ids)
-    elif initial_status == "pending" and current_user:
-        alert_plan = stage_alert(db, AlertType.QUEUE_ADDED, AlertSeverity.INFO,
-            f"Job added to queue: {job.item_name or 'Untitled'}",
-            job_id=db_job.id, target_user_ids=[current_user["id"]])
     # Return JobResponse fields + next_actions as a dict. response_model
     # is intentionally omitted on this route — see docstring. Built from the flushed,
     # refreshed row before the commit, so the response needs no second connection.
@@ -493,7 +492,12 @@ def create_job(
     )
     # An uncertain commit must not trigger external delivery or automatic retry.
     db.commit()
-    deliver_staged_alert(db, alert_plan)
+    if alert is not None:
+        # The alert is a side write: staged after the commit in its own transaction,
+        # so a failure there never undoes the created job.
+        alert_type, title, message, target_ids = alert
+        dispatch_alert_after_commit(db, alert_type, AlertSeverity.INFO, title, message,
+                                    job_id=response["id"], target_user_ids=target_ids)
     return response
 
 

@@ -211,7 +211,9 @@ def test_bulk_education_guard_precedes_quota_http(review_db, monkeypatch, exhaus
         assert fresh.scalar(text('SELECT count(*) FROM jobs'))==before_jobs
         assert fresh.execute(text('SELECT user_id,period_key,jobs_used FROM quota_usage')).all()==before_quota
 
-def test_single_real_audit_alert_quota_rollback(quota_engine, monkeypatch):
+def test_single_real_audit_quota_commit_survives_alert_side_write_failure(quota_engine, monkeypatch):
+    """Job, audit and quota charge commit together; the alert is staged afterwards in its
+    own transaction, sees the committed job, and its failure rolls back only itself."""
     from modules.jobs.routes import jobs_crud
     from modules.jobs.schemas import JobCreate
     from modules.notifications import alert_dispatcher
@@ -234,12 +236,11 @@ def test_single_real_audit_alert_quota_rollback(quota_engine, monkeypatch):
         assert db.scalar(text('SELECT jobs_used FROM quota_usage'))==1
         raise RuntimeError('owned injected failure after real staging')
     monkeypatch.setattr(alert_dispatcher,'stage_alert',stage_then_fail)
-    monkeypatch.setattr(alert_dispatcher,'deliver_staged_alert',lambda *args:delivered.append(True))
+    monkeypatch.setattr(alert_dispatcher,'_deliver_staged_alert',lambda *args:delivered.append(True))
     with Session(quota_engine) as db:
-        with pytest.raises(RuntimeError,match='after real staging'):
-            jobs_crud.create_job(JobCreate(item_name='rollback'),Request({'type':'http','headers':[], 'query_string':b''}),db,actor(quota_jobs=1))
-        db.rollback()
+        created=jobs_crud.create_job(JobCreate(item_name='committed'),Request({'type':'http','headers':[], 'query_string':b''}),db,actor(quota_jobs=1))
+    assert created['item_name']=='committed'
     with quota_engine.connect() as conn:
-        for table in ('jobs','audit_logs','alerts','quota_usage'):
-            assert conn.scalar(text(f'SELECT count(*) FROM {table}'))==0
+        for table,expected in (('jobs',1),('audit_logs',1),('quota_usage',1),('alerts',0)):
+            assert conn.scalar(text(f'SELECT count(*) FROM {table}'))==expected, table
     assert delivered==[]

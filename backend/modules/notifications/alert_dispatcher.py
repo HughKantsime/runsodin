@@ -553,6 +553,31 @@ def _deliver_staged_alert(db: Session, plan: StagedAlert):
         logger.warning("External alert delivery failed after confirmed commit")
 
 
+def dispatch_alert_after_commit(db: Session, alert_type: AlertType, severity: AlertSeverity,
+                               title: str, message: str = "", **fields) -> Optional[StagedAlert]:
+    """Stage and deliver an alert after the caller's transaction committed.
+
+    The alert rows, preference seeding and deferred-delivery records are written in a
+    transaction of their own on the dispatch's shared connection, so they never extend
+    the caller's hold on the database writer, and a failure here leaves the caller's
+    committed change intact. Call only after a confirmed commit.
+    """
+    from core.dispatch_connection import dispatch_scope, dispatch_transaction
+    engine = db.get_bind()
+    plan = None
+    try:
+        with dispatch_scope(engine):
+            with dispatch_transaction(engine) as connection, Session(bind=connection) as alert_db:
+                plan = stage_alert(alert_db, alert_type, severity, title, message, **fields)
+                alert_db.flush()
+            if plan is not None:
+                _deliver_staged_alert(db, plan)
+    except Exception:
+        logger.warning("Post-commit alert staging failed; the committed change stands")
+        return None
+    return plan
+
+
 def dispatch_alert(db: Session, alert_type: AlertType, severity: AlertSeverity,
                    title: str, message: str = "", printer_id: int = None,
                    job_id: int = None, spool_id: int = None, metadata: dict = None,

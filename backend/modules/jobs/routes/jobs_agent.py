@@ -175,29 +175,20 @@ def approve_job(
         raise OdinError(ErrorCode.invalid_state_transition, "Job is no longer awaiting approval",
                         status=409, retriable=False)
     db.refresh(job)
+    submitted_by, item_name = job.submitted_by, job.item_name
+    # Audit is atomic with the approval it records.
     log_audit(db, "job.approved", "job", job.id, {"approved_by": current_user["id"]})
 
-    # Notify submitter: the alert is staged in the approval's transaction (as a job create
-    # stages its alert) inside a savepoint, so a staging failure never undoes the approval,
-    # and it is delivered after the commit.
-    from modules.notifications.alert_dispatcher import deliver_staged_alert, stage_alert
-    alert_plan = None
-    if job.submitted_by:
-        try:
-            with db.begin_nested():
-                alert_plan = stage_alert(
-                    db, AlertType.JOB_APPROVED, AlertSeverity.INFO,
-                    f"Job approved: {job.item_name or 'Untitled'}",
-                    f"Approved by {current_user.get('display_name') or current_user.get('username', 'an approver')}",
-                    job_id=job.id, target_user_ids=[job.submitted_by])
-        except Exception as e:
-            alert_plan = None
-            logger.warning(f"Failed to stage job_approved alert: {e}")
     db.commit()
-    try:
-        deliver_staged_alert(db, alert_plan)
-    except Exception as e:
-        logger.warning(f"Failed to deliver job_approved alert: {e}")
+    # Notify submitter after the commit, in a transaction of its own: the alert is a
+    # side write, so it never extends the approval's writer hold and a failure there
+    # never undoes the approval.
+    if submitted_by:
+        from modules.notifications.alert_dispatcher import dispatch_alert_after_commit
+        dispatch_alert_after_commit(
+            db, AlertType.JOB_APPROVED, AlertSeverity.INFO, f"Job approved: {item_name or 'Untitled'}",
+            f"Approved by {current_user.get('display_name') or current_user.get('username', 'an approver')}",
+            job_id=job_id, target_user_ids=[submitted_by])
 
     return {
         "status": "approved",
