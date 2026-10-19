@@ -1018,7 +1018,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 468,
+      "line": 479,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1026,7 +1026,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 494,
+      "line": 505,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1034,7 +1034,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 496,
+      "line": 507,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1042,7 +1042,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 506,
+      "line": 517,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1050,7 +1050,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 521,
+      "line": 532,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1058,7 +1058,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 523,
+      "line": 534,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
