@@ -10,3 +10,28 @@ c323d454f3092d1057dbbd8aaa880f7659256b9f:tests/test_release_control/test_result_
 0a967d94769363fd52f90a72e880be0b5845ba14:tests/test_contracts/test_candidate_gate_tools.py:jwt:158
 # 'ODIN-TEST-KEY1-...' synthetic license-key string for device-key proof-of-possession tests.
 a5535fa3b885c84f5b61b2527d90afeb38eac2fa:tests/test_contracts/test_license_pop.py:generic-api-key:92
+
+# Historical exposed API key (23 findings, 21 unique scanner fingerprints).
+# Owner accepted verified live protected-endpoint rejection on October 19, 2026.
+# Superseded by session auth; history not rewritten. Rotation/config equality not asserted.
+5012af72ac9712cb97bcee99a1fa186a88271c9c:frontend/src/pages/Printers.jsx:generic-api-key:552
+65bf4fd91a8cca9a6189dd1bdb99a927039b6ee3:frontend/src/pages/Admin.jsx:generic-api-key:161
+65bf4fd91a8cca9a6189dd1bdb99a927039b6ee3:frontend/src/pages/Admin.jsx:generic-api-key:17
+65bf4fd91a8cca9a6189dd1bdb99a927039b6ee3:frontend/src/pages/Admin.jsx:generic-api-key:181
+65bf4fd91a8cca9a6189dd1bdb99a927039b6ee3:frontend/src/pages/Admin.jsx:generic-api-key:200
+7daff378f3a6c960bebdb023aa0fc6149b9b6d62:frontend/src/pages/Admin.jsx:generic-api-key:106
+7daff378f3a6c960bebdb023aa0fc6149b9b6d62:frontend/src/pages/Admin.jsx:generic-api-key:86
+7daff378f3a6c960bebdb023aa0fc6149b9b6d62:frontend/src/pages/Admin.jsx:generic-api-key:96
+7daff378f3a6c960bebdb023aa0fc6149b9b6d62:frontend/src/pages/Branding.jsx:generic-api-key:143
+7daff378f3a6c960bebdb023aa0fc6149b9b6d62:frontend/src/pages/Branding.jsx:generic-api-key:160
+7daff378f3a6c960bebdb023aa0fc6149b9b6d62:frontend/src/pages/Branding.jsx:generic-api-key:77
+83760f04c45a72431f3fa5779c71092c15ec9dd7:frontend/src/components/CameraModal.jsx:generic-api-key:52
+8de7ca51982c65b1f0ff60f34b1dc672e0aa3f7a:frontend/src/components/CameraModal.jsx:generic-api-key:54
+8de7ca51982c65b1f0ff60f34b1dc672e0aa3f7a:frontend/src/pages/Cameras.jsx:generic-api-key:10
+90f0404c83c18c5d6c52f25d9744714b04556d6e:frontend/src/pages/Spools.jsx:generic-api-key:6
+96cb07e7aa5130283d2004ec214d9bf64dabdc0e:frontend/src/pages/Admin.jsx:generic-api-key:17
+96cb07e7aa5130283d2004ec214d9bf64dabdc0e:frontend/src/pages/Admin.jsx:generic-api-key:200
+96cb07e7aa5130283d2004ec214d9bf64dabdc0e:frontend/src/pages/Dashboard.jsx:generic-api-key:221
+96cb07e7aa5130283d2004ec214d9bf64dabdc0e:frontend/src/pages/Printers.jsx:generic-api-key:552
+c97cb0ee31ea3a98aaad40a0af3b9133d15a0d9f:frontend/src/api.js:generic-api-key:4
+d6fbccb45ebf703d02d910cb0e3857820df95f7b:frontend/src/pages/Printers.jsx:generic-api-key:8
