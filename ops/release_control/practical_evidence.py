@@ -25,7 +25,17 @@ ROOT = Path(__file__).parents[2]
 TRUSTED_ROOT = ROOT / "artifacts/trusted-validation"
 SCHEMA_PATH = Path(__file__).with_name("practical_evidence.schema.json")
 ALLOWED_SUFFIXES = {".json", ".xml", ".html", ".log"}
+# Browser screenshots are inventoried by hash only; pixels never enter the bundle.
+SCREENSHOT_PATH_RE = re.compile(
+    r"native/candidate/candidate-[a-z0-9][a-z0-9-]{0,52}/playwright/"
+    r"(?:camera-player|compiled-ams-mobile)-(?:False|True)\.png"
+)
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 MAX_FILE_BYTES = 8 * 1024 * 1024
+CONTRACT_REPORT_PATH_RE = re.compile(
+    r"native/contracts/(?:result\.log|junit\.xml|batches/batch-[0-9]{3}\.(?:log|xml))"
+)
+MAX_CONTRACT_REPORT_BYTES = 32 * 1024 * 1024
 MAX_FILE_COUNT = 4096
 MAX_TOTAL_BYTES = 512 * 1024 * 1024
 LEGACY_ZERO_COUNT_RUNS = {"local-20260914T231641Z"}
@@ -48,7 +58,11 @@ def digest_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _safe_read(path: Path) -> bytes:
+def _source_file_limit(relative: str) -> int:
+    return MAX_CONTRACT_REPORT_BYTES if CONTRACT_REPORT_PATH_RE.fullmatch(relative) else MAX_FILE_BYTES
+
+
+def _safe_read(path: Path, *, max_bytes: int = MAX_FILE_BYTES) -> bytes:
     try:
         initial = path.lstat()
     except OSError as exc:
@@ -68,13 +82,17 @@ def _safe_read(path: Path) -> bytes:
             before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns
         ):
             raise EvidenceError("EVIDENCE_NODE_FORBIDDEN", f"file changed before open: {path}")
-        if before.st_size > MAX_FILE_BYTES:
+        if before.st_size > max_bytes:
             raise EvidenceError("EVIDENCE_FILE_TOO_LARGE", str(path))
         chunks: list[bytes] = []
+        total = 0
         while True:
-            chunk = os.read(descriptor, 1024 * 1024)
+            chunk = os.read(descriptor, min(1024 * 1024, max_bytes - total + 1))
             if not chunk:
                 break
+            total += len(chunk)
+            if total > max_bytes:
+                raise EvidenceError("EVIDENCE_FILE_TOO_LARGE", str(path))
             chunks.append(chunk)
         after = os.fstat(descriptor)
         if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (
@@ -132,9 +150,12 @@ def _inventory(source: Path) -> tuple[list[dict[str, Any]], dict[str, bytes]]:
                 continue
             if path.is_symlink():
                 raise EvidenceError("EVIDENCE_NODE_FORBIDDEN", relative)
-            if path.suffix.lower() not in ALLOWED_SUFFIXES:
+            screenshot = SCREENSHOT_PATH_RE.fullmatch(relative) is not None
+            if path.suffix.lower() not in ALLOWED_SUFFIXES and not screenshot:
                 raise EvidenceError("EVIDENCE_TYPE_FORBIDDEN", relative)
-            data = _safe_read(path)
+            data = _safe_read(path, max_bytes=_source_file_limit(relative))
+            if screenshot and not data.startswith(PNG_SIGNATURE):
+                raise EvidenceError("EVIDENCE_TYPE_FORBIDDEN", relative)
             if len(entries) + 1 > MAX_FILE_COUNT or sum(item["bytes"] for item in entries) + len(data) > MAX_TOTAL_BYTES:
                 raise EvidenceError("EVIDENCE_FILE_TOO_LARGE", "aggregate evidence input limit exceeded")
             content[relative] = data
@@ -193,7 +214,7 @@ def _component_summaries(
         for native_artifact in result["artifacts"]:
             native_path = _artifact_path(source, native_artifact["path"])
             native_relative = native_path.relative_to(source).as_posix()
-            native_digest = digest_bytes(_safe_read(native_path))
+            native_digest = digest_bytes(_safe_read(native_path, max_bytes=_source_file_limit(native_relative)))
             if native_digest != native_artifact["sha256"]:
                 raise EvidenceError("NATIVE_ARTIFACT_HASH_MISMATCH", native_relative)
             existing = verified_native.setdefault(native_relative, native_digest)

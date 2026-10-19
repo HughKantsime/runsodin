@@ -206,10 +206,32 @@ def _eligible(source: Path, paths: tuple[Path, Path, Path]) -> dict[str, object]
 
 def test_PE01_complete_pass_is_eligible(tmp_path, monkeypatch):
     source = _run(tmp_path, monkeypatch)
+    screenshots = {}
+    for kind in ("camera-player", "compiled-ams-mobile"):
+        for mode in ("False", "True"):
+            relative = f"native/candidate/candidate-gha-100-1/playwright/{kind}-{mode}.png"
+            path = source / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            data = b"\x89PNG\r\n\x1a\n" + b"private-pixel-canary"
+            path.write_bytes(data)
+            screenshots[relative] = {"path": relative, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+    component_path = source / "components/CV02/result.json"
+    component = json.loads(component_path.read_text())
+    for relative, size in (("native/contracts/result.log", 20920903), ("native/contracts/junit.xml", 21016098), ("native/contracts/batches/batch-015.log", 16900937), ("native/contracts/batches/batch-015.xml", 16921339)):
+        path = source / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("wb") as handle:
+            handle.truncate(size)
+        component["artifacts"].append({"path": str(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
+    _write(component_path, component)
+    _refresh_component(source, "CV02")
     bundle = build_bundle(source, SHA)
     manifest = verify_bundle(bundle)["manifest"]
     assert manifest["status"] == "eligible" and len(manifest["components"]) == 10
     assert manifest["source_commit"] == SHA
+    assert {entry["path"]: entry for entry in manifest["files"] if entry["path"] in screenshots} == screenshots
+    assert {path.name for path in bundle.iterdir()} == {"manifest.json", "manifest.sha256", "index.html"}
+    assert all(b"private-pixel-canary" not in path.read_bytes() for path in bundle.iterdir())
 
 
 def test_PE02_build_is_byte_deterministic(tmp_path, monkeypatch):
@@ -276,11 +298,69 @@ def test_PE10_symlink_rejected(tmp_path, monkeypatch):
 def test_PE11_unknown_type_rejected(tmp_path, monkeypatch):
     source = _run(tmp_path, monkeypatch); (source / "binary.bin").write_bytes(b"safe")
     _expect("EVIDENCE_TYPE_FORBIDDEN", build_bundle, source, SHA)
+    valid = "native/candidate/candidate-gha-100-1/playwright/camera-player-False.png"
+    cases = [
+        ("other.png", b"\x89PNG\r\n\x1a\n"),
+        (valid.replace("camera-player", "unknown"), b"\x89PNG\r\n\x1a\n"),
+        (valid.replace("playwright/", "playwright/extra/"), b"\x89PNG\r\n\x1a\n"),
+        (valid.replace(".png", ".PNG"), b"\x89PNG\r\n\x1a\n"),
+        (valid.replace("gha-100-1", "X"), b"\x89PNG\r\n\x1a\n"),
+        (valid.replace("gha-100-1", "a" * 54), b"\x89PNG\r\n\x1a\n"),
+        (valid, b""), (valid, b"\x89PNG"), (valid, b"not a PNG"),
+    ]
+    for index, (relative, data) in enumerate(cases):
+        source = _run(tmp_path / str(index), monkeypatch)
+        path = source / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        _expect("EVIDENCE_TYPE_FORBIDDEN", build_bundle, source, SHA)
 
 
 def test_PE12_oversize_file_rejected(tmp_path, monkeypatch):
     source = _run(tmp_path, monkeypatch); (source / "large.log").write_bytes(b"x" * (8 * 1024 * 1024 + 1))
     _expect("EVIDENCE_FILE_TOO_LARGE", build_bundle, source, SHA)
+    from ops.release_control.practical_evidence import SCHEMA_PATH, _safe_read, _source_file_limit
+    allowed = ("native/contracts/result.log", "native/contracts/junit.xml", "native/contracts/batches/batch-015.log", "native/contracts/batches/batch-015.xml")
+    for relative in allowed:
+        assert _source_file_limit(relative) == 32 * 1024 * 1024
+    for relative in ("junit.xml", "native/contracts/other.log", "native/contracts/batches/batch-15.log", "native/contracts/batches/batch-0015.xml", "native/contracts/batches/batch-015.XML", "extra/native/contracts/result.log"):
+        assert _source_file_limit(relative) == 8 * 1024 * 1024
+    from jsonschema import Draft202012Validator
+    schema = json.loads(SCHEMA_PATH.read_text())
+    # Validate full bundles elsewhere; check the shared file schema's exact path boundary here.
+    file_validator = Draft202012Validator(schema["$defs"]["file"])
+    for relative in (*allowed, "native/contracts/result.log\n", "other.log"):
+        for size in (8 * 1024 * 1024, 8 * 1024 * 1024 + 1, 32 * 1024 * 1024, 32 * 1024 * 1024 + 1):
+            assert file_validator.is_valid({"path": relative, "bytes": size, "sha256": "a" * 64}) == (size <= _source_file_limit(relative))
+    path = tmp_path / "boundary.log"
+    with path.open("wb") as handle:
+        handle.truncate(32 * 1024 * 1024)
+    assert len(_safe_read(path, max_bytes=32 * 1024 * 1024)) == 32 * 1024 * 1024
+    with path.open("ab") as handle:
+        handle.write(b"x")
+    _expect("EVIDENCE_FILE_TOO_LARGE", lambda: _safe_read(path, max_bytes=32 * 1024 * 1024))
+    import ops.release_control.practical_evidence as module
+    source = _run(tmp_path / "aggregate", monkeypatch)
+    report = source / "native/contracts/result.log"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_bytes(b"x" * (8 * 1024 * 1024 + 1))
+    with monkeypatch.context() as patch:
+        patch.setattr(module, "MAX_TOTAL_BYTES", 8 * 1024 * 1024)
+        _expect("EVIDENCE_FILE_TOO_LARGE", build_bundle, source, SHA)
+    with monkeypatch.context() as patch:
+        patch.setattr(module, "MAX_FILE_COUNT", 1)
+        _expect("EVIDENCE_FILE_TOO_LARGE", build_bundle, source, SHA)
+    growth = tmp_path / "growth.log"
+    growth.write_bytes(b"x")
+    seen = []
+    def growing_read(descriptor, amount):
+        seen.append(amount)
+        return b"x" * amount
+    with monkeypatch.context() as patch:
+        patch.setattr(module.os, "read", growing_read)
+        _expect("EVIDENCE_FILE_TOO_LARGE", lambda: _safe_read(growth, max_bytes=8))
+    assert seen == [9]
+
 
 
 def test_PE13_uploaded_privacy_canary_rejected(tmp_path, monkeypatch):
