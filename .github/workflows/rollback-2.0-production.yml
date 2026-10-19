@@ -1,0 +1,79 @@
+name: Restore pre-2.0 production image
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: odin-release-mutation
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    runs-on: [self-hosted, mac-mini-runner, m4]
+    timeout-minutes: 15
+    environment: production
+    permissions:
+      contents: read
+      packages: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      IMAGE_REPOSITORY: ghcr.io/hughkantsime/odin
+      FAILED_DIGEST: sha256:fe58b0e175502d41dda3579d4384b08447910fd7b23fb68fbff51e36495e2481
+      RESTORE_DIGEST: sha256:68537e546a1e23389442dbe022fd0ef5c2397c577bc37eb3bf910b6b5e891c1c
+    steps:
+      - name: Authenticate owner and isolate registry configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          test "$GITHUB_ACTOR" = HughKantsime
+          test "$GITHUB_ACTOR_ID" = 201174638
+          test "$GITHUB_TRIGGERING_ACTOR" = "$GITHUB_ACTOR"
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          config="$RUNNER_TEMP/odin-rollback-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          test ! -e "$config"
+          mkdir -m 700 "$config"
+          echo "DOCKER_CONFIG=$config" >> "$GITHUB_ENV"
+
+      - name: Set up registry manifest tools
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+        with:
+          install: false
+          cleanup: true
+
+      - name: Authenticate registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username HughKantsime --password-stdin
+
+      - name: Restore exact previous digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          prior="$(docker buildx imagetools inspect "$IMAGE_REPOSITORY@$RESTORE_DIGEST" --format '{{.Manifest.Digest}}')"
+          test "$prior" = "$RESTORE_DIGEST"
+          current="$(docker buildx imagetools inspect "$IMAGE_REPOSITORY:latest" --format '{{.Manifest.Digest}}')"
+          if [ "$current" = "$FAILED_DIGEST" ]; then
+            docker buildx imagetools create --prefer-index=false --tag "$IMAGE_REPOSITORY:latest" "$IMAGE_REPOSITORY@$RESTORE_DIGEST"
+          elif [ "$current" != "$RESTORE_DIGEST" ]; then
+            echo 'Unexpected latest digest; refusing mutation' >&2
+            exit 1
+          fi
+          observed="$(docker buildx imagetools inspect "$IMAGE_REPOSITORY:latest" --format '{{.Manifest.Digest}}')"
+          test "$observed" = "$RESTORE_DIGEST"
+          echo "Registry latest restored and verified: $observed" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove registry credentials
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          set -uo pipefail
+          expected="$RUNNER_TEMP/odin-rollback-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          if [ "${DOCKER_CONFIG:-}" != "$expected" ]; then exit 0; fi
+          docker logout ghcr.io >/dev/null 2>&1; logout_status=$?
+          rm -rf -- "$expected"; removal_status=$?
+          test "$logout_status" = 0 && test "$removal_status" = 0 && test ! -e "$expected"
