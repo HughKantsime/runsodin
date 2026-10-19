@@ -36,6 +36,53 @@ verifier reads. No real licence and no release-image change is involved.
 | CV09 | telemetry-contracts | The Telemetry V2 contract tests (`tests/test_telemetry`). | A live broker. Load. |
 | CV10 | telemetry-v2-smoke | The Telemetry V2 smoke against a live MQTT broker (`tests/stress/mqtt/run_ci_smoke.sh`). | Production-scale load. |
 
+## api_load limits for 2.0
+
+CV06's api_load runs the fixed EDU workload (1,000 operations per repetition, 25
+concurrent users, three repetitions) in process on the gate host, against SQLite.
+For 2.0 three latency limits in `ops/edu_readiness/thresholds.json` were
+re-baselined (decision: Hugh, 2026-10-18). Each is the measured worst plus 10-15%
+headroom; the previous value and the evidence sit next to the number in
+`rebaseline_2_0`. Every other limit is unchanged.
+
+| Limit | 1.9 | 2.0 | Measured worst (gate runs and standalone, 3ae698a-a81380d) |
+|---|---|---|---|
+| read p95 | 500 ms | 650 ms | 591 ms |
+| write p95 | 1000 ms | 1400 ms | 1232 ms |
+| global p99 | 2000 ms | 2800 ms | 2478 ms |
+
+Why 2.0 costs more per request:
+
+- **Security and RBAC.** Every request resolves the server-enforced permission
+  matrix and license tier; authentication binds the audit actor, checks the token
+  blacklist and refreshes session bookkeeping (now only when stale).
+- **Ledger.** A job create allocates its economic identity (cost identity rows and
+  ownership checks) and charges quota atomically; reports prove ownership with
+  correlated SQL.
+- **Alert outbox.** A create or approval writes its alert's outbox row inside its
+  transaction, then claims it and fans the alert out after the commit, so an alert
+  is never lost.
+
+What the measurements show:
+
+- **macOS SQLite locking tail.** The repetition-3 failures are bursts of 5-10
+  usage-report queries taking 1.5-2.8 s of wall time, against 15-20 ms normally,
+  while executing the same amount of query work. The extra time is spent
+  outside the query engine. It remains with the database on a RAM disk, and it
+  disappears on Linux, which fits macOS's file-locking path under concurrent
+  connections.
+- **Linux, 2 vCPUs.** The same workload in the release-image container (Docker
+  Desktop VM, 2 vCPUs, 4 GB, DB on the container filesystem) has no tail: report
+  p95 stays at 487-627 ms in every repetition, and global p99 equals write p95.
+  The baseline is about 30% slower across every class (read p95 491-578 ms), as a
+  CPU-bound workload on 2 vCPUs would be.
+- **The gate host is not the deployment platform.** Production and customer
+  installs run Linux in Docker. These limits are a regression floor for this
+  host, not a capacity statement.
+
+Performance work continues after 2.0: shortening write transactions further,
+the per-request cost of authentication and authorisation, and the report query.
+
 ## Gaps
 
 No stage in this gate proves the following. Read the results with these gaps in

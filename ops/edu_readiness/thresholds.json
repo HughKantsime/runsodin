@@ -7,14 +7,33 @@
   "minimum_reads": 800,
   "minimum_writes": 100,
   "maximum_repetition_seconds": 45,
-  "read_p95_ms": 500,
-  "write_p95_ms": 1000,
-  "global_p99_ms": 2000,
+  "read_p95_ms": 650,
+  "write_p95_ms": 1400,
+  "global_p99_ms": 2800,
   "maximum_error_rate": 0,
   "maximum_5xx": 0,
   "maximum_tenant_leaks": 0,
   "maximum_fd_delta": 8,
   "maximum_memory_delta_mib": 64,
   "websocket_cycles_per_repetition": 50,
-  "websocket_p95_ms": 1000
+  "websocket_p95_ms": 1000,
+  "rebaseline_2_0": {
+    "decision": "2026-10-18 Hugh: re-baseline the SQLite api_load latency limits for 2.0 (measured worst plus 10-15% headroom). Only limits 2.0 exceeds are changed; see docs/TRUSTED_VALIDATION_SCOPE.md 'api_load limits for 2.0'.",
+    "read_p95_ms": {
+      "previous": 500,
+      "value": 650,
+      "evidence": "worst rep-3 read p95 at 3ae698a..a81380d: 591 ms standalone, 570 ms in gate run 7 (local-20261018T153724Z); gate runs 10/12/14/15 worst 504 ms"
+    },
+    "write_p95_ms": {
+      "previous": 1000,
+      "value": 1400,
+      "evidence": "worst rep-3 write p95: 1232 ms gate run 12 (local-20261018T204953Z), 1196 ms gate run 14 (local-20261018T214501Z); +13.6%"
+    },
+    "global_p99_ms": {
+      "previous": 2000,
+      "value": 2800,
+      "evidence": "worst rep-3 global p99: 2055 ms gate run 14 (local-20261018T214501Z); 2478 ms standalone at a81380d (macOS report-query tail); +13%"
+    },
+    "unchanged": "maximum_repetition_seconds (worst 14.8 s of 45), websocket_p95_ms (worst 13.5 ms of 1000), maximum_fd_delta (worst -9 of 8), maximum_memory_delta_mib (worst 3.8 of 64), error/5xx/tenant-leak limits (0 observed)"
+  }
 }

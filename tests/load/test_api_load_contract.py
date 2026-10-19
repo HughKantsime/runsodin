@@ -54,3 +54,20 @@ def test_harness_uses_signed_ephemeral_license_not_validity_cache_bypass():
     assert "verified_license = license_manager.get_license()" in source
     assert "LicenseInfo()" not in source
     assert "_cached_license = license_info" not in source
+
+
+def test_rebaselined_limits_carry_their_previous_value_and_evidence():
+    """2.0 re-baseline (Hugh, 2026-10-18): only the latency limits 2.0 measurably exceeds
+    changed, each with its previous value and evidence; every other limit is as before."""
+    path = Path(__file__).parents[2] / "ops" / "edu_readiness" / "thresholds.json"
+    thresholds = json.loads(path.read_text(encoding="utf-8"))
+    record = thresholds["rebaseline_2_0"]
+    changed = {key: value for key, value in record.items() if isinstance(value, dict)}
+    assert set(changed) == {"read_p95_ms", "write_p95_ms", "global_p99_ms"}
+    for key, entry in changed.items():
+        assert thresholds[key] == entry["value"] and entry["previous"] < entry["value"] and entry["evidence"]
+    previous = {"maximum_repetition_seconds": 45, "maximum_error_rate": 0, "maximum_5xx": 0,
+                "maximum_tenant_leaks": 0, "maximum_fd_delta": 8, "maximum_memory_delta_mib": 64,
+                "websocket_p95_ms": 1000, "concurrent_users": 25, "operations_per_repetition": 1000,
+                "minimum_reads": 800, "minimum_writes": 100, "repetitions": 3, "warmup_operations": 100}
+    assert {key: thresholds[key] for key in previous} == previous

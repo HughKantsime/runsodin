@@ -34,6 +34,18 @@ All notable changes to O.D.I.N. are documented here.
 - API tokens that combine read:cameras with any other scope are revoked on upgrade (deleted, with an audit entry) and refused if presented. This combination never shipped in a release. Re-create the token with only the scopes you need.
 - SSO: the one-time code now arrives in the URL fragment and is bound to a login cookie (odin_oidc_bind, Path=/api, or the API base path behind a path-prefix proxy) tied to that login's state. Reverse proxies must pass this cookie. Right after upgrading, a browser still controlled by the 1.9.x service worker may load the old page once, and that first SSO attempt does nothing; signing in again works, because the new service worker (cache odin-v2.0.0) takes over.
 
+### Performance
+
+- 2.0 does more work per request than 1.9: the server-enforced permission matrix and license tiers, audit-actor binding, economic identity and quota accounting on job creation, and a transactional alert outbox (an alert can no longer be lost between a job change and its notification). The EDU API load gate's SQLite latency limits were re-baselined for 2.0: read p95 500 to 650 ms, write p95 1000 to 1400 ms, global p99 2000 to 2800 ms (the measured worst plus 10-15% headroom; see docs/TRUSTED_VALIDATION_SCOPE.md).
+- Measured on macOS, the worst-case tail is bursts of concurrent report queries slowed by SQLite file locking under many connections. The same workload on Linux (release image, 2 vCPUs) has no such tail; its latency is uniformly higher because of the smaller CPU allocation. Performance work continues after 2.0.
+- Reduced per-request cost: authenticated reads write session and API-token bookkeeping only when the stored value is over 60 seconds old (ODIN_SESSION_LAST_SEEN_INTERVAL_SECONDS), GET /api/quotas no longer creates a usage row, job approval holds the database writer only for its own writes, and the Education usage report derives each job's figures once (serial cost down about 2.7x).
+
+### Fixed
+
+- PostgreSQL restore validation could fail intermittently with "permission denied to terminate process" when autovacuum was processing the disposable validation database being dropped. The drop now falls back to a plain DROP DATABASE, which stops autovacuum itself.
+- SQLite connections get busy_timeout, journal_mode=WAL and foreign keys from one connection hook (previously the busy timeout came from the driver default).
+- Orders created in the same second list in a stable order.
+
 ### Upgrade notes
 
 - PostgreSQL backups taken by 1.9.x releases (025-, 026- and 027-era archives) are validated and imported into a fresh staging database by a frozen copy of the restore sources, then upgraded to the current schema before the restore is applied. Archives from unreleased builds between releases are refused with a clear message.
