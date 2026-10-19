@@ -49,6 +49,31 @@ jobs:
           lfs: true
           persist-credentials: false
 
+      - name: Materialize and verify pinned vision model
+        shell: bash
+        run: |
+          set -euo pipefail
+          git lfs checkout -- backend/vision_models_default/obico_spaghetti.onnx
+          PYTHONSAFEPATH=1 python3.11 -P - <<'PY'
+          import hashlib
+          import subprocess
+          from pathlib import Path
+          path = Path("backend/vision_models_default/obico_spaghetti.onnx")
+          pointer = subprocess.check_output(["git", "show", f"HEAD:{path}"], text=True)
+          if not pointer.startswith("version https://git-lfs.github.com/spec/v1\n"):
+              raise SystemExit("Committed vision model is not an LFS pointer")
+          fields = dict(line.split(" ", 1) for line in pointer.splitlines())
+          digest = hashlib.sha256()
+          size = 0
+          with path.open("rb") as model:
+              for chunk in iter(lambda: model.read(8 * 1024 * 1024), b""):
+                  size += len(chunk)
+                  digest.update(chunk)
+          if size != int(fields["size"]) or "sha256:" + digest.hexdigest() != fields["oid"]:
+              raise SystemExit("Vision model is not materialized or does not match the committed LFS object")
+          print("Pinned vision model materialized and verified")
+          PY
+
       - name: Bootstrap clean-checkout validation dependencies
         shell: bash
         run: |

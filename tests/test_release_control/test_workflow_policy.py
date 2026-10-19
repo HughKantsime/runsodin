@@ -1,5 +1,10 @@
 from pathlib import Path
 
+import hashlib
+import subprocess
+import sys
+
+import pytest
 import yaml
 
 from ops.release_control.policy import dispatch_allowed, load_inventory, valid_candidate, workflow_events, workflow_text
@@ -91,3 +96,40 @@ def test_WF12_workflow_has_no_release_side_effect_or_secret_surface():
         assert component["expected_artifacts"]
         assert "timeout_seconds" in component
         assert component["source"]
+
+
+@pytest.mark.parametrize("workflow,job", [
+    ("trusted-validation.yml", "validate"), ("publish-image.yml", "publish"),
+])
+@pytest.mark.parametrize("state", ["hydrated", "pointer", "wrong-size", "wrong-hash", "missing"])
+def test_pinned_vision_model_verification_rejects_missing_or_corrupt_materialization(tmp_path, workflow, job, state):
+    payload = yaml.safe_load((ROOT / ".github/workflows" / workflow).read_text())
+    steps = payload["jobs"][job]["steps"]
+    checkout_index = next(i for i, step in enumerate(steps) if step.get("uses", "").startswith("actions/checkout@"))
+    verify = steps[checkout_index + 1]
+    assert verify["name"] == "Materialize and verify pinned vision model"
+    assert verify.get("working-directory", ".") == ("candidate" if job == "publish" else ".")
+    assert "git lfs checkout -- backend/vision_models_default/obico_spaghetti.onnx" in verify["run"]
+    script = verify["run"].split("<<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
+    content = b"fixture model bytes"
+    model = tmp_path / "backend/vision_models_default/obico_spaghetti.onnx"
+    model.parent.mkdir(parents=True)
+    pointer = ("version https://git-lfs.github.com/spec/v1\n"
+               f"oid sha256:{hashlib.sha256(content).hexdigest()}\nsize {len(content)}\n")
+    model.write_text(pointer)
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(tmp_path), "-c", "user.name=Fixture",
+                    "-c", "user.email=fixture@example.test", "commit", "-qm", "model pointer"],
+                   check=True, capture_output=True)
+    if state == "hydrated":
+        model.write_bytes(content)
+    elif state == "wrong-size":
+        model.write_bytes(content + b"x")
+    elif state == "wrong-hash":
+        model.write_bytes(b"x" * len(content))
+    elif state == "missing":
+        model.unlink()
+    result = subprocess.run([sys.executable, "-P", "-c", script], cwd=tmp_path,
+                            capture_output=True, text=True)
+    assert (result.returncode == 0) == (state == "hydrated"), result.stderr
