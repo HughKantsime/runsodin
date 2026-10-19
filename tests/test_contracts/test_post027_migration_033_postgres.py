@@ -97,3 +97,17 @@ def test_timestamp_without_time_zone_is_refused(pg_engine):
     with pg_engine.begin() as c:
         with pytest.raises(MigrationError, match="timezone"):
             M.validate(c)
+
+
+def test_integer_measurement_adoption_is_never_enabled_for_postgres(pg_engine):
+    from core.schema.migrator import _ACTIVE_PYTHON_MIGRATION, MigrationError
+    measurements = importlib.import_module("core.schema.migrations.006_print_job_measurements")
+    with pg_engine.begin() as c:
+        c.exec_driver_sql("CREATE TABLE print_jobs (print_duration_seconds INTEGER, filament_used_g REAL)")
+        token = _ACTIVE_PYTHON_MIGRATION.set(measurements.MIGRATION_ID)
+        try:
+            with pytest.raises(MigrationError, match="print_jobs.print_duration_seconds"):
+                measurements.validate(c)
+        finally:
+            _ACTIVE_PYTHON_MIGRATION.reset(token)
+            c.exec_driver_sql("DROP TABLE print_jobs")

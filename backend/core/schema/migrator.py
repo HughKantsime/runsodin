@@ -258,6 +258,17 @@ def validate_column_shape(
     try:
         _validate_column_shape_exact(connection, table_name, column_name, definition)
     except MigrationError:
+        # Existing 1.9.x SQLite installations can already contain integer seconds.
+        # Adopt only that exact measurement declaration; never create it or relax
+        # default/nullability validation or PostgreSQL contracts.
+        if (
+            connection.dialect.name == "sqlite"
+            and _ACTIVE_PYTHON_MIGRATION.get() == "python:006-print-job-measurements"
+            and (table_name, column_name, definition)
+            == ("print_jobs", "print_duration_seconds", "REAL")
+        ):
+            _validate_column_shape_exact(connection, table_name, column_name, "INTEGER")
+            return
         legacy = _LEGACY_ENTRYPOINT_SHAPES.get((table_name, column_name, definition))
         if (
             connection.dialect.name != "sqlite"

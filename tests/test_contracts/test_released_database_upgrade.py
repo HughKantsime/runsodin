@@ -96,3 +96,69 @@ def test_unrecognized_release_checksum_is_still_refused_before_mutation(tmp_path
     conn = sqlite3.connect(db)
     assert conn.execute("SELECT name, sql FROM sqlite_master ORDER BY name").fetchall() == schema
     conn.close()
+
+
+def test_integer_measurements_from_existing_installation_upgrade_and_repeat(tmp_path):
+    db = tmp_path / "legacy-measurements.db"
+    _load("odin-v1.9.24-sqlite.sql", db)
+    with sqlite3.connect(db) as conn:
+        conn.execute("ALTER TABLE print_jobs ADD COLUMN print_duration_seconds INTEGER")
+        conn.execute("ALTER TABLE print_jobs ADD COLUMN filament_used_g REAL")
+        conn.execute("INSERT INTO printers (id, name) VALUES (1, 'Upgrade fixture')")
+        for index, value in enumerate((0, 3600, None, 12.5), 1):
+            conn.execute("INSERT INTO print_jobs (id, printer_id, started_at, status, print_duration_seconds, filament_used_g) VALUES (?,1,'2026-10-01 12:00:00','completed',?,2.5)", (index, value))
+        before = conn.execute("SELECT id,print_duration_seconds,filament_used_g FROM print_jobs ORDER BY id").fetchall()
+    first = _bootstrap(db)
+    assert first.returncode == 0, first.stderr[-3000:]
+    result = json.loads(first.stdout.strip().splitlines()[-1])
+    with sqlite3.connect(db) as conn:
+        assert conn.execute("SELECT id,print_duration_seconds,filament_used_g FROM print_jobs ORDER BY id").fetchall() == before
+        assert next(row for row in conn.execute("PRAGMA table_info(print_jobs)") if row[1] == "print_duration_seconds")[2] == "INTEGER"
+        conn.execute("UPDATE print_jobs SET print_duration_seconds=7.25 WHERE id=1")
+        assert conn.execute("SELECT print_duration_seconds FROM print_jobs WHERE id=1").fetchone()[0] == 7.25
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    ledger = _ledger(db)
+    assert "python:006-print-job-measurements" in ledger
+    second = _bootstrap(db)
+    assert second.returncode == 0, second.stderr[-3000:]
+    repeated = json.loads(second.stdout.strip().splitlines()[-1])
+    assert repeated["applied"] == []
+    assert repeated["schema_fingerprint"] == result["schema_fingerprint"]
+    assert _ledger(db) == ledger
+
+
+@pytest.mark.parametrize("definition,migration,table,column", [
+    ("TEXT", "python:006-print-job-measurements", "print_jobs", "print_duration_seconds"),
+    ("INTEGER NOT NULL", "python:006-print-job-measurements", "print_jobs", "print_duration_seconds"),
+    ("INTEGER DEFAULT 0", "python:006-print-job-measurements", "print_jobs", "print_duration_seconds"),
+    ("INTEGER DEFAULT NULL", "python:006-print-job-measurements", "print_jobs", "print_duration_seconds"),
+    ("INTEGER", None, "print_jobs", "print_duration_seconds"),
+    ("INTEGER", "python:001-legacy-columns", "print_jobs", "print_duration_seconds"),
+    ("INTEGER", "python:006-print-job-measurements", "other_jobs", "print_duration_seconds"),
+    ("INTEGER", "python:006-print-job-measurements", "print_jobs", "filament_used_g"),
+])
+def test_integer_measurement_adoption_rejects_unproven_shapes(tmp_path, definition, migration, table, column):
+    from sqlalchemy import create_engine
+    from core.schema.migrator import _ACTIVE_PYTHON_MIGRATION, MigrationError, validate_column_shape
+    engine = create_engine(f"sqlite:///{tmp_path / 'shape.db'}")
+    try:
+        with engine.begin() as conn:
+            conn.exec_driver_sql(f"CREATE TABLE {table} ({column} {definition})")
+            token = _ACTIVE_PYTHON_MIGRATION.set(migration)
+            try:
+                with pytest.raises(MigrationError, match="column shape mismatch"):
+                    validate_column_shape(conn, table, column, "REAL")
+            finally:
+                _ACTIVE_PYTHON_MIGRATION.reset(token)
+    finally:
+        engine.dispose()
+
+
+def test_new_install_measurement_columns_keep_canonical_real_type(tmp_path):
+    db = tmp_path / "canonical-measurements.db"
+    _load("odin-v1.9.24-sqlite.sql", db)
+    result = _bootstrap(db)
+    assert result.returncode == 0, result.stderr[-3000:]
+    with sqlite3.connect(db) as conn:
+        columns = {row[1]: row[2] for row in conn.execute("PRAGMA table_info(print_jobs)")}
+    assert columns["print_duration_seconds"] == columns["filament_used_g"] == "REAL"

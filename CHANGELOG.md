@@ -2,6 +2,15 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.1] - 2026-10-19
+
+<!-- summary: Existing-installation SQLite upgrade compatibility -->
+
+### Fixed
+
+- Existing SQLite installations with an integer print-duration column now upgrade without rebuilding the table or changing stored measurements. Other column shapes and PostgreSQL remain strictly validated.
+- Do not upgrade existing installations to 2.0.0; use 2.0.1. Production was restored to its previous image after the 2.0.0 migration failure.
+
 ## [2.0.0] - 2026-10-19
 
 <!-- summary: 2.0 breaking changes and upgrade notes -->
