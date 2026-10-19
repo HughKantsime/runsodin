@@ -184,3 +184,40 @@ def test_model_list_reports_unknown_estimate_instead_of_500_on_overflow(pricing_
     assert response.status_code == 200, response.text
     row = next(r for r in response.json() if r['id'] == 199)
     assert (row['estimated_cost'], row['suggested_price']) == (None, None)
+
+
+SEARCH_FIXTURE = REPO / 'frontend/src/test-fixtures/cert-C-consumables-search-wire.json'
+
+
+def test_capture_consumables_search_and_status_filter_wire(consumable_client):
+    """F07-7.1-02 producer: real GET /consumables responses the Consumables page searches
+    (client side, name or SKU) and filters (server side, ?status=), for every status the
+    page offers. The UI test (Consumables.search.cert.test.tsx) consumes this fixture."""
+    client, _identity = consumable_client
+    for body in (
+        {'name': 'Neodymium magnet 6x3', 'sku': 'MAG-6X3', 'unit': 'piece', 'cost_per_unit': 0.12, 'current_stock': 40, 'min_stock': 10, 'status': 'active'},
+        {'name': 'Shipping box small', 'sku': 'BOX-S', 'unit': 'piece', 'cost_per_unit': 0.4, 'current_stock': 0, 'min_stock': 5, 'status': 'depleted'},
+        {'name': 'Heat-set insert M3', 'sku': 'INS-M3', 'unit': 'piece', 'cost_per_unit': 0.05, 'current_stock': 200, 'min_stock': 50, 'status': 'active'},
+        {'name': 'Old label roll', 'sku': None, 'unit': 'roll', 'cost_per_unit': 3.5, 'current_stock': 2, 'min_stock': 0, 'status': 'discontinued'},
+    ):
+        assert client.post('/consumables', json=body).status_code == 200
+    responses = {}
+    for status in ('', 'active', 'depleted', 'discontinued'):
+        response = client.get('/consumables', params={'status': status} if status else None)
+        assert response.status_code == 200
+        rows = response.json()
+        for row in rows:
+            for key in ('created_at', 'updated_at'):
+                row[key] = '2026-10-14T12:00:00'
+        responses[status or 'all'] = rows
+    # The server filter is exact: each status response holds only that status.
+    assert {r['name'] for r in responses['active']} == {'Neodymium magnet 6x3', 'Heat-set insert M3'}
+    assert [r['name'] for r in responses['depleted']] == ['Shipping box small']
+    assert [r['name'] for r in responses['discontinued']] == ['Old label roll']
+    assert len(responses['all']) == 4
+    fixture = {'scope': 'Owned real GET /consumables and GET /consumables?status= responses (F07-7.1-02)',
+               'responses': responses}
+    if SEARCH_FIXTURE.exists():
+        assert json.loads(SEARCH_FIXTURE.read_text()) == fixture, 'Producer contract changed; reconcile the consumer explicitly'
+    else:
+        SEARCH_FIXTURE.write_text(json.dumps(fixture, indent=2) + '\n')

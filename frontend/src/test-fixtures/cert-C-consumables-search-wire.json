@@ -1,0 +1,133 @@
+{
+  "scope": "Owned real GET /consumables and GET /consumables?status= responses (F07-7.1-02)",
+  "responses": {
+    "all": [
+      {
+        "id": 3,
+        "name": "Heat-set insert M3",
+        "sku": "INS-M3",
+        "unit": "piece",
+        "cost_per_unit": 0.05,
+        "current_stock": 200.0,
+        "min_stock": 50.0,
+        "vendor": null,
+        "notes": null,
+        "status": "active",
+        "created_at": "2026-10-14T12:00:00",
+        "updated_at": "2026-10-14T12:00:00",
+        "is_low_stock": false
+      },
+      {
+        "id": 1,
+        "name": "Neodymium magnet 6x3",
+        "sku": "MAG-6X3",
+        "unit": "piece",
+        "cost_per_unit": 0.12,
+        "current_stock": 40.0,
+        "min_stock": 10.0,
+        "vendor": null,
+        "notes": null,
+        "status": "active",
+        "created_at": "2026-10-14T12:00:00",
+        "updated_at": "2026-10-14T12:00:00",
+        "is_low_stock": false
+      },
+      {
+        "id": 4,
+        "name": "Old label roll",
+        "sku": null,
+        "unit": "roll",
+        "cost_per_unit": 3.5,
+        "current_stock": 2.0,
+        "min_stock": 0.0,
+        "vendor": null,
+        "notes": null,
+        "status": "discontinued",
+        "created_at": "2026-10-14T12:00:00",
+        "updated_at": "2026-10-14T12:00:00",
+        "is_low_stock": false
+      },
+      {
+        "id": 2,
+        "name": "Shipping box small",
+        "sku": "BOX-S",
+        "unit": "piece",
+        "cost_per_unit": 0.4,
+        "current_stock": 0.0,
+        "min_stock": 5.0,
+        "vendor": null,
+        "notes": null,
+        "status": "depleted",
+        "created_at": "2026-10-14T12:00:00",
+        "updated_at": "2026-10-14T12:00:00",
+        "is_low_stock": true
+      }
+    ],
+    "active": [
+      {
+        "id": 3,
+        "name": "Heat-set insert M3",
+        "sku": "INS-M3",
+        "unit": "piece",
+        "cost_per_unit": 0.05,
+        "current_stock": 200.0,
+        "min_stock": 50.0,
+        "vendor": null,
+        "notes": null,
+        "status": "active",
+        "created_at": "2026-10-14T12:00:00",
+        "updated_at": "2026-10-14T12:00:00",
+        "is_low_stock": false
+      },
+      {
+        "id": 1,
+        "name": "Neodymium magnet 6x3",
+        "sku": "MAG-6X3",
+        "unit": "piece",
+        "cost_per_unit": 0.12,
+        "current_stock": 40.0,
+        "min_stock": 10.0,
+        "vendor": null,
+        "notes": null,
+        "status": "active",
+        "created_at": "2026-10-14T12:00:00",
+        "updated_at": "2026-10-14T12:00:00",
+        "is_low_stock": false
+      }
+    ],
+    "depleted": [
+      {
+        "id": 2,
+        "name": "Shipping box small",
+        "sku": "BOX-S",
+        "unit": "piece",
+        "cost_per_unit": 0.4,
+        "current_stock": 0.0,
+        "min_stock": 5.0,
+        "vendor": null,
+        "notes": null,
+        "status": "depleted",
+        "created_at": "2026-10-14T12:00:00",
+        "updated_at": "2026-10-14T12:00:00",
+        "is_low_stock": true
+      }
+    ],
+    "discontinued": [
+      {
+        "id": 4,
+        "name": "Old label roll",
+        "sku": null,
+        "unit": "roll",
+        "cost_per_unit": 3.5,
+        "current_stock": 2.0,
+        "min_stock": 0.0,
+        "vendor": null,
+        "notes": null,
+        "status": "discontinued",
+        "created_at": "2026-10-14T12:00:00",
+        "updated_at": "2026-10-14T12:00:00",
+        "is_low_stock": false
+      }
+    ]
+  }
+}
