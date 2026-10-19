@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import yaml
+
 from ops.release_control.policy import dispatch_allowed, load_inventory, valid_candidate, workflow_events, workflow_text
 
 ROOT = Path(__file__).parents[2]
@@ -69,6 +71,14 @@ def test_WF12_workflow_has_no_release_side_effect_or_secret_surface():
         assert forbidden not in source
     assert "make trusted-validation-gate PYTHON=python3.11" in source
     assert "fetch-depth: 0" in source
+    candidate_checkout = next(
+        step for step in yaml.safe_load(source)["jobs"]["validate"]["steps"]
+        if step.get("name") == "Check out immutable candidate"
+    )
+    assert candidate_checkout["with"] == {
+        "ref": "${{ inputs.target_sha }}", "fetch-depth": 0,
+        "lfs": True, "persist-credentials": False,
+    }
     assert "npm --prefix frontend ci" in source
     assert "python3.11 -m venv .hardware-cert-venv" in source
     assert "python3.11 -m venv .venv-stress" in source

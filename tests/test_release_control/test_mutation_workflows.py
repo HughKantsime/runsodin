@@ -535,6 +535,14 @@ def test_MW17_workflow_side_effect_boundaries_and_pins():
     assert ":latest" not in publication_source
     assert "docker buildx build" in publication_source and "--platform linux/amd64,linux/arm64" in publication_source
     assert "docker buildx build" not in production_source and "actions/checkout" not in production_source
+    candidate_checkout = next(
+        step for step in publication["jobs"]["publish"]["steps"]
+        if step.get("name") == "Check out exact candidate"
+    )
+    assert candidate_checkout["with"] == {
+        "ref": "${{ inputs.candidate_sha }}", "fetch-depth": 0,
+        "lfs": True, "persist-credentials": False, "path": "candidate",
+    }
     for payload in (publication, production):
         for step in next(iter(payload["jobs"].values()))["steps"]:
             if "uses" in step:
