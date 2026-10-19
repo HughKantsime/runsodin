@@ -32,6 +32,16 @@ jobs:
           test "$GITHUB_ACTOR_ID" = 201174638
           test "$GITHUB_TRIGGERING_ACTOR" = "$GITHUB_ACTOR"
           test "$GITHUB_RUN_ATTEMPT" = 1
+          if [ -x /Users/ollama/homebrew/bin/docker ]; then docker_bin=/Users/ollama/homebrew/bin/docker
+          elif [ -x /usr/local/bin/docker ]; then docker_bin=/usr/local/bin/docker
+          elif [ -x /opt/homebrew/bin/docker ]; then docker_bin=/opt/homebrew/bin/docker
+          else docker_bin="$(command -v docker)"
+          fi
+          docker_host="$("$docker_bin" context inspect --format '{{ .Endpoints.docker.Host }}')"
+          [[ "$docker_host" =~ ^unix:///[^[:space:]]+\.sock$ ]]
+          DOCKER_HOST="$docker_host" "$docker_bin" version >/dev/null
+          printf '%s\n' /Users/ollama/homebrew/bin /opt/homebrew/bin >> "$GITHUB_PATH"
+          echo "DOCKER_HOST=$docker_host" >> "$GITHUB_ENV"
           config="$RUNNER_TEMP/odin-rollback-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           test ! -e "$config"
           mkdir -m 700 "$config"
