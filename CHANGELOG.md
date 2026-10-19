@@ -2,7 +2,7 @@
 
 All notable changes to O.D.I.N. are documented here.
 
-## [2.0.0] - 2026-10-17
+## [2.0.0] - 2026-10-19
 
 <!-- summary: 2.0 breaking changes and upgrade notes -->
 
