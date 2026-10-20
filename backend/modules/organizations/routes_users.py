@@ -632,10 +632,13 @@ async def delete_group(group_id: int, current_user: dict = Depends(require_super
     existing = db.execute(text("SELECT id FROM groups WHERE id = :id"), {"id": group_id}).fetchone()
     if not existing:
         raise HTTPException(status_code=404, detail="Group not found")
+    from modules.orders.square_store import lock_owner, forget_tenant
+    lock_owner(db, group_id)
     assert_org_hard_delete_allowed(db, group_id)
     assert_no_admins_left_without_org(db, group_id)
     db.execute(text("UPDATE users SET group_id = NULL WHERE group_id = :gid"), {"gid": group_id})
     delete_deferred_deliveries(db, org_id=group_id)
+    forget_tenant(db, group_id)
     db.execute(text("DELETE FROM groups WHERE id = :id"), {"id": group_id})
     db.commit()
     return {"status": "deleted"}

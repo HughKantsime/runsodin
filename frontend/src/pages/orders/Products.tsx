@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, Fragment } from 'react'
+import SquareInventory from '../../components/orders/SquareInventory'
 import { useNewItemShortcut } from '../../hooks/useNewItemShortcut'
 import { products, models, consumables as consumablesApi } from '../../api'
 import { Package, Plus, Trash2, Pencil, X, Save, Layers } from 'lucide-react'
@@ -217,6 +218,8 @@ export default function Products() {
         )}
       </div>
 
+
+      <SquareInventory products={productList} />
 
       {/* Product Summary */}
       {productList.length > 0 && (
