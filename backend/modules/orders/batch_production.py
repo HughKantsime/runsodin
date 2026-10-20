@@ -184,7 +184,7 @@ def inspect_batch(db, user, data):
                 cast(SystemConfig.value,String)==json.dumps(previous)).values(value=SystemConfig.value)).rowcount != 1:
             fail('Square connection changed. Reload before inspecting this batch.')
         square.check_revision(square.load(db,owner)[0],data.square_revision)
-        destination = {'merchant_id':doc['merchant_id'],'environment':doc['environment']}
+        destination = {'merchant_id':doc['merchant_id'],'environment':doc['environment'],'connection_revision':doc['revision']}
         for product_id, quantity in sorted(quantities.items()):
             mapping = doc['mappings'].get(str(product_id))
             if not mapping:

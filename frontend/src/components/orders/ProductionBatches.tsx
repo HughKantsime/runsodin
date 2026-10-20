@@ -1,3 +1,4 @@
+import ProductionHistory from './ProductionHistory'
 import { useRef, useState } from 'react'
 import { production, ProductionState, ProductionJob, RecipeOutput } from '../../api/production'
 import { square } from '../../api/square'
@@ -12,13 +13,14 @@ export default function ProductionBatches({products}:{products:{id:number;name:s
   const [qualified,setQualified]=useState(false),[outputs,setOutputs]=useState<RecipeOutput[]>([{product_id:0,kind:'main',expected:1}])
   const [recipeId,setRecipeId]=useState(''),[job,setJob]=useState(''),[confirmed,setConfirmed]=useState(false)
   const [counts,setCounts]=useState<{accepted:string;rejected:string}[]>([]),[notice,setNotice]=useState('')
+  const [historyRevision,setHistoryRevision]=useState(0)
   const generation=useRef(0)
   const role=getCurrentUser()?.role,admin=role==='admin',operator=role==='admin'||role==='operator',recipe=state?.recipes.find(r=>r.id===recipeId)
   const run=async(fn:()=>Promise<void>)=>{setBusy(true);setError('');try{await fn()}catch(e){setError(e instanceof Error?e.message:'Could not complete the request. Reload and try again.')}finally{setBusy(false)}}
   const load=async()=>{
     const g=++generation.current
     const [s,j]=await Promise.all([production.state(),operator?production.jobs():Promise.resolve({jobs:[],next_offset:null})])
-    if(g===generation.current){setState(s);setJobs(j.jobs);setJobOffset(j.next_offset)}
+    if(g===generation.current){setState(s);setJobs(j.jobs);setJobOffset(j.next_offset);setHistoryRevision(old=>old+1)}
   }
   const toggle=()=>{const next=!open;setOpen(next);if(next)void run(load)}
   const selectRecipe=(id:string)=>{setRecipeId(id);setConfirmed(false);setNotice('');setCounts((state?.recipes.find(r=>r.id===id)?.outputs??[]).map(()=>({accepted:'',rejected:''})))}
@@ -73,7 +75,7 @@ export default function ProductionBatches({products}:{products:{id:number;name:s
         <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={confirmed} disabled={busy} onChange={e=>setConfirmed(e.target.checked)}/>I inspected this physical batch. Accepted pieces are sellable and counts include any display pieces.</label>
         <button className={button} type="submit" disabled={busy||!recipe?.qualified||!job||!confirmed||!readyCounts}>Record inspection</button>
       </form>}
-      {state&&<div className="space-y-2"><h3 className="font-medium">Recorded inspection receipts</h3>{state.receipts.length===0&&<p>No inspected batches yet.</p>}{state.receipts.map(r=><div className="rounded-md border border-[var(--brand-card-border)] p-3 space-y-1 text-sm break-words" key={r.id}><p>{r.recipe_name} · job {r.job_id} · {new Date(r.occurred_at).toLocaleString()}</p>{r.outputs.map(o=><p key={`${o.product_id}-${o.kind}`}>{o.product_name} ({o.kind}): {o.accepted} accepted, {o.rejected} rejected</p>)}<p>{r.stock_status==='no_sellable_output'?'No stock addition.':`Square addition: ${state.additions.find(a=>a.receipt_id===r.id)?.state??'Prepared; see retained receipt'}. Sending is disabled.`}</p></div>)}</div>}
+      <ProductionHistory operator={operator} refreshKey={historyRevision}/>
     </div>}
   </section>
 }

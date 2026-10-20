@@ -10,3 +10,11 @@ export const production = {
   recipe:(data:{reference_job_id:number;name:string;materials:string;qualification_confirmed:boolean;outputs:RecipeOutput[]})=>fetchAPI<Recipe>('/products/production/recipes',{method:'POST',body:JSON.stringify(data)}),
   inspect:(data:{recipe_id:string;job_id:number;square_revision:string|null;inspection_confirmed:boolean;outputs:{product_id:number;kind:'main'|'flush';accepted:number;rejected:number}[]})=>fetchAPI<Inspection>('/products/production/inspections',{method:'POST',body:JSON.stringify(data)}),
 }
+
+export interface StockAddition {id:string;receipt_id:string;state:'prepared'|'unknown'|'confirmed';attempts:number}
+export interface InspectionHistory {receipts:Inspection[];additions:StockAddition[];next_offset:number|null}
+export interface RecoveryCheck {id:string;state:string;attempts:number;readiness:'blocked'|'checks_passed'|'manual_review'|'confirmed';message:string;square_writes_enabled:false;retry_allowed:false}
+export const productionHistory = {
+  read:(offset=0,query='',state='')=>fetchAPI<InspectionHistory>(`/products/production/history?${new URLSearchParams({offset:String(offset),query,...(state?{state}:{})})}`),
+  check:(id:string)=>fetchAPI<RecoveryCheck>(`/products/production/additions/${encodeURIComponent(id)}/check`,{method:'POST'}),
+}

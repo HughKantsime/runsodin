@@ -4,6 +4,8 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+- Added a locally disabled Square Inventory delivery transport, atomic single-send reservation and conservative read-only reconciliation for uncertain stock additions. Added searchable chronological inspection history and destination checks; no live stock-write route or worker is enabled. Existing prepared additions without a connection revision remain blocked for review.
+
 ### Added
 
 - Products can connect to Square for read-only catalog, location and finished-stock checks using encrypted credentials and explicit product mappings.

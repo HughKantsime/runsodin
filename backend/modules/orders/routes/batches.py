@@ -31,6 +31,14 @@ def overview(offset: int = Query(default=0,ge=0), user=Depends(viewer), db: Sess
             'next_offset':offset+100 if len(recipes)==100 else None}
 
 
+@router.get('/history')
+def history(offset:int=Query(default=0,ge=0,le=1000000), query:str=Query(default='',max_length=100),
+            state:str|None=Query(default=None,pattern='^(prepared|unknown|confirmed)$'),
+            user=Depends(viewer),db:Session=Depends(get_db)):
+    from modules.orders.production_history import history as read_history
+    return read_history(db,square_store.tenant(user),offset=offset,query=query.strip(),state=state)
+
+
 @router.get('/jobs')
 def eligible_jobs(offset: int=Query(default=0,ge=0), user=Depends(operator), db: Session=Depends(get_db)):
     from fastapi import HTTPException
@@ -57,3 +65,9 @@ def create_recipe(data:RecipeInput,user=Depends(admin),db:Session=Depends(get_db
 @router.post('/inspections',dependencies=[interactive])
 def inspect_batch(data:InspectionInput,user=Depends(operator),db:Session=Depends(get_db)):
     return service.inspect_batch(db,user,data)
+
+
+@router.post('/additions/{addition_id}/check',dependencies=[interactive])
+def check_addition(addition_id:str,user=Depends(operator),db:Session=Depends(get_db)):
+    from modules.orders.stock_recovery import check
+    return check(db,user,addition_id)
