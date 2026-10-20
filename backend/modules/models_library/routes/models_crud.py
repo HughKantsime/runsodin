@@ -283,6 +283,8 @@ def delete_model(model_id: int, current_user: dict = Depends(require_action("mod
 
     from modules.models_library.education_retention import assert_model_deletable
     assert_model_deletable(db, model.id)
+    from modules.orders.services import retain_component_model
+    retain_component_model(db,model.org_id or 0,model.id)
     db.delete(model)
     db.commit()
 

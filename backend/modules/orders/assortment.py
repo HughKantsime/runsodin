@@ -115,13 +115,16 @@ def recipes_for(db,owner,product_id):
 
 
 def pending_work(db,owner,product_id,recipes):
-    outstanding=db.execute(select(batches.additions.c.state,batches.receipts.c.definition)
-        .join(batches.receipts,batches.receipts.c.id==batches.additions.c.receipt_id)
-        .where(batches.additions.c.owner==owner,batches.receipts.c.owner==owner,
-               batches.additions.c.state.in_(('prepared','unknown'))).limit(1001)).all()
+    outstanding=db.execute(select(batches.additions.c.receipt_id).where(batches.additions.c.owner==owner,
+               batches.additions.c.state.in_(('prepared','unknown'))).limit(1001)).scalars().all()
     if len(outstanding)>1000:return 'Pending-addition scan is incomplete. Review existing work first.'
-    if any(any(o['product_id']==product_id and o['accepted']>0 for o in json.loads(raw)['outputs']) for _,raw in outstanding):
-        return 'Inspected pieces have a prepared or uncertain Square addition. Reconcile them before replenishing.'
+    from modules.orders.finishing import receipt as finish_receipt
+    for receipt_id in outstanding:
+        raw=db.execute(select(batches.receipts.c.definition).where(batches.receipts.c.owner==owner,batches.receipts.c.id==receipt_id)).scalar_one_or_none()
+        detail=json.loads(raw) if raw else finish_receipt(db,owner,receipt_id)
+        if detail is None:return 'A pending stock addition has missing evidence. Review existing work first.'
+        if any(o['product_id']==product_id and o['accepted']>0 for o in detail['outputs']):
+            return 'Inspected pieces have a prepared or uncertain Square addition. Reconcile them before replenishing.'
     if not recipes:return None
     from modules.jobs.models import Job
     clause=Job.charged_to_org_id.is_(None) if owner==0 else Job.charged_to_org_id==owner

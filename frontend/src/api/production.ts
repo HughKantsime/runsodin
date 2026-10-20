@@ -1,7 +1,7 @@
 import { fetchAPI } from './client'
 export interface RecipeOutput { product_id:number; product_name?:string; kind:'main'|'flush'; expected:number }
 export interface Recipe { id:string; name:string; materials:string; qualified:boolean; reference_job_id:number; outputs:RecipeOutput[] }
-export interface Inspection { id:string; recipe_id:string; job_id:number; recipe_name:string; occurred_at:string; stock_status:string; outputs:(RecipeOutput & {accepted:number;rejected:number;disposition?:'send'|'in_baseline';send_quantity?:number;baseline_version?:string|null})[] }
+export interface Inspection { id:string; recipe_id:string|null; job_id?:number; kind?:string; recipe_name:string; occurred_at:string; stock_status:string; outputs:(RecipeOutput & {accepted:number;rejected:number;disposition?:'send'|'in_baseline';send_quantity?:number;baseline_version?:string|null})[] }
 export interface ProductionState { recipes:Recipe[];receipts:Inspection[];additions:{id:string;receipt_id:string;state:string;attempts:number}[];square_writes_enabled:boolean;next_offset:number|null }
 export interface ProductionJob {id:number;name:string;payload:{printer_id:number;plate_index:number;payload_sha256:string}}
 export const production = {

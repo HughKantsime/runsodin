@@ -119,7 +119,7 @@ def summary(db,order,doc):
         if not doc:return {**result,'state':'quote_review','needs_review':True}
         current=None
     if not doc:return result
-    details=doc['details'];result.update(revision=doc['revision'],details=details,dispatch=doc.get('dispatch'),
+    details=doc['details'];result.update(revision=doc['revision'],details=details,dispatch=doc.get('dispatch'),shipping=shipping_summary(db,order,doc),
         payment_history=[{'amount_received_minor':h['details']['amount_received_minor'],'payment_method':h['details']['payment_method'],
                           'payment_reference':h['details']['payment_reference'],'recorded_at':h['recorded_at']} for h in doc.get('history',[])])
     same=current==doc['binding']
@@ -166,7 +166,7 @@ def intake(db,user,order_id,data):
         if len(history)>=20:raise HTTPException(409,'This commitment has twenty retained revisions. Keep it for administrator review rather than discarding payment history.')
         history.append({'details':old['details'],'quoted_total_minor':old['quoted_total_minor'],'binding':old['binding'],'recorded_at':now().isoformat()})
     doc={'version':1,'owner':order.org_id or 0,'order_uid':identity(db,order),'binding':digest,'quoted_total_minor':total,
-         'details':details,'dispatch':None,'history':history,'updated_by':user['id'],'updated_at':now().isoformat()}
+         'details':details,'dispatch':None,'history':history,'shipping_quote':old.get('shipping_quote') if old else None,'shipping_history':old.get('shipping_history',[]) if old else [],'updated_by':user['id'],'updated_at':now().isoformat()}
     save(db,order,doc,previous)
     log_audit(db,'show_order.intake_saved','order',order.id,'Operator-entered show-order facts saved; no payment captured or message sent')
     db.commit();return summary(db,order,doc)
@@ -231,3 +231,38 @@ def assert_tenant_deletable(db,owner):
     """Preserve private receipt history and prevent organization-ID reuse exposure."""
     if db.execute(select(SystemConfig.key).where(SystemConfig.key.startswith(f"show_fulfillment:{owner}:"))).first():
         raise HTTPException(409,"Retain this organization while show-order payment and handoff records exist.")
+
+
+def shipping_binding(db,order,doc):
+    current,_=binding(db,order)
+    return hashlib.sha256(json.dumps({'order':current,'address':doc['details']['address']},sort_keys=True).encode()).hexdigest()
+
+def shipping_summary(db,order,doc):
+    quote=doc.get('shipping_quote')
+    if not quote:return {'state':'not_prepared','quote':None,'carrier_verified':False}
+    valid=False
+    try:
+        from modules.orders.show_order_schemas import PackageQuote
+        q=PackageQuote.model_validate(quote['quote'])
+        valid=q.reviewed and q.valid_until.astimezone(timezone.utc)>now() and quote['binding']==shipping_binding(db,order,doc) and q.amount_minor==cents(order.shipping_charged)
+    except (ValueError,TypeError,KeyError,HTTPException):pass
+    return {'state':'manually_reviewed' if valid else 'needs_review','quote':quote['quote'],'carrier_verified':False}
+
+def save_shipping(db,user,order_id,data):
+    square_store.lock_owner(db,square_store.tenant(user),user)
+    order=owned_order(db,user,order_id,lock=True);doc,previous=load(db,order)
+    if not doc or doc['revision']!=data.revision:raise HTTPException(409,'Reload the saved commitment before preparing shipping.')
+    if doc.get('dispatch') or status(order) in ('shipped','cancelled'):raise HTTPException(409,'Retain terminal shipping evidence without rewriting it.')
+    q=data.quote
+    quoted=utc(q.quoted_at)
+    if q.valid_until.tzinfo is None or q.valid_until.astimezone(timezone.utc)<=quoted:raise HTTPException(409,'Quote validity must end after the actual quote time.')
+    if q.reviewed and (q.valid_until.astimezone(timezone.utc)<=now() or q.amount_minor!=cents(order.shipping_charged)):
+        raise HTTPException(409,'Review quote validity and the order shipping charge before confirming shipping preparation.')
+    history=list(doc.get('shipping_history',[]))
+    if doc.get('shipping_quote'):
+        if len(history)>=20:raise HTTPException(409,'Retain shipping history for administrator review; revision limit reached.')
+        history.append(doc['shipping_quote'])
+    doc['shipping_history']=history;doc['shipping_quote']={'quote':q.model_dump(mode='json'),'binding':shipping_binding(db,order,doc),'recorded_by':user['id'],'recorded_at':now().isoformat()}
+    save(db,order,doc,previous)
+    log_audit(db,'show_order.shipping_prepared','order',order.id,'Manual package measurements and external quote recorded; no label purchased')
+    db.commit();return summary(db,order,doc)

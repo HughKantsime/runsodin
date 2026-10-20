@@ -1,3 +1,4 @@
+import ShippingPreparation from './ShippingPreparation'
 import {useState} from 'react'
 import {showFulfillment,ShowFacts,ShowIntake,ShippingAddress} from '../../api/showFulfillment'
 
@@ -57,6 +58,7 @@ export default function ShowFulfillment({orderId,canEdit,canShip,onUpdated}:{ord
     <label className="flex gap-2 text-sm"><input type="checkbox" disabled={busy} checked={handed} onChange={e=>setHanded(e.target.checked)}/>The completed parcel was physically handed to the carrier.</label>
     <button type="submit" className={button} disabled={busy||!handed||!carrier||!tracking||!handedAt}>Record physical handoff</button>
    </form>}
+   {facts?.details&&facts.revision&&canEdit&&!facts.dispatch&&!dirty&&!['cancelled','shipped'].includes(facts.order_status)&&<ShippingPreparation key={facts.revision} facts={facts} onSaved={saved=>{receive(saved);setNotice('Manual shipping preparation saved. No label purchased.');onUpdated?.(orderId)}}/>}
    {facts?.state==='cancelled_payment_review'&&<p className="text-sm">Keep the order and receipt. Decide how to handle the received payment; no refund or printer cancellation was performed.</p>}
   </div>}
  </section>

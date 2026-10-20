@@ -35,7 +35,13 @@ def version(mapping):
 def posted_outputs(db, owner, row):
     from modules.orders import batch_production as batches
     raw = db.execute(select(batches.receipts.c.definition).where(
-        batches.receipts.c.owner == owner, batches.receipts.c.id == row['receipt_id'])).scalar_one()
+        batches.receipts.c.owner == owner, batches.receipts.c.id == row['receipt_id'])).scalar_one_or_none()
+    if raw is None:
+        from modules.orders.finishing import receipt
+        finished = receipt(db, owner, row['receipt_id'])
+        if finished is None:
+            raise HTTPException(409, 'Missing retained production receipt; review this addition')
+        raw = batches.packed(finished)
     return [o for o in json.loads(raw)['outputs'] if o.get('send_quantity', o['accepted']) > 0]
 
 

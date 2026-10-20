@@ -118,6 +118,8 @@ def single_print_product(db, owner, product_id, model_id, kind):
 def create_recipe(db, user, data):
     owner = square.tenant(user)
     square.lock_owner(db, owner, user)
+    from modules.orders.finishing import lock as lock_finishing
+    component_state,_=lock_finishing(db,owner,user)
     evidence = job_evidence(db, owner, data.reference_job_id, lock=True)
     keys = [(o.product_id,o.kind) for o in data.outputs]
     if len(set(keys)) != len(keys) or not any(o.kind == 'main' for o in data.outputs):
@@ -151,6 +153,8 @@ def receipt_public(row):
 def inspect_batch(db, user, data):
     owner = square.tenant(user)
     square.lock_owner(db, owner, user)
+    from modules.orders.finishing import lock as lock_finishing
+    component_state,_=lock_finishing(db,owner,user)
     if data.inspection_confirmed is not True:
         fail('Inspect the physical pieces before accepting this batch')
     spec = recipe(db, owner, data.recipe_id)
@@ -159,6 +163,9 @@ def inspect_batch(db, user, data):
     evidence = job_evidence(db, owner, data.job_id, lock=True)
     request_hash = hashlib.sha256(packed({'recipe_id':data.recipe_id,'job_uid':evidence['economic_uid'],
         'outputs':sorted([o.model_dump(exclude_none=True) for o in data.outputs],key=lambda o:(o['product_id'],o['kind']))}).encode()).hexdigest()
+    from modules.orders.finishing import component_for_job
+    if component_for_job(component_state,evidence['economic_uid']):
+        fail('This job is already inspected as components. Finish the assembly instead of counting it again.')
     previous = db.execute(select(receipts).where(receipts.c.job_uid == evidence['economic_uid'])).mappings().one_or_none()
     if previous:
         if previous['owner'] != owner or previous['request_hash'] != request_hash:

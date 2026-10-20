@@ -45,3 +45,22 @@ class Handoff(BaseModel):
     tracking_number:str=Field(min_length=1,max_length=100)
     handed_at:datetime
     physically_handed_over:StrictBool
+
+class PackageQuote(BaseModel):
+    model_config=ConfigDict(extra='forbid',str_strip_whitespace=True)
+    length_mm:StrictInt=Field(gt=0,le=3000)
+    width_mm:StrictInt=Field(gt=0,le=3000)
+    height_mm:StrictInt=Field(gt=0,le=3000)
+    weight_g:StrictInt=Field(gt=0,le=1000000)
+    carrier:str=Field(min_length=1,max_length=80)
+    service:str=Field(min_length=1,max_length=100)
+    source:str=Field(min_length=1,max_length=160)
+    amount_minor:StrictInt=Field(ge=0,le=100000000)
+    quoted_at:datetime
+    valid_until:datetime
+    reviewed:StrictBool
+
+class ShippingEdit(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    revision:str=Field(min_length=1,max_length=64)
+    quote:PackageQuote

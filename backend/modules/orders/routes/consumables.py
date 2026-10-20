@@ -105,6 +105,10 @@ def delete_consumable(consumable_id: int, current_user: dict = Depends(require_a
     item = db.query(Consumable).filter(Consumable.id == consumable_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Consumable not found")
+    from modules.inventory.models import ProductConsumable
+    db.execute(update(Consumable).where(Consumable.id==consumable_id).values(id=Consumable.id))
+    if db.query(ProductConsumable.id).filter(ProductConsumable.consumable_id==consumable_id).first():
+        raise HTTPException(409,'Remove hardware from product BOMs deliberately before deleting the consumable; linked requirements are retained.')
     db.delete(item)
     db.commit()
     return {"success": True}

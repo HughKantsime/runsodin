@@ -89,3 +89,26 @@ def save_assortment(product_id:int,data:PolicyEdit,user=Depends(admin),db:Sessio
 def preview_assortment(product_id:int,user=Depends(operator),db:Session=Depends(get_db)):
     from modules.orders.assortment import preview
     return preview(db,user,product_id)
+
+
+from modules.orders.finishing import ComponentInput,FinishInput
+
+@router.get('/finishing')
+def finishing_overview(user=Depends(operator),db:Session=Depends(get_db)):
+    from modules.orders.finishing import overview
+    return overview(db,user)
+
+@router.get('/finishing/{product_id}/requirements')
+def finishing_requirements(product_id:int,user=Depends(operator),db:Session=Depends(get_db)):
+    from modules.orders.finishing import preview
+    return preview(db,user,product_id)
+
+@router.post('/components',dependencies=[interactive])
+def inspect_components(data:ComponentInput,user=Depends(operator),db:Session=Depends(get_db)):
+    from modules.orders.finishing import inspect
+    return inspect(db,user,data)
+
+@router.post('/finishing',dependencies=[interactive])
+def finish_components(data:FinishInput,user=Depends(operator),db:Session=Depends(get_db)):
+    from modules.orders.finishing import finish
+    return finish(db,user,data)
