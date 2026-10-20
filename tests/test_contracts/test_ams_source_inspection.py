@@ -25,6 +25,23 @@ def test_known_synthetic_source_and_sentinels():
     assert inspect_single_source_ams(archive()).source_index==0
 
 
+def test_genuine_x1c_pla_coupon_calibration_preserves_source_zero():
+    path=Path(__file__).resolve().parents[2]/'tests/fixtures/telemetry/x1c-pla-source-sanitized.3mf'
+    result=inspect_single_source_ams(path.read_bytes())
+    assert (result.plate_index,result.source_index,result.material)==(0,0,'PLA')
+
+
+@pytest.mark.parametrize('command',['T1101','T11000','T1100.0','T1100 S0','T1100 T0'])
+def test_calibration_exception_does_not_allow_other_tool_commands(command):
+    with pytest.raises(ValueError,match='^Unverifiable source mapping$'):
+        inspect_single_source_ams(archive(code='; filament_type = PETG\nM620 S0A\nM621 S0A\n'+command+'\n'))
+
+
+def test_calibration_command_does_not_override_conflicting_source():
+    with pytest.raises(ValueError,match='^Unverifiable source mapping$'):
+        inspect_single_source_ams(archive(code='; filament_type = PETG\nM620 S1A\nM621 S1A\nT1100\n'))
+
+
 @pytest.mark.parametrize('code',[
     '; filament_type = PETG\n; M620 S0A\nM621 S0A',
     '; filament_type = PETG\nM620 S1A\nM621 S1A',

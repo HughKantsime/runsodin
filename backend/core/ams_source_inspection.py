@@ -74,7 +74,11 @@ def inspect_single_source_ams(payload: bytes, plate_index: int = 0) -> VerifiedS
                     headers.append(canonical_reported_material(header.group(1)))
                 command = line.split(';', 1)[0].strip()
                 if re.match(r'^T(?:[0-9]|\s|$)', command):
-                    if not re.fullmatch(r'T(?:0|255|1000)', command):
+                    # Stock X1 calibration uses T1100, then T1000 with the
+                    # comment "change to nozzle space": a template sentinel,
+                    # rather than evidence of a numbered AMS source.
+                    # Keep this exact: other tools and parameterized forms refuse.
+                    if not re.fullmatch(r'T(?:0|255|1000|1100)', command):
                         raise ValueError(refusal)
                 if not re.match(r'^M62[01](?:\s|\.|$)', command):
                     continue
