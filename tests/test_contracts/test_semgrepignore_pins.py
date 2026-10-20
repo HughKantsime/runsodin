@@ -15,7 +15,7 @@ by a real pin source, recomputed here from those sources:
   committed-completion-boundary source-current.json).
 
 It also keeps semgrep's built-in default ignore list intact (a .semgrepignore
-replaces it) and the frozen-bundle exclusion limited to exactly two directories.
+replaces it) and the frozen-bundle exclusion limited to the explicitly pinned directories.
 """
 import ast
 import hashlib
@@ -34,7 +34,7 @@ DEFAULT_PATTERNS = (
     "node_modules/", ".npm/", ".yarn/", ".venv/", "_opam/", "_build/", "_cargo/",
     "test/", "tests/", "testsuite/", "*_test.go",
 )
-BUNDLES = ("/backend/core/schema/preserved027/bundle/", "/backend/core/schema/preserved029/bundle/")
+BUNDLES = ("/backend/core/schema/preserved027/bundle/", "/backend/core/schema/preserved029/bundle/", "/backend/core/schema/preserved034/bundle/")
 
 
 def _sha(path):

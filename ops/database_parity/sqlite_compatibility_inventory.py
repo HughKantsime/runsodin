@@ -421,6 +421,7 @@ def scan_file(path: Path) -> list[dict[str, object]]:
 PRESERVED_BUNDLES = (
     BACKEND / "core/schema/preserved027/bundle",
     BACKEND / "core/schema/preserved029/bundle",
+    BACKEND / "core/schema/preserved034/bundle",
 )
 
 

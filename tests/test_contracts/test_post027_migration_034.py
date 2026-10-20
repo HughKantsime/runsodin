@@ -37,7 +37,7 @@ def _ids(engine):
 
 def test_registered_and_inventoried_with_exact_columns():
     from modules.system.postgres_backup_service import canonical_tables
-    assert (M.MIGRATION_ID, "core.schema.migrations.034_alert_outbox") == POST027_MIGRATIONS[-1]
+    assert (M.MIGRATION_ID, "core.schema.migrations.034_alert_outbox") in POST027_MIGRATIONS
     assert TABLE in RAW_REQUIRED_TABLES and TABLE in canonical_tables()
     assert RAW_REQUIRED_COLUMNS[TABLE] == EXPECTED_COLUMNS == frozenset(
         {"id", "job_id", "alert_kind", "actor_user_id", "attempts", "created_at"})
@@ -49,7 +49,7 @@ def test_fresh_sqlite_boot_applies_034_once_and_is_idempotent(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'fresh.db'}")
     try:
         first = bootstrap_database(engine)
-        assert first["applied"][-2:] == [M.MIGRATION_ID, "orm-baseline:1"]
+        assert M.MIGRATION_ID in first["applied"] and first["applied"][-1] == "orm-baseline:1"
         assert {c["name"] for c in inspect(engine).get_columns(TABLE)} == EXPECTED_COLUMNS
         second = bootstrap_database(engine)
         assert second["applied"] == [] and second["schema_fingerprint"] == first["schema_fingerprint"]

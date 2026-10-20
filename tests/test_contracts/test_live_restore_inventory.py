@@ -56,6 +56,11 @@ POST027_RAW_TABLES = {
     "python:034-alert-outbox": {
         "alert_outbox": frozenset("id job_id alert_kind actor_user_id attempts created_at".split()),
     },
+    "python:035-production-acceptance": {
+        "production_recipes": frozenset("id owner definition".split()),
+        "production_acceptances": frozenset("id owner job_uid claim_token recipe_id request_hash definition".split()),
+        "production_stock_additions": frozenset("id owner receipt_id destination request_body state attempts".split()),
+    },
 }
 
 

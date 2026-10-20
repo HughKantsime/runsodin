@@ -1,0 +1,165 @@
+"""Inventory services — sanctioned cross-module surface for spool + Spoolman helpers.
+
+Route handlers under modules/inventory/routes/ expose HTTP endpoints.
+Anything that needs to be called from OUTSIDE the inventory module
+(e.g. jobs_lifecycle.py pushing consumption back to Spoolman on job
+completion) lives here, in a services.py that other modules can import
+via the `.services import` allowlist entry in
+tests/test_contracts/test_no_cross_module_imports.py.
+"""
+
+from __future__ import annotations
+
+import logging
+
+from core.spoolman_settings import get_spoolman_url
+from core.config import settings
+from core.redaction import redact_urls
+from core.webhook_utils import _pin_dns, WebhookSSRFError
+from sqlalchemy import text
+
+from core.rbac import check_org_access
+
+log = logging.getLogger("odin.api")
+
+
+
+def _post_spoolman_usage(base: str, spool_id: int, grams: float):
+    """PUT one usage record through core.spoolman_client (the one validator: no userinfo,
+    query or fragment; device policy and ODIN's own endpoints refused; pinned; no redirects).
+
+    Spoolman declares the usage endpoint as ``PUT /api/v1/spool/{id}/use``
+    with body ``{"use_weight": grams}`` (the same verb archive delivery used);
+    any other method is answered 405. Hardware acceptance: confirm against
+    the deployed Spoolman version (HARDWARE_ACCEPTANCE_CHECKLIST).
+    """
+    from core.spoolman_client import spoolman_request
+    if isinstance(spool_id, bool) or not isinstance(spool_id, int) or spool_id <= 0:
+        raise ValueError("Invalid Spoolman spool ID")
+    return spoolman_request("PUT", f"/api/v1/spool/{spool_id}/use", url=base, json={"use_weight": grams}, timeout=5)
+
+def push_consumption_to_spoolman(deductions: list) -> list:
+    """PUT usage records to the configured Spoolman instance.
+
+    Ships bidirectional sync (v1.8.5): ODIN already owns the authoritative
+    local spool count; this pushes the consumption delta back to Spoolman
+    so its inventory stays in lock-step.
+
+    Args:
+        deductions: list of dicts with at least:
+            - spoolman_spool_id: int | None  (None = spool not linked to Spoolman; skip)
+            - grams: float  (positive consumption amount)
+            - job_id: int   (for log context)
+
+    Returns:
+        list[str] of human-readable error messages, one per failed push.
+        Empty list means every linked deduction was accepted.
+
+    Design notes:
+        * Fails loud — errors are returned to the caller, which surfaces
+          them via log + job.notes. No silent swallowing.
+        * Uses a fixed administrator-configured integration destination, with
+          DNS pinning, metadata exclusions and ITAR checks. Local Spoolman
+          is supported; generic webhook policy remains unchanged.
+        * Skips entries with spoolman_spool_id=None without raising.
+          A job may involve spools that aren't linked to Spoolman; that's
+          a supported state.
+        * No-op when the saved Spoolman URL (core.spoolman_settings) is empty — Spoolman integration
+          is disabled.
+    """
+    errors: list = []
+
+    base = get_spoolman_url().rstrip("/")
+    if not base:
+        return errors  # integration disabled; not an error
+
+    for d in deductions:
+        spoolman_id = d.get("spoolman_spool_id")
+        if not spoolman_id:
+            continue  # not linked — skip silently
+
+        grams = float(d.get("grams", 0) or 0)
+        if grams <= 0:
+            continue  # nothing consumed (edge case)
+
+        try:
+            resp = _post_spoolman_usage(base, spoolman_id, grams)
+            # Spoolman returns 200 on success. 4xx is usually a bad spool
+            # id or a malformed body — surface it so operators see it.
+            if hasattr(resp, "status_code") and resp.status_code >= 300:
+                errors.append(
+                    f"Spoolman spool={spoolman_id} job={d.get('job_id')} "
+                    f"rejected push: HTTP {resp.status_code}"
+                )
+        except WebhookSSRFError as e:
+            errors.append(
+                f"Spoolman URL blocked by SSRF check (spool={spoolman_id}): {redact_urls(e)}"
+            )
+        except Exception as e:
+            errors.append(
+                f"Spoolman push failed (spool={spoolman_id} job={d.get('job_id')}): {redact_urls(e)}"
+            )
+
+    return errors
+
+
+# Spoolman link conflicts: shared by the inventory route and system diagnostics.
+
+def spoolman_link_conflicts(db) -> list:
+    """Existing duplicate links (possible in 1.9.x data), for the admin warning. Never rewritten."""
+    rows = db.execute(text(
+        "SELECT spoolman_spool_id, id, qr_code, org_id FROM spools WHERE spoolman_spool_id IN ("
+        "SELECT spoolman_spool_id FROM spools WHERE spoolman_spool_id IS NOT NULL "
+        "GROUP BY spoolman_spool_id HAVING COUNT(*) > 1) ORDER BY spoolman_spool_id, id")).all()
+    conflicts = {}
+    for spoolman_id, spool_id, qr_code, org_id in rows:
+        conflicts.setdefault(spoolman_id, []).append({"id": spool_id, "qr_code": qr_code, "org_id": org_id})
+    return [{"spoolman_spool_id": key, "spools": value} for key, value in conflicts.items()]
+
+
+OTHER_ORG_SPOOL = "a spool in another organization"
+
+
+def visible_spoolman_link_conflicts(db, current_user: dict) -> list:
+    """Conflicts touching a spool the caller can see; spools they cannot see are masked
+    exactly like the 409 detail (no id, QR or org)."""
+    visible = []
+    for conflict in spoolman_link_conflicts(db):
+        members = []
+        for member in conflict["spools"]:
+            if check_org_access(current_user, member["org_id"]):
+                members.append({**member, "label": f"#{member['id']} ({member['qr_code']})"})
+            else:
+                members.append({"id": None, "qr_code": None, "org_id": None, "label": OTHER_ORG_SPOOL})
+        if any(member["id"] is not None for member in members):
+            visible.append({"spoolman_spool_id": conflict["spoolman_spool_id"], "spools": members})
+    return visible
+
+
+def deliver_spoolman_usage(spoolman_spool_id: int, grams: float):
+    """Deliver one usage record; return (state, reason) for a durable outbox row.
+
+    States: 'sent' (Spoolman answered 2xx), 'failed' (refused: HTTP error,
+    invalid identity/URL, SSRF/ITAR block), 'pending' (not delivered and safe
+    to retry: integration disabled or the connection was never established),
+    'outcome_unknown' (the request may have reached Spoolman; never resent,
+    which would double-deduct).
+    """
+    import httpx
+    import requests
+    base = get_spoolman_url().rstrip("/")
+    if not base:
+        return "pending", "spoolman_not_configured"
+    try:
+        resp = _post_spoolman_usage(base, spoolman_spool_id, grams)
+    except (ValueError, WebhookSSRFError) as exc:  # SpoolmanURLRefused is a ValueError
+        return "failed", f"refused: {redact_urls(exc)}"[:500]
+    except (httpx.ConnectError, httpx.ConnectTimeout, requests.exceptions.ConnectionError,
+            requests.exceptions.ConnectTimeout) as exc:
+        return "pending", f"connect_failed: {type(exc).__name__}"
+    except Exception as exc:
+        return "outcome_unknown", f"transport: {type(exc).__name__}"
+    status = getattr(resp, "status_code", None)
+    if isinstance(status, int) and 200 <= status < 300:
+        return "sent", None
+    return "failed", f"HTTP {status}"

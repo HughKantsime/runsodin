@@ -1,0 +1,769 @@
+"""
+O.D.I.N. — Webhook URL validation helper.
+
+Provides SSRF-safe webhook URL validation used by the notifications
+and organizations modules.
+
+Two-stage validation:
+  * _validate_webhook_url() — called at configuration time. Rejects
+    literal private/loopback/link-local addresses and non-http(s) schemes.
+  * resolve_and_check_webhook_url() — called at dispatch time (R8 from
+    2026-04-12 adversarial review). DNS-resolves the hostname and rejects
+    if ANY resolved address is private. Must be called on every dispatch,
+    without caching, to defeat DNS rebinding and split-horizon DNS.
+
+Codex pass 2 (2026-04-13):
+  * safe_post() now PINS the resolved IP to the connection. The previous
+    implementation validated DNS, then handed the original hostname back
+    to httpx, which performed a fresh resolution — leaving a
+    DNS-rebinding window where the second lookup could return a private
+    IP. The new implementation builds a custom httpx transport whose
+    socket connect is locked to one of the validated IPs, with TLS SNI
+    and certificate verification still pointed at the original hostname.
+"""
+
+import contextlib
+import contextvars
+import ipaddress
+import os
+import socket
+import ssl
+import urllib.parse
+
+from fastapi import HTTPException
+
+
+class WebhookSSRFError(Exception):
+    """Raised when a webhook URL resolves to a disallowed (private) address.
+
+    Use this instead of HTTPException in dispatch code paths so the caller
+    can decide whether to surface a 400, 502, or just log and drop — the
+    correct response depends on whether the webhook was just configured
+    (surface 400 to admin) or is firing on a real event (502 + alert).
+    """
+
+
+_BLOCKED_HOSTNAME_PREFIXES = ("localhost", "127.", "169.254.", "0.", "::1")
+
+
+def _is_disallowed_address(addr_str: str) -> bool:
+    """Return True if the given IP string is in a disallowed range."""
+    try:
+        addr = ipaddress.ip_address(addr_str)
+    except ValueError:
+        return False
+    return (
+        addr.is_loopback
+        or addr.is_link_local
+        or addr.is_private
+        or addr.is_reserved
+        or addr.is_multicast
+        or addr.is_unspecified
+    )
+
+
+def _validate_webhook_url(url: str) -> None:
+    """Validate a webhook URL is not targeting internal infrastructure (SSRF prevention).
+
+    Allows http:// and https:// schemes only.
+    Rejects loopback, link-local, and RFC-1918 private addresses (literal only).
+    Raises HTTPException 400 if the URL is invalid or targets a blocked host.
+
+    Note: this check does NOT resolve hostnames. A hostname that resolves
+    to a private address (DNS rebinding, internal-DNS override) passes this
+    gate. The dispatch-time gate resolve_and_check_webhook_url() is what
+    actually prevents SSRF for hostname-based URLs.
+    """
+    if not url:
+        return
+
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid webhook URL")
+
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(status_code=400, detail="Webhook URL must use http:// or https:// scheme")
+
+    host = parsed.hostname or ""
+    if any(host.startswith(p) for p in _BLOCKED_HOSTNAME_PREFIXES):
+        raise HTTPException(status_code=400, detail="Webhook URL targets a blocked host")
+
+    if _is_disallowed_address(host):
+        raise HTTPException(status_code=400, detail="Webhook URL targets a blocked host")
+
+
+def _resolve_and_pin(url: str) -> tuple[list[str], int, str, str]:
+    """Resolve the URL's hostname, validate every returned address, and
+    return the tuple needed to pin the upcoming connection:
+        (validated_ips, port, original_hostname, scheme)
+
+    Codex pass 3 (2026-04-13): returns the FULL list of validated IPs in
+    `getaddrinfo` priority order, not just the first one. Pinning a
+    single IP broke dual-stack hosts (AAAA returned first, IPv4-only
+    runner could never connect). The pin override hands all of them
+    back to httpx, which can fall back across the list as before.
+    """
+    if not url:
+        raise WebhookSSRFError("Empty webhook URL")
+    parsed = urllib.parse.urlparse(url)
+    host = parsed.hostname
+    if not host:
+        raise WebhookSSRFError(f"Webhook URL has no hostname: {url!r}")
+    if parsed.scheme not in ("http", "https"):
+        raise WebhookSSRFError(f"Unsupported scheme: {parsed.scheme!r}")
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+
+    # Literal IP path
+    try:
+        addr = ipaddress.ip_address(host)
+        ip_str = str(addr)
+        if _is_disallowed_address(ip_str):
+            raise WebhookSSRFError(
+                f"Webhook URL targets a private/reserved address: {host}"
+            )
+        return [ip_str], port, host, parsed.scheme
+    except ValueError:
+        pass  # hostname
+
+    # Hostname path: resolve, reject if ANY resolved address is private.
+    try:
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except socket.gaierror as e:
+        raise WebhookSSRFError(
+            f"Webhook hostname {host!r} could not be resolved: {e}"
+        )
+    validated: list[str] = []
+    seen: set[str] = set()
+    disallowed: list[str] = []
+    for _fam, _type, _proto, _canon, sockaddr in infos:
+        ip_str = sockaddr[0]
+        if _is_disallowed_address(ip_str):
+            disallowed.append(ip_str)
+        elif ip_str not in seen:
+            validated.append(ip_str)
+            seen.add(ip_str)
+    if disallowed:
+        # All-or-nothing: any private resolution is a refusal. Don't fall
+        # back to "use the public ones and ignore the private ones" —
+        # the presence of a private record is itself the rebinding signal.
+        raise WebhookSSRFError(
+            f"Webhook hostname {host!r} resolves to private/reserved "
+            f"address(es) {disallowed}; refusing to dispatch"
+        )
+    if not validated:
+        raise WebhookSSRFError(f"Webhook hostname {host!r} returned no addresses")
+    return validated, port, host, parsed.scheme
+
+
+# Codex pass 3 (2026-04-13): replaced the process-wide lock with a
+# thread-local pin state so concurrent webhook dispatches don't
+# serialise.
+#
+# Codex pass 13 (2026-04-15): upgraded from `threading.local()` to
+# `contextvars.ContextVar`. async FastAPI runs many coroutines on
+# one thread — thread-local state leaks between them on every
+# `await`, letting coroutine B overwrite coroutine A's pin between
+# A's validation and A's socket connect. ContextVar is the canonical
+# async-aware primitive: each coroutine gets its own snapshot, no
+# cross-coroutine contamination, and synchronous callers still get
+# thread-level isolation because each thread starts with a fresh
+# context.
+#
+# Codex pass 17 (2026-04-15) propagation boundary: ContextVar
+# propagates to async worker threads via `asyncio.to_thread()`,
+# anyio.to_thread.run_sync(), and httpx's default anyio-based
+# executor — ALL of which call `contextvars.copy_context().run(...)`
+# under the hood. It does NOT propagate to raw
+# `loop.run_in_executor(None, func)` because asyncio's base
+# implementation does not copy context. Call-site rule: any async
+# code that needs the pin visible in a worker thread MUST go
+# through to_thread / anyio / httpx. Raw run_in_executor is
+# considered an out-of-context boundary.
+_dns_pin_state: contextvars.ContextVar = contextvars.ContextVar("odin_dns_pin", default=None)
+_real_getaddrinfo = socket.getaddrinfo
+
+
+def normalize_hostname(host) -> str:
+    """Canonical form for pin comparison and storage.
+
+    Lower-case, trailing dots stripped, IDNA (punycode) for non-ASCII names,
+    brackets removed and IP literals in their canonical text form.
+    """
+    if isinstance(host, bytes):
+        host = host.decode("ascii", "strict")
+    value = str(host or "").strip().strip("[]").rstrip(".").lower()
+    try:
+        return str(ipaddress.ip_address(value.split("%", 1)[0]))
+    except ValueError:
+        pass
+    try:
+        return value.encode("idna").decode("ascii")
+    except UnicodeError:
+        return value
+
+
+class PinnedLookupRefused(socket.gaierror):
+    """A name lookup outside the active DNS pin (fail closed)."""
+
+
+def _pinned_getaddrinfo(host, port, *args, **kwargs):
+    pin = _dns_pin_state.get()
+    if not pin:
+        return _real_getaddrinfo(host, port, *args, **kwargs)
+    try:
+        name = normalize_hostname(host)
+    except UnicodeError:
+        name = None
+    port_ok = port is None or port == pin["port"] or str(port) == str(pin["port"])
+    if not port_ok or (name != pin["hostname"] and name not in pin["ips"]):
+        # Fail closed: while a pin is active nothing reaches the real
+        # resolver, so a case/IDNA/trailing-dot variant of the pinned name
+        # or a redirect to another name cannot be re-resolved.
+        raise PinnedLookupRefused(socket.EAI_NONAME, "lookup outside the pinned destination")
+    # Codex pass 3: return ALL pinned IPs in priority order so httpx
+    # can fall back across the list (dual-stack AAAA→A retry remains
+    # functional on IPv4-only runners).
+    results = []
+    for ip in pin["ips"]:
+        if ":" in ip:
+            results.append((
+                socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP,
+                "", (ip, pin["port"], 0, 0),
+            ))
+        else:
+            results.append((
+                socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP,
+                "", (ip, pin["port"]),
+            ))
+    return results
+
+
+# Install the override exactly once. Multiple imports of this module are
+# benign because we only swap when the bound name is still the original.
+if socket.getaddrinfo is _real_getaddrinfo:
+    socket.getaddrinfo = _pinned_getaddrinfo
+
+
+@contextlib.contextmanager
+def _pin_dns(hostname: str, port: int, ips: list[str]):
+    """Pin DNS for `hostname:port` to the validated `ips` list for
+    the duration of the context. Async-coroutine-safe via ContextVar.
+
+    Codex pass 13 (2026-04-15): migrated from threading.local. Under
+    async FastAPI, thread-local state is shared across coroutines on
+    the same thread; coroutine B could overwrite coroutine A's pin
+    between A's validation and A's socket connect. ContextVar
+    guarantees each coroutine sees its own pin, and each thread
+    starts with a fresh context so sync callers are also isolated.
+    """
+    token = _dns_pin_state.set({"hostname": normalize_hostname(hostname), "port": port,
+                                "ips": [normalize_hostname(ip) for ip in ips]})
+    try:
+        yield
+    finally:
+        _dns_pin_state.reset(token)
+
+
+def safe_post(url: str, **kwargs):
+    """SSRF-safe POST for USER-SUPPLIED webhook URLs (Discord, Slack,
+    ntfy, generic, org webhooks).
+
+    Resolves the URL's hostname, validates ALL returned addresses, then
+    pins the TCP connect to one of those validated IPs. TLS SNI +
+    certificate verification still target the original hostname so cert
+    validation behaves normally.
+
+    Codex pass 2 (2026-04-13) closed the DNS-rebinding TOCTOU.
+    Codex pass 3 (2026-04-13) closed:
+      * Outbound proxy bypass: `trust_env=False` makes httpx ignore
+        HTTP_PROXY/HTTPS_PROXY/ALL_PROXY/NO_PROXY env vars. With those
+        honored, the connection would go to the proxy (which then does
+        its own attacker-controlled DNS lookup) and the pinning is
+        useless. Webhook dispatch must connect direct.
+      * Throughput collapse: replaced the global lock with a thread-local
+        pin so concurrent webhook dispatches no longer serialise behind
+        one slow endpoint.
+
+    v1.8.9: when `ODIN_ITAR_MODE=1`, refuses public destinations at
+    call time (before DNS pinning). Private destinations (internal
+    webhooks to logging / ticketing systems) are still allowed.
+
+    For HARDCODED third-party APIs (Telegram bot API, Pushover, WhatsApp
+    Graph API) use trusted_post() instead — those targets are not user-
+    controlled, don't need SSRF defense, and may legitimately need to
+    traverse an egress proxy.
+
+    Raises WebhookSSRFError on a disallowed target. Re-raises any
+    httpx.HTTPError unchanged.
+    """
+    import httpx as _httpx
+    from core.itar import enforce_request_destination, ItarOutboundBlocked
+
+    try:
+        enforce_request_destination(url)
+    except ItarOutboundBlocked as exc:
+        raise WebhookSSRFError(str(exc)) from exc
+
+    validated_ips, port, hostname, _scheme = _resolve_and_pin(url)
+    timeout = kwargs.pop("timeout", 10)
+    with _pin_dns(hostname, port, validated_ips):
+        with _httpx.Client(trust_env=False, timeout=timeout) as client:
+            return client.post(url, **kwargs)
+
+
+# Allowlist of hardcoded third-party API hostnames trusted_post() may
+# target. If a future call site needs a new vendor, add it here in the
+# same change that introduces the call. The runtime check below makes a
+# misuse fail loud rather than silently accepting a user-supplied URL.
+_TRUSTED_API_HOSTS = frozenset({
+    "api.telegram.org",
+    "api.pushover.net",
+    "graph.facebook.com",
+})
+
+
+def trusted_post(url: str, **kwargs):
+    """POST to a HARDCODED third-party API endpoint (not user-supplied).
+
+    Use ONLY for endpoints that are baked into our codebase as string
+    literals: Telegram bot API, Pushover, WhatsApp Graph API. The host
+    is not attacker-controlled, so SSRF defense is unnecessary, and we
+    must respect HTTP_PROXY/HTTPS_PROXY for deployments whose only
+    egress route is through a corporate proxy.
+
+    NEVER pass a user-supplied URL here. The hostname must appear in
+    _TRUSTED_API_HOSTS — anything else raises WebhookSSRFError so a
+    refactor that accidentally pipes user data through this path fails
+    immediately rather than silently bypassing the SSRF gate.
+
+    Codex pass 3 (2026-04-13): introduced specifically because
+    safe_post()'s `trust_env=False` broke proxy-only egress for the
+    hardcoded API call sites in channels.py.
+
+    v1.8.9: when `ODIN_ITAR_MODE=1`, ALL trusted-API calls are refused
+    — the allowlisted hosts (api.telegram.org etc.) are all public
+    and violate the air-gap posture. Operators who need per-site
+    notification in ITAR deployments must set up an internal relay
+    and use user-configured webhooks (which safe_post validates for
+    privateness).
+    """
+    import httpx as _httpx
+    from core.itar import enforce_request_destination, ItarOutboundBlocked
+
+    try:
+        enforce_request_destination(url)
+    except ItarOutboundBlocked as exc:
+        raise WebhookSSRFError(str(exc)) from exc
+
+    parsed = urllib.parse.urlparse(url)
+    host = (parsed.hostname or "").lower()
+    if host not in _TRUSTED_API_HOSTS:
+        raise WebhookSSRFError(
+            f"trusted_post() refused: hostname {host!r} is not in the "
+            f"hardcoded allowlist. If this is a user-supplied URL, use "
+            f"safe_post() instead. Allowlist: {sorted(_TRUSTED_API_HOSTS)}"
+        )
+    if parsed.scheme != "https":
+        raise WebhookSSRFError(
+            f"trusted_post() refused: scheme {parsed.scheme!r} is not https. "
+            "Hardcoded API endpoints must always use TLS."
+        )
+
+    timeout = kwargs.pop("timeout", 10)
+    # No DNS pin, no trust_env override — these are trusted targets whose
+    # hostnames we own at compile time. Egress proxy is honored.
+    return _httpx.post(url, timeout=timeout, **kwargs)
+
+
+def resolve_and_check_webhook_url(url: str) -> str:
+    """Resolve a webhook URL's hostname and reject if any address is private.
+
+    This is the dispatch-time SSRF gate (R8 from 2026-04-12 adversarial
+    review). _validate_webhook_url() blocks LITERAL private IPs at config
+    time, but a hostname like ``hooks.example.com`` could resolve to
+    ``10.0.0.1`` — either via DNS rebinding (attacker-controlled zone) or
+    split-horizon DNS (internal resolver shadows the public name).
+
+    Call this immediately before every httpx.post/get — do NOT cache the
+    result. DNS records change; a webhook that was safe 5 minutes ago can
+    become an SSRF primitive now.
+
+    Returns the original URL unchanged if all resolved addresses are public.
+    Raises WebhookSSRFError if the hostname cannot resolve, or if any
+    resolved address is in a disallowed range.
+    """
+    if not url:
+        raise WebhookSSRFError("Empty webhook URL")
+
+    parsed = urllib.parse.urlparse(url)
+    host = parsed.hostname
+    if not host:
+        raise WebhookSSRFError(f"Webhook URL has no hostname: {url!r}")
+
+    # Literal IP — use the already-loaded address
+    try:
+        addr = ipaddress.ip_address(host)
+        if _is_disallowed_address(str(addr)):
+            raise WebhookSSRFError(
+                f"Webhook URL targets a private/reserved address: {host}"
+            )
+        return url
+    except ValueError:
+        pass  # hostname — proceed to DNS resolution
+
+    # Hostname — resolve ALL addresses (v4 + v6) and check each one.
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror as e:
+        raise WebhookSSRFError(f"Webhook hostname {host!r} could not be resolved: {e}")
+
+    disallowed = []
+    for family, _type, _proto, _canon, sockaddr in infos:
+        ip_str = sockaddr[0]
+        if _is_disallowed_address(ip_str):
+            disallowed.append(ip_str)
+
+    if disallowed:
+        raise WebhookSSRFError(
+            f"Webhook hostname {host!r} resolves to private/reserved "
+            f"address(es) {disallowed}; refusing to dispatch"
+        )
+
+    return url
+
+
+# ====================================================================
+# LAN device destinations (printers, smart plugs, cameras)
+# ====================================================================
+#
+# Devices live on private LANs, so unlike webhooks RFC-1918/ULA addresses
+# are ALLOWED. Blocked: loopback, link-local (169.254/16, fe80::/10),
+# unspecified, multicast, 0.0.0.0/8, reserved IPv4, cloud metadata, and any
+# of those embedded in IPv4-mapped / IPv4-compatible / NAT64 IPv6 forms.
+# Hostnames are resolved and EVERY address must pass; numeric IPv4 forms
+# (decimal, hex, short dotted) are normalised by the resolver and checked
+# as the address they denote. Request-time callers pin the connection to
+# the validated addresses (pinned_device_destination) so DNS rebinding
+# cannot swap the target between check and connect.
+
+class DeviceDestinationBlocked(WebhookSSRFError):
+    """A device host is malformed, unresolvable or a blocked address."""
+
+
+_METADATA_ADDRESSES = frozenset({
+    ipaddress.ip_address("169.254.169.254"),
+    ipaddress.ip_address("fd00:ec2::254"),
+    ipaddress.ip_address("100.100.100.200"),  # Alibaba Cloud metadata
+})
+_IPV4_THIS_NETWORK = ipaddress.ip_network("0.0.0.0/8")
+_IPV6_COMPAT = ipaddress.ip_network("::/96")
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")
+
+
+def _embedded_ipv4(addr):
+    if addr.version != 6:
+        return None
+    if addr.ipv4_mapped is not None:
+        return addr.ipv4_mapped
+    if addr in _NAT64 or (addr in _IPV6_COMPAT and int(addr) > 1):
+        return ipaddress.IPv4Address(int(addr) & 0xFFFFFFFF)
+    return None
+
+
+def is_blocked_device_address(value) -> bool:
+    """True when `value` (an IP string or ip_address) must never be a device target."""
+    try:
+        addr = value if isinstance(value, (ipaddress.IPv4Address, ipaddress.IPv6Address)) \
+            else ipaddress.ip_address(str(value).split("%", 1)[0])
+    except ValueError:
+        return True
+    candidates = [addr]
+    embedded = _embedded_ipv4(addr)
+    if embedded is not None:
+        candidates.append(embedded)
+    for a in candidates:
+        if (a.is_loopback or a.is_link_local or a.is_unspecified or a.is_multicast
+                or a in _METADATA_ADDRESSES):
+            return True
+        if a.version == 4 and (a in _IPV4_THIS_NETWORK or a.is_reserved):
+            return True
+    return False
+
+
+# ODIN's own service ports: go2rtc RTSP (8554), WebRTC (8555), go2rtc API (1984) and the
+# ODIN API (8000, or PORT). A device URL naming one of ODIN's own addresses on one of
+# these ports would make ODIN re-serve its own streams (e.g. another org's camera via
+# rtsp://<container IP>:8554/printer_<id>), so it is refused.
+_OWN_SERVICE_PORTS = (8554, 8555, 1984, 8000)
+
+
+def own_service_ports() -> frozenset:
+    ports = set(_OWN_SERVICE_PORTS)
+    for name in ("PORT", "ODIN_PORT", "ODIN_GO2RTC_PORT", "ODIN_WEBRTC_PORT"):
+        try:
+            value = int(os.environ.get(name, "") or 0)
+        except ValueError:
+            continue
+        if 0 < value < 65536:
+            ports.add(value)
+    return frozenset(ports)
+
+
+def _proc_ipv4_local():
+    found = set()
+    try:
+        with open("/proc/net/fib_trie") as handle:
+            lines = handle.read().splitlines()
+    except OSError:
+        return found
+    for previous, line in zip(lines, lines[1:]):
+        if "/32 host LOCAL" in line:
+            candidate = previous.strip().split()[-1]
+            found.add(candidate)
+    return found
+
+
+def _proc_ipv6_local():
+    found = set()
+    try:
+        with open("/proc/net/if_inet6") as handle:
+            for line in handle:
+                raw = line.split()[0] if line.split() else ""
+                if len(raw) == 32:
+                    found.add(str(ipaddress.IPv6Address(int(raw, 16))))
+    except (OSError, ValueError):
+        pass
+    return found
+
+
+def _proc_default_gateways():
+    """The container's default gateway: in Docker bridge mode the host, whose published
+    ports (8000, 8555) reach ODIN."""
+    found = set()
+    try:
+        with open("/proc/net/route") as handle:
+            for line in handle.read().splitlines()[1:]:
+                fields = line.split()
+                if len(fields) > 2 and fields[1] == "00000000":
+                    found.add(str(ipaddress.IPv4Address(int(fields[2], 16).to_bytes(4, "little"))))
+    except (OSError, ValueError):
+        pass
+    return found
+
+
+def own_interface_addresses() -> frozenset:
+    """Every address that reaches this ODIN instance, enumerated now (not cached):
+    the container's/host's interfaces, its hostname's addresses, the default gateway
+    (the Docker host), the configured host IP (ODIN_HOST_IP / system_config host_ip) and
+    a separate go2rtc service's addresses (ODIN_GO2RTC_API_URL)."""
+    addresses = _proc_ipv4_local() | _proc_ipv6_local() | _proc_default_gateways()
+    try:
+        for info in _real_getaddrinfo(socket.gethostname(), None):
+            addresses.add(info[4][0])
+    except (socket.gaierror, OSError, UnicodeError):
+        pass
+    try:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            probe.connect(("192.0.2.1", 9))  # no packet is sent for UDP connect
+            addresses.add(probe.getsockname()[0])
+        finally:
+            probe.close()
+    except OSError:
+        pass
+    configured = os.environ.get("ODIN_HOST_IP")
+    if configured:
+        addresses.add(configured.strip())
+    # A separate go2rtc service (enterprise compose) is part of ODIN too: its API and
+    # RTSP ports re-serve every printer's stream.
+    go2rtc_url = (os.environ.get("ODIN_GO2RTC_API_URL") or "").strip()
+    if go2rtc_url:
+        from urllib.parse import urlsplit
+        go2rtc_host = urlsplit(go2rtc_url).hostname
+        if go2rtc_host:
+            try:
+                for info in _real_getaddrinfo(go2rtc_host, None):
+                    addresses.add(info[4][0])
+            except (socket.gaierror, OSError, UnicodeError):
+                pass
+    try:
+        from core.db_utils import get_db
+        with get_db() as conn:
+            row = conn.execute("SELECT value FROM system_config WHERE key = 'host_ip'").fetchone()
+        if row and row[0]:
+            value = row[0]
+            if isinstance(value, str):
+                value = value.strip().strip('"')
+            addresses.add(str(value))
+    except Exception:
+        pass
+    normalized = set()
+    for value in addresses:
+        try:
+            normalized.add(ipaddress.ip_address(str(value).split("%", 1)[0]))
+        except ValueError:
+            continue
+    return frozenset(normalized)
+
+
+def is_own_service_endpoint(ip, port) -> bool:
+    """True when (ip, port) is one of ODIN's own service ports on one of its own addresses."""
+    if not port or int(port) not in own_service_ports():
+        return False
+    try:
+        addr = ipaddress.ip_address(str(ip).split("%", 1)[0])
+    except ValueError:
+        return True
+    own = own_interface_addresses()
+    embedded = _embedded_ipv4(addr)
+    return addr in own or (embedded is not None and embedded in own)
+
+
+def split_device_host(value: str):
+    """Parse `host`, `host:port`, `[v6]`, `[v6]:port` or a bare IPv6 literal.
+
+    Returns (hostname, port_or_None). Raises DeviceDestinationBlocked when
+    the value is not a plain authority (userinfo, path, query, bad port).
+    """
+    if not isinstance(value, str) or not value.strip():
+        raise DeviceDestinationBlocked("Empty host")
+    raw = value.strip()
+    if any(ch in raw for ch in "/?#@\\ \t"):
+        raise DeviceDestinationBlocked("Host must be host or host:port")
+    if raw.count(":") > 1 and not raw.startswith("["):
+        try:
+            return str(ipaddress.IPv6Address(raw.split("%", 1)[0])), None
+        except ValueError:
+            raise DeviceDestinationBlocked("Invalid IPv6 host; use [address]:port")
+    try:
+        parsed = urllib.parse.urlsplit("//" + raw)
+        host, port = parsed.hostname, parsed.port
+    except ValueError:
+        raise DeviceDestinationBlocked("Invalid host or port")
+    if not host:
+        raise DeviceDestinationBlocked("Invalid host")
+    return host.rstrip("."), port
+
+
+def normalize_device_host(value: str) -> str:
+    """Stored form of a device host[:port]: normalized name, brackets for IPv6."""
+    hostname, port = split_device_host(value)
+    name = normalize_hostname(hostname)
+    shown = f"[{name}]" if ":" in name else name
+    return f"{shown}:{port}" if port else shown
+
+
+def normalize_device_url(url: str) -> str:
+    """http(s)://host[:port] with the host normalized (scheme lower-cased)."""
+    parsed = urllib.parse.urlsplit(url.strip())
+    name = normalize_hostname(parsed.hostname or "")
+    shown = f"[{name}]" if ":" in name else name
+    netloc = f"{shown}:{parsed.port}" if parsed.port else shown
+    return urllib.parse.urlunsplit((parsed.scheme.lower(), netloc, parsed.path, parsed.query, parsed.fragment))
+
+
+def device_destination_ips(host: str, port=None) -> list:
+    """Resolve a device host and return its validated addresses.
+
+    `host` may carry a port (see split_device_host). Raises
+    DeviceDestinationBlocked if it cannot be resolved or ANY resolved
+    address is blocked.
+    """
+    hostname, parsed_port = split_device_host(host)
+    try:
+        hostname = normalize_hostname(hostname)
+    except UnicodeError as exc:
+        raise DeviceDestinationBlocked("Invalid host name") from exc
+    port = port or parsed_port or 0
+    try:
+        infos = _real_getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+    except (socket.gaierror, UnicodeError, OSError) as exc:
+        raise DeviceDestinationBlocked(f"Host {hostname!r} could not be resolved") from exc
+    ips = []
+    for _fam, _type, _proto, _canon, sockaddr in infos:
+        ip = sockaddr[0]
+        if is_blocked_device_address(ip):
+            raise DeviceDestinationBlocked(f"Host {hostname!r} resolves to a blocked address")
+        if is_own_service_endpoint(ip, port):
+            raise DeviceDestinationBlocked(f"Host {hostname!r} port {port} is one of ODIN's own services")
+        if ip not in ips:
+            ips.append(ip)
+    if not ips:
+        raise DeviceDestinationBlocked(f"Host {hostname!r} returned no addresses")
+    return ips
+
+
+@contextlib.contextmanager
+def pinned_device_destination(url: str):
+    """Validate a device URL and pin its connection to the validated addresses.
+
+    Every socket.getaddrinfo for the URL's host:port inside the block
+    (urllib, requests, httpx) returns only the addresses checked here.
+    """
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        hostname, port = parsed.hostname, parsed.port
+    except ValueError as exc:
+        raise DeviceDestinationBlocked("Invalid device URL") from exc
+    if parsed.scheme.lower() not in ("http", "https") or not hostname:
+        raise DeviceDestinationBlocked("Device URL must be http(s)://host")
+    port = port or (443 if parsed.scheme.lower() == "https" else 80)
+    ips = device_destination_ips(hostname if ":" not in hostname else f"[{hostname}]", port)
+    with _pin_dns(hostname, port, ips):
+        yield ips
+
+
+# --------------------------------------------------------------------
+# Device HTTP clients: pinned, no redirects, no environment proxies
+# --------------------------------------------------------------------
+
+import urllib.request as _urllib_request
+
+
+class _NoRedirect(_urllib_request.HTTPRedirectHandler):
+    """A 3xx surfaces as HTTPError; a device must never send ODIN elsewhere."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def device_urlopen(request, timeout=None):
+    """urllib open for a device URL: policy-validated, pinned, no redirect, no proxy."""
+    url = request.full_url if isinstance(request, _urllib_request.Request) else request
+    opener = _urllib_request.build_opener(_urllib_request.ProxyHandler({}), _NoRedirect())
+    with pinned_device_destination(url):
+        return opener.open(request, timeout=timeout)
+
+
+def device_request(method: str, url: str, **kwargs):
+    """requests call for a device URL: policy-validated, pinned, no redirect, no proxy.
+
+    A fresh Session ignores HTTP(S)_PROXY/ALL_PROXY/netrc (trust_env=False,
+    proxies={}); redirects are never followed. Raises DeviceDestinationBlocked
+    for a blocked destination.
+    """
+    import requests
+    kwargs["allow_redirects"] = False
+    kwargs.pop("proxies", None)
+    with requests.Session() as session:
+        session.trust_env = False
+        session.proxies = {}
+        session.max_redirects = 0
+        with pinned_device_destination(url):
+            return session.request(method, url, **kwargs)
+
+
+def device_connect_ip(host: str, port=None) -> str:
+    """Validated IP literal to connect to for a non-HTTP device channel.
+
+    MQTT, FTPS, SDCP websocket and UDP clients connect to this literal (no
+    second DNS lookup, so no rebinding window). TLS callers keep the original
+    name for server_hostname where their certificate policy uses it.
+    Raises DeviceDestinationBlocked.
+    """
+    value = str(host or "").strip()
+    if value.count(":") > 1 and not value.startswith("["):
+        value = f"[{value}]"
+    return device_destination_ips(value, port)[0]
+

@@ -31,6 +31,7 @@ RAW_REQUIRED_TABLES = frozenset(
         "quiet_hours_deferred_deliveries",
         "timelapse_capture_tenancy",
         "alert_outbox",
+        "production_recipes", "production_acceptances", "production_stock_additions",
         "cost_identities",
         "cost_order_memberships",
         "cost_job_bindings",
@@ -113,6 +114,9 @@ RAW_REQUIRED_TABLES = frozenset(
 POWER_OPERATION_COLUMNS = tuple("operation_nonce request_nonce owner_nonce printer_id target_key config_key destination_key purpose physical_job_id scheduled_job_id observation_key actor_user_id auth_kind authority_key state revision created_at changed_at command_started_at release_pending_at completed_at outcome cleanup_reason".split())
 
 RAW_REQUIRED_COLUMNS = {
+    "production_recipes": frozenset("id owner definition".split()),
+    "production_acceptances": frozenset("id owner job_uid claim_token recipe_id request_hash definition".split()),
+    "production_stock_additions": frozenset("id owner receipt_id destination request_body state attempts".split()),
     "power_target_operations": frozenset(POWER_OPERATION_COLUMNS),
     "cost_global_order_origins": frozenset("order_uid resource_kind owner_scope owner_key origin_nonce proof_kind recorded_at".split()),
     "cost_global_origin_exclusions": frozenset("order_uid resource_kind owner_scope owner_key".split()),
@@ -284,6 +288,7 @@ POST027_MIGRATIONS = (
     ("python:032-quiet-hours-deferred-deliveries", "core.schema.migrations.032_quiet_hours_deferred_deliveries"),
     ("python:033-timelapse-capture-tenancy", "core.schema.migrations.033_timelapse_capture_tenancy"),
     ("python:034-alert-outbox", "core.schema.migrations.034_alert_outbox"),
+    ("python:035-production-acceptance", "core.schema.migrations.035_production_acceptance"),
 )
 
 

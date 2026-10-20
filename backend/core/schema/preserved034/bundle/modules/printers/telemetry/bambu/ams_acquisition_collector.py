@@ -1,0 +1,109 @@
+"""Owned raw tray collector, not network acquisition or durable admission authority."""
+import math
+import re
+import time
+import uuid
+from dataclasses import dataclass, replace
+from threading import RLock
+from modules.printers.telemetry.bambu.ams_evidence import parse_raw_ams_facts, RawTrayFact
+
+
+@dataclass(frozen=True)
+class RawAMSSnapshot:
+    incarnation: str
+    packet_id: str
+    local_receipt_order: int
+    received_monotonic: float
+    configuration_key: str
+    owner_org_id: int | None
+    trays: tuple[RawTrayFact, ...]
+    # Only explicit idle/no-error fields in this same AMS-bearing packet qualify.
+    idle_without_error: bool = False
+
+
+class RawAMSAcquisitionCollector:
+    def __init__(self, *, topic, configuration_key, owner_org_id, selected_slots,
+                 subscribe_mid, clock=time.monotonic, max_age=120.0, incarnation=None):
+        if (not isinstance(topic,str) or not re.fullmatch(r'device/[^/\s+#\x00]+/report',topic)
+            or not isinstance(configuration_key,str) or not re.fullmatch(r'[0-9a-f]{64}',configuration_key)
+            or (owner_org_id is not None and (type(owner_org_id) is not int or owner_org_id <= 0))
+            or type(subscribe_mid) is not int or not 1 <= subscribe_mid <= 65535
+            or not isinstance(selected_slots,(list,tuple,set,frozenset)) or not selected_slots
+            or any(type(s) is not int or not 1 <= s <= 16 for s in selected_slots)
+            or len(set(selected_slots)) != len(selected_slots)
+            or type(max_age) not in (int,float) or not math.isfinite(max_age) or not 0 < max_age <= 120):
+            raise ValueError('AMS acquisition configuration unavailable')
+        if incarnation is not None and (type(incarnation) is not str or not re.fullmatch("[0-9a-f]{32}",incarnation)):
+            raise ValueError("AMS acquisition incarnation unavailable")
+        self.incarnation=incarnation if incarnation is not None else uuid.uuid4().hex
+        self._topic=topic;self._config=configuration_key;self._owner=owner_org_id
+        self._selected=frozenset(selected_slots);self._mid=subscribe_mid
+        self._clock=clock;self._age=max_age;self._lock=RLock()
+        self._ready=False;self._retired=False;self._snapshot=None;self._order=0
+        self._last_receipt=None
+
+    def acknowledge_subscription(self, incarnation, mid, reason_codes):
+        with self._lock:
+            if incarnation != self.incarnation or self._retired or type(mid) is not int or mid != self._mid:
+                return False
+            if (not isinstance(reason_codes,(list,tuple)) or len(reason_codes) != 1
+                or any(type(c) is not int or c not in (0,1,2) for c in reason_codes)):
+                self.retire();return False
+            self._ready=True
+            return True
+
+    def retire(self):
+        with self._lock:
+            self._retired=True;self._ready=False;self._snapshot=None
+
+    def observe(self, *, incarnation, topic, retained, packet, received_monotonic=None):
+        with self._lock:
+            if incarnation != self.incarnation or self._retired or not self._ready:
+                return False
+            if topic != self._topic or retained is not False:
+                self.retire();return False
+            now=self._clock() if received_monotonic is None else received_monotonic
+            if (type(now) not in (int,float) or not math.isfinite(now) or now < 0
+                or now > self._clock()
+                or (self._last_receipt is not None and now < self._last_receipt)):
+                self.retire();return False
+            from modules.printers.dispatch_readiness import raw_status_is_idle
+            idle_without_error = raw_status_is_idle('bambu', packet)
+            if (self._snapshot is not None and self._snapshot.idle_without_error is True and isinstance(packet, dict)
+                    and ('gcode_state' in packet or 'print_error' in packet) and not idle_without_error):
+                self._snapshot = replace(self._snapshot, idle_without_error=False)
+            try: facts=parse_raw_ams_facts(packet)
+            except ValueError:self.retire();return False
+            self._last_receipt=now;self._order+=1
+            addressed={f.slot_number:f for f in facts if f.slot_number in self._selected}
+            if any(f.material_state != 'reported' for f in addressed.values()):
+                self.retire();return False
+            # A packet must explicitly report every selected tray. A partial
+            # report cannot combine with earlier packet fields to create one.
+            if set(addressed) != self._selected:
+                # New relevant partial facts supersede earlier complete evidence.
+                if addressed:self._snapshot=None
+                return False
+            self._snapshot=RawAMSSnapshot(self.incarnation,uuid.uuid4().hex,
+                self._order,now,self._config,self._owner,
+                tuple(addressed[s] for s in sorted(addressed)), idle_without_error)
+            return True
+
+    @property
+    def retired(self):
+        """Distinguish waiting for evidence from sticky acquisition invalidation."""
+        with self._lock:return self._retired
+
+    def snapshot(self, *, configuration_key, owner_org_id):
+        with self._lock:
+            if (configuration_key != self._config or owner_org_id != self._owner
+                or type(owner_org_id) is not type(self._owner)):
+                self.retire();return None
+            if self._retired or not self._ready or self._snapshot is None:return None
+            now=self._clock()
+            if type(now) not in (int,float) or not math.isfinite(now):
+                self.retire();return None
+            age=now-self._snapshot.received_monotonic
+            if not math.isfinite(age) or age < 0 or age >= self._age:
+                self.retire();return None
+            return self._snapshot

@@ -1,7 +1,7 @@
 # A .semgrepignore file replaces Semgrep's built-in ignore list, so the
 # built-in defaults (semgrep 1.163.0, Semgrepignore.ml) are reproduced
 # verbatim below. Nothing that was scanned without this file stops being
-# scanned, except the two frozen bundle directories at the end.
+# scanned, except the pinned frozen bundle directories at the end.
 
 # Administrative folder or file used by popular version control systems
 .git
@@ -37,6 +37,8 @@ testsuite/
 /backend/core/schema/preserved027/bundle/
 # Frozen preserved029 snapshot of code whose live copy is scanned:
 /backend/core/schema/preserved029/bundle/
+# Frozen034 snapshot of code whose live copy is scanned:
+/backend/core/schema/preserved034/bundle/
 
 # Byte-pinned live sources. Each file's exact SHA-256 is pinned by the source
 # named in the comment above it; any edit, including a nosemgrep comment,

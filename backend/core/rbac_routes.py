@@ -311,6 +311,14 @@ WRITE_EXEMPTIONS: dict[tuple[str, str], str] = {
     ("DELETE", "/api/maintenance/logs/{log_id}"): "admin role (stricter than maintenance.log, which operators hold by default)",
     ("POST", "/api/vision/training-data/{detection_id}/annotation-v2"): "admin role; Vigil AI training data has no matrix key",
     ("POST", "/api/vision/training-data/{detection_id}/label"): "admin role; Vigil AI training data has no matrix key",
+    # Connector credentials/mappings and recipe qualification have an interactive
+    # admin floor; products.create/edit defaults also permit operators.
+    ("PUT", "/api/products/square"): "interactive admin; encrypted connector credentials, stricter than products.edit",
+    ("DELETE", "/api/products/square"): "interactive admin; connector removal, stricter than products.edit",
+    ("PUT", "/api/products/{product_id}/square"): "interactive admin; external inventory mapping, stricter than products.edit",
+    ("DELETE", "/api/products/{product_id}/square"): "interactive admin; external inventory mapping, stricter than products.edit",
+    ("POST", "/api/products/production/recipes"): "interactive admin; physical qualification, stricter than products.create",
+    ("POST", "/api/products/production/inspections"): "interactive operator; physical inspection receipts have no matrix key",
     # Operator-floor routes with no matrix key
     ("DELETE", "/api/alerts/{alert_id}"): "operator role; deleting alerts has no matrix key (alerts.read covers read/dismiss)",
     ("PATCH", "/api/archives/{archive_id}"): "operator role; archives have no matrix key",

@@ -92,38 +92,63 @@ def main():
             with admin.connect() as c:
                 return c.execute(text("SELECT count(*) FROM pg_database WHERE datname LIKE 'odin_validate_%'")).scalar_one()
 
-        for era in (25, 26, 27):
-            archive = Path(facts[era]['archive'])
-            before = marker()
-            metadata = b.validate_postgres_restore(archive, target, maintenance, **args)
-            assert metadata['sha256'] == facts[era]['sha256'] and metadata['source_schema_version'] == era
-            assert metadata['prepared_schema_version'] == int(post_ids[-1].split(':')[1][:3]) and metadata['prepared_sha256'] != facts[era]['sha256']
-            assert marker() == before and b._sha256(archive) == facts[era]['sha256'] and leftover() == 0
-            staged = b.stage_postgres_restore(archive, target, maintenance, **args)
-            assert staged['candidate_sha256'] == facts[era]['sha256']
-            engine.dispose()
-            result = b.apply_pending_postgres_restore(target, maintenance, acknowledgement=facts[era]['sha256'], **args)
-            assert result['status'] == 'restored' and marker() == f'source{era}'
-            with engine.connect() as c:
-                ids = {row[0] for row in c.execute(text('SELECT migration_id FROM odin_schema_migrations'))}
-                assert set(facts[era]['ledger']) <= ids and set(post_ids) <= ids
-                assert c.execute(text('SELECT count(*) FROM filament_library WHERE id IN (80,81)')).scalar_one() == 2
-                validate_executables(c)
-            assert has_index(engine) and leftover() == 0
-            assert not list(b.postgres_paths(root).backups.glob('.odin-upgraded029-*'))
-            print(f'post027-native-era{era}-archive-preserved029-stage-live-upgrade-validated-staged-applied-data-ledger-032-sslmode-query-pass', flush=True)
+        if os.environ.get('POST027_CURRENT_ONLY') != '1':
+            for era in (25, 26, 27):
+                archive = Path(facts[era]['archive'])
+                before = marker()
+                metadata = b.validate_postgres_restore(archive, target, maintenance, **args)
+                assert metadata['sha256'] == facts[era]['sha256'] and metadata['source_schema_version'] == era
+                assert metadata['prepared_schema_version'] == int(post_ids[-1].split(':')[1][:3]) and metadata['prepared_sha256'] != facts[era]['sha256']
+                assert marker() == before and b._sha256(archive) == facts[era]['sha256'] and leftover() == 0
+                staged = b.stage_postgres_restore(archive, target, maintenance, **args)
+                assert staged['candidate_sha256'] == facts[era]['sha256']
+                engine.dispose()
+                result = b.apply_pending_postgres_restore(target, maintenance, acknowledgement=facts[era]['sha256'], **args)
+                assert result['status'] == 'restored' and marker() == f'source{era}'
+                with engine.connect() as c:
+                    ids = {row[0] for row in c.execute(text('SELECT migration_id FROM odin_schema_migrations'))}
+                    assert set(facts[era]['ledger']) <= ids and set(post_ids) <= ids
+                    assert c.execute(text('SELECT count(*) FROM filament_library WHERE id IN (80,81)')).scalar_one() == 2
+                    validate_executables(c)
+                assert has_index(engine) and leftover() == 0
+                assert not list(b.postgres_paths(root).backups.glob('.odin-upgraded029-*'))
+                print(f'post027-native-era{era}-archive-preserved029-stage-live-upgrade-validated-staged-applied-data-ledger-032-sslmode-query-pass', flush=True)
 
-        # 4. Refusals: a changed 027-era ledger and an extra table are refused, target untouched.
-        before = marker()
-        for path, expected in ((Path(facts[27]['tampered']), 'Migration history mismatch: python:027-power-target-operations'),
-                               (Path(facts[26]['tampered']), 'Unsupported PostgreSQL archive schema version or partial table inventory')):
-            try:b.validate_postgres_restore(path, target, maintenance, **args)
-            except BackupValidationError as error:
-                import re
-                assert re.search(expected, str(error)), str(error)
-            else:raise AssertionError('Tampered historical archive admitted: ' + path.name)
-            assert marker() == before and leftover() == 0
-        print('post027-native-tampered-checksum-and-extra-table-refused-target-untouched-no-stage-left-pass', flush=True)
+            # 4. Refusals: a changed 027-era ledger and an extra table are refused, target untouched.
+            before = marker()
+            for path, expected in ((Path(facts[27]['tampered']), 'Migration history mismatch: python:027-power-target-operations'),
+                                   (Path(facts[26]['tampered']), 'Unsupported PostgreSQL archive schema version or partial table inventory')):
+                try:b.validate_postgres_restore(path, target, maintenance, **args)
+                except BackupValidationError as error:
+                    import re
+                    assert re.search(expected, str(error)), str(error)
+                else:raise AssertionError('Tampered historical archive admitted: ' + path.name)
+                assert marker() == before and leftover() == 0
+            print('post027-native-tampered-checksum-and-extra-table-refused-target-untouched-no-stage-left-pass', flush=True)
+
+        else:
+            # A scoped rerun after the historical phases have already passed.
+            # Keep skipped phases explicit; do not print their pass markers.
+            with engine.begin() as c:
+                c.execute(text("INSERT INTO filament_library(id,brand,name,material) VALUES(80,'Owned','Era fixture','PLA'),(81,'Owned','Second','PETG')"))
+            print('post027-native-current-only-historical-phases-not-repeated',flush=True)
+
+        # Released034 archive must pass its own frozen validation, then live035 upgrade.
+        from core.schema import preserved034
+        frozen034, _ = preserved034.check_package()
+        old034 = fresh('post027_published034'); old034.dispose()
+        env034 = {**os.environ, 'DATABASE_URL':server+'/post027_published034', 'PYTHONPATH':str(frozen034), 'PYTHONDONTWRITEBYTECODE':'1'}
+        make034 = subprocess.run([sys.executable,'-c',
+            "from core.database_config import create_database_engine; from core.schema import bootstrap_database; import os; "
+            "e=create_database_engine(os.environ['DATABASE_URL'],role='restore',password_file=os.environ['DATABASE_PASSWORD_FILE']); bootstrap_database(e); e.dispose()"],
+            cwd=root,env=env034,capture_output=True,text=True,timeout=300)
+        assert make034.returncode==0, make034.stderr
+        archive034=root/'published034.dump'
+        b._run_pg_tool(['pg_dump','--format=custom','--schema','public','--no-owner','--no-privileges','--no-comments','--file',str(archive034),'--dbname',server+'/post027_published034'],maintenance,str(credential),root)
+        facts034=b.validate_postgres_restore(archive034,target,maintenance,**args)
+        assert facts034['source_schema_version']==34 and facts034['prepared_schema_version']==35
+        assert leftover()==0
+        print('post027-native-published034-frozen-stage-live035-upgrade-validated-pass',flush=True)
 
         # 5. Current-schema backup -> restore round trip keeps data, including a 032 row.
         with engine.begin() as c:
@@ -137,12 +162,18 @@ def main():
             # Migration 034: an undispatched alert outbox row (with its job) survives too.
             c.execute(text("INSERT INTO jobs(id,item_name,status) VALUES(990034,'roundtrip034','pending')"))
             c.execute(text("INSERT INTO " + OUTBOX + "(job_id,alert_kind) VALUES(990034,'queue_added')"))
+            #035 immutable recipe, inspection and pending request all survive restore.
+            c.execute(text("INSERT INTO production_recipes(id,owner,definition) VALUES(:id,1,'{}')"),{'id':'a'*32})
+            c.execute(text("INSERT INTO production_acceptances(id,owner,job_uid,claim_token,recipe_id,request_hash,definition) VALUES(:id,1,:uid,:claim,:recipe,:hash,'{}')"),{'id':'b'*32,'uid':'u'*36,'claim':'c'*32,'recipe':'a'*32,'hash':'d'*64})
+            c.execute(text("INSERT INTO production_stock_additions(id,owner,receipt_id,destination,request_body,state,attempts) VALUES(:id,1,:receipt,'{}','{}','prepared',0)"),{'id':'e'*32,'receipt':'b'*32})
         backup, backup_metadata = b.create_postgres_backup(target, maintenance_url=maintenance, **args)
         with engine.begin() as c:
             c.execute(text("UPDATE system_config SET value='\"after-backup\"' WHERE key='historical_marker'"))
             c.execute(text("DELETE FROM " + DEFERRED))
             c.execute(text("DELETE FROM " + TENANCY))
             c.execute(text("DELETE FROM " + OUTBOX))
+            for table035 in ('production_stock_additions','production_acceptances','production_recipes'):
+                c.execute(text('DELETE FROM '+table035))
         current = b.validate_postgres_restore(backup, target, maintenance, **args)
         assert 'source_schema_version' not in current and current['restore_validated']
         b.stage_postgres_restore(backup, target, maintenance, **args); engine.dispose()
@@ -155,7 +186,11 @@ def main():
             assert c.execute(text("SELECT job_id,alert_kind,attempts FROM " + OUTBOX)).all() == [(990034, 'queue_added', 0)]
         print('post027-native-current-backup-restore-roundtrip-data-and-032-row-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-033-capture-tenancy-row-pass', flush=True)
+        with engine.connect() as c:
+            for table035 in ('production_recipes','production_acceptances','production_stock_additions'):
+                assert c.execute(text('SELECT COUNT(*) FROM '+table035)).scalar_one()==1
         print('post027-native-current-backup-restore-roundtrip-034-alert-outbox-row-pass', flush=True)
+        print('post027-native-current-backup-restore-roundtrip-035-all-three-rows-pass',flush=True)
 
         engine.dispose()
 

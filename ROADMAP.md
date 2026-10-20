@@ -7,6 +7,12 @@ Updated - see CHANGELOG for current version.
 - Explicit AMS archive reprint compatibility for single-source files with unused slicer profiles; original failed jobs remain preserved.
 - Native Apple push HTTP/2 runtime dependency.
 
+## In development: SubLab production workflow
+
+- Read-only Square connection, catalog mapping and recorded stock checks.
+- Fixed-yield recipes, explicit physical inspection and durable prepared stock additions for single-print products.
+- Before rollout: real batch qualification, finishing/assembly support where needed, and separately approved live Square delivery. No automatic print starts or stock writes.
+
 ## Shipped in v2.0.0
 
 - ~~Project ZIP v2 export/import~~ — restores archives and print files into a new importer-owned project

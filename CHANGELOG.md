@@ -2,6 +2,14 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [Unreleased]
+
+### Added
+
+- Products can connect to Square for read-only catalog, location and finished-stock checks using encrypted credentials and explicit product mappings.
+- Immutable fixed-yield recipe revisions and inspected batch receipts distinguish accepted/rejected main and flush products from print completion. Prepared stock additions retain a stable replay identity and destination; actual Square writes remain disabled.
+- Additive production-evidence schema and isolated released034 PostgreSQL archive compatibility preserve current and historical backup paths.
+
 ## [2.0.6] - 2026-10-22
 
 <!-- summary: Record and surface post-upload AMS gate refusal reasons -->
@@ -262,7 +270,6 @@ All notable changes to O.D.I.N. are documented here.
   existing secrets and omitted settings on subsequent saves.
 - Explain ODIN tenant creation and support tenant-list refresh. Recover tenant
   loading independently and prevent edits when saved configuration cannot load.
-
 
 ## [Unreleased] — Education license user-limit fix
 

@@ -147,8 +147,8 @@ async def delete_org(org_id: int, current_user: dict = Depends(require_superadmi
     org = db.execute(text("SELECT * FROM groups WHERE id = :id AND is_org IS TRUE"), {"id": org_id}).fetchone()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
-    from modules.orders.square_store import lock_owner, forget_tenant
-    lock_owner(db, org_id)
+    from modules.orders.services import lock_tenant_for_deletion, forget_tenant
+    lock_tenant_for_deletion(db, org_id)
     assert_org_hard_delete_allowed(db, org_id)
     # A spool's owning organization is part of its immutable cost history
     # (schema migration 022): it cannot be unlinked, so an organization that

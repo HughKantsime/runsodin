@@ -116,6 +116,9 @@ def public(db, owner, doc):
 
 def forget_tenant(db, owner):
     """Caller holds the group-row lock shared with every connector writer."""
+    from modules.orders.batch_production import assert_tenant_deletable, recipes
+    assert_tenant_deletable(db, owner)
+    db.execute(delete(recipes).where(recipes.c.owner == owner))
     db.execute(delete(SystemConfig).where(SystemConfig.key == key(owner)))
 
 
@@ -123,6 +126,8 @@ def forget_product(db, product):
     owner = product.org_id or 0
     lock_owner(db, owner)
     own_product(db, owner, product.id, lock=True)
+    from modules.orders.batch_production import assert_product_deletable
+    assert_product_deletable(db, product)
     doc, previous = load(db, owner)
     if doc and str(product.id) in doc['mappings']:
         del doc['mappings'][str(product.id)]
