@@ -2,6 +2,15 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.2] - 2026-10-19
+
+<!-- summary: X1 Carbon classroom approval compatibility -->
+
+### Fixed
+
+- Education teacher approval now accepts the exact reserved `T1100` calibration command emitted by stock X1 Carbon start G-code. Unknown or parameterized tool commands, conflicting source switches and inconsistent material metadata remain rejected.
+- Added a regression using a genuine single-material X1 Carbon slice, plus negative source-mapping checks.
+
 ## [2.0.1] - 2026-10-19
 
 <!-- summary: Existing-installation SQLite upgrade compatibility -->
