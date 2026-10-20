@@ -12,3 +12,6 @@ export const materialPurchases={read:()=>fetchAPI<MaterialState>(base),create:(n
  adopt:(consumable_id:number,specification:string,counted_units:number,physically_counted:boolean)=>post<MaterialState>('/adopt',{consumable_id,specification,counted_units,physically_counted}),
  mapping:(data:VendorMapping['signature']&{consumable_id:number;verified:boolean})=>post<MaterialState>('/mappings',data),
  preview:(csv_text:string)=>post<CSVPreview>('/preview',{csv_text}),purchase:(lines:PurchaseLine[])=>post<MaterialState>('/lines',{lines}),receipt:(value:ReceiptInput)=>post<MaterialState>('/receipts',value)}
+
+export interface MaterialEmailPreview{candidates:{candidate_reference:string;vendor:string;order_reference:string;title:string;ordered_quantity:number;status:string;message:string}[];stock_changed:false;purchases_changed:false;source_authenticated:false;message:string}
+export const previewMaterialEmail=(email_text:string)=>post<MaterialEmailPreview>('/email/preview',{email_text})

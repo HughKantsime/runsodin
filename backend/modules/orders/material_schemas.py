@@ -48,3 +48,6 @@ class HardwareUse(Input):
     consumable_id:StrictInt=Field(gt=0)
     units:StrictInt=Field(ge=0,le=100000000)
     reason:str=Field(default='',max_length=300)
+
+class EmailPreviewInput(Input):
+    email_text:str=Field(min_length=1,max_length=300000)
