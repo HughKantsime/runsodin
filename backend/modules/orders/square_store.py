@@ -144,6 +144,8 @@ def forget_tenant(db, owner):
     assert_show_tenant_deletable(db, owner)
     from modules.orders.finishing import guard_tenant
     guard_tenant(db,owner)
+    from modules.orders.material_store import guard_tenant as guard_material_tenant
+    guard_material_tenant(db,owner)
     from modules.orders.operations import forget as forget_operations
     forget_operations(db,owner)
     from modules.orders.batch_production import assert_tenant_deletable, recipes

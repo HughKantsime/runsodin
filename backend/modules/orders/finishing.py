@@ -26,6 +26,8 @@ class ComponentInput(Input):
 class Allocation(Input):
     receipt_id:str=Field(pattern=r'^[a-f0-9]{32}$')
     quantity:StrictInt=Field(gt=0,le=10000)
+from modules.orders.material_schemas import HardwareUse
+
 class FinishInput(Input):
     request_id:str=Field(pattern=r'^[a-f0-9]{32}$')
     product_id:StrictInt=Field(gt=0)
@@ -36,6 +38,8 @@ class FinishInput(Input):
     assembly_confirmed:StrictBool
     hardware_confirmed:StrictBool
     square_revision:str|None=Field(default=None,max_length=64)
+    hardware_usage:list[HardwareUse]|None=Field(default=None,max_length=100)
+    hardware_used_confirmed:StrictBool=False
 
 def key(owner):return PREFIX+str(owner)
 def digest(value):return hashlib.sha256(batches.packed(value).encode()).hexdigest()
@@ -109,7 +113,9 @@ def requirements(db,owner,product_id,*,locked=False):
     for h in hardware:
         c=db.execute(select(Consumable).where(Consumable.id==h['consumable_id']).execution_options(populate_existing=True)).scalar_one_or_none()
         if c is None:raise HTTPException(409,'Required hardware is missing')
-        h.update(name=c.name,unit=c.unit)
+        from modules.orders import material_store
+        identity=material_store.guard(db,c,owner)
+        h.update(name=c.name,unit=c.unit,managed=bool(identity),material_uid=identity['uid'] if identity else None)
         from decimal import Decimal,InvalidOperation
         try:
             quantity=Decimal(str(h['quantity_per_product']))
@@ -128,7 +134,9 @@ def available(doc):
 
 def preview(db,user,product_id):
     owner=store.tenant(user);snapshot,bom_hash=requirements(db,owner,product_id);doc,_=load(db,owner);balances=available(doc)
-    return {'bom':snapshot,'bom_hash':bom_hash,'components':[dict(row,available=balances[rid],source_current=(row['source']==snapshot['sources'].get(str(row['source']['model_id'])))) for rid,row in doc['components'].items() if str(row['source']['model_id']) in snapshot['sources']], 'stock_updated':False}
+    from modules.orders.material_store import own_material
+    hardware_stock={str(h['consumable_id']):own_material(db,owner,h['consumable_id'])[0].current_stock for h in snapshot['hardware'] if h.get('managed')}
+    return {'hardware_stock':hardware_stock,'bom':snapshot,'bom_hash':bom_hash,'components':[dict(row,available=balances[rid],source_current=(row['source']==snapshot['sources'].get(str(row['source']['model_id'])))) for rid,row in doc['components'].items() if str(row['source']['model_id']) in snapshot['sources']], 'stock_updated':False}
 
 def finish(db,user,data):
     owner=store.tenant(user);doc,raw=lock(db,owner,user);request_hash=digest(data.model_dump())
@@ -138,6 +146,8 @@ def finish(db,user,data):
         return old
     if len(doc['finishes'])>=500:raise HTTPException(409,'Finishing receipt capacity reached; retain history for review.')
     if not data.assembly_confirmed or not data.hardware_confirmed or data.accepted+data.rejected<1:raise HTTPException(409,'Confirm physical assembly, fit/quality inspection and required hardware before finishing.')
+    from modules.orders import material_store
+    material_store.reserve(db,owner,user)
     snapshot,bom_hash=requirements(db,owner,data.product_id,locked=True)
     if bom_hash!=data.bom_hash:raise HTTPException(409,'BOM or source changed. Reload requirements and review the physical components.')
     balances=available(doc);supplied=defaultdict(int);ids=set()
@@ -154,6 +164,13 @@ def finish(db,user,data):
     row={'id':identifier,'kind':'assembly','occurred_at':timestamp,'request_hash':request_hash,'bom':snapshot,'bom_hash':bom_hash,
          'allocations':[a.model_dump() for a in data.allocations],'outputs':[output], 'recipe_name':'Physical finishing: '+snapshot['product_name'],
          'assembly_confirmed':True,'hardware_confirmed':True,'stock_status':'prepared' if data.accepted else 'no_sellable_output'}
+    from modules.orders.material_purchases import consume_hardware,whole
+    uses=[]
+    for h in snapshot['hardware']:
+        expected=h['quantity_per_product']*(data.accepted+data.rejected)
+        if h['managed']:expected=whole(expected)
+        uses.append({**h,'expected_units':expected})
+    row['material_use']=consume_hardware(db,owner,uses,data.hardware_usage,data.hardware_used_confirmed,identifier)
     if data.accepted:
         config,encoded=store.load(db,owner)
         if not config:raise HTTPException(409,'Connect and map the finished product to Square before accepting good assemblies')

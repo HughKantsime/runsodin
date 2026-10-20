@@ -9,6 +9,7 @@ import math
 from datetime import datetime, timezone
 import logging
 
+from modules.orders import material_store
 from core.db import get_db
 from core.rbac import require_role, require_action
 from modules.inventory.models import Consumable, ConsumableUsage
@@ -30,7 +31,12 @@ def list_consumables(status: str = None, current_user: dict = Depends(require_ro
     items = query.order_by(Consumable.name).all()
     result = []
     for c in items:
+        try:managed=material_store.access(db,c,current_user)
+        except HTTPException as exc:
+            if exc.status_code==404:continue
+            raise
         resp = ConsumableResponse.model_validate(c)
+        resp.managed_material=bool(managed)
         resp.is_low_stock = c.current_stock < c.min_stock if c.min_stock and c.min_stock > 0 else False
         result.append(resp)
     return result
@@ -43,7 +49,9 @@ def create_consumable(data: ConsumableCreate, current_user: dict = Depends(requi
     db.add(item)
     db.commit()
     db.refresh(item)
+    managed=material_store.access(db,item,current_user)
     resp = ConsumableResponse.model_validate(item)
+    resp.managed_material=bool(managed)
     resp.is_low_stock = item.current_stock < item.min_stock if item.min_stock and item.min_stock > 0 else False
     return resp
 
@@ -58,7 +66,12 @@ def low_stock_consumables(current_user: dict = Depends(require_role("viewer", sc
     ).all()
     result = []
     for c in items:
+        try:managed=material_store.access(db,c,current_user)
+        except HTTPException as exc:
+            if exc.status_code==404:continue
+            raise
         resp = ConsumableResponse.model_validate(c)
+        resp.managed_material=bool(managed)
         resp.is_low_stock = True
         result.append(resp)
     return result
@@ -70,7 +83,9 @@ def get_consumable(consumable_id: int, current_user: dict = Depends(require_role
     item = db.query(Consumable).filter(Consumable.id == consumable_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Consumable not found")
+    managed=material_store.access(db,item,current_user)
     resp = ConsumableResponse.model_validate(item)
+    resp.managed_material=bool(managed)
     resp.is_low_stock = item.current_stock < item.min_stock if item.min_stock and item.min_stock > 0 else False
     # Include recent usage
     usage = db.query(ConsumableUsage).filter(
@@ -89,12 +104,17 @@ def update_consumable(consumable_id: int, data: ConsumableUpdate, current_user: 
     item = db.query(Consumable).filter(Consumable.id == consumable_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Consumable not found")
+    managed=material_store.access(db,item,current_user,locked=True)
+    if managed and data.model_fields_set.intersection({'current_stock','name','sku','unit','vendor'}):
+        raise HTTPException(409,'Managed material identity and balance use physical receipt/use workflows, not direct editing.')
     for key, val in data.model_dump(exclude_unset=True).items():
         setattr(item, key, val)
     item.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(item)
+    managed=material_store.access(db,item,current_user)
     resp = ConsumableResponse.model_validate(item)
+    resp.managed_material=bool(managed)
     resp.is_low_stock = item.current_stock < item.min_stock if item.min_stock and item.min_stock > 0 else False
     return resp
 
@@ -105,6 +125,9 @@ def delete_consumable(consumable_id: int, current_user: dict = Depends(require_a
     item = db.query(Consumable).filter(Consumable.id == consumable_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Consumable not found")
+    managed=material_store.access(db,item,current_user,locked=True)
+    if managed:
+        raise HTTPException(409,'Retain managed material identity and use physical purchase/receipt/return records for its balance.')
     from modules.inventory.models import ProductConsumable
     db.execute(update(Consumable).where(Consumable.id==consumable_id).values(id=Consumable.id))
     if db.query(ProductConsumable.id).filter(ProductConsumable.consumable_id==consumable_id).first():
@@ -120,6 +143,9 @@ def adjust_consumable_stock(consumable_id: int, data: ConsumableAdjust, current_
     item = db.query(Consumable).filter(Consumable.id == consumable_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Consumable not found")
+    managed=material_store.access(db,item,current_user,locked=True)
+    if managed:
+        raise HTTPException(409,'Retain managed material identity and use physical purchase/receipt/return records for its balance.')
     if item.current_stock is None or not math.isfinite(item.current_stock):
         raise HTTPException(status_code=409, detail="Stored stock is invalid; correct the stock balance before adjusting it")
     if not math.isfinite(data.quantity):

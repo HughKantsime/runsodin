@@ -249,6 +249,7 @@ class ConsumableUpdate(BaseModel):
 
 
 class ConsumableResponse(BaseModel):
+    managed_material: bool = False
     model_config = ConfigDict(from_attributes=True)
 
     id: int

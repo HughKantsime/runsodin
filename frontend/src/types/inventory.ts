@@ -167,6 +167,7 @@ export interface FilamentUpdate {
 // ---- Consumables ----
 
 export interface Consumable {
+  managed_material?: boolean
   id: number;
   name: string;
   sku: string | null;

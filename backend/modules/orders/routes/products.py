@@ -236,6 +236,8 @@ def add_product_consumable(product_id: int, data: ProductConsumableCreate,
     consumable = db.query(Consumable).filter(Consumable.id == data.consumable_id).first()
     if not consumable:
         raise HTTPException(status_code=404, detail="Consumable not found")
+    from modules.orders.material_store import guard
+    guard(db,consumable,product.org_id or 0)
     link = ProductConsumable(
         product_id=product_id,
         consumable_id=data.consumable_id,

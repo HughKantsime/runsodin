@@ -15,6 +15,7 @@ Updated - see CHANGELOG for current version.
 
 Local Inventory writer and recovery path are implemented behind two-key activation (off by default). Searchable inspection history, receipt-bound destination checks and exact-history reconciliation are available locally. Physical qualification, live stock-write authorization and rollout remain pending.
 
+- Local managed-material purchase/physical receiving, remembered exact pack mappings, dry-run CSV and actual assembly hardware usage. Live Amazon/email import, fractional materials and historical inventory migration remain separate.
 - Local component inspection/assembly receipts, retained source/BOM identity and atomic disabled stock additions for finished products.
 - Optional show-kit packing/damage, manual customer-capacity conflict checks, saved-file evidence and measured shipping quote preparation. No automatic scheduling or provider actions.
 - Local paid show-order intake and guided physical handoff, with encrypted customer facts, manual receipt evidence, correction history and private commitment visibility. No payment provider integration or shipping purchase.

@@ -9,7 +9,12 @@ from modules.orders import batch_production as service
 from modules.orders import square_store
 from modules.orders.batch_schemas import RecipeInput, InspectionInput
 
-router = APIRouter(prefix='/products/production', tags=['Production inspection'])
+from modules.orders.routes.show_orders import PrivateRoute
+
+class InspectionRoute(PrivateRoute):
+    invalid_detail='Invalid production evidence. Check required fields, whole quantities and physical confirmations.'
+
+router = APIRouter(prefix='/products/production', tags=['Production inspection'],route_class=InspectionRoute)
 viewer = require_role('viewer',scope='read')
 admin = require_role('admin',scope='write')
 operator = require_role('operator',scope='write')

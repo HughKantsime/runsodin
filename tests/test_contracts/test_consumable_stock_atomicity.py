@@ -23,7 +23,9 @@ def test_two_manual_deductions_compete_for_actual_stock(consumable_client,review
     created=client.post('/consumables',json={'name':'Synthetic shared stock','current_stock':3}).json()
     barrier=Barrier(2);original=Session.execute
     def synchronized(session,statement,*args,**kwargs):
-        if str(statement).lstrip().upper().startswith('UPDATE CONSUMABLES'):
+        if str(statement).lstrip().upper().startswith('UPDATE CONSUMABLES') and not session.info.get('custody_race_arrived'):
+            # Race before the custody fence; subsequent arithmetic is serialized.
+            session.info['custody_race_arrived']=True
             barrier.wait(timeout=10)
         return original(session,statement,*args,**kwargs)
     monkeypatch.setattr(Session,'execute',synchronized)
@@ -54,7 +56,9 @@ def test_competing_finite_restocks_cannot_overflow_balance(consumable_client,rev
     identifier=client.post('/consumables',json={'name':'Synthetic overflow race','current_stock':0}).json()['id']
     barrier=Barrier(2);original=Session.execute
     def synchronized(session,statement,*args,**kwargs):
-        if str(statement).lstrip().upper().startswith('UPDATE CONSUMABLES'):barrier.wait(timeout=10)
+        if str(statement).lstrip().upper().startswith('UPDATE CONSUMABLES') and not session.info.get('custody_race_arrived'):
+            session.info['custody_race_arrived']=True
+            barrier.wait(timeout=10)
         return original(session,statement,*args,**kwargs)
     monkeypatch.setattr(Session,'execute',synchronized)
     with ThreadPoolExecutor(max_workers=2) as pool:

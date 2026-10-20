@@ -469,6 +469,7 @@ def schedule_order(order_id: int, current_user: dict = Depends(require_action("o
 
     jobs_created = []
     consumable_deductions = []
+    managed_deferred = []
     try:
         # This conditional write serializes competing sessions on both providers.
         claimed = db.execute(update(Order).where(
@@ -480,6 +481,15 @@ def schedule_order(order_id: int, current_user: dict = Depends(require_action("o
         # Successful arithmetic updates record exactly the units actually consumed.
         for consumable_id in sorted(demand):
             consumable, needed = demand[consumable_id]
+            # Adoption and legacy deductions share the hardware-row fence.
+            db.execute(update(Consumable).where(Consumable.id==consumable_id).values(id=Consumable.id))
+            from modules.orders.material_store import identity,guard
+            managed=identity(db,consumable_id)
+            if managed:
+                db.refresh(consumable)
+                guard(db,consumable,order.org_id or 0)
+                managed_deferred.append(consumable_id)
+                continue  # Actual use is recorded atomically during finishing.
             remaining = db.execute(update(Consumable).where(
                 Consumable.id == consumable_id, Consumable.status == "active",
                 Consumable.current_stock >= needed
@@ -513,7 +523,7 @@ def schedule_order(order_id: int, current_user: dict = Depends(require_action("o
         db.rollback()
         raise
     return {"success": True, "order_id": order_id, "jobs_created": len(jobs_created),
-            "details": jobs_created, "consumables_deducted": consumable_deductions}
+            "details": jobs_created, "consumables_deducted": consumable_deductions,"managed_materials_deferred":managed_deferred}
 
 
 @router.get("/{order_id}/invoice.pdf")
