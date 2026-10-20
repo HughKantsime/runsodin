@@ -2,6 +2,7 @@
 
 import os
 import sys
+import pytest
 
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
@@ -59,6 +60,16 @@ def test_known_x1c_alias_is_compatible():
         "reasons": [],
         "facts": result["facts"],
     }
+
+
+@pytest.mark.parametrize('identity', ['N6', 'X2D', 'Bambu Lab X2D', 'N9', 'A2L', 'Bambu Lab A2L'])
+def test_matching_unsupported_vendor_identities_still_refuse(identity):
+    result = evaluate_education_compatibility(
+        _file(machine=_fact(identity, 'printer_model')),
+        _printer(machine_type=identity),
+    )
+    assert result['compatible'] is False
+    assert 'compatibility_unknown' in _codes(result)
 
 
 def test_known_p1s_alias_is_compatible():
