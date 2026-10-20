@@ -155,6 +155,7 @@ ACTION_ROUTES: dict[str, list[tuple[str, str]]] = {
         ("POST", "/api/orders/{order_id}/schedule"),
     ],
     "orders.edit": [
+        ("PUT", "/api/orders/{order_id}/show-fulfillment"),
         ("PATCH", "/api/orders/{order_id}"),
         ("PATCH", "/api/orders/{order_id}/items/{item_id}"),
     ],
@@ -163,6 +164,7 @@ ACTION_ROUTES: dict[str, list[tuple[str, str]]] = {
         ("DELETE", "/api/orders/{order_id}/items/{item_id}"),
     ],
     "orders.ship": [
+        ("POST", "/api/orders/{order_id}/show-fulfillment/dispatch"),
         ("PATCH", "/api/orders/{order_id}/ship"),
         ("POST", "/api/orders/{order_id}/items/{item_id}/confirm-production"),
     ],

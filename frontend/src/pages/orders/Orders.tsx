@@ -1,3 +1,5 @@
+import ShowCommitments from '../../components/orders/ShowCommitments'
+import {getCurrentUser} from '../../permissions'
 import { useState, useEffect, useRef } from 'react'
 import { useNewItemShortcut } from '../../hooks/useNewItemShortcut'
 import { orders, products, orderInvoice } from '../../api'
@@ -321,6 +323,7 @@ export default function Orders() {
       </div>
 
       <OrderStatsBar orders={allOrders} />
+      {['operator','admin'].includes(getCurrentUser()?.role??'')&&<ShowCommitments onOpen={id=>void openDetailModal({id})}/>}
 
       {filteredOrders.length === 0 ? (
         <EmptyState
@@ -335,7 +338,7 @@ export default function Orders() {
           )}
         </EmptyState>
       ) : (
-        <OrderTable
+      <OrderTable
           orders={filteredOrders}
           STATUS_CLASSES={STATUS_CLASSES}
           onDetail={openDetailModal}
@@ -367,6 +370,7 @@ export default function Orders() {
         onCancel={handleCancel}
         onDownloadInvoice={handleDownloadInvoice}
         onConfirmProduction={handleConfirmProduction}
+        onShowUpdated={async id=>{const full=await orders.get(id);setSelectedOrder(current=>current?.id===id?full:current);await loadData()}}
         STATUS_CLASSES={STATUS_CLASSES}
         canDo={canDo}
       />

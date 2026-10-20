@@ -9,6 +9,7 @@ from .products import router as products_router
 from .square import router as square_router
 from .batches import router as batches_router
 from .orders_crud import router as orders_crud_router
+from .show_orders import router as show_orders_router
 from .consumables import router as consumables_router
 
 router = APIRouter()
@@ -19,5 +20,6 @@ router.include_router(batches_router, dependencies=[Depends(feature_gate("produc
 router.include_router(square_router, dependencies=[Depends(feature_gate("products", keep_existing_records=True))])
 router.include_router(products_router, dependencies=[Depends(feature_gate("products", keep_existing_records=True))])
 router.include_router(finance_settings_router)
+router.include_router(show_orders_router, dependencies=[Depends(feature_gate("orders", keep_existing_records=True))])
 router.include_router(orders_crud_router, dependencies=[Depends(feature_gate("orders", keep_existing_records=True))])
 router.include_router(consumables_router, dependencies=[Depends(feature_gate("products", keep_existing_records=True))])

@@ -33,13 +33,13 @@ export default function OrderTable({ orders, STATUS_CLASSES, onDetail, onEdit, o
               {canDo('orders.edit') && order.status === 'pending' && (
                 <Button variant="ghost" size="icon" icon={Play} onClick={() => onSchedule(order.id)} className="text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10" title="Schedule Jobs" />
               )}
-              {canDo('orders.ship') && order.status === 'fulfilled' && (
+              {canDo('orders.ship') && !order.has_show_fulfillment && order.status === 'fulfilled' && (
                 <Button variant="ghost" size="icon" icon={Truck} onClick={() => onShip(order)} className="text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10" title="Mark Shipped" />
               )}
               {canDo('orders.edit') && (order.status === 'pending' || order.status === 'in_progress') && (
                 <Button variant="ghost" size="icon" icon={Ban} onClick={() => onCancel(order)} className="text-[var(--brand-muted)] hover:text-red-400 hover:bg-red-900/50" title="Cancel Order" />
               )}
-              {canDo('orders.delete') && (
+              {canDo('orders.delete') && !order.has_show_fulfillment && (
                 <Button variant="ghost" size="icon" icon={Trash2} onClick={() => onDelete(order.id)} className="text-[var(--brand-muted)] hover:text-red-400 hover:bg-red-900/50" title="Delete" />
               )}
             </div>
@@ -87,13 +87,13 @@ export default function OrderTable({ orders, STATUS_CLASSES, onDetail, onEdit, o
                 {canDo('orders.edit') && order.status === 'pending' && (
                   <Button variant="ghost" size="icon" icon={Play} onClick={() => onSchedule(order.id)} className="text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10" title="Schedule Jobs" />
                 )}
-                {canDo('orders.ship') && order.status === 'fulfilled' && (
+                {canDo('orders.ship') && !order.has_show_fulfillment && order.status === 'fulfilled' && (
                   <Button variant="ghost" size="icon" icon={Truck} onClick={() => onShip(order)} className="text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10" title="Mark Shipped" />
                 )}
                 {canDo('orders.edit') && (order.status === 'pending' || order.status === 'in_progress') && (
                   <Button variant="ghost" size="icon" icon={Ban} onClick={() => onCancel(order)} className="text-[var(--brand-muted)] hover:text-red-400 hover:bg-red-900/50" title="Cancel Order" />
                 )}
-                {canDo('orders.delete') && (
+                {canDo('orders.delete') && !order.has_show_fulfillment && (
                   <Button variant="ghost" size="icon" icon={Trash2} onClick={() => onDelete(order.id)} className="text-[var(--brand-muted)] hover:text-red-400 hover:bg-red-900/50" title="Delete" />
                 )}
               </td>

@@ -171,6 +171,7 @@ class OrderUpdate(BaseModel):
 
 
 class OrderResponse(OrderBase):
+    has_show_fulfillment: bool = False
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -197,6 +198,7 @@ class OrderResponse(OrderBase):
 
 
 class OrderSummary(BaseModel):
+    has_show_fulfillment: bool = False
     """Lighter order response for lists."""
     model_config = ConfigDict(from_attributes=True)
 
