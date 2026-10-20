@@ -326,6 +326,8 @@ WRITE_EXEMPTIONS: dict[tuple[str, str], str] = {
     ("POST", "/api/products/production/recipes"): "interactive admin; physical qualification, stricter than products.create",
     ("POST", "/api/products/production/inspections"): "interactive operator; physical inspection receipts have no matrix key",
     ("POST", "/api/products/production/additions/{addition_id}/check"): "interactive operator; read-only Square checks and local receipt reconciliation, no stock write",
+    ("PUT", "/api/products/production/assortment/{product_id}"): "interactive admin; assortment policy floor stricter than products.edit",
+    ("POST", "/api/products/production/assortment/{product_id}/preview"): "interactive operator; on-demand read-only stock and recipe preview, no queue mutation",
     # Operator-floor routes with no matrix key
     ("DELETE", "/api/alerts/{alert_id}"): "operator role; deleting alerts has no matrix key (alerts.read covers read/dismiss)",
     ("PATCH", "/api/archives/{archive_id}"): "operator role; archives have no matrix key",

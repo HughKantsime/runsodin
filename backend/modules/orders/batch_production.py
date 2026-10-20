@@ -128,6 +128,9 @@ def create_recipe(db, user, data):
     for output in sorted(data.outputs, key=lambda o: (o.product_id,o.kind)):
         product, bom_model_id = single_print_product(db, owner, output.product_id, evidence["model_id"],output.kind)
         outputs.append({**output.model_dump(), 'product_name': product.name,'bom_model_id':bom_model_id})
+    if data.qualification_confirmed:
+        from modules.orders.assortment import validate_qualified_outputs
+        validate_qualified_outputs(db,owner,data.outputs)
     identifier = uuid.uuid4().hex
     definition = {'version':1, 'name':data.name.strip(), 'materials':data.materials.strip(),
                   'qualified':data.qualification_confirmed, 'created_at':now(),

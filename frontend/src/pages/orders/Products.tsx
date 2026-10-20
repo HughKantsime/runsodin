@@ -1,3 +1,4 @@
+import AssortmentPolicyPanel from '../../components/orders/AssortmentPolicy'
 import { useState, useEffect, useRef, Fragment } from 'react'
 import SquareInventory from '../../components/orders/SquareInventory'
 import ProductionBatches from '../../components/orders/ProductionBatches'
@@ -222,6 +223,7 @@ export default function Products() {
 
       <SquareInventory products={productList} />
       <ProductionBatches products={productList} />
+      <AssortmentPolicyPanel />
 
       {/* Product Summary */}
       {productList.length > 0 && (

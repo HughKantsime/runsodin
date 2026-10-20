@@ -68,3 +68,24 @@ def inspect_batch(data:InspectionInput,user=Depends(operator),db:Session=Depends
 def check_addition(addition_id:str,user=Depends(operator),db:Session=Depends(get_db)):
     from modules.orders.stock_recovery import check
     return check(db,user,addition_id)
+
+
+@router.get('/assortment')
+def assortment_policy(user=Depends(viewer),db:Session=Depends(get_db)):
+    from modules.orders.assortment import read
+    return read(db,square_store.tenant(user))
+
+
+from modules.orders.assortment import PolicyEdit
+
+
+@router.put('/assortment/{product_id}',dependencies=[interactive])
+def save_assortment(product_id:int,data:PolicyEdit,user=Depends(admin),db:Session=Depends(get_db)):
+    from modules.orders.assortment import edit
+    return edit(db,user,product_id,data)
+
+
+@router.post('/assortment/{product_id}/preview',dependencies=[interactive])
+def preview_assortment(product_id:int,user=Depends(operator),db:Session=Depends(get_db)):
+    from modules.orders.assortment import preview
+    return preview(db,user,product_id)

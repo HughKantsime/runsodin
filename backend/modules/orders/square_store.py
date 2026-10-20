@@ -143,6 +143,8 @@ def forget_tenant(db, owner):
     from modules.orders.batch_production import assert_tenant_deletable, recipes
     assert_tenant_deletable(db, owner)
     db.execute(delete(recipes).where(recipes.c.owner == owner))
+    from modules.orders.assortment import forget_tenant as forget_assortment
+    forget_assortment(db,owner)
     db.execute(delete(SystemConfig).where(SystemConfig.key == key(owner)))
 
 
@@ -156,3 +158,6 @@ def forget_product(db, product):
     if doc and str(product.id) in doc['mappings']:
         del doc['mappings'][str(product.id)]
         save(db, owner, doc, previous)
+
+    from modules.orders.assortment import forget_product as forget_assortment
+    forget_assortment(db,product)

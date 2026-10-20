@@ -15,6 +15,7 @@ Updated - see CHANGELOG for current version.
 
 Local Inventory writer and recovery path are implemented behind two-key activation (off by default). Searchable inspection history, receipt-bound destination checks and exact-history reconciliation are available locally. Physical qualification, live stock-write authorization and rollout remain pending.
 
+- Explicit active/trial/inactive assortment, separate stock triggers/batch minimums, and on-demand duplicate-aware replenishment previews.
 - Read-only Square connection, catalog mapping and recorded stock checks.
 - Fixed-yield recipes, explicit physical inspection and durable prepared stock additions for single-print products.
 - Before rollout: real batch qualification, finishing/assembly support where needed, and separately approved live Square delivery. No automatic print starts or stock writes.
