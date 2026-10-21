@@ -2,6 +2,15 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.4] - 2026-10-20
+
+<!-- summary: Native Apple push HTTP/2 runtime dependency -->
+
+### Fixed
+
+- Include HTTP/2 support required by the native Apple push provider. Previously the production image could not construct its APNs client because the h2 dependency was missing.
+- Add real local TLS/HTTP/2 coverage for signed APNs requests, notification payloads and accepted/rejected responses. Apple credentials and device registration are still required for delivery.
+
 ## [2.0.3] - 2026-10-20
 
 <!-- summary: Local ZFS dispatch locking support -->

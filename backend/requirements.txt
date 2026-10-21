@@ -19,8 +19,9 @@ cryptography==50.0.0
 pydantic==2.10.4
 pydantic-settings==2.7.1
 
-# HTTP client (Moonraker, webhooks)
-httpx==0.28.1
+# HTTP client (Moonraker, webhooks, native APNs HTTP/2)
+httpx[http2]==0.28.1
+h2==4.4.1
 requests==2.33.1
 
 # MQTT (Bambu printers)
