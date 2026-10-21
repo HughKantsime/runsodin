@@ -16,7 +16,8 @@ from modules.printers.telemetry.bambu.trusted_ams_acquisition import RuntimeBoun
 
 @pytest.mark.parametrize('change', ['none', 'material', 'busy', 'expired', 'cleanup', 'target',
                                     'configuration', 'job', 'grant', 'claim', 'runtime', 'runtime_replaced', 'mapping_mismatch', 'mapping_mutated'])
-def test_post_upload_gate_rechecks_same_attempt_after_read(setup, monkeypatch, change):
+@pytest.mark.parametrize('phase', ['direct', 'prepared', 'concurrent'])
+def test_post_upload_gate_rechecks_same_attempt_after_read(setup, monkeypatch, change, phase):
     from core import dispatch_claims
     from core.dispatch_identity import build_identity
     from modules.printers import dispatch_ams_gate as gate
@@ -81,7 +82,16 @@ def test_post_upload_gate_rechecks_same_attempt_after_read(setup, monkeypatch, c
                                          mapping=mapping, target_handle=target)
     if change == 'mapping_mutated':
         mapping[0] = 1
+    if phase == 'prepared':
+        assert checked.prepare() is (change == 'none')
+        assert checked.prepare() is False
+    elif phase == 'concurrent':
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(lambda _:checked.prepare(), range(2)))
+        assert sum(results) == (1 if change == 'none' else 0)
     assert checked() is (change == 'none')
+    assert checked.prepare() is False
     expected_events = [] if change == 'mapping_mutated' else ['owned_read']
     assert events == expected_events
     assert checked() is False
@@ -136,7 +146,8 @@ def test_actual_dispatch_upload_read_and_single_start_sequence(review_db, tmp_pa
     else:
         from modules.printers.telemetry.bambu import ftp_upload, session
         monkeypatch.setattr(ftp_upload, 'upload_file', lambda host, code, staged, remote: uploaded(staged, remote))
-        monkeypatch.setattr(session, 'run_command', started)
+        monkeypatch.setattr(session, 'BambuCommandAdapter', lambda config:SimpleNamespace(
+            start=lambda:None, is_connected=lambda:True, start_print=started, stop=lambda:None))
     result = dispatch.dispatch_job(59, 53)
     assert result[0] is material_matches
     assert events[:2] == ['upload', 'fresh_read']

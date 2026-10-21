@@ -107,6 +107,7 @@ def run_command(
     method_name: str,
     *args: Any,
     connect_timeout: float = 5.0,
+    before_command=None,
     **kwargs: Any,
 ) -> bool:
     """Open a command adapter, call `method_name(*args, **kwargs)`, close.
@@ -136,6 +137,11 @@ def run_command(
             logger.warning("unknown command method: %s", method_name)
             return False
         try:
+            # Private dispatch proof: checked after connection, never forwarded
+            # into printer parameters or acquired on the command connection.
+            if before_command is not None:
+                if method_name != "start_print" or not callable(before_command) or before_command() is not True:
+                    return False
             return bool(method(*args, **kwargs))
         except Exception:
             logger.warning("Printer command outcome could not be confirmed")

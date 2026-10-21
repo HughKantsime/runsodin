@@ -56,7 +56,8 @@ def test_unqualified_single_plate_ams_source_refuses_before_claim_or_transport(r
 
 
 @pytest.mark.parametrize('path', ['legacy', 'v2'])
-@pytest.mark.parametrize('failure', [None, 'material', 'busy', 'acquisition', 'configuration', 'source'])
+@pytest.mark.parametrize('failure', [None, 'material', 'busy', 'acquisition', 'configuration', 'source',
+    'expired_during_connect', 'claim_during_connect', 'configuration_during_connect'])
 def test_ungrouped_archive_reprint_explicit_source_zero_to_tray_one(
         reprint_client, review_db, monkeypatch, path, failure):
     """Normal reprint API -> real admission/gate -> instrumented transport, no hardware."""
@@ -104,6 +105,8 @@ def test_ungrouped_archive_reprint_explicit_source_zero_to_tray_one(
     monkeypatch.setattr(dispatch, '_ws', lambda *a:None)
     monkeypatch.setattr(dispatch, '_notify_start_outcome', lambda *a:None)
     events = []
+    clock = [time.monotonic()]
+    monkeypatch.setattr(gate, 'time', SimpleNamespace(monotonic=lambda:clock[0]))
     def acquired(config, **options):
         events.append('fresh_read')
         assert options['selected_slots'] == (1,) and options['owner_org_id'] is None
@@ -111,7 +114,7 @@ def test_ungrouped_archive_reprint_explicit_source_zero_to_tray_one(
         if failure == 'configuration':
             with review_db.get_bind().begin() as conn:
                 conn.execute(text("UPDATE printers SET api_host='changed.example.test' WHERE id=109"))
-        snapshot = RawAMSSnapshot(options['operation_id'], 'c'*32, 1, time.monotonic(),
+        snapshot = RawAMSSnapshot(options['operation_id'], 'c'*32, 1, clock[0],
             options['configuration_key'], None,
             (RawTrayFact(1,0,0,'PLA' if failure=='material' else 'PETG','reported'),), failure!='busy')
         return RuntimeBoundAMSResult(failure!='acquisition', snapshot, RUNTIME.incarnation,
@@ -121,6 +124,14 @@ def test_ungrouped_archive_reprint_explicit_source_zero_to_tray_one(
         events.append('upload')
         assert Path(staged).read_bytes() == payload
         return True
+    def connected():
+        assert events == ['upload', 'fresh_read']
+        events.append('connect')
+        if failure == 'expired_during_connect': clock[0] += 11
+        if failure in ('claim_during_connect', 'configuration_during_connect'):
+            with review_db.get_bind().begin() as conn:
+                conn.execute(text("UPDATE printer_dispatch_claims SET state='uncertain'" if failure == 'claim_during_connect' else "UPDATE printers SET api_host='changed.example.test' WHERE id=109"))
+        return True
     def started(*args, **options):
         events.append('start')
         assert options['ams_mapping'] == [0]
@@ -128,12 +139,13 @@ def test_ungrouped_archive_reprint_explicit_source_zero_to_tray_one(
     if path == 'legacy':
         from modules.printers.adapters import bambu
         monkeypatch.setattr(bambu, 'BambuPrinter', lambda **kwargs:SimpleNamespace(
-            upload_file=uploaded, connect=lambda:True, start_print=started,
+            upload_file=uploaded, connect=connected, start_print=started,
             disconnect=lambda:events.append('cleanup')))
     else:
         from modules.printers.telemetry.bambu import ftp_upload, session
         monkeypatch.setattr(ftp_upload,'upload_file',lambda host,code,staged,remote:uploaded(staged,remote))
-        monkeypatch.setattr(session,'run_command',started)
+        monkeypatch.setattr(session,'BambuCommandAdapter',lambda config:SimpleNamespace(
+            start=connected, is_connected=lambda:True, start_print=started, stop=lambda:None))
     if failure == 'source': source.write_bytes(b'changed source')
     ok, reason = dispatch.dispatch_job(109, identifier)
     assert ok is (failure is None), reason

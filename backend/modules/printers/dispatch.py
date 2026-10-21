@@ -288,6 +288,18 @@ def _post_upload_gate(before_start):
         return False
 
 
+def _prepare_post_upload_gate(before_start):
+    if before_start is None:
+        return True
+    prepare = getattr(before_start, 'prepare', None)
+    if prepare is None:
+        return True
+    try:
+        return callable(prepare) and prepare() is True
+    except Exception:
+        return False
+
+
 def _dispatch_bambu_v2(job_id: int, stored_path: str, remote_filename: str, creds: dict, *, before_start=None, **print_options) -> tuple[bool, str]:
     """V2 dispatch: ftp_upload helper + BambuCommandAdapter.start_print via session."""
     from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
@@ -314,10 +326,11 @@ def _dispatch_bambu_v2(job_id: int, stored_path: str, remote_filename: str, cred
         use_tls=endpoint.use_tls,
         access_code=creds["access_code"],
     )
-    if not _post_upload_gate(before_start):
+    if not _prepare_post_upload_gate(before_start):
         return False, "Post-upload printer and AMS checks refused print start; no print command was sent"
     log.info(f"[dispatch] Sending Bambu V2 start_print for '{remote_filename}'")
-    ok = _submit_print_command(run_command, config, "start_print", remote_filename, **print_options)
+    final_check = {"before_command": before_start} if before_start is not None else {}
+    ok = _submit_print_command(run_command, config, "start_print", remote_filename, **final_check, **print_options)
     if not ok:
         return False, "MQTT print command failed (file uploaded OK)"
     return True, "Print started"
@@ -343,6 +356,8 @@ def _dispatch_bambu_legacy(job_id: int, stored_path: str, remote_filename: str, 
             return False, "FTPS upload failed; check printer settings and network"
 
         _ws(job_id, "starting", "File uploaded, connecting MQTT to start print...")
+        if not _prepare_post_upload_gate(before_start):
+            return False, "Post-upload printer and AMS checks refused print start; no print command was sent"
         if not printer.connect():
             return False, "MQTT connection failed after successful file upload"
 

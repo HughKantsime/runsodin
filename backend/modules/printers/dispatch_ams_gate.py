@@ -52,57 +52,86 @@ def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, tar
         raise ValueError('AMS owner changed')
 
     invocation_lock = Lock()
+    prepared = False
+    preparation_ok = False
     used = False
+    snapshot = None
+
+    def current():
+        if tuple(mapping) != expected_mapping or any(type(slot) is not int for slot in mapping):
+            return False
+        if target_handle.held() is not True:
+            return False
+        revalidate_runtime_identity(runtime)
+        if not recheck_admitted(engine, **captured).admitted:
+            return False
+        with engine.connect() as conn:
+            present = load_ams_configuration(conn, job['printer_id'])
+        return present == configuration
+
+    def acquire():
+        nonlocal snapshot
+        if not current():
+            return False
+        result = read_current_selected_ams(configuration.transport,
+            configuration_key=configuration.configuration_key,
+            owner_org_id=configuration.owner_org_id, selected_slots=slots,
+            timeout=10.0, operation_id=captured['token'])
+        if (result.success is not True or result.cleanup_confirmed is not True
+                or result.runtime_incarnation != runtime.incarnation
+                or result.clock_domain != runtime.clock_domain):
+            return False
+        snapshot = result.snapshot
+        return valid()
+
+    def valid():
+        if (snapshot is None or snapshot.incarnation != captured['token']
+                or snapshot.configuration_key != configuration.configuration_key
+                or snapshot.owner_org_id != configuration.owner_org_id
+                or snapshot.idle_without_error is not True or len(snapshot.trays) != 1):
+            return False
+        tray = snapshot.trays[0]
+        if (tray.slot_number != slots[0] or tray.material_state != 'reported'
+                or tray.material != facts['material'] or tray.mechanically_ready is not None):
+            return False
+        if not current():
+            return False
+        revalidate_runtime_identity(runtime)
+        if type(snapshot.received_monotonic) not in (int, float) or not math.isfinite(snapshot.received_monotonic):
+            return False
+        age = time.monotonic() - snapshot.received_monotonic
+        return (type(age) in (int, float) and math.isfinite(age) and 0 <= age < 10
+                and target_handle.held() is True)
+
+    def prepare():
+        nonlocal prepared, preparation_ok
+        with invocation_lock:
+            if prepared or used:
+                return False
+            # Never reacquire after failure, or renew a proof's receipt time.
+            prepared = True
+            try:
+                preparation_ok = acquire()
+                return preparation_ok
+            except Exception:
+                return False
+
     def checked():
-        nonlocal used
+        nonlocal prepared, preparation_ok, used
         with invocation_lock:
             if used:
                 return False
             used = True
-        try:
-            if tuple(mapping) != expected_mapping or any(type(slot) is not int for slot in mapping):
+            try:
+                # Preserve the private direct-call contract for callers/tests.
+                # Dispatch prepares before connecting and takes only this cheap
+                # one-shot final check at the command boundary.
+                if not prepared:
+                    prepared = True
+                    preparation_ok = acquire()
+                return preparation_ok is True and valid()
+            except Exception:
                 return False
-            if target_handle.held() is not True:
-                return False
-            revalidate_runtime_identity(runtime)
-            if not recheck_admitted(engine, **captured).admitted:
-                return False
-            with engine.connect() as conn:
-                before = load_ams_configuration(conn, job['printer_id'])
-            if before != configuration:
-                return False
-            result = read_current_selected_ams(configuration.transport,
-                configuration_key=configuration.configuration_key,
-                owner_org_id=configuration.owner_org_id, selected_slots=slots,
-                timeout=10.0, operation_id=captured['token'])
-            if (result.success is not True or result.cleanup_confirmed is not True
-                    or result.runtime_incarnation != runtime.incarnation
-                    or result.clock_domain != runtime.clock_domain):
-                return False
-            snapshot = result.snapshot
-            if (snapshot is None or snapshot.incarnation != captured['token']
-                    or snapshot.configuration_key != configuration.configuration_key
-                    or snapshot.owner_org_id != configuration.owner_org_id
-                    or snapshot.idle_without_error is not True
-                    or len(snapshot.trays) != 1):
-                return False
-            tray = snapshot.trays[0]
-            if (tray.slot_number != slots[0] or tray.material_state != 'reported'
-                    or tray.material != facts['material'] or tray.mechanically_ready is not None):
-                return False
-            revalidate_runtime_identity(runtime)
-            with engine.connect() as conn:
-                after = load_ams_configuration(conn, job['printer_id'])
-            if after != configuration or not recheck_admitted(engine, **captured).admitted:
-                return False
-            revalidate_runtime_identity(runtime)
-            if tuple(mapping) != expected_mapping or any(type(slot) is not int for slot in mapping):
-                return False
-            if type(snapshot.received_monotonic) not in (int, float) or not math.isfinite(snapshot.received_monotonic):
-                return False
-            age = time.monotonic() - snapshot.received_monotonic
-            return (type(age) in (int, float) and math.isfinite(age) and 0 <= age < 10
-                    and target_handle.held() is True)
-        except Exception:
-            return False
+
+    checked.prepare = prepare
     return checked
