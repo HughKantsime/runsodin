@@ -2,6 +2,15 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.3] - 2026-10-20
+
+<!-- summary: Local ZFS dispatch locking support -->
+
+### Fixed
+
+- Dispatch now supports owned SQLite databases on local Linux ZFS storage while retaining process exclusion and file identity, ownership and permission protections.
+- Unsupported database or storage configurations now report a specific refusal instead of an ownership-conflict message. The refusal sends no command for that attempt.
+
 ## [2.0.2] - 2026-10-19
 
 <!-- summary: X1 Carbon classroom approval compatibility -->

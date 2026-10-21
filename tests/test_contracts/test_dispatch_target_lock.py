@@ -177,3 +177,17 @@ def test_parent_owner_drift_refuses_held_handle(engine,monkeypatch):
             assert not handle.held()
         assert not handle.held() and not handle.close().released
     finally:handle.close()
+
+
+@pytest.mark.parametrize('magic,allowed',[(0x2fc12fc1,True),(0x6969,False),(0xff534d42,False),(0xdeadbeef,False)])
+def test_linux_filesystem_classification(monkeypatch,magic,allowed):
+    import ctypes
+    class Statfs:
+        def __call__(self,fd,info):
+            ctypes.cast(info,ctypes.POINTER(ctypes.c_long))[0]=magic
+            return 0
+    class Libc:
+        fstatfs=Statfs()
+    monkeypatch.setattr(module.sys,'platform','linux')
+    monkeypatch.setattr(module.ctypes,'CDLL',lambda *a,**k:Libc())
+    assert module._local_filesystem(123) is allowed

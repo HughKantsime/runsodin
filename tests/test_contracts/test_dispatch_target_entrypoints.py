@@ -99,3 +99,20 @@ def test_lost_target_after_readiness_retains_claim_and_never_uploads(setup,monke
     assert not dispatch.dispatch_job(59,53)[0]
     with engine.connect() as conn:assert conn.execute(text('SELECT state FROM printer_dispatch_claims')).scalar_one()=='preparing'
     assert all(not handle.held() for handle in owned)
+
+
+def test_unsupported_storage_reports_configuration_without_claim_or_device(setup,monkeypatch):
+    from modules.printers import dispatch,dispatch_orchestration
+    engine,_=setup
+    monkeypatch.setattr(dispatch_orchestration,'acquire_target_lock',
+        lambda *args:dispatch_target_lock.TargetLockResult('unsupported'))
+    no_devices(monkeypatch)
+    with engine.connect() as conn:
+        previous=conn.execute(text('SELECT status FROM jobs WHERE id=53')).scalar_one()
+    success,reason=dispatch.dispatch_job(59,53)
+    assert not success
+    assert 'storage configuration' in reason and 'this attempt sent no command' in reason
+    assert 'ownership conflict' not in reason
+    with engine.connect() as conn:
+        assert conn.execute(text('SELECT count(*) FROM printer_dispatch_claims')).scalar_one()==0
+        assert conn.execute(text('SELECT status FROM jobs WHERE id=53')).scalar_one()==previous

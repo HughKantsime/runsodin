@@ -48,7 +48,8 @@ def _local_filesystem(fd):
         name=bytes(info)[72:88].split(b'\x00')[0]
         return bool(flags&0x1000) and name in (b'apfs',b'hfs')
     magic=ctypes.cast(ctypes.byref(info),ctypes.POINTER(ctypes.c_long))[0]&0xffffffff
-    return magic in (0xef53,0x794c7630,0x01021994,0x58465342,0x9123683e)
+    # Local ext, overlay, tmpfs, XFS, Btrfs and ZFS. Network/unknown filesystems refuse.
+    return magic in (0xef53,0x794c7630,0x01021994,0x58465342,0x9123683e,0x2fc12fc1)
 
 
 def _identity(value):return (value.st_dev,value.st_ino)

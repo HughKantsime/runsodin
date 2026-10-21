@@ -30,6 +30,8 @@ def dispatch_prepared(job,creds,source_path,remote_filename,payload_sha256,educa
     if identity is None:
         return False,'Dispatch configuration identity could not be verified; no command was sent'
     acquired=acquire_target_lock(engine,identity.target_key)
+    if acquired.status=='unsupported':
+        return False,'Dispatch locking is unsupported by this database or storage configuration; this attempt sent no command'
     if acquired.status!='acquired':
         return False,'A dispatch claim or target ownership conflict/uncertainty blocks dispatch; reconcile before retrying'
     handle=acquired.handle
