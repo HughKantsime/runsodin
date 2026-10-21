@@ -108,7 +108,7 @@ class Printer(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     # Relationships
-    filament_slots = relationship("FilamentSlot", back_populates="printer", cascade="all, delete-orphan")
+    filament_slots = relationship("FilamentSlot", back_populates="printer", cascade="all, delete-orphan", order_by="FilamentSlot.slot_number")
     jobs = relationship("Job", back_populates="printer", passive_deletes=True)
 
     @property

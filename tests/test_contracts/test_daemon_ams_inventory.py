@@ -351,3 +351,16 @@ def test_partial_material_does_not_prune_absent_ht_slots(daemon_ams, review_db, 
     monkeypatch.setattr(module,'time',SimpleNamespace(time=lambda:1061.0))
     send(trays=[{'id':'0','tray_type':None}])
     assert tuple(review_db.execute(text('SELECT filament_type,color_hex FROM filament_slots WHERE printer_id=199 AND slot_number=17')).one()) == ('PETG','123ABC')
+
+
+def test_slots_created_after_partial_reports_have_physical_api_order(sync_client, review_db, token_client):
+    from modules.printers.routes_crud import router
+    client, headers, _ = sync_client
+    client.app.include_router(router)
+    headers = token_client[1](['read:printers'])
+    review_db.execute(text('UPDATE filament_slots SET slot_number=1 WHERE id=199'))
+    review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(199,4,'PETG'),(199,3,'PLA')"))
+    review_db.commit()
+    response = client.get('/printers/199/slots', headers=headers)
+    assert response.status_code == 200
+    assert [slot['slot_number'] for slot in response.json()] == [1,3,4]
