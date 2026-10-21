@@ -32,13 +32,26 @@ def test_explicit_mapping_rechecks_after_upload_before_start(monkeypatch, protoc
     else:
         from modules.printers.telemetry.bambu import ftp_upload, session, broker_policy
         monkeypatch.setattr(ftp_upload, 'upload_file', uploaded)
-        monkeypatch.setattr(session, 'run_command', started)
+        def run_command(config, method, *args, before_command=None, **kwargs):
+            assert method == 'start_print'
+            try:
+                if before_command is not None and before_command() is not True:
+                    return False
+            except Exception:
+                return False
+            return started(*args, **kwargs)
+        monkeypatch.setattr(session, 'run_command', run_command)
         monkeypatch.setattr(broker_policy, 'resolve_bambu_broker_config', lambda *a, **k:
                             SimpleNamespace(host='192.0.2.1', port=8883, use_tls=True))
         operation = dispatch._dispatch_bambu_v2
-    result = operation(53, 'synthetic.3mf', 'synthetic.3mf',
-                       {'ip': '192.0.2.1', 'serial': 'SYNTHETIC', 'access_code': ''},
-                       ams_mapping=[0], before_start=None if verified == 'no_guard' else checked)
+    try:
+        result = operation(53, 'synthetic.3mf', 'synthetic.3mf',
+                           {'ip': '192.0.2.1', 'serial': 'SYNTHETIC', 'access_code': ''},
+                           ams_mapping=[0], before_start=None if verified == 'no_guard' else checked)
+    except dispatch.DispatchOutcomeUncertain:
+        # The command runner's refusal is conservatively uncertain at this boundary.
+        assert protocol == 'v2' and verified in (False, None, 'truthy', 'error')
+        result = (False, 'refused')
     assert result[0] is (verified is True)
     if verified == 'no_guard':
         assert events == []
