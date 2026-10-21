@@ -2,6 +2,16 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.5] - 2026-10-21
+
+<!-- summary: Preserve AMS inventory and reconcile uncertain print dispatch responses -->
+
+### Fixed
+
+- Partial or malformed AMS material reports preserve known inventory and its observation timestamp instead of marking a loaded tray empty.
+- Dispatch response loss checks the recorded attempt without automatically resending Start. The Jobs page distinguishes accepted Start from exact receipt-bound layer evidence and requires verification before a repeat dispatch.
+- Read-only dispatch status respects job and printer access independently, including shared-printer ownership.
+
 ## [2.0.4] - 2026-10-20
 
 <!-- summary: Explicit AMS reprint source compatibility and native Apple push transport -->
