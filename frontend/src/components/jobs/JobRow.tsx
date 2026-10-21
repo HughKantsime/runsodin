@@ -39,7 +39,7 @@ function DueDateBadge({ dueDate }: { dueDate: string | null }) {
   )
 }
 
-export default function JobRow({ job, onAction, dragProps, isSelected, onToggleSelect, isDispatching, correctionPrincipal, pinnedPrinterName }: { job: any; onAction: (...args: any[]) => void; dragProps?: any; isSelected: boolean; onToggleSelect: (id: number) => void; isDispatching?: boolean; correctionPrincipal?: any; pinnedPrinterName?: string }) {
+export default function JobRow({ job, onAction, dragProps, isSelected, onToggleSelect, isDispatching, dispatchFenced, correctionPrincipal, pinnedPrinterName }: { job: any; onAction: (...args: any[]) => void; dragProps?: any; isSelected: boolean; onToggleSelect: (id: number) => void; isDispatching?: boolean; dispatchFenced?: boolean; correctionPrincipal?: any; pinnedPrinterName?: string }) {
   return (
     <tr className={clsx(
           'border-b border-[var(--brand-card-border)] hover:bg-[var(--brand-input-bg)]/50 even:bg-[var(--brand-content-bg)]/40',
@@ -153,9 +153,9 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
               loading={isDispatching}
               onClick={() => !isDispatching && onAction('dispatch', job.id, job.item_name, job.printer?.name)}
               className={clsx(isDispatching ? 'text-emerald-500' : 'text-emerald-400 hover:bg-emerald-900/50')}
-              title={isDispatching ? 'Dispatching...' : `Dispatch to ${job.printer?.name || 'printer'} — uploads file via FTP and starts print`}
-              aria-label={isDispatching ? 'Dispatching...' : 'Dispatch to printer'}
-              disabled={isDispatching}
+              title={dispatchFenced ? 'Dispatch requires verification. Check the printer before any further dispatch.' : isDispatching ? 'Dispatching...' : `Dispatch to ${job.printer?.name || 'printer'} — uploads file via FTP and starts print`}
+              aria-label={dispatchFenced ? 'Dispatch requires verification' : isDispatching ? 'Dispatching...' : 'Dispatch to printer'}
+              disabled={isDispatching || dispatchFenced}
             />
           )}
           {job.status === 'printing' && canDo('jobs.complete') && (

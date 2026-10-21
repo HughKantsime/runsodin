@@ -1,9 +1,11 @@
+import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { jobs, approveJob, rejectJob, resubmitJob, bulkOps } from '../api'
 import toast from 'react-hot-toast'
 
 export function useJobMutations() {
   const queryClient = useQueryClient()
+  const [dispatchFencedIds, setDispatchFencedIds] = useState<Set<number>>(() => new Set())
   const inv = () => queryClient.invalidateQueries({ queryKey: ['jobs'] })
 
   const runSchedulerMut = useMutation({
@@ -62,7 +64,14 @@ export function useJobMutations() {
 
   const dispatchJob = useMutation({
     mutationFn: jobs.dispatch,
-    onSuccess: () => { inv(); toast.success('Print dispatched — file uploading to printer') },
+    retry: false,
+    onSuccess: (result, id) => {
+      setDispatchFencedIds(previous => new Set(previous).add(id))
+      inv()
+      if (result.confirmation === 'accepted' || result.status?.phase === 'start_accepted') toast.success('Start accepted. Waiting for printer progress.')
+      else if (result.status?.phase === 'layer_observed') toast('Printer layer progress was observed for this attempt.')
+      else toast('Dispatch is unconfirmed. Check the printer and recorded attempt before trying again.', { duration: 10000 })
+    },
     onError: (err) => toast.error('Dispatch failed: ' + (err.message || 'Unknown error')),
   })
 
@@ -101,6 +110,7 @@ export function useJobMutations() {
     deleteJob,
     repeatJob,
     dispatchJob,
+    dispatchFencedIds,
     approveJobMut,
     rejectJobMut,
     resubmitJobMut,

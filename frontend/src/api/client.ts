@@ -24,9 +24,10 @@ export function errorDetailMessage(detail: unknown): string | null {
   return String(detail)
 }
 
-function apiError(err: { detail?: unknown; message?: unknown }, fallback: string): Error {
-  const error = new Error(errorDetailMessage(err.detail) || errorDetailMessage(err.message) || fallback) as Error & { detail?: unknown }
+function apiError(err: { detail?: unknown; message?: unknown }, fallback: string, status?: number): Error {
+  const error = new Error(errorDetailMessage(err.detail) || errorDetailMessage(err.message) || fallback) as Error & { detail?: unknown; status?: number }
   if (err.detail !== undefined) error.detail = err.detail
+  error.status = status
   return error
 }
 
@@ -57,16 +58,16 @@ export async function fetchAPI<T = unknown>(endpoint: string, options: RequestIn
   }
   if (response.status === 403) {
     const err = await response.json().catch(() => ({}))
-    throw apiError(err, 'You do not have permission to perform this action.')
+    throw apiError(err, 'You do not have permission to perform this action.', response.status)
   }
   if (response.status === 404) {
     const err = await response.json().catch(() => ({}))
-    throw apiError(err, 'The requested resource was not found.')
+    throw apiError(err, 'The requested resource was not found.', response.status)
   }
   if (!response.ok) {
     const err = await response.json().catch(() => ({}))
     if (err.detail) console.error('[API] Error detail:', err.detail)
-    throw apiError(err, 'Request failed. Please try again.')
+    throw apiError(err, 'Request failed. Please try again.', response.status)
   }
   if (response.status === 204) return null as unknown as T
   if (responseFormat === 'csv') {

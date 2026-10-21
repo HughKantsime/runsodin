@@ -1,4 +1,5 @@
 import { fetchAPI } from './client'
+import { dispatchWithConfirmation } from './jobDispatch'
 import { clearSensitiveBrowserState } from '../permissions'
 import type {
   Job,
@@ -32,7 +33,7 @@ export const jobs = {
   fail: (id: number): Promise<Job> => fetchAPI('/jobs/' + id + '/fail', { method: 'POST' }),
   reorder: (jobIds: number[]): Promise<void> => fetchAPI('/jobs/reorder', { method: 'PATCH', body: JSON.stringify({ job_ids: jobIds }) }),
   repeat: (id: number): Promise<Job> => fetchAPI('/jobs/' + id + '/repeat', { method: 'POST' }),
-  dispatch: (id: number): Promise<Job> => fetchAPI('/jobs/' + id + '/dispatch', { method: 'POST' }),
+  dispatch: dispatchWithConfirmation,
 }
 
 export const scheduler = {

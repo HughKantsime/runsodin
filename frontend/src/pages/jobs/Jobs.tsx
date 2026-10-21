@@ -31,7 +31,7 @@ export default function Jobs() {
   const queryClient = useQueryClient()
   const {
     createJob, updateJob, startJob, completeJob, cancelJob, failJob,
-    deleteJob, repeatJob, dispatchJob, approveJobMut, rejectJobMut, resubmitJobMut,
+    deleteJob, repeatJob, dispatchJob, dispatchFencedIds, approveJobMut, rejectJobMut, resubmitJobMut,
   } = useJobMutations()
 
   const runScheduler = useMutation({
@@ -380,7 +380,7 @@ export default function Jobs() {
                 </td></tr>
               ) : (
                 filteredJobs.map(job => (
-                  <JobRow key={job.id} job={job} pinnedPrinterName={job.pinned_printer_id != null ? (printersData || []).find(p => p.id === job.pinned_printer_id)?.name : undefined} correctionPrincipal={recentPrincipal} onAction={handleAction} isSelected={selectedJobs.has(job.id)} onToggleSelect={toggleJobSelect} isDispatching={dispatchJob.isPending && dispatchJob.variables === job.id}
+                  <JobRow key={job.id} job={job} pinnedPrinterName={job.pinned_printer_id != null ? (printersData || []).find(p => p.id === job.pinned_printer_id)?.name : undefined} correctionPrincipal={recentPrincipal} onAction={handleAction} isSelected={selectedJobs.has(job.id)} onToggleSelect={toggleJobSelect} dispatchFenced={dispatchFencedIds?.has(job.id)} isDispatching={dispatchJob.isPending && dispatchJob.variables === job.id}
                     // Drag only in queue order: positions written from another sort would be meaningless.
                     dragProps={canDo('jobs.edit') && sortField === 'queue' && (job.status === 'pending' || job.status === 'scheduled') ? {
                       draggable: true,

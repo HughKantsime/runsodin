@@ -316,3 +316,38 @@ def test_heartbeat_cannot_refresh_cached_ams_inventory(daemon_ams, review_db, pa
     review_db.expire_all()
     assert str(review_db.execute(text('SELECT loaded_at FROM filament_slots WHERE id=199')).scalar_one()) == '2000-01-01 00:00:00'
     assert monitor._last_ams_slot_sync == 0
+
+@pytest.mark.parametrize('material', [None, 42, False, [], {}, '   ', 'PLA???', 'unrecognized'])
+def test_partial_material_preserves_known_inventory_and_freshness(daemon_ams, review_db, monkeypatch, material):
+    from modules.printers.monitors import mqtt_printer as module
+    send, _, _ = daemon_ams
+    send(25)
+    review_db.execute(text("UPDATE filament_slots SET filament_type='PETG',loaded_at='2000-01-01 00:00:00' WHERE id=199"))
+    review_db.commit()
+    before = tuple(review_db.execute(text('SELECT filament_type,color_hex,assigned_spool_id,loaded_at FROM filament_slots WHERE id=199')).one())
+    monkeypatch.setattr(module, 'time', SimpleNamespace(time=lambda:1061.0))
+    tray = {'id':'0', 'tray_color':'FFFFFF', 'remain':0}
+    if material is not None:
+        tray['tray_type'] = material
+    send(trays=[tray])
+    assert tuple(review_db.execute(text('SELECT filament_type,color_hex,assigned_spool_id,loaded_at FROM filament_slots WHERE id=199')).one()) == before
+    assert review_db.execute(text('SELECT remaining_weight_g FROM spools WHERE id=199')).scalar_one() == 250
+
+
+def test_explicit_empty_material_still_clears_slot(daemon_ams, review_db, monkeypatch):
+    from modules.printers.monitors import mqtt_printer as module
+    send, _, _ = daemon_ams
+    send(25)
+    monkeypatch.setattr(module, 'time', SimpleNamespace(time=lambda:1061.0))
+    send(trays=[{'id':'0', 'tray_type':''}])
+    assert tuple(review_db.execute(text('SELECT filament_type,color_hex FROM filament_slots WHERE id=199')).one()) == ('empty', None)
+
+
+def test_partial_material_does_not_prune_absent_ht_slots(daemon_ams, review_db, monkeypatch):
+    from modules.printers.monitors import mqtt_printer as module
+    send, _, _ = daemon_ams
+    send(25)
+    review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type,color_hex) VALUES(199,17,'PETG','123ABC')")); review_db.commit()
+    monkeypatch.setattr(module,'time',SimpleNamespace(time=lambda:1061.0))
+    send(trays=[{'id':'0','tray_type':None}])
+    assert tuple(review_db.execute(text('SELECT filament_type,color_hex FROM filament_slots WHERE printer_id=199 AND slot_number=17')).one()) == ('PETG','123ABC')

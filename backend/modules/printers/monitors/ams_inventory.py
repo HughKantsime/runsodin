@@ -1,5 +1,6 @@
 """Caller-owned, organization-bound AMS inventory updates for raw daemon DBs."""
 import math
+from core.material_identity import canonical_reported_material
 from modules.printers.telemetry.validators import coerce_int_or_raise
 
 
@@ -64,7 +65,20 @@ def sync_ams_inventory(conn, printer_id, units):
     # The all-zero tag_uid of a non-RFID spool is not an identity.
     identified = [(number, tray if is_rfid_tag(tray.get('tag_uid')) else {k: v for k, v in tray.items() if k != 'tag_uid'})
                   for number, tray in identified]
+    def material_reported(tray):
+        value = tray.get('tray_type')
+        return value == '' or canonical_reported_material(value) is not None
+
+    material_incomplete = any(not material_reported(tray) for _, tray in identified)
+    reported_slots = {number for number, _ in identified}
+    had_trays = bool(identified)
+    # Unknown material is a delta, not evidence of an empty tray. Skipping the
+    # whole tray also preserves association and loaded_at freshness.
+    identified = [(number, tray) for number, tray in identified
+                  if material_reported(tray)]
     trays = [tray for _, tray in identified]
+    if not trays and had_trays:
+        return 0
     if not trays:
         # An empty AMS list still means every HT unit is unplugged.
         if not getattr(conn, '_postgres', False):
@@ -147,7 +161,8 @@ def sync_ams_inventory(conn, printer_id, units):
                 conn.execute('UPDATE spools SET location_printer_id=?,location_slot=? WHERE id=?', (printer_id, number, spool_id))
             else:
                 conn.execute('UPDATE spools SET location_printer_id=?,location_slot=?,remaining_weight_g=? WHERE id=?', (printer_id, number, weight, spool_id))
-    _clear_unplugged_ht(conn, printer_id, {number for number, _ in identified})
+    if not material_incomplete:
+        _clear_unplugged_ht(conn, printer_id, reported_slots)
     return len(trays)
 
 

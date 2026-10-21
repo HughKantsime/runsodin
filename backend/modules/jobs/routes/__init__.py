@@ -18,3 +18,6 @@ router.include_router(jobs_lifecycle_router)
 # from jobs_lifecycle in v1.9.0 Phase 2 to stay under the 700-line cap.
 router.include_router(jobs_agent_router)
 router.include_router(presets_router)
+
+from .dispatch_status import router as dispatch_status_router
+router.include_router(dispatch_status_router)
