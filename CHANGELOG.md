@@ -2,12 +2,14 @@
 
 All notable changes to O.D.I.N. are documented here.
 
-## [2.0.4] - 2026-10-20
+## [2.0.4] - 2026-10-21
 
-<!-- summary: Native Apple push HTTP/2 runtime dependency -->
+<!-- summary: Explicit AMS reprint source compatibility and native Apple push transport -->
 
 ### Fixed
 
+- Explicit AMS reprints accept a verified single used filament when the slicer retains unused profiles. Matching plate, saved-profile and G-code material facts remain required.
+- Inspect supported G-code members up to 64 MiB using a bounded line scan; reject oversized lines and hidden source commands behind unsupported line separators.
 - Include HTTP/2 support required by the native Apple push provider. Previously the production image could not construct its APNs client because the h2 dependency was missing.
 - Add real local TLS/HTTP/2 coverage for signed APNs requests, notification payloads and accepted/rejected responses. Apple credentials and device registration are still required for delivery.
 

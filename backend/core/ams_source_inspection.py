@@ -13,7 +13,8 @@ from core.material_identity import canonical_reported_material
 
 MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
 MAX_XML_BYTES = 1024 * 1024
-MAX_GCODE_BYTES = 32 * 1024 * 1024
+MAX_GCODE_BYTES = 64 * 1024 * 1024
+MAX_GCODE_LINE_BYTES = 128 * 1024
 
 
 @dataclass(frozen=True)
@@ -63,15 +64,27 @@ def inspect_single_source_ams(payload: bytes, plate_index: int = 0) -> VerifiedS
             material = canonical_reported_material(filaments[0].get('type'))
             settings = json.loads(read('Metadata/project_settings.config', MAX_XML_BYTES))
             materials = settings.get('filament_type') if isinstance(settings, dict) else None
-            if material is None or not isinstance(materials, list) or len(materials) != 1 or canonical_reported_material(materials[0]) != material:
+            # Saved profiles are not evidence of used sources. The plate XML
+            # and command scan independently require exactly source zero.
+            # Check its corresponding profile without inventing unused trays.
+            if material is None or not isinstance(materials, list) or not 1 <= len(materials) <= 16 or canonical_reported_material(materials[0]) != material:
                 raise ValueError(refusal)
-            code = read('Metadata/plate_1.gcode', MAX_GCODE_BYTES).decode('utf-8')
+            code = io.BytesIO(read('Metadata/plate_1.gcode', MAX_GCODE_BYTES))
             headers = []
             switches = {620: set(), 621: set()}
-            for line in code.splitlines():
+            for raw_line in iter(lambda: code.readline(MAX_GCODE_LINE_BYTES + 1), b''):
+                if len(raw_line) > MAX_GCODE_LINE_BYTES:
+                    raise ValueError(refusal)
+                line = raw_line.decode('utf-8')
+                line = line[:-2] if line.endswith('\r\n') else line.removesuffix('\n')
+                if any(separator in line for separator in ('\r', '\v', '\f', '\x1c', '\x1d', '\x1e', '\x85', '\u2028', '\u2029')):
+                    raise ValueError(refusal)
                 header = re.fullmatch(r'\s*;\s*filament_type\s*=\s*(.*?)\s*', line)
                 if header:
-                    headers.append(canonical_reported_material(header.group(1)))
+                    header_materials = header.group(1).split(';')
+                    if not 1 <= len(header_materials) <= 16:
+                        raise ValueError(refusal)
+                    headers.append([canonical_reported_material(value.strip()) for value in header_materials])
                 command = line.split(';', 1)[0].strip()
                 if re.match(r'^T(?:[0-9]|\s|$)', command):
                     # Stock X1 calibration uses T1100, then T1000 with the
@@ -91,7 +104,9 @@ def inspect_single_source_ams(payload: bytes, plate_index: int = 0) -> VerifiedS
                 if match is None:
                     raise ValueError(refusal)
                 switches[int(match.group(1))].add(int(match.group(2)))
-            if headers != [material] or switches != {620: {0}, 621: {0}}:
+            expected_materials = [canonical_reported_material(value) for value in materials]
+            if (any(value is None for value in expected_materials) or headers != [expected_materials]
+                    or switches != {620: {0}, 621: {0}}):
                 raise ValueError(refusal)
         return VerifiedSingleSource(0, 0, material)
     except Exception:

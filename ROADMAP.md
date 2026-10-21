@@ -2,6 +2,11 @@
 
 Updated - see CHANGELOG for current version.
 
+## Prepared for v2.0.4
+
+- Explicit AMS archive reprint compatibility for single-source files with unused slicer profiles; original failed jobs remain preserved.
+- Native Apple push HTTP/2 runtime dependency.
+
 ## Shipped in v2.0.0
 
 - ~~Project ZIP v2 export/import~~ — restores archives and print files into a new importer-owned project
