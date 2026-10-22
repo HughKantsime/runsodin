@@ -206,6 +206,11 @@
    "python:032-quiet-hours-deferred-deliveries",
    "python:033-timelapse-capture-tenancy",
    "python:034-alert-outbox"
+  ],
+  "2.0.7": [
+   "python:032-quiet-hours-deferred-deliveries",
+   "python:033-timelapse-capture-tenancy",
+   "python:034-alert-outbox"
   ]
  }
 }
