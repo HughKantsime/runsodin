@@ -165,6 +165,10 @@ def normalize_model_name(api_type: str, raw_value: Optional[str]) -> Optional[st
         if api_type == "prusalink":
             return _PRUSALINK_MODELS.get(raw_stripped, raw_stripped)
 
+        if api_type == "anycubic_lan":
+            from modules.printers.parsing.anycubic_lan import MODELS
+            return MODELS.get(raw_stripped, raw_stripped)
+
         if api_type == "elegoo":
             # Try exact match first, then case-insensitive
             if raw_stripped in _ELEGOO_MODELS:

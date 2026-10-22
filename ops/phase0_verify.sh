@@ -43,7 +43,7 @@ EXPECTED_GHCR_IMAGE="ghcr.io/hughkantsime/odin"
 
 # Supervisor services that MUST be running
 # All monitors now stay alive (sleep+retry when no printers configured)
-REQUIRED_SERVICES=("backend" "mqtt_monitor" "go2rtc" "elegoo_monitor" "moonraker_monitor" "prusalink_monitor")
+REQUIRED_SERVICES=("backend" "mqtt_monitor" "go2rtc" "elegoo_monitor" "moonraker_monitor" "prusalink_monitor" "anycubic_lan_monitor")
 
 # API endpoints to check (method path expected_status)
 API_CHECKS=(

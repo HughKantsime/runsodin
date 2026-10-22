@@ -113,6 +113,9 @@ def create_printer(
     if existing:
         raise HTTPException(status_code=400, detail=f"Printer '{printer.name}' already exists")
 
+    if printer.api_type == "anycubic_lan" and printer.api_key:
+        raise HTTPException(400, "Anycubic LAN does not accept credentials")
+
     encrypted_api_key = None
     if hasattr(printer, 'api_key') and printer.api_key:
         encrypted_api_key = crypto.encrypt(printer.api_key)
@@ -203,7 +206,7 @@ def get_all_printers_live_status_early(
     from modules.printers.routes_status import _fetch_printer_live_status
     query = db.query(Printer).filter(
         Printer.api_host.isnot(None),
-        Printer.api_key.isnot(None),
+        or_(Printer.api_key.isnot(None), Printer.api_type == "anycubic_lan"),
     )
     scope = get_org_scope(current_user)
     if should_filter_org(current_user, scope):
@@ -244,6 +247,11 @@ def update_printer(
         raise HTTPException(status_code=404, detail="Printer not found")
 
     update_data = updates.model_dump(exclude_unset=True)
+
+    if update_data.get('api_type', printer.api_type) == 'anycubic_lan':
+        if update_data.get('api_key'):
+            raise HTTPException(400, 'Anycubic LAN does not accept credentials')
+        update_data['api_key'] = None
 
     if 'api_host' in update_data and update_data['api_host']:
         _check_ssrf_blocklist(update_data['api_host'])
@@ -647,6 +655,10 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
         except Exception as e:
             log.warning("PrusaLink test-connection failed: %s", e)
             return {"success": False, "error": "Connection failed. Check printer IP and PrusaLink configuration."}
+
+    elif api_type == "anycubic_lan":
+        from modules.printers.route_utils import test_anycubic_lan_connection
+        return test_anycubic_lan_connection(request.api_host)
 
     elif api_type == "elegoo":
         import httpx as httpx_client

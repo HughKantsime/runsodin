@@ -285,7 +285,7 @@ export default function Printers() {
             <select aria-label="Filter printers by type" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1.5 text-sm">
               <option value="all">All Types</option>
               {apiTypes.map(t => (
-                <option key={t} value={t}>{t === 'bambu' ? 'Bambu' : t === 'moonraker' ? 'Moonraker' : t === 'prusalink' ? 'PrusaLink' : t === 'elegoo' ? 'Elegoo' : t}</option>
+                <option key={t} value={t}>{t === 'bambu' ? 'Bambu' : t === 'moonraker' ? 'Moonraker' : t === 'prusalink' ? 'PrusaLink' : t === 'elegoo' ? 'Elegoo' : t === 'anycubic_lan' ? 'Anycubic LAN' : t}</option>
               ))}
             </select>
           )}

@@ -135,7 +135,7 @@ def discover_camera(printer_id: int, rtsp_url: str):
             if protocol != "bambu":
                 if existing_source:
                     return
-                if protocol not in {"moonraker", "prusalink", "elegoo"}:
+                if protocol not in {"moonraker", "prusalink", "elegoo", "anycubic_lan"}:
                     return
                 if not isinstance(rtsp_url, str) or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in rtsp_url):
                     return

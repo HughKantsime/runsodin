@@ -2,6 +2,10 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [Unreleased]
+
+- Add monitor-only Anycubic LAN telemetry and ACE slots, IP-only printer setup, ephemeral LAN handshake credentials, periodic polling and offline detection. Controls and dispatch remain unsupported; no existing printers are changed.
+
 ## [2.0.7] - 2026-10-22
 
 <!-- summary: Restore cookie-free native sign-in on API-key-protected servers -->
@@ -273,7 +277,6 @@ All notable changes to O.D.I.N. are documented here.
   existing secrets and omitted settings on subsequent saves.
 - Explain ODIN tenant creation and support tenant-list refresh. Recover tenant
   loading independently and prevent edits when saved configuration cannot load.
-
 
 ## [Unreleased] — Education license user-limit fix
 

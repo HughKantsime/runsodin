@@ -4,6 +4,7 @@ import {
   formatDate,
   isOnline,
   ONLINE_THRESHOLD_MS,
+  filamentSlotGroup,
 } from '../shared'
 
 describe('formatDurationSecs', () => {
@@ -83,5 +84,14 @@ describe('isOnline', () => {
 
   it('uses the ONLINE_THRESHOLD_MS constant (90 seconds)', () => {
     expect(ONLINE_THRESHOLD_MS).toBe(90_000)
+  })
+})
+
+describe('ACE filament slot grouping', () => {
+  it('groups consecutive four-tray ACE boxes without changing slot identity', () => {
+    expect(filamentSlotGroup('anycubic_lan', 1)).toEqual({ key: 'ace-0', label: 'ACE 1' })
+    expect(filamentSlotGroup('anycubic_lan', 5)).toEqual({ key: 'ace-1', label: 'ACE 2' })
+    expect(filamentSlotGroup('anycubic_lan', 0)).toBeNull()
+    expect(filamentSlotGroup('moonraker', 1)).toBeNull()
   })
 })

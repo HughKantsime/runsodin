@@ -12,6 +12,8 @@ from typing import Optional
 
 def get_printer_api_key(printer) -> Optional[str]:
     """Get decrypted API key for a printer."""
+    if getattr(printer, "api_type", None) == "anycubic_lan":
+        return None
     if not printer.api_key:
         return None
     from core.crypto import decrypt

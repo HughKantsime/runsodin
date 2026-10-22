@@ -34,6 +34,14 @@ def _fetch_printer_live_status(printer_id: int, db: Session) -> dict:
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
 
+    if printer.api_type == "anycubic_lan":
+        # The daemon owns acquisition; no credential-dependent MQTT route here.
+        return {"printer_id": printer.id, "printer_name": printer.name,
+                "gcode_state": printer.gcode_state, "bed_temp": printer.bed_temp,
+                "bed_target": printer.bed_target_temp, "nozzle_temp": printer.nozzle_temp,
+                "nozzle_target": printer.nozzle_target_temp, "fan_speed": printer.fan_speed,
+                "last_seen": printer.last_seen}
+
     if not printer.api_host or not printer.api_key:
         return {"error": "Printer not configured for MQTT"}
 

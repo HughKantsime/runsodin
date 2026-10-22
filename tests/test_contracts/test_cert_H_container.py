@@ -37,7 +37,7 @@ NAME = f"cert-h-ctr-{os.getpid()}"
 BASE = f"http://127.0.0.1:{PORT}"
 
 PROGRAMS = {
-    "backend", "mqtt_monitor", "moonraker_monitor", "prusalink_monitor", "elegoo_monitor",
+    "backend", "mqtt_monitor", "moonraker_monitor", "prusalink_monitor", "elegoo_monitor", "anycubic_lan_monitor",
     "go2rtc", "vision_monitor", "timelapse_capture", "report_runner",
 }
 SECRET_FILES = (".encryption_key", ".jwt_secret", ".odin-install-id")
