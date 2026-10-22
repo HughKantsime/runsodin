@@ -30,7 +30,7 @@ DEPENDENCIES = BACKEND_DIR / "core" / "dependencies.py"
 AUDIT_IMPL = BACKEND_DIR / "core" / "audit.py"
 
 
-PRESERVED_BUNDLES = (BACKEND_DIR / "core/schema/preserved027/bundle", BACKEND_DIR / "core/schema/preserved029/bundle")
+PRESERVED_BUNDLES = (BACKEND_DIR / "core/schema/preserved027/bundle", BACKEND_DIR / "core/schema/preserved029/bundle", BACKEND_DIR / "core/schema/preserved034/bundle")
 
 
 def _enumerate_log_audit_call_sites() -> list[tuple[Path, int, str]]:
@@ -377,6 +377,8 @@ class TestEveryCallSiteCommitsAfter:
                     and fn_name == "write_currency"):
                 caller_paths = []
                 for candidate in BACKEND_DIR.rglob("*.py"):
+                    if any(bundle in candidate.parents for bundle in PRESERVED_BUNDLES):
+                        continue
                     candidate_source = candidate.read_text()
                     candidate_tree = ast.parse(candidate_source)
                     if any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)

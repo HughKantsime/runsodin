@@ -1,0 +1,76 @@
+-- core/migrations/005_idempotency_keys.sql
+-- v1.8.9 — agent-native surface primitives.
+--
+-- Adds `idempotency_keys` — cache table for the Idempotency-Key
+-- middleware. Clients (MCP server, OpenClaw skill, humans using
+-- curl) send `Idempotency-Key: <uuid>` on POST/PUT/PATCH/DELETE; the
+-- middleware writes the response here and replays it on subsequent
+-- requests within 24h.
+--
+-- Design notes (post-codex-review, 2026-04-14):
+-- - PK is (key, user_id) so two users with the same (vanishingly
+--   unlikely but non-zero) UUID collision don't cross-replay.
+-- - `claim-before-execute` atomicity: the middleware INSERTs a
+--   "pending" row (state='pending', response_status=0, response_body='')
+--   BEFORE running the handler. A second concurrent request with the
+--   same key collides on the PK, finds `state='pending'`, and returns
+--   409 `idempotency_in_progress` instead of executing the mutation
+--   a second time. The first request's handler runs, then the
+--   middleware UPDATEs the row to state='complete' with the real
+--   response. This closes the race codex pass 1 flagged (duplicate
+--   execution under concurrent retries).
+-- - request_hash pins the cached response to the exact request body;
+--   re-using the same key with a different body is a client bug and
+--   the middleware returns 409 `idempotency_conflict` rather than
+--   silently replaying.
+-- - created_at is indexed for the hourly TTL-prune task; 24h TTL is
+--   enforced at read time as well so a stale row can't replay even
+--   if the pruner hasn't run yet. Pending rows older than a short
+--   watchdog window (90s) are also cleaned up so a crashed handler
+--   can't block the key forever.
+-- - response_body stored as TEXT (serialized JSON); loader must not
+--   truncate. SQLite TEXT and Postgres TEXT are both unlimited.
+--
+-- NOT added in this migration: agent token scopes. The existing
+-- `api_tokens.scopes` JSON-array column already handles per-token
+-- scope lists. v1.8.9 defines two new well-known scope strings —
+-- `agent:read` and `agent:write` — that get written into that
+-- existing column via the token-creation UI. No schema change
+-- required.
+
+-- Timestamp columns do NOT carry a DEFAULT. Codex pass 2 (2026-04-14)
+-- caught that SQLite's CURRENT_TIMESTAMP emits `YYYY-MM-DD HH:MM:SS`
+-- while the middleware writes ISO-8601 (`YYYY-MM-DDTHH:MM:SS+00:00`)
+-- on claim/finalize. Lexical comparison of mixed formats is broken
+-- (space < T in ASCII → fresh rows look older than the cutoff, get
+-- pruned prematurely). Forcing the insert/update paths to supply the
+-- ISO-8601 string keeps every row in one canonical format.
+-- `auth_fingerprint` captures authorization-relevant user state at
+-- the moment of the claim (role, token scopes, org membership).
+-- Codex pass 6 (2026-04-15) flagged that replay returns a cached 2xx
+-- without running FastAPI dependencies like `require_role` or
+-- `require_any_scope`. A user whose role is reduced after the
+-- original successful POST could otherwise replay that success for
+-- the full 24h TTL. The middleware now persists the fingerprint on
+-- claim and invalidates the row if the current user's fingerprint
+-- differs at replay time.
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+    key TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    method TEXT NOT NULL,
+    path TEXT NOT NULL,
+    request_hash TEXT NOT NULL,
+    auth_fingerprint TEXT NOT NULL DEFAULT '',
+    state TEXT NOT NULL DEFAULT 'pending',
+    response_status INTEGER NOT NULL DEFAULT 0,
+    response_body TEXT NOT NULL DEFAULT '',
+    response_media_type TEXT NOT NULL DEFAULT 'application/json',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (key, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS ix_idempotency_keys_created_at
+    ON idempotency_keys(created_at);
+CREATE INDEX IF NOT EXISTS ix_idempotency_keys_state
+    ON idempotency_keys(state);

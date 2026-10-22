@@ -1,0 +1,5 @@
+-- push/migrations/001_initial.sql
+-- Tables for native push notification devices and biometric refresh tokens.
+-- push_devices and biometric_tokens are managed by SQLAlchemy ORM (modules/push/models.py).
+-- This intentionally contains no DDL. Fresh installs and adopted legacy installs
+-- create these tables from the imported ORM registry before raw migrations run.

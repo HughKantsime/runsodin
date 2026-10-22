@@ -232,6 +232,10 @@ class TestCoreHasNoRoutes:
         for py_file in sorted(core_dir.rglob("*.py")):
             if "__pycache__" in str(py_file):
                 continue
+            # Frozen domain source copies run only inside the isolated restore child.
+            # Their package integrity is independently pinned; they are not core runtime routes.
+            if py_file.is_relative_to(BACKEND_DIR / "core/schema/preserved034/bundle/modules"):
+                continue
             try:
                 content = py_file.read_text(encoding="utf-8")
             except Exception:

@@ -1,0 +1,360 @@
+"""
+Notification delivery channels.
+
+Provides send_push_notification(), send_webhook(), send_email().
+Called by alert_dispatch and job_events when alerts are created.
+"""
+
+import json
+from html import escape
+import logging
+import smtplib
+import threading
+from datetime import datetime, timezone
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+import core.crypto as crypto
+# Resolved at call time: never a stale get_db bound at import.
+from core.db_live import live_get_db as get_db
+from modules.notifications.event_selection import selects_event
+from core.webhook_utils import safe_post, trusted_post, WebhookSSRFError
+from modules.notifications.webhook_payloads import post_typed_webhook  # noqa: F401 -- sanctioned delivery surface
+from modules.notifications.deferred_deliveries import (  # noqa: F401 -- digest delivery surface
+    available as deferred_available, mark as mark_deferred, pending_for_window, purge as purge_deferred)
+from modules.notifications.quiet_hours import governed_by, governing_scope  # noqa: F401 -- digest scope surface
+
+log = logging.getLogger("printer_events")
+
+
+def send_push_notification(user_id: int, alert_type: str, title: str, message: str,
+                           alert_id: int = None, printer_id: int = None, job_id: int = None):
+    """Send push notification to user's subscribed devices."""
+
+    with get_db() as conn:
+        cur = conn.cursor()
+
+        try:
+            # Get user's push subscriptions
+            cur.execute("SELECT endpoint, p256dh_key, auth_key FROM push_subscriptions WHERE user_id = ?", (user_id,))
+            subscriptions = cur.fetchall()
+
+            if not subscriptions:
+                return False
+
+            # Effective VAPID pair: env override, else the stored (encrypted) pair.
+            from modules.notifications.vapid import env_override, keys_from_stored_value
+            vapid_keys = env_override()
+            if vapid_keys is None:
+                cur.execute("SELECT value FROM system_config WHERE key = 'vapid_keys'")
+                vapid_row = cur.fetchone()
+                vapid_keys = keys_from_stored_value(vapid_row[0]) if vapid_row else None
+            if not vapid_keys:
+                log.warning("VAPID keys not configured, skipping push")
+                return False
+
+            # Build notification payload
+            payload = json.dumps({
+                "title": title,
+                "body": message,
+                "alert_type": alert_type,
+                "alert_id": alert_id,
+                "printer_id": printer_id,
+                "job_id": job_id,
+                "url": "/alerts"
+            })
+
+            # Send to each subscription
+            try:
+                from pywebpush import webpush, WebPushException
+
+                # v1.8.9 (codex pass 18): ITAR mode hard-disables
+                # browser push entirely. The earlier
+                # enforce_request_destination check was a TOCTOU: the
+                # third-party `pywebpush` library does its own DNS
+                # lookup and connect, respects env proxies, and does
+                # not expose a pinning interface. Even a subscription
+                # endpoint that resolves private during validation
+                # can leak through an env proxy or DNS rebinding when
+                # pywebpush makes the real connection. The only safe
+                # answer under a fail-closed air-gap contract is to
+                # refuse the send outright. Operators who need push
+                # in an ITAR deployment must stand up an internal
+                # push gateway and use user-configured webhooks (which
+                # safe_post validates + DNS-pins).
+                from core.itar import is_itar_mode
+                if is_itar_mode():
+                    log.info(
+                        "Web Push skipped entirely under ITAR for user %s "
+                        "(%d subscription(s))",
+                        user_id, len(subscriptions),
+                    )
+                    return False
+
+                delivered = True
+                for endpoint, p256dh, auth in subscriptions:
+                    try:
+                        webpush(
+                            subscription_info={
+                                "endpoint": endpoint,
+                                "keys": {"p256dh": p256dh, "auth": auth}
+                            },
+                            data=payload,
+                            vapid_private_key=vapid_keys["private_key"],
+                            vapid_claims={"sub": "mailto:admin@runsodin.com"}
+                        )
+                        log.info(f"Push sent to user {user_id}")
+                    except WebPushException as e:
+                        delivered = False
+                        if e.response is not None and e.response.status_code in (404, 410):
+                            # Subscription expired, remove it
+                            cur.execute("DELETE FROM push_subscriptions WHERE endpoint = ?", (endpoint,))
+                            conn.commit()
+                            log.info(f"Removed expired push subscription")
+                        else:
+                            log.error(f"Push failed: {e}")
+                    except Exception as e:
+                        delivered = False
+                        log.error(f"Push error: {e}")
+                return delivered
+            except ImportError:
+                log.debug("pywebpush not installed, skipping push notifications")
+
+        except Exception as e:
+            log.error(f"Failed to send push notification: {e}")
+
+
+    return False
+
+def _decrypt_webhook_url(url: str) -> str:
+    """Decrypt a Fernet-encrypted webhook URL, falling back to plaintext."""
+    if not url:
+        return url
+    try:
+        return crypto.decrypt(url)
+    except Exception:
+        return url
+
+
+def send_webhook(alert_type: str, title: str, message: str, severity: str = "info",
+                 printer_id: int = None, job_id: int = None):
+    """Send alert to all matching enabled webhooks.
+
+    Supports discord, slack, ntfy, telegram, pushover, whatsapp, and generic.
+    Each webhook fires in a background thread to avoid blocking the caller.
+    Daemon-safe: uses raw SQL via get_db().
+    """
+    from core.license_manager import get_license
+    if not get_license().has_feature("webhooks"):
+        return
+    try:
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT id, url, webhook_type, alert_types FROM webhooks WHERE is_enabled IS TRUE")
+            webhooks = cur.fetchall()
+    except Exception as e:
+        log.error(f"Failed to read webhooks: {e}")
+        return
+
+    severity_colors = {"critical": 0xef4444, "error": 0xe74c3c, "warning": 0xf59e0b, "info": 0x3b82f6}
+    severity_emoji = {"critical": "\U0001f534", "error": "\U0001f534", "warning": "\U0001f7e1", "info": "\U0001f535"}
+
+    for webhook_id, raw_url, wtype, alert_types_json in webhooks:
+        if not selects_event(alert_types_json, alert_type):
+            continue
+
+        url = _decrypt_webhook_url(raw_url)
+        emoji = severity_emoji.get(severity, "\U0001f535")
+        color = severity_colors.get(severity, 0x3b82f6)
+
+        def _send(wtype=wtype, url=url, emoji=emoji, color=color):
+            try:
+                import httpx
+
+                if wtype == "discord":
+                    safe_post(url, json={
+                        "embeds": [{
+                            "title": f"{emoji} {title}",
+                            "description": message or "",
+                            "color": color,
+                            "footer": {"text": "O.D.I.N."}
+                        }]
+                    }, timeout=10)
+
+                elif wtype == "slack":
+                    safe_post(url, json={
+                        "blocks": [
+                            {"type": "header", "text": {"type": "plain_text", "text": f"{emoji} {title}"}},
+                            {"type": "section", "text": {"type": "mrkdwn", "text": message or ""}}
+                        ]
+                    }, timeout=10)
+
+                elif wtype == "ntfy":
+                    priority_map = {"critical": "urgent", "error": "high", "warning": "high", "info": "default"}
+                    safe_post(url, content=message or title, headers={
+                        "Title": title,
+                        "Priority": priority_map.get(severity, "default"),
+                        "Tags": "printer",
+                    }, timeout=10)
+
+                elif wtype == "telegram":
+                    # Hardcoded Telegram bot API endpoint — use trusted_post
+                    # so HTTP_PROXY env var still works for egress-proxy
+                    # deployments. (Codex pass 3, 2026-04-13.)
+                    if "|" in url:
+                        bot_token, chat_id = url.split("|", 1)
+                        api_url = f"https://api.telegram.org/bot{bot_token.strip()}/sendMessage"
+                    else:
+                        api_url = f"https://api.telegram.org/bot{url.strip()}/sendMessage"
+                        chat_id = ""
+                    if chat_id:
+                        trusted_post(api_url, json={
+                            "chat_id": chat_id.strip(),
+                            "text": f"{emoji} *{title}*\n{message or ''}",
+                            "parse_mode": "Markdown"
+                        }, timeout=10)
+
+                elif wtype == "pushover":
+                    # Hardcoded Pushover API — trusted_post to allow
+                    # HTTP_PROXY egress.
+                    if "|" in url:
+                        user_key, api_token = url.split("|", 1)
+                        trusted_post("https://api.pushover.net/1/messages.json", data={
+                            "token": api_token.strip(),
+                            "user": user_key.strip(),
+                            "title": title,
+                            "message": message or title,
+                            "priority": 1 if severity == "critical" else 0,
+                        }, timeout=10)
+
+                elif wtype == "whatsapp":
+                    # Hardcoded Meta Graph API — trusted_post to allow
+                    # HTTP_PROXY egress.
+                    parts = url.split("|")
+                    if len(parts) >= 3:
+                        phone_id, recipient, token = parts[0].strip(), parts[1].strip(), parts[2].strip()
+                        trusted_post(
+                            f"https://graph.facebook.com/v18.0/{phone_id}/messages",
+                            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                            json={
+                                "messaging_product": "whatsapp",
+                                "to": recipient,
+                                "type": "text",
+                                "text": {"body": f"{emoji} {title}\n{message or ''}"},
+                            },
+                            timeout=10,
+                        )
+
+                else:  # generic
+                    safe_post(url, json={
+                        "event": alert_type,
+                        "title": title,
+                        "message": message or "",
+                        "severity": severity
+                    }, timeout=10)
+
+                log.debug(f"Webhook sent to {wtype}")
+
+            except Exception as e:
+                from core.redaction import redact_urls
+                log.error(f"Webhook dispatch failed ({wtype}): {redact_urls(e)}")
+
+        threading.Thread(target=_send, daemon=True).start()
+
+
+def send_email(user_id: int, alert_type: str, title: str, message: str,
+               printer_id: int = None, job_id: int = None):
+    """Send email notification to user (Pro: license feature email_notifications)."""
+    from core.license_manager import get_license
+    if not get_license().has_feature("email_notifications"):
+        return
+
+    try:
+        with get_db() as conn:
+            cur = conn.cursor()
+
+            # Get SMTP config
+            cur.execute("SELECT value FROM system_config WHERE key = 'smtp_config'")
+            smtp_row = cur.fetchone()
+            if not smtp_row:
+                log.debug("SMTP not configured, skipping email")
+                return
+
+            from modules.notifications.vapid import decode_config_value
+            smtp_config = decode_config_value(smtp_row[0])
+            if not isinstance(smtp_config, dict) or not smtp_config.get("enabled"):
+                return
+
+            # Get user email
+            cur.execute("SELECT email FROM users WHERE id = ?", (user_id,))
+            user_row = cur.fetchone()
+            if not user_row or not user_row[0]:
+                log.debug(f"No email for user {user_id}")
+                return
+
+            user_email = user_row[0]
+
+        # Build email (outside DB context — no longer need conn)
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = f"🖨️ O.D.I.N.: {title}"
+        msg['From'] = smtp_config.get("from_address", smtp_config.get("username"))
+        msg['To'] = user_email
+
+        # Plain text version
+        text_body = f"{title}\n\n{message}\n\n--\nO.D.I.N."
+
+        # Alert titles/messages may include user-controlled file and job names.
+        html_title = escape(str(title))
+        html_message = escape(str(message))
+        # HTML version
+        html_body = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; padding: 20px; background: #1a1a1a; color: #e0e0e0;">
+            <div style="max-width: 500px; margin: 0 auto; background: #2a2a2a; padding: 20px; border-radius: 8px;">
+                <h2 style="color: #3b82f6; margin-top: 0;">🖨️ {html_title}</h2>
+                <p style="color: #d0d0d0;">{html_message}</p>
+                <hr style="border: none; border-top: 1px solid #444; margin: 20px 0;">
+                <p style="color: #888; font-size: 12px;">O.D.I.N.</p>
+            </div>
+        </body>
+        </html>
+        """
+
+        msg.attach(MIMEText(text_body, 'plain'))
+        msg.attach(MIMEText(html_body, 'html'))
+
+        # Send email
+        host = smtp_config.get("host", "localhost")
+        port = int(smtp_config.get("port", 587))
+        username = smtp_config.get("username", "")
+        password = smtp_config.get("password", "")
+        use_tls = smtp_config.get("use_tls", True)
+
+        # Decrypt password if Fernet-encrypted
+        if password:
+            try:
+                password = crypto.decrypt(password)
+            except Exception:
+                pass  # already plaintext
+
+        # v1.8.9 (codex pass 7): runtime ITAR guard — block public SMTP.
+        from core.itar import enforce_host_destination
+        enforce_host_destination(host, scheme="smtp")
+
+        if use_tls:
+            server = smtplib.SMTP(host, port, timeout=10)
+            server.starttls()
+        else:
+            server = smtplib.SMTP(host, port, timeout=10)
+
+        try:
+            if username and password:
+                server.login(username, password)
+            server.send_message(msg)
+        finally:
+            server.quit()
+
+        log.info(f"Email sent to {user_email} for alert {alert_type}")
+
+    except Exception as e:
+        log.error(f"Failed to send email: {e}")

@@ -128,7 +128,7 @@ def _scanned_files() -> list[Path]:
     excluded_exact = {
         '__pycache__', '.git', 'venv', 'node_modules',
         'build', 'dist', '.pytest_cache', '.mypy_cache', 'frontend',
-        'site-packages',
+        'site-packages', 'artifacts',
     }
     out: list[Path] = []
     for path in REPO_ROOT.rglob('*.py'):

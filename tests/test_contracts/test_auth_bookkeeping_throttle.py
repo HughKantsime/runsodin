@@ -209,7 +209,7 @@ def test_only_the_retention_cleanup_compares_bookkeeping_times():
     comparisons = set()
     pattern = re.compile(r"last_(seen|used)_at\s*(<|>|<=|>=)\s*[:?]|[<>]=?\s*\w*\.?last_(seen|used)_at")
     for file in list((_BACKEND / "core").rglob("*.py")) + list((_BACKEND / "modules").rglob("*.py")):
-        if "preserved02" in str(file):
+        if any(part in ("preserved027", "preserved029", "preserved034") for part in file.parts):
             continue
         for line in file.read_text(errors="ignore").splitlines():
             if pattern.search(line) and not line.strip().startswith("#"):

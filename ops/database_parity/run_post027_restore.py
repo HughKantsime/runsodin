@@ -12,9 +12,11 @@ import subprocess
 import sys
 import time
 import uuid
+import os
 
 IMAGE = 'postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea'
-RUNTIME_REF = 'ghcr.io/hughkantsime/odin@sha256:f4ecb5d6dd0b8b8216fb29c680a887624714f79c0e7236e6ec20b22e2ca2899e'
+RUNTIME_REF = os.environ.get('POST027_RUNTIME_REF','ghcr.io/hughkantsime/odin@sha256:c3eabf35f38484b00c5818a4364495284bf4190d171e49daf53452ead4187a57')
+RUNTIME_PLATFORM = os.environ.get('POST027_RUNTIME_PLATFORM','linux/amd64')
 RELEASED_IMAGE = 'ghcr.io/hughkantsime/odin:v1.9.24'
 import os
 # Owners of concurrent proofs pick their own container prefix and receipt directory.
@@ -38,7 +40,8 @@ def main():
     head = run('git', 'rev-parse', 'HEAD').strip()
     receipt = {'passed': False, 'source_head': head, 'source_status': run('git', 'status', '--short', '--', 'backend', 'ops', 'tests'),
                'postgres_image': IMAGE, 'runtime_ref': RUNTIME_REF,
-               'runtime_provenance': 'Published v1.9.24 AMD64 runtime (python + pg clients); current source mounted read-only'}
+               'scope': 'current-only' if os.environ.get('POST027_CURRENT_ONLY')=='1' else 'full',
+               'runtime_provenance': 'Locally cached ODIN '+RUNTIME_PLATFORM+' runtime (python + pg clients); current source mounted read-only'}
     output = STAGING / 'post027-restore-native.json'
     try:
         files = [line for line in run('git', 'ls-files', '--cached', '--others', '--exclude-standard', 'backend', 'ops', 'docker').splitlines()
@@ -79,10 +82,10 @@ def main():
         receipt['released_bootstrap'] = json.loads(released.stdout.strip().splitlines()[-1])
         run('docker', 'exec', database, 'psql', '-U', 'postgres', '-d', 'post027_released', '-c',
             "INSERT INTO system_config(key,value) VALUES('historical_marker','\"released1924\"')")
-        result = subprocess.run(['docker', 'run', '--rm', '--name', runtime, '--platform', 'linux/amd64', '--network', name,
+        result = subprocess.run(['docker', 'run', '--rm', '--name', runtime, '--platform', RUNTIME_PLATFORM, '--network', name,
             '--user', '0', '--entrypoint', '/bin/sh', '-v', str(source) + ':/source:ro', '-e', 'PYTHONPATH=/source/backend',
             '-e', 'PYTHONPYCACHEPREFIX=/tmp/odin-post027-bytecode', '-e', 'BASE_URL=http://127.0.0.1:9', '-e', 'ODIN_CONTAINER_EXEC=/usr/bin/false',
-            '-e', 'DEBUG=false', '-e', 'COOKIE_SECURE=false', '-e', 'POST027_NATIVE_URL=postgresql+psycopg://postgres@pg/postgres', receipt['runtime_image'],
+            '-e', 'DEBUG=false', '-e', 'COOKIE_SECURE=false', '-e', 'POST027_CURRENT_ONLY='+os.environ.get('POST027_CURRENT_ONLY','0'), '-e', 'POST027_NATIVE_URL=postgresql+psycopg://postgres@pg/postgres', receipt['runtime_image'],
             '-c', 'exec runuser -u odin -- python /source/ops/database_parity/post027_restore_native.py'],
             text=True, capture_output=True, timeout=5400)
         log = STAGING / 'post027-restore-native-stdout.log'
@@ -91,10 +94,10 @@ def main():
         receipt['native_facts'] = [line for line in result.stdout.splitlines() if line.startswith('post027-native-')]
         assert result.returncode == 0 and 'post027-native-pass' in result.stdout, result.stdout[-3000:] + result.stderr[-5000:]
         # Enterprise-compose ownership: root shell like the entrypoint, secrets owned by odin (10001), 0400.
-        coordinator = subprocess.run(['docker', 'run', '--rm', '--name', runtime + '_coord', '--platform', 'linux/amd64', '--network', name,
+        coordinator = subprocess.run(['docker', 'run', '--rm', '--name', runtime + '_coord', '--platform', RUNTIME_PLATFORM, '--network', name,
             '--user', '0', '--entrypoint', '/bin/sh', '-v', str(source) + ':/source:ro', '-e', 'PYTHONPATH=/source/backend',
             '-e', 'PYTHONPYCACHEPREFIX=/tmp/odin-post027-bytecode', '-e', 'BASE_URL=http://127.0.0.1:9', '-e', 'ODIN_CONTAINER_EXEC=/usr/bin/false',
-            '-e', 'DEBUG=false', '-e', 'COOKIE_SECURE=false', '-e', 'POST027_NATIVE_URL=postgresql+psycopg://postgres@pg/postgres', '-w', '/source/backend',
+            '-e', 'DEBUG=false', '-e', 'COOKIE_SECURE=false', '-e', 'POST027_CURRENT_ONLY='+os.environ.get('POST027_CURRENT_ONLY','0'), '-e', 'POST027_NATIVE_URL=postgresql+psycopg://postgres@pg/postgres', '-w', '/source/backend',
             receipt['runtime_image'], '-c', 'exec python /source/ops/database_parity/post027_coordinator_native.py'],
             text=True, capture_output=True, timeout=5400)
         (STAGING / 'post027-coordinator-native-stdout.log').write_text(coordinator.stdout + '\n--- stderr ---\n' + coordinator.stderr[-20000:])

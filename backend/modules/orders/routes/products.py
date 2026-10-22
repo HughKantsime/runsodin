@@ -143,6 +143,8 @@ def delete_product(product_id: int, current_user: dict = Depends(require_action(
     if not check_org_access(current_user, product.org_id):
         raise HTTPException(status_code=404, detail="Product not found")
 
+    from modules.orders.square_store import forget_product
+    forget_product(db, product)
     db.delete(product)
     db.commit()
 

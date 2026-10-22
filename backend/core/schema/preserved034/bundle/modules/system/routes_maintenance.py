@@ -1,0 +1,458 @@
+"""System maintenance routes — maintenance task templates, logs, status, and seed defaults."""
+
+import logging
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from pydantic import BaseModel as PydanticBaseModel, Field, field_validator
+from sqlalchemy import text, or_
+from sqlalchemy.orm import Session
+
+from core.db import get_db
+from core.errors import ErrorCode, OdinError
+from core.middleware.dry_run import dry_run_preview, is_dry_run
+from core.rbac import (AGENT_READ_SCOPE, AGENT_WRITE_SCOPE, require_any_scope, require_role, require_action,
+                       check_org_access, get_org_scope, should_filter_org)
+from core.responses import build_next_actions, next_action
+from modules.printers.models import Printer
+from modules.system.models import MaintenanceTask, MaintenanceLog
+
+log = logging.getLogger("odin.api")
+router = APIRouter()
+
+
+def _visible_printer_query(query, user):
+    org = get_org_scope(user)
+    if should_filter_org(user, org):
+        query = query.filter(or_(Printer.org_id == org, Printer.org_id.is_(None), Printer.shared.is_(True)))
+    return query
+
+
+def _authorized_printer(db, printer_id, user):
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer or not (check_org_access(user, printer.org_id) or printer.shared):
+        raise OdinError(ErrorCode.printer_not_found, "Printer not found", status=404)
+    return printer
+
+
+# ============== Pydantic models ==============
+
+class MaintenanceTaskCreate(PydanticBaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    description: Optional[str] = None
+    printer_model_filter: Optional[str] = Field(default=None, max_length=100)
+    interval_print_hours: Optional[float] = Field(default=None, gt=0, allow_inf_nan=False)
+    interval_days: Optional[int] = Field(default=None, gt=0)
+    estimated_cost: float = Field(default=0, ge=0, allow_inf_nan=False)
+    estimated_downtime_min: int = Field(default=30, ge=0)
+
+
+    @field_validator("name")
+    @classmethod
+    def valid_name(cls, value):
+        if value is None or not value.strip():
+            raise ValueError("Name must not be empty")
+        return value
+
+
+class MaintenanceTaskUpdate(PydanticBaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    description: Optional[str] = None
+    printer_model_filter: Optional[str] = Field(default=None, max_length=100)
+    interval_print_hours: Optional[float] = Field(default=None, gt=0, allow_inf_nan=False)
+    interval_days: Optional[int] = Field(default=None, gt=0)
+    estimated_cost: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
+    estimated_downtime_min: Optional[int] = Field(default=None, ge=0)
+    is_active: Optional[bool] = None
+
+
+    @field_validator("name")
+    @classmethod
+    def valid_name(cls, value):
+        if value is None or not value.strip():
+            raise ValueError("Name must not be empty")
+        return value
+
+
+class MaintenanceLogCreate(PydanticBaseModel):
+    printer_id: int
+    task_id: Optional[int] = None
+    task_name: str = Field(min_length=1, max_length=200)
+    performed_by: Optional[str] = Field(default=None, max_length=100)
+    notes: Optional[str] = None
+    cost: float = Field(default=0, ge=0, allow_inf_nan=False)
+    downtime_minutes: int = Field(default=0, ge=0)
+
+
+    @field_validator("task_name")
+    @classmethod
+    def valid_name(cls, value):
+        if value is None or not value.strip():
+            raise ValueError("Name must not be empty")
+        return value
+
+
+# ============== Task templates ==============
+
+@router.get("/maintenance/tasks", tags=["Maintenance"])
+def list_maintenance_tasks(
+    db: Session = Depends(get_db),
+    # Stacked auth (Phase 2 canonical read shape).
+    current_user: dict = Depends(require_role("viewer")),
+    _agent_scope: dict = Depends(
+        require_any_scope("admin", AGENT_WRITE_SCOPE, AGENT_READ_SCOPE)
+    ),
+):
+    """List all maintenance task templates."""
+    tasks = db.query(MaintenanceTask).order_by(MaintenanceTask.name).all()
+    return [{
+        "id": t.id,
+        "name": t.name,
+        "description": t.description,
+        "printer_model_filter": t.printer_model_filter,
+        "interval_print_hours": t.interval_print_hours,
+        "interval_days": t.interval_days,
+        "estimated_cost": t.estimated_cost,
+        "estimated_downtime_min": t.estimated_downtime_min,
+        "is_active": t.is_active,
+    } for t in tasks]
+
+
+@router.post("/maintenance/tasks", tags=["Maintenance"])
+def create_maintenance_task(data: MaintenanceTaskCreate, current_user: dict = Depends(require_action("maintenance.tasks", scope="write")), db: Session = Depends(get_db)):
+    """Create a new maintenance task template."""
+    task = MaintenanceTask(
+        name=data.name,
+        description=data.description,
+        printer_model_filter=data.printer_model_filter,
+        interval_print_hours=data.interval_print_hours,
+        interval_days=data.interval_days,
+        estimated_cost=data.estimated_cost,
+        estimated_downtime_min=data.estimated_downtime_min,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+    return {"id": task.id, "name": task.name, "message": "Task created"}
+
+
+@router.patch("/maintenance/tasks/{task_id}", tags=["Maintenance"])
+def update_maintenance_task(task_id: int, data: MaintenanceTaskUpdate, current_user: dict = Depends(require_action("maintenance.tasks", scope="write")), db: Session = Depends(get_db)):
+    """Update a maintenance task template."""
+    task = db.query(MaintenanceTask).filter(MaintenanceTask.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(task, field, value)
+    db.commit()
+    return {"id": task.id, "message": "Task updated"}
+
+
+@router.delete("/maintenance/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Maintenance"])
+def delete_maintenance_task(task_id: int, current_user: dict = Depends(require_role("admin", scope="write")), db: Session = Depends(get_db)):
+    """Delete a task template while preserving named service history."""
+    task = db.query(MaintenanceTask).filter(MaintenanceTask.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    db.delete(task)
+    db.commit()
+
+
+# ============== Maintenance logs ==============
+
+@router.get("/maintenance/logs", tags=["Maintenance"])
+def list_maintenance_logs(
+    printer_id: Optional[int] = None,
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_role("viewer")),
+    _scope: dict = Depends(require_any_scope("read", AGENT_READ_SCOPE, AGENT_WRITE_SCOPE)),
+):
+    """List maintenance logs, optionally filtered by printer."""
+    query = _visible_printer_query(
+        db.query(MaintenanceLog).join(Printer, Printer.id == MaintenanceLog.printer_id), current_user
+    ).order_by(MaintenanceLog.performed_at.desc())
+    if printer_id:
+        query = query.filter(MaintenanceLog.printer_id == printer_id)
+    logs = query.limit(limit).all()
+    return [{
+        "id": l.id,
+        "printer_id": l.printer_id,
+        "task_id": l.task_id,
+        "task_name": l.task_name,
+        "performed_at": l.performed_at.isoformat() if l.performed_at else None,
+        "performed_by": l.performed_by,
+        "notes": l.notes,
+        "cost": l.cost,
+        "downtime_minutes": l.downtime_minutes,
+        "print_hours_at_service": l.print_hours_at_service,
+    } for l in logs]
+
+
+@router.post("/maintenance/logs", tags=["Maintenance"])
+def create_maintenance_log(
+    data: MaintenanceLogCreate,
+    request: Request,
+    # Stacked auth (Phase 2 canonical) — see routes_controls.py::pause_printer.
+    current_user: dict = Depends(require_action("maintenance.log")),
+    _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
+    db: Session = Depends(get_db),
+):
+    """Log a maintenance action performed on a printer.
+
+    Agent-surface (v1.9.0 Phase 2): honors X-Dry-Run, emits next_actions.
+    """
+    printer = _authorized_printer(db, data.printer_id, current_user)
+    if data.task_id is not None and not db.query(MaintenanceTask).filter(MaintenanceTask.id == data.task_id).first():
+        raise HTTPException(404, "Task not found")
+    # Snapshot the same lifetime odometer used by the status calculation.
+    total_hours = max(0.0, float(printer.total_print_hours or 0))
+
+    if is_dry_run(request):
+        return dry_run_preview(
+            would_execute={
+                "action": "complete_maintenance",
+                "printer_id": data.printer_id,
+                "printer_name": printer.name,
+                "task_id": data.task_id,
+                "task_name": data.task_name,
+                "notes": data.notes,
+                "cost": data.cost,
+                "downtime_minutes": data.downtime_minutes,
+                "print_hours_at_service": total_hours,
+            },
+            next_actions=[
+                next_action(
+                    "list_maintenance_tasks",
+                    {"overdue_only": True},
+                    "verify task no longer overdue",
+                ),
+            ],
+            notes=("Would insert a MaintenanceLog row and reset the printer's care counters "
+                   "(prints/hours since maintenance) to 0; nothing is written on dry-run."),
+        )
+
+    log_entry = MaintenanceLog(
+        printer_id=data.printer_id,
+        task_id=data.task_id,
+        task_name=data.task_name,
+        performed_by=data.performed_by,
+        notes=data.notes,
+        cost=data.cost,
+        downtime_minutes=data.downtime_minutes,
+        print_hours_at_service=total_hours,
+    )
+    db.add(log_entry)
+    # Completing maintenance resets the printer's care counters in the same
+    # transaction as the log (the task's own next-due point is recomputed from
+    # this log's print_hours_at_service / performed_at by the status endpoint).
+    printer.hours_since_maintenance = 0
+    printer.prints_since_maintenance = 0
+    db.commit()
+    db.refresh(log_entry)
+    return {
+        "id": log_entry.id,
+        "message": "Maintenance logged",
+        "print_hours_at_service": total_hours,
+        "next_actions": build_next_actions(
+            next_action(
+                "list_maintenance_tasks",
+                {"overdue_only": True},
+                "confirm task no longer overdue",
+            ),
+        ),
+    }
+
+
+@router.delete("/maintenance/logs/{log_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Maintenance"])
+def delete_maintenance_log(log_id: int, current_user: dict = Depends(require_role("admin", scope="write")), db: Session = Depends(get_db)):
+    """Delete a maintenance log entry."""
+    log_entry = db.query(MaintenanceLog).filter(MaintenanceLog.id == log_id).first()
+    if not log_entry:
+        raise HTTPException(status_code=404, detail="Log not found")
+    _authorized_printer(db, log_entry.printer_id, current_user)
+    db.delete(log_entry)
+    db.commit()
+
+
+# ============== Maintenance status ==============
+
+@router.get("/maintenance/status", tags=["Maintenance"])
+def get_maintenance_status(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer")), _scope: dict = Depends(require_any_scope("read", AGENT_READ_SCOPE, AGENT_WRITE_SCOPE))):
+    """Get maintenance status for all active printers. Returns per-printer task health."""
+    printers = _visible_printer_query(db.query(Printer), current_user).filter(Printer.is_active.is_(True)).order_by(Printer.name).all()
+    tasks = db.query(MaintenanceTask).filter(MaintenanceTask.is_active.is_(True)).all()
+
+    hours_map = {p.id: float(p.total_print_hours or 0) for p in printers}
+
+    all_logs = db.query(MaintenanceLog).filter(
+        MaintenanceLog.printer_id.in_([p.id for p in printers])
+    ).order_by(MaintenanceLog.performed_at.desc(), MaintenanceLog.id.desc()).all()
+    log_map = {}
+    for mlog in all_logs:
+        key = (mlog.printer_id, mlog.task_id)
+        if key not in log_map or (mlog.performed_at and log_map[key].performed_at and mlog.performed_at > log_map[key].performed_at):
+            log_map[key] = mlog
+
+    now = datetime.now(timezone.utc)
+    result = []
+
+    for printer in printers:
+        total_hours = hours_map.get(printer.id, 0)
+        printer_tasks = []
+        worst_status = "ok"
+
+        for task in tasks:
+            if task.printer_model_filter:
+                if task.printer_model_filter.lower() not in (printer.model or "").lower():
+                    continue
+
+            last_log = log_map.get((printer.id, task.id))
+
+            service_anchor = None
+            if last_log and last_log.performed_at:
+                hours_since = max(0.0, total_hours - (last_log.print_hours_at_service or 0))
+                performed_at = last_log.performed_at
+                if performed_at.tzinfo is None:
+                    performed_at = performed_at.replace(tzinfo=timezone.utc)
+                service_anchor = performed_at
+                days_since = (now - performed_at).days
+                last_serviced = last_log.performed_at.isoformat()
+                last_by = last_log.performed_by
+            else:
+                hours_since = total_hours
+                created = printer.created_at
+                if created and created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+                days_since = (now - created).days if created else 0
+                service_anchor = created
+                last_serviced = None
+                last_by = None
+
+            # Next due point: the interval measured from the last service (or
+            # from the printer's start when never serviced).
+            next_due_hours = hours_until_due = next_due_date = None
+            if task.interval_print_hours and task.interval_print_hours > 0:
+                next_due_hours = round(total_hours - hours_since + task.interval_print_hours, 1)
+                hours_until_due = round(task.interval_print_hours - hours_since, 1)
+            if task.interval_days and task.interval_days > 0 and service_anchor:
+                next_due_date = (service_anchor + timedelta(days=task.interval_days)).isoformat()
+
+            task_status = "ok"
+            progress = 0.0
+
+            if task.interval_print_hours and task.interval_print_hours > 0:
+                pct = (hours_since / task.interval_print_hours) * 100
+                progress = max(progress, pct)
+                if hours_since >= task.interval_print_hours:
+                    task_status = "overdue"
+                elif hours_since >= task.interval_print_hours * 0.8:
+                    task_status = "due_soon"
+
+            if task.interval_days and task.interval_days > 0:
+                pct = (days_since / task.interval_days) * 100
+                progress = max(progress, pct)
+                if days_since >= task.interval_days:
+                    task_status = "overdue"
+                elif days_since >= task.interval_days * 0.8:
+                    if task_status != "overdue":
+                        task_status = "due_soon"
+
+            if task_status == "overdue":
+                worst_status = "overdue"
+            elif task_status == "due_soon" and worst_status == "ok":
+                worst_status = "due_soon"
+
+            printer_tasks.append({
+                "task_id": task.id,
+                "task_name": task.name,
+                "description": task.description,
+                "interval_print_hours": task.interval_print_hours,
+                "interval_days": task.interval_days,
+                "hours_since_service": round(hours_since, 1),
+                "days_since_service": days_since,
+                "last_serviced": last_serviced,
+                "last_by": last_by,
+                "status": task_status,
+                "progress_percent": round(min(progress, 150), 1),
+                "next_due_print_hours": next_due_hours,
+                "hours_until_due": hours_until_due,
+                "next_due_date": next_due_date,
+            })
+
+        result.append({
+            "printer_id": printer.id,
+            "printer_name": printer.name,
+            "printer_model": printer.model,
+            "total_print_hours": round(total_hours, 1),
+            # Care counters: lifetime prints plus prints/hours since the last
+            # logged maintenance (reset by POST /maintenance/logs).
+            "total_print_count": printer.total_print_count or 0,
+            "prints_since_maintenance": printer.prints_since_maintenance or 0,
+            "hours_since_maintenance": round(float(printer.hours_since_maintenance or 0), 1),
+            "tasks": sorted(printer_tasks, key=lambda t: {"overdue": 0, "due_soon": 1, "ok": 2}.get(t["status"], 3)),
+            "overall_status": worst_status,
+        })
+
+    result.sort(key=lambda p: {"overdue": 0, "due_soon": 1, "ok": 2}.get(p["overall_status"], 3))
+    return result
+
+
+# ============== Seed defaults ==============
+
+@router.post("/maintenance/seed-defaults", tags=["Maintenance"])
+def seed_default_maintenance_tasks(current_user: dict = Depends(require_role("admin", scope="write")), db: Session = Depends(get_db)):
+    """Seed default maintenance tasks for common Bambu Lab printer models."""
+    defaults = [
+        {"name": "General Cleaning", "description": "Clean build plate, wipe exterior, clear debris from print area",
+         "printer_model_filter": None, "interval_print_hours": 50, "interval_days": 14,
+         "estimated_cost": 0, "estimated_downtime_min": 15},
+        {"name": "Nozzle Inspection", "description": "Check nozzle for wear, clogs, or damage — replace if needed",
+         "printer_model_filter": None, "interval_print_hours": 500, "interval_days": None,
+         "estimated_cost": 8, "estimated_downtime_min": 15},
+        {"name": "Build Plate Check", "description": "Inspect build plate surface — clean, re-level, or replace if worn",
+         "printer_model_filter": None, "interval_print_hours": 1000, "interval_days": 180,
+         "estimated_cost": 30, "estimated_downtime_min": 10},
+        {"name": "Belt Tension Check", "description": "Verify X/Y belt tension and adjust if loose",
+         "printer_model_filter": None, "interval_print_hours": 500, "interval_days": None,
+         "estimated_cost": 0, "estimated_downtime_min": 20},
+        {"name": "Firmware Update Check", "description": "Check for and apply firmware updates",
+         "printer_model_filter": None, "interval_print_hours": None, "interval_days": 30,
+         "estimated_cost": 0, "estimated_downtime_min": 15},
+        {"name": "Carbon Rod Lubrication", "description": "Lubricate carbon rods on X/Y axes (X1 series)",
+         "printer_model_filter": "X1", "interval_print_hours": 200, "interval_days": None,
+         "estimated_cost": 5, "estimated_downtime_min": 20},
+        {"name": "HEPA Filter Replacement", "description": "Replace HEPA filter in enclosure (X1 series)",
+         "printer_model_filter": "X1", "interval_print_hours": 500, "interval_days": 90,
+         "estimated_cost": 12, "estimated_downtime_min": 5},
+        {"name": "Purge Wiper Replacement", "description": "Replace purge/wiper assembly (X1 series)",
+         "printer_model_filter": "X1", "interval_print_hours": 200, "interval_days": None,
+         "estimated_cost": 6, "estimated_downtime_min": 10},
+        {"name": "HEPA Filter Replacement", "description": "Replace HEPA filter in enclosure (P1S)",
+         "printer_model_filter": "P1S", "interval_print_hours": 500, "interval_days": 90,
+         "estimated_cost": 12, "estimated_downtime_min": 5},
+        {"name": "Carbon Rod Lubrication", "description": "Lubricate carbon rods on X/Y axes (P1S)",
+         "printer_model_filter": "P1S", "interval_print_hours": 200, "interval_days": None,
+         "estimated_cost": 5, "estimated_downtime_min": 20},
+        {"name": "Hotend Cleaning", "description": "Clean hotend assembly and check for leaks (A1 series)",
+         "printer_model_filter": "A1", "interval_print_hours": 300, "interval_days": None,
+         "estimated_cost": 0, "estimated_downtime_min": 20},
+    ]
+
+    created = 0
+    skipped = 0
+    for d in defaults:
+        existing = db.query(MaintenanceTask).filter(
+            MaintenanceTask.name == d["name"],
+            MaintenanceTask.printer_model_filter == d["printer_model_filter"]
+        ).first()
+        if not existing:
+            task = MaintenanceTask(**d)
+            db.add(task)
+            created += 1
+        else:
+            skipped += 1
+
+    db.commit()
+    return {"message": f"Seeded {created} tasks ({skipped} already existed)", "created": created, "skipped": skipped}

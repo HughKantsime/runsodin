@@ -2,9 +2,18 @@
 
 All notable changes to O.D.I.N. are documented here.
 
-## [Unreleased]
+## [2.0.8] - 2026-10-22
 
-- Add monitor-only Anycubic LAN telemetry and ACE slots, IP-only printer setup, ephemeral LAN handshake credentials, periodic polling and offline detection. Controls and dispatch remain unsupported; no existing printers are changed.
+<!-- summary: Monitor-only Anycubic LAN printers and gated Square stock additions -->
+
+### Added
+
+- Monitor stock-firmware Anycubic Kobra 3 / Kobra S1 printers over LAN: live status, temperatures and ACE Pro / ACE 2 slots in the existing filament-slot model, IP-only setup, a fresh handshake on every connect with nothing stored, and the camera feed for go2rtc. The adapter can only send status queries; no print control or dispatch.
+- Products can connect to Square (encrypted per-tenant credentials, explicit product mappings, read-only stock checks).
+- Fixed-yield recipes and inspected batch receipts record accepted and rejected output per print and prepare one Square stock addition per receipt.
+- An operator can send a prepared addition to Square one at a time after a read-only check, with the destination and current Square count shown first. Sending requires both the server switch `ODIN_SQUARE_STOCK_WRITES=1` and an audited per-tenant setting; both are off by default.
+- Stock baselines: output already counted in a Square physical count is attested per output and is never posted; additions prepared before a baseline change need an explicit review.
+- Uncertain sends are never retried; they are confirmed only from Square adjustment history. Sending is refused unless the Square credential has inventory write scope.
 
 ## [2.0.7] - 2026-10-22
 

@@ -95,6 +95,7 @@ _ALLOWED_PYTHON_MIGRATIONS = frozenset(
         "core.schema.migrations.032_quiet_hours_deferred_deliveries",
         "core.schema.migrations.033_timelapse_capture_tenancy",
         "core.schema.migrations.034_alert_outbox",
+        "core.schema.migrations.035_production_acceptance",
     }
 )
 
