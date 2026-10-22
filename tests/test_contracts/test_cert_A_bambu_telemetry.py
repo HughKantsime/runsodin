@@ -488,7 +488,8 @@ def test_empty_ams_list_clears_unplugged_ht_slots(wire_monitor, review_db):
         "SELECT filament_type FROM filament_slots WHERE printer_id=301 AND slot_number=17")).scalar_one()).split(".")[-1].lower() == "empty"
 
 
-def test_failing_ams_sync_backs_off_then_drops_report_with_error(wire_monitor, monkeypatch):
+@pytest.mark.parametrize("expected_error", [False, True])
+def test_failing_ams_sync_backs_off_then_drops_report_with_error(wire_monitor, monkeypatch, caplog, expected_error):
     import modules.printers.monitors.ams_inventory as ams_inventory
     import modules.printers.monitors.mqtt_printer as mqtt_printer
     monitor, sock, clock, events = wire_monitor
@@ -496,6 +497,8 @@ def test_failing_ams_sync_backs_off_then_drops_report_with_error(wire_monitor, m
 
     def always_fail(conn, printer_id, units):
         calls.append(clock[0])
+        if expected_error:
+            raise ams_inventory.AMSInventoryError("unavailable", printer_id)
         raise RuntimeError("synthetic database failure")
     monkeypatch.setattr(ams_inventory, "sync_ams_inventory", always_fail)
     report = next(p for _, p in load_frames("bambu-x1c-ams-swap")
@@ -514,7 +517,15 @@ def test_failing_ams_sync_backs_off_then_drops_report_with_error(wire_monitor, m
     gaps = [b - a for a, b in zip(calls, calls[1:])]
     assert gaps == sorted(gaps) and gaps[0] >= mqtt_printer.AMS_SYNC_RETRY_BASE_SECONDS
     assert monitor._pending_ams_report is None
-    assert any("dropping the reported AMS list" in r for r in records)
+    expected_reason = "AMS association unavailable" if expected_error else "RuntimeError"
+    assert any("dropping the reported AMS list" in r and f"reason={expected_reason}" in r
+               and "printer_id=301" in r for r in records)
+    warnings = [r for r in caplog.records if "AMS inventory synchronization failed (attempt" in r.message]
+    assert len(warnings) == 2  # first failure, then the first retry after 60 seconds
+    errors = [r for r in caplog.records if "dropping the reported AMS list" in r.message]
+    assert errors and warnings
+    assert all(bool(r.exc_info) is (not expected_error) for r in errors + warnings)
+    assert ("synthetic database failure" in caplog.text) is (not expected_error)
 
 
 def test_reconnect_resets_pending_ams_report(wire_monitor):

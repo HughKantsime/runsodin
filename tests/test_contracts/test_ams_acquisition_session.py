@@ -263,3 +263,17 @@ def test_parent_rejects_non_boolean_idle_evidence(value):
     now = time.monotonic()
     assert not _valid_snapshot(changed, key=KEY, owner=1, slots=[1], incarnation=INC,
                                started=now-1, deadline=now+1, now=now)
+
+
+@pytest.mark.parametrize('fields', [
+    {'gcode_state': 'RUNNING', 'print_error': 42, 'active_hms_codes': ('00000001_00000002',)},
+    {'gcode_state': 'private-serial'}, {'print_error': 'private-token'},
+    {'print_error': -1}, {'active_hms_codes': ('private-token',)},
+    {'active_hms_codes': ['00000001_00000002']},
+])
+def test_parent_validates_optional_diagnostic_fields(fields):
+    from modules.printers.telemetry.bambu.ams_acquisition_session import _valid_snapshot
+    captured = replace(_snapshot(INC, KEY, 1), **fields)
+    now = time.monotonic()
+    assert _valid_snapshot(captured, key=KEY, owner=1, slots=[1], incarnation=INC,
+        started=now-1, deadline=now+1, now=now) is (fields.get('gcode_state') == 'RUNNING')

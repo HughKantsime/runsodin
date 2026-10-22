@@ -284,8 +284,9 @@ def _post_upload_gate(before_start):
         return True
     try:
         return before_start() is True
-    except Exception:
-        return False
+    except Exception as exc:
+        from modules.printers.dispatch_ams_gate import record_refusal
+        return record_refusal(before_start, "exception:" + type(exc).__name__, "Post-upload gate raised an exception")
 
 
 def _prepare_post_upload_gate(before_start):
@@ -296,8 +297,22 @@ def _prepare_post_upload_gate(before_start):
         return True
     try:
         return callable(prepare) and prepare() is True
+    except Exception as exc:
+        from modules.printers.dispatch_ams_gate import record_refusal
+        return record_refusal(before_start, "exception:" + type(exc).__name__, "Post-upload preparation raised an exception")
+
+
+def _gate_refusal_message(gate):
+    from modules.printers.dispatch_ams_gate import GateRefusal, record_refusal
+    record_refusal(gate, "gate_rejected", "Post-upload callback refused print start")
+    try:
+        refusal = getattr(gate, "refusal", None)
     except Exception:
-        return False
+        refusal = None
+    if refusal is None:
+        refusal = GateRefusal("gate_rejected", "Post-upload callback refused print start")
+    return ("Post-upload printer and AMS checks refused print start "
+            f"({refusal.code}: {refusal.detail}); no print command was sent")
 
 
 def _dispatch_bambu_v2(job_id: int, stored_path: str, remote_filename: str, creds: dict, *, before_start=None, **print_options) -> tuple[bool, str]:
@@ -327,11 +342,18 @@ def _dispatch_bambu_v2(job_id: int, stored_path: str, remote_filename: str, cred
         access_code=creds["access_code"],
     )
     if not _prepare_post_upload_gate(before_start):
-        return False, "Post-upload printer and AMS checks refused print start; no print command was sent"
+        return False, _gate_refusal_message(before_start)
     log.info(f"[dispatch] Sending Bambu V2 start_print for '{remote_filename}'")
     final_check = {"before_command": before_start} if before_start is not None else {}
-    ok = _submit_print_command(run_command, config, "start_print", remote_filename, **final_check, **print_options)
+    try:
+        ok = _submit_print_command(run_command, config, "start_print", remote_filename, **final_check, **print_options)
+    except DispatchOutcomeUncertain:
+        if getattr(before_start, "refusal", None) is not None:
+            raise DispatchOutcomeUncertain(_gate_refusal_message(before_start)) from None
+        raise
     if not ok:
+        if getattr(before_start, "refusal", None) is not None:
+            return False, _gate_refusal_message(before_start)
         return False, "MQTT print command failed (file uploaded OK)"
     return True, "Print started"
 
@@ -357,13 +379,13 @@ def _dispatch_bambu_legacy(job_id: int, stored_path: str, remote_filename: str, 
 
         _ws(job_id, "starting", "File uploaded, connecting MQTT to start print...")
         if not _prepare_post_upload_gate(before_start):
-            return False, "Post-upload printer and AMS checks refused print start; no print command was sent"
+            return False, _gate_refusal_message(before_start)
         if not printer.connect():
             return False, "MQTT connection failed after successful file upload"
 
         time.sleep(1)
         if not _post_upload_gate(before_start):
-            return False, "Post-upload printer and AMS checks refused print start; no print command was sent"
+            return False, _gate_refusal_message(before_start)
         log.info("[dispatch] Sending Bambu print command for job %s", job_id)
         ok = _submit_print_command(printer.start_print, remote_filename, **print_options)
         if not ok:
@@ -606,7 +628,7 @@ def _confirm_education_dispatch(provider, reservation: dict) -> dict:
         log.error("[dispatch] Education physical start confirmation failed: %s", exc)
         return {"education_owned": True, "authorized": False, "transitioned": False}
 
-def _notify_start_outcome(job: dict, reason: str):
+def _notify_start_outcome(job: dict, reason: str, *, gate_refusal=None, message=None):
     """Record a safe outcome without changing or repeating physical dispatch."""
     creator = job.get("charged_to_user_id") or job.get("submitted_by")
     if creator is None:
@@ -632,8 +654,8 @@ def _notify_start_outcome(job: dict, reason: str):
                     or row["printer_id"] != job.get("printer_id")):
                 return
             plan = stage_alert(db, AlertType.QUEUE_FAILED_START, AlertSeverity.WARNING,
-                "Print start needs attention", messages[reason], job_id=job["id"],
-                printer_id=job["printer_id"], metadata={"reason": reason}, target_user_ids=[creator])
+                "Print start needs attention", message if gate_refusal else messages[reason], job_id=job["id"],
+                printer_id=job["printer_id"], metadata={"reason": reason, **({"gate_refusal_code": gate_refusal.code} if gate_refusal else {})}, target_user_ids=[creator])
             db.commit()
             deliver_staged_alert(db, plan)
     except Exception:
@@ -821,9 +843,12 @@ def _run_admitted_dispatch(job,creds,stored_path,remote_filename,print_options,e
     except Exception:
         # An unexpected exception may occur after submission. Fail closed rather
         # than removing the only durable fence against a second physical print.
-        log.warning("[dispatch] Adapter outcome requires reconciliation for job %s", job_id)
+        if getattr(before_start, "refusal", None) is None:
+            log.warning("[dispatch] Adapter outcome requires reconciliation for job %s", job_id)
         uncertain = True
         success, message = False, "Printer command outcome is unknown; explicit reconciliation is required before retrying"
+        if getattr(before_start, "refusal", None) is not None:
+            message = _gate_refusal_message(before_start) + "; explicit reconciliation is required before retrying"
 
     if not success:
         if education_reservation and not uncertain and not _cancel_education_reservation(
@@ -831,7 +856,13 @@ def _run_admitted_dispatch(job,creds,stored_path,remote_filename,print_options,e
         ):
             message += "; Education reservation requires explicit reconciliation"
         _ws(job_id, "failed", message)
-        _notify_start_outcome(job, "adapter_unknown" if uncertain else "adapter_rejected")
+        refusal = getattr(before_start, "refusal", None)
+        if refusal is not None:
+            log.warning("Post-upload gate refused job_id=%s printer_id=%s code=%s detail=%s",
+                        job_id, printer_id, refusal.code, refusal.detail)
+            _notify_start_outcome(job, "adapter_unknown" if uncertain else "adapter_rejected", gate_refusal=refusal, message=message)
+        else:
+            _notify_start_outcome(job, "adapter_unknown" if uncertain else "adapter_rejected")
         return False, message
 
     if education_reservation:

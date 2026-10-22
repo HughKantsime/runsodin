@@ -103,11 +103,22 @@ def test_post_upload_gate_rechecks_same_attempt_after_read(setup, monkeypatch, c
 @pytest.mark.parametrize('protocol', ['legacy', 'v2'])
 @pytest.mark.parametrize('material_matches', [True, False])
 def test_actual_dispatch_upload_read_and_single_start_sequence(review_db, tmp_path, monkeypatch,
-                                                               protocol, material_matches):
+                                                               protocol, material_matches, caplog):
     from tests.test_contracts.dispatch_test_support import configure_dispatch
     from modules.printers import dispatch_ams_gate as gate
     from modules.printers.telemetry import feature_flag
+    notify = dispatch._notify_start_outcome
     engine, path = configure_dispatch(review_db, tmp_path, monkeypatch, protocol='bambu')
+    monkeypatch.setattr(dispatch, '_notify_start_outcome', notify)
+    ws_events = []
+    monkeypatch.setattr(dispatch, '_ws', lambda *args: ws_events.append(args))
+    from core.base import AlertType
+    from modules.notifications.models import AlertPreference
+    from modules.notifications import alert_dispatcher
+    monkeypatch.setattr(alert_dispatcher, 'should_suppress_notification', lambda **kwargs: True)
+    review_db.add(AlertPreference(user_id=3, alert_type=AlertType.QUEUE_FAILED_START, in_app=True, email=False, browser_push=False))
+    review_db.execute(text('UPDATE jobs SET charged_to_user_id=3,submitted_by=3 WHERE id=53'))
+    review_db.commit()
     source = Path(__file__).parents[1] / 'fixtures/telemetry/a1-petg-source-sanitized.3mf'
     payload = source.read_bytes(); path.write_bytes(payload)
     with engine.begin() as conn:
@@ -150,6 +161,15 @@ def test_actual_dispatch_upload_read_and_single_start_sequence(review_db, tmp_pa
             start=lambda:None, is_connected=lambda:True, start_print=started, stop=lambda:None))
     result = dispatch.dispatch_job(59, 53)
     assert result[0] is material_matches
+    if not material_matches:
+        import json
+        assert 'material_mismatch' in result[1]
+        assert result[1].startswith('Post-upload printer and AMS checks refused print start')
+        assert any(event[1] == 'failed' and 'material_mismatch' in event[2] for event in ws_events)
+        alert = review_db.execute(text("SELECT message,metadata_json FROM alerts WHERE job_id=53 AND alert_type='queue_failed_start'")).one()
+        assert 'material_mismatch' in alert[0]
+        assert json.loads(alert[1])['gate_refusal_code'] == 'material_mismatch'
+        assert sum('Post-upload gate refused job_id=53 printer_id=59 code=material_mismatch' in r.message for r in caplog.records) == 1
     assert events[:2] == ['upload', 'fresh_read']
     assert events.count('start') == (1 if material_matches else 0)
     with engine.connect() as conn:

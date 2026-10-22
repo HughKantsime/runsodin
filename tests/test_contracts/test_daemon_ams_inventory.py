@@ -112,7 +112,9 @@ def test_daemon_batch_failure_rolls_back_inventory_and_next_observation_retries(
         assert review_db.execute(text('SELECT COUNT(*) FROM filament_slots WHERE printer_id=199')).scalar_one()==0
     else:
         assert review_db.execute(text('SELECT color_hex FROM filament_slots WHERE id=199')).scalar_one() is None
-    assert 'synthetic-private-failure-marker' not in caplog.text
+    failures = [r for r in caplog.records if 'AMS inventory synchronization failed' in r.message]
+    assert failures and failures[0].exc_info is not None
+    assert 'synthetic-private-failure-marker' not in failures[0].message
     # Earlier independent heartbeat persistence survives the AMS rollback.
     assert review_db.execute(text('SELECT last_seen FROM printers WHERE id=199')).scalar_one() is not None
     # The outer heartbeat gate admits DB work every ten seconds.

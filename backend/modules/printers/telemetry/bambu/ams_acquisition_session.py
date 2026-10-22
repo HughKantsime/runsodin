@@ -8,7 +8,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from threading import Event, RLock
-from modules.printers.telemetry.bambu.ams_acquisition_collector import RawAMSAcquisitionCollector, RawAMSSnapshot
+from modules.printers.telemetry.bambu.ams_acquisition_collector import RawAMSAcquisitionCollector, RawAMSSnapshot, safe_status_fields
 from modules.printers.telemetry.bambu.ams_evidence import RawTrayFact
 from core.material_identity import canonical_reported_material
 
@@ -159,6 +159,16 @@ def _valid_snapshot(snapshot,*,key,owner,slots,incarnation,started,deadline,now)
         or type(snapshot.idle_without_error) is not bool
         or type(snapshot.trays) is not tuple
         or len(snapshot.trays)!=len(slots)):return False
+    diagnostics = safe_status_fields({
+        'gcode_state': snapshot.gcode_state, 'print_error': snapshot.print_error,
+        'hms': None if snapshot.active_hms_codes is None else []})
+    if (diagnostics['gcode_state'] != snapshot.gcode_state
+        or diagnostics['print_error'] != snapshot.print_error
+        or (snapshot.active_hms_codes is not None and
+            (type(snapshot.active_hms_codes) is not tuple or any(
+                type(code) is not str or re.fullmatch('[0-9A-F]{8}_[0-9A-F]{8}', code) is None
+                for code in snapshot.active_hms_codes)))):
+        return False
     if tuple(f.slot_number for f in snapshot.trays if type(f) is RawTrayFact)!=tuple(sorted(slots)):return False
     for fact in snapshot.trays:
         if (type(fact) is not RawTrayFact or type(fact.slot_number) is not int

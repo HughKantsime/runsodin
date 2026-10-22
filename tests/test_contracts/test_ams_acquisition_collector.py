@@ -178,3 +178,21 @@ def test_cancelled_zero_error_same_packet_material_readiness_is_revoked(owned,la
     assert snap(c).idle_without_error is True
     assert not report(c,later)
     assert snap(c).idle_without_error is False
+
+
+def test_diagnostic_status_is_safe_and_tracks_later_busy_packet(owned):
+    c, _ = owned
+    ready(c)
+    packet = {'ams': {'ams': [{'id': 0, 'tray': [{'id': 0, 'tray_type': 'PETG'}]}]},
+              'gcode_state': 'IDLE', 'print_error': 0, 'hms': []}
+    assert report(c, packet)
+    assert snap(c).idle_without_error
+    assert not report(c, {'gcode_state': 'RUNNING', 'print_error': 42,
+                          'hms': [{'attr': 1, 'code': 2}, {'attr': 'private-token', 'code': 3}]})
+    snapshot = snap(c)
+    assert snapshot.idle_without_error is False
+    assert (snapshot.gcode_state, snapshot.print_error, snapshot.active_hms_codes) == (
+        'RUNNING', 42, ('00000001_00000002',))
+    from modules.printers.telemetry.bambu.ams_acquisition_collector import safe_status_fields
+    assert safe_status_fields({'gcode_state': 'private-serial', 'print_error': 'private-token'}) == dict(
+        gcode_state=None, print_error=None, active_hms_codes=None)

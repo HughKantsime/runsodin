@@ -351,6 +351,17 @@ class PrinterMonitor:
             self._reset_pending_ams()
             return self._connection_generation
 
+    def _ams_sync_warning_due(self, reason, now):
+        # Preserve per-reason throttles across reports/reconnects. Expire old
+        # entries so changing association IDs cannot grow this state forever.
+        recent = {key: stamp for key, stamp in getattr(self, '_ams_warning_times', {}).items()
+                  if now - stamp < 60}
+        self._ams_warning_times = recent
+        if reason in recent:
+            return False
+        recent[reason] = now
+        return True
+
     def _reset_pending_ams(self, report=None):
         """Clear the held AMS list and all retry state (new connection or committed sync)."""
         self._pending_ams_report = report
@@ -812,14 +823,16 @@ class PrinterMonitor:
                                 self._last_ams_slot_sync = now
                                 if self._pending_ams_report is pending_ams:
                                     self._reset_pending_ams()
-                            except Exception:
+                            except Exception as exc:
+                                from modules.printers.monitors.ams_inventory import AMSInventoryError
+                                reason = str(exc) if type(exc) is AMSInventoryError else type(exc).__name__
                                 conn.rollback()
                                 failures = getattr(self, '_ams_sync_failures', 0) + 1
                                 if self._pending_ams_report is not pending_ams:
                                     pass  # a newer report replaced it; its own retry state applies
                                 elif failures >= AMS_SYNC_MAX_ATTEMPTS:
-                                    log.error("AMS inventory synchronization failed %s times; dropping the reported AMS list until its contents change",
-                                              failures, exc_info=True)
+                                    log.error("AMS inventory synchronization failed %s times; dropping the reported AMS list until its contents change; printer_id=%s reason=%s",
+                                              failures, self.printer_id, reason, exc_info=type(exc) is not AMSInventoryError)
                                     dropped = self._pending_ams_digest
                                     self._reset_pending_ams()
                                     self._ams_dropped_digest = dropped
@@ -827,8 +840,10 @@ class PrinterMonitor:
                                     delay = min(AMS_SYNC_RETRY_BASE_SECONDS * 2 ** (failures - 1), AMS_SYNC_RETRY_MAX_SECONDS)
                                     self._ams_sync_failures = failures
                                     self._ams_sync_retry_at = now + delay
-                                    log.warning("AMS inventory synchronization failed (attempt %s/%s); retrying in %ss",
-                                                failures, AMS_SYNC_MAX_ATTEMPTS, delay)
+                                    if self._ams_sync_warning_due(reason, now):
+                                        log.warning("AMS inventory synchronization failed (attempt %s/%s); retrying in %ss; printer_id=%s reason=%s",
+                                                    failures, AMS_SYNC_MAX_ATTEMPTS, delay, self.printer_id, reason,
+                                                    exc_info=type(exc) is not AMSInventoryError)
 
                     # ---- Dual-Nozzle (H2D / H2D Pro / H2C) / External Spool Parsing ----
                     h2d_nozzle_data = None

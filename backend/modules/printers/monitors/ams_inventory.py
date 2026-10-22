@@ -4,6 +4,13 @@ from core.material_identity import canonical_reported_material
 from modules.printers.telemetry.validators import coerce_int_or_raise
 
 
+class AMSInventoryError(ValueError):
+    """Safe local association identifiers only; never raw telemetry or credentials."""
+    def __init__(self, reason, printer_id, *, slots=(), spools=(), numbers=()):
+        super().__init__(f"AMS association {reason}: printer_id={printer_id} "
+                         f"filament_slot_ids={sorted(slots)} spool_ids={sorted(spools)} slot_numbers={sorted(numbers)}")
+
+
 def remaining_percent(value):
     if value is None:
         return None
@@ -46,10 +53,10 @@ def _graph(conn, printer_id, tags):
         if spool[2] is not None:
             located = conn.execute('SELECT id,assigned_spool_id,printer_id,slot_number FROM filament_slots WHERE printer_id=? AND slot_number=?', (spool[2], spool[5])).fetchone()
             if located is None or located[1] != spool[0]:
-                raise ValueError('AMS association contradictory')
+                raise AMSInventoryError('contradictory', printer_id, slots=(() if located is None else (located[0],)), spools=(spool[0],), numbers=(() if spool[5] is None else (spool[5],)))
             slots = list({row[0]: row for row in slots + [located]}.values())
     if {row[0] for row in spools} != ids:
-        raise ValueError('AMS association unavailable')
+        raise AMSInventoryError('unavailable', printer_id, slots=[row[0] for row in slots], spools=ids)
     return ({row[0]: (row[1],row[2],row[3]) for row in slots}, {row[0]: (row[2],row[5]) for row in spools}, {row[1]: row[0] for row in matches})
 
 
@@ -89,7 +96,7 @@ def sync_ams_inventory(conn, printer_id, units):
         return 0
     reported_tags = [tray.get('tag_uid') for tray in trays if tray.get('tag_uid') and tray.get('tray_type')]
     if len(reported_tags) != len(set(reported_tags)):
-        raise ValueError('AMS destinations ambiguous')
+        raise AMSInventoryError('ambiguous', printer_id, numbers=[number for number, _ in identified])
     tags = sorted(set(reported_tags))
     if not getattr(conn, '_postgres', False):
         conn.execute('UPDATE printers SET name=name WHERE id=?', (printer_id,))
@@ -99,20 +106,20 @@ def sync_ams_inventory(conn, printer_id, units):
     _rows(conn, 'filament_slots', set(before[0]), 'id', lock=True)
     spools = {row[0]: row for row in _rows(conn, 'spools', set(before[1]), _SPOOL_COLUMNS, lock=True)}
     if _graph(conn, printer_id, tags) != before or set(printers) != printer_ids:
-        raise ValueError('AMS association changed')
+        raise AMSInventoryError('changed', printer_id, slots=before[0], spools=before[1])
     org = printers[printer_id]
     if any(value is not None and value != org for value in printers.values()):
-        raise ValueError('AMS association unavailable')
+        raise AMSInventoryError('unavailable', printer_id, slots=before[0], spools=before[1])
     for slot in before[0].values():
         if slot[0] is not None:
             row = spools[slot[0]]
             if row[2] is not None and (row[2],row[5]) != (slot[1],slot[2]):
-                raise ValueError('AMS association contradictory')
+                raise AMSInventoryError('contradictory', printer_id, slots=before[0], spools=(row[0],), numbers=(slot[2],))
     for row in spools.values():
         if row[1] is not None and row[1] != org:
-            raise ValueError('AMS association unavailable')
+            raise AMSInventoryError('unavailable', printer_id, slots=before[0], spools=before[1])
         if row[2] is not None and printers[row[2]] is not None and printers[row[2]] != org:
-            raise ValueError('AMS association unavailable')
+            raise AMSInventoryError('unavailable', printer_id, slots=before[0], spools=before[1])
     # Clear the original association graph before writing any final targets.
     # A sequential clear/write loop loses assignments during valid permutations.
     destinations = {number: before[2].get(tray.get('tag_uid'))

@@ -20,6 +20,31 @@ class RawAMSSnapshot:
     # Only explicit idle/no-error fields in this same AMS-bearing packet qualify.
     idle_without_error: bool = False
 
+    # Diagnostic-only values, never used to grant or refuse acquisition.
+    gcode_state: str | None = None
+    print_error: int | None = None
+    active_hms_codes: tuple[str, ...] | None = None
+
+
+def safe_status_fields(packet):
+    """Copy only protocol enums and numeric codes, never arbitrary device text."""
+    packet = packet if type(packet) is dict else {}
+    state = packet.get('gcode_state')
+    if type(state) is not str or state not in {
+        'IDLE', 'FINISH', 'FAILED', 'RUNNING', 'PAUSE', 'PREPARE',
+        'SLICING', 'PENDING', 'UNKNOWN', 'OFFLINE'}:
+        state = None
+    error = packet.get('print_error')
+    if type(error) is not int or not 0 <= error <= 0xffffffff:
+        error = None
+    hms = packet.get('hms')
+    codes = None
+    if type(hms) is list:
+        codes = tuple(f"{item['attr']:08X}_{item['code']:08X}" for item in hms
+            if type(item) is dict and all(type(item.get(k)) is int
+                and 0 <= item[k] <= 0xffffffff for k in ('attr', 'code')))
+    return dict(gcode_state=state, print_error=error, active_hms_codes=codes)
+
 
 class RawAMSAcquisitionCollector:
     def __init__(self, *, topic, configuration_key, owner_org_id, selected_slots,
@@ -71,7 +96,7 @@ class RawAMSAcquisitionCollector:
             idle_without_error = raw_status_is_idle('bambu', packet)
             if (self._snapshot is not None and self._snapshot.idle_without_error is True and isinstance(packet, dict)
                     and ('gcode_state' in packet or 'print_error' in packet) and not idle_without_error):
-                self._snapshot = replace(self._snapshot, idle_without_error=False)
+                self._snapshot = replace(self._snapshot, idle_without_error=False, **safe_status_fields(packet))
             try: facts=parse_raw_ams_facts(packet)
             except ValueError:self.retire();return False
             self._last_receipt=now;self._order+=1
@@ -86,7 +111,7 @@ class RawAMSAcquisitionCollector:
                 return False
             self._snapshot=RawAMSSnapshot(self.incarnation,uuid.uuid4().hex,
                 self._order,now,self._config,self._owner,
-                tuple(addressed[s] for s in sorted(addressed)), idle_without_error)
+                tuple(addressed[s] for s in sorted(addressed)), idle_without_error, **safe_status_fields(packet))
             return True
 
     @property
