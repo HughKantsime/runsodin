@@ -17,8 +17,8 @@ def deliver(db, owner, addition_id, *, transport, expected_destination):
     destination=json.loads(row['destination'])
     if destination!=expected_destination:
         db.rollback();fail('Square account changed. Do not retarget this stock addition.')
-    if row['state']=='confirmed':
-        db.commit();return {'state':'confirmed','attempts':row['attempts']}
+    if row['state'] in ('confirmed','withdrawn_baseline'):
+        db.commit();return {'state':row['state'],'attempts':row['attempts']}
     # Persist intent before the external boundary. A crash after this point leaves
     # unknown, never unsent. Every retry uses the exact saved body/idempotency key.
     db.execute(update(additions).where(additions.c.id==addition_id).values(state='unknown',attempts=row['attempts']+1))

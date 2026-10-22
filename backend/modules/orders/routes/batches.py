@@ -1,7 +1,4 @@
-"""Fixed-yield recipes, physical inspection and prepared Square additions.
-
-There is deliberately no route that sends an addition to Square.
-"""
+"""Fixed-yield recipes, inspected acceptance and read-only addition checks."""
 import json
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, text
@@ -24,16 +21,16 @@ def overview(offset: int = Query(default=0,ge=0), user=Depends(viewer), db: Sess
     owner = square_store.tenant(user)
     recipes = [ {'id':r.id,**json.loads(r.definition)} for r in db.execute(select(service.recipes).where(service.recipes.c.owner==owner).order_by(service.recipes.c.id).offset(offset).limit(100)) ]
     receipts = [service.receipt_public(r) for r in db.execute(select(service.receipts).where(service.receipts.c.owner==owner).order_by(service.receipts.c.id.desc()).limit(100)).mappings()]
-    additions = [{'id':r.id,'receipt_id':r.receipt_id,'state':r.state,'attempts':r.attempts,
-                  'destination':json.loads(r.destination),'request':json.loads(r.request_body)}
+    # Expose receipt metadata, never transport bodies or credential documents.
+    additions = [{'id':r.id,'receipt_id':r.receipt_id,'state':r.state,'attempts':r.attempts}
         for r in db.execute(select(service.additions).where(service.additions.c.owner==owner).order_by(service.additions.c.id).limit(100))]
-    return {'recipes':recipes,'receipts':receipts,'additions':additions,'square_writes_enabled':False,
+    return {'recipes':recipes,'receipts':receipts,'additions':additions,'square_writes_enabled':square_store.writes_enabled(square_store.load(db, owner)[0]),
             'next_offset':offset+100 if len(recipes)==100 else None}
 
 
 @router.get('/history')
 def history(offset:int=Query(default=0,ge=0,le=1000000), query:str=Query(default='',max_length=100),
-            state:str|None=Query(default=None,pattern='^(prepared|unknown|confirmed)$'),
+            state:str|None=Query(default=None,pattern='^(prepared|unknown|confirmed|withdrawn_baseline|in_baseline)$'),
             user=Depends(viewer),db:Session=Depends(get_db)):
     from modules.orders.production_history import history as read_history
     return read_history(db,square_store.tenant(user),offset=offset,query=query.strip(),state=state)

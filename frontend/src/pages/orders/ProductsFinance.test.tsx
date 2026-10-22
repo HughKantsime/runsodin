@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import Products from './Products'
 import { products, models, consumables } from '../../api'
 import toast from 'react-hot-toast'
-vi.mock('../../permissions', () => ({canDo: () => true}))
+vi.mock('../../permissions', () => ({getCurrentUser: () => ({role:'admin'}), canDo: () => true}))
 vi.mock('../../api', () => ({products: {list:vi.fn(),get:vi.fn(),update:vi.fn(),removeComponent:vi.fn(),addComponent:vi.fn()}, models:{list:vi.fn()},consumables:{list:vi.fn()}}))
 const product={id:1,name:'Synthetic free product',sku:'FREE',price:0,description:'Synthetic details',components:[],component_count:0}
 beforeEach(()=>{

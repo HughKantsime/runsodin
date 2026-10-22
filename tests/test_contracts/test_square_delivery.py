@@ -22,6 +22,14 @@ def prepared(batch):
     return dict(batch[3].execute(select(batches.additions)).mappings().one())
 
 
+def enable(batch):
+    from modules.orders import square_store as store
+    doc, old = store.load(batch[3], 1)
+    doc['stock_writes_enabled'] = True
+    store.save(batch[3], 1, doc, old)
+    batch[3].commit()
+
+
 def http(monkeypatch,payload=None,status=200,exception=None):
     response=Mock();response.status_code=status
     response.iter_content.return_value=[json.dumps(payload).encode()]
@@ -51,13 +59,13 @@ def test_live_gate_refuses_before_any_credentials_or_network(batch,monkeypatch):
     monkeypatch.setattr(recovery.store,'load',Mock(side_effect=AssertionError('credential read')))
     with pytest.raises(HTTPException) as e:recovery.execute_prepared(batch[3],batch[1],row['id'])
     assert e.value.status_code==503
-    with pytest.raises(HTTPException):wire.SquareWriter('production','synthetic').send(row['request_body'])
+    with pytest.raises(HTTPException):wire.SquareWriter('production','synthetic').send(row['request_body'],tenant_enabled=True)
     factory.assert_not_called()
     assert batch[3].execute(select(batches.additions.c.attempts)).scalar()==0
 
 
 def test_fixed_endpoint_exact_bytes_and_supported_success_counts(batch,monkeypatch):
-    row=prepared(batch);monkeypatch.setattr(wire,'LIVE_WRITES_ENABLED',True)
+    row=prepared(batch);enable(batch);monkeypatch.setattr(wire,'LIVE_WRITES_ENABLED',True)
     _,session=http(monkeypatch,counts(row['request_body']))
     result=recovery.execute_prepared(batch[3],batch[1],row['id'])
     assert result['state']=='confirmed' and result['attempts']==1
@@ -71,9 +79,9 @@ def test_fixed_endpoint_exact_bytes_and_supported_success_counts(batch,monkeypat
     assert session.request.call_count==1
 
 
-@pytest.mark.parametrize('payload,status',[(None,200),({},200),({'errors':[{'detail':'private'}]},200),({'counts':[]},200),({'counts':[{'state':'IN_STOCK','catalog_object_id':'OTHER','location_id':'L1','quantity':'7'}]},200),({},301),({},403),({},429),({},500)])
+@pytest.mark.parametrize('payload,status',[(None,200),({},200),({'errors':[{'detail':'private'}]},200),({'counts':[]},200),({'counts':[{'state':'IN_STOCK','catalog_object_id':'OTHER','location_id':'L1','quantity':'7'}]},200),({},301),({},401),({},403),({},429),({},500)])
 def test_invalid_or_unacknowledged_response_stays_unknown(batch,monkeypatch,payload,status):
-    row=prepared(batch);monkeypatch.setattr(wire,'LIVE_WRITES_ENABLED',True)
+    row=prepared(batch);enable(batch);monkeypatch.setattr(wire,'LIVE_WRITES_ENABLED',True)
     _,session=http(monkeypatch,payload,status)
     answer=recovery.execute_prepared(batch[3],batch[1],row['id'])
     assert answer['state']=='unknown' and answer['attempts']==1 and 'private' not in str(answer)
@@ -83,7 +91,7 @@ def test_invalid_or_unacknowledged_response_stays_unknown(batch,monkeypatch,payl
 
 def test_timeout_then_exact_read_only_reconciliation_never_resends(batch,monkeypatch):
     import requests
-    row=prepared(batch);monkeypatch.setattr(wire,'LIVE_WRITES_ENABLED',True)
+    row=prepared(batch);enable(batch);monkeypatch.setattr(wire,'LIVE_WRITES_ENABLED',True)
     _,session=http(monkeypatch,exception=requests.Timeout('private credential text'))
     assert recovery.execute_prepared(batch[3],batch[1],row['id'])['state']=='unknown'
     assert batch[3].execute(select(batches.additions.c.request_body)).scalar()==row['request_body']
@@ -112,7 +120,7 @@ def test_ambiguous_history_stays_unknown(batch,monkeypatch,mutation):
     assert answer['state']=='unknown' and answer['readiness']=='manual_review' and answer['attempts']==1
 
 
-@pytest.mark.parametrize('mutation',['revision','merchant','environment','mapping','product','body'])
+@pytest.mark.parametrize('mutation',['merchant','environment','mapping','product','body'])
 def test_changed_local_destination_or_payload_blocks_without_network(batch,monkeypatch,mutation):
     row=prepared(batch);db=batch[3]
     from modules.orders import square_store as store
@@ -180,7 +188,7 @@ def test_simultaneous_execution_reserves_only_one_network_send(batch,monkeypatch
     from concurrent.futures import ThreadPoolExecutor
     from threading import Barrier
     from sqlalchemy.orm import Session
-    row=prepared(batch);engine=batch[3].get_bind();batch[3].rollback()
+    row=prepared(batch);enable(batch);engine=batch[3].get_bind();batch[3].rollback()
     monkeypatch.setattr(wire,'LIVE_WRITES_ENABLED',True)
     _,session=http(monkeypatch,counts(row['request_body']))
     barrier=Barrier(2);original=recovery.live_check
@@ -198,7 +206,7 @@ def test_simultaneous_execution_reserves_only_one_network_send(batch,monkeypatch
 
 def test_configuration_race_prevents_reservation_and_send(batch,monkeypatch):
     from sqlalchemy.orm import Session
-    row=prepared(batch);monkeypatch.setattr(wire,'LIVE_WRITES_ENABLED',True)
+    row=prepared(batch);enable(batch);monkeypatch.setattr(wire,'LIVE_WRITES_ENABLED',True)
     factory,_=http(monkeypatch,counts(row['request_body']))
     original=recovery.live_check
     def race(doc,row,**kwargs):
@@ -214,9 +222,9 @@ def test_configuration_race_prevents_reservation_and_send(batch,monkeypatch):
 
 def test_crash_after_remote_ack_keeps_durable_unknown_and_reconciles(batch,monkeypatch):
     class ProcessStopped(BaseException):pass
-    row=prepared(batch);monkeypatch.setattr(wire,'LIVE_WRITES_ENABLED',True)
+    row=prepared(batch);enable(batch);monkeypatch.setattr(wire,'LIVE_WRITES_ENABLED',True)
     http(monkeypatch,counts(row['request_body']));original=wire.SquareWriter.send
-    def crash(self,raw):assert original(self,raw);raise ProcessStopped()
+    def crash(self,raw,**kwargs):assert original(self,raw,**kwargs);raise ProcessStopped()
     monkeypatch.setattr(wire.SquareWriter,'send',crash)
     with pytest.raises(ProcessStopped):recovery.execute_prepared(batch[3],batch[1],row['id'])
     batch[3].rollback();assert batch[3].execute(select(batches.additions.c.state)).scalar()=='unknown'
@@ -235,7 +243,7 @@ def test_invalid_saved_mutation_never_reaches_network(batch,monkeypatch,mutation
     elif mutation=='timestamp':a['occurred_at']='bad'
     elif mutation=='extra_key':data['extra']='unwanted'
     monkeypatch.setattr(wire,'LIVE_WRITES_ENABLED',True);factory,_=http(monkeypatch,{})
-    with pytest.raises(HTTPException):wire.SquareWriter('sandbox','synthetic').send(json.dumps(data))
+    with pytest.raises(HTTPException):wire.SquareWriter('sandbox','synthetic').send(json.dumps(data),tenant_enabled=True)
     factory.assert_not_called()
 
 
@@ -248,18 +256,16 @@ def test_remote_identity_or_tracking_changes_block(batch,monkeypatch,mutation):
     assert answer['readiness']=='blocked' and answer['attempts']==0
 
 
-def test_pre_revision_additions_are_retained_not_silently_authorized(batch,monkeypatch):
-    row=prepared(batch);dest=json.loads(row['destination']);dest.pop('connection_revision')
+def test_pre_revision_additions_derive_identity_from_saved_request(batch,monkeypatch):
+    row=prepared(batch);dest=json.loads(row['destination']);dest['connection_revision']='legacy-revision-no-longer-current'
     batch[3].execute(update(batches.additions).values(destination=json.dumps(dest)));batch[3].commit()
-    network=Mock(side_effect=AssertionError('network not allowed'));monkeypatch.setattr(recovery,'live_check',network)
     answer=recovery.check(batch[3],batch[1],row['id'])
-    assert answer['readiness']=='blocked' and answer['state']=='prepared'
-    network.assert_not_called()
+    assert answer['readiness']=='checks_passed' and answer['state']=='prepared'
 
 
 @pytest.mark.parametrize('mutation',['malformed','oversized','duplicate_count','nonfinite_count'])
 def test_response_integrity_limits_leave_durable_unknown(batch,monkeypatch,mutation):
-    row=prepared(batch);monkeypatch.setattr(wire,'LIVE_WRITES_ENABLED',True)
+    row=prepared(batch);enable(batch);monkeypatch.setattr(wire,'LIVE_WRITES_ENABLED',True)
     data=counts(row['request_body'])
     if mutation=='duplicate_count':data['counts'].append(copy.deepcopy(data['counts'][0]))
     if mutation=='nonfinite_count':data['counts'][0]['quantity']='NaN'

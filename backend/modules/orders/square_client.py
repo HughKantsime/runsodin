@@ -56,7 +56,7 @@ class SquareReader:
     def _read(self, method, path, *, params=None, body=None):
         allowed = (method == 'GET' and (path in ('/v2/merchants/me', '/v2/locations', '/v2/catalog/list')
                    or re.fullmatch(r'/v2/catalog/object/[A-Za-z0-9_-]{1,192}', path)))
-        if not allowed and not (method == 'POST' and path == '/v2/inventory/counts/batch-retrieve'):
+        if not allowed and not (method == 'POST' and path in ('/v2/inventory/counts/batch-retrieve', '/oauth2/token/status')):
             raise HTTPException(400, 'Square operation is not a supported read')
         try:
             with requests.Session() as session:
@@ -84,6 +84,13 @@ class SquareReader:
             raise
         except (requests.RequestException, ValueError, TypeError):
             raise HTTPException(502, 'Square is unavailable or returned invalid data. No stock was inferred.') from None
+
+    def require_write_scope(self):
+        scopes = self._read('POST', '/oauth2/token/status', body={}).get('scopes')
+        if (not isinstance(scopes, list) or not scopes or len(scopes) > 200
+                or any(not isinstance(v, str) or not v or len(v) > 100 for v in scopes)
+                or 'INVENTORY_WRITE' not in scopes):
+            raise HTTPException(409, 'Square token scope check requires INVENTORY_WRITE')
 
     def merchant(self):
         merchant = self._read('GET', '/v2/merchants/me').get('merchant')

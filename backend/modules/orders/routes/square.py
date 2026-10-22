@@ -1,11 +1,11 @@
-"""Square inventory reads and local mapping configuration. No remote writes."""
+"""Square connection policy, cutover attestations and explicit stock sends."""
 from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
-from pydantic import BaseModel, ConfigDict, SecretStr
+from pydantic import BaseModel, ConfigDict, SecretStr, StrictBool, StrictInt, Field
 from sqlalchemy import String, cast, delete
 from sqlalchemy.orm import Session
 import json
@@ -16,6 +16,8 @@ from core.models import SystemConfig
 from core.rbac import require_role, require_interactive_session
 from modules.orders import square_store as store
 from modules.orders.square_client import SquareReader, identifier
+# Capture the deployment key while application routes load at process startup.
+from modules.orders import square_delivery_client  # noqa: F401
 
 class SafeSquareRoute(APIRoute):
     def get_route_handler(self):
@@ -31,7 +33,12 @@ class SafeSquareRoute(APIRoute):
 router = APIRouter(prefix='/products', tags=['Square inventory'], route_class=SafeSquareRoute)
 admin = require_role('admin', scope='write')
 viewer = require_role('viewer', scope='read')
-interactive = Depends(require_interactive_session())
+def strict_interactive(user=Depends(require_interactive_session())):
+    store.assert_interactive(user)
+    return user
+
+
+interactive = Depends(strict_interactive)
 
 
 class Connection(BaseModel):
@@ -88,7 +95,8 @@ def configure(data: Connection, user=Depends(admin), db: Session = Depends(get_d
     store.check_revision(latest, data.expected_revision)
     mappings = latest['mappings'] if latest and latest['merchant_id'] == merchant and latest['environment'] == data.environment else {}
     doc = store.save(db, owner, {'version': 1, 'tenant': owner, 'token': token, 'environment': data.environment,
-                                  'merchant_id': merchant, 'mappings': mappings}, previous)
+                                  'merchant_id': merchant, 'mappings': mappings,
+                                  'stock_writes_enabled': bool(latest and latest['merchant_id'] == merchant and latest['environment'] == data.environment and latest.get('stock_writes_enabled') is True)}, previous)
     log_audit(db, 'square.connection_saved', 'system_config', None, 'Read-only Square connection configured')
     db.commit()
     return store.public(db, owner, doc)
@@ -147,8 +155,12 @@ def map_product(product_id: int, data: Mapping, user=Depends(admin), db: Session
             raise HTTPException(409, 'This Square variation and location already map to another ODIN product')
     if str(product_id) not in latest['mappings'] and len(latest['mappings']) >= 1000:
         raise HTTPException(409, 'This connection has reached its product mapping limit')
+    old_mapping = latest['mappings'].get(str(product_id), {})
+    baseline = old_mapping.get('stock_baseline') if (old_mapping.get('location_id'), old_mapping.get('variation_id')) == (location, variation) else None
     latest['mappings'][str(product_id)] = {'location_id': location, 'variation_id': variation,
                                           'item_name': meta['item_name'], 'variation_name': meta['variation_name']}
+    if baseline:
+        latest['mappings'][str(product_id)]['stock_baseline'] = baseline
     doc = store.save(db, owner, latest, previous)
     log_audit(db, 'square.product_mapped', 'product', product_id, 'Explicit Square variation/location selected')
     db.commit()
@@ -184,3 +196,54 @@ def stock(product_id: int, revision: str = Query(max_length=64), user=Depends(vi
     still_current(db, owner, doc)
     store.own_product(db, owner, product_id)
     return {'revision': revision, 'retrieved_at': datetime.now(timezone.utc).isoformat(), **result}
+
+
+class Activation(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    revision: str
+    stock_writes_enabled: StrictBool
+
+
+@router.put('/square/activation', dependencies=[interactive])
+def activation(data: Activation, user=Depends(admin), db: Session = Depends(get_db)):
+    owner = store.tenant(user)
+    store.lock_owner(db, owner, user)
+    doc, encoded, _ = connected(db, owner, data.revision)
+    doc, encoded = store.fence(db, owner, doc, encoded)
+    doc['stock_writes_enabled'] = data.stock_writes_enabled
+    store.save(db, owner, doc, encoded)
+    log_audit(db, 'square.stock_activation', 'system_config', None,
+              {'owner': owner, 'attested_by': user['id'], 'enabled': data.stock_writes_enabled})
+    db.commit()
+    return store.public(db, owner, doc)
+
+
+class BaselineInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    revision: str
+    at: datetime
+    quantity: StrictInt = Field(ge=0, le=1000000000)
+
+
+class BaselineReview(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    revision: str
+    answers: dict[str, Literal['counted', 'not_counted']]
+
+
+@router.put('/{product_id}/square/baseline', dependencies=[interactive])
+def baseline(product_id: int, data: BaselineInput, user=Depends(admin), db: Session = Depends(get_db)):
+    from modules.orders.stock_baseline import set_baseline
+    return set_baseline(db, user, product_id, data)
+
+
+@router.post('/batches/additions/{addition_id}/baseline-review', dependencies=[interactive])
+def baseline_review(addition_id: str, data: BaselineReview, user=Depends(admin), db: Session = Depends(get_db)):
+    from modules.orders.stock_baseline import review
+    return review(db, user, addition_id, data)
+
+
+@router.post('/batches/additions/{addition_id}/send', dependencies=[interactive])
+def send_addition(addition_id: str, user=Depends(require_role('operator', scope='write')), db: Session = Depends(get_db)):
+    from modules.orders.stock_recovery import execute_prepared
+    return execute_prepared(db, user, addition_id)

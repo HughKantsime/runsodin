@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import Products from './Products'
 import { products, models, consumables } from '../../api'
 import fixture from '../../test-fixtures/cert-C-products-wire.json'
-vi.mock('../../permissions', () => ({ canDo: () => true }))
+vi.mock('../../permissions', () => ({ getCurrentUser: () => ({role:'admin'}), canDo: () => true }))
 vi.mock('../../api', () => ({ products: { list: vi.fn(), get: vi.fn(), update: vi.fn(), removeComponent: vi.fn(), addComponent: vi.fn() }, models: { list: vi.fn() }, consumables: { list: vi.fn() } }))
 beforeEach(() => {
   vi.mocked(products.list).mockResolvedValue(fixture.products as any)

@@ -146,7 +146,7 @@ def inspect_batch(db, user, data):
         fail('This recipe is not qualified. Create a qualified revision after verifying its yield.')
     evidence = job_evidence(db, owner, data.job_id, lock=True)
     request_hash = hashlib.sha256(packed({'recipe_id':data.recipe_id,'job_uid':evidence['economic_uid'],
-        'outputs':sorted([o.model_dump() for o in data.outputs],key=lambda o:(o['product_id'],o['kind']))}).encode()).hexdigest()
+        'outputs':sorted([o.model_dump(exclude_none=True) for o in data.outputs],key=lambda o:(o['product_id'],o['kind']))}).encode()).hexdigest()
     previous = db.execute(select(receipts).where(receipts.c.job_uid == evidence['economic_uid'])).mappings().one_or_none()
     if previous:
         if previous['owner'] != owner or previous['request_hash'] != request_hash:
@@ -158,7 +158,9 @@ def inspect_batch(db, user, data):
     supplied = {(o.product_id,o.kind):o for o in data.outputs}
     if len(supplied) != len(data.outputs) or set(expected) != set(supplied):
         fail('Inspect each main and flush output exactly once')
-    accepted_outputs, quantities = [], {}
+    # Keep the existing product-before-connector lock order used by mapping
+    # writers and recovery, including global owner 0 on PostgreSQL.
+    products = {}
     for key in sorted(expected):
         output, counted = expected[key], supplied[key]
         product, bom_model_id = single_print_product(db, owner, output['product_id'], evidence['model_id'],output['kind'])
@@ -166,25 +168,47 @@ def inspect_batch(db, user, data):
             fail('A recipe product changed. Verify its identity and create a new recipe revision.')
         if counted.accepted + counted.rejected != output['expected']:
             fail('Accepted plus rejected must equal the recipe yield for every output')
-        accepted_outputs.append({**output, 'accepted':counted.accepted,'rejected':counted.rejected})
-        if counted.accepted:
-            quantities[product.id] = quantities.get(product.id,0) + counted.accepted
+        products[key] = product
+    accepted_outputs, quantities = [], {}
+    doc = None
+    if any(o.accepted for o in data.outputs):
+        doc, encoded = square.load(db, owner)
+        if not doc:
+            fail('Map accepted products to Square before recording this inspection')
+        square.check_revision(doc, data.square_revision)
+        doc, _ = square.fence(db, owner, doc, encoded)
+    from modules.orders.stock_baseline import utc
+    observed_at = utc(evidence['ended_at']).isoformat()
+    for key in sorted(expected):
+        output, counted, product = expected[key], supplied[key], products[key]
+        mapping = doc['mappings'].get(str(product.id)) if doc else None
+        if counted.accepted and not mapping:
+            fail('Every accepted output needs an explicit Square mapping')
+        baseline = mapping.get('stock_baseline') if mapping else None
+        disposition = 'send'
+        if counted.accepted and baseline:
+            post_baseline = utc(observed_at) > utc(baseline['at'])
+            if post_baseline:
+                if counted.baseline_disposition == 'in_baseline':
+                    fail('Conflicting baseline choice for a post-baseline observation; review this batch')
+            elif counted.baseline_disposition is None:
+                fail('Choose counted in baseline or not counted, send for this output')
+            else:
+                disposition = counted.baseline_disposition
+        elif counted.baseline_disposition == 'in_baseline':
+            fail('Cannot count an output in a baseline that does not exist')
+        send_quantity = counted.accepted if disposition == 'send' else 0
+        accepted_outputs.append({**output, 'accepted':counted.accepted,'rejected':counted.rejected,
+            'disposition': disposition, 'send_quantity': send_quantity, 'observation_ended_at': observed_at,
+            'baseline_version': baseline['version'] if baseline else None,
+            'stock_baseline': dict(baseline) if baseline else None})
+        if send_quantity:
+            quantities[product.id] = quantities.get(product.id,0) + send_quantity
     destination, changes = None, []
     timestamp = now()
     identifier = uuid.uuid5(uuid.NAMESPACE_URL, f"odin:acceptance:v1:{owner}:{evidence['observation_uid']}:{evidence['claim_token']}").hex
     if quantities:
-        doc, _ = square.load(db, owner)
-        if not doc:
-            fail('Map accepted products to Square before recording this inspection')
-        square.check_revision(doc, data.square_revision)
-        from core.models import SystemConfig
-        from sqlalchemy import cast, String
-        previous = square.load(db, owner)[1]
-        if db.execute(update(SystemConfig).where(SystemConfig.key==square.key(owner),
-                cast(SystemConfig.value,String)==json.dumps(previous)).values(value=SystemConfig.value)).rowcount != 1:
-            fail('Square connection changed. Reload before inspecting this batch.')
-        square.check_revision(square.load(db,owner)[0],data.square_revision)
-        destination = {'merchant_id':doc['merchant_id'],'environment':doc['environment'],'connection_revision':doc['revision']}
+        destination = {'merchant_id':doc['merchant_id'],'environment':doc['environment']}
         for product_id, quantity in sorted(quantities.items()):
             mapping = doc['mappings'].get(str(product_id))
             if not mapping:
@@ -197,7 +221,7 @@ def inspect_batch(db, user, data):
                 'occurred_at':timestamp,'reference_id':identifier}})
     definition = {'version':1,'job_id':data.job_id,'job_uid':evidence['economic_uid'],
         'physical_uid':evidence['observation_uid'],'occurred_at':timestamp,'recipe_name':spec['name'],
-        'outputs':accepted_outputs,'stock_status':'prepared' if quantities else 'no_sellable_output'}
+        'outputs':accepted_outputs,'stock_status':'prepared' if quantities else ('in_baseline' if any(o['accepted'] for o in accepted_outputs) else 'no_sellable_output')}
     try:
         db.execute(receipts.insert().values(id=identifier,owner=owner,job_uid=evidence['economic_uid'],
             claim_token=evidence['claim_token'],recipe_id=data.recipe_id,request_hash=request_hash,definition=packed(definition)))

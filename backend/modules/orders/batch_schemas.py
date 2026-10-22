@@ -22,6 +22,7 @@ class InspectedOutput(BaseModel):
     kind: Literal['main', 'flush']
     accepted: StrictInt = Field(ge=0, le=10000)
     rejected: StrictInt = Field(ge=0, le=10000)
+    baseline_disposition: Literal['in_baseline', 'send'] | None = None
 
 class InspectionInput(BaseModel):
     model_config = ConfigDict(extra='forbid')

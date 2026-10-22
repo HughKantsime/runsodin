@@ -313,6 +313,10 @@ WRITE_EXEMPTIONS: dict[tuple[str, str], str] = {
     ("POST", "/api/vision/training-data/{detection_id}/label"): "admin role; Vigil AI training data has no matrix key",
     # Connector credentials/mappings and recipe qualification have an interactive
     # admin floor; products.create/edit defaults also permit operators.
+    ("PUT", "/api/products/square/activation"): "interactive admin; audited CAS activation for external stock writes",
+    ("PUT", "/api/products/{product_id}/square/baseline"): "interactive admin; audited baseline attestation under connector fence",
+    ("POST", "/api/products/batches/additions/{addition_id}/baseline-review"): "interactive admin; immutable-request cutover review or terminal withdrawal",
+    ("POST", "/api/products/batches/additions/{addition_id}/send"): "interactive operator; explicit one-addition send with two keys and fenced reservation",
     ("PUT", "/api/products/square"): "interactive admin; encrypted connector credentials, stricter than products.edit",
     ("DELETE", "/api/products/square"): "interactive admin; connector removal, stricter than products.edit",
     ("PUT", "/api/products/{product_id}/square"): "interactive admin; external inventory mapping, stricter than products.edit",

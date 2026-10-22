@@ -1,4 +1,5 @@
-"""Narrow Inventory transport. Live mutations are deliberately disabled in code."""
+"""Narrow Inventory transport. Mutations require deployment and tenant activation."""
+import os
 import json
 import re
 import time
@@ -10,7 +11,8 @@ import requests
 from fastapi import HTTPException
 from modules.orders.square_client import HOSTS, VERSION, SquareReader, identifier
 
-LIVE_WRITES_ENABLED = False
+# Deployment switch is intentionally captured once, at process import/start.
+LIVE_WRITES_ENABLED = os.environ.get('ODIN_SQUARE_STOCK_WRITES') == '1'
 FIELDS = frozenset(('catalog_object_id','location_id','from_state','to_state','quantity','occurred_at','reference_id'))
 HEX = re.compile(r'^[a-f0-9]{32}$')
 
@@ -53,12 +55,12 @@ def validate_request(raw):
         invalid()
 
 
-def exchange(environment, token, path, raw):
+def exchange(environment, token, path, raw, *, tenant_enabled=False):
     """Only the two Inventory endpoints, with the mutation gate below all callers."""
     if environment not in HOSTS or path not in ('/v2/inventory/changes/batch-create','/v2/inventory/changes/batch-retrieve'):
         raise HTTPException(400,'Unsupported Square inventory operation')
-    if path.endswith('batch-create') and not LIVE_WRITES_ENABLED:
-        raise HTTPException(503,'Live Square stock updates are disabled in this build')
+    if path.endswith('batch-create') and (not LIVE_WRITES_ENABLED or tenant_enabled is not True):
+        raise HTTPException(503,'Square stock writes require both activation keys')
     if path.endswith('batch-create'):validate_request(raw)
     try:
         with requests.Session() as session:
@@ -103,10 +105,12 @@ class SquareWriter:
     def __init__(self, environment, token):
         self.environment,self.token=environment,token
 
-    def send(self, raw):
+    def send(self, raw, *, tenant_enabled):
+        if not LIVE_WRITES_ENABLED or tenant_enabled is not True:
+            raise HTTPException(503,'Square stock writes require both activation keys')
         request=validate_request(raw)
         # exchange gates mutations even if this class is invoked directly.
-        response=exchange(self.environment,self.token,'/v2/inventory/changes/batch-create',raw)
+        response=exchange(self.environment,self.token,'/v2/inventory/changes/batch-create',raw,tenant_enabled=tenant_enabled)
         return valid_counts(response,request)
 
 

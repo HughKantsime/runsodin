@@ -63,7 +63,7 @@ export default function SquareInventory({ products }: Props) {
   return <section className="mb-6 rounded-md border border-[var(--brand-card-border)] bg-[var(--brand-card-bg)] p-4">
     <button type="button" className="font-medium text-[var(--brand-primary)]" aria-expanded={open} onClick={toggle} disabled={busy}>Square inventory</button>
     {open && <div className="mt-3 space-y-4" aria-busy={busy}>
-      <p className="text-sm text-[var(--brand-muted)]">Square is the source for finished stock. This connection only reads inventory. Printing and mapping do not change counts or publish listings.</p>
+      <p className="text-sm text-[var(--brand-muted)]">Square is the source for finished stock. This panel reads inventory. Explicit inspected additions are sent separately from batch history when both activation keys are on. Printing and mapping do not change counts or publish listings.</p>
       {error && <p role="alert" className="text-sm text-red-400">{error} <button type="button" className={button} disabled={busy} onClick={() => { void run(async () => update(await square.status())) }}>Reload connection</button></p>}
       {busy && <p role="status" className="text-sm">Working…</p>}
       {status && <p className="text-sm">{status.connected ? `${status.environment === 'production' ? 'Production' : 'Sandbox'} account · ${status.merchant_id}. Identity verified; catalog and stock permissions are checked when read.` : 'Not connected.'}</p>}

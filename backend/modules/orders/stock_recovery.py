@@ -1,13 +1,9 @@
-"""Read-only readiness/reconciliation and an unreachable, disabled send executor.
-
-No route or worker calls execute_prepared. Unknown operations are never resent.
-"""
+"""Read-only reconciliation and exactly-once reservation for explicit stock sends."""
 import json
 from collections import defaultdict
 
 from fastapi import HTTPException
-from sqlalchemy import String, cast, select, update
-from core.models import SystemConfig
+from sqlalchemy import select, update
 from modules.orders import batch_production as batches, square_store as store
 from modules.orders import square_delivery_client as wire
 
@@ -16,12 +12,12 @@ def operation(db, owner, addition_id):
     row=db.execute(select(batches.additions).where(batches.additions.c.owner==owner,
         batches.additions.c.id==addition_id)).mappings().one_or_none()
     if row is None:raise HTTPException(404,'Stock addition not found')
-    if row['state'] not in ('prepared','unknown','confirmed') or type(row['attempts']) is not int or row['attempts']<0:
+    if row['state'] not in ('prepared','unknown','confirmed','withdrawn_baseline') or type(row['attempts']) is not int or row['attempts']<0:
         wire.invalid()
     return dict(row)
 
 
-def snapshot(db, owner, row, *, lock=False):
+def snapshot(db, owner, row, *, lock=False, enforce_barrier=True):
     request=wire.validate_request(row['request_body'])
     receipt=db.execute(select(batches.receipts).where(batches.receipts.c.owner==owner,
         batches.receipts.c.id==row['receipt_id'])).mappings().one_or_none()
@@ -32,15 +28,15 @@ def snapshot(db, owner, row, *, lock=False):
         if not doc:raise HTTPException(409,'Square is disconnected. Keep this addition for review.')
         if dest.get('merchant_id')!=doc['merchant_id'] or dest.get('environment')!=doc['environment']:
             raise HTTPException(409,'Square account changed. This addition must not be retargeted.')
-        if dest.get('connection_revision')!=doc['revision']:
-            raise HTTPException(409,'Square connection or mappings changed after inspection. Review the retained addition; do not recreate it.')
         quantities=defaultdict(int)
         for output in detail['outputs']:
             if type(output['accepted']) is not int or not 0<=output['accepted']<=10000:wire.invalid()
-            if output['accepted']:
+            quantity = output.get('send_quantity', output['accepted'])
+            if type(quantity) is not int or not 0 <= quantity <= output['accepted']: wire.invalid()
+            if quantity:
                 product=store.own_product(db,owner,output['product_id'],lock=lock)
                 if product.name!=output['product_name']:raise HTTPException(409,'An inspected product changed. Keep the receipt for review.')
-                quantities[product.id]+=output['accepted']
+                quantities[product.id]+=quantity
         expected=[]
         for pid,quantity in sorted(quantities.items()):
             mapping=doc['mappings'].get(str(pid))
@@ -50,6 +46,9 @@ def snapshot(db, owner, row, *, lock=False):
                 'from_state':'NONE','to_state':'IN_STOCK','quantity':str(quantity),
                 'occurred_at':detail['occurred_at'],'reference_id':row['receipt_id']}})
         if request['changes']!=expected:wire.invalid()
+        if enforce_barrier:
+            from modules.orders.stock_baseline import barrier
+            barrier(db, owner, row, doc)
         return doc,encoded,dest
     except (KeyError,ValueError,TypeError,AttributeError):wire.invalid()
 
@@ -64,6 +63,8 @@ def live_check(doc, row, *, reconcile=False):
         if a['location_id'] not in locations:raise HTTPException(409,'The saved Square location is inactive or belongs to another account.')
         if not reader.variation(a['catalog_object_id'],a['location_id'])['tracked']:
             raise HTTPException(409,'Square inventory tracking is disabled for a saved variation.')
+    if not reconcile:
+        reader.require_write_scope()
     return reader.reconciled(row['request_body']) if reconcile else False
 
 
@@ -73,29 +74,41 @@ def lock_snapshot(db,user,addition_id,revision):
     row=operation(db,owner,addition_id)
     doc,encoded,dest=snapshot(db,owner,row,lock=True)
     if doc['revision']!=revision:raise HTTPException(409,'Square configuration changed during checks. Reload and review.')
-    # Also fences global owner0, which has no group row.
-    if db.execute(update(SystemConfig).where(SystemConfig.key==store.key(owner),
-        cast(SystemConfig.value,String)==json.dumps(encoded)).values(value=SystemConfig.value)).rowcount!=1:
-        raise HTTPException(409,'Square configuration changed during checks. Reload and review.')
-    # Reload after acquiring the shared connector reservation.
-    current,_=store.load(db,owner)
-    if current['revision']!=revision:raise HTTPException(409,'Square configuration changed during checks. Reload and review.')
+    doc, _ = store.fence(db, owner, doc, encoded)
+    # Re-read operation, baseline and review binding after the connector CAS.
+    row=operation(db,owner,addition_id)
+    doc,_,dest=snapshot(db,owner,row,lock=True)
     return row,doc,dest
 
 
-def result(row, readiness, message):
+def result(row, readiness, message, *, enabled=False):
     return {'id':row['id'],'state':row['state'],'attempts':row['attempts'],
-        'readiness':readiness,'message':message,'square_writes_enabled':False,'retry_allowed':False}
+        'readiness':readiness,'message':message,'square_writes_enabled':enabled,'retry_allowed':False}
 
 
 def check(db,user,addition_id):
     owner=store.tenant(user);row=operation(db,owner,addition_id)
+    if row['state']=='withdrawn_baseline':return result(row,'withdrawn_baseline','Counted in baseline; permanently withdrawn, never sent.')
     if row['state']=='confirmed':return result(row,'confirmed','Square previously acknowledged this addition. Do not send it again.')
     try:
         doc,_,_=snapshot(db,owner,row)
         revision=doc['revision']
         db.rollback()  # No database locks held during remote reads.
         matched=live_check(doc,row,reconcile=row['state']=='unknown')
+        preview=[]
+        if row['state']=='prepared':
+            reader=wire.SquareInventoryProbe(doc['environment'],doc['token'])
+            locations={v['id']:v['name'] for v in reader.locations(doc['merchant_id'])}
+            for change in wire.validate_request(row['request_body'])['changes']:
+                a=change['adjustment']
+                pid,mapping=next((pid,m) for pid,m in doc['mappings'].items() if
+                    m['location_id']==a['location_id'] and m['variation_id']==a['catalog_object_id'])
+                if a['location_id'] not in locations:
+                    raise HTTPException(409,'The saved Square location became unavailable during checks.')
+                preview.append({'product': store.own_product(db,owner,int(pid)).name, 'quantity': a['quantity'],
+                    'location': locations[a['location_id']], 'location_id': a['location_id'],
+                    'current_count': reader.count(a['catalog_object_id'],a['location_id'])['quantity']})
+
         current,_,_=lock_snapshot(db,user,addition_id,revision)
         if current['state']=='confirmed':
             db.rollback();return result(current,'confirmed','Square previously acknowledged this addition. Do not send it again.')
@@ -109,8 +122,9 @@ def check(db,user,addition_id):
                 return result(current,'confirmed','Exact Square adjustment history confirms this addition. No stock was sent.')
             db.rollback()
             return result(current,'manual_review','The outcome is still unknown. Retain this receipt and review Square history; do not create another addition.')
+        enabled=store.writes_enabled(doc)
         db.rollback()
-        return result(current,'checks_passed','Account, location, mapping and tracking checks passed. Sending remains disabled.')
+        return {**result(current,'checks_passed','Account, location, mapping, tracking and write scope checks passed.',enabled=enabled), 'preview':preview}
     except HTTPException as exc:
         db.rollback()
         # Reader/store errors have fixed text, never upstream response bodies.
@@ -118,27 +132,35 @@ def check(db,user,addition_id):
 
 
 def execute_prepared(db,user,addition_id):
-    """Future integration seam only. Disabled before credentials or network access."""
+    """Reserve exactly once after live reads and fenced local revalidation."""
+    store.assert_interactive(user)
     from core.rbac import is_interactive_session
     if user.get('role') not in ('admin','operator') or not is_interactive_session(user):
         raise HTTPException(403,'Interactive operator access is required')
     if not wire.LIVE_WRITES_ENABLED:
-        raise HTTPException(503,'Live Square stock updates are disabled in this build')
+        raise HTTPException(503,'Square stock writes require both activation keys')
     owner=store.tenant(user);row=operation(db,owner,addition_id)
     if row['state']=='confirmed':return result(row,'confirmed','Already confirmed; no request sent.')
     if row['state']!='prepared' or row['attempts']!=0:
         raise HTTPException(409,'Uncertain additions require read-only reconciliation, never another send.')
-    doc,_,_=snapshot(db,owner,row);revision=doc['revision'];db.rollback()
+    doc,_,_=snapshot(db,owner,row)
+    if not store.writes_enabled(doc):
+        raise HTTPException(503,'Square stock writes require both activation keys')
+    revision=doc['revision'];db.rollback()
     live_check(doc,row)
     current,doc,_=lock_snapshot(db,user,addition_id,revision)
     if current['request_body']!=row['request_body']:wire.invalid()
+    # Reservation linearizes disable, cutover, withdrawal and concurrent sends.
+    if not store.writes_enabled(doc):
+        db.rollback()
+        raise HTTPException(503,'Square stock writes require both activation keys')
     changed=db.execute(update(batches.additions).where(batches.additions.c.id==addition_id,
         batches.additions.c.owner==owner,batches.additions.c.state=='prepared',batches.additions.c.attempts==0)
         .values(state='unknown',attempts=1)).rowcount
     if changed!=1:
         db.rollback();raise HTTPException(409,'This addition is already reserved. Reconcile its outcome instead of sending again.')
     db.commit()  # Durable intent; connector changes from here cannot retarget saved body.
-    try:confirmed=wire.SquareWriter(doc['environment'],doc['token']).send(row['request_body']) is True
+    try:confirmed=wire.SquareWriter(doc['environment'],doc['token']).send(row['request_body'],tenant_enabled=doc.get('stock_writes_enabled')) is True
     except Exception:confirmed=False
     if confirmed:
         db.execute(update(batches.additions).where(batches.additions.c.id==addition_id,

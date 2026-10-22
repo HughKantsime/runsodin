@@ -27,6 +27,8 @@ def shop(review_db, monkeypatch):
     calls = []
     def upstream(self, method, path, *, params=None, body=None):
         calls.append((method, path, params, body))
+        if path == '/oauth2/token/status':
+            return {'scopes': ['INVENTORY_READ', 'INVENTORY_WRITE']}
         if path == '/v2/merchants/me':
             return {'merchant': {'id': 'M2' if self.token.endswith('other') else 'M1', 'status': 'ACTIVE'}}
         if path == '/v2/locations':

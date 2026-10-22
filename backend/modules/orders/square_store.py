@@ -25,6 +25,12 @@ def tenant(user):
     return group
 
 
+def assert_interactive(user):
+    if (not user or user.get('_auth_kind') not in ('jwt', 'session_jwt', 'bearer_jwt')
+            or user.get('_token_scopes')):
+        raise HTTPException(403, 'Interactive session access is required')
+
+
 def key(owner):
     return PREFIX + str(owner)
 
@@ -47,6 +53,7 @@ def load(db, owner):
         if (not isinstance(doc, dict) or doc.get('version') != 1 or doc.get('tenant') != owner
                 or not isinstance(doc.get('mappings'), dict) or len(doc['mappings']) > 1000
                 or not isinstance(doc.get('revision'), str) or not isinstance(doc.get('token'), str)
+                or ('stock_writes_enabled' in doc and type(doc['stock_writes_enabled']) is not bool)
                 or doc.get('environment') not in ('sandbox', 'production') or not isinstance(doc.get('merchant_id'), str)):
             raise ValueError()
         return doc, value
@@ -67,6 +74,22 @@ def lock_owner(db, owner, user=None):
             raise HTTPException(409, 'The organization no longer exists')
         if user and db.execute(text('SELECT group_id FROM users WHERE id=:id'), {'id': user['id']}).scalar_one_or_none() != owner:
             raise HTTPException(403, 'Organization membership changed. Sign in again.')
+
+
+def fence(db, owner, doc, encoded):
+    """Connector-row CAS lock, including global owner 0; caller holds until commit."""
+    if db.execute(update(SystemConfig).where(SystemConfig.key == key(owner),
+            cast(SystemConfig.value, String) == json.dumps(encoded))
+            .values(value=SystemConfig.value).execution_options(synchronize_session=False)).rowcount != 1:
+        raise HTTPException(409, 'Square connection changed. Reload it before continuing.')
+    current, previous = load(db, owner)
+    check_revision(current, doc['revision'])
+    return current, previous
+
+
+def writes_enabled(doc):
+    from modules.orders.square_delivery_client import LIVE_WRITES_ENABLED
+    return LIVE_WRITES_ENABLED and doc is not None and doc.get('stock_writes_enabled') is True
 
 
 def own_product(db, owner, product_id, *, lock=False):
@@ -102,7 +125,7 @@ def save(db, owner, doc, previous):
 
 def public(db, owner, doc):
     if doc is None:
-        return {'connected': False, 'revision': None, 'mappings': []}
+        return {'connected': False, 'revision': None, 'mappings': [], 'stock_writes_enabled': False, 'square_writes_enabled': False}
     result = []
     for pid, mapping in doc['mappings'].items():
         try:
@@ -111,7 +134,8 @@ def public(db, owner, doc):
             continue
         result.append({'product_id': product.id, **mapping})
     return {'connected': True, 'revision': doc['revision'], 'environment': doc['environment'],
-            'merchant_id': doc['merchant_id'], 'mappings': result}
+            'merchant_id': doc['merchant_id'], 'mappings': result,
+            'stock_writes_enabled': doc.get('stock_writes_enabled') is True, 'square_writes_enabled': writes_enabled(doc)}
 
 
 def forget_tenant(db, owner):

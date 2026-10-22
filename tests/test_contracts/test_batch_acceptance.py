@@ -72,8 +72,11 @@ def test_live_routes_recipe_inspection_and_prepared_square_request(batch):
     assert state['square_writes_enabled'] is False
     addition=state['additions'][0]
     assert addition['state']=='prepared'
-    assert addition['request']['idempotency_key']==receipt['id']
-    change=addition['request']['changes'][0]
+    assert 'request' not in addition and 'request_body' not in addition
+    from modules.orders.batch_production import additions
+    saved=json.loads(db.execute(select(additions.c.request_body)).scalar_one())
+    assert saved['idempotency_key']==receipt['id']
+    change=saved['changes'][0]
     assert change['adjustment']['quantity']=='4'
     assert change['adjustment']['from_state']=='NONE' and change['adjustment']['to_state']=='IN_STOCK'
     assert change['adjustment']['catalog_object_id']=='V1'
@@ -136,7 +139,9 @@ def test_flush_separate_inspection_and_combined_same_product_addition(batch):
     assert response.status_code==200,response.text
     state=batch[0].get('/products/production').json()
     assert len(response.json()['outputs'])==2
-    assert state['additions'][0]['request']['changes'][0]['adjustment']['quantity']=='5'
+    from modules.orders.batch_production import additions
+    saved=json.loads(batch[3].execute(select(additions.c.request_body)).scalar_one())
+    assert saved['changes'][0]['adjustment']['quantity']=='5'
 
 
 def test_tenant_and_role_guards_and_immutable_routes(batch):
@@ -244,7 +249,8 @@ def test_separate_flush_product_with_own_model_keeps_its_own_square_destination(
     request=body(batch,recipe);request['outputs'].append({'product_id':104,'kind':'flush','accepted':1,'rejected':1})
     response=client.post('/products/production/inspections',json=request)
     assert response.status_code==200,response.text
-    changes=client.get('/products/production').json()['additions'][0]['request']['changes']
+    from modules.orders.batch_production import additions
+    changes=json.loads(db.execute(select(additions.c.request_body)).scalar_one())['changes']
     assert {(c['adjustment']['catalog_object_id'],c['adjustment']['quantity']) for c in changes}=={('V1','4'),('V2','1')}
     db.execute(text("INSERT INTO models(id,name,org_id) VALUES(303,'Changed flush design',1)"))
     db.execute(text("UPDATE product_components SET model_id=303 WHERE product_id=104"));db.commit()
