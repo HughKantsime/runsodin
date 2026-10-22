@@ -64,8 +64,9 @@ class AnycubicLANPrinter:
         if ctrl.scheme != 'http' or ctrl.port != 18910 or ctrl.username or ctrl.password or ctrl.path != '/ctrl':
             raise ValueError('Unsupported LAN handshake endpoint')
         ts, nonce = str(int(time.time() * 1000)), secrets.token_hex(3)
-        first = hashlib.md5(token[:16].encode()).hexdigest()
-        sign = hashlib.md5((first + ts + nonce).encode()).hexdigest()
+        # Anycubic LAN mandates MD5 for this protocol signature.
+        first = hashlib.md5(token[:16].encode(), usedforsecurity=False).hexdigest()
+        sign = hashlib.md5((first + ts + nonce).encode(), usedforsecurity=False).hexdigest()
         query = urlencode(dict(ts=ts, nonce=nonce, sign=sign, did=secrets.token_hex(16).upper()))
         response = device_request('POST', f'http://{self.host}:18910/ctrl?{query}', timeout=10)
         response.raise_for_status()

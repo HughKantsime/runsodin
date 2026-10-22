@@ -4,9 +4,8 @@ import signal
 import threading
 import time
 
-from sqlalchemy import text
+from sqlalchemy import column, func, table, text
 from core.db import live_engine as engine
-from core.db_compat import sql
 from core.base import FilamentType
 from modules.printers.adapters.anycubic_lan import AnycubicLANPrinter
 from modules.printers.parsing.anycubic_lan import MODELS, filament_slots
@@ -103,7 +102,11 @@ def sync_slots(printer_id, boxes):
             if existing:
                 conn.execute(text("UPDATE filament_slots SET filament_type=:ft, color=:color, color_hex=CASE WHEN :ft='empty' THEN NULL ELSE COALESCE(:hex,color_hex) END WHERE printer_id=:pid AND slot_number=:sn"), params)
             else:
-                conn.execute(text(f'INSERT INTO filament_slots (printer_id,slot_number,filament_type,color,color_hex,loaded_at) VALUES (:pid,:sn,:ft,:color,:hex,{sql.now()})'), params)
+                slot_table = table('filament_slots', *(column(name) for name in
+                                   ('printer_id', 'slot_number', 'filament_type', 'color', 'color_hex', 'loaded_at')))
+                conn.execute(slot_table.insert().values(
+                    printer_id=params['pid'], slot_number=params['sn'], filament_type=params['ft'],
+                    color=params['color'], color_hex=params['hex'], loaded_at=func.now()))
         if slots:
             conn.execute(text('UPDATE printers SET slot_count=:count WHERE id=:pid'), {'count': max(s['slot_number'] for s in slots), 'pid': printer_id})
 

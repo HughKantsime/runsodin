@@ -312,7 +312,7 @@ def test_logs_admin_only(ux):
     assert acc["stream_operator"] == 403
 
 
-CLAIMED_SOURCES = ["backend", "mqtt", "moonraker", "prusalink", "elegoo", "go2rtc", "supervisord", "timelapse", "vision"]
+CLAIMED_SOURCES = ["backend", "mqtt", "moonraker", "prusalink", "elegoo", "anycubic_lan", "go2rtc", "supervisord", "timelapse", "vision"]
 
 
 @pytest.mark.parametrize("source", CLAIMED_SOURCES)
@@ -321,8 +321,8 @@ def test_each_claimed_log_source_serves_its_file(ux, source):
     assert lines and all(f"{source}-marker" in l for l in lines[:6])
 
 
-def test_backend_exposes_ten_sources_not_nine(ux):
-    """Mismatch record: backend accepts the 9 claimed sources plus 'reports' (report_runner.log)."""
+def test_backend_exposes_eleven_log_sources(ux):
+    """Backend accepts ten claimed sources plus 'reports' (report_runner.log)."""
     assert ux["logs"]["source_ids"] == sorted(CLAIMED_SOURCES + ["reports"])
 
 

@@ -40,6 +40,7 @@ class TestFlagRoutingRoutesStatus:
         class FakePrinter:
             id = 1
             name = "x"
+            api_type = "bambu"
             api_host = "127.0.0.1"
             api_key = "encrypted"
 
