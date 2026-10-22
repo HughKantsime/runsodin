@@ -113,7 +113,7 @@ services:
       retries: 3
 
   # ── Printer Monitors ────────────────────────────────────────
-  # Runs: mqtt_monitor, moonraker_monitor, prusalink_monitor, elegoo_monitor
+  # Runs: mqtt_monitor, moonraker_monitor, prusalink_monitor, elegoo_monitor, anycubic_lan_monitor
   monitors:
     build:
       context: .

@@ -73,7 +73,7 @@ test('F16-16.8-06 failed static fetch displays failure', async () => {
 test('F16-16.8-02 exposes all nine advertised sources including supervisord', async () => {
   await mount()
   expect(screen.getAllByRole('option').map(o => (o as HTMLOptionElement).value).sort()).toEqual(
-    ['backend', 'mqtt', 'moonraker', 'prusalink', 'elegoo', 'go2rtc', 'supervisord', 'timelapse', 'vision', 'reports'].sort())
+    ['backend', 'mqtt', 'moonraker', 'prusalink', 'elegoo', 'anycubic_lan', 'go2rtc', 'supervisord', 'timelapse', 'vision', 'reports'].sort())
 })
 test('F16-16.8-04 search highlights matching keyword in returned lines', async () => {
   const view = await mount()

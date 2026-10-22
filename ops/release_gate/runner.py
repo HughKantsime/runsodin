@@ -498,6 +498,7 @@ def run_gate(run_id: str, artifact_root: Path, candidate_image: str) -> int:
                     "moonraker_monitor.log",
                     "prusalink_monitor.log",
                     "elegoo_monitor.log",
+                    "anycubic_lan_monitor.log",
                     "vision_monitor.log",
                 ):
                     service_output = _command(

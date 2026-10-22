@@ -7,6 +7,7 @@ const LOG_SOURCES = [
   { id: 'moonraker', label: 'Moonraker' },
   { id: 'prusalink', label: 'PrusaLink' },
   { id: 'elegoo', label: 'Elegoo' },
+  { id: 'anycubic_lan', label: 'Anycubic LAN' },
   { id: 'vision', label: 'Vision AI' },
   { id: 'go2rtc', label: 'go2rtc' },
   { id: 'timelapse', label: 'Timelapse' },

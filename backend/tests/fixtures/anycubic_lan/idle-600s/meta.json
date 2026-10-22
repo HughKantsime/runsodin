@@ -1,0 +1,48 @@
+{
+  "captured_at": "2026-10-22T13:51:41-0400",
+  "info_endpoint": {
+    "deviceType": "fdm",
+    "modelId": "20025",
+    "modelName": "Anycubic Kobra S1",
+    "cn": "<cn>",
+    "ctrlType": "lan",
+    "ctrlInfoUrl": "<ctrlInfoUrl>",
+    "ip": "<printer-ip>",
+    "deviceName": "Anycubic Kobra S1",
+    "zone": "global",
+    "env": "prod",
+    "usn": "<usn>",
+    "fileUploadurl": "http://<printer-ip>:18910/gcode_upload?<upload-token>",
+    "rtspUrl": "http://<printer-ip>:18088/flv",
+    "token": "<token>"
+  },
+  "ctrl_response_data_keys": {
+    "info": "str",
+    "token": "str"
+  },
+  "decrypted_credential_keys": [
+    "accountDeleteUrl",
+    "broker",
+    "deviceId",
+    "deviceType",
+    "devicecrt",
+    "devicepk",
+    "ip",
+    "modeId",
+    "modelName",
+    "password",
+    "username"
+  ],
+  "broker": "mqtts://<printer-ip>:9883",
+  "connect_rc": "Success",
+  "tls_mode": "client-cert",
+  "message_counts": {
+    "info": 20,
+    "response": 60,
+    "tempature": 21,
+    "fan": 20,
+    "light": 20,
+    "peripherie": 20,
+    "multiColorBox": 20
+  }
+}

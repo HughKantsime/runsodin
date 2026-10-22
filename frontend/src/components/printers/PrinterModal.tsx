@@ -287,7 +287,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
     if (plug !== undefined) submitData.plug = plug
     if (formData.api_type) submitData.api_type = formData.api_type
     if (formData.api_host) submitData.api_host = formData.api_host
-    if (formData.serial && formData.access_code) {
+    if (formData.api_type === 'bambu' && formData.serial && formData.access_code) {
       submitData.api_key = `${formData.serial}|${formData.access_code}`
     }
 
@@ -420,6 +420,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
             <option value="moonraker">Klipper / Moonraker</option>
             <option value="prusalink">Prusa (PrusaLink)</option>
             <option value="elegoo">Elegoo (SDCP)</option>
+            <option value="anycubic_lan">Anycubic LAN (monitor only)</option>
             <option value="octoprint" disabled>OctoPrint (coming soon)</option>
           </select>
         </div>
@@ -432,6 +433,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
               {formData.api_type === 'bambu' && <p className="text-xs text-[var(--brand-text-muted)] mt-1">Find this on the printer: Network settings</p>}
               {formData.api_type === 'moonraker' && <p className="text-xs text-[var(--brand-text-muted)] mt-1">IP of your Klipper printer running Moonraker</p>}
               {formData.api_type === 'prusalink' && <p className="text-xs text-[var(--brand-text-muted)] mt-1">IP of your Prusa printer with PrusaLink enabled</p>}
+              {formData.api_type === 'anycubic_lan' && <p className="text-xs text-[var(--brand-text-muted)] mt-1">Enable LAN mode on the printer. IP only; credentials refresh automatically. Monitoring and ACE slots only.</p>}
               {formData.api_type === 'elegoo' && <p className="text-xs text-[var(--brand-text-muted)] mt-1">IP of your Elegoo printer — SDCP on port 3030, no auth needed</p>}
             </div>
             {formData.api_type === 'bambu' && (

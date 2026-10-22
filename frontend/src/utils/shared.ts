@@ -175,3 +175,13 @@ export function dualNozzleModelName(machineType: string | null | undefined): str
   const raw = (machineType || '').trim()
   return DUAL_NOZZLE_NAMES[raw.toUpperCase().replace(/^BAMBU LAB /, '')] || raw
 }
+
+/** Four zero-indexed wire trays per ACE; ODIN slot numbers remain one based. */
+export function filamentSlotGroup(apiType: string | null | undefined, slotNumber: number): AmsSlotGroup | null {
+  if (apiType === 'bambu') return amsSlotGroup(slotNumber)
+  if (apiType === 'anycubic_lan' && Number.isInteger(slotNumber) && slotNumber > 0) {
+    const unit = Math.floor((slotNumber - 1) / 4)
+    return { key: `ace-${unit}`, label: `ACE ${unit + 1}` }
+  }
+  return null
+}

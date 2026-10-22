@@ -253,7 +253,7 @@ def test_handle_error_never_prints_raw_arguments(capsys):
     assert "Logging error" in err and token not in err
 
 
-DAEMONS = ["modules/archives/timelapse_capture.py", "modules/printers/monitors/elegoo_monitor.py",
+DAEMONS = ["modules/printers/monitors/anycubic_lan_monitor.py", "modules/archives/timelapse_capture.py", "modules/printers/monitors/elegoo_monitor.py",
            "modules/printers/monitors/moonraker_monitor.py", "modules/printers/monitors/mqtt_monitor.py",
            "modules/printers/monitors/prusalink_monitor.py", "modules/reporting/report_runner.py", "modules/vision/monitor.py"]
 
@@ -423,3 +423,14 @@ def test_unifi_style_opaque_rtsp_paths_without_a_port_are_redacted(redacting_log
     out = stream.getvalue()
     assert share not in out and "nvr.local/[REDACTED]?enableSrtp" in out and "10.0.0.2/[REDACTED]" in out
     assert "rtsp://cam.local/live/ch0" in out and "rtsp://cam.local:554/stream1" in out
+
+
+def test_anycubic_upload_redaction_is_scoped():
+    from core.log_redaction import redact_text, redact_structure
+    assert redact_text('http://printer:18910/gcode_upload?s=upload-secret&other=value') == 'http://printer:18910/gcode_upload?[REDACTED]'
+    ordinary = 'http://service/search?s=search-term&username=ada username=ada'
+    assert redact_text(ordinary) == ordinary
+    assert redact_structure({'username': 'ada', 's': 'search-term'}) == {'username': 'ada', 's': 'search-term'}
+    for key in ('deviceId', 'devicecrt', 'devicepk', 'sign'):
+        assert 'fixture-secret' not in redact_text(f'http://printer/ctrl?{key}=fixture-secret')
+    assert 'fixture-secret' not in redact_text('-----BEGIN PRIVATE KEY-----\nfixture-secret\n-----END PRIVATE KEY-----')

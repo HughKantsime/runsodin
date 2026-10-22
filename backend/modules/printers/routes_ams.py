@@ -167,6 +167,49 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
 
     acquired_connection = (printer.api_type, printer.api_host, printer.api_key)
 
+    # ---- Stock Anycubic ACE read-only acquisition ----
+    if printer.api_type.lower() == "anycubic_lan":
+        from modules.printers.adapters.anycubic_lan import AnycubicLANPrinter
+        from modules.printers.parsing.anycubic_lan import filament_slots
+        from modules.printers.monitors.anycubic_lan_monitor import _material
+        client = AnycubicLANPrinter(printer.api_host)
+        try:
+            if not client.connect() or not client.poll():
+                raise HTTPException(502, "Anycubic LAN connection failed")
+            deadline = time.monotonic() + 5
+            slots = []
+            while time.monotonic() < deadline:
+                slots = filament_slots(client.get_status().boxes)
+                if slots:
+                    break
+                time.sleep(0.1)
+            if not slots:
+                raise HTTPException(502, "No ACE slot report received")
+        finally:
+            client.disconnect()
+        printer = _lock_ams_mutation(db, printer_id, current_user, [], acquired_connection)
+        updated = []
+        for observed in slots:
+            slot_num = observed['slot_number']
+            slot = db.query(FilamentSlot).filter_by(printer_id=printer_id, slot_number=slot_num).first()
+            if slot is None:
+                slot = FilamentSlot(printer_id=printer_id, slot_number=slot_num)
+                db.add(slot)
+            slot.filament_type = FilamentType(_material(observed['material']))
+            slot.color = observed['material'] if observed['material'] != 'EMPTY' else None
+            if observed['color_hex'] is not None or observed['material'] == 'EMPTY':
+                slot.color_hex = observed['color_hex'] if observed['material'] != 'EMPTY' else None
+            updated.append({"slot": slot_num, "type": observed['material'], "color": observed['color_hex'],
+                            "empty": observed['material'] == 'EMPTY', "loaded": observed['loaded'],
+                            "active": observed['active'], "remaining_percent": observed['remaining'],
+                            "ams_id": observed['box_id'], "tray_id": observed['slot_index'],
+                            "box_model": observed['box_model']})
+        printer.slot_count = max(s['slot_number'] for s in slots)
+        log_audit(db, "sync", "printer", printer_id, {"slots_synced": len(updated), "source": "anycubic_lan"})
+        db.commit()
+        return {"success": True, "printer_id": printer_id, "printer_name": printer.name,
+                "slots_synced": len(updated), "slots": updated, "mismatches": []}
+
     # ---- Moonraker / Klipper MMU sync ----
     if printer.api_type.lower() == "moonraker":
         from modules.printers.adapters.moonraker import MoonrakerPrinter

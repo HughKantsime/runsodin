@@ -379,6 +379,10 @@ def setup_test_printer(
             log.warning("Setup PrusaLink test-connection failed: %s", e)
             return {"success": False, "error": "Connection failed. Check printer IP and PrusaLink configuration."}
 
+    elif request.api_type.lower() == "anycubic_lan":
+        from modules.printers.route_utils import test_anycubic_lan_connection
+        return test_anycubic_lan_connection(request.api_host)
+
     elif request.api_type.lower() == "elegoo":
         import socket
         import json as _json
@@ -430,6 +434,8 @@ def setup_create_printer(
     """Create a printer during setup. Only the install's admin, only until setup completes."""
     if _setup_is_complete(db):
         raise HTTPException(status_code=403, detail="Setup already completed")
+    if request.api_type == "anycubic_lan" and request.api_key:
+        raise HTTPException(400, "Anycubic LAN does not accept credentials")
     encrypted_api_key = None
     if request.api_key:
         encrypted_api_key = crypto.encrypt(request.api_key)

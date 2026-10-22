@@ -55,3 +55,14 @@ it('blocks changed redacted camera input without echoing it and resets on printe
  expect(submit.mock.calls[0][0]).not.toHaveProperty('camera_url')
  expect(submit.mock.calls[0][1]).toBe(200)
 })
+it('accepts Anycubic LAN with IP only and omits credentials left from another protocol', () => {
+ const submit = modal({ api_type: 'bambu', api_key: 'synthetic-serial|synthetic-code', api_host: '192.0.2.49' })
+ const protocol = screen.getByRole('option', { name: 'Anycubic LAN (monitor only)' }).closest('select')!
+ fireEvent.change(protocol, { target: { value: 'anycubic_lan' } })
+ expect(screen.queryByPlaceholderText('Moonraker API key (if required)')).not.toBeInTheDocument()
+ expect(screen.getByText(/credentials refresh automatically/)).toBeInTheDocument()
+ fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+ expect(submit).toHaveBeenCalledOnce()
+ expect(submit.mock.calls[0][0]).toMatchObject({ api_type: 'anycubic_lan', api_host: '192.0.2.49' })
+ expect(submit.mock.calls[0][0]).not.toHaveProperty('api_key')
+})

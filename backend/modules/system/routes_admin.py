@@ -36,6 +36,7 @@ _LOG_FILES = {
     "moonraker": "/data/moonraker_monitor.log",
     "prusalink": "/data/prusalink_monitor.log",
     "elegoo": "/data/elegoo_monitor.log",
+    "anycubic_lan": "/data/anycubic_lan_monitor.log",
     "vision": "/data/vision_monitor.log",
     "go2rtc": "/data/go2rtc.log",
     "timelapse": "/data/timelapse_capture.log",

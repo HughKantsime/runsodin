@@ -23,7 +23,7 @@ REDACTED = "[REDACTED]"
 
 _SECRET_PARAMS = ("token", "access_token", "api_key", "apikey", "key", "ws_token", "oidc_code", "code", "state",
                   "nonce", "password", "pwd", "passwd", "access_code", "refresh_token", "id_token", "client_secret",
-                  "private_key")
+                  "private_key", "sign", "deviceId", "devicecrt", "devicepk")
 # Credential-bearing query parameters, in a URL or a logged request line.
 _QUERY_SECRET = re.compile(r"(?i)([?&](?:" + "|".join(_SECRET_PARAMS) + r")=)[^&\s\"'#]+")
 # The same parameters URL-encoded inside another value (?next=%2Fcb%3Fcode%3D...):
@@ -53,7 +53,7 @@ _RELAY_PATH_TOKEN = re.compile(r"(/internal/camera-source/\d{1,20}+/)[^\s/?#\"']
 # token=..., password: ..., a dict repr's 'token': '...').
 _KEY_VALUE_NAMES = ("password", "passwd", "pwd", "secret", "token", "access_token", "refresh_token", "id_token",
                     "client_secret", "private_key", "api_key", "apikey", "access_code", "session", "csrf_token",
-                    "ws_token", "oidc_code")
+                    "ws_token", "oidc_code", "deviceId", "devicecrt", "devicepk")
 _KEY_VALUE_SECRET = re.compile(r"(?i)(?<![A-Za-z0-9_-])((?:" + "|".join(_KEY_VALUE_NAMES)
                                + r")[\"']?\s*[:=]\s*[\"']?)[^\s\"',;&}]+")
 # Cookie / Set-Cookie header values: everything to the end of the value.
@@ -62,13 +62,18 @@ _COOKIE_HEADER = re.compile(r"(?i)(\b(?:set-)?cookie[\"']?\s*[:=]\s*[\"']?)[^\r\
 _JWT = re.compile(r"\beyJ[A-Za-z0-9_-]++\.eyJ[A-Za-z0-9_-]++\.[A-Za-z0-9_-]++")
 _SECRET_KEY_NAMES = ("authorization", "proxy-authorization", "x-api-key", "cookie", "set-cookie", "password", "token",
                      "api_key", "secret", "access_token", "refresh_token", "id_token", "client_secret", "private_key",
-                     "session")
+                     "session", "deviceId", "devicecrt", "devicepk")
 _SECRET_KEYS = re.compile(r"(?i)^(" + "|".join(re.escape(name) for name in _SECRET_KEY_NAMES) + ")$")
+
+
+_ANYCUBIC_UPLOAD = re.compile(r"(?i)(\bgcode_upload\?)[^\s\"\'<>#]+")
 
 
 def redact_text(value: str) -> str:
     if not isinstance(value, str):
         value = _safe_str(value)
+    value = re.sub(r"-----BEGIN [^-]+-----.*?-----END [^-]+-----", REDACTED, value, flags=re.DOTALL)
+    value = _ANYCUBIC_UPLOAD.sub(lambda m: m.group(1) + REDACTED, value)
     value = _RELAY_PATH_TOKEN.sub(lambda m: m.group(1) + REDACTED, value)
     value = _UNIFI_PATH_TOKEN.sub(lambda m: m.group(1) + REDACTED, value)
     value = _RTSP_OPAQUE_PATH.sub(lambda m: m.group(1) + REDACTED, value)

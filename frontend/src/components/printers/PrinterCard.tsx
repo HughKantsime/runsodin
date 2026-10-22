@@ -11,7 +11,7 @@ import PrintProgress from './PrintProgress'
 import { printers, apiTokens } from '../../api'
 import { canDo, getCurrentUser } from '../../permissions'
 import { canControlPlug } from '../../utils/plugControl'
-import { isOnline, isActivePrintState, amsSlotGroup, isDualNozzle, dualNozzleModelName } from '../../utils/shared'
+import { isOnline, isActivePrintState, filamentSlotGroup, isDualNozzle, dualNozzleModelName } from '../../utils/shared'
 import { Button, SpoolRing } from '../ui'
 
 // TODO: type this properly — runtime printer shape has extra MQTT/telemetry fields
@@ -145,7 +145,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
     }
   }
 
-  const hasBambuConnection = printer.api_type === 'bambu' && printer.api_host && printer.has_api_key
+  const hasBambuConnection = !!printer.api_host && ((printer.api_type === 'bambu' && printer.has_api_key) || printer.api_type === 'anycubic_lan')
   const speedModes = ['Silent', 'Standard', 'Sport', 'Ludicrous']
   const reportedLevel = Number.isInteger(printer.speed_level) && printer.speed_level >= 1 && printer.speed_level <= 4 ? printer.speed_level : null
   const reportedPercent = Number.isSafeInteger(printer.speed_percent) && printer.speed_percent >= 0 ? printer.speed_percent : null
@@ -236,9 +236,8 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
         </div>
         {(() => {
           const slots = printer.filament_slots || []
-          // AMS unit headers only for Bambu printers reporting more than one unit;
-          // other protocols number their slots without AMS units.
-          const groups = slots.map((slot: any) => printer.api_type === 'bambu' ? amsSlotGroup(slot.slot_number) : null)
+          // Keep ACE box grouping aligned with the common filament-slot numbering.
+          const groups = slots.map((slot: any) => filamentSlotGroup(printer.api_type, slot.slot_number))
           const labelled = !groups.includes(null) && new Set(groups.map((g: any) => g.key)).size > 1
           let previous: string | null = null
           return (

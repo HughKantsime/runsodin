@@ -23,6 +23,7 @@ APPLICATION_NAMES = {
     "monitor-moonraker": "odin-monitor-moonraker",
     "monitor-prusalink": "odin-monitor-prusalink",
     "monitor-elegoo": "odin-monitor-elegoo",
+    "monitor-anycubic-lan": "odin-monitor-anycubic-lan",
     "vision": "odin-vision",
     "timelapse": "odin-timelapse",
     "reports": "odin-reports",

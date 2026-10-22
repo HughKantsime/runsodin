@@ -257,7 +257,7 @@ def test_slot_count_shrink_keeps_ams_ht_slots(cert_app, review_db):
     "core.ws_hub", "modules.notifications.alert_dispatch", "modules.notifications.mqtt_republish",
     "modules.notifications.quiet_hours", "modules.printers.smart_plug", "modules.printers.monitors.mqtt_monitor",
     "modules.printers.monitors.moonraker_monitor", "modules.printers.monitors.prusalink_monitor",
-    "modules.printers.monitors.elegoo_monitor",
+    "modules.printers.monitors.elegoo_monitor", "modules.printers.monitors.anycubic_lan_monitor",
 ])
 def test_long_lived_modules_resolve_the_engine_at_use_time(monkeypatch, module_name):
     """A module must not keep the Engine that core.db.engine named when it was imported."""

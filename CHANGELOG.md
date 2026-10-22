@@ -2,6 +2,10 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [Unreleased]
+
+- Add monitor-only Anycubic LAN telemetry and ACE slots, IP-only printer setup, ephemeral LAN handshake credentials, periodic polling and offline detection. Controls and dispatch remain unsupported; no existing printers are changed.
+
 ## [2.0.6] - 2026-10-22
 
 <!-- summary: Record and surface post-upload AMS gate refusal reasons -->

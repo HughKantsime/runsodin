@@ -2,6 +2,10 @@
 
 Updated - see CHANGELOG for current version.
 
+## Prepared: Anycubic LAN monitoring
+
+- Stock Kobra family LAN telemetry and ACE Pro / ACE 2 filament slots with existing spool assignment. Fixture-tested; owner live S1 acceptance and Claude review remain pending. Upload, controls, dispatch and Education support are outside this phase.
+
 ## Prepared for v2.0.4
 
 - Explicit AMS archive reprint compatibility for single-source files with unused slicer profiles; original failed jobs remain preserved.
