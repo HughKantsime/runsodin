@@ -35,3 +35,5 @@ a5535fa3b885c84f5b61b2527d90afeb38eac2fa:tests/test_contracts/test_license_pop.p
 96cb07e7aa5130283d2004ec214d9bf64dabdc0e:frontend/src/pages/Printers.jsx:generic-api-key:552
 c97cb0ee31ea3a98aaad40a0af3b9133d15a0d9f:frontend/src/api.js:generic-api-key:4
 d6fbccb45ebf703d02d910cb0e3857820df95f7b:frontend/src/pages/Printers.jsx:generic-api-key:8
+# Synthetic Anycubic LAN handshake token in test_anycubic_lan.py (no real printer credential).
+cfdcbf64dcfd85cd4d90ab7c2ca4ac999968555e:tests/test_contracts/test_anycubic_lan.py:generic-api-key:290
