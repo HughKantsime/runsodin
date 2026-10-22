@@ -26,6 +26,7 @@ from core.rbac import (
     require_role,
 )
 import core.crypto as crypto
+from modules.printers.anycubic_crud import validate_credentials, prepare_update_credentials
 from modules.printers.models import Printer, FilamentSlot
 from modules.printers.schemas import (
     PrinterCreate, PrinterUpdate, PrinterResponse, FilamentSlotUpdate, FilamentSlotResponse,
@@ -113,8 +114,7 @@ def create_printer(
     if existing:
         raise HTTPException(status_code=400, detail=f"Printer '{printer.name}' already exists")
 
-    if printer.api_type == "anycubic_lan" and printer.api_key:
-        raise HTTPException(400, "Anycubic LAN does not accept credentials")
+    validate_credentials(printer.api_type, printer.api_key)
 
     encrypted_api_key = None
     if hasattr(printer, 'api_key') and printer.api_key:
@@ -248,10 +248,7 @@ def update_printer(
 
     update_data = updates.model_dump(exclude_unset=True)
 
-    if update_data.get('api_type', printer.api_type) == 'anycubic_lan':
-        if update_data.get('api_key'):
-            raise HTTPException(400, 'Anycubic LAN does not accept credentials')
-        update_data['api_key'] = None
+    prepare_update_credentials(update_data, printer.api_type)
 
     if 'api_host' in update_data and update_data['api_host']:
         _check_ssrf_blocklist(update_data['api_host'])

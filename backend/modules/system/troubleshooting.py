@@ -284,5 +284,5 @@ def support_report(request:ReportRequest,user=Depends(require_superadmin()),db:S
         for source in ('backend','mqtt_monitor','moonraker_monitor','prusalink_monitor','elegoo_monitor','anycubic_lan_monitor','supervisord'):
             logs=_read_tail('/data/'+source+'.log',100)
             report['recent_logs'][source]=sanitize_log_lines(logs) if isinstance(logs,list) else []
-        report['included'].append('up to 100 filtered lines per source from six server/printer logs, at most 64 KiB per source')
+        report['included'].append('up to 100 filtered lines per source from seven server/printer logs, at most 64 KiB per source')
     return report

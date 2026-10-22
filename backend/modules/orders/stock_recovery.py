@@ -141,6 +141,8 @@ def execute_prepared(db,user,addition_id):
         raise HTTPException(503,'Square stock writes require both activation keys')
     owner=store.tenant(user);row=operation(db,owner,addition_id)
     if row['state']=='confirmed':return result(row,'confirmed','Already confirmed; no request sent.')
+    if row['state']=='withdrawn_baseline':
+        raise HTTPException(409,'This addition was withdrawn into a baseline and is never sent.')
     if row['state']!='prepared' or row['attempts']!=0:
         raise HTTPException(409,'Uncertain additions require read-only reconciliation, never another send.')
     doc,_,_=snapshot(db,owner,row)

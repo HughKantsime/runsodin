@@ -282,3 +282,16 @@ def test_lowest_wire_boundary_rejects_other_endpoints_and_payloads(monkeypatch):
     for environment,path,raw in [('production','https://other.invalid/v2/inventory/changes/batch-create','{}'),('other','/v2/inventory/changes/batch-create','{}'),('production','/v2/payments','{}'),('production','/v2/inventory/changes/batch-create','{}')]:
         with pytest.raises(HTTPException):wire.exchange(environment,'synthetic',path,raw)
     factory.assert_not_called()
+
+
+def test_withdrawn_baseline_send_has_distinct_terminal_conflict(batch,monkeypatch):
+    row=prepared(batch);monkeypatch.setattr(wire,'LIVE_WRITES_ENABLED',True)
+    batch[3].execute(update(batches.additions).values(state='withdrawn_baseline',attempts=0));batch[3].commit()
+    factory,_=http(monkeypatch)
+    monkeypatch.setattr(recovery.store,'load',Mock(side_effect=AssertionError('no connector access')))
+    response=batch[0].post(f"/products/batches/additions/{row['id']}/send")
+    assert response.status_code==409
+    assert response.json()['detail']=='This addition was withdrawn into a baseline and is never sent.'
+    factory.assert_not_called()
+    saved=batch[3].execute(select(batches.additions)).mappings().one()
+    assert (saved['state'],saved['attempts'])==('withdrawn_baseline',0)

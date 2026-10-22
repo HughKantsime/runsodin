@@ -13,7 +13,7 @@ Updated - see CHANGELOG for current version.
 
 ## In development: SubLab production workflow
 
-Local Inventory writer and recovery path are implemented behind a hard disabled gate. Searchable inspection history, receipt-bound destination checks and exact-history reconciliation are available locally. Physical qualification, live stock-write authorization and rollout remain pending.
+Local Inventory writer and recovery path are implemented behind two-key activation (off by default). Searchable inspection history, receipt-bound destination checks and exact-history reconciliation are available locally. Physical qualification, live stock-write authorization and rollout remain pending.
 
 - Read-only Square connection, catalog mapping and recorded stock checks.
 - Fixed-yield recipes, explicit physical inspection and durable prepared stock additions for single-print products.

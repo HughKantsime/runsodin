@@ -161,24 +161,40 @@ def test_tenant_and_role_guards_and_immutable_routes(batch):
     assert client.post('/products/production/deliver',json={}).status_code in (404,405)
 
 
-def test_delivery_timeout_replay_preserves_identical_bytes_and_destination(batch):
+@pytest.mark.parametrize('state,attempts', [('unknown',1), ('prepared',1), ('confirmed',1), ('withdrawn_baseline',0)])
+def test_simulated_delivery_refuses_anything_but_first_prepared_send(batch,state,attempts):
     from modules.orders.stock_delivery import deliver
     from modules.orders.batch_production import additions
+    from fastapi import HTTPException
+    from sqlalchemy import update
     recipe=make_recipe(batch);batch[0].post('/products/production/inspections',json=body(batch,recipe))
-    db=batch[3];row=db.execute(select(additions)).mappings().one();seen=[]
+    db=batch[3];row=dict(db.execute(select(additions)).mappings().one());seen=[]
+    dest=json.loads(row['destination'])
+    def transport(destination,raw):seen.append(raw);return True
+    db.execute(update(additions).values(state=state,attempts=attempts));db.commit()
+    with pytest.raises(HTTPException) as exc:
+        deliver(db,1,row['id'],transport=transport,expected_destination=dest)
+    assert exc.value.status_code==409
+    assert seen==[]
+    saved=db.execute(select(additions)).mappings().one()
+    assert (saved['state'],saved['attempts'])==(state,attempts)
+
+
+def test_simulated_delivery_timeout_never_resends(batch):
+    from modules.orders.stock_delivery import deliver
+    from modules.orders.batch_production import additions
+    from fastapi import HTTPException
+    recipe=make_recipe(batch);batch[0].post('/products/production/inspections',json=body(batch,recipe))
+    db=batch[3];row=dict(db.execute(select(additions)).mappings().one());seen=[]
     def timeout(destination,raw):
         seen.append(raw)
         raise TimeoutError('private remote error must not escape')
     dest=json.loads(row['destination'])
-    assert deliver(db,1,row['id'],transport=timeout,expected_destination=dest)['state']=='unknown'
-    def good(destination,raw):seen.append(raw);return True
-    assert deliver(db,1,row['id'],transport=good,expected_destination=dest)['state']=='confirmed'
-    assert seen==[row['request_body']]*2
-    assert deliver(db,1,row['id'],transport=good,expected_destination=dest)['state']=='confirmed'
-    assert len(seen)==2
-    with pytest.raises(Exception):
-        deliver(db,1,row['id'],transport=good,expected_destination={'merchant_id':'WRONG','environment':'sandbox'})
-    assert len(seen)==2
+    assert deliver(db,1,row['id'],transport=timeout,expected_destination=dest)=={'state':'unknown','attempts':1}
+    with pytest.raises(HTTPException) as exc:
+        deliver(db,1,row['id'],transport=timeout,expected_destination=dest)
+    assert exc.value.status_code==409
+    assert seen==[row['request_body']]
 
 
 def test_tenant_deletion_retains_inspection_history(batch):
