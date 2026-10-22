@@ -1,5 +1,6 @@
 """AMS routes — AMS sync (multi-protocol: Bambu, Moonraker MMU)."""
 
+from modules.inventory.slot_assignments import assign_slot, lock_slot_graph
 from datetime import datetime, timezone
 from typing import List, Optional
 import logging
@@ -104,6 +105,7 @@ def _lock_ams_mutation(db, printer_id, current_user, tags, acquired_connection):
     complete mutation phase before writes; locks never span network acquisition.
     """
     try:
+        lock_slot_graph(db)
         if db.bind.dialect.name == "sqlite":
             db.execute(text("UPDATE printers SET name=name WHERE id=:id"), {"id": printer_id})
         db.expire_all()
@@ -504,7 +506,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
                 db_slot.filament_type = ftype
                 db_slot.color = color_name
                 db_slot.color_hex = color_hex
-                db_slot.assigned_spool_id = rfid_match.id
+                assign_slot(db, db_slot, rfid_match.id, current_user)
                 db_slot.spool_confirmed = True
                 db_slot.loaded_at = datetime.now(timezone.utc)
                 rfid_match.location_printer_id = printer_id
@@ -579,7 +581,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
                 db_slot.filament_type = ftype
                 db_slot.color = color_name
                 db_slot.color_hex = color_hex
-                db_slot.assigned_spool_id = new_spool.id
+                assign_slot(db, db_slot, new_spool.id, current_user)
                 db_slot.spool_confirmed = True
                 db_slot.loaded_at = datetime.now(timezone.utc)
                 updated_slots.append({

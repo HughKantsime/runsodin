@@ -1,6 +1,7 @@
 """Printer filament slot assignment and attention endpoints."""
 
 import logging
+from modules.inventory.slot_assignments import assign_slot
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -34,14 +35,8 @@ def assign_spool_to_slot(
     if not spool:
         raise HTTPException(status_code=404, detail="Spool not found")
 
-    # Update slot
-    slot.assigned_spool_id = spool_id
-    slot.spool_confirmed = False  # Needs confirmation
-
-    # Update spool location
-    spool.location_printer_id = printer_id
-    spool.location_slot = slot_number
-    spool.storage_location = None
+    assign_slot(db, slot, spool_id, current_user)
+    slot.spool_confirmed = False
 
     db.commit()
 

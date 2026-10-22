@@ -3,6 +3,7 @@
 import logging
 import math
 import re
+from modules.inventory.slot_assignments import assign_slot
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -200,7 +201,7 @@ async def configure_ams_slot(
     if slot is not None:
         slot.filament_type = material
         slot.color = body.color
-        slot.assigned_spool_id = spool_id
+        assign_slot(db, slot, spool_id, current_user)
         db.commit()
 
     return {"success": True, "message": f"AMS {ams_id} slot {slot_id} configured"}

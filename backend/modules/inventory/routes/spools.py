@@ -1,5 +1,6 @@
 """Spool CRUD and action endpoints (load/unload/use/weigh/drying)."""
 
+from modules.inventory.slot_assignments import assign_slot, lock_slot_graph, unload_spool_graph
 from core.spool_purchase_evidence import read_purchase, write_purchase, require_financial_owner
 from core.rbac import should_filter_org, require_action
 
@@ -390,28 +391,16 @@ def load_spool(spool_id: int, request: SpoolLoadRequest, current_user: dict = De
     if request.slot_number < 1 or request.slot_number > printer.slot_count:
         raise HTTPException(status_code=400, detail=f"Invalid slot number (1-{printer.slot_count})")
 
-    # Unload any existing spool in that slot
-    existing = db.query(Spool).filter(
-        Spool.location_printer_id == request.printer_id,
-        Spool.location_slot == request.slot_number,
-    ).first()
-    if existing and existing.id != spool_id:
-        existing.location_printer_id = None
-        existing.location_slot = None
-
-    # Update spool location
-    spool.location_printer_id = request.printer_id
-    spool.location_slot = request.slot_number
-    spool.storage_location = None
-
-    # Update filament slot assignment
+    lock_slot_graph(db)
     slot = db.query(FilamentSlot).filter(
         FilamentSlot.printer_id == request.printer_id,
         FilamentSlot.slot_number == request.slot_number,
     ).first()
-    if slot:
-        slot.assigned_spool_id = spool_id
-        slot.spool_confirmed = True
+    if not slot:
+        slot = FilamentSlot(printer_id=request.printer_id, slot_number=request.slot_number)
+        db.add(slot)
+    assign_slot(db, slot, spool_id, current_user)
+    slot.spool_confirmed = True
 
     db.commit()
 
@@ -436,18 +425,7 @@ def unload_spool(
     if not check_org_access(current_user, spool.org_id):
         raise HTTPException(status_code=404, detail="Spool not found")
 
-    # Clear slot assignment
-    if spool.location_printer_id and spool.location_slot:
-        slot = db.query(FilamentSlot).filter(
-            FilamentSlot.printer_id == spool.location_printer_id,
-            FilamentSlot.slot_number == spool.location_slot,
-        ).first()
-        if slot and slot.assigned_spool_id == spool_id:
-            slot.assigned_spool_id = None
-            slot.spool_confirmed = False
-
-    spool.location_printer_id = None
-    spool.location_slot = None
+    unload_spool_graph(db, spool, current_user)
     spool.storage_location = storage_location
 
     db.commit()

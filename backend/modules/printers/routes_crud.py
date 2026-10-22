@@ -1,5 +1,6 @@
 """Printer CRUD routes — create, read, update, delete, filament slots, test-connection, bulk-update."""
 
+from modules.inventory.slot_assignments import assign_slot
 from core.rbac import should_filter_org, require_action
 
 from datetime import datetime, timezone
@@ -40,9 +41,7 @@ log = logging.getLogger("odin.api")
 router = APIRouter()
 
 
-# ====================================================================
 # Printers CRUD
-# ====================================================================
 
 @router.get("/printers", response_model=List[PrinterResponse], tags=["Printers"])
 def list_printers(
@@ -372,9 +371,7 @@ def delete_printer(printer_id: int, current_user: dict = Depends(require_action(
         deliver_staged_alert(db, plan)
 
 
-# ====================================================================
 # Filament Slots
-# ====================================================================
 
 @router.get("/printers/{printer_id}/slots", response_model=List[FilamentSlotResponse], tags=["Filament"])
 def list_filament_slots(printer_id: int, current_user: dict = Depends(require_role("viewer", scope="read:printers")), db: Session = Depends(get_db)):
@@ -404,14 +401,17 @@ def update_filament_slot(
     if not slot:
         raise HTTPException(status_code=404, detail="Filament slot not found")
 
-    for field, value in updates.model_dump(exclude_unset=True).items():
+    values = updates.model_dump(exclude_unset=True)
+    if 'assigned_spool_id' in values:
+        assign_slot(db, slot, values.pop('assigned_spool_id'), current_user)
+    for field, value in values.items():
         setattr(slot, field, value)
 
     if slot.filament_type and slot.filament_type.value == "empty":
         slot.color = None
         slot.color_hex = None
         slot.spoolman_spool_id = None
-        slot.assigned_spool_id = None
+        assign_slot(db, slot, None, current_user)
         slot.spool_confirmed = False
 
     slot.loaded_at = datetime.now(timezone.utc)
@@ -420,9 +420,7 @@ def update_filament_slot(
     return slot
 
 
-# ====================================================================
 # Overlay (public, no auth)
-# ====================================================================
 
 @router.get("/overlay/{printer_id}", tags=["Overlay"])
 def get_overlay_data(printer_id: int, db: Session = Depends(get_db)):
@@ -465,9 +463,7 @@ def get_overlay_data(printer_id: int, db: Session = Depends(get_db)):
     }
 
 
-# ====================================================================
 # Bulk Update
-# ====================================================================
 
 @router.post("/printers/bulk-update", tags=["Printers"])
 async def bulk_update_printers(body: dict, current_user: dict = Depends(require_role("admin", scope="write:printers")), db: Session = Depends(get_db)):
@@ -527,9 +523,7 @@ async def bulk_update_printers(body: dict, current_user: dict = Depends(require_
         raise HTTPException(503, "Printer update could not be completed") from None
 
 
-# ====================================================================
 # Test Connection
-# ====================================================================
 
 @router.post("/printers/test-connection", tags=["Printers"])
 def test_printer_connection(request: TestConnectionRequest, current_user: dict = Depends(require_action("printers.edit", scope="write:printers"))):

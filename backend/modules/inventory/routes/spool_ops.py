@@ -1,5 +1,6 @@
 """Spool label/QR generation, CSV export, lookup, scan-assign, and bulk operations."""
 
+from modules.inventory.slot_assignments import assign_slot, lock_slot_graph
 from io import BytesIO
 from typing import Optional
 import logging
@@ -8,7 +9,7 @@ import qrcode
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from PIL import Image, ImageDraw, ImageFont
-from sqlalchemy import text, or_
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
@@ -183,33 +184,17 @@ def scan_assign_spool(
             message=f"Invalid slot {data.slot} for {printer.name} (has {printer.slot_count or 4} slots)",
         )
 
+    lock_slot_graph(db)
+
     # Check if slot already has a spool assigned
     existing_slot = db.query(FilamentSlot).filter(
         FilamentSlot.printer_id == data.printer_id,
         FilamentSlot.slot_number == data.slot,
     ).first()
 
-    # Authorize every prior assignment before clearing slots or moving stock.
-    prior_slots = db.query(FilamentSlot).filter(FilamentSlot.assigned_spool_id == spool.id).all()
-    prior_printer_ids = {slot.printer_id for slot in prior_slots}
-    if spool.location_printer_id is not None:
-        prior_printer_ids.add(spool.location_printer_id)
-    for prior_id in prior_printer_ids:
-        prior_printer = db.query(Printer).filter(Printer.id == prior_id).first()
-        if not prior_printer or not (check_org_access(current_user, prior_printer.org_id) or prior_printer.shared):
-            raise HTTPException(status_code=404, detail="Printer not found")
-    displaced = None
-    if existing_slot and existing_slot.assigned_spool_id not in (None, spool.id):
-        displaced = db.query(Spool).filter(Spool.id == existing_slot.assigned_spool_id).first()
-        if not displaced or not check_org_access(current_user, displaced.org_id):
-            raise HTTPException(status_code=404, detail="Spool not found")
-    if displaced and displaced.location_printer_id == printer.id and displaced.location_slot == data.slot:
-        displaced.location_printer_id = None
-        displaced.location_slot = None
-
     if existing_slot:
         # Update existing slot
-        existing_slot.assigned_spool_id = spool.id
+        assign_slot(db, existing_slot, spool.id, current_user)
         existing_slot.spool_confirmed = True
         existing_slot.filament_type = spool.filament.material if spool.filament else None
         existing_slot.color = spool.filament.name if spool.filament else None
@@ -219,24 +204,13 @@ def scan_assign_spool(
         new_slot = FilamentSlot(
             printer_id=data.printer_id,
             slot_number=data.slot,
-            assigned_spool_id=spool.id,
             filament_type=spool.filament.material if spool.filament else None,
             color=spool.filament.name if spool.filament else None,
             color_hex=spool.filament.color_hex if spool.filament else None,
             spool_confirmed=True,
         )
         db.add(new_slot)
-
-    # Update spool location
-    spool.location_printer_id = data.printer_id
-    spool.location_slot = data.slot
-
-    # Clear every previous assignment except the selected printer/slot pair.
-    db.query(FilamentSlot).filter(
-        FilamentSlot.assigned_spool_id == spool.id,
-        or_(FilamentSlot.printer_id != data.printer_id,
-            FilamentSlot.slot_number != data.slot),
-    ).update({FilamentSlot.assigned_spool_id: None})
+        assign_slot(db, new_slot, spool.id, current_user)
 
     db.commit()
 

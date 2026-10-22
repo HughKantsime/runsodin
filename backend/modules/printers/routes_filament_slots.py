@@ -17,6 +17,7 @@ Canonical Phase 2 pattern:
   - Registered in DRY_RUN_SUPPORTED_ROUTES.
 """
 
+from modules.inventory.slot_assignments import assign_slot
 from datetime import datetime, timezone
 import logging
 
@@ -122,10 +123,10 @@ def assign_spool_to_slot(
                     "see which spool is now loaded",
                 ),
             ],
-            notes="Would update filament_slots.assigned_spool_id; no other side effects.",
+            notes="Would move the spool to this slot and synchronize its location.",
         )
 
-    slot.assigned_spool_id = body.spool_id
+    assign_slot(db, slot, body.spool_id, current_user)
     slot.spool_confirmed = True
     slot.loaded_at = datetime.now(timezone.utc)
     log_audit(
