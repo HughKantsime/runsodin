@@ -2,6 +2,16 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.6] - 2026-10-22
+
+<!-- summary: Record and surface post-upload AMS gate refusal reasons -->
+
+### Fixed
+
+- When the post-upload printer and AMS check refuses a print start, the dispatch result, Jobs event, start alert and backend log now name the failed check with a stable code and safe detail (for example reported and required material, slot, tray count, snapshot age, or printer state, error and HMS codes). No print command is sent, as before.
+- Recording a refusal can no longer turn a clean refusal into an uncertain dispatch that needs manual reconciliation.
+- AMS inventory synchronization failures name the printer, filament slot, spool and slot numbers involved, and repeated identical warnings are throttled.
+
 ## [2.0.5] - 2026-10-21
 
 <!-- summary: Preserve AMS inventory and reconcile uncertain print dispatch responses -->
