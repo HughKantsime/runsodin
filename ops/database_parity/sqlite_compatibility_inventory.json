@@ -282,7 +282,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 120,
+      "line": 121,
       "path": "backend/core/database_config.py",
       "pattern": "check_same_thread",
       "reason": "SQLite engine branch; PostgreSQL engine creation does not receive SQLite connect args",
@@ -290,7 +290,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 132,
+      "line": 133,
       "path": "backend/core/database_config.py",
       "pattern": "PRAGMA",
       "reason": "SQLite engine branch; PostgreSQL engine creation does not receive SQLite connect args",
@@ -298,7 +298,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 133,
+      "line": 134,
       "path": "backend/core/database_config.py",
       "pattern": "PRAGMA",
       "reason": "SQLite engine branch; PostgreSQL engine creation does not receive SQLite connect args",
@@ -306,7 +306,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 134,
+      "line": 135,
       "path": "backend/core/database_config.py",
       "pattern": "PRAGMA",
       "reason": "SQLite engine branch; PostgreSQL engine creation does not receive SQLite connect args",
@@ -511,6 +511,14 @@
       "pattern": "qmark-parameter",
       "reason": "Credential-redaction regular expressions (Set-Cookie headers, optional quotes) contain qmark-like fragments; this logging helper performs no database operations or SQL.",
       "source": "_COOKIE_HEADER = re.compile(r\"(?i)(\\b(?:set-)?cookie[\\\"']?\\s*[:=]\\s*[\\\"']?)[^\\r\\n\\\"']+\")"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 69,
+      "path": "backend/core/log_redaction.py",
+      "pattern": "qmark-parameter",
+      "reason": "Credential-redaction regular expressions (Set-Cookie headers, optional quotes) contain qmark-like fragments; this logging helper performs no database operations or SQL.",
+      "source": "_ANYCUBIC_UPLOAD = re.compile(r\"(?i)(\\bgcode_upload\\?)[^\\s\\\"\\'<>#]+\")"
     },
     {
       "classification": "dialect-neutral",
@@ -2242,7 +2250,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 178,
+      "line": 179,
       "path": "backend/modules/system/routes_admin.py",
       "pattern": "sqlite3",
       "reason": "SQLite integrity-check branch; PostgreSQL uses provider-specific health checks",
@@ -2250,7 +2258,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 253,
+      "line": 254,
       "path": "backend/modules/system/routes_admin.py",
       "pattern": "PRAGMA",
       "reason": "SQLite integrity-check branch; PostgreSQL uses provider-specific health checks",
