@@ -2,6 +2,16 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.6] - 2026-10-21
+
+<!-- summary: Restore cookie-free native sign-in on API-key-protected servers -->
+
+### Fixed
+
+- Accept valid native Bearer sessions at the configured API-key perimeter. Password sign-in and biometric renewal previously succeeded while protected Fleet and alert reads were refused.
+- Preserve IP restrictions, explicit invalid API-key refusal, expired/revoked/inactive session checks, and route permissions.
+- Add real cookie-free password and rolling-session coverage with the server API key enabled.
+
 ## [2.0.5] - 2026-10-21
 
 <!-- summary: Preserve AMS inventory and reconcile uncertain print dispatch responses -->

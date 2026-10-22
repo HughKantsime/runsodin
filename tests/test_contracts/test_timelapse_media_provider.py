@@ -187,7 +187,7 @@ print(json.dumps({'registration':seen,'route_checks':checks,'factory_routes':len
     assert json.loads(result.stdout.splitlines()[-1])['registration']==['registered']
 
 
-def test_configured_global_key_perimeter_has_explicit_bearer_only_refusal(media_app,managed_plain_media,review_db,monkeypatch):
+def test_configured_global_key_bearer_reaches_media_owner_boundary(media_app,managed_plain_media,review_db,monkeypatch):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
     from core.app import _register_http_middleware
@@ -203,5 +203,13 @@ def test_configured_global_key_perimeter_has_explicit_bearer_only_refusal(media_
     app=FastAPI();app.add_middleware(AuditActorMiddleware);app.include_router(camera_routes.router,prefix='/api')
     app.dependency_overrides[get_db]=client.app.dependency_overrides[get_db]
     _register_http_middleware(app)
-    result=TestClient(app).get(f'/api/timelapses/{managed_plain_media}/download',headers={'Authorization':'Bearer '+create_access_token({'sub':'foreign'})})
-    assert result.status_code==401 and result.headers['cache-control']=='no-store'
+    result=TestClient(app).get(f'/api/timelapses/{managed_plain_media}/download',headers={'Authorization':'Bearer '+create_access_token({'sub':'admin'})})
+    # Fixture media belongs to org2; admin here is org1, 'foreign' is the org2 owner.
+    # Valid JWT admission must not grant another tenant's content.
+    assert result.status_code==404 and 'no-store' in result.headers['cache-control']
+    from sqlalchemy import text
+    username=review_db.execute(text('SELECT username FROM users WHERE id=5')).scalar_one()
+    review_db.rollback()
+    owner=TestClient(app).get(f'/api/timelapses/{managed_plain_media}/download',headers={'Authorization':'Bearer '+create_access_token({'sub':username})})
+    assert owner.status_code==200
+    assert owner.content==b'owned synthetic MP4 publication evidence'
