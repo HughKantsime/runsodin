@@ -203,13 +203,13 @@ def test_configured_global_key_bearer_reaches_media_owner_boundary(media_app,man
     app=FastAPI();app.add_middleware(AuditActorMiddleware);app.include_router(camera_routes.router,prefix='/api')
     app.dependency_overrides[get_db]=client.app.dependency_overrides[get_db]
     _register_http_middleware(app)
-    result=TestClient(app).get(f'/api/timelapses/{managed_plain_media}/download',headers={'Authorization':'Bearer '+create_access_token({'sub':'admin'})})
+    result=TestClient(app).get(f'/api/timelapses/{managed_plain_media}/download',headers={'Authorization':'Bearer '+create_access_token({'sub':'admin','role':'admin'})})
     # Fixture media belongs to org2; admin here is org1, 'foreign' is the org2 owner.
     # Valid JWT admission must not grant another tenant's content.
     assert result.status_code==404 and 'no-store' in result.headers['cache-control']
     from sqlalchemy import text
-    username=review_db.execute(text('SELECT username FROM users WHERE id=5')).scalar_one()
+    username,role=review_db.execute(text('SELECT username,role FROM users WHERE id=5')).one()
     review_db.rollback()
-    owner=TestClient(app).get(f'/api/timelapses/{managed_plain_media}/download',headers={'Authorization':'Bearer '+create_access_token({'sub':username})})
+    owner=TestClient(app).get(f'/api/timelapses/{managed_plain_media}/download',headers={'Authorization':'Bearer '+create_access_token({'sub':username,'role':role})})
     assert owner.status_code==200
     assert owner.content==b'owned synthetic MP4 publication evidence'
