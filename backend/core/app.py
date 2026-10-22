@@ -582,10 +582,17 @@ def _register_http_middleware(app: FastAPI) -> None:
         authorization = request.headers.get("Authorization", "")
         scheme, _, bearer = authorization.partition(" ")
         if scheme.lower() == "bearer" and bearer.strip():
-            from core.dependencies import validate_access_token
-            try:
+            from core.dependencies import validate_perimeter_access_token
+            from starlette.concurrency import run_in_threadpool
+
+            def validate_native_bearer():
+                # SQLAlchemy sessions must be created, used and closed together
+                # off the event loop, including when validation raises.
                 with SessionLocal() as auth_db:
-                    principal = validate_access_token(bearer.strip(), auth_db)
+                    return validate_perimeter_access_token(bearer.strip(), auth_db)
+
+            try:
+                principal = await run_in_threadpool(validate_native_bearer)
             except Exception:
                 return JSONResponse(status_code=503, content={"detail": "Service temporarily unavailable"})
             if principal is not None:

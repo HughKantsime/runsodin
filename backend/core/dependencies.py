@@ -233,6 +233,32 @@ def validate_access_token(token: str, db: Session) -> Optional[dict]:
     return _principal(user, "bearer_jwt")
 
 
+def validate_perimeter_access_token(token: str, db: Session) -> Optional[dict]:
+    """Accept only the access JWT shape minted by core.auth.create_access_token.
+
+    Login (including OIDC and biometric refresh) issues no type/purpose marker.
+    An exact claim set prevents tokens for other purposes from acquiring full
+    perimeter authority. Keep legacy route-carrier validation separate.
+    """
+    import jwt
+    try:
+        payload = jwt.decode(
+            token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM],
+            options={"require": ["sub", "role", "exp", "iat", "jti"]},
+        )
+    except jwt.PyJWTError:
+        return None
+    if set(payload) != {"sub", "role", "exp", "iat", "jti"}:
+        return None
+    if (type(payload["exp"]) is not int or type(payload["iat"]) is not int
+            or payload["iat"] < 0 or payload["exp"] <= payload["iat"]
+            or not isinstance(payload["jti"], str) or not payload["jti"].strip()
+            or not isinstance(payload["sub"], str) or not payload["sub"].strip()
+            or payload["role"] not in ("admin", "operator", "viewer")):
+        return None
+    return validate_access_token(token, db)
+
+
 def resolve_user_api_token(api_key: str, db: Session) -> Optional[dict]:
     """Principal for a per-user scoped API token (odin_xxx), or None.
 
