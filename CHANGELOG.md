@@ -11,6 +11,7 @@ All notable changes to O.D.I.N. are documented here.
 - Accept valid native Bearer sessions at the configured API-key perimeter. Password sign-in and biometric renewal previously succeeded while protected Fleet and alert reads were refused.
 - Preserve IP restrictions, explicit invalid API-key refusal, expired/revoked/inactive session checks, and route permissions.
 - Add real cookie-free password and rolling-session coverage with the server API key enabled.
+- Update the development-only Vitest toolchain to 4.1.12, closing the reported mock-registration and Windows redirect-traversal advisories without extending a security exception.
 
 ## [2.0.5] - 2026-10-21
 
