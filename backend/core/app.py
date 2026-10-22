@@ -577,6 +577,20 @@ def _register_http_middleware(app: FastAPI) -> None:
                 content={"detail": "Invalid or missing API key"},
             )
 
+        # Native clients deliberately do not retain browser cookies. Admit a
+        # full access JWT, then let the route enforce its own auth and RBAC.
+        authorization = request.headers.get("Authorization", "")
+        scheme, _, bearer = authorization.partition(" ")
+        if scheme.lower() == "bearer" and bearer.strip():
+            from core.dependencies import validate_access_token
+            try:
+                with SessionLocal() as auth_db:
+                    principal = validate_access_token(bearer.strip(), auth_db)
+            except Exception:
+                return JSONResponse(status_code=503, content={"detail": "Service temporarily unavailable"})
+            if principal is not None:
+                return await call_next(request)
+
         # Fallback: allow requests with a valid session cookie (browser SPA auth).
         # The login endpoint (bypassed above) sets an httpOnly session cookie;
         # subsequent browser requests include it automatically via credentials:'include'.
