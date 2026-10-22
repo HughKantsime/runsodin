@@ -163,8 +163,13 @@ def test_api_key_deployment_keeps_cookie_scoped_token_and_bearer_with_key(keyed)
                          json={"name": "k", "scopes": ["read:printers"]})
     assert created.status_code == 200, created.text
     assert keyed.get("/api/printers", headers={"X-API-Key": created.json()["token"]}).status_code == 200
-    # documented perimeter semantics: a bare Bearer header without the key is refused when API_KEY is set
-    assert keyed.get("/api/printers", headers={"Authorization": "Bearer " + token}).status_code == 401
+    # Native sessions pass the configured-key perimeter without a cookie or key,
+    # while retaining the viewer identity and route-level permission limits.
+    bearer = {"Authorization": "Bearer " + token}
+    assert keyed.get("/api/printers", headers=bearer).status_code == 200
+    me = keyed.get("/api/auth/me", headers=bearer)
+    assert me.status_code == 200 and me.json()["username"] == "keyed_viewer"
+    assert keyed.get("/api/config/ip-allowlist", headers=bearer).status_code == 403
 
 
 # ---------------------------------------------------------------- F11-11.1-03 (local half)
