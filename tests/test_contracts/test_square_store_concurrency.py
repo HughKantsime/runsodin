@@ -1,5 +1,9 @@
 """Exact encrypted JSON CAS against both SQL dialects; no live account required."""
-import os
+import secrets
+import shutil
+import subprocess
+import time
+import uuid
 import pytest
 from cryptography.fernet import Fernet
 from fastapi import HTTPException
@@ -8,14 +12,44 @@ from sqlalchemy.orm import Session
 from core.models import SystemConfig
 from modules.orders import square_store
 
+IMAGE = 'postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea'
+
+
+def _docker(*args, timeout=60):
+    return subprocess.run(['docker', *args], capture_output=True, text=True, timeout=timeout)
+
+
+@pytest.fixture(scope='module')
+def pg_url():
+    import psycopg  # noqa: F401 - a missing product driver must fail loudly
+    if not shutil.which('docker') or _docker('info', timeout=20).returncode:
+        pytest.skip('Docker unavailable')
+    name = 'odin-square-store-' + uuid.uuid4().hex[:12]
+    password = secrets.token_urlsafe(24)
+    try:
+        started = _docker('run', '-d', '--name', name, '-p', '127.0.0.1::5432', '--tmpfs',
+                          '/var/lib/postgresql/data:rw,size=128m', '-e', 'POSTGRES_PASSWORD=' + password,
+                          IMAGE, timeout=180)
+        assert started.returncode == 0, started.stderr
+        deadline = time.monotonic() + 90
+        while _docker('exec', name, 'pg_isready', '-U', 'postgres', '-h', '127.0.0.1', timeout=10).returncode:
+            assert time.monotonic() < deadline, 'owned PostgreSQL not ready'
+            time.sleep(0.3)
+        published = _docker('port', name, '5432/tcp')
+        assert published.returncode == 0, published.stderr
+        port = published.stdout.strip().rsplit(':', 1)[-1]
+        yield f'postgresql+psycopg://postgres:{password}@127.0.0.1:{port}/postgres'
+    finally:
+        _docker('rm', '-f', name)
+
+
 @pytest.fixture(params=['sqlite','postgresql'])
 def config_engine(request,tmp_path,monkeypatch):
     from core.schema.bootstrap import import_all_models
     import_all_models()
     monkeypatch.setenv('ENCRYPTION_KEY',Fernet.generate_key().decode())
     if request.param=='postgresql':
-        url=os.environ.get('SQUARE_TEST_POSTGRES_URL')
-        if not url:pytest.skip('Disposable PostgreSQL URL not supplied')
+        url=request.getfixturevalue('pg_url')
     else:url='sqlite:///'+str(tmp_path/'config.db')
     engine=create_engine(url)
     SystemConfig.__table__.create(engine,checkfirst=True)
