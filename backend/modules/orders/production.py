@@ -127,7 +127,10 @@ class OrderFulfillmentService:
             raise HTTPException(409,'Scheduled production identity and piece counts cannot be changed')
 
     def assert_order_structure_edit_allowed(self,executor,order_id):
-        self.lock_orders(executor,[order_id]);adapter=Execution(executor)
+        from modules.orders.show_fulfillment import guard_structure
+        self.lock_orders(executor,[order_id])
+        guard_structure(executor,order_id)
+        adapter=Execution(executor)
         if adapter.one('SELECT order_item_id FROM order_production_items WHERE order_id=:id',{'id':order_id}) or adapter.one('SELECT j.id FROM jobs j JOIN order_items i ON i.id=j.order_item_id WHERE i.order_id=:id',{'id':order_id}) or adapter.one('SELECT id FROM consumable_usage WHERE order_id=:id',{'id':order_id}):
             raise HTTPException(409,'Orders with production history cannot change their line items or be deleted')
 

@@ -1,3 +1,4 @@
+import MaterialPurchases from '../../components/orders/MaterialPurchases'
 import { useState, useRef } from 'react'
 import { useNewItemShortcut } from '../../hooks/useNewItemShortcut'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -121,6 +122,7 @@ export default function Consumables() {
 
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto">
+      {canDo('products.edit')&&<MaterialPurchases legacy={items} onChanged={()=>{void queryClient.invalidateQueries({queryKey:['consumables']})}}/>}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
         <div>
           <div className="flex items-center gap-3">
@@ -128,6 +130,7 @@ export default function Consumables() {
             <div>
               <h1 className="text-xl md:text-2xl font-display font-bold">Consumables</h1>
               <p className="text-[var(--brand-text-muted)] text-sm mt-1">Non-printed inventory items for product assembly</p>
+              <p className="text-[var(--brand-text-muted)] text-sm mt-1">Use Purchases and physical material receipts for incoming hardware and assembly use. The standard form keeps manual stock control.</p>
             </div>
           </div>
         </div>
@@ -211,6 +214,7 @@ export default function Consumables() {
                     <div className="flex items-center gap-2">
                       {item.is_low_stock && <AlertTriangle size={14} className="text-yellow-400 shrink-0" />}
                       <span>{item.name}</span>
+                      {item.managed_material&&<span className="text-xs text-[var(--brand-text-muted)]">Receipt-managed</span>}
                     </div>
                   </td>
                   <td className="p-3 text-[var(--brand-text-muted)] hidden md:table-cell">{item.sku || '—'}</td>
@@ -225,18 +229,18 @@ export default function Consumables() {
                   <td className="p-3 text-[var(--brand-text-muted)] hidden lg:table-cell">{item.vendor || '—'}</td>
                   <td className="p-3 text-right">
                     <div className="flex items-center justify-end gap-1">
-                      {canDo('models.edit') && (
+                      {!item.managed_material && canDo('models.edit') && (
                       <button onClick={() => { setShowAdjustModal(item); setAdjustData({ quantity: '', type: 'restock', notes: '' }) }}
                         className="p-1.5 text-[var(--brand-text-muted)] hover:bg-[var(--brand-card-border)] rounded-md" title="Adjust Stock">
                         <ArrowUpDown size={14} />
                       </button>
                       )}
-                      {canDo('models.edit') && (
+                      {!item.managed_material && canDo('models.edit') && (
                         <button onClick={() => handleEdit(item)} className="p-1.5 text-[var(--brand-text-muted)] hover:bg-[var(--brand-card-border)] rounded-md" title="Edit">
                           <Pencil size={14} />
                         </button>
                       )}
-                      {canDo('models.delete') && (
+                      {!item.managed_material && canDo('models.delete') && (
                         <button onClick={() => setConfirmDelete(item)}
                           className="p-1.5 text-[var(--brand-text-muted)] hover:text-red-400 hover:bg-red-900/50 rounded-md" title="Delete">
                           <Trash2 size={14} />

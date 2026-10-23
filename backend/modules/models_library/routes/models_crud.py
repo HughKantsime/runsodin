@@ -6,11 +6,9 @@ from core.rbac import should_filter_org, require_action
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File, Form
 from sqlalchemy.orm import Session
-from sqlalchemy import text, bindparam
+from sqlalchemy import text
 from typing import List, Optional
-from datetime import datetime
 import json
-import math
 import logging
 import os
 import re
@@ -22,16 +20,13 @@ from core.db import get_db
 from core.db_compat import execute_insert_returning_id
 from core.dependencies import get_current_user, log_audit
 from core.rbac import require_role, _get_org_filter, get_org_scope, check_org_access
-from core.models import SystemConfig
 from core.model_preview_access import accessible_preview_file, is_education_owned_file, delete_generic_file_if_unchanged
 from core.base import FilamentType
 from modules.models_library.models import Model
 from modules.models_library.schemas import (
     ModelCreate, ModelUpdate, ModelResponse, ModelScheduleOptions,
 )
-from modules.inventory.models import FilamentLibrary
-from .pricing import DEFAULT_PRICING_CONFIG, calculate_job_cost
-from modules.models_library.services import material_cost_per_gram
+from .pricing import calculate_job_cost
 from ._models_helpers import (  # noqa: F401
     _locked_revision_model, _new_revision_file, _next_revision_number, _plate_summaries, _revision_directory,
     _require_viewer_submission, _stage_submission_alert,
@@ -73,143 +68,9 @@ def list_models_with_pricing(
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_role("viewer", scope="read:models"))
 ):
-    """List all print models with calculated cost and suggested price."""
-    from modules.models_library.education_retention import visible_models
-    query = visible_models(db)
-    if category:
-        query = query.filter(Model.category == category)
-    effective_org = _get_org_filter(current_user, org_id) if org_id is not None else get_org_scope(current_user)
-    if should_filter_org(current_user, effective_org):
-        query = query.filter((Model.org_id == effective_org) | (Model.org_id == None))
-    models = query.order_by(Model.name).all()
-
-    # Job aggregates have their own resource permission, independent of models.
-    from core.api_token_policy import token_scope_granted
-    scopes = current_user.get("_token_scopes", [])
-    stats_allowed = not (scopes or current_user.get("_auth_kind") == "user_api_token") or token_scope_granted(scopes, "read:jobs")
-    statistics = {model.id: {"completed_job_count": 0, "actual_print_hours": 0.0,
-                             "unknown_timing_job_count": 0} for model in models}
-    if stats_allowed and models:
-        # Persisted Education ownership remains private even without its provider.
-        # Include both job payloads and every file linked to the model: legacy
-        # Education jobs may have only one of these references.
-        statement = """
-            SELECT j.model_id,j.actual_start,j.actual_end FROM jobs j
-            JOIN models m ON m.id=j.model_id
-            WHERE j.status='completed' AND j.model_id IN :stats_model_ids
-            AND NOT EXISTS (SELECT 1 FROM education_submissions s
-                WHERE s.job_id=j.id OR s.model_id=m.id
-                    OR EXISTS (SELECT 1 FROM jobs ej WHERE ej.id=s.job_id AND ej.model_id=m.id)
-                    OR s.print_file_id=j.print_file_id OR s.print_file_id=m.print_file_id)
-            AND NOT EXISTS (SELECT 1 FROM print_files f
-                WHERE (f.id=j.print_file_id OR f.id=m.print_file_id OR f.job_id=j.id OR f.model_id=m.id)
-                AND (EXISTS (SELECT 1 FROM education_submissions s
-                        JOIN print_files ef ON ef.id=s.print_file_id
-                        WHERE s.print_file_id=f.id OR (f.stored_path IS NOT NULL AND ef.stored_path=f.stored_path))
-                    OR EXISTS (SELECT 1 FROM education_upload_operations o
-                        WHERE f.stored_path IS NOT NULL AND
-                            (o.final_path=f.stored_path OR o.staging_path=f.stored_path OR o.cleanup_path=f.stored_path))))
-        """
-        params = {"stats_model_ids": list(statistics)}
-        if should_filter_org(current_user, effective_org):
-            if effective_org is None:
-                statement += " AND j.charged_to_org_id IS NULL"
-            else:
-                statement += " AND j.charged_to_org_id=:stats_org"
-                params["stats_org"] = effective_org
-        for row in db.execute(text(statement).bindparams(bindparam("stats_model_ids", expanding=True)), params):
-            stats = statistics.get(row.model_id)
-            if stats is None:
-                continue  # Only models selected by the authorized library query.
-            stats["completed_job_count"] += 1
-            try:
-                start = datetime.fromisoformat(row.actual_start) if isinstance(row.actual_start, str) else row.actual_start
-                end = datetime.fromisoformat(row.actual_end) if isinstance(row.actual_end, str) else row.actual_end
-                hours = (end - start).total_seconds() / 3600 if start and end else 0
-            except (ValueError, TypeError):
-                hours = 0
-            if hours > 0:
-                stats["actual_print_hours"] += hours
-            else:
-                stats["unknown_timing_job_count"] += 1
-
-    # Get pricing config once
-    config_row = db.query(SystemConfig).filter(SystemConfig.key == "pricing_config").first()
-    config = config_row.value if config_row else DEFAULT_PRICING_CONFIG
-
-    # Count and derive dimensions from the same authorized file snapshots.
-    variant_counts = {}
-    bed_dims = {}
-    for model in models:
-        variants = _accessible_model_variant_rows(db, model.id, current_user)
-        variant_counts[model.id] = len(variants)
-        row = next((row for row in variants if row.bed_x_mm is not None), None)
-        bed_dims[model.id] = {
-            "bed_x_mm": row.bed_x_mm if row else None,
-            "bed_y_mm": row.bed_y_mm if row else None,
-        }
-
-    result = []
-    for model in models:
-        # Calculate cost for this model
-        filament_grams = model.total_filament_grams or 0
-        print_hours = model.build_time_hours or 1.0
-
-        # Try to get per-material cost
-        material_type = model.default_filament_type.value if model.default_filament_type else "PLA"
-        cost_per_gram = material_cost_per_gram(db, material_type)
-        if cost_per_gram is None:
-            cost_per_gram = config["spool_cost"] / config["spool_weight"]
-
-        # Calculate costs
-        material_cost = filament_grams * cost_per_gram
-        labor_hours = (config["post_processing_min"] + config["packing_min"] + config["support_min"]) / 60
-        labor_cost = labor_hours * config["hourly_rate"]
-        electricity_cost = (config["printer_wattage"] / 1000) * print_hours * config["electricity_rate"]
-        depreciation_cost = (config["printer_cost"] / config["printer_lifespan"]) * print_hours
-        packaging_cost = config["packaging_cost"]
-        base_cost = material_cost + labor_cost + electricity_cost + depreciation_cost + packaging_cost + config["other_costs"]
-        failure_cost = base_cost * (config["failure_rate"] / 100)
-        overhead_cost = config["monthly_rent"] / config["parts_per_month"] if config["parts_per_month"] > 0 else 0
-        subtotal = base_cost + failure_cost + overhead_cost
-
-        margin = model.markup_percent if model.markup_percent else config["default_margin"]
-        suggested_price = subtotal * (1 + margin / 100)
-        # One out-of-range input must never 500 the whole list: report that model's estimate as unknown.
-        priced = all(isinstance(v, (int, float)) and math.isfinite(v) for v in (subtotal, suggested_price, margin))
-
-        # Build response
-        model_dict = {
-            "id": model.id,
-            "name": model.name,
-            "build_time_hours": model.build_time_hours,
-            "default_filament_type": model.default_filament_type.value if model.default_filament_type else None,
-            "color_requirements": model.color_requirements,
-            "category": model.category,
-            "thumbnail_url": model.thumbnail_url,
-            "thumbnail_b64": model.thumbnail_b64,
-            "notes": model.notes,
-            "cost_per_item": model.cost_per_item,
-            "units_per_bed": model.units_per_bed,
-            "markup_percent": model.markup_percent,
-            "created_at": model.created_at.isoformat() if model.created_at else None,
-            "updated_at": model.updated_at.isoformat() if model.updated_at else None,
-            "required_colors": model.required_colors,
-            "total_filament_grams": model.total_filament_grams,
-            "variant_count": variant_counts.get(model.id, 0),
-            "job_statistics": statistics[model.id] if stats_allowed else None,
-            # New pricing fields
-            "estimated_cost": round(subtotal, 2) if priced else None,
-            "suggested_price": round(suggested_price, 2) if priced else None,
-            "margin_percent": margin if priced else None,
-            "is_favorite": model.is_favorite or False,
-            # Bed dimensions from linked print file (for dispatch compatibility warning)
-            "bed_x_mm": bed_dims.get(model.id, {}).get("bed_x_mm"),
-            "bed_y_mm": bed_dims.get(model.id, {}).get("bed_y_mm"),
-        }
-        result.append(model_dict)
-
-    return result
+    from .pricing import list_models_with_pricing as priced_models
+    return priced_models(category=category, org_id=org_id, db=db, current_user=current_user,
+                         variant_rows=_accessible_model_variant_rows)
 
 
 @router.post("", response_model=ModelResponse, status_code=status.HTTP_201_CREATED)
@@ -283,6 +144,8 @@ def delete_model(model_id: int, current_user: dict = Depends(require_action("mod
 
     from modules.models_library.education_retention import assert_model_deletable
     assert_model_deletable(db, model.id)
+    from modules.orders.services import retain_component_model
+    retain_component_model(db,model.org_id or 0,model.id)
     db.delete(model)
     db.commit()
 

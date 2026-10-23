@@ -21,6 +21,10 @@ def snapshot(db, owner, row, *, lock=False, enforce_barrier=True):
     request=wire.validate_request(row['request_body'])
     receipt=db.execute(select(batches.receipts).where(batches.receipts.c.owner==owner,
         batches.receipts.c.id==row['receipt_id'])).mappings().one_or_none()
+    if receipt is None:
+        from modules.orders.finishing import receipt as finish_receipt
+        finished=finish_receipt(db,owner,row['receipt_id'])
+        if finished is not None:receipt={'definition':batches.packed(finished)}
     if not receipt or row['receipt_id']!=request['idempotency_key']:wire.invalid()
     try:
         detail=json.loads(receipt['definition']);dest=json.loads(row['destination'])

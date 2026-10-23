@@ -9,6 +9,7 @@
   "estimated_margin_percent": 66.7,
   "estimated_profit": 40.0,
   "fulfilled_items": 2,
+  "has_show_fulfillment": false,
   "id": 1,
   "items": [
    {
@@ -58,6 +59,7 @@
    "estimated_margin_percent": 66.7,
    "estimated_profit": 40.0,
    "fulfilled_items": 2,
+   "has_show_fulfillment": false,
    "id": 1,
    "items": [
     {
@@ -106,6 +108,7 @@
    "estimated_margin_percent": 78.8,
    "estimated_profit": 31.5,
    "fulfilled_items": 0,
+   "has_show_fulfillment": false,
    "id": 2,
    "items": [
     {
@@ -154,6 +157,7 @@
    "estimated_margin_percent": 66.0,
    "estimated_profit": 66.0,
    "fulfilled_items": 0,
+   "has_show_fulfillment": false,
    "id": 3,
    "items": [
     {
@@ -203,6 +207,7 @@
   "estimated_margin_percent": 78.8,
   "estimated_profit": 31.5,
   "fulfilled_items": 0,
+  "has_show_fulfillment": false,
   "id": 2,
   "items": [
    {
@@ -251,6 +256,7 @@
   "estimated_margin_percent": 66.0,
   "estimated_profit": 66.0,
   "fulfilled_items": 0,
+  "has_show_fulfillment": false,
   "id": 3,
   "items": [
    {
@@ -306,6 +312,7 @@
    "estimated_margin_percent": 66.7,
    "estimated_profit": 40.0,
    "fulfilled": true,
+   "has_show_fulfillment": false,
    "id": 1,
    "item_count": 1,
    "order_date": null,
@@ -320,6 +327,7 @@
    "estimated_margin_percent": 78.8,
    "estimated_profit": 31.5,
    "fulfilled": false,
+   "has_show_fulfillment": false,
    "id": 2,
    "item_count": 1,
    "order_date": null,
@@ -334,6 +342,7 @@
    "estimated_margin_percent": 66.0,
    "estimated_profit": 66.0,
    "fulfilled": false,
+   "has_show_fulfillment": false,
    "id": 3,
    "item_count": 1,
    "order_date": null,
@@ -350,6 +359,7 @@
    "estimated_margin_percent": 66.7,
    "estimated_profit": 40.0,
    "fulfilled": true,
+   "has_show_fulfillment": false,
    "id": 1,
    "item_count": 1,
    "order_date": null,
@@ -364,6 +374,7 @@
    "estimated_margin_percent": 78.8,
    "estimated_profit": 31.5,
    "fulfilled": false,
+   "has_show_fulfillment": false,
    "id": 2,
    "item_count": 1,
    "order_date": null,
@@ -378,6 +389,7 @@
    "estimated_margin_percent": 66.0,
    "estimated_profit": 66.0,
    "fulfilled": false,
+   "has_show_fulfillment": false,
    "id": 3,
    "item_count": 1,
    "order_date": null,
@@ -394,6 +406,7 @@
    "estimated_margin_percent": 66.7,
    "estimated_profit": 40.0,
    "fulfilled": true,
+   "has_show_fulfillment": false,
    "id": 1,
    "item_count": 1,
    "order_date": null,
@@ -408,6 +421,7 @@
    "estimated_margin_percent": 78.8,
    "estimated_profit": 31.5,
    "fulfilled": false,
+   "has_show_fulfillment": false,
    "id": 2,
    "item_count": 1,
    "order_date": null,
@@ -422,6 +436,7 @@
    "estimated_margin_percent": 66.0,
    "estimated_profit": 66.0,
    "fulfilled": false,
+   "has_show_fulfillment": false,
    "id": 3,
    "item_count": 1,
    "order_date": null,
@@ -536,6 +551,13 @@
     "admin",
     "operator"
    ],
+   "products.assortment": [
+    "admin"
+   ],
+   "products.assortment_preview": [
+    "admin",
+    "operator"
+   ],
    "products.create": [
     "admin",
     "operator"
@@ -544,6 +566,39 @@
     "admin"
    ],
    "products.edit": [
+    "admin",
+    "operator"
+   ],
+   "products.finishing": [
+    "admin",
+    "operator"
+   ],
+   "products.inspections": [
+    "admin",
+    "operator"
+   ],
+   "products.materials_manage": [
+    "admin"
+   ],
+   "products.materials_preview": [
+    "admin",
+    "operator"
+   ],
+   "products.materials_receive": [
+    "admin",
+    "operator"
+   ],
+   "products.operations": [
+    "admin",
+    "operator"
+   ],
+   "products.recipes": [
+    "admin"
+   ],
+   "products.square_manage": [
+    "admin"
+   ],
+   "products.square_send": [
     "admin",
     "operator"
    ],
@@ -715,6 +770,7 @@
    }
   ],
   "jobs_created": 1,
+  "managed_materials_deferred": [],
   "order_id": 2,
   "success": true
  },
@@ -729,6 +785,7 @@
   "estimated_margin_percent": 66.7,
   "estimated_profit": 40.0,
   "fulfilled_items": 2,
+  "has_show_fulfillment": false,
   "id": 1,
   "items": [
    {

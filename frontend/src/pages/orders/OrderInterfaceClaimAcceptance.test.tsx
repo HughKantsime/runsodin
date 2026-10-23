@@ -6,7 +6,7 @@ import { MemoryRouter } from 'react-router-dom'
 import Orders from './Orders'
 const api = vi.hoisted(() => ({ role: 'admin', list: vi.fn(), get: vi.fn(), create: vi.fn(), update: vi.fn(), updateItem: vi.fn(), addItem: vi.fn(), removeItem: vi.fn(), ship: vi.fn() }))
 vi.mock('../../api', () => ({ orders: { list: api.list, get: api.get, create: api.create, update: api.update, updateItem: api.updateItem, addItem: api.addItem, removeItem: api.removeItem, ship: api.ship }, products: { list: vi.fn().mockResolvedValue([{ id: 11, name: 'Fixture gear', sku: 'FG', price: 10 }, { id: 12, name: 'Fixture spacer', sku: 'FS', price: 5 }, { id: 13, name: 'Fixture bracket', sku: 'FB', price: 4 }]) }, orderInvoice: vi.fn() }))
-vi.mock('../../permissions', () => ({ canDo: (action: string) => action === 'orders.edit' ? api.role === 'admin' : ['admin','operator'].includes(api.role) }))
+vi.mock('../../permissions', () => ({ getCurrentUser:()=>({role:api.role}),canDo: (action: string) => action === 'orders.edit' ? api.role === 'admin' : ['admin','operator'].includes(api.role) }))
 const order = { id: 71, order_number: 'ORDER-FIXTURE', customer_name: 'Fixture customer', customer_email: 'fixture@example.test', platform: 'direct', status: 'fulfilled', revenue: 25, platform_fees: 0, payment_fees: 0, shipping_charged: 0, tracking_number: null, item_count: 2, jobs_complete: 2, jobs_total: 2, notes: 'Original note', items: [
   { id: 100, product_id: 11, product_name: 'Fixture gear', product_sku: 'FG', quantity: 2, unit_price: 10, subtotal: 20, fulfilled_quantity: 2, is_fulfilled: true },
   { id: 101, product_id: 12, product_name: 'Fixture spacer', product_sku: 'FS', quantity: 1, unit_price: 5, subtotal: 5, fulfilled_quantity: 1, is_fulfilled: true },

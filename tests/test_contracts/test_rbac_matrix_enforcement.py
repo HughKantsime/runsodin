@@ -257,7 +257,11 @@ def _denied(r):
 from core.rbac_policy import RBAC_DEFAULT_ACTION_ACCESS, RBAC_DEFAULT_PAGE_ACCESS  # noqa: E402
 from core.rbac_routes import ACTION_ROUTES, PAGE_ROUTES  # noqa: E402
 
-KEYS = sorted(ACTION_ROUTES)
+from tests.test_contracts.sublab_rbac_cases import CASES as SUBLAB_CASES
+
+# Sublab retains independent role floors even when the matrix is widened.
+# Its real-HTTP admission cases live in test_sublab_rbac_actions.py.
+KEYS = sorted(set(ACTION_ROUTES) - set(SUBLAB_CASES))
 # Keys some role lacks by default (keys every role holds have no refused role to test).
 REFUSABLE = [key for key in KEYS if {"viewer", "operator"} - set(RBAC_DEFAULT_ACTION_ACCESS[key])]
 ADMIN_ONLY = [key for key in KEYS if "operator" not in RBAC_DEFAULT_ACTION_ACCESS[key]]
@@ -265,7 +269,8 @@ PAGE_PATHS = sorted(path for routes in PAGE_ROUTES.values() for _method, path in
 
 
 def test_every_action_key_has_a_behaviour_case(matrix):
-    assert sorted(matrix["results"]) == KEYS == matrix["keys"]
+    assert sorted(matrix["results"]) == KEYS
+    assert sorted(set(KEYS) | set(SUBLAB_CASES)) == matrix["keys"]
 
 
 @pytest.mark.parametrize("key", KEYS)

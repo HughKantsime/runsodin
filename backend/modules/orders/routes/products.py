@@ -4,6 +4,7 @@ from core.rbac import should_filter_org, require_action
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy import update
 from typing import List
 import logging
 
@@ -126,6 +127,11 @@ def update_product(product_id: int, data: ProductUpdate, current_user: dict = De
     if not check_org_access(current_user, product.org_id):
         raise HTTPException(status_code=404, detail="Product not found")
 
+    from modules.orders.finishing import lock
+    from modules.orders.square_store import own_product
+    lock(db,product.org_id or 0)
+    product=own_product(db,product.org_id or 0,product.id,lock=True)
+
     for key, value in data.model_dump(exclude_unset=True).items():
         setattr(product, key, value)
 
@@ -160,6 +166,11 @@ def add_product_component(product_id: int, data: ProductComponentCreate, current
     if not check_org_access(current_user, product.org_id):
         raise HTTPException(status_code=404, detail="Product not found")
 
+    from modules.orders.finishing import lock
+    from modules.orders.square_store import own_product
+    lock(db,product.org_id or 0)
+    product=own_product(db,product.org_id or 0,product.id,lock=True)
+
     model = db.query(Model).filter(Model.id == data.model_id).first()
     if not model or not check_org_access(current_user, model.org_id):
         raise HTTPException(status_code=404, detail="Model not found")
@@ -188,6 +199,11 @@ def remove_product_component(product_id: int, component_id: int, current_user: d
     if not check_org_access(current_user, product.org_id):
         raise HTTPException(status_code=404, detail="Product not found")
 
+    from modules.orders.finishing import lock
+    from modules.orders.square_store import own_product
+    lock(db,product.org_id or 0)
+    product=own_product(db,product.org_id or 0,product.id,lock=True)
+
     comp = db.query(ProductComponent).filter(
         ProductComponent.id == component_id,
         ProductComponent.product_id == product_id
@@ -210,9 +226,18 @@ def add_product_consumable(product_id: int, data: ProductConsumableCreate,
         raise HTTPException(status_code=404, detail="Product not found")
     if not check_org_access(current_user, product.org_id):
         raise HTTPException(status_code=404, detail="Product not found")
+
+    from modules.orders.finishing import lock
+    from modules.orders.square_store import own_product
+    lock(db,product.org_id or 0)
+    product=own_product(db,product.org_id or 0,product.id,lock=True)
+    if db.execute(update(Consumable).where(Consumable.id==data.consumable_id).values(id=Consumable.id)).rowcount!=1:
+        raise HTTPException(404,'Consumable not found')
     consumable = db.query(Consumable).filter(Consumable.id == data.consumable_id).first()
     if not consumable:
         raise HTTPException(status_code=404, detail="Consumable not found")
+    from modules.orders.material_store import guard
+    guard(db,consumable,product.org_id or 0)
     link = ProductConsumable(
         product_id=product_id,
         consumable_id=data.consumable_id,
@@ -236,6 +261,11 @@ def remove_product_consumable(product_id: int, consumable_link_id: int,
         raise HTTPException(status_code=404, detail="Product not found")
     if not check_org_access(current_user, product.org_id):
         raise HTTPException(status_code=404, detail="Product not found")
+
+    from modules.orders.finishing import lock
+    from modules.orders.square_store import own_product
+    lock(db,product.org_id or 0)
+    product=own_product(db,product.org_id or 0,product.id,lock=True)
 
     link = db.query(ProductConsumable).filter(
         ProductConsumable.id == consumable_link_id,

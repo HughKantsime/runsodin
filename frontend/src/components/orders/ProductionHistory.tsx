@@ -28,7 +28,7 @@ export default function ProductionHistory({operator,refreshKey=0}:{operator:bool
       {history?.receipts.map(r=>{
         const addition=history.additions.find(a=>a.receipt_id===r.id),check=addition?checks[addition.id]:undefined,status=check?.state??addition?.state
         return <article key={r.id} className="space-y-2 rounded-md border border-[var(--brand-card-border)] p-3 text-sm break-words">
-          <h3 className="font-medium">{r.recipe_name} · job {r.job_id}</h3><p>{new Date(r.occurred_at).toLocaleString()}</p>
+          <h3 className="font-medium">{r.recipe_name} · {r.kind==='assembly'?'Assembly receipt':`job ${r.job_id}`}</h3><p>{new Date(r.occurred_at).toLocaleString()}</p>
           {r.outputs.map(o=><p key={`${o.product_id}-${o.kind}`}>{o.product_name} ({o.kind}): {o.accepted} accepted, {o.rejected} rejected{o.disposition==='in_baseline'?' · Counted in baseline':o.send_quantity!==undefined?` · ${o.send_quantity} to send`:''}</p>)}
           <p>Receipt: <span className="font-mono break-all">{r.id}</span></p>
           {!addition?<p>{r.stock_status==='in_baseline'?'Counted in baseline; no Square addition.':r.stock_status==='no_sellable_output'?'No sellable output; no Square addition.':'No linked addition found. Retain this receipt for review.'}</p>:<>

@@ -95,6 +95,7 @@ POLICY_INVENTORY = (
     _entry("archives.routes.tags", "tag routes", "model/file/archive", "read/mutate", "resource policy audience", (), "test_education_resource_policy.py", "batch2_required"),
     _entry("reporting.report_runner", "scheduled report delivery", "job/file/report", "external-sink", "none for Education", ("email",), "test_education_notification_privacy.py", "batch2_required"),
     _entry("orders.batch_production", "recipe qualification and inspected production receipt", "job/model/physical-attempt", "read/local-mutate", "exact tenant plus generic model admission and explicit Education submission exclusion", (), "test_batch_acceptance.py", "guarded"),
+    _entry("orders.operations", "jobs/readiness", "job/model/file", "read readiness", "interactive tenant operator; exact charged tenant and explicit Education submission exclusion; generic file/model admission remains caller policy", ("operations preparation UI",), "test_operations_preparation.py", "batch2_required"),
     _entry("orders.production", "immutable order production reconciliation", "job/model/order-item", "mutate", "caller Education lifecycle guard plus immutable generic-production bindings", (), "test_order_fulfillment_behavior.py", "batch2_required"),
     *(
         _entry(

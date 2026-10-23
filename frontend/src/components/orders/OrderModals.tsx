@@ -1,8 +1,10 @@
+import ShowFulfillment from './ShowFulfillment'
+import {getCurrentUser} from '../../permissions'
 import { useState } from 'react'
 import { Plus, Truck } from 'lucide-react'
 import { Modal } from '../ui'
 
-const PLATFORMS = ['etsy', 'amazon', 'ebay', 'direct', 'wholesale', 'other']
+const PLATFORMS = ['etsy', 'amazon', 'ebay', 'direct', 'wholesale', 'show_ship_later', 'other']
 
 export function CreateOrderModal({ isOpen, onClose, onSubmit, formData, setFormData, items, setItems, productList }: { isOpen: boolean; onClose: () => void; onSubmit: (e: React.FormEvent) => void; formData: any; setFormData: (d: any) => void; items: any[]; setItems: (items: any[]) => void; productList: any[] }) {
   if (!isOpen) return null
@@ -207,7 +209,7 @@ export function ProductionConfirmation({ item, onConfirm }: { item: any; onConfi
 const finiteMoney = (value) => typeof value === 'number' && Number.isFinite(value)
   ? `${value < 0 ? '-' : ''}$${Math.abs(value).toFixed(2)}` : 'Unknown'
 
-export function OrderDetailModal({ isOpen, order, onClose, onSchedule, onShip, onCancel, onDownloadInvoice, onConfirmProduction, STATUS_CLASSES, canDo }: { isOpen: boolean; order: any; onClose: () => void; onSchedule: (id: number) => void; onShip: (order: any) => void; onCancel: (order: any) => void; onDownloadInvoice: (order: any) => void; onConfirmProduction: (itemId: number, quantity: number) => Promise<void>; STATUS_CLASSES: Record<string, string>; canDo: (action: string) => boolean }) {
+export function OrderDetailModal({ isOpen, order, onClose, onSchedule, onShip, onCancel, onDownloadInvoice, onConfirmProduction, onShowUpdated, STATUS_CLASSES, canDo }: { isOpen: boolean; order: any; onClose: () => void; onSchedule: (id: number) => void; onShip: (order: any) => void; onCancel: (order: any) => void; onDownloadInvoice: (order: any) => void; onConfirmProduction: (itemId: number, quantity: number) => Promise<void>; onShowUpdated?: (id:number)=>void; STATUS_CLASSES: Record<string, string>; canDo: (action: string) => boolean }) {
   if (!isOpen || !order) return null
 
   return (
@@ -227,7 +229,7 @@ export function OrderDetailModal({ isOpen, order, onClose, onSchedule, onShip, o
                 Schedule Jobs
               </button>
             )}
-            {canDo('orders.ship') && order.status === 'fulfilled' && (
+            {canDo('orders.ship') && !order.has_show_fulfillment && order.status === 'fulfilled' && (
               <button
                 onClick={() => onShip(order)}
                 className="px-4 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary-hover)] rounded-md transition-colors text-sm"
@@ -362,6 +364,7 @@ export function OrderDetailModal({ isOpen, order, onClose, onSchedule, onShip, o
           </div>
         </div>
 
+        {['operator','admin'].includes(getCurrentUser()?.role??'')&&<ShowFulfillment key={order.id} orderId={order.id} canEdit={canDo('orders.edit')} canShip={canDo('orders.ship')} onUpdated={onShowUpdated}/>}
         {order.tracking_number && (
           <div className="text-sm">
             <span className="text-[var(--brand-muted)]">Tracking:</span>{' '}

@@ -15,3 +15,8 @@ def forget_tenant(db, owner):
     """
     from modules.orders.square_store import forget_tenant as forget
     forget(db, owner)
+
+
+def retain_component_model(db,owner,model_id):
+    from modules.orders.finishing import guard_model_delete
+    guard_model_delete(db,owner,model_id)

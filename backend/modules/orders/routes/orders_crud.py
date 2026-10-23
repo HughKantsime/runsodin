@@ -57,6 +57,8 @@ def _locked_order(db, order_id, current_user):
 def _enrich_order_response(order: Order, db: Session) -> OrderResponse:
     """Build a full OrderResponse with calculated fields."""
     resp = OrderResponse.model_validate(order)
+    from modules.orders.show_fulfillment import has_record
+    resp.has_show_fulfillment=has_record(db,order)
 
     # Enrich items
     enriched_items = []
@@ -151,10 +153,12 @@ def list_orders(
         if product_id not in products:
             products[product_id] = db.query(Product).filter(Product.id == product_id).first()
         return products[product_id]
+    from modules.orders.show_fulfillment import has_record
     result = []
     for o in orders:
         summary = OrderSummary(
             **estimated_order_financials(o, product_for),
+            has_show_fulfillment=has_record(db,o),
             id=o.id,
             order_number=o.order_number,
             platform=o.platform,
@@ -266,6 +270,8 @@ def update_order(order_id: int, data: OrderUpdate, current_user: dict = Depends(
         if not order.items or not all(item.quantity > 0 and item.fulfilled_quantity >= item.quantity for item in order.items):
             raise HTTPException(409, "Complete scheduled jobs or explicitly confirm production before marking this order fulfilled")
 
+    from modules.orders.show_fulfillment import guard_patch
+    guard_patch(db,order,data.model_dump(exclude_unset=True))
     for key, value in data.model_dump(exclude_unset=True).items():
         setattr(order, key, value)
 
@@ -285,6 +291,8 @@ def delete_order(order_id: int, current_user: dict = Depends(require_action("ord
     if not check_org_access(current_user, order.org_id):
         raise HTTPException(status_code=404, detail="Order not found")
     _fulfillment().assert_order_structure_edit_allowed(db,order_id)
+    from modules.orders.show_fulfillment import guard_delete_or_ship
+    guard_delete_or_ship(db,order)
 
     db.delete(order)
     db.commit()
@@ -333,6 +341,8 @@ def update_order_item(order_id: int, item_id: int, data: OrderItemUpdate, curren
     if not check_org_access(current_user, order.org_id):
         raise HTTPException(status_code=404, detail="Order not found")
     _fulfillment().lock_orders(db,[order_id])
+    from modules.orders.show_fulfillment import guard_structure
+    guard_structure(db,order_id)
     if "quantity" in data.model_fields_set:
         _fulfillment().assert_order_structure_edit_allowed(db,order_id)
 
@@ -459,6 +469,7 @@ def schedule_order(order_id: int, current_user: dict = Depends(require_action("o
 
     jobs_created = []
     consumable_deductions = []
+    managed_deferred = []
     try:
         # This conditional write serializes competing sessions on both providers.
         claimed = db.execute(update(Order).where(
@@ -470,6 +481,15 @@ def schedule_order(order_id: int, current_user: dict = Depends(require_action("o
         # Successful arithmetic updates record exactly the units actually consumed.
         for consumable_id in sorted(demand):
             consumable, needed = demand[consumable_id]
+            # Adoption and legacy deductions share the hardware-row fence.
+            db.execute(update(Consumable).where(Consumable.id==consumable_id).values(id=Consumable.id))
+            from modules.orders.material_store import identity,guard
+            managed=identity(db,consumable_id)
+            if managed:
+                db.refresh(consumable)
+                guard(db,consumable,order.org_id or 0)
+                managed_deferred.append(consumable_id)
+                continue  # Actual use is recorded atomically during finishing.
             remaining = db.execute(update(Consumable).where(
                 Consumable.id == consumable_id, Consumable.status == "active",
                 Consumable.current_stock >= needed
@@ -503,7 +523,7 @@ def schedule_order(order_id: int, current_user: dict = Depends(require_action("o
         db.rollback()
         raise
     return {"success": True, "order_id": order_id, "jobs_created": len(jobs_created),
-            "details": jobs_created, "consumables_deducted": consumable_deductions}
+            "details": jobs_created, "consumables_deducted": consumable_deductions,"managed_materials_deferred":managed_deferred}
 
 
 @router.get("/{order_id}/invoice.pdf")
@@ -557,6 +577,8 @@ def ship_order(order_id: int, data: OrderShipRequest, current_user: dict = Depen
         raise HTTPException(status_code=404, detail="Order not found")
 
     order = _locked_order(db, order_id, current_user)
+    from modules.orders.show_fulfillment import guard_delete_or_ship
+    guard_delete_or_ship(db,order)
     # Shipped is only reachable from the production lifecycle. Pending (never
     # scheduled), cancelled and already-shipped orders are refused.
     current = order.status.value if hasattr(order.status, "value") else order.status

@@ -5,7 +5,7 @@ import Orders from './Orders'
 import { MemoryRouter } from 'react-router-dom'
 import { orders } from '../../api'
 import toast from 'react-hot-toast'
-vi.mock('../../permissions', () => ({canDo: () => true}))
+vi.mock('../../permissions', () => ({canDo: () => true,getCurrentUser:()=>({role:'admin'})}))
 vi.mock('../../api', () => ({orders: {list:vi.fn(),get:vi.fn(),create:vi.fn(),update:vi.fn(),updateItem:vi.fn()},products:{list:vi.fn()},orderInvoice:vi.fn()}))
 import { products } from '../../api'
 const order={id:1,order_number:'Synthetic zero order',status:'pending',revenue:0,platform_fees:0,payment_fees:0,shipping_charged:0,customer_email:'synthetic@example.test',notes:'Synthetic existing note',tracking_number:'SYNTHETIC-TRACKING',items:[{id:3,product_id:5,quantity:2,unit_price:0,subtotal:0,fulfilled_quantity:0,product_name:'Synthetic free product'}]}

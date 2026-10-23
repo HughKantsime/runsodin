@@ -99,6 +99,7 @@ export interface OrderItemUpdate {
 }
 
 export interface Order {
+  has_show_fulfillment?: boolean
   id: number;
   order_number: string | null;
   platform: string | null;

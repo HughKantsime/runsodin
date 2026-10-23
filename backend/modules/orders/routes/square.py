@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 from typing import Literal
 
+from core.rbac import require_action
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
@@ -79,7 +80,7 @@ def status(user=Depends(viewer), db: Session = Depends(get_db)):
     return store.public(db, owner, doc)
 
 
-@router.put('/square', dependencies=[interactive])
+@router.put('/square', dependencies=[interactive, Depends(require_action('products.square_manage', scope='write'))])
 def configure(data: Connection, user=Depends(admin), db: Session = Depends(get_db)):
     owner = store.tenant(user)
     store.cipher()  # Do not make an external call if secure persistence is unavailable.
@@ -102,7 +103,7 @@ def configure(data: Connection, user=Depends(admin), db: Session = Depends(get_d
     return store.public(db, owner, doc)
 
 
-@router.delete('/square', dependencies=[interactive])
+@router.delete('/square', dependencies=[interactive, Depends(require_action('products.square_manage', scope='write'))])
 def disconnect(revision: str = Query(max_length=64), user=Depends(admin), db: Session = Depends(get_db)):
     owner = store.tenant(user)
     store.lock_owner(db, owner, user)
@@ -135,7 +136,7 @@ def catalog(revision: str = Query(max_length=64), cursor: str | None = Query(def
     return {'revision': revision, **result}
 
 
-@router.put('/{product_id}/square', dependencies=[interactive])
+@router.put('/{product_id}/square', dependencies=[interactive, Depends(require_action('products.square_manage', scope='write'))])
 def map_product(product_id: int, data: Mapping, user=Depends(admin), db: Session = Depends(get_db)):
     owner = store.tenant(user)
     store.own_product(db, owner, product_id)
@@ -167,7 +168,7 @@ def map_product(product_id: int, data: Mapping, user=Depends(admin), db: Session
     return store.public(db, owner, doc)
 
 
-@router.delete('/{product_id}/square', dependencies=[interactive])
+@router.delete('/{product_id}/square', dependencies=[interactive, Depends(require_action('products.square_manage', scope='write'))])
 def unmap_product(product_id: int, revision: str = Query(max_length=64), user=Depends(admin), db: Session = Depends(get_db)):
     owner = store.tenant(user)
     store.lock_owner(db, owner, user)
@@ -204,7 +205,7 @@ class Activation(BaseModel):
     stock_writes_enabled: StrictBool
 
 
-@router.put('/square/activation', dependencies=[interactive])
+@router.put('/square/activation', dependencies=[interactive, Depends(require_action('products.square_manage', scope='write'))])
 def activation(data: Activation, user=Depends(admin), db: Session = Depends(get_db)):
     owner = store.tenant(user)
     store.lock_owner(db, owner, user)
@@ -231,19 +232,19 @@ class BaselineReview(BaseModel):
     answers: dict[str, Literal['counted', 'not_counted']]
 
 
-@router.put('/{product_id}/square/baseline', dependencies=[interactive])
+@router.put('/{product_id}/square/baseline', dependencies=[interactive, Depends(require_action('products.square_manage', scope='write'))])
 def baseline(product_id: int, data: BaselineInput, user=Depends(admin), db: Session = Depends(get_db)):
     from modules.orders.stock_baseline import set_baseline
     return set_baseline(db, user, product_id, data)
 
 
-@router.post('/batches/additions/{addition_id}/baseline-review', dependencies=[interactive])
+@router.post('/batches/additions/{addition_id}/baseline-review', dependencies=[interactive, Depends(require_action('products.square_manage', scope='write'))])
 def baseline_review(addition_id: str, data: BaselineReview, user=Depends(admin), db: Session = Depends(get_db)):
     from modules.orders.stock_baseline import review
     return review(db, user, addition_id, data)
 
 
-@router.post('/batches/additions/{addition_id}/send', dependencies=[interactive])
+@router.post('/batches/additions/{addition_id}/send', dependencies=[interactive, Depends(require_action('products.square_send', scope='write'))])
 def send_addition(addition_id: str, user=Depends(require_role('operator', scope='write')), db: Session = Depends(get_db)):
     from modules.orders.stock_recovery import execute_prepared
     return execute_prepared(db, user, addition_id)

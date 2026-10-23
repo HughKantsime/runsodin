@@ -1,3 +1,6 @@
+import OperationsWorkbench from '../../components/orders/OperationsWorkbench'
+import Finishing from '../../components/orders/Finishing'
+import AssortmentPolicyPanel from '../../components/orders/AssortmentPolicy'
 import { useState, useEffect, useRef, Fragment } from 'react'
 import SquareInventory from '../../components/orders/SquareInventory'
 import ProductionBatches from '../../components/orders/ProductionBatches'
@@ -222,6 +225,9 @@ export default function Products() {
 
       <SquareInventory products={productList} />
       <ProductionBatches products={productList} />
+      <Finishing products={productList} />
+      <OperationsWorkbench />
+      <AssortmentPolicyPanel />
 
       {/* Product Summary */}
       {productList.length > 0 && (

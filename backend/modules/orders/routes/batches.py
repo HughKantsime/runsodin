@@ -1,5 +1,6 @@
 """Fixed-yield recipes, inspected acceptance and read-only addition checks."""
 import json
+from core.rbac import require_action
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
@@ -9,7 +10,12 @@ from modules.orders import batch_production as service
 from modules.orders import square_store
 from modules.orders.batch_schemas import RecipeInput, InspectionInput
 
-router = APIRouter(prefix='/products/production', tags=['Production inspection'])
+from modules.orders.routes.show_orders import PrivateRoute
+
+class InspectionRoute(PrivateRoute):
+    invalid_detail='Invalid production evidence. Check required fields, whole quantities and physical confirmations.'
+
+router = APIRouter(prefix='/products/production', tags=['Production inspection'],route_class=InspectionRoute)
 viewer = require_role('viewer',scope='read')
 admin = require_role('admin',scope='write')
 operator = require_role('operator',scope='write')
@@ -54,17 +60,61 @@ def eligible_jobs(offset: int=Query(default=0,ge=0), user=Depends(operator), db:
     return {'jobs':result,'next_offset':offset+100 if len(candidates)==100 else None}
 
 
-@router.post('/recipes',dependencies=[interactive])
+@router.post('/recipes',dependencies=[interactive, Depends(require_action('products.recipes', scope='write'))])
 def create_recipe(data:RecipeInput,user=Depends(admin),db:Session=Depends(get_db)):
     return service.create_recipe(db,user,data)
 
 
-@router.post('/inspections',dependencies=[interactive])
+@router.post('/inspections',dependencies=[interactive, Depends(require_action('products.inspections', scope='write'))])
 def inspect_batch(data:InspectionInput,user=Depends(operator),db:Session=Depends(get_db)):
     return service.inspect_batch(db,user,data)
 
 
-@router.post('/additions/{addition_id}/check',dependencies=[interactive])
+@router.post('/additions/{addition_id}/check',dependencies=[interactive, Depends(require_action('products.inspections', scope='write'))])
 def check_addition(addition_id:str,user=Depends(operator),db:Session=Depends(get_db)):
     from modules.orders.stock_recovery import check
     return check(db,user,addition_id)
+
+
+@router.get('/assortment')
+def assortment_policy(user=Depends(viewer),db:Session=Depends(get_db)):
+    from modules.orders.assortment import read
+    return read(db,square_store.tenant(user))
+
+
+from modules.orders.assortment import PolicyEdit
+
+
+@router.put('/assortment/{product_id}',dependencies=[interactive,Depends(require_action('products.assortment',scope='write'))])
+def save_assortment(product_id:int,data:PolicyEdit,user=Depends(admin),db:Session=Depends(get_db)):
+    from modules.orders.assortment import edit
+    return edit(db,user,product_id,data)
+
+
+@router.post('/assortment/{product_id}/preview',dependencies=[interactive,Depends(require_action('products.assortment_preview',scope='write'))])
+def preview_assortment(product_id:int,user=Depends(operator),db:Session=Depends(get_db)):
+    from modules.orders.assortment import preview
+    return preview(db,user,product_id)
+
+
+from modules.orders.finishing import ComponentInput,FinishInput
+
+@router.get('/finishing')
+def finishing_overview(user=Depends(operator),db:Session=Depends(get_db)):
+    from modules.orders.finishing import overview
+    return overview(db,user)
+
+@router.get('/finishing/{product_id}/requirements')
+def finishing_requirements(product_id:int,user=Depends(operator),db:Session=Depends(get_db)):
+    from modules.orders.finishing import preview
+    return preview(db,user,product_id)
+
+@router.post('/components',dependencies=[interactive,Depends(require_action('products.finishing',scope='write'))])
+def inspect_components(data:ComponentInput,user=Depends(operator),db:Session=Depends(get_db)):
+    from modules.orders.finishing import inspect
+    return inspect(db,user,data)
+
+@router.post('/finishing',dependencies=[interactive,Depends(require_action('products.finishing',scope='write'))])
+def finish_components(data:FinishInput,user=Depends(operator),db:Session=Depends(get_db)):
+    from modules.orders.finishing import finish
+    return finish(db,user,data)
