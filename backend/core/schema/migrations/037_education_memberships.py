@@ -55,11 +55,11 @@ def apply(connection):
         validate(connection)
         return
     if connection.dialect.name == 'postgresql':
-        connection.execute(text('LOCK TABLE users, ' + ', '.join(PAIRS) + ' IN ACCESS EXCLUSIVE MODE'))
+        connection.execute(text('LOCK TABLE users, ' + ', '.join(PAIRS) + ' IN ACCESS EXCLUSIVE MODE'))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — table and column names come from the PAIRS constant
     sources = ['SELECT id AS user_id, group_id AS org_id FROM users WHERE group_id IS NOT NULL']
     sources += [f'SELECT {col} AS user_id, org_id FROM {table} WHERE {col} IS NOT NULL' for table, cols in PAIRS.items() for col in cols]
     pairs = ' UNION '.join(sources)
-    orphan = connection.execute(text('SELECT 1 FROM (' + pairs + ') p LEFT JOIN users u ON u.id=p.user_id AND u.group_id=p.org_id LEFT JOIN groups g ON g.id=p.org_id WHERE u.id IS NULL OR g.id IS NULL LIMIT 1')).first()
+    orphan = connection.execute(text('SELECT 1 FROM (' + pairs + ') p LEFT JOIN users u ON u.id=p.user_id AND u.group_id=p.org_id LEFT JOIN groups g ON g.id=p.org_id WHERE u.id IS NULL OR g.id IS NULL LIMIT 1')).first()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — table and column names come from the PAIRS constant
     if orphan:
         raise RuntimeError('Orphan Education membership; migration refused')
     connection.execute(text('''CREATE TABLE education_memberships (
@@ -71,17 +71,17 @@ def apply(connection):
         FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE RESTRICT,
         FOREIGN KEY(org_id) REFERENCES groups(id) ON DELETE RESTRICT
     )'''))
-    connection.execute(text('INSERT INTO education_memberships(user_id,org_id) ' + pairs))
+    connection.execute(text('INSERT INTO education_memberships(user_id,org_id) ' + pairs))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — table and column names come from the PAIRS constant
     for table, columns in PAIRS.items():
         if connection.dialect.name == 'postgresql':
             for fk in inspect(connection).get_foreign_keys(table):
                 if fk['constrained_columns'] in [[col, 'org_id'] for col in columns]:
                     name = connection.dialect.identifier_preparer.quote(fk['name'])
-                    connection.execute(text(f'ALTER TABLE {table} DROP CONSTRAINT {name}'))
+                    connection.execute(text(f'ALTER TABLE {table} DROP CONSTRAINT {name}'))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — table/column names from PAIRS; constraint names from inspection
             for col in columns:
                 name = f'fk_{table}_{col}_retained'
-                connection.execute(text(f'ALTER TABLE {table} ADD CONSTRAINT {name} FOREIGN KEY ({col},org_id) REFERENCES education_memberships(user_id,org_id) ON DELETE RESTRICT NOT VALID'))
-                connection.execute(text(f'ALTER TABLE {table} VALIDATE CONSTRAINT {name}'))
+                connection.execute(text(f'ALTER TABLE {table} ADD CONSTRAINT {name} FOREIGN KEY ({col},org_id) REFERENCES education_memberships(user_id,org_id) ON DELETE RESTRICT NOT VALID'))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — table/column names from PAIRS
+                connection.execute(text(f'ALTER TABLE {table} VALIDATE CONSTRAINT {name}'))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — constraint name built from PAIRS
         else:
             original = connection.execute(text("SELECT sql FROM sqlite_master WHERE type='table' AND name=:name"), {'name': table}).scalar_one()
             changed, count = re.subn(r'REFERENCES\s+users\s*\(\s*id\s*,\s*group_id\s*\)', 'REFERENCES education_memberships(user_id, org_id)', original, flags=re.I)

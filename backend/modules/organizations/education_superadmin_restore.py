@@ -20,7 +20,7 @@ def restore_superadmin(db, *, actor, user_id, confirmation):
         for uid in ids:
             if not suffix:
                 db.execute(text('UPDATE users SET id=id WHERE id=:id'), {'id': uid})
-            row = db.execute(text('SELECT id,username,role,group_id,is_active FROM users WHERE id=:id' + suffix), {'id': uid}).mappings().first()
+            row = db.execute(text('SELECT id,username,role,group_id,is_active FROM users WHERE id=:id' + suffix), {'id': uid}).mappings().first()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — suffix is a fixed dialect-selected FOR UPDATE literal; values are bound
             accounts[uid] = dict(row) if row else None
         live_actor = accounts[int(actor['id'])]
         if not live_actor or live_actor['role'] != 'admin' or live_actor['group_id'] is not None or not live_actor['is_active']:
