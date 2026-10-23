@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import shutil
 import subprocess
+import re
 import sys
 import tempfile
 import time
@@ -58,11 +59,37 @@ def discover(tests: str) -> list[str]:
     return [str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else str(path) for path in files]
 
 
+# Certification families share capture artifacts: a family's wire-fixture file
+# reads what its sibling capture files wrote earlier in the same pytest run.
+_FAMILY = re.compile(r"^test_cert_([A-Z])_(?:([A-Z])_)?")
+
+
+def _family(path: str) -> str | None:
+    match = _FAMILY.match(Path(path).name)
+    return None if match is None else "cert_" + "_".join(part for part in match.groups() if part)
+
+
 def plan(files: list[str], batch_size: int) -> list[Batch]:
+    """Sorted slices of at most batch_size files; a certification family is never split.
+
+    A family larger than batch_size becomes one batch of its own.
+    """
     if batch_size < 1:
         raise SystemExit("--batch-size must be at least 1")
-    return [Batch(f"batch-{index:03d}", tuple(files[start:start + batch_size]))
-            for index, start in enumerate(range(0, len(files), batch_size))]
+    units: list[list[str]] = []
+    for path in files:
+        family = _family(path)
+        if family is not None and units and _family(units[-1][-1]) == family:
+            units[-1].append(path)
+        else:
+            units.append([path])
+    batches: list[list[str]] = []
+    for unit in units:
+        if batches and len(batches[-1]) + len(unit) <= batch_size:
+            batches[-1].extend(unit)
+        else:
+            batches.append(list(unit))
+    return [Batch(f"batch-{index:03d}", tuple(batch)) for index, batch in enumerate(batches)]
 
 
 def marked_node_ids(tests: str, marker: str) -> list[str]:

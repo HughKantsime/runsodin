@@ -41,7 +41,7 @@ def test_admin_operational_navigation_and_seeded_content(role_page_factory):
         ("/jobs", "Jobs", "ODIN Candidate Cube"),
         ("/models", "Models", "ODIN Candidate Calibration Cube"),
         ("/spools", "Spools", "ODIN Candidate"),
-        ("/upload", "Upload Print File", "Drop .3mf file here"),
+        ("/upload", "Upload Print File", "Drop .3mf or G-code file here"),
     )
     for path, heading, content in checks:
         _goto(page, path)

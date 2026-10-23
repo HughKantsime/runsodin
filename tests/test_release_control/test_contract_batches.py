@@ -101,3 +101,14 @@ def test_the_committed_live_inventory_matches_the_marked_contract_tests():
     root = Path(contract_batches.ROOT)
     inventory = contract_batches.read_inventory(root / "tests/test_contracts/live_environment_inventory.txt")
     assert contract_batches.marked_node_ids("tests/test_contracts", "live_environment") == inventory
+
+
+def test_certification_families_stay_in_one_batch_in_sorted_order():
+    files = sorted(f"tests/{name}.py" for name in (
+        "test_a", "test_cert_F_B_groups_orgs", "test_cert_F_B_rbac_roles", "test_cert_F_B_sessions",
+        "test_cert_F_B_wire_fixtures", "test_cert_G_capture", "test_cert_G_wire_fixtures", "test_z"))
+    batches = contract_batches.plan(files, 2)
+    family = [batch.files for batch in batches if any("cert_F_B" in name for name in batch.files)]
+    assert family == [tuple(name for name in files if "cert_F_B" in name)]
+    assert ("tests/test_cert_G_capture.py", "tests/test_cert_G_wire_fixtures.py") in [batch.files for batch in batches]
+    assert [name for batch in batches for name in batch.files] == files

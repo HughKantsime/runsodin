@@ -833,7 +833,7 @@ class MoonrakerMonitor:
         printer = conn.execute(text('SELECT org_id,shared,is_active FROM printers WHERE id=:id'),
                                {'id': self.printer_id}).mappings().first()
         job = conn.execute(text('SELECT hold FROM jobs WHERE id=:id'), {'id': scheduled_job_id}).first()
-        if (snapshot is None or snapshot['selected_row_id'] is None
+        if (snapshot is None
                 or printer is None or not printer['is_active'] or not job or job[0]
                 or ownership_refusal({'charged_to_org_id': snapshot['charged_to_org_id'],
                                       'model_org_id': snapshot['model_org_id'],
