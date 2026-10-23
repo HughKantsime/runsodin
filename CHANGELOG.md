@@ -2,6 +2,20 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.10] - 2026-10-23
+
+<!-- summary: Education Job Queue and Archive, teacher-controlled print order, Super Admin restore -->
+
+### Added
+
+- Education has separate Review Queue, Job Queue and Archive tabs. The Job Queue shows each printer's printing, committed and waiting work and why the next job is waiting; the Archive groups finished, failed and rejected work by class or club.
+- Teachers can set the print order of approved Education jobs on each printer. The order is enforced at scheduling and at print start, a blocked first job holds only that printer's Education queue, and teachers can reorder only their own classes' jobs.
+- A platform Super Admin can restore an account that lost Super Admin status through an Education role. The restore requires typing the account name, is refused while that account has live Education work, revokes its Education roles, sessions and API tokens, and is audited. Education history is kept.
+
+### Fixed
+
+- Post-upload gate refusals keep the reconciliation warning in the log, keep the last known printer error across partial status reports, and include the reason when dispatch admission changes.
+
 ## [2.0.9] - 2026-10-23
 
 <!-- summary: CTEC pilot fixes, AMS self-repair, Education archive and a websocket freeze fix -->
