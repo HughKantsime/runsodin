@@ -236,7 +236,6 @@ async def manual_slot_assignment(
     """Manually assign filament to a slot when auto-matching fails."""
     _owned_printer(db, printer_id, current_user)
     ensure_local_filaments(printer_id)
-
     slot = db.query(FilamentSlot).filter(
         FilamentSlot.printer_id == printer_id,
         FilamentSlot.slot_number == slot_number,

@@ -114,7 +114,6 @@ async def refresh_ams_rfid(
     """Trigger AMS RFID re-read on a Bambu printer."""
     from modules.printers.route_utils import _bambu_command_direct
     printer = _ams_printer(printer_id, db, current_user, write=True)
-    ensure_local_filaments(printer_id)
     if printer.api_type != "bambu":
         raise HTTPException(status_code=400, detail="AMS refresh is only supported on Bambu printers")
     if _bambu_command_direct(printer, "refresh_ams_rfid"):

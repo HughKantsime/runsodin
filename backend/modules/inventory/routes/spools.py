@@ -428,7 +428,6 @@ def unload_spool(
         raise HTTPException(status_code=404, detail="Spool not found")
 
     unload_spool_graph(db, spool, current_user)
-
     spool.storage_location = storage_location
 
     db.commit()
