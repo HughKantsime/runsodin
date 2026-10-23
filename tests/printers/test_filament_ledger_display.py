@@ -328,6 +328,27 @@ class FilamentLedgerDisplay(unittest.TestCase):
         db.rollback()
         db.close()
 
+    def test_alternate_bambu_mutations_reject_before_hardware_calls(self):
+        from fastapi import HTTPException
+        from modules.printers import routes_bambu, routes_ams_env, route_utils
+        before = self.db_snapshot()
+        user = {"role": "admin", "group_id": None}
+        with SessionLocal() as db, \
+                patch.object(routes_bambu, "BAMBU_AVAILABLE", True), \
+                patch.object(routes_bambu, "sync_ams_filaments") as sync, \
+                patch.object(route_utils, "_bambu_command_direct") as command:
+            with self.assertRaises(HTTPException) as err:
+                asyncio.run(routes_bambu.sync_bambu_ams(7, user, db))
+            self.assertEqual(err.exception.status_code, 409)
+            for spool_id in (None, 3):
+                with self.assertRaises(HTTPException) as err:
+                    asyncio.run(routes_ams_env.configure_ams_slot(
+                        7, 0, 0, routes_ams_env.AMSSlotConfigRequest(material="PLA", color="#123456", spool_id=spool_id), user, db))
+                self.assertEqual(err.exception.status_code, 409)
+            sync.assert_not_called()
+            command.assert_not_called()
+        self.assertEqual(self.db_snapshot(), before)
+
     def test_cross_org_mutations_do_not_disclose_binding(self):
         from fastapi import HTTPException
         user = {"role": "operator", "group_id": 13}

@@ -108,6 +108,7 @@ async def sync_bambu_ams(printer_id: int, current_user: dict = Depends(require_a
         raise HTTPException(status_code=501, detail="Bambu integration not available")
 
     printer = _owned_printer(db, printer_id, current_user)
+    ensure_local_filaments(printer_id)
 
     if printer.api_type != "bambu":
         raise HTTPException(status_code=400, detail=f"Printer is type '{printer.api_type}', not 'bambu'")
