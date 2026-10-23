@@ -151,6 +151,14 @@ class MQTTMonitorDaemon:
 
     def start(self):
         """Start monitoring all printers."""
+        from modules.printers.monitor_commands import CommandServer
+        try:
+            self._command_server = CommandServer(self.monitors)
+        except Exception as exc:
+            # Commands are optional; telemetry must never depend on the channel.
+            # Without it, light/resume requests report 'unavailable'.
+            self._command_server = None
+            log.warning("Monitor command channel unavailable (%s)", type(exc).__name__)
         self._running = True
         printers = self.load_printers()
 
@@ -371,6 +379,9 @@ class MQTTMonitorDaemon:
     def stop(self):
         """Stop all monitors."""
         self._running = False
+        server = getattr(self, "_command_server", None)
+        if server is not None:
+            server.close()
         for monitor in self.monitors.values():
             monitor.disconnect()
         log.info("All monitors stopped")
