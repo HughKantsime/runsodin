@@ -1,4 +1,5 @@
 """Private explicit material custody, purchases and physical receipt facts."""
+from core.rbac import require_action
 from fastapi import APIRouter,Depends
 from sqlalchemy.orm import Session
 from core.db import get_db
@@ -11,20 +12,20 @@ reader=require_role('operator',scope='read');writer=require_role('operator',scop
 router=APIRouter(prefix='/consumables/purchases',tags=['Material purchases and receiving'],route_class=MaterialRoute,dependencies=[Depends(reader),Depends(require_interactive_session())])
 @router.get('')
 def read(user=Depends(reader),db:Session=Depends(get_db)):return service.read(db,user)
-@router.post('/materials')
+@router.post('/materials',dependencies=[Depends(require_action('products.materials_manage',scope='write'))])
 def material(data:MaterialInput,user=Depends(admin),db:Session=Depends(get_db)):return service.register(db,user,data)
-@router.post('/adopt')
+@router.post('/adopt',dependencies=[Depends(require_action('products.materials_manage',scope='write'))])
 def adopt(data:AdoptInput,user=Depends(admin),db:Session=Depends(get_db)):return service.register(db,user,data,adopt=True)
-@router.post('/mappings')
+@router.post('/mappings',dependencies=[Depends(require_action('products.materials_manage',scope='write'))])
 def mapping(data:MappingInput,user=Depends(admin),db:Session=Depends(get_db)):return service.add_mapping(db,user,data)
-@router.post('/preview')
+@router.post('/preview',dependencies=[Depends(require_action('products.materials_preview',scope='write'))])
 def preview(data:CSVInput,user=Depends(reader),db:Session=Depends(get_db)):return service.preview_csv(db,user,data)
-@router.post('/lines')
+@router.post('/lines',dependencies=[Depends(require_action('products.materials_receive',scope='write'))])
 def purchases(data:PurchaseInput,user=Depends(writer),db:Session=Depends(get_db)):return service.purchases(db,user,data)
-@router.post('/receipts')
+@router.post('/receipts',dependencies=[Depends(require_action('products.materials_receive',scope='write'))])
 def receipt(data:ReceiptInput,user=Depends(writer),db:Session=Depends(get_db)):return service.receipt(db,user,data)
 
-@router.post('/email/preview')
+@router.post('/email/preview',dependencies=[Depends(require_action('products.materials_preview',scope='write'))])
 def email_preview(data:EmailPreviewInput,user=Depends(reader)):
     from modules.orders.material_email import preview
     return preview(data.email_text)

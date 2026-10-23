@@ -52,6 +52,7 @@ const PAGE_GROUPS = [
 ]
 
 const ACTION_GROUPS = [
+  { label: 'Sublab operations', actions: ['products.square_manage', 'products.square_send', 'products.recipes', 'products.inspections', 'products.operations', 'products.materials_manage', 'products.materials_preview', 'products.materials_receive', 'products.finishing', 'products.assortment', 'products.assortment_preview'] },
   { label: 'Jobs', actions: ['jobs.submit', 'jobs.create', 'jobs.edit', 'jobs.cancel', 'jobs.delete', 'jobs.start', 'jobs.complete'] },
   { label: 'Approval', actions: ['jobs.approve', 'jobs.reject', 'jobs.resubmit'] },
   { label: 'Printers', actions: ['printers.add', 'printers.edit', 'printers.delete', 'printers.slots', 'printers.reorder', 'printers.plug'] },

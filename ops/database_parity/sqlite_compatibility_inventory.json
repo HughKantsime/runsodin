@@ -1690,6 +1690,14 @@
     },
     {
       "classification": "dialect-neutral",
+      "line": 12,
+      "path": "backend/modules/orders/routes/show_orders.py",
+      "pattern": "PRAGMA",
+      "reason": "Pragma is an HTTP cache-control response header, not a SQLite statement; this route module executes no SQL",
+      "source": "PRIVATE={'Cache-Control':'private, no-store','Pragma':'no-cache'}"
+    },
+    {
+      "classification": "dialect-neutral",
       "line": 9,
       "path": "backend/modules/organizations/education_policy.py",
       "pattern": "sqlite3",
@@ -1698,7 +1706,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 152,
+      "line": 153,
       "path": "backend/modules/organizations/education_policy_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Static source-discovery regex contains SQL vocabulary and regex question marks; it executes no database statement",

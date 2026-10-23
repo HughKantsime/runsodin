@@ -24,6 +24,54 @@ Paths are the /api paths; the /api/v1 aliases share the same route handlers.
 """
 
 ACTION_ROUTES: dict[str, list[tuple[str, str]]] = {
+    "products.square_manage": [
+        ("PUT", "/api/products/square/activation"),
+        ("PUT", "/api/products/{product_id}/square/baseline"),
+        ("POST", "/api/products/batches/additions/{addition_id}/baseline-review"),
+        ("PUT", "/api/products/square"),
+        ("DELETE", "/api/products/square"),
+        ("PUT", "/api/products/{product_id}/square"),
+        ("DELETE", "/api/products/{product_id}/square"),
+    ],
+    "products.square_send": [
+        ("POST", "/api/products/batches/additions/{addition_id}/send"),
+    ],
+    "products.recipes": [
+        ("POST", "/api/products/production/recipes"),
+    ],
+    "products.inspections": [
+        ("POST", "/api/products/production/inspections"),
+        ("POST", "/api/products/production/additions/{addition_id}/check"),
+    ],
+    "products.operations": [
+        ("PUT", "/api/products/production/operations/kit"),
+        ("PUT", "/api/products/production/operations/events"),
+        ("PUT", "/api/products/production/operations/events/{event_id}/packing/{item_id}"),
+        ("PUT", "/api/products/production/operations/capacity"),
+    ],
+    "products.materials_manage": [
+        ("POST", "/api/consumables/purchases/materials"),
+        ("POST", "/api/consumables/purchases/adopt"),
+        ("POST", "/api/consumables/purchases/mappings"),
+    ],
+    "products.materials_preview": [
+        ("POST", "/api/consumables/purchases/preview"),
+        ("POST", "/api/consumables/purchases/email/preview"),
+    ],
+    "products.materials_receive": [
+        ("POST", "/api/consumables/purchases/lines"),
+        ("POST", "/api/consumables/purchases/receipts"),
+    ],
+    "products.finishing": [
+        ("POST", "/api/products/production/components"),
+        ("POST", "/api/products/production/finishing"),
+    ],
+    "products.assortment": [
+        ("PUT", "/api/products/production/assortment/{product_id}"),
+    ],
+    "products.assortment_preview": [
+        ("POST", "/api/products/production/assortment/{product_id}/preview"),
+    ],
     "settings.edit": [
         ("PUT", "/api/config/require-job-approval"),
         ("PUT", "/api/config/require-mfa"),
@@ -316,33 +364,6 @@ WRITE_EXEMPTIONS: dict[tuple[str, str], str] = {
     ("DELETE", "/api/maintenance/logs/{log_id}"): "admin role (stricter than maintenance.log, which operators hold by default)",
     ("POST", "/api/vision/training-data/{detection_id}/annotation-v2"): "admin role; Vigil AI training data has no matrix key",
     ("POST", "/api/vision/training-data/{detection_id}/label"): "admin role; Vigil AI training data has no matrix key",
-    # Connector credentials/mappings and recipe qualification have an interactive
-    # admin floor; products.create/edit defaults also permit operators.
-    ("PUT", "/api/products/square/activation"): "interactive admin; audited CAS activation for external stock writes",
-    ("PUT", "/api/products/{product_id}/square/baseline"): "interactive admin; audited baseline attestation under connector fence",
-    ("POST", "/api/products/batches/additions/{addition_id}/baseline-review"): "interactive admin; immutable-request cutover review or terminal withdrawal",
-    ("POST", "/api/products/batches/additions/{addition_id}/send"): "interactive operator; explicit one-addition send with two keys and fenced reservation",
-    ("PUT", "/api/products/square"): "interactive admin; encrypted connector credentials, stricter than products.edit",
-    ("DELETE", "/api/products/square"): "interactive admin; connector removal, stricter than products.edit",
-    ("PUT", "/api/products/{product_id}/square"): "interactive admin; external inventory mapping, stricter than products.edit",
-    ("DELETE", "/api/products/{product_id}/square"): "interactive admin; external inventory mapping, stricter than products.edit",
-    ("PUT", "/api/products/production/operations/kit"): "interactive operator; manual reusable show-kit state, no stock mutation",
-    ("PUT", "/api/products/production/operations/events"): "interactive operator; manual show preparation, no booking/calendar inference",
-    ("PUT", "/api/products/production/operations/events/{event_id}/packing/{item_id}"): "interactive operator; explicit physical packing confirmation",
-    ("PUT", "/api/products/production/operations/capacity"): "interactive operator; entered advisory capacity, no queue changes",
-    ("POST", "/api/consumables/purchases/materials"): "interactive admin; explicit managed material purchase/receipt evidence, no live import",
-    ("POST", "/api/consumables/purchases/adopt"): "interactive admin; explicit managed material purchase/receipt evidence, no live import",
-    ("POST", "/api/consumables/purchases/mappings"): "interactive admin; explicit managed material purchase/receipt evidence, no live import",
-    ("POST", "/api/consumables/purchases/preview"): "interactive operator; explicit managed material purchase/receipt evidence, no live import",
-    ("POST", "/api/consumables/purchases/lines"): "interactive operator; explicit managed material purchase/receipt evidence, no live import",
-    ("POST", "/api/consumables/purchases/receipts"): "interactive operator; explicit managed material purchase/receipt evidence, no live import",
-    ("POST", "/api/products/production/components"): "interactive operator; inspected component evidence, no stock write",
-    ("POST", "/api/products/production/finishing"): "interactive operator; explicit component consumption and finishing, no stock write",
-    ("POST", "/api/products/production/recipes"): "interactive admin; physical qualification, stricter than products.create",
-    ("POST", "/api/products/production/inspections"): "interactive operator; physical inspection receipts have no matrix key",
-    ("POST", "/api/products/production/additions/{addition_id}/check"): "interactive operator; read-only Square checks and local receipt reconciliation, no stock write",
-    ("PUT", "/api/products/production/assortment/{product_id}"): "interactive admin; assortment policy floor stricter than products.edit",
-    ("POST", "/api/products/production/assortment/{product_id}/preview"): "interactive operator; on-demand read-only stock and recipe preview, no queue mutation",
     # Operator-floor routes with no matrix key
     ("DELETE", "/api/alerts/{alert_id}"): "operator role; deleting alerts has no matrix key (alerts.read covers read/dismiss)",
     ("PATCH", "/api/archives/{archive_id}"): "operator role; archives have no matrix key",

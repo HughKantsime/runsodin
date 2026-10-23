@@ -1,4 +1,5 @@
 """Explicit operations checks. No scheduler or provider mutations."""
+from core.rbac import require_action
 from fastapi import APIRouter,Depends
 from sqlalchemy.orm import Session
 from core.db import get_db
@@ -14,15 +15,15 @@ router=APIRouter(prefix='/products/production/operations',tags=['Operations prep
 
 @router.get('')
 def read(user=Depends(operator),db:Session=Depends(get_db)):return service.read(db,user)
-@router.put('/kit')
+@router.put('/kit',dependencies=[Depends(require_action('products.operations',scope='write'))])
 def kit(data:service.KitEdit,user=Depends(writer),db:Session=Depends(get_db)):return service.edit_kit(db,user,data)
-@router.put('/events')
+@router.put('/events',dependencies=[Depends(require_action('products.operations',scope='write'))])
 def event(data:service.EventEdit,user=Depends(writer),db:Session=Depends(get_db)):return service.edit_event(db,user,data)
-@router.put('/events/{event_id}/packing/{item_id}')
+@router.put('/events/{event_id}/packing/{item_id}',dependencies=[Depends(require_action('products.operations',scope='write'))])
 def pack(event_id:str,item_id:str,data:service.PackEdit,user=Depends(writer),db:Session=Depends(get_db)):return service.pack(db,user,event_id,item_id,data)
 @router.get('/conflicts')
 def conflicts(user=Depends(operator),db:Session=Depends(get_db)):return service.conflicts(db,user)
-@router.put('/capacity')
+@router.put('/capacity',dependencies=[Depends(require_action('products.operations',scope='write'))])
 def capacity(data:service.CapacityEdit,user=Depends(writer),db:Session=Depends(get_db)):return service.set_capacity(db,user,data)
 @router.get('/jobs')
 def jobs(user=Depends(operator),db:Session=Depends(get_db)):return service.jobs(db,user)
