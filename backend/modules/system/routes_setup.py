@@ -107,6 +107,7 @@ class SetupPrinterRequest(PydanticBaseModel):
 
 
 class SetupTestPrinterRequest(PydanticBaseModel):
+    api_key: Optional[str] = None
     api_type: str
     api_host: str
     serial: Optional[str] = None
@@ -366,17 +367,16 @@ def setup_test_printer(
             return {"success": False, "error": "Connection failed. Check printer IP and Moonraker configuration."}
 
     elif request.api_type.lower() == "prusalink":
-        import httpx as httpx_client
-        from modules.printers.route_utils import pinned_device_get
+        from modules.printers.route_utils import prusalink_test_get
         try:
-            r = pinned_device_get(httpx_client, f"http://{request.api_host}/api/version", timeout=5)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- verified safe — admin-gated by require_role and SSRF-checked by _check_ssrf_blocklist (or setup-locked)
+            r = prusalink_test_get(request.api_host, request.api_key)
             if r.status_code == 200:
                 # Official PrusaLink Version schema defines `printer` as a
                 # software-version string, not a hardware-model identifier.
                 return {"success": True, "state": "connected", "bed_temp": 0, "nozzle_temp": 0, "ams_slots": 0, "model": None}
             return {"success": False, "error": f"PrusaLink returned HTTP {r.status_code}"}
-        except Exception as e:
-            log.warning("Setup PrusaLink test-connection failed: %s", e)
+        except Exception:
+            log.warning("Setup PrusaLink test-connection failed")
             return {"success": False, "error": "Connection failed. Check printer IP and PrusaLink configuration."}
 
     elif request.api_type.lower() == "anycubic_lan":

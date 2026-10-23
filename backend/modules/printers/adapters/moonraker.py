@@ -287,7 +287,8 @@ class MoonrakerPrinter:
             objects.append("fan")
         objects.extend(self._temperature_sensors)
         objects.extend(self._filament_sensors)
-        query = "&".join(objects)
+        from urllib.parse import quote
+        query = "&".join(quote(obj, safe="") for obj in objects)
         try:
             data = self._get(f"/printer/objects/query?{query}")
             if not data or "result" not in data:

@@ -575,6 +575,8 @@ def _bootstrap_database_contract(
         if contract is None:
             from importlib import import_module
             import_module('core.schema.migrations.036_ctec_pilot').retry_spool_index(connection)
+            from modules.inventory.slot_material_repair import repair_slot_materials
+            repair_slot_materials(connection)
         validation = validate_schema(connection, _contract=contract)
         fingerprint = schema_fingerprint(connection)
     return {
