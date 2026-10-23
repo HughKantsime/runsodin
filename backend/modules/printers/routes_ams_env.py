@@ -3,7 +3,7 @@
 import logging
 import math
 import re
-from modules.inventory.slot_assignments import assign_slot
+from modules.inventory.services import assign_slot
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query

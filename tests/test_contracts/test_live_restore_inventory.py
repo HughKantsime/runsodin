@@ -61,6 +61,9 @@ POST027_RAW_TABLES = {
         "production_acceptances": frozenset("id owner job_uid claim_token recipe_id request_hash definition".split()),
         "production_stock_additions": frozenset("id owner receipt_id destination request_body state attempts".split()),
     },
+    "python:036-ctec-pilot": {
+        "inventory_repairs": frozenset("event_id spool_id actor_id action before_json after_json created_at".split()),
+    },
 }
 
 

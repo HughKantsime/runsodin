@@ -86,7 +86,8 @@ def login(browser, url, username, password):
     page.get_by_role('button',name='Sign In',exact=True).click()
     expect(page.locator('#main-content')).to_be_visible(timeout=15000)
     page.goto(url+'/education')
-    expect(page.get_by_role('heading',name='Education',exact=True)).to_be_visible(timeout=15000)
+    heading = 'Education administration' if username == 'superadmin' else 'Education'
+    expect(page.get_by_role('heading',name=heading,exact=True)).to_be_visible(timeout=15000)
     return context, page
 
 

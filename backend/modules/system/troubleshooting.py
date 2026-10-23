@@ -80,7 +80,7 @@ def server_checks(db):
                             '' if not warning else 'Set an https Application URL in Settings > Notifications.'))
     except Exception:
         pass
-    from modules.inventory.slot_assignments import slot_integrity_report
+    from modules.inventory.services import slot_integrity_report
     report = slot_integrity_report(db)
     bad = bool(report['duplicates'] or report['contradictions'])
     checks.append(check('spool_slot_integrity', 'fail' if bad else 'pass',

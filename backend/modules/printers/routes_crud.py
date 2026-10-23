@@ -1,6 +1,6 @@
 """Printer CRUD routes — create, read, update, delete, filament slots, test-connection, bulk-update."""
 
-from modules.inventory.slot_assignments import assign_slot
+from modules.inventory.services import assign_slot
 from core.rbac import should_filter_org, require_action
 
 from datetime import datetime, timezone

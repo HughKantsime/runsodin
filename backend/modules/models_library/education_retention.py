@@ -14,8 +14,9 @@ def assert_model_deletable(db, model_id):
 
 
 def visible_models(db):
-    return db.query(Model).filter(text('models.hidden_from_library IS FALSE OR EXISTS ('
-        'SELECT 1 FROM education_submissions es WHERE es.model_id=models.id AND es.archived_at IS NULL)'))
+    """Group the visibility OR so appended tenant/category filters always apply."""
+    return db.query(Model).filter(text('(models.hidden_from_library IS FALSE OR EXISTS ('
+        'SELECT 1 FROM education_submissions es WHERE es.model_id=models.id AND es.archived_at IS NULL))'))
 
 
 @router.post('/{model_id}/hide')

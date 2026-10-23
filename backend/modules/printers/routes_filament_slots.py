@@ -17,7 +17,7 @@ Canonical Phase 2 pattern:
   - Registered in DRY_RUN_SUPPORTED_ROUTES.
 """
 
-from modules.inventory.slot_assignments import assign_slot
+from modules.inventory.services import assign_slot
 from datetime import datetime, timezone
 import logging
 

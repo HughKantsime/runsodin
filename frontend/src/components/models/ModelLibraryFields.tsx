@@ -28,8 +28,8 @@ export function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavori
         )}
       </div>
       <div className="p-3 md:p-4">
-        <div className="flex items-start justify-between mb-2 gap-1">
-          <div className="min-w-0">
+        <div className="flex flex-col mb-2 gap-2">
+          <div className="min-w-0 w-full">
             <h3 className="font-medium text-sm md:text-base truncate">{model.name}</h3>
             <div className="flex items-center gap-2 mt-0.5">
               {model.default_filament_type && (
@@ -41,7 +41,7 @@ export function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavori
             </div>
           </div>
 
-          <div className="flex items-center gap-0.5 shrink-0">
+          <div className="flex flex-wrap items-center gap-0.5">
             <button
               onClick={() => onView3D(model)}
               className="p-1.5 md:p-2 text-[var(--brand-muted)] hover:bg-[var(--brand-input-bg)] rounded-md transition-colors"

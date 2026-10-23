@@ -163,3 +163,10 @@ def deliver_spoolman_usage(spoolman_spool_id: int, grams: float):
     if isinstance(status, int) and 200 <= status < 300:
         return "sent", None
     return "failed", f"HTTP {status}"
+
+
+# Public transactional inventory graph boundary; callers own commit/rollback.
+from modules.inventory.slot_assignments import (
+    assign_slot, lock_slot_graph, unload_spool_graph, slot_integrity_report,
+)
+from modules.inventory.stale_locations import repair_stale_locations

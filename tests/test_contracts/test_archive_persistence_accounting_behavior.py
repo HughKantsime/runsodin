@@ -65,7 +65,13 @@ def test_foreign_slot_never_deducts_foreign_inventory(archive_case):
 def test_same_spool_in_two_slots_deducts_total_once(archive_case):
  archive,engine=archive_case
  with engine.begin() as conn:
+  # Recreate pre-036 history; migration must retain these ambiguous links.
+  conn.execute(text('DROP INDEX uq_filament_slots_spool'))
   conn.execute(text('UPDATE print_files SET job_id=7099 WHERE id=7099'));conn.execute(text('UPDATE filament_slots SET assigned_spool_id=7099 WHERE printer_id=9 AND slot_number=2'))
+  import importlib
+  migration = importlib.import_module('core.schema.migrations.036_ctec_pilot')
+  migration.apply(conn)
+  assert not migration.retry_spool_index(conn)
   conn.execute(text("UPDATE print_jobs SET status='running',spool_snapshot=NULL WHERE id=7099"))
   from modules.archives.attempt_accounting import capture_attempt_spools
   assert capture_attempt_spools(conn,7099,9,source='synthetic-same-spool-first-start')

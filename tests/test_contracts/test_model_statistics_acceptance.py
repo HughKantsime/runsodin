@@ -104,3 +104,27 @@ def test_category_selection_keeps_only_authorized_selected_models(stats_client,r
 def test_jobs_scope_alone_does_not_authorize_model_library(stats_client):
     client,issue=stats_client
     assert client.get('/models-with-pricing',headers=issue(['read:jobs'])).status_code==403
+
+
+@pytest.mark.parametrize('endpoint', ['/models', '/models-with-pricing'])
+@pytest.mark.parametrize('principal,expected', [
+    ({'id': 3, 'role': 'admin', 'group_id': 1}, {12, 31}),
+    ({'id': 5, 'role': 'viewer', 'group_id': 2}, {32}),
+    ({'id': 6, 'role': 'viewer', 'group_id': None}, set()),
+    ({'id': 6, 'role': 'admin', 'group_id': None}, {12, 31, 32}),
+])
+def test_hide_filter_preserves_tenant_and_category_for_both_or_branches(stats_client, review_db, endpoint, principal, expected):
+    from core.dependencies import get_current_user
+    client, _ = stats_client
+    # Hidden live Education history stays visible only to its authorized tenant.
+    # Hidden ordinary models disappear; unhidden models still obey tenant scope.
+    review_db.execute(text('UPDATE models SET hidden_from_library=TRUE WHERE id IN (12,30)'))
+    review_db.execute(text("UPDATE models SET category='Chosen' WHERE id=31"))
+    review_db.commit()
+    client.app.dependency_overrides[get_current_user] = lambda: principal
+    response = client.get(endpoint, headers=interactive_headers())
+    assert response.status_code == 200
+    assert {row['id'] for row in response.json()} == expected
+    response = client.get(endpoint + '?category=Chosen', headers=interactive_headers())
+    assert response.status_code == 200
+    assert {row['id'] for row in response.json()} == expected & {31}

@@ -1,6 +1,6 @@
 """AMS routes — AMS sync (multi-protocol: Bambu, Moonraker MMU)."""
 
-from modules.inventory.slot_assignments import assign_slot, lock_slot_graph
+from modules.inventory.services import assign_slot, lock_slot_graph
 from datetime import datetime, timezone
 from typing import List, Optional
 import logging
@@ -138,7 +138,7 @@ def _lock_ams_mutation(db, printer_id, current_user, tags, acquired_connection):
                 raise HTTPException(409, "Spool association unavailable for this organization")
             if spool.location_printer_id is not None and not check_org_access(current_user, printers[spool.location_printer_id].org_id):
                 raise HTTPException(409, "Spool association unavailable for this organization")
-        from modules.inventory.stale_locations import repair_stale_locations
+        from modules.inventory.services import repair_stale_locations
         repair_stale_locations(db, spools, current_user['id'])
         return printer, {spool.rfid_tag: spool for spool in spools if spool.rfid_tag in tags}
     except OperationalError as exc:
