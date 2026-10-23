@@ -68,11 +68,13 @@ def _migrations_never_name_jobs_internals():
 # Imports whose module name is wholly computed: allowed per (file, expression),
 # with an exact count and a check that the names cannot be jobs internals.
 COMPUTED_IMPORTS = {
-    ("backend/core/app.py", "pkg_name"): (1, "module discovery imports package roots modules.<name>",
-        lambda: "pkg_name = f'modules.{entry.name}'" in ast.unparse(ast.parse(_source("backend/core/app.py")))),
-    ("backend/core/app.py", "pkg"): (2, "load order and registration iterate the discovered package roots",
+    ("backend/core/app_maintenance.py", "pkg_name"): (1, "module discovery imports package roots modules.<name>",
+        lambda: "pkg_name = f'modules.{entry.name}'" in ast.unparse(ast.parse(_source("backend/core/app_maintenance.py")))),
+    ("backend/core/app_maintenance.py", "pkg"): (1, "load order visits only supplied discovered roots",
+        lambda: "for pkg in pkg_names:" in ast.unparse(ast.parse(_source("backend/core/app_maintenance.py")))),
+    ("backend/core/app.py", "pkg"): (1, "registration iterates the discovered package roots",
         lambda: all(fragment in ast.unparse(ast.parse(_source("backend/core/app.py"))) for fragment in (
-            "found.append(pkg_name)", "pkg_names = _discover_modules()", "ordered_pkgs = _resolve_load_order(pkg_names)"))),
+            "pkg_names = _discover_modules()", "ordered_pkgs = _resolve_load_order(pkg_names)"))),
     ("backend/core/schema/migrator.py", "module_name"): (1, "Python migrations from a closed allowlist",
         _migrations_never_name_jobs_internals),
 }

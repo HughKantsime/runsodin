@@ -27,6 +27,7 @@ log = logging.getLogger("ws_hub")
 _CLEANUP_INTERVAL = 30   # seconds between cleanup runs
 _EVENT_TTL = 60           # delete events older than this (seconds)
 _last_cleanup = 0
+_EVENT_BATCH_SIZE = 128
 
 
 def ensure_table():
@@ -66,13 +67,11 @@ def read_events_since(last_id: int) -> Tuple[List[dict], int]:
     Read events with id > last_id.
     Returns (events_list, new_last_id).
     """
-    global _last_cleanup
-
     try:
         with engine.connect() as conn:
             cur = conn.execute(
-                text("SELECT id, data FROM ws_events WHERE id > :last_id ORDER BY id"),
-                {"last_id": last_id},
+                text("SELECT id, data FROM ws_events WHERE id > :last_id ORDER BY id LIMIT :limit"),
+                {"last_id": last_id, "limit": _EVENT_BATCH_SIZE},
             )
             rows = cur.fetchall()
 
@@ -85,17 +84,26 @@ def read_events_since(last_id: int) -> Tuple[List[dict], int]:
                 pass
             newest_id = row_id
 
-        # Periodic cleanup
-        now = time.time()
-        if now - _last_cleanup > _CLEANUP_INTERVAL:
-            _last_cleanup = now
-            _cleanup(now - _EVENT_TTL)
-
         return events, newest_id
 
     except Exception:
         log.warning("Failed to read WebSocket events", exc_info=True)
         return [], last_id
+
+
+def current_event_id() -> int:
+    """Capture the boot/idle watermark; database failures must not replay from zero."""
+    with engine.connect() as conn:
+        return conn.execute(text("SELECT COALESCE(MAX(id), 0) FROM ws_events")).scalar_one()
+
+
+def cleanup_events():
+    """TTL maintenance independent of websocket presence and reads."""
+    global _last_cleanup
+    now = time.time()
+    if now - _last_cleanup >= _CLEANUP_INTERVAL:
+        _cleanup(now - _EVENT_TTL)
+        _last_cleanup = now
 
 
 def _cleanup(before_ts: float):

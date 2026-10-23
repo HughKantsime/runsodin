@@ -13,7 +13,6 @@ import logging
 import os
 import pathlib
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, FastAPI, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,13 +21,9 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from sqlalchemy import text
 
-from core.error_buffer import error_buffer
 
 log = logging.getLogger("odin.api")
 
-# ---------------------------------------------------------------------------
-# Version
-# ---------------------------------------------------------------------------
 
 _version_file = pathlib.Path(__file__).parent.parent.parent / "VERSION"
 if _version_file.exists():
@@ -36,333 +31,17 @@ if _version_file.exists():
 else:
     __version__ = "2.0.8"
 
-
-# ---------------------------------------------------------------------------
 # Module discovery helpers
-# ---------------------------------------------------------------------------
 
-def _discover_modules() -> list[str]:
-    """Return a list of module package names found under backend/modules/.
-
-    A valid module directory contains an __init__.py with a MODULE_ID attribute.
-    """
-    modules_dir = pathlib.Path(__file__).parent.parent / "modules"
-    found = []
-    for entry in sorted(modules_dir.iterdir()):
-        if entry.name.startswith("_") or not entry.name.isidentifier() or not entry.is_dir():
-            continue
-        init_file = entry / "__init__.py"
-        if not init_file.exists():
-            continue
-        pkg_name = f"modules.{entry.name}"
-        try:
-            mod = importlib.import_module(pkg_name)  # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import -- verified safe — plugin discovery via os.scandir, not user input
-            if hasattr(mod, "MODULE_ID"):
-                found.append(pkg_name)
-        except Exception as exc:
-            log.warning(f"Module discovery: skipping {pkg_name!r} — {exc}")
-    return found
-
-
-def _resolve_load_order(pkg_names: list[str]) -> list[str]:
-    """Topologically sort modules so that providers load before their consumers.
-
-    Algorithm:
-    1. Build a map of interface_name -> module_pkg for IMPLEMENTS declarations.
-    2. For each module's REQUIRES list, find which module pkg provides that interface.
-    3. Perform Kahn's topological sort (no-dependency modules first).
-    4. Any modules with circular or unresolvable deps load in discovery order at
-       the end (with a warning) rather than crashing startup.
-    """
-    # Load manifest metadata
-    mods: dict[str, dict] = {}
-    for pkg in pkg_names:
-        m = importlib.import_module(pkg)  # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import -- verified safe — plugin discovery via os.scandir, not user input
-        mods[pkg] = {
-            "implements": getattr(m, "IMPLEMENTS", []),
-            "requires": getattr(m, "REQUIRES", []),
-        }
-
-    # interface -> providing pkg
-    providers: dict[str, str] = {}
-    for pkg, info in mods.items():
-        for iface in info["implements"]:
-            providers[iface] = pkg
-
-    # Build dependency edges: pkg -> set of pkgs it depends on
-    edges: dict[str, set[str]] = {pkg: set() for pkg in pkg_names}
-    for pkg, info in mods.items():
-        for iface in info["requires"]:
-            provider_pkg = providers.get(iface)
-            if provider_pkg and provider_pkg != pkg:
-                edges[pkg].add(provider_pkg)
-
-    # Kahn's algorithm — in_degree = number of dependencies each pkg has
-    in_degree: dict[str, int] = {pkg: len(deps) for pkg, deps in edges.items()}
-
-    queue = sorted(pkg for pkg in pkg_names if in_degree[pkg] == 0)
-    ordered: list[str] = []
-
-    while queue:
-        pkg = queue.pop(0)
-        ordered.append(pkg)
-        # Find all packages that depend on pkg and decrement their in_degree
-        for other_pkg, deps in edges.items():
-            if pkg in deps:
-                in_degree[other_pkg] -= 1
-                if in_degree[other_pkg] == 0:
-                    queue.append(other_pkg)
-                    queue.sort()
-
-    # Any remaining packages have circular deps — append in discovery order
-    remaining = [pkg for pkg in pkg_names if pkg not in ordered]
-    if remaining:
-        log.warning(
-            f"Module load order: circular or unresolvable dependencies for "
-            f"{remaining} — appending in discovery order."
-        )
-        ordered.extend(remaining)
-
-    return ordered
-
-
-# ---------------------------------------------------------------------------
 # WebSocket manager (unchanged from original main.py)
-# ---------------------------------------------------------------------------
 
-class ConnectionManager:
-    """Manages authenticated WebSockets and scopes tenant/user events."""
+from core.app_websocket import ConnectionManager, ws_manager, _ws_broadcaster
+from core.app_maintenance import (
+    _discover_modules, _resolve_load_order, _periodic_cleanup,
+    _check_schema_drift, _revoke_legacy_biometric_tokens,
+)
 
-    def __init__(self):
-        self.active: list[tuple[WebSocket, dict]] = []
-
-    async def connect(self, ws: WebSocket, principal: dict):
-        await ws.accept()
-        self.active.append((ws, principal))
-
-    def disconnect(self, ws: WebSocket):
-        self.active = [(active_ws, principal) for active_ws, principal in self.active if active_ws is not ws]
-
-    @staticmethod
-    def _can_receive(principal: dict, user_ids: set[int] | None, org_id: int | None, shared: bool) -> bool:
-        if user_ids is not None:
-            return principal.get("id") in user_ids
-        if shared or org_id is None:
-            return True
-        return (
-            principal.get("role") == "admin" and principal.get("group_id") is None
-        ) or principal.get("group_id") == org_id
-
-    @staticmethod
-    def _printer_scope(message: dict) -> tuple[int | None, bool]:
-        printer_id = message.get("data", {}).get("printer_id")
-        if printer_id is None:
-            return None, False
-        try:
-            from core.db import SessionLocal
-
-            with SessionLocal() as db:
-                row = db.execute(
-                    text("SELECT org_id, shared FROM printers WHERE id = :id"),
-                    {"id": printer_id},
-                ).fetchone()
-            if not row:
-                return -1, False
-            return row[0], bool(row[1])
-        except Exception:
-            log.exception("Unable to resolve WebSocket printer audience")
-            return -1, False
-
-    @staticmethod
-    def _education_principal_current(principal: dict, message: dict) -> bool:
-        data = message.get("data", {})
-        if not (message.get("education_internal") or data.get("education_internal")):
-            return True
-        try:
-            from core.db import SessionLocal
-            from modules.organizations.education_access import capability_snapshot_id
-
-            with SessionLocal() as db:
-                row = db.execute(
-                    text(
-                        "SELECT id, username, role, group_id, is_active FROM users "
-                        "WHERE id=:id AND is_active IS TRUE"
-                    ),
-                    {"id": principal.get("id")},
-                ).fetchone()
-                if not row:
-                    return False
-                live_principal = dict(row._mapping)
-                return capability_snapshot_id(db, live_principal) == principal.get(
-                    "_capability_snapshot_id"
-                )
-        except Exception:
-            log.exception("Unable to re-authorize Education WebSocket audience")
-            return False
-
-    async def broadcast(self, message: dict) -> int:
-        """Deliver an event only to its explicit user or tenant audience."""
-        audience = message.get("_audience", {})
-        raw_user_ids = audience.get("user_ids")
-        user_ids = set(raw_user_ids) if raw_user_ids is not None else None
-        org_id = audience.get("org_id")
-        shared = bool(audience.get("shared"))
-        if user_ids is None and org_id is None and message.get("data", {}).get("printer_id") is not None:
-            org_id, shared = self._printer_scope(message)
-        public_message = {key: value for key, value in message.items() if key != "_audience"}
-        dead = []
-        delivered = 0
-        for ws, principal in list(self.active):
-            if not self._can_receive(principal, user_ids, org_id, shared):
-                continue
-            if not self._education_principal_current(principal, message):
-                continue
-            try:
-                await ws.send_json(public_message)
-                delivered += 1
-            except Exception:
-                dead.append(ws)
-        for ws in dead:
-            self.disconnect(ws)
-        return delivered
-
-
-ws_manager = ConnectionManager()
-
-
-async def _ws_broadcaster():
-    """Background task: read events from ws_events table, broadcast to WebSocket clients."""
-    from core.ws_hub import read_events_since
-
-    last_id = 0
-    while True:
-        await asyncio.sleep(1)
-        if not ws_manager.active:
-            continue
-        events, last_id = read_events_since(last_id)
-        for evt in events:
-            await ws_manager.broadcast(evt)
-
-
-async def _periodic_cleanup():
-    """Background task: hourly cleanup of stale login attempts, sessions, and expired tokens."""
-    from core.db import SessionLocal
-
-    while True:
-        await asyncio.sleep(3600)
-        try:
-            db = SessionLocal()
-            try:
-                now = datetime.now(timezone.utc)
-                db.execute(
-                    text("DELETE FROM login_attempts WHERE attempted_at < :cutoff"),
-                    {"cutoff": (now - timedelta(minutes=30)).timestamp()},
-                )
-                db.execute(
-                    text("DELETE FROM active_sessions WHERE created_at < :cutoff"),
-                    {"cutoff": (now - timedelta(hours=48)).isoformat()},
-                )
-                db.execute(
-                    text("DELETE FROM token_blacklist WHERE expires_at < :now"),
-                    {"now": now.isoformat()},
-                )
-                # v1.8.6 (codex pass 4): the digest-sends idempotency tables
-                # grow monotonically without this — one row per user per
-                # quiet-hours window forever. 30-day retention is well past
-                # any reasonable troubleshooting window for "did I get the
-                # 2026-Q1-04-13 digest?" while keeping the row count bounded.
-                # Tables are guarded with `IF EXISTS` since older
-                # deployments may not have run migrations 002/003 yet.
-                # Inlined to avoid a semgrep false-positive on f-string
-                # interpolation into text() — the alternative was a
-                # hardcoded-allowlist loop, which semgrep flags anyway.
-                # Wrapped each in its own try so a missing table on an
-                # older deployment doesn't kill the other delete.
-                _digest_cutoff = (now - timedelta(days=30)).isoformat()
-                try:
-                    db.execute(
-                        text("DELETE FROM quiet_hours_digest_sends WHERE window_ended_at < :cutoff"),
-                        {"cutoff": _digest_cutoff},
-                    )
-                except Exception:
-                    db.rollback()
-                try:
-                    db.execute(
-                        text("DELETE FROM quiet_hours_org_digest_sends WHERE window_ended_at < :cutoff"),
-                        {"cutoff": _digest_cutoff},
-                    )
-                except Exception:
-                    db.rollback()
-                db.commit()
-
-                # v1.8.9: prune expired idempotency-cache rows. 24h TTL
-                # is enforced at read time too, but the hourly prune
-                # keeps the table from growing unbounded. Wrapped in its
-                # own try so a missing table on an older deployment
-                # (migration 005 not applied) doesn't block the rest.
-                try:
-                    from core.middleware.idempotency import prune_expired_idempotency_keys
-                    pruned = prune_expired_idempotency_keys(db)
-                    if pruned:
-                        log.info("Pruned %d expired idempotency-key rows", pruned)
-                except Exception:
-                    db.rollback()
-                    log.debug("idempotency-key prune skipped (table may not exist yet)")
-
-                log.info("Periodic cleanup completed: stale sessions, login attempts, expired tokens, old digest-send rows, idempotency cache")
-            finally:
-                db.close()
-        except Exception:
-            log.warning("Periodic cleanup failed", exc_info=True)
-
-
-# ---------------------------------------------------------------------------
-# Schema drift check (unchanged from original main.py)
-# ---------------------------------------------------------------------------
-
-_DUAL_SCHEMA_TABLES = [
-    "vision_detections", "vision_settings", "vision_models",
-    "timelapses", "nozzle_lifecycle",
-    "consumables", "product_consumables", "consumable_usage",
-]
-
-
-def _check_schema_drift(engine, Base):
-    """Compare SQLAlchemy column definitions against dialect-neutral inspection."""
-    try:
-        from sqlalchemy import inspect
-
-        with engine.connect() as conn:
-            inspector = inspect(conn)
-            for table_name in _DUAL_SCHEMA_TABLES:
-                sa_table = Base.metadata.tables.get(table_name)
-                if sa_table is None:
-                    continue
-                sa_cols = {c.name for c in sa_table.columns}
-                if table_name not in inspector.get_table_names():
-                    continue
-                db_cols = {
-                    column["name"] for column in inspector.get_columns(table_name)
-                }
-                only_sa = sa_cols - db_cols
-                only_db = db_cols - sa_cols
-                if only_sa:
-                    log.warning(
-                        f"Schema drift [{table_name}]: columns in models.py "
-                        f"but not in DB: {sorted(only_sa)}"
-                    )
-                if only_db:
-                    log.warning(
-                        f"Schema drift [{table_name}]: columns in DB "
-                        f"but not in models.py: {sorted(only_db)}"
-                    )
-    except Exception:
-        log.debug("Schema drift check skipped", exc_info=True)
-
-
-# ---------------------------------------------------------------------------
 # Middleware setup
-# ---------------------------------------------------------------------------
 
 def _setup_middleware(app: FastAPI) -> None:
     """Attach CORS, rate limiting, and security-headers middleware to the app."""
@@ -415,7 +94,6 @@ def _setup_middleware(app: FastAPI) -> None:
         ],
     )
 
-
 def _ip_allowlist_denial(session_factory, client_ip):
     """None when the IP allowlist admits client_ip; 403 when it refuses; 503 when the check failed.
 
@@ -442,7 +120,6 @@ def _ip_allowlist_denial(session_factory, client_ip):
     except Exception as e:
         log.error("IP allowlist check failed — denying request (fail-closed): %s", e)
         return 503
-
 
 def _register_http_middleware(app: FastAPI) -> None:
     """Register @app.middleware("http") handlers for security headers and auth.
@@ -651,10 +328,7 @@ def _register_http_middleware(app: FastAPI) -> None:
             response.headers["Pragma"] = "no-cache"
         return response
 
-
-# ---------------------------------------------------------------------------
 # App factory
-# ---------------------------------------------------------------------------
 
 def _mount_static_assets(app,static_dir):
     from pathlib import Path
@@ -664,35 +338,6 @@ def _mount_static_assets(app,static_dir):
     app.state.branding_assets=assets
     app.mount('/static/branding',assets,name='branding-assets')
     app.mount('/static',StaticFiles(directory=static_dir),name='static')
-
-
-def _revoke_legacy_biometric_tokens(engine) -> None:
-    """Delete all biometric refresh tokens once, on first start of this version.
-
-    v1.9.24 and earlier let a scoped API token mint a biometric refresh token
-    (SEC HIGH-1). Any such token already issued keeps working until it expires,
-    so on the first start after upgrade every biometric token is revoked and
-    users re-enrol through an interactive session. A system_config marker makes
-    it run exactly once; it is not a schema change.
-    """
-    from sqlalchemy import text
-    from core.db_compat import sql
-    marker = "biometric_revoked_2_0"
-    with engine.begin() as connection:
-        done = connection.execute(
-            text("SELECT 1 FROM system_config WHERE key = :k"), {"k": marker}
-        ).first()
-        if done:
-            return
-        deleted = connection.execute(text("DELETE FROM biometric_tokens")).rowcount
-        connection.execute(
-            text(f"{sql.insert_or_ignore_prefix()} system_config (key, value) "  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragments from core.db_compat sql.* dialect helpers called with literal arguments (closed per-dialect output); values are bound
-                 f"VALUES (:k, :v){sql.on_conflict_ignore('key')}"),
-            {"k": marker, "v": "true"},
-        )
-        if deleted:
-            log.warning("Revoked %d pre-2.0 biometric refresh token(s); affected devices must re-enrol.", deleted)
-
 
 def create_app() -> FastAPI:
     """Create and fully configure the ODIN FastAPI application.
@@ -717,7 +362,6 @@ def create_app() -> FastAPI:
     from core.registry import registry
     from core.itar import is_itar_mode, enforce_boot_config
 
-    # -----------------------------------------------------------------------
     # v1.8.9: ITAR boot-audit. If ODIN_ITAR_MODE=1, every configured
     # outbound destination must resolve to a private/loopback range or
     # the container refuses to start. This fails loud rather than
@@ -727,7 +371,6 @@ def create_app() -> FastAPI:
     # audit the statically-known ones here (license_server_url). The
     # webhook runtime guard (`enforce_request_destination` inside
     # safe_post/trusted_post) catches DB-configured URLs at send time.
-    # -----------------------------------------------------------------------
     if is_itar_mode():
         log.warning(
             "ODIN_ITAR_MODE=1 — refusing outbound to public addresses. "
@@ -740,13 +383,11 @@ def create_app() -> FastAPI:
             getattr(settings, "spoolman_url", "") or "",
         ])
 
-    # -----------------------------------------------------------------------
     # ODIN-142 Wake 2b: Bambu MQTT broker policy boot audit.
     # Refuses to start if `ODIN_ALLOW_INSECURE_BAMBU_BROKER` is set
     # together with `ODIN_ITAR_MODE=1`, or if the insecure-broker port
     # is unparsable, or if the allowlist contains a public IP literal.
     # No-op on production deploys (no env vars set).
-    # -----------------------------------------------------------------------
     from modules.printers.telemetry.bambu.broker_policy import (
         enforce_boot_audit as _bambu_broker_boot_audit,
     )
@@ -763,17 +404,13 @@ def create_app() -> FastAPI:
         except Exception as _e:
             log.error("stress instrumentation install failed: %s", _e)
 
-    # -----------------------------------------------------------------------
     # Module discovery and registry (at import time, not in lifespan)
-    # -----------------------------------------------------------------------
     pkg_names = _discover_modules()
     ordered_pkgs = _resolve_load_order(pkg_names)
 
     log.info(f"Module load order: {[p.split('.')[-1] for p in ordered_pkgs]}")
 
-    # -----------------------------------------------------------------------
     # Lifespan (DB init, event bus, background tasks)
-    # -----------------------------------------------------------------------
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         from core.event_bus import get_event_bus
@@ -781,6 +418,10 @@ def create_app() -> FastAPI:
         from modules.printers import register_subscribers as printers_register
         from modules.notifications import register_subscribers as notifications_register
         from modules.archives import register_subscribers as archives_register
+
+        import faulthandler
+        import signal
+        faulthandler.register(signal.SIGUSR1, all_threads=True)
 
         _check_schema_drift(engine, Base)
 
@@ -854,7 +495,9 @@ def create_app() -> FastAPI:
         except Exception as e:
             log.warning("Legacy camera token revocation failed on startup: %s", type(e).__name__)  # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure -- logs only the exception class name
 
-        broadcast_task = asyncio.create_task(_ws_broadcaster())
+        from core.ws_hub import current_event_id
+        last_event_id = await asyncio.to_thread(current_event_id)
+        broadcast_task = asyncio.create_task(_ws_broadcaster(last_event_id))
         cleanup_task = asyncio.create_task(_periodic_cleanup())
         # Replays job alerts a crash or a failed dispatch left in the outbox (migration 034).
         from modules.notifications.alert_outbox import run_sweeper
@@ -865,9 +508,7 @@ def create_app() -> FastAPI:
         outbox_task.cancel()
         app.state.branding_assets.close()
 
-    # -----------------------------------------------------------------------
     # FastAPI instance
-    # -----------------------------------------------------------------------
     app = FastAPI(
         title="O.D.I.N.",
         description=(
@@ -891,98 +532,8 @@ def create_app() -> FastAPI:
     async def redoc_docs_alias(request: Request):
         return RedirectResponse(request.scope.get("root_path", "") + "/api/v1/redoc")
 
-    # v1.8.9: structured error envelope for agent-surface endpoints.
-    # OdinError gets the machine-readable `{error: {code, detail, retriable}}`
-    # shape; HTTPException falls through to a legacy-compatible envelope
-    # so not-yet-migrated routes still produce something agents can parse.
-    from core.errors import OdinError, ErrorCode
-    from fastapi import HTTPException
-    from fastapi.encoders import jsonable_encoder
-    from fastapi.exceptions import RequestValidationError
-
-    @app.exception_handler(OdinError)
-    async def _odin_error_handler(request: Request, exc: OdinError):
-        return JSONResponse(status_code=exc.status, content=exc.to_envelope())
-
-    @app.exception_handler(HTTPException)
-    async def _http_exception_handler(request: Request, exc: HTTPException):
-        # Codex pass 3 (2026-04-14): preserve the legacy top-level
-        # `detail` field. Several shipped clients — including
-        # `frontend/src/api/client.ts` and `frontend/src/api/auth.ts`
-        # — read `err.detail` directly. Rewriting every HTTPException
-        # into only `{error: {...}}` would break those callers.
-        # Dual-shape envelope: old clients keep reading `detail`, new
-        # clients (agents / MCP tool layer) read `error.code`.
-        #
-        # Also: pass structured `detail` (dict, list) through
-        # unchanged. Some routes intentionally raise with a dict
-        # payload (e.g. quota-usage breakdown); stringifying those
-        # would turn a JSON body into a Python repr which no caller
-        # can parse.
-        code = ErrorCode.http_error
-        if exc.status_code == 401:
-            code = ErrorCode.not_authenticated
-        elif exc.status_code == 403:
-            code = ErrorCode.permission_denied
-        elif exc.status_code == 404:
-            code = ErrorCode.not_found
-        elif exc.status_code == 429:
-            code = ErrorCode.rate_limited
-
-        # Detail: pass structured payloads through; stringify only scalars.
-        if isinstance(exc.detail, (dict, list)):
-            legacy_detail = exc.detail
-            agent_detail = exc.detail
-        elif exc.detail is None:
-            legacy_detail = code.value
-            agent_detail = code.value
-        else:
-            legacy_detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
-            agent_detail = legacy_detail
-
-        # Codex pass 14 (2026-04-15): preserve exc.headers. Auth
-        # routes raise HTTPException(401, headers={"WWW-Authenticate":
-        # ...}); slowapi raises 429 with Retry-After. Losing those is
-        # a protocol-level regression — spec-compliant clients can't
-        # recover and operators see generic "access denied" instead of
-        # the challenge/backoff signal.
-        return JSONResponse(
-            status_code=exc.status_code,
-            content={
-                "detail": legacy_detail,
-                "error": {
-                    "code": code.value,
-                    "detail": agent_detail,
-                    "retriable": code == ErrorCode.rate_limited,
-                },
-            },
-            headers=getattr(exc, "headers", None),
-        )
-
-    @app.exception_handler(RequestValidationError)
-    async def _request_validation_handler(request: Request, exc: RequestValidationError):
-        from core.errors import request_validation_response
-        return request_validation_response(exc)
-
-    # Global exception handler — capture unhandled exceptions into ring buffer
-    @app.exception_handler(Exception)
-    async def _unhandled_exception_handler(request: Request, exc: Exception):
-        error_buffer.capture(exc, request)
-        log.error("Unhandled exception on %s %s: %s", request.method, request.url.path, exc, exc_info=True)
-        # Dual-shape envelope (see HTTPException handler above). Keep
-        # the legacy `detail` so existing frontend fallback messages
-        # still produce a readable error.
-        return JSONResponse(
-            status_code=500,
-            content={
-                "detail": "Internal server error",
-                "error": {
-                    "code": ErrorCode.internal_error.value,
-                    "detail": "Internal server error",
-                    "retriable": True,
-                },
-            },
-        )
+    from core.app_errors import register_error_handlers
+    register_error_handlers(app)
 
     # Middleware (order matters: added in reverse call order for ASGI stack)
     _setup_middleware(app)
@@ -995,9 +546,7 @@ def create_app() -> FastAPI:
     os.makedirs(static_dir, exist_ok=True)
     _mount_static_assets(app,static_dir)
 
-    # -----------------------------------------------------------------------
     # Health endpoint (registered before module routes to ensure priority)
-    # -----------------------------------------------------------------------
     @app.get("/health", tags=["System"], include_in_schema=False)
     async def health_root():
         """Root-level health check — delegates to system module health_check."""
@@ -1010,9 +559,7 @@ def create_app() -> FastAPI:
         from modules.system.routes_health import readiness_check
         return readiness_check(db)
 
-    # -----------------------------------------------------------------------
     # WebSocket endpoint
-    # -----------------------------------------------------------------------
     @app.websocket("/ws")
     async def websocket_endpoint(ws: WebSocket, token: str = Query(default=None)):
         """
@@ -1107,9 +654,7 @@ def create_app() -> FastAPI:
         """Alias for /ws — native clients connect via /api/v1/ws."""
         await websocket_endpoint(ws, token=token)
 
-    # -----------------------------------------------------------------------
     # Module registration — MUST happen before SPA catch-all
-    # -----------------------------------------------------------------------
     for pkg in ordered_pkgs:
         mod = importlib.import_module(pkg)  # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import -- verified safe — plugin discovery via os.scandir, not user input
         # Record REQUIRES for dependency validation (done at startup)
@@ -1124,9 +669,7 @@ def create_app() -> FastAPI:
             except Exception as exc:
                 log.error(f"Failed to register module {pkg!r}: {exc}", exc_info=True)
 
-    # -----------------------------------------------------------------------
     # Production frontend serving (SPA fallback) — MUST be last route
-    # -----------------------------------------------------------------------
     _frontend_dist = os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist")
     if os.path.isdir(_frontend_dist):
         from fastapi.responses import FileResponse

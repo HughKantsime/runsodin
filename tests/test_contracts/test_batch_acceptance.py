@@ -38,8 +38,6 @@ def batch(shop, monkeypatch):
         fp=filename_fingerprint(SECRET_KEY.encode(),claim,'odin-dispatch-'+claim+'.3mf')
         db.execute(text("""INSERT INTO dispatch_attempt_receipts(claim_token,printer_id,job_id,configuration_key,prepared_power_key,observed_filename_key,observed_print_job_id)
             VALUES(:claim,301,:id,:key,:key,:fp,:observed)"""),{'id':jid,'observed':observed.id,'claim':claim,'key':'b'*64,'fp':fp})
-        db.execute(text("""INSERT INTO dispatch_sender_registrations(claim_token,printer_id,job_id,physical_key,configuration_key,payload_sha256,owner_org_id,origin_key,runtime_incarnation,registration_key,state,finished_at,cleanup_evidence_key)
-            VALUES(:claim,301,:id,:key,:key,:payload,1,:nonce,:nonce,:nonce,'quiesced',CURRENT_TIMESTAMP,:key)"""),{'claim':claim,'id':jid,'key':'b'*64,'payload':'a'*64,'nonce':uuid.uuid4().hex})
     db.commit()
     status=mapped(shop)
     return (*shop,status)
@@ -273,3 +271,48 @@ def test_separate_flush_product_with_own_model_keeps_its_own_square_destination(
     request['job_id']=301
     assert client.post('/products/production/inspections',json=request).status_code==409
     assert db.execute(text('SELECT COUNT(*) FROM production_acceptances')).scalar_one()==1
+
+
+def test_missing_sender_is_real_retained_shape_and_claim_blocks_acceptance(batch):
+    db = batch[3]
+    assert db.execute(text('SELECT COUNT(*) FROM dispatch_sender_registrations')).scalar_one() == 0
+    recipe = make_recipe(batch)
+    row = db.execute(text('SELECT * FROM dispatch_attempt_receipts WHERE job_id=302')).mappings().one()
+    db.execute(text("""INSERT INTO printer_dispatch_claims(printer_id,job_id,physical_key,configuration_key,payload_sha256,token,owner_org_id,state)
+        VALUES(301,302,:key,:key,:payload,:token,1,'accepted')"""),
+        {'key':row['configuration_key'],'payload':'a'*64,'token':row['claim_token']})
+    db.commit()
+    response = batch[0].post('/products/production/inspections', json=body(batch, recipe))
+    assert response.status_code == 409 and 'retired' in response.json()['detail']
+    assert db.execute(text('SELECT COUNT(*) FROM production_acceptances')).scalar_one() == 0
+
+
+@pytest.mark.parametrize('mutation', [
+    "UPDATE dispatch_attempt_receipts SET printer_id=999 WHERE job_id=302",
+    "UPDATE dispatch_attempt_receipts SET observed_filename_key='ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff' WHERE job_id=302",
+    "UPDATE print_jobs SET ended_at=NULL WHERE scheduled_job_id=302",
+    "UPDATE print_jobs SET job_name='unknown' WHERE scheduled_job_id=302",
+])
+def test_sender_absence_does_not_relax_correlation(batch, mutation):
+    recipe = make_recipe(batch)
+    batch[3].execute(text(mutation)); batch[3].commit()
+    assert batch[0].post('/products/production/inspections', json=body(batch, recipe)).status_code == 409
+
+
+@pytest.mark.parametrize('state,token_match,sha_match,accepted', [
+    ('quiesced',True,True,True), ('active',True,True,False),
+    ('cleanup_uncertain',True,True,False), ('quiesced',False,True,False),
+    ('quiesced',True,False,False),
+])
+def test_optional_sender_never_overrides_contradictory_retained_evidence(batch,state,token_match,sha_match,accepted):
+    recipe = make_recipe(batch)
+    db = batch[3]
+    token = db.execute(text('SELECT claim_token FROM dispatch_attempt_receipts WHERE job_id=302')).scalar_one()
+    db.execute(text("""INSERT INTO dispatch_sender_registrations(claim_token,printer_id,job_id,physical_key,configuration_key,payload_sha256,owner_org_id,origin_key,runtime_incarnation,registration_key,state,finished_at,cleanup_evidence_key)
+        VALUES(:token,301,302,:key,:key,:payload,1,:nonce,:nonce,:nonce,:state,
+          CASE WHEN :state='active' THEN NULL ELSE CURRENT_TIMESTAMP END,
+          CASE WHEN :state='quiesced' THEN :key ELSE NULL END)"""),
+        {'token':token if token_match else 'f'*32,'key':'b'*64,
+         'payload':('a' if sha_match else 'c')*64,'nonce':uuid.uuid4().hex,'state':state})
+    db.commit()
+    assert batch[0].post('/products/production/inspections', json=body(batch,recipe)).status_code == (200 if accepted else 409)

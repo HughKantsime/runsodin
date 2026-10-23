@@ -177,3 +177,19 @@ def test_canonical_preinsert_status_predicate_stays_closed_with_mixed_storage_ty
             c.execute(text('UPDATE jobs SET status=:status WHERE id=:id'),{'status':status,'id':uploaded['job_id']})
             assert not recheck_start_authority(c,context)
         tx.rollback()
+
+
+def test_anycubic_never_promotes_retained_education_authority(admitted_education):
+    from core.attempt_start_plan import prepare_start
+    from core.attempt_start_transaction import start_transaction
+    from core import auth
+    engine, uploaded, name, _ = admitted_education
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE printers SET api_type='anycubic_lan' WHERE id=9"))
+        before = conn.execute(text('SELECT status FROM education_submissions WHERE id=:id'), {'id':uploaded['id']}).scalar_one()
+        with start_transaction(conn) as scope:
+            scope.fence_dispatch_membership(conn, education=True)
+            plan = prepare_start(conn, scope, printer_id=9, protocol='anycubic_lan',
+                observed_filename=name, observation_fields={'filename':name,'job_name':name,'dispatch_key':auth.SECRET_KEY.encode()})
+            assert plan.branch == 'fresh_unresolved' and plan.job_id is None and plan.reserved
+        assert conn.execute(text('SELECT status FROM education_submissions WHERE id=:id'), {'id':uploaded['id']}).scalar_one() == before

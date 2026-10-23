@@ -63,7 +63,7 @@ def prepare_start(executor,scope,*,printer_id,observed_filename,protocol,observa
     """Prepare before any attempt INSERT; absence is classified under table fences."""
     scope.require_fenced(executor,education=True)
     if type(capture_required) is not bool:raise SourceCreationError('Invalid capture mode')
-    if type(printer_id) is not int or printer_id<=0 or protocol not in ('bambu','moonraker','prusalink','elegoo') or not isinstance(observed_filename,str) or not observed_filename or not isinstance(observation_fields,dict):
+    if type(printer_id) is not int or printer_id<=0 or protocol not in ('bambu','moonraker','prusalink','elegoo','anycubic_lan') or not isinstance(observed_filename,str) or not observed_filename or not isinstance(observation_fields,dict):
         raise SourceCreationError('Invalid start observation')
     fields={name:observation_fields.get(name) for name in ('filename','job_name')}
     transport=fields['job_name'] if protocol=='bambu' else fields['filename']

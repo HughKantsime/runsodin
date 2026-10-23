@@ -79,7 +79,7 @@ class TestModuleDirectories:
     def test_discovery_skips_internal_and_invalid_names_before_filesystem_probe(
         self, monkeypatch, tmp_path
     ):
-        from core import app as app_module
+        from core import app_maintenance as app_module
 
         (tmp_path / "core").mkdir()
         modules_dir = tmp_path / "modules"

@@ -44,14 +44,15 @@ def job_evidence(db, owner, job_id, *, lock=False):
         fail('Choose a completed single-run job with retained identity evidence')
     if not row['model_id'] or not row['print_file_id'] or row['plate_index'] is None or not isinstance(row['payload_sha256'], str) or len(row['payload_sha256']) != 64:
         fail('The job has no exact file, plate and payload evidence')
-    observed = db.execute(text('''SELECT r.claim_token,r.configuration_key,p.id AS observation_id,p.economic_birth_nonce AS observation_uid,p.filename,p.job_name,r.observed_filename_key,
+    observed = db.execute(text('''SELECT r.claim_token,r.configuration_key,r.printer_id AS receipt_printer_id,p.id AS observation_id,p.economic_birth_nonce AS observation_uid,p.filename,p.job_name,r.observed_filename_key,
         p.status,p.scheduled_job_id,p.printer_id,p.ended_at FROM dispatch_attempt_receipts r
         LEFT JOIN print_jobs p ON p.id=r.observed_print_job_id WHERE r.job_id=:id'''), params).mappings().all()
     if len(observed) != 1:
         fail('This job has missing or multiple physical attempts. It needs a separate review.')
     physical = dict(observed[0])
     if (physical['status'] != 'completed' or physical['ended_at'] is None or not physical['observation_uid']
-            or physical['scheduled_job_id'] != job_id or physical['printer_id'] != row['printer_id']):
+            or physical['scheduled_job_id'] != job_id or physical['printer_id'] != row['printer_id']
+            or physical['receipt_printer_id'] != row['printer_id']):
         fail('A completed physical print is not unambiguously bound to this job')
     from core.dispatch_receipts import generic_observed_token, observed_filename_matches
     from core.auth import SECRET_KEY
@@ -60,11 +61,19 @@ def job_evidence(db, owner, job_id, *, lock=False):
     if (generic_observed_token(protocol,wire_name) != physical['claim_token'] or
             not observed_filename_matches(SECRET_KEY.encode(),physical['claim_token'],protocol,wire_name,physical['observed_filename_key'])):
         fail('Physical print correlation no longer matches the retained dispatch receipt')
-    sender=db.execute(text('SELECT payload_sha256,owner_org_id,job_id,printer_id,configuration_key,state FROM dispatch_sender_registrations WHERE claim_token=:claim'),{'claim':physical['claim_token']}).mappings().one_or_none()
-    if sender is None or sender['state']!='quiesced' or any(sender[key] != expected for key,expected in (
-            ('payload_sha256',row['payload_sha256']),('owner_org_id',owner or None),
-            ('job_id',job_id),('printer_id',row['printer_id']),('configuration_key',physical['configuration_key']))):
-        fail('Retained sender evidence does not match the exact printed payload')
+    # Successful terminal retirement verifies the claim's payload SHA against
+    # the retained job, receipt/observation binding and exact filename HMAC.
+    # Sender registrations are optional fences, not retained print evidence.
+    if db.execute(text('SELECT 1 FROM printer_dispatch_claims WHERE job_id=:id'), params).first():
+        fail('The physical dispatch claim has not been cleanly retired')
+    senders=db.execute(text('SELECT claim_token,payload_sha256,owner_org_id,job_id,printer_id,configuration_key,state FROM dispatch_sender_registrations WHERE claim_token=:claim OR job_id=:id'),{'claim':physical['claim_token'],'id':job_id}).mappings().all()
+    if len(senders)>1:
+        fail('This job has multiple sender attempts. It needs a separate review.')
+    sender=senders[0] if senders else None
+    if sender is not None and (sender['state']!='quiesced' or any(sender[key] != expected for key,expected in (
+            ('claim_token',physical['claim_token']),('payload_sha256',row['payload_sha256']),('owner_org_id',owner or None),
+            ('job_id',job_id),('printer_id',row['printer_id']),('configuration_key',physical['configuration_key'])))):
+        fail('Retained sender evidence conflicts with the exact printed payload')
     # Exclude a second unbound/failed attempt as well as multiple dispatch receipts.
     if db.execute(text('SELECT COUNT(*) FROM print_jobs WHERE scheduled_job_id=:id'), params).scalar_one() != 1:
         fail('This job has multiple physical attempts. It needs a separate review.')

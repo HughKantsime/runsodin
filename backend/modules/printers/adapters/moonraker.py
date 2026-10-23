@@ -318,6 +318,9 @@ class MoonrakerPrinter:
         """Parse MMU/ACE gate data into filament slots."""
         slots = []
         num_gates = mmu.get("num_gates", 0)
+        # Malformed telemetry must never drive an unbounded loop/allocation.
+        if type(num_gates) is not int or not 0 <= num_gates <= 64:
+            return []
         
         gate_status = mmu.get("gate_status", [])
         gate_material = mmu.get("gate_material", [])
@@ -491,7 +494,10 @@ class MoonrakerPrinter:
             # urlopen is core.webhook_utils.device_urlopen: policy-validated,
             # pinned (no DNS rebinding), no redirects, no environment proxies.
             with urlopen(req, timeout=timeout) as resp:  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- verified safe — destination policy checked and pinned per request
-                return json.loads(resp.read().decode())
+                payload = resp.read(2 * 1024 * 1024 + 1)
+                if len(payload) > 2 * 1024 * 1024:
+                    raise ValueError("Moonraker response exceeds 2 MiB")
+                return json.loads(payload.decode())
         except HTTPError as e:
             log.warning(f"HTTP {e.code} from {url}")
             return None
@@ -521,7 +527,10 @@ class MoonrakerPrinter:
             # urlopen is core.webhook_utils.device_urlopen: policy-validated,
             # pinned (no DNS rebinding), no redirects, no environment proxies.
             with urlopen(req, timeout=timeout) as resp:  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- verified safe — destination policy checked and pinned per request
-                return json.loads(resp.read().decode())
+                payload = resp.read(2 * 1024 * 1024 + 1)
+                if len(payload) > 2 * 1024 * 1024:
+                    raise ValueError("Moonraker response exceeds 2 MiB")
+                return json.loads(payload.decode())
         except HTTPError as e:
             log.warning(f"HTTP {e.code} from {url}")
             return None

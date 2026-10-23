@@ -323,3 +323,20 @@ def test_private_capture_context_requires_owned_fresh_once_and_completed_cas(obs
             with pytest.raises(SourceCreationError):_fresh_capture_context(c,scope,plan,identifier)
             with pytest.raises(SourceCreationError):_complete_fresh_capture(c,scope,plan,identifier)
             assert finalize_start(c,scope,plan)==identifier
+
+
+def test_anycubic_monitor_records_unresolved_start_without_dispatch_authority(review_db):
+    from core.attempt_start_plan import prepare_start, create_start, finalize_start
+    from core.attempt_start_transaction import start_transaction
+    engine = review_db.get_bind()
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE printers SET api_type='anycubic_lan' WHERE id=9"))
+        with start_transaction(conn) as scope:
+            scope.fence_dispatch_membership(conn, education=True)
+            plan = prepare_start(conn, scope, printer_id=9, protocol='anycubic_lan',
+                observed_filename='local-print.gcode',
+                observation_fields={'filename':'local-print.gcode','job_name':'local-print'})
+            assert plan.branch == 'fresh_unresolved' and plan.job_id is None
+            identifier = create_start(conn, scope, plan, {'started_at':'2026-10-23 00:00:00'})
+            assert finalize_start(conn, scope, plan) == identifier
+        assert conn.execute(text('SELECT status,scheduled_job_id FROM print_jobs WHERE id=:id'), {'id':identifier}).one() == ('running', None)

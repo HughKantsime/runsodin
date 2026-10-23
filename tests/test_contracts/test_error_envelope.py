@@ -155,7 +155,7 @@ def test_exception_handler_source_preserves_headers():
     from pathlib import Path
 
     app_py = (
-        Path(__file__).resolve().parents[2] / "backend" / "core" / "app.py"
+        Path(__file__).resolve().parents[2] / "backend" / "core" / "app_errors.py"
     ).read_text(encoding="utf-8")
     assert 'headers=getattr(exc, "headers", None)' in app_py, (
         "HTTPException handler must pass through exc.headers"

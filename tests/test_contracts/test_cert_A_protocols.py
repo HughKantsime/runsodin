@@ -133,8 +133,11 @@ class _Response:
     def __exit__(self, *args):
         return False
 
-    def read(self):
-        return self.payload
+    def read(self, size=-1):
+        if size < 0:
+            size = len(self.payload)
+        result, self.payload = self.payload[:size], self.payload[size:]
+        return result
 
 
 @pytest.fixture
