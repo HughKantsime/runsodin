@@ -124,15 +124,16 @@ it('F12-12.7-03 census: every icon-only button has an accessible name (aria-labe
   expect(summary.icon_only_unnamed).toEqual([])
 })
 
-it('F12-12.7-04 census: dialog-role modal surfaces are 35 shared-Modal call sites + 19 custom dialogs, not 17', () => {
+it('F12-12.7-04 census: dialog-role modal surfaces are 35 shared-Modal call sites + 20 custom dialogs, not 17', () => {
   // Square stock send confirmation adds one shared, focus-trapped Modal.
   expect(summary.shared_modal_call_sites).toBe(35)
   expect(summary.shared_modal_alertdialog_call_sites).toBe(3)
-  // 19 static role="dialog", 1 alertdialog (SystemTab) and DetailDrawer's role that is 'dialog' while open.
-  expect(summary.custom_dialog_role_elements).toHaveLength(21)
+  // Super Admin restore adds one named, focus-trapped confirmation dialog.
+  // 20 static role="dialog", 1 alertdialog (SystemTab) and DetailDrawer's role that is 'dialog' while open.
+  expect(summary.custom_dialog_role_elements).toHaveLength(22)
   const dialogOnly = summary.custom_dialog_role_elements.filter(d => d.endsWith(' dialog')).length
-  expect(dialogOnly).toBe(19)
-  expect(summary.shared_modal_call_sites - summary.shared_modal_alertdialog_call_sites + dialogOnly).toBe(51)
+  expect(dialogOnly).toBe(20)
+  expect(summary.shared_modal_call_sites - summary.shared_modal_alertdialog_call_sites + dialogOnly).toBe(52)
   expect(summary.shared_modal_call_sites - summary.shared_modal_alertdialog_call_sites + dialogOnly).not.toBe(17)
 })
 

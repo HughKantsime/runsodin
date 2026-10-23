@@ -217,7 +217,7 @@ def _get_next_scheduled_job(printer_id: int, *, generic_only: bool = False) -> O
                 """),
                 {"pid": printer_id},
             ).fetchall()
-            from modules.jobs.education_order import education_order, ordered_waiting
+            from modules.jobs.services import education_order, ordered_waiting
             candidates = [dict(row._mapping) for row in rows]
             candidates = education_order(candidates,
                 {row['id'] for row in candidates if row['education_submission_id'] is not None},

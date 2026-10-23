@@ -23,7 +23,17 @@ def test_model_schedule_has_fresh_owned_identity(creators,review_db,name,scope,k
 
 
 @pytest.mark.parametrize("name",["admin","platform","unassigned"])
-def test_model_schedule_matches_original_raw_insert_omitted_column_semantics(creators,review_db,name):
+def test_model_schedule_matches_original_raw_insert_omitted_column_semantics(creators,review_db,name,request):
+    # Both independent INSERT statements must observe one clock value. SQLite's
+    # CURRENT_TIMESTAMP is statement-scoped, so crossing a second otherwise
+    # makes this exact-column oracle fail despite identical default semantics.
+    from sqlalchemy import event
+    engine = review_db.get_bind()
+    def freeze_clock(raw, *_):
+        raw.create_function("current_timestamp", 0, lambda: "2026-10-23 12:00:00")
+    event.listen(engine, "checkout", freeze_clock)
+    request.addfinalizer(lambda: event.remove(engine, "checkout", freeze_clock))
+    freeze_clock(review_db.connection().connection.driver_connection)
     from modules.models_library.routes.models_crud import router
     from modules.models_library.models import Model
     client,auth,_,_=creators
@@ -40,6 +50,7 @@ def test_model_schedule_matches_original_raw_insert_omitted_column_semantics(cre
     reference=review_db.execute(text(f"INSERT INTO jobs ({columns}) SELECT {columns} FROM jobs WHERE id=:id RETURNING id"),{"id":identifier}).scalar_one()
     rows=review_db.execute(text("SELECT * FROM jobs WHERE id IN (:new,:old) ORDER BY id"),{"new":identifier,"old":reference}).mappings().all()
     actual,original=dict(rows[0]),dict(rows[1])
+    assert actual["created_at"] == actual["updated_at"] == "2026-10-23 12:00:00"
     for row in (actual,original):
         row.pop("id");row.pop("economic_uid")
     assert actual==original

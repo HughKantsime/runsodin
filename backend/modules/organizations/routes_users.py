@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from core.db import get_db
 from core.db_compat import execute_insert_returning_id, sql
 from core.dependencies import log_audit
-from core.rbac import require_scope, require_role, require_superadmin, require_interactive_session, is_interactive_session, CREDENTIAL_ROUTE_DETAIL
+from core.rbac import require_action, require_scope, require_role, require_superadmin, require_interactive_session, is_interactive_session, CREDENTIAL_ROUTE_DETAIL
 from modules.organizations.education_policy import (
     assert_org_hard_delete_allowed,
     assert_user_hard_delete_allowed,
@@ -648,7 +648,7 @@ class RestoreSuperadminRequest(PydanticBaseModel):
     confirmation: str
 
 
-@router.post('/users/{user_id}/restore-superadmin', tags=['Users'], dependencies=[Depends(require_interactive_session())])
+@router.post('/users/{user_id}/restore-superadmin', tags=['Users'], dependencies=[Depends(require_interactive_session()), Depends(require_action('users.restore_superadmin'))])
 async def restore_platform_superadmin(user_id: int, body: RestoreSuperadminRequest,
                                       current_user: dict = Depends(require_superadmin()),
                                       db: Session = Depends(get_db)):

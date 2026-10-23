@@ -14,6 +14,13 @@ def test_exact_sql_objects_and_original_bytes():
     for name in ('_BASE_SELECT','_SUBMISSION_AUDIENCE','archive_audience_sql'):
         assert getattr(owner,name) is getattr(core,name)
     original=Path('tests/fixtures/certification/archive-provider-boundary/education-sql-before.py').read_text()
+    # 037 retains historical tenant identity after a platform restore. Pin that
+    # one deliberate join replacement; all remaining projection/audience bytes
+    # still match the original certification source.
+    original = original.replace(
+        '"JOIN users u ON u.id=s.submitted_by AND u.group_id=s.org_id "',
+        '"JOIN education_memberships em ON em.user_id=s.submitted_by AND em.org_id=s.org_id "\n'
+        '    "JOIN users u ON u.id=em.user_id "')
     namespace={};exec(compile(original,'trusted-original','exec'),namespace)
     assert core.archive_audience_sql()==namespace['archive_audience_sql']()
     current=Path(core.__file__).read_text()

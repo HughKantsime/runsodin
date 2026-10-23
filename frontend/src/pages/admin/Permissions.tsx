@@ -52,6 +52,8 @@ const PAGE_GROUPS = [
 ]
 
 const ACTION_GROUPS = [
+  { label: 'Education', actions: ['education.reorder'] },
+  { label: 'Users', actions: ['users.restore_superadmin'] },
   { label: 'Jobs', actions: ['jobs.submit', 'jobs.create', 'jobs.edit', 'jobs.cancel', 'jobs.delete', 'jobs.start', 'jobs.complete'] },
   { label: 'Approval', actions: ['jobs.approve', 'jobs.reject', 'jobs.resubmit'] },
   { label: 'Printers', actions: ['printers.add', 'printers.edit', 'printers.delete', 'printers.slots', 'printers.reorder', 'printers.plug'] },

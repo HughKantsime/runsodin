@@ -76,7 +76,5 @@ testsuite/
 /backend/core/spool_purchase_schema.py
 # migration 023 helper pin (023_timelapse_retirement_membership SOURCE_PINS); pre026_restore_contract.py SOURCE_PINS; prepriced_restore_contract.py; prepriced027 catalogue.json
 /backend/core/timelapse_retirement_membership_validation.py
-# prepriced_restore_contract.py PROFILE_JSON sources; prepriced027 catalogue.json
-/backend/modules/system/backup_service.py
 # committed-completion-boundary fixture (source-current.json job_events_sha256)
 /backend/modules/notifications/job_events.py

@@ -24,6 +24,8 @@ Paths are the /api paths; the /api/v1 aliases share the same route handlers.
 """
 
 ACTION_ROUTES: dict[str, list[tuple[str, str]]] = {
+    "users.restore_superadmin": [("POST", "/api/users/{user_id}/restore-superadmin")],
+    "education.reorder": [("PATCH", "/api/education/queues/jobs/{printer_id}/order")],
     "settings.edit": [
         ("PUT", "/api/config/require-job-approval"),
         ("PUT", "/api/config/require-mfa"),
@@ -355,6 +357,9 @@ def write_exemption(method: str, path: str):
     if (method, path) in WRITE_EXEMPTIONS:
         return WRITE_EXEMPTIONS[(method, path)]
     for prefix, reason in WRITE_EXEMPT_PREFIXES.items():
-        if path.startswith(prefix):
+        # A workflow can acquire an explicit matrix key without inheriting
+        # the broad historical Education exemption. Explicit exemptions above
+        # remain visible to the shadowing contract.
+        if path.startswith(prefix) and not any((method, path) in routes for routes in ACTION_ROUTES.values()):
             return reason
     return None

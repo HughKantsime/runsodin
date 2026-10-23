@@ -11,6 +11,7 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from core.rbac import require_action
 from core.db import get_db
 from core.db_compat import execute_insert_returning_id
 from core.errors import ErrorCode, OdinError
@@ -668,7 +669,7 @@ async def education_queue(kind: Literal['review', 'jobs', 'archive'], org_id: in
                       archived=archived, cost_center_id=cost_center_id)
 
 
-@router.patch('/queues/jobs/{printer_id}/order')
+@router.patch('/queues/jobs/{printer_id}/order', dependencies=[Depends(require_action('education.reorder'))])
 async def education_queue_order(printer_id: int, body: EducationQueueOrder,
     principal: dict = Depends(require_education_principal(write=True)), db: Session = Depends(get_db)):
     from modules.organizations.education_queues import reorder_queue

@@ -5,7 +5,7 @@ import uuid
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 from core.errors import ErrorCode, OdinError
-from modules.jobs.education_order import education_order, waiting_rows
+from modules.jobs.services import education_order, waiting_rows
 from modules.organizations.education_access import is_superadmin, require_tenant_admin
 from modules.organizations.education_admin_support import write_audit
 

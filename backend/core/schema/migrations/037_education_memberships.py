@@ -93,7 +93,17 @@ def apply(connection):
             changed = re.sub(r'^(CREATE\s+TABLE\s+)(?:IF\s+NOT\s+EXISTS\s+)?["`\[]?' + table + r'["`\]]?', lambda m: m[1] + temp, changed, count=1, flags=re.I)
             connection.exec_driver_sql(changed)
             names = ','.join('"' + c['name'] + '"' for c in inspect(connection).get_columns(table))
-            connection.exec_driver_sql(f'INSERT INTO {temp} ({names}) SELECT {names} FROM {table}')
+            # Closed destinations: schema rebuilding must never become a generic
+            # data-copy writer. Only column identifiers come from reflection.
+            copies = {
+                'education_cost_center_grants': 'INSERT INTO __retained_education_cost_center_grants ({names}) SELECT {names} FROM education_cost_center_grants',
+                'education_upload_operations': 'INSERT INTO __retained_education_upload_operations ({names}) SELECT {names} FROM education_upload_operations',
+                'education_submissions': 'INSERT INTO __retained_education_submissions ({names}) SELECT {names} FROM education_submissions',
+                'education_notification_outbox': 'INSERT INTO __retained_education_notification_outbox ({names}) SELECT {names} FROM education_notification_outbox',
+                'education_rate_counters': 'INSERT INTO __retained_education_rate_counters ({names}) SELECT {names} FROM education_rate_counters',
+                'education_storage_accounts': 'INSERT INTO __retained_education_storage_accounts ({names}) SELECT {names} FROM education_storage_accounts',
+            }
+            connection.exec_driver_sql(copies[table].format(names=names))
             connection.exec_driver_sql(f'DROP TABLE {table}')
             connection.exec_driver_sql(f'ALTER TABLE {temp} RENAME TO {table}')
             if sequence is not None:
