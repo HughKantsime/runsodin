@@ -237,6 +237,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
         plug_token: formData.plug_token || null,
         api_host: formData.api_host,
         serial: formData.serial,
+        ...(formData.api_type !== 'bambu' && formData.api_type !== 'anycubic_lan' && formData.api_key_field ? { api_key: formData.api_key_field } : {}),
         access_code: formData.access_code
       })
 
@@ -291,6 +292,9 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
       submitData.api_key = `${formData.serial}|${formData.access_code}`
     }
 
+    if (formData.api_type !== 'bambu' && formData.api_type !== 'anycubic_lan' && formData.api_key_field) {
+      submitData.api_key = formData.api_key_field
+    }
     onSubmit(submitData, printer?.id)
   }
 
@@ -453,8 +457,8 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
             {(formData.api_type === 'moonraker' || formData.api_type === 'prusalink') && (
             <div>
               <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">API Key {formData.api_type === 'prusalink' ? '' : '(optional)'}</label>
-              <input type="text" value={formData.api_key_field || ''} onChange={(e) => setFormData(prev => ({ ...prev, api_key_field: e.target.value }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 font-mono text-sm" placeholder={formData.api_type === 'prusalink' ? 'PrusaLink API key from Settings' : 'Moonraker API key (if required)'} />
-              {formData.api_type === 'prusalink' && <p className="text-xs text-[var(--brand-text-muted)] mt-1">Find in PrusaLink &rarr; Settings &rarr; API Key</p>}
+              <input type="text" value={formData.api_key_field || ''} onChange={(e) => setFormData(prev => ({ ...prev, api_key_field: e.target.value }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 font-mono text-sm" placeholder={formData.api_type === 'prusalink' ? 'PrusaLink API key or username|password' : 'Moonraker API key (if required)'} />
+              {formData.api_type === 'prusalink' && <p className="text-xs text-[var(--brand-text-muted)] mt-1">Enter the API key from PrusaLink Settings, or username|password for Digest authentication. Leave blank to keep the saved credential.</p>}
             </div>
             )}
 

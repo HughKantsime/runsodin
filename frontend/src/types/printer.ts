@@ -310,6 +310,8 @@ export interface AmsCurrentData {
 // ---- Connection Test ----
 
 export interface ConnectionTestRequest {
+  serial?: string;
+  access_code?: string;
   api_type: string;
   api_host: string;
   api_key?: string;

@@ -85,6 +85,7 @@ class FilamentType(str, Enum):
         if not bambu_code:
             return cls.OTHER
         mapping = {
+            "PLA+": cls.PLA,  # Keep inventory labels without extending the DB enum.
             "PLA-S": cls.PLA_SUPPORT, "PLA-CF": cls.PLA_CF,
             "PETG-CF": cls.PETG_CF, "PA-CF": cls.NYLON_CF,
             "PA6-CF": cls.NYLON_CF, "PA-GF": cls.NYLON_GF,

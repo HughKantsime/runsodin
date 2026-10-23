@@ -89,7 +89,7 @@ export default function Printers() {
   const org = useOrg()
   const plugContext = JSON.stringify([getCurrentUser(), org.orgId])
   contextRef.current = plugContext
-  const { data: printersData, isLoading } = useQuery({ queryKey: ['printers', org.orgId], queryFn: () => printers.list(false, '', org.orgId) })
+  const { data: printersData, isLoading, isError, error, refetch } = useQuery({ queryKey: ['printers', org.orgId], queryFn: () => printers.list(false, '', org.orgId) })
   const lic = useLicense()
   const atLimit = lic.atPrinterLimit(printersData?.length || 0)
   const { data: filamentsData } = useQuery({ queryKey: ['filaments-combined'], queryFn: () => filaments.combined() })
@@ -321,7 +321,12 @@ export default function Printers() {
         </div>
       )}
 
-      {isLoading ? (
+      {isError ? (
+        <div role="alert" className="text-center py-12">
+          <p>Failed to load printers: {error?.message || 'Unknown error'}</p>
+          <Button onClick={() => refetch()}>Retry</Button>
+        </div>
+      ) : isLoading ? (
         <div className="text-center py-12 text-sm" style={{ color: 'var(--brand-text-muted)' }}>Loading printers...</div>
       ) : printersData?.length === 0 ? (
         <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)]">

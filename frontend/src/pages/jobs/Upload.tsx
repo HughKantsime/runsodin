@@ -21,10 +21,10 @@ function DropZone({ onFileSelect, isUploading, uploadProgress }) {
     const files = e.dataTransfer?.files
     if (files && files.length > 0) {
       const file = files[0]
-      if (file.name.endsWith('.3mf')) {
+      if (/\.(3mf|gcode|bgcode)$/i.test(file.name)) {
         onFileSelect(file)
       } else {
-        toast.error('Only .3mf files are supported')
+        toast.error('Supported files: .3mf, .gcode, .bgcode')
       }
     }
   }, [onFileSelect])
@@ -45,7 +45,7 @@ function DropZone({ onFileSelect, isUploading, uploadProgress }) {
     >
       <input
         type="file"
-        accept=".3mf"
+        accept=".3mf,.gcode,.bgcode"
         onChange={handleFileInput}
         className="sr-only focus:not-sr-only focus:absolute focus:z-10 focus:p-2 focus:bg-[var(--brand-card-bg)]"
         id="file-upload"
@@ -71,7 +71,7 @@ function DropZone({ onFileSelect, isUploading, uploadProgress }) {
               </>
             ) : (
               <>
-                <p className="text-base md:text-lg font-medium">Drop .3mf file here</p>
+                <p className="text-base md:text-lg font-medium">Drop .3mf or G-code file here</p>
                 <p className="text-[var(--brand-text-muted)] text-sm mt-1">or click to browse</p>
               </>
             )}

@@ -681,8 +681,8 @@ class MoonrakerMonitor:
         """Attempt auto-dispatch of next scheduled job after print completes."""
         try:
             time.sleep(5)
-            import printer_dispatch
-            printer_dispatch.attempt_dispatch(self.printer_id)
+            from modules.printers import dispatch
+            dispatch.attempt_dispatch(self.printer_id)
         except Exception as e:
             log.warning(f"[{self.name}] Dispatch attempt error: {e}")
 
@@ -726,25 +726,35 @@ class MoonrakerMonitor:
     
     def _try_auto_link(self, filename: str, total_layers: int):
         """
-        Try to link this MQTT-detected print to a scheduled job.
+        Try to link an unreserved Moonraker print to current generic work.
         Same two-strategy approach as Bambu monitor:
           1. Name match
           2. Layer count fingerprint
         """
         try:
             with engine.begin() as conn:
-                # Get candidates: scheduled/pending jobs for this printer
-                candidates = conn.execute(text("""
+                from core.interfaces.education_policy import is_education_reserved_filename
+                if is_education_reserved_filename(filename):
+                    return
+                from core.dispatch_observations import generic_observation_reserved
+                if generic_observation_reserved(conn, printer_id=self.printer_id, observed_filename=filename):
+                    return
+                from core.dispatch_payload_selection import SELECTED_PRINT_FILE_JOIN_SQL
+                candidates = conn.execute(text(f"""
                     SELECT j.id as job_id, j.status, pf.filename, pf.original_filename,
                            pf.layer_count, m.name as model_name
                     FROM jobs j
-                    JOIN print_files pf ON j.print_file_id = pf.id
-                    JOIN models m ON pf.model_id = m.id
+                    JOIN models m ON j.model_id = m.id
+                    LEFT JOIN education_submissions s ON s.job_id = j.id
+                    JOIN print_files pf ON {SELECTED_PRINT_FILE_JOIN_SQL}
                     WHERE j.printer_id = :pid
-                      AND j.status IN ('scheduled', 'pending')
+                      AND j.status IN ('printing', 'scheduled', 'pending')
                       AND NOT EXISTS (
                           SELECT 1 FROM education_submissions s WHERE s.job_id=j.id
                       )
+                      AND NOT EXISTS (SELECT 1 FROM print_jobs p WHERE p.scheduled_job_id=j.id
+                                      AND p.status IN ('running','printing','paused'))
+                    ORDER BY CASE WHEN j.status='printing' THEN 0 ELSE 1 END, j.id
                 """), {"pid": self.printer_id}).mappings().fetchall()
 
                 if not candidates:
@@ -775,6 +785,10 @@ class MoonrakerMonitor:
                         if c["layer_count"] == total_layers and c["job_id"] not in layer_matches:
                             layer_matches[c["job_id"]] = c
 
+                    printing_matches = {key: value for key, value in layer_matches.items()
+                                        if value['status'] == 'printing'}
+                    if printing_matches:
+                        layer_matches = printing_matches
                     if len(layer_matches) == 1:
                         job_id = list(layer_matches.keys())[0]
                         if self._link_job(conn, job_id):
@@ -790,7 +804,7 @@ class MoonrakerMonitor:
             log.warning(f"[{self.name}] Auto-link failed: {e}")
     
     def _link_job(self, conn, scheduled_job_id: int):
-        """Link only current generic queued work, inside the caller transaction."""
+        """Reconcile current generic work without granting dispatch authority."""
         if not self._current_job_db_id:
             return False
         from core.order_production import (prepare_job_write, reconcile_job_write, prepare_print_job_write,
@@ -804,9 +818,40 @@ class MoonrakerMonitor:
         if (not current or current[0] != self.printer_id or current[2] not in ('running', 'printing')
                 or current[1] not in (None, scheduled_job_id)):
             return False
+        from core.dispatch_observations import generic_observation_reserved
+        observed_name = conn.execute(text('SELECT filename FROM print_jobs WHERE id=:id'),
+                                     {'id': self._current_job_db_id}).scalar_one()
+        from core.interfaces.education_policy import is_education_reserved_filename
+        if is_education_reserved_filename(observed_name):
+            return False
+        if generic_observation_reserved(conn, printer_id=self.printer_id, observed_filename=observed_name):
+            return False
+        from core.scheduler_payload_authority import capture
+        from core.dispatch_identity import ownership_refusal
+        snapshot = capture(conn, scheduled_job_id)
+        printer = conn.execute(text('SELECT org_id,shared,is_active FROM printers WHERE id=:id'),
+                               {'id': self.printer_id}).mappings().first()
+        job = conn.execute(text('SELECT hold FROM jobs WHERE id=:id'), {'id': scheduled_job_id}).first()
+        if (snapshot is None or snapshot['selected_row_id'] is None
+                or printer is None or not printer['is_active'] or not job or job[0]
+                or ownership_refusal({'charged_to_org_id': snapshot['charged_to_org_id'],
+                                      'model_org_id': snapshot['model_org_id'],
+                                      'print_file_org_id': snapshot['selected_org_id']},
+                                     {'org_id': printer['org_id'], 'shared': bool(printer['shared'])})):
+            return False
+        from core.registry import registry
+        policy = registry.get_provider('EducationPolicyProvider')
+        if policy is None:
+            return False
+        policy.assert_generic_job_mutation_allowed(conn, scheduled_job_id)
+        policy.assert_generic_model_reference_allowed(conn, snapshot['model_id'])
+        if conn.execute(text("SELECT 1 FROM print_jobs WHERE scheduled_job_id=:job AND id<>:id "
+                             "AND status IN ('running','printing','paused')"),
+                        {'job': scheduled_job_id, 'id': self._current_job_db_id}).first():
+            return False
         from modules.jobs.services import transition_job
         changed = transition_job(conn, scheduled_job_id, 'printing', 'monitor',
-            from_states=('scheduled', 'pending'),
+            from_states=('printing', 'scheduled', 'pending'),
             where="printer_id=:pid"
                   " AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id)"
                   " AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.print_file_id=jobs.print_file_id)",

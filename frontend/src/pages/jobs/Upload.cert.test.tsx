@@ -77,3 +77,18 @@ test('F05-5.1-04 unchecking every object is refused visibly instead of sending a
   expect(api.update).not.toHaveBeenCalledWith(fixture.upload.model_id, { quantity_per_bed: 0 })
   expect(api.update).not.toHaveBeenCalled()
 })
+
+
+test.each(['gcode', 'bgcode'])('accepts .%s from picker and drop', async extension => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  const view = render(<QueryClientProvider client={client}><MemoryRouter><Upload /></MemoryRouter></QueryClientProvider>)
+  const input = view.container.querySelector('input[type=file]')!
+  expect(input.getAttribute('accept')).toContain('.' + extension)
+  fireEvent.change(input, { target: { files: [new File(['G28'], 'test.' + extension)] } })
+  await screen.findByText('Objects on Plate')
+  view.unmount()
+  const dropped = render(<QueryClientProvider client={client}><MemoryRouter><Upload /></MemoryRouter></QueryClientProvider>)
+  const dropInput = dropped.container.querySelector('input[type=file]')!
+  fireEvent.drop(dropInput.parentElement!, { dataTransfer: { files: [new File(['G28'], 'test.' + extension.toUpperCase())] } })
+  expect(await screen.findByText('Objects on Plate')).toBeInTheDocument()
+})

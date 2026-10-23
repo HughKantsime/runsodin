@@ -42,6 +42,7 @@ class TestConnectionRequest(PydanticBaseModel):
     api_host: str
     serial: Optional[str] = None
     access_code: Optional[str] = None
+    api_key: Optional[str] = None
 
 
 # ====================================================================
@@ -73,6 +74,18 @@ def pinned_device_get(client, url: str, **kwargs):
     from core.webhook_utils import pinned_device_destination
     with pinned_device_destination(url):
         return client.get(url, trust_env=False, follow_redirects=False, **kwargs)
+
+
+def prusalink_test_get(host: str, credential: Optional[str]):
+    """Use the monitor's API-key / username|password convention, pinned to policy."""
+    import httpx
+    if credential and "|" in credential:
+        username, password = credential.split("|", 1)
+        options = {"auth": httpx.DigestAuth(username, password)}
+    else:
+        options = {"headers": {"X-Api-Key": credential}} if credential else {
+            "auth": httpx.DigestAuth("maker", "")}
+    return pinned_device_get(httpx, f"http://{host}/api/version", timeout=5, **options)
 
 
 # '&' is a query-string separator (cameras take ?user=&password=); the URL is only ever
