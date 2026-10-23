@@ -10,6 +10,8 @@ import ConfirmModal from '../../components/shared/ConfirmModal'
 import UpgradeModal from '../../components/shared/UpgradeModal'
 import { DialogSurface } from '../../components/ui'
 
+import RestoreSuperadmin from './RestoreSuperadmin'
+
 const API_BASE = '/api'
 
 const fetchUsers = async () => {
@@ -275,6 +277,7 @@ function ImportUsersModal({ onClose, onImported }: { onClose: () => void; onImpo
 
 export default function Admin() {
   const queryClient = useQueryClient()
+  const { data: actor } = useQuery({ queryKey: ['admin-restore-actor'], queryFn: () => authApi.me?.() ?? null })
   const [showModal, setShowModal] = useState(false)
   const [showImportModal, setShowImportModal] = useState(false)
   const [editingUser, setEditingUser] = useState(null)
@@ -466,6 +469,7 @@ export default function Admin() {
                       </td>
                       <td className="py-3 px-3 md:px-4">
                         <div className="flex justify-end gap-1">
+                          {actor?.role === 'admin' && actor.group_id == null && user.role === 'admin' && user.group_id != null && <RestoreSuperadmin user={user} />}
                           <button onClick={() => handleEdit(user)} className="p-1.5 md:p-2 hover:bg-[var(--brand-input-bg)] rounded-md transition-colors" title="Edit"><Edit2 size={14} /></button>
                           {user.email && <button onClick={async () => {
                             try { await usersApi.resetPasswordEmail(user.id); toast.success('Password reset link sent. Their password has not changed.') }

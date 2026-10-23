@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from modules.organizations.education_membership import retain_membership
+
 from datetime import datetime, timezone
 
 from fastapi.encoders import jsonable_encoder
@@ -408,6 +410,7 @@ def _discard_pending_claim(
 
 def approve_submission(db: Session, *, submission_id: int, body, principal: dict, prepared_ams=None) -> dict:
     row = _reviewable_submission(db, submission_id=submission_id, principal=principal)
+    retain_membership(db, principal["id"], int(row.org_id))
     action = "submission.approve"
     command_id = str(body.command_id)
     digest = _decision_hash(submission_id, body)

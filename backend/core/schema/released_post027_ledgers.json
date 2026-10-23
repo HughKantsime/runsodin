@@ -224,6 +224,14 @@
    "python:034-alert-outbox",
    "python:035-production-acceptance",
    "python:036-ctec-pilot"
+  ],
+  "2.0.10": [
+   "python:032-quiet-hours-deferred-deliveries",
+   "python:033-timelapse-capture-tenancy",
+   "python:034-alert-outbox",
+   "python:035-production-acceptance",
+   "python:036-ctec-pilot",
+   "python:037-education-memberships"
   ]
  }
 }

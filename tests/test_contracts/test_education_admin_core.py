@@ -833,7 +833,7 @@ def test_readiness_storage_and_admin_scope(education_db, monkeypatch, tmp_path):
     assert _education_client(education_db).get('/education/readiness?org_id=2').status_code in (403,404)
 
 
-@pytest.mark.parametrize('change', ['UPDATE users SET group_id=2 WHERE id=2', 'UPDATE users SET group_id=2 WHERE id=3', 'UPDATE printers SET org_id=2 WHERE id=1', "UPDATE education_cost_center_grants SET org_id=2 WHERE role='manager'", 'UPDATE education_cost_center_printers SET org_id=2'])
+@pytest.mark.parametrize('change', ['UPDATE printers SET org_id=2 WHERE id=1', "UPDATE education_cost_center_grants SET org_id=2 WHERE role='manager'", 'UPDATE education_cost_center_printers SET org_id=2'])
 def test_cross_tenant_readiness_references_are_schema_rejected(education_db, change):
     from sqlalchemy.exc import IntegrityError
     _seed_readiness_class(education_db)

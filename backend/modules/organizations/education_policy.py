@@ -179,7 +179,7 @@ def assert_user_tenant_change_allowed(db: Session, user_id: int) -> None:
 
 
 def assert_user_hard_delete_allowed(db: Session, user_id: int) -> None:
-    if _exists(
+    if _exists(db, "SELECT 1 FROM education_memberships WHERE user_id=:id LIMIT 1", {"id": user_id}) or _exists(
         db,
         "SELECT 1 FROM education_cost_center_grants WHERE user_id=:id OR granted_by=:id OR revoked_by=:id LIMIT 1",
         {"id": user_id},
@@ -229,6 +229,7 @@ def assert_user_hard_delete_allowed(db: Session, user_id: int) -> None:
 
 def assert_org_hard_delete_allowed(db: Session, org_id: int) -> None:
     tables = (
+        "education_memberships",
         "education_cost_centers",
         "education_cost_center_grants",
         "education_cost_center_printers",

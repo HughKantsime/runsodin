@@ -35,9 +35,9 @@ def test_source_pin_refusal_leaves_no026_footprint(tmp_path,monkeypatch):
     finally:engine.dispose()
 
 
-def test_exact_current_canonical21_31_shared_truncate_map():
+def test_exact_current_canonical28_38_shared_truncate_map():
     functions=canonical_functions();triggers=canonical_triggers()
-    assert (len(functions),len(triggers))==(21,31)
+    assert (len(functions),len(triggers))==(28,38)
     assert set(M.schema.pg_functions())<=set(functions)
     assert set(M.schema.pg_triggers())<=set(triggers)
     for (table,name),definition in M.schema.pg_triggers().items():

@@ -7,6 +7,8 @@ import json
 import os
 import shutil
 import uuid
+from modules.organizations.education_membership import retain_membership
+
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import BinaryIO
@@ -189,6 +191,7 @@ def begin_upload_attempt(
     org_id = principal.get("group_id")
     if org_id is None:
         raise OdinError(ErrorCode.permission_denied, "Tenant membership is required", status=403)
+    retain_membership(db, principal["id"], org_id)
     existing = _operation(db, operation_id)
     if existing:
         return _resolve_existing_attempt(

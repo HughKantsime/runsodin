@@ -150,7 +150,7 @@ def build_education_usage_report(days:int,db:Session,current_user:dict)->dict:
     if not platform and not valid:rows=[]
     else:
         proof='('+proved_job_owner_sql()+') AND ('+proved_education_job_sql()+')'
-        scope='' if platform else ' AND u.group_id=:org AND j.charged_to_org_id=:org AND ('+proof+')'
+        scope='' if platform else ' AND (u.group_id=:org OR EXISTS (SELECT 1 FROM education_memberships em WHERE em.user_id=u.id AND em.org_id=j.charged_to_org_id)) AND j.charged_to_org_id=:org AND ('+proof+')'
         # A scoped row is admitted only by the proof, so it is proved: evaluating the
         # correlated proof again in the select list would only repeat the same answer.
         proved='CASE WHEN '+proof+' THEN 1 ELSE 0 END' if platform else '1'

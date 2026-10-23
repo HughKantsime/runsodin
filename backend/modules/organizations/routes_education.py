@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from modules.organizations.education_membership import retain_membership
+
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
@@ -473,6 +475,7 @@ async def replace_cost_center_grants(
         {"actor": principal["id"], "center_id": center_id},
     )
     for user_id, role in requested:
+        retain_membership(db, user_id, org_id)
         db.execute(
             text(
                 "INSERT INTO education_cost_center_grants "

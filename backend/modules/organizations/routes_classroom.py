@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+from modules.organizations.education_membership import retain_membership
+
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -428,6 +430,7 @@ async def import_classroom_course(
         now = datetime.now(timezone.utc).isoformat()
         for email, member in sorted(desired.items()):
             user_id = users[email]
+            retain_membership(db, user_id, org_id)
             for role in sorted(member["roles"]):
                 db.execute(
                     text("INSERT INTO education_cost_center_grants (org_id, cost_center_id, user_id, role, state, granted_by) VALUES (:org_id, :center_id, :user_id, :role, 'active', :actor) ON CONFLICT (cost_center_id, user_id, role) DO UPDATE SET state='active', granted_by=:actor, granted_at=CURRENT_TIMESTAMP, revoked_by=NULL, revoked_at=NULL"),

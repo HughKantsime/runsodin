@@ -15,6 +15,10 @@ INVENTORY = ROOT / "ops" / "database_parity" / "sqlite_compatibility_inventory.j
 
 
 CLASSIFICATIONS: dict[str, tuple[str, str]] = {
+    "backend/core/schema/migrations/037_education_memberships.py": (
+        "sqlite-provider-only",
+        "SQLite rebuilds retained Education ownership on a dedicated connection and verifies enforced FK actions with PRAGMA; PostgreSQL swaps and validates native constraints atomically.",
+    ),
     "backend/core/schema/education_archive_validation.py": (
         "sqlite-provider-only",
         "SQLite PRAGMA verifies the exact enforced additive archive actor FK; PostgreSQL uses its reflected constraints.",

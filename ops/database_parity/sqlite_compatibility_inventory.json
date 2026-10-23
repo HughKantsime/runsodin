@@ -866,7 +866,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 36,
+      "line": 40,
       "path": "backend/core/schema/education_archive_validation.py",
       "pattern": "PRAGMA",
       "reason": "SQLite PRAGMA verifies the exact enforced additive archive actor FK; PostgreSQL uses its reflected constraints.",
@@ -1026,7 +1026,15 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 247,
+      "line": 42,
+      "path": "backend/core/schema/migrations/037_education_memberships.py",
+      "pattern": "PRAGMA",
+      "reason": "SQLite rebuilds retained Education ownership on a dedicated connection and verifies enforced FK actions with PRAGMA; PostgreSQL swaps and validates native constraints atomically.",
+      "source": "rows = connection.exec_driver_sql(f'PRAGMA foreign_key_list({table})').all()"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 248,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1034,7 +1042,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 487,
+      "line": 488,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1042,7 +1050,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 513,
+      "line": 514,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1050,7 +1058,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 515,
+      "line": 516,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1058,7 +1066,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 525,
+      "line": 526,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1066,7 +1074,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 540,
+      "line": 541,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1074,7 +1082,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 542,
+      "line": 543,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1698,7 +1706,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 152,
+      "line": 153,
       "path": "backend/modules/organizations/education_policy_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Static source-discovery regex contains SQL vocabulary and regex question marks; it executes no database statement",
@@ -2210,7 +2218,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 195,
+      "line": 197,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "qmark-parameter",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2218,7 +2226,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 371,
+      "line": 373,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2226,7 +2234,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 374,
+      "line": 376,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2234,7 +2242,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 388,
+      "line": 390,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2242,7 +2250,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 388,
+      "line": 390,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "qmark-parameter",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2250,7 +2258,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 394,
+      "line": 396,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2258,7 +2266,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 394,
+      "line": 396,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "qmark-parameter",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2266,7 +2274,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 535,
+      "line": 537,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "qmark-parameter",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2274,7 +2282,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 673,
+      "line": 675,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",

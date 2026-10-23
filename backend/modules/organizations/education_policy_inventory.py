@@ -44,6 +44,7 @@ def _entry(
 
 
 POLICY_INVENTORY = (
+    _entry("organizations.education_superadmin_restore", "restore_superadmin", "user/membership/grants/credentials", "restore platform admin", "verified interactive platform superadmin; typed target confirmation; no live Education work", (), "test_education_superadmin_restore.py", "guarded"),
     _entry("organizations.education_slice_info", "slice_info", "submission/file/printer/slots", "read verified metadata", "tenant reviewer and entitled printer", (), "test_ctec_pilot.py", "guarded"),
     _entry("models_library.education_retention", "hide_model/assert_model_deletable", "model/submission", "hide/delete guard", "tenant-authorized model editor", (), "test_ctec_pilot.py", "guarded"),
     _entry("organizations.education_submission_archive", "archive_submission", "submission/job/claim", "soft archive", "tenant admin or active manager; terminal quiescent work", (), "test_ctec_pilot.py", "guarded"),

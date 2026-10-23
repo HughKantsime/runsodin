@@ -107,6 +107,12 @@ export const apiTokens = {
 
 // Users (admin only)
 export const users = {
+  restoreSuperadmin: async (id: number, confirmation: string): Promise<{ status: string }> => {
+    const response = await fetch(`${API_BASE}/users/${id}/restore-superadmin`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirmation }) })
+    const result = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(result.error?.detail || result.detail || 'Restore could not be confirmed. Refresh the user list before retrying.')
+    return result
+  },
   list: (): Promise<User[]> => fetchAPI('/users'),
   create: (data: UserCreate): Promise<UserCreateResult> => fetchAPI('/users', { method: 'POST', body: JSON.stringify(data) }),
   update: (id: number, data: UserUpdate): Promise<User> => fetchAPI(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
