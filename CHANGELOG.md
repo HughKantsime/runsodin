@@ -2,6 +2,21 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.12] - 2026-10-23
+
+<!-- summary: P1S lights, vision dismiss-and-resume, Tasmota power fencing, and slot-material and setup fixes -->
+
+### Fixed
+
+- No printer sync (Moonraker, Bambu AMS, Anycubic) or slot route can store a material label such as PLA+ that breaks the printer list; every slot write goes through one material mapping.
+- P1S chamber-light controls work again. Commands are sent over the monitor's existing printer connection instead of opening a second one the printer refuses.
+- Vigil AI "Dismiss and resume" works again. It resumes only a paused print that matches the detection's job and refuses stale or ambiguous cases.
+- The first-run setup wizard's printer connection test works, and it accepts a PrusaLink API key.
+
+### Changed
+
+- Direct Tasmota smart-plug commands are fenced across processes. A command whose outcome is uncertain blocks dispatch to that printer until it is reconciled. Home Assistant and MQTT plugs behave as before.
+
 ## [2.0.11] - 2026-10-23
 
 <!-- summary: Community fixes (PLA+, PrusaLink, Moonraker, G-code upload) and Sublab operations -->
