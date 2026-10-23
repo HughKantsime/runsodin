@@ -116,3 +116,39 @@ test('pending completion prevents duplicate clicks until confirmed',async()=>{
  expect(vi.mocked(fetch).mock.calls.filter(([url])=>url==='/api/setup/complete')).toHaveLength(1)
  resolve({ok:true} as Response);await screen.findByRole('heading',{name:'Synthetic Dashboard'})
 })
+
+test('wizard sends the backend PrusaLink schema for both connection test and creation', async () => {
+ const { default: payload } = await import('../../../../tests/fixtures/setup_prusalink_payload.json')
+ mount(); await admin()
+ fireEvent.click(screen.getByText('Community (free)'))
+ fireEvent.click(screen.getByRole('button',{name:'Start with Community'}))
+ fireEvent.click(screen.getByRole('button',{name:'Prusa',exact:true}))
+ fireEvent.change(screen.getByRole('combobox'),{target:{value:'MK4'}})
+ fireEvent.change(screen.getByPlaceholderText('e.g. X1C - Left Shelf'),{target:{value:payload.name}})
+ fireEvent.change(screen.getByPlaceholderText('192.168.1.100'),{target:{value:payload.api_host}})
+ const key = screen.getByLabelText('PrusaLink API Key')
+ expect(key).toHaveAttribute('type','password')
+ fireEvent.change(key,{target:{value:payload.api_key}})
+ fireEvent.click(screen.getByRole('button',{name:'Test Connection'}))
+ await waitFor(()=>expect(fetch).toHaveBeenCalledWith('/api/setup/test-printer',expect.objectContaining({body:JSON.stringify(payload)})))
+ fireEvent.click(screen.getByRole('button',{name:'Add Printer',exact:true}))
+ await waitFor(()=>expect(fetch).toHaveBeenCalledWith('/api/setup/printer',expect.objectContaining({body:JSON.stringify(payload)})))
+})
+
+test('wizard packs Bambu credentials for creation and keeps separate probe credentials', async () => {
+ mount(); await admin()
+ fireEvent.click(screen.getByText('Community (free)'))
+ fireEvent.click(screen.getByRole('button',{name:'Start with Community'}))
+ fireEvent.change(screen.getByPlaceholderText('e.g. X1C - Left Shelf'),{target:{value:'Fixture Bambu'}})
+ fireEvent.change(screen.getByPlaceholderText('192.168.1.100'),{target:{value:'192.0.2.45'}})
+ fireEvent.change(screen.getByPlaceholderText('From printer settings or Bambu app'),{target:{value:'FIXTURE-SERIAL'}})
+ fireEvent.change(screen.getByPlaceholderText('8-digit code from printer'),{target:{value:'fixture-code'}})
+ fireEvent.click(screen.getByRole('button',{name:'Test Connection'}))
+ await waitFor(()=>expect(fetch).toHaveBeenCalledWith('/api/setup/test-printer',expect.objectContaining({body:expect.any(String)})))
+ fireEvent.click(screen.getByRole('button',{name:'Add Printer',exact:true}))
+ await waitFor(()=>expect(fetch).toHaveBeenCalledWith('/api/setup/printer',expect.objectContaining({body:expect.any(String)})))
+ for(const endpoint of ['/api/setup/test-printer','/api/setup/printer']) {
+  const call=vi.mocked(fetch).mock.calls.find(([url])=>url===endpoint)!
+  expect(JSON.parse(String(call[1]?.body))).toMatchObject({api_type:'bambu',api_host:'192.0.2.45',api_key:'FIXTURE-SERIAL|fixture-code',serial:'FIXTURE-SERIAL',access_code:'fixture-code'})
+ }
+})

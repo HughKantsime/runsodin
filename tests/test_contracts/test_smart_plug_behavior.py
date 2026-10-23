@@ -9,9 +9,9 @@ def plug_client(control_client,review_db,monkeypatch):
     client,issue,calls=control_client
     client.app.include_router(routes_smart_plug.router)
     for name,value in [('power_on',True),('power_off',False),('power_toggle',True),('get_energy',{'energy_kwh':1.25}),('get_power_state',True)]:
-        monkeypatch.setattr(routes_smart_plug.smart_plug,name,lambda identifier,n=name,v=value:(calls.append((n,identifier)) or v))
+        monkeypatch.setattr(routes_smart_plug.smart_plug,name,lambda identifier,n=name,v=value,**kwargs:(calls.append((n,identifier)) or v))
     review_db.execute(text("UPDATE printers SET plug_type='mqtt',plug_host='synthetic/topic',plug_cooldown_minutes=0 WHERE id=299"));review_db.commit()
-    return client,issue,calls
+    return client,lambda scopes:{**issue(scopes),'X-Power-Request-Nonce':'a'*32},calls
 
 @pytest.mark.parametrize('suffix',['','/energy','/state'])
 def test_private_foreign_plug_reads_do_not_disclose_or_query_device(plug_client,review_db,suffix):
@@ -98,9 +98,10 @@ def test_owned_configuration_update_read_and_remove(plug_client,review_db):
 def test_no_device_result_is_failure_not_success(plug_client,monkeypatch,action):
     from modules.printers import routes_smart_plug
     client,issue,calls=plug_client
-    monkeypatch.setattr(routes_smart_plug.smart_plug,'power_'+action,lambda identifier:(calls.append(('unavailable',identifier)) or None))
+    monkeypatch.setattr(routes_smart_plug.smart_plug,'power_'+action,lambda identifier,**kwargs:(calls.append(('unavailable',identifier)) or None))
     response=client.post('/printers/299/plug/'+action,headers=issue(['write:printers']))
     assert response.status_code==400
+    assert response.json()['detail']=='No smart plug configured or plug unreachable'
     assert calls==[('unavailable',299)]
 
 
@@ -167,3 +168,20 @@ def test_invalid_energy_object_and_oversized_integer_do_not_write(plug_client,re
     assert response.status_code==422
     review_db.expire_all()
     assert review_db.execute(text("SELECT value FROM system_config WHERE key='energy_cost_per_kwh'")).scalar_one_or_none()==before
+
+
+@pytest.mark.parametrize('action,command,state', [('on','turn_on',True),('off','turn_off',False),('toggle','toggle',True)])
+def test_homeassistant_manual_commands_accept_nonce_without_fence(control_client, review_db, monkeypatch, action, command, state):
+    from modules.printers import smart_plug, routes_smart_plug
+    client, issue, calls = control_client
+    client.app.include_router(routes_smart_plug.router)
+    monkeypatch.setattr(smart_plug, 'engine', review_db.get_bind())
+    review_db.execute(text("UPDATE printers SET plug_type='homeassistant',plug_entity_id='switch.fixture' WHERE id=299"))
+    review_db.commit()
+    monkeypatch.setattr(smart_plug, 'ha_switch', lambda *args: calls.append(args) or state)
+    config = {'type':'homeassistant','host':'http://192.0.2.1','entity_id':'switch.fixture','auth_token':None}
+    monkeypatch.setattr(smart_plug, 'get_plug_config', lambda pid: config)
+    response = client.post('/printers/299/plug/'+action, headers={**issue(['write:printers']), 'X-Power-Request-Nonce':'a'*32})
+    assert response.status_code == 200 and response.json() == {'power_state':state}
+    assert calls == [(config['host'],'switch.fixture',None,command)]
+    assert review_db.execute(text('SELECT count(*) FROM power_target_operations')).scalar_one() == 0

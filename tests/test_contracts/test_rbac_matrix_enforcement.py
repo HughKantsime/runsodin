@@ -12,7 +12,7 @@ role holding the key gets 2xx and a role without it gets 403; after narrowing
 the key the previously allowed role gets 403; after widening it the
 previously refused role gets 2xx. The platform superadmin is exempt, so keys
 whose default is admin-only are exercised with an organization admin. The
-only boundary replaced is the smart-plug driver (no physical plug).
+only boundary replaced is the smart-plug command worker (no physical plug).
 """
 import json
 
@@ -31,8 +31,11 @@ USERS = {"orgadmin": seed_user("mx-orgadmin", "admin", 1), "operator": seed_user
 C = {name: login("mx-" + name) for name in USERS}
 SUPER = login("mx-super")
 USERS["super"], C["super"] = SUPER_ID, SUPER
-import modules.printers.routes_smart_plug as RSP
-RSP.smart_plug.power_on = RSP.smart_plug.power_off = RSP.smart_plug.toggle = lambda printer_id: True
+from modules.printers import plug_power_acquisition as PW
+# Replace only physical I/O: routes, selected JWT authority and durable fence stay real.
+def plug_command(config, deadline, action):
+    return PW._OwnedHttpResult(PW.PowerAttempt('accepted', action == 'ON', True, True, True, False), PW._RECEIPT_SEAL)
+PW.bounded_http_power_action = plug_command
 sql("UPDATE system_config SET value=value WHERE key='none'")
 SEQ = itertools.count(100)
 
@@ -42,6 +45,13 @@ def printer(**kw):
         "VALUES (:i,:n,'Bambu Lab P1S','P1S',1,'bambu',1,1,'[]',0,0)",
         i=i, n=f"MX printer {i}")
     sql("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES (:i,1,'PLA')", i=i)
+    return i
+
+def plug_printer():
+    i = printer()
+    # A real fenced command needs a configured printer and a plug destination.
+    sql("UPDATE printers SET api_type='moonraker',api_host=:host,plug_type='tasmota',plug_host=:host WHERE id=:i",
+        host=f"192.0.2.80:{10000+i}", i=i)
     return i
 
 def job(status="pending", printer_id=None, submitted_by=None, user="operator"):
@@ -137,7 +147,7 @@ CASES = {
     "printers.delete": lambda u: ("delete", f"/api/printers/{printer()}", {}),
     "printers.slots": lambda u: ("patch", f"/api/printers/{printer()}/slots/1", {"json": {"color": "blue"}}),
     "printers.reorder": lambda u: ("post", "/api/printers/reorder", {"json": {"printer_ids": [printer(), printer()]}}),
-    "printers.plug": lambda u: ("post", f"/api/printers/{printer()}/plug/on", {}),
+    "printers.plug": lambda u: ("post", f"/api/printers/{plug_printer()}/plug/on", {}),
     "models.create": lambda u: ("post", "/api/models", {"json": {"name": f"MX model new {next(SEQ)}"}}),
     "models.edit": lambda u: ("patch", f"/api/models/{model()}", {"json": {"name": f"MX model renamed {next(SEQ)}"}}),
     "models.delete": lambda u: ("delete", f"/api/models/{model()}", {}),
