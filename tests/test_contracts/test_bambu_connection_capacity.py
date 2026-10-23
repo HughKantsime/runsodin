@@ -1,8 +1,7 @@
 """Characterize capacity contention with a real local broker and real paho.
 
-This is an investigation/prototype proof, not a claim that HTTP controls reuse
-monitor connections. Mosquitto refuses excess clients, whereas the observed P1S
-silently timed out. Both demonstrate that a working session proves no spare slot.
+The monitor command handler must publish without allocating another session.
+Mosquitto refuses excess clients, whereas the observed P1S silently timed out. Both demonstrate that a working session proves no spare slot.
 """
 import json
 import shutil
@@ -126,7 +125,7 @@ def test_monitor_and_studio_at_capacity_refuse_extra_command_but_existing_transp
                 break
         assert report_seen.is_set(), 'Existing monitor must still receive telemetry at capacity'
         socket_before = monitor._client.socket()
-        # The shipped command strategy needs a third connection and fails.
+        # An ephemeral command strategy needs a third connection and fails.
         if generation == 'legacy':
             extra = BambuPrinter(ip='127.0.0.1', serial=SERIAL, access_code='synthetic',
                                  client_id='extra-' + uuid.uuid4().hex)
@@ -139,11 +138,14 @@ def test_monitor_and_studio_at_capacity_refuse_extra_command_but_existing_transp
         report_seen.clear()
         studio.publish(f'device/{SERIAL}/report', json.dumps({'print': {'gcode_state': 'IDLE'}}))
         assert report_seen.wait(3), 'Failed command must not displace the working monitor'
-        # Prototype only: publish through the actual existing paho connection.
-        # It is not yet an authorized cross-process application transport.
-        result = monitor._client.publish(f'device/{SERIAL}/request', json.dumps(LED))
-        result.wait_for_publish(timeout=3)
-        assert result.is_published()
+        # Exercise the shipped monitor command admission using the real client.
+        from types import SimpleNamespace
+        from modules.printers.monitor_commands import execute
+        owner = SimpleNamespace(_lock=threading.Lock(), serial=SERIAL,
+            _bambu=monitor if generation == 'legacy' else None,
+            _v2_adapter=monitor if generation == 'v2' else None)
+        assert execute({1: owner}, dict(printer_id=1, action='light', on=True,
+            deadline=time.monotonic()+3)) == 'accepted'
         assert received_led.wait(3)
         assert wire == [LED]
         assert monitor._client.socket() is socket_before
