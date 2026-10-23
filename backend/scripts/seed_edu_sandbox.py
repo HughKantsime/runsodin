@@ -7,7 +7,13 @@ import json
 import os
 import re
 import sqlite3
+import sys
 from pathlib import Path
+
+# Preserve direct CLI execution (Docker invokes this script by absolute path).
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from core.base import slot_filament_value
 
 ADMIN_EMAIL = "administrator@northstar-lab.example.invalid"
 TEACHER_EMAIL = "teacher@northstar-lab.example.invalid"
@@ -175,13 +181,13 @@ def seed_connection(connection, sandbox_id: str) -> dict[str, object]:
     )
     if slot_id is None:
         connection.execute(
-            "INSERT INTO filament_slots (printer_id, slot_number, filament_type, color, color_hex, assigned_spool_id, spool_confirmed) VALUES (?, 1, 'PLA', 'blue', '#2563EB', ?, TRUE)",
-            (printer_ids["bambu"], spool_id),
+            "INSERT INTO filament_slots (printer_id, slot_number, filament_type, color, color_hex, assigned_spool_id, spool_confirmed) VALUES (?, 1, ?, 'blue', '#2563EB', ?, TRUE)",
+            (printer_ids["bambu"], slot_filament_value("PLA"), spool_id),
         )
     else:
         connection.execute(
-            "UPDATE filament_slots SET filament_type='PLA', color='blue', color_hex='#2563EB', assigned_spool_id=?, spool_confirmed=TRUE WHERE id=?",
-            (spool_id, slot_id),
+            "UPDATE filament_slots SET filament_type=?, color='blue', color_hex='#2563EB', assigned_spool_id=?, spool_confirmed=TRUE WHERE id=?",
+            (slot_filament_value("PLA"), spool_id, slot_id),
         )
 
     model_id = _one_id(connection, "SELECT id FROM models WHERE name=?", ("Northstar Calibration Badge",))

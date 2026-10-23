@@ -1,4 +1,5 @@
 """Spool label/QR generation, CSV export, lookup, scan-assign, and bulk operations."""
+from core.base import slot_filament_value
 
 from modules.inventory.slot_assignments import assign_slot, lock_slot_graph
 from io import BytesIO
@@ -197,7 +198,7 @@ def scan_assign_spool(
         # Update existing slot
         assign_slot(db, existing_slot, spool.id, current_user)
         existing_slot.spool_confirmed = True
-        existing_slot.filament_type = FilamentType.from_bambu_code(spool.filament.material) if spool.filament else None
+        existing_slot.filament_type = FilamentType(slot_filament_value(spool.filament.material if spool.filament else None))
         existing_slot.color = spool.filament.name if spool.filament else None
         existing_slot.color_hex = spool.filament.color_hex if spool.filament else None
     else:
@@ -205,7 +206,7 @@ def scan_assign_spool(
         new_slot = FilamentSlot(
             printer_id=data.printer_id,
             slot_number=data.slot,
-            filament_type=FilamentType.from_bambu_code(spool.filament.material) if spool.filament else None,
+            filament_type=FilamentType(slot_filament_value(spool.filament.material if spool.filament else None)),
             color=spool.filament.name if spool.filament else None,
             color_hex=spool.filament.color_hex if spool.filament else None,
             spool_confirmed=True,

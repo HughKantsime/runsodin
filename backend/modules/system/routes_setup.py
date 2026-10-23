@@ -1,4 +1,5 @@
 """System setup routes — onboarding wizard (admin creation, printer add, network config, complete)."""
+from core.base import slot_filament_value
 
 import json
 import logging
@@ -449,7 +450,7 @@ def setup_create_printer(
     db.flush()
 
     for i in range(1, request.slot_count + 1):
-        slot = FilamentSlot(printer_id=db_printer.id, slot_number=i, filament_type=FilamentType.EMPTY)
+        slot = FilamentSlot(printer_id=db_printer.id, slot_number=i, filament_type=FilamentType(slot_filament_value(FilamentType.EMPTY)))
         db.add(slot)
 
     db.commit()

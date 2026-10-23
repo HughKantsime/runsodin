@@ -2,6 +2,7 @@
 import math
 import json
 import uuid
+from core.base import slot_filament_value
 from core.material_identity import canonical_reported_material
 from modules.printers.telemetry.validators import coerce_int_or_raise
 
@@ -155,11 +156,10 @@ def sync_ams_inventory(conn, printer_id, units):
                 displaced = spools[association[0]]
                 if (displaced[2], displaced[5]) == (printer_id, number):
                     conn.execute('UPDATE spools SET location_printer_id=NULL,location_slot=NULL WHERE id=?', (association[0],))
-    from modules.printers.bambu_integration import map_bambu_filament_type
     for number, tray in identified:
         material = tray.get('tray_type') or ''
         color = (tray.get('tray_color') or '')[:6] if material else None
-        filament_type = map_bambu_filament_type(material) if material else 'empty'
+        filament_type = slot_filament_value(material)
         existing = conn.execute('SELECT id,assigned_spool_id FROM filament_slots WHERE printer_id=? AND slot_number=?', (printer_id, number)).fetchone()
         if existing:
             identifier = existing[0]
@@ -212,7 +212,7 @@ def _clear_unplugged_ht(conn, printer_id, reported):
         if number in reported:
             continue
         conn.execute('UPDATE filament_slots SET filament_type=?,color_hex=NULL,color=NULL,assigned_spool_id=NULL,spool_confirmed=? WHERE id=?',
-                     ('empty', False, slot_id))
+                     (slot_filament_value('empty'), False, slot_id))
         if assigned is not None:
             conn.execute('UPDATE spools SET location_printer_id=NULL,location_slot=NULL'
                          ' WHERE id=? AND location_printer_id=? AND location_slot=?', (assigned, printer_id, number))

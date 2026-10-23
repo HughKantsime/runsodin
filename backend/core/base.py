@@ -101,6 +101,25 @@ class FilamentType(str, Enum):
             return cls.OTHER
 
 
+def slot_filament_value(raw) -> str:
+    """Return the persisted slot enum value for a protocol or inventory label."""
+    if isinstance(raw, FilamentType):
+        return raw.value
+    normalized = str(raw or "").strip().upper()
+    if normalized in ("", "EMPTY"):
+        return FilamentType.EMPTY.value
+    if normalized == "UNKNOWN":
+        return FilamentType.UNKNOWN.value
+    mapped = FilamentType.from_bambu_code(normalized)
+    if mapped != FilamentType.OTHER:
+        return mapped.value
+    # Preserve the established Moonraker and Bambu protocol aliases, then
+    # validate again: some Bambu map entries aren't members of the DB enum.
+    aliases = {"PA-S": "PLA_SUPPORT", "PETG-S": "PLA_SUPPORT", "PET-CF": "PETG_CF"}
+    from modules.printers.bambu_integration import map_bambu_filament_type
+    return FilamentType.from_bambu_code(aliases.get(normalized, map_bambu_filament_type(normalized))).value
+
+
 class SpoolStatus(str, Enum):
     ACTIVE = "active"
     EMPTY = "empty"

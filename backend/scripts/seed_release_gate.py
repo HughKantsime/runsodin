@@ -12,7 +12,13 @@ import json
 import os
 import re
 import sqlite3
+import sys
 from pathlib import Path
+
+# Preserve direct CLI execution (Docker invokes this script by absolute path).
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from core.base import slot_filament_value
 
 try:
     from .demo_seed_edu import Persona, upsert_personas_connection
@@ -278,15 +284,15 @@ def _ensure_domain_graph(
         raise SeedSafetyError("conflicting candidate filament slot")
     if slot_rows:
         connection.execute(
-            "UPDATE filament_slots SET filament_type='PLA', color='amber', color_hex='#C47A1A', "
+            "UPDATE filament_slots SET filament_type=?, color='amber', color_hex='#C47A1A', "
             "assigned_spool_id=?, spool_confirmed=TRUE WHERE id=?",
-            (spool_id, int(slot_rows[0][0])),
+            (slot_filament_value("PLA"), spool_id, int(slot_rows[0][0])),
         )
     else:
         connection.execute(
             "INSERT INTO filament_slots (printer_id, slot_number, filament_type, color, color_hex, assigned_spool_id, spool_confirmed) "
-            "VALUES (?, 1, 'PLA', 'amber', '#C47A1A', ?, TRUE)",
-            (printer_id, spool_id),
+            "VALUES (?, 1, ?, 'amber', '#C47A1A', ?, TRUE)",
+            (printer_id, slot_filament_value("PLA"), spool_id),
         )
 
     model_id = _single_id(connection, "models", "name = ?", (MODEL_NAME,))

@@ -1,4 +1,5 @@
 """Stock Anycubic monitor. Reuses Elegoo's common telemetry/lifecycle sink."""
+from core.base import slot_filament_value
 import logging
 import signal
 import threading
@@ -84,18 +85,12 @@ class AnycubicLANMonitorThread(ElegooMonitorThread):
             self._last_ace_env = now
 
 
-def _material(value):
-    if value == 'EMPTY':
-        return FilamentType.EMPTY.value
-    return next((t.value for t in FilamentType if t.value.upper() == value.upper()), FilamentType.UNKNOWN.value)
-
-
 def sync_slots(printer_id, boxes):
     """Update observations only; preserve slot IDs and owner spool assignments."""
     with engine.begin() as conn:
         slots = filament_slots(boxes)
         for slot in slots:
-            params = {'pid': printer_id, 'sn': slot['slot_number'], 'ft': _material(slot['material']),
+            params = {'pid': printer_id, 'sn': slot['slot_number'], 'ft': slot_filament_value(slot['material']),
                       'color': slot['material'] if slot['material'] != 'EMPTY' else None,
                       'hex': slot['color_hex']}
             existing = conn.execute(text('SELECT id FROM filament_slots WHERE printer_id=:pid AND slot_number=:sn'), params).first()

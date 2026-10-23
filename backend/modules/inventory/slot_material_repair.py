@@ -1,7 +1,7 @@
 """Normalize historical free-text slots before any enum-backed ORM read."""
 import json
 from sqlalchemy import text
-from core.base import FilamentType
+from core.base import FilamentType, slot_filament_value
 
 
 def repair_slot_materials(connection):
@@ -13,7 +13,7 @@ def repair_slot_materials(connection):
     for slot_id, before in rows:
         if before in valid:
             continue
-        after = FilamentType.from_bambu_code(before).value
+        after = slot_filament_value(before)
         changed = connection.execute(text(
             'UPDATE filament_slots SET filament_type=:after WHERE id=:id AND filament_type=:before'
         ), dict(id=slot_id, before=before, after=after)).rowcount

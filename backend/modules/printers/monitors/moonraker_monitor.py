@@ -17,6 +17,7 @@ Handles:
 - Klipper error capture (hms_error_history table)
 - Reconnection on failure
 """
+from core.base import slot_filament_value
 
 import os
 import sys
@@ -59,13 +60,6 @@ TELEMETRY_INSERT_INTERVAL = 60   # seconds between timeseries inserts
 SLOT_SYNC_INTERVAL = 60         # seconds between filament slot syncs
 ENV_TELEMETRY_INTERVAL = 300    # seconds between environment telemetry inserts (5 min)
 
-# Material string → FilamentType enum value mapping (matches Bambu sync in main.py)
-_MATERIAL_MAP = {
-    "PLA": "PLA", "PETG": "PETG", "ABS": "ABS", "ASA": "ASA",
-    "TPU": "TPU", "PA": "PA", "PC": "PC", "PVA": "PVA",
-    "PLA-S": "PLA_SUPPORT", "PA-S": "PLA_SUPPORT", "PETG-S": "PLA_SUPPORT",
-    "PA-CF": "NYLON_CF", "PA-GF": "NYLON_GF", "PET-CF": "PETG_CF", "PLA-CF": "PLA_CF",
-}
 
 
 class MoonrakerMonitor:
@@ -695,7 +689,7 @@ class MoonrakerMonitor:
                 for slot in slots:
                     slot_num = slot.gate + 1  # DB uses 1-based slot numbers
                     material_key = (slot.material or "").upper()
-                    filament_type = _MATERIAL_MAP.get(material_key, material_key or "EMPTY")
+                    filament_type = slot_filament_value(material_key)
                     color_hex = slot.color_hex[:6] if slot.color_hex else None
                     color_name = slot.name or slot.material or None
 
