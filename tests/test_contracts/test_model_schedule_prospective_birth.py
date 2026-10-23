@@ -23,7 +23,7 @@ def test_model_schedule_has_fresh_owned_identity(creators,review_db,name,scope,k
 
 
 @pytest.mark.parametrize("name",["admin","platform","unassigned"])
-def test_model_schedule_matches_original_raw_insert_omitted_column_semantics(creators,review_db,name,request):
+def test_model_schedule_matches_original_raw_insert_omitted_column_semantics(creators,review_db,name,request=None):
     # Both independent INSERT statements must observe one clock value. SQLite's
     # CURRENT_TIMESTAMP is statement-scoped, so crossing a second otherwise
     # makes this exact-column oracle fail despite identical default semantics.
@@ -32,7 +32,8 @@ def test_model_schedule_matches_original_raw_insert_omitted_column_semantics(cre
     def freeze_clock(raw, *_):
         raw.create_function("current_timestamp", 0, lambda: "2026-10-23 12:00:00")
     event.listen(engine, "checkout", freeze_clock)
-    request.addfinalizer(lambda: event.remove(engine, "checkout", freeze_clock))
+    if request is not None:
+        request.addfinalizer(lambda: event.remove(engine, "checkout", freeze_clock))
     freeze_clock(review_db.connection().connection.driver_connection)
     from modules.models_library.routes.models_crud import router
     from modules.models_library.models import Model
