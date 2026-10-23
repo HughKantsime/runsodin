@@ -46,7 +46,12 @@ def _pytest_target(target: str, tests: str, timeout: int) -> int:
 # Measured 2026-10-18 on the M4 runner: 667 files / about 12,600 tests in 17 batches of 40
 # files ran in 1,587 s wall with 6 concurrent batches (slowest batch 1,322 s). Serial
 # pytest over the same suite takes about two hours.
-CONTRACT_BATCH_JOBS = 6
+# 2026-10-23: 688 files / 7,579 s of test time. Wall time was bounded by the
+# slowest 40-file batch; simulating from per-file JUnit times, 10-file batches on
+# 8 workers finish in about 15-17 minutes instead of 25, leaving two cores for
+# the PostgreSQL and broker fixtures the batches start.
+CONTRACT_BATCH_JOBS = 8
+CONTRACT_BATCH_FILES = 10
 CONTRACT_BATCH_TIMEOUT_SECONDS = 1800
 CONTRACT_TIMEOUT_SECONDS = 3600
 
@@ -67,6 +72,7 @@ def contracts() -> int:
         command=[str(python), "-m", "ops.release_control.contract_batches",
                  "--tests", "tests/test_contracts", "--junit", "{junit}",
                  "--work", str(directory / "batches"), "--jobs", str(CONTRACT_BATCH_JOBS),
+                 "--batch-size", str(CONTRACT_BATCH_FILES),
                  "--batch-timeout", str(CONTRACT_BATCH_TIMEOUT_SECONDS),
                  # Live-environment suites leave this gate only by the committed inventory.
                  "--exclude-marker", "live_environment",

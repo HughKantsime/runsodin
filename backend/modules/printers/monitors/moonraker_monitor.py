@@ -740,7 +740,8 @@ class MoonrakerMonitor:
                 if generic_observation_reserved(conn, printer_id=self.printer_id, observed_filename=filename):
                     return
                 from core.dispatch_payload_selection import SELECTED_PRINT_FILE_JOIN_SQL
-                candidates = conn.execute(text(f"""
+                candidates = conn.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: the SELECTED_PRINT_FILE_JOIN_SQL module constant; values are bound
+                    f"""
                     SELECT j.id as job_id, j.status, pf.filename, pf.original_filename,
                            pf.layer_count, m.name as model_name
                     FROM jobs j

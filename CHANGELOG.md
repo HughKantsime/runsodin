@@ -2,6 +2,25 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.11] - 2026-10-23
+
+<!-- summary: Community fixes (PLA+, PrusaLink, Moonraker, G-code upload) and Sublab operations -->
+
+### Fixed
+
+- Assigning a PLA+ (or other unlisted) spool to a slot no longer breaks the printer list; existing slots with such values are repaired on upgrade, and the Printers page shows load errors with a Retry button.
+- PrusaLink printers: Test Connection and Add/Edit Printer send the API key (or username|password), and both connection tests authenticate.
+- Moonraker: sensor names with spaces or symbols are queried correctly, auto-dispatch after a print calls the current dispatch path, and an already-printing job can be linked.
+- Upload accepts .gcode and .bgcode files.
+
+### Added
+
+- Sublab operations: show-order intake with physical handoff, finishing and assembly from inspected components, material purchases and receiving (with a private order-email preview), and assortment and replenishment rules. All are local workflows behind explicit RBAC actions; Square stock sends keep the two-key gate.
+
+### Changed
+
+- Release validation runs contract tests in smaller batches on more workers.
+
 ## [2.0.10] - 2026-10-23
 
 <!-- summary: Education Job Queue and Archive, teacher-controlled print order, Super Admin restore -->

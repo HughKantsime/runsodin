@@ -10,7 +10,7 @@
         "entity_type": "jobs",
         "id": 1,
         "ip_address": "198.51.100.7",
-        "timestamp": "2026-10-23T16:50:07",
+        "timestamp": "2026-10-23T18:09:32",
         "user_id": 3,
         "username": "admin"
       }
@@ -128,6 +128,13 @@
         "admin",
         "operator"
       ],
+      "products.assortment": [
+        "admin"
+      ],
+      "products.assortment_preview": [
+        "admin",
+        "operator"
+      ],
       "products.create": [
         "admin",
         "operator"
@@ -136,6 +143,39 @@
         "admin"
       ],
       "products.edit": [
+        "admin",
+        "operator"
+      ],
+      "products.finishing": [
+        "admin",
+        "operator"
+      ],
+      "products.inspections": [
+        "admin",
+        "operator"
+      ],
+      "products.materials_manage": [
+        "admin"
+      ],
+      "products.materials_preview": [
+        "admin",
+        "operator"
+      ],
+      "products.materials_receive": [
+        "admin",
+        "operator"
+      ],
+      "products.operations": [
+        "admin",
+        "operator"
+      ],
+      "products.recipes": [
+        "admin"
+      ],
+      "products.square_manage": [
+        "admin"
+      ],
+      "products.square_send": [
         "admin",
         "operator"
       ],
@@ -262,7 +302,7 @@
       ]
     }
   },
-  "export_csv": "ID,Timestamp,Action,Entity Type,Entity ID,Details,IP Address,User ID,Username,Authentication\r\n1,2026-10-23T16:50:07,bulk_cancel,jobs,,1 jobs,198.51.100.7,3,admin,bearer_jwt\r\n",
+  "export_csv": "ID,Timestamp,Action,Entity Type,Entity ID,Details,IP Address,User ID,Username,Authentication\r\n1,2026-10-23T18:09:32,bulk_cancel,jobs,,1 jobs,198.51.100.7,3,admin,bearer_jwt\r\n",
   "me": {
     "group_id": null,
     "id": 3,
