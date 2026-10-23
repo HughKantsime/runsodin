@@ -107,7 +107,7 @@ def test_inventory_failure_paths_include_local_ids(monkeypatch, reason):
         if reason == 'ambiguous': trays *= 2
         monkeypatch.setattr(ams_identity, 'ams_trays_by_slot', lambda *a, **k: trays)
         monkeypatch.setattr(ams_identity, 'is_rfid_tag', lambda *a: True)
-        graphs = iter([({7: (8, 9, 1)}, {8: (9, 1)}, {}), ({}, {}, {})])
+        graphs = iter([({7: (8, 9, 1)}, {8: (9, 1)}, {}, {}), ({}, {}, {}, {})])  # _graph also returns stale-location repairs
         monkeypatch.setattr(inventory, '_graph', lambda *a: next(graphs))
         monkeypatch.setattr(inventory, '_rows', lambda conn, table, *a, **k:
             [(9, 1)] if table == 'printers' else [(8, 1, 9, 1000, 500, 1)])
