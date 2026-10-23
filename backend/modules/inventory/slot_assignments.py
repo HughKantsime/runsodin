@@ -94,6 +94,10 @@ def assign_slot(db, slot, spool_id, current_user=None):
                 printer = db.query(Printer).filter_by(id=printer_id).populate_existing().first()
                 if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
                     raise HTTPException(404, 'Printer not found')
+            # A move can also clear the source printer's assignment.
+            from modules.printers.ledger_display import ensure_local_filaments
+            for printer_id in printer_ids:
+                ensure_local_filaments(printer_id)
         for row in displaced:
             row.location_printer_id = None
             row.location_slot = None
@@ -117,10 +121,14 @@ def unload_spool_graph(db, spool, current_user=None):
     db.refresh(spool, ['location_printer_id', 'location_slot'])
     slots = db.query(FilamentSlot).filter(FilamentSlot.assigned_spool_id == spool.id).populate_existing().all()
     if current_user is not None:
-        for printer_id in {slot.printer_id for slot in slots}:
+        printer_ids = ({slot.printer_id for slot in slots} | {spool.location_printer_id}) - {None}
+        for printer_id in printer_ids:
             printer = db.query(Printer).filter_by(id=printer_id).populate_existing().first()
             if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
                 raise HTTPException(404, 'Printer not found')
+        from modules.printers.ledger_display import ensure_local_filaments
+        for printer_id in printer_ids:
+            ensure_local_filaments(printer_id)
     for slot in slots:
         slot.assigned_spool_id = None
         slot.spool_confirmed = False

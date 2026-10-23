@@ -33,6 +33,7 @@ from modules.printers.schemas import (
     PrinterCreate, PrinterUpdate, PrinterResponse, FilamentSlotUpdate, FilamentSlotResponse,
 )
 from core.base import FilamentType
+from modules.printers.ledger_display import enrich_printers, ensure_local_filaments
 from modules.printers.route_utils import (
     TestConnectionRequest, _check_ssrf_blocklist, _validate_camera_url, camera_url_has_credentials,
 )
@@ -70,7 +71,7 @@ def list_printers(
     printers = query.order_by(Printer.display_order, Printer.id).all()
     if tag:
         printers = [p for p in printers if p.tags and tag in p.tags]
-    return printers
+    return enrich_printers(printers)
 
 
 @router.get("/printers/tags", tags=["Printers"])
@@ -229,7 +230,7 @@ def get_printer(
         raise HTTPException(status_code=404, detail="Printer not found")
     if not check_org_access(current_user, printer.org_id) and not printer.shared:
         raise HTTPException(status_code=404, detail="Printer not found")
-    return printer
+    return enrich_printers([printer])[0]
 
 
 @router.patch("/printers/{printer_id}", response_model=PrinterResponse, tags=["Printers"])
@@ -246,6 +247,8 @@ def update_printer(
         raise HTTPException(status_code=404, detail="Printer not found")
 
     update_data = updates.model_dump(exclude_unset=True)
+    if 'slot_count' in update_data and update_data['slot_count'] != printer.slot_count:
+        ensure_local_filaments(printer_id)
 
     prepare_update_credentials(update_data, printer.api_type)
 
@@ -379,7 +382,8 @@ def list_filament_slots(printer_id: int, current_user: dict = Depends(require_ro
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer or (not check_org_access(current_user, printer.org_id) and not printer.shared):
         raise HTTPException(status_code=404, detail="Printer not found")
-    return printer.filament_slots
+    enriched = enrich_printers([printer])[0]
+    return enriched.filament_slots if hasattr(enriched, "filament_slots") else printer.filament_slots
 
 
 @router.patch("/printers/{printer_id}/slots/{slot_number}", response_model=FilamentSlotResponse, tags=["Filament"])
@@ -400,6 +404,7 @@ def update_filament_slot(
 
     if not slot:
         raise HTTPException(status_code=404, detail="Filament slot not found")
+    ensure_local_filaments(printer_id)
 
     values = updates.model_dump(exclude_unset=True)
     if 'assigned_spool_id' in values:
