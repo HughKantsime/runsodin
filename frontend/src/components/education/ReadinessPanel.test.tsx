@@ -14,3 +14,10 @@ it('reports unknown storage and missing directory honestly', () => { state.data.
 it('keeps failed readiness separate from missing entitlement', () => {state.error=true;render(<ReadinessPanel/>);expect(screen.getByText('Readiness unavailable')).toBeInTheDocument()})
 it('distinguishes invalid reserve configuration from missing disk data',()=>{state.data.storage.status='configuration_error';render(<ReadinessPanel/>);expect(screen.getByText(/Upload storage configuration is invalid/)).toHaveTextContent('Uploads are blocked');expect(screen.queryByText(/0.00 GiB free/)).not.toBeInTheDocument()})
 it('identifies administrator override',()=>{state.data.storage.administrator_override=true;state.data.storage.configured_min_free_bytes=1024**3;render(<ReadinessPanel/>);expect(screen.getByText(/Administrator minimum: 1.00 GiB/)).toBeInTheDocument()})
+it('separates sign-in from tenant auto-create readiness and shows reasons', () => {
+  state.data.oidc = { ready: true, provider: 'google', auto_create: true, tenant_ready: false, tenant_reasons: ['Set the auto-create default organisation to this school'] }
+  render(<ReadinessPanel />)
+  expect(screen.getByText('google is configured')).toBeInTheDocument()
+  expect(screen.getByText('SSO auto-create lands in this school')).toBeInTheDocument()
+  expect(screen.getByText('Set the auto-create default organisation to this school')).toBeInTheDocument()
+})

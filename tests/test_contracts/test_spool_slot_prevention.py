@@ -18,6 +18,7 @@ USER = {'id': 3, 'user_id': 3, 'role': 'admin', 'group_id': 1, 'is_superadmin': 
 
 @pytest.fixture
 def graph(review_db):
+    review_db.execute(text("DROP INDEX IF EXISTS uq_filament_slots_spool"))
     review_db.execute(text("INSERT INTO filament_library(id,brand,name,material,color_hex) VALUES(199,'Synthetic','PLA','PLA','123ABC')"))
     review_db.execute(text("INSERT INTO spools(id,filament_id,qr_code,org_id,initial_weight_g,rfid_tag,location_printer_id,location_slot) VALUES(199,199,'move-test',1,1000,'move-rfid',9,1)"))
     review_db.execute(text('UPDATE filament_slots SET assigned_spool_id=199 WHERE printer_id=9 AND slot_number=1'))
@@ -200,31 +201,48 @@ def test_move_clears_all_historical_duplicates_and_rolls_back_atomically(graph):
     assert_moved(db)
 
 
-def test_postgres_uses_ams_order_and_nowait_row_locks():
-    """Compile the actual lock statements; PostgreSQL execution needs a server."""
+def test_postgres_uses_ams_order_and_exact_lock_set(monkeypatch):
+    """Compile actual WHERE/ORDER/lock statements against a PostgreSQL dialect."""
     from sqlalchemy import select
     from sqlalchemy.dialects import postgresql
     from contextlib import nullcontext
-    from modules.inventory.slot_assignments import lock_slot_graph
+    from modules.inventory import slot_assignments as module
     statements = []
-    transaction = object()
+    # printer 99 / slot 99 / spool 99 are intentionally unrelated.
+    printers = (9, 10)
+    slots = ((1, 199, 9, 1), (2, 200, 10, 1))
+    spools = ((199, 9, 1), (200, 10, 1), (201, 10, 1))
+    monkeypatch.setattr(module, '_involved_graph', lambda *args: (printers, slots, spools))
     class Query:
         def __init__(self, column): self.statement = select(column)
+        def filter(self, predicate):
+            self.statement = self.statement.where(predicate); return self
         def order_by(self, column):
-            self.statement = self.statement.order_by(column);return self
+            self.statement = self.statement.order_by(column); return self
         def with_for_update(self, **kwargs):
-            self.statement = self.statement.with_for_update(**kwargs);return self
+            self.statement = self.statement.with_for_update(**kwargs); return self
         def all(self):
-            statements.append(str(self.statement.compile(dialect=postgresql.dialect())));return []
-    db = SimpleNamespace(get_transaction=lambda: transaction, info={}, no_autoflush=nullcontext(),
+            statements.append(str(self.statement.compile(dialect=postgresql.dialect(), compile_kwargs={'literal_binds': True}))); return []
+    db = SimpleNamespace(no_autoflush=nullcontext(),
                          connection=lambda:SimpleNamespace(dialect=SimpleNamespace(name='postgresql')),
                          query=lambda column: Query(column))
-    lock_slot_graph(db)
+    module.lock_slot_graph(db, 2, 199)
     assert len(statements) == 3
-    for sql, table in zip(statements, ['printers', 'filament_slots', 'spools']):
-        assert f'FROM {table} ORDER BY {table}.id FOR UPDATE NOWAIT' in sql
-    lock_slot_graph(db)
-    assert len(statements) == 3
+    for sql, table, ids in zip(statements, ['printers', 'filament_slots', 'spools'], ['9, 10', '1, 2', '199, 200, 201']):
+        assert f'WHERE {table}.id IN ({ids}) ORDER BY {table}.id FOR UPDATE NOWAIT' in sql
+        assert 'IN (99,' not in sql
+
+
+def test_involved_graph_includes_displaced_previous_and_all_links(graph):
+    from modules.inventory.slot_assignments import _involved_graph
+    graph.execute(text('INSERT INTO spools(id,filament_id,org_id,location_printer_id,location_slot) VALUES(200,199,1,10,1),(201,199,1,NULL,NULL)'))
+    graph.execute(text('UPDATE filament_slots SET assigned_spool_id=201 WHERE printer_id=10'))
+    graph.commit()
+    target = graph.query(FilamentSlot).filter_by(printer_id=10).one()
+    printers, slots, spools = _involved_graph(graph, target.id, 199)
+    assert printers == (9, 10)
+    assert {s[0] for s in spools} == {199, 200, 201}
+    assert {s[2] for s in slots} == {9, 10}
 
 
 def test_postgres_contention_returns_retryable_conflict():
@@ -233,13 +251,13 @@ def test_postgres_contention_returns_retryable_conflict():
     from fastapi import HTTPException
     from modules.inventory.slot_assignments import lock_slot_graph
     class Busy(Exception): sqlstate = '55P03'
-    def busy(_): raise OperationalError('locked', {}, Busy())
+    def busy(*_): raise OperationalError('locked', {}, Busy())
     rolled_back = []
-    db = SimpleNamespace(get_transaction=lambda:object(),info={},no_autoflush=nullcontext(),
+    db = SimpleNamespace(no_autoflush=nullcontext(),
                          connection=lambda:SimpleNamespace(dialect=SimpleNamespace(name='postgresql')),
                          query=busy, rollback=lambda:rolled_back.append(True))
     with pytest.raises(HTTPException) as error:
-        lock_slot_graph(db)
+        lock_slot_graph(db, 1, 199)
     assert error.value.status_code == 409 and rolled_back == [True]
 
 

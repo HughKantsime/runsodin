@@ -311,7 +311,7 @@ def list_jobs(
     db: Session = Depends(get_db),
 ):
     """List jobs with optional filters."""
-    query = db.query(Job)
+    query = db.query(Job).filter(text("NOT EXISTS (SELECT 1 FROM education_submissions es WHERE es.job_id=jobs.id AND es.archived_at IS NOT NULL)"))
 
     if status:
         query = query.filter(Job.status == status)

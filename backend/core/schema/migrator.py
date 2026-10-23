@@ -96,6 +96,7 @@ _ALLOWED_PYTHON_MIGRATIONS = frozenset(
         "core.schema.migrations.033_timelapse_capture_tenancy",
         "core.schema.migrations.034_alert_outbox",
         "core.schema.migrations.035_production_acceptance",
+        "core.schema.migrations.036_ctec_pilot",
     }
 )
 
@@ -458,12 +459,18 @@ def apply_python_migration(connection: Connection, module_name: str) -> bool:
     if prior and prior != (checksum, dialect):
         raise MigrationError(f"Migration history mismatch: {migration_id}")
     context_token = _ACTIVE_PYTHON_MIGRATION.set(migration_id)
+    def validate():
+        if migration_id == 'python:002-education-tenant-integrity':
+            from core.schema.education_archive_validation import validate_education_with_archive
+            validate_education_with_archive(module, connection)
+        else:
+            module.validate(connection)
     try:
         if prior:
-            module.validate(connection)
+            validate()
             return False
         module.apply(connection)
-        module.validate(connection)
+        validate()
     finally:
         _ACTIVE_PYTHON_MIGRATION.reset(context_token)
     connection.execute(

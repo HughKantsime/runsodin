@@ -39,6 +39,7 @@ async def get_visible_submissions(
     cost_center_id: int | None = Query(default=None, gt=0),
     limit: int = Query(default=50, ge=1, le=100),
     cursor: str | None = None,
+    archived: bool = False,
     principal: dict = Depends(require_education_principal()),
     db: Session = Depends(get_db),
 ):
@@ -49,6 +50,7 @@ async def get_visible_submissions(
         cost_center_id=cost_center_id,
         limit=limit,
         cursor=cursor,
+        archived=archived,
     )
 
 
@@ -112,3 +114,20 @@ async def read_education_submission_ams(submission_id: int, body: TeacherAMSRead
     db.close()
     from modules.organizations.education_ams_read_service import acquire_teacher_ams_report
     return await acquire_teacher_ams_report(request,principal=principal,submission_id=submission_id,body=body)
+
+
+from pydantic import BaseModel, Field
+from uuid import UUID
+
+
+class SubmissionArchive(BaseModel):
+    revision: int = Field(ge=1)
+    reason: str = Field(default='', max_length=1000)
+    command_id: UUID
+
+
+@router.post('/{submission_id}/archive')
+async def archive_education_submission(submission_id: int, body: SubmissionArchive,
+    principal: dict = Depends(require_education_principal(write=True)), db: Session = Depends(get_db)):
+    from modules.organizations.education_submission_archive import archive_submission
+    return archive_submission(db, submission_id=submission_id, body=body, principal=principal)

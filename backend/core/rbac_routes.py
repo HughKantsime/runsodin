@@ -115,6 +115,7 @@ ACTION_ROUTES: dict[str, list[tuple[str, str]]] = {
         ("POST", "/api/models/{model_id}/revisions"),
     ],
     "models.edit": [
+        ("POST", "/api/models/{model_id}/hide"),
         ("PATCH", "/api/models/{model_id}"),
         ("POST", "/api/models/{model_id}/revisions/{rev_number}/revert"),
     ],
@@ -236,6 +237,7 @@ _EDU = "Education workflow: governed by cost-center grants (Education principals
 _ADMIN = "user and organization administration: admin role, no matrix key"
 
 WRITE_EXEMPTIONS: dict[tuple[str, str], str] = {
+    ("POST", "/api/inventory/conflicts/resolve"): "admin role; audited explicit inventory conflict resolution is stricter than spools.edit",
     # Platform administration (superadmin)
     **{(m, p): _SUPERADMIN for m, p in [
         ("PUT", "/api/admin/oidc"), ("POST", "/api/admin/retention/cleanup"),

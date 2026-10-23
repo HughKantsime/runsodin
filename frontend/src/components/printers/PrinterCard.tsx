@@ -162,7 +162,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
       data-printer-id={printer.id}
       data-printer-name={printer.name}
       className={clsx(
-        "bg-[var(--brand-card-bg)] rounded-md border-0 overflow-hidden h-fit transition-all hover:brightness-110",
+        "bg-[var(--brand-card-bg)] rounded-md border-0 overflow-hidden h-fit transition-all ",
         isDragging && "border border-[var(--brand-primary)] opacity-50 scale-95"
       )}
       style={{ boxShadow: 'var(--brand-card-shadow)' }}

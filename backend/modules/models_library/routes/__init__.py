@@ -13,5 +13,7 @@ router = APIRouter()
 router.include_router(print_files_router)
 router.include_router(models_crud_router)
 router.include_router(pricing_router)
+from modules.models_library.education_retention import router as retention_router
+router.include_router(retention_router)
 
 __all__ = ["router", "calculate_job_cost"]

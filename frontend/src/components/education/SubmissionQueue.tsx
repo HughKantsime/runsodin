@@ -10,6 +10,7 @@ import type {
 } from '../../types'
 import { Button, Card, EmptyState, Select, StatusBadge } from '../ui'
 import { educationAudience } from './SubmissionUploadModal'
+import SubmissionSliceInfo from './SubmissionSliceInfo'
 import ReviewDecisionModal from './ReviewDecisionModal'
 
 interface SubmissionQueueProps {
@@ -21,6 +22,7 @@ interface SubmissionQueueProps {
 
 const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
   { value: '', label: 'All statuses' },
+  { value: 'archived', label: 'Archived' },
   { value: 'submitted', label: 'Awaiting review' },
   { value: 'pending', label: 'Approved' },
   { value: 'scheduled', label: 'Scheduled' },
@@ -44,6 +46,7 @@ export default function SubmissionQueue({ centers, reviewable, mineOnly = false,
   const ownerId = principal?.id
   const currentPrincipal = () => queryClient.getQueryData<User | null>(['auth', 'me'])
   const [status, setStatus] = useState('')
+  const [archiveError, setArchiveError] = useState('')
   const [centerId, setCenterId] = useState('')
   const [reviewTarget, setReviewTarget] = useState<{ submission: EducationSubmission; audience: string } | null>(null)
   const centerNames = useMemo(
@@ -54,7 +57,8 @@ export default function SubmissionQueue({ centers, reviewable, mineOnly = false,
   const query = useInfiniteQuery({
     queryKey: ['education-submissions', audience, status, centerId, mineOnly],
     queryFn: ({ pageParam }) => education.listSubmissions({
-      status: (status || undefined) as EducationSubmissionStatus | undefined,
+      archived: status === 'archived',
+      status: (status === 'archived' ? undefined : status || undefined) as EducationSubmissionStatus | undefined,
       costCenterId: centerId ? Number(centerId) : undefined,
       cursor: pageParam,
       limit: 25,
@@ -68,6 +72,7 @@ export default function SubmissionQueue({ centers, reviewable, mineOnly = false,
 
   return (
     <div className="space-y-4">
+      {archiveError && <p role="alert">{archiveError}</p>}
       <div className="flex flex-col gap-3 sm:flex-row">
         <Select
           aria-label="Filter submissions by status"
@@ -137,6 +142,7 @@ export default function SubmissionQueue({ centers, reviewable, mineOnly = false,
                       {!mineOnly && ` · ${submission.submitter_username}`}
                       {' · '}{formatDate(submission.created_at)}
                     </p>
+                    {reviewable && <SubmissionSliceInfo audience={audience} id={submission.id} revision={submission.lifecycle_revision} />}
                     {submission.rejection_reason && (
                       <p className="mt-2 text-xs text-[var(--status-failed)]">
                         {submission.rejection_reason}
@@ -146,6 +152,15 @@ export default function SubmissionQueue({ centers, reviewable, mineOnly = false,
                   {canRevise && onRevise && <Button variant="secondary" size="sm" onClick={() => {
                     if (educationAudience(currentPrincipal()) === audience && currentPrincipal()?.id === submission.submitted_by) onRevise(submission)
                   }}>Revise and resubmit</Button>}
+                  {reviewable && status !== 'archived' && ['completed', 'failed', 'rejected', 'cancelled'].includes(submission.status) && <Button variant="secondary" size="sm" onClick={async () => {
+                    if (educationAudience(currentPrincipal()) !== audience) return
+                    try {
+                      await education.archiveSubmission(submission.id, { revision: submission.lifecycle_revision, command_id: crypto.randomUUID() })
+                      setArchiveError('')
+                      await queryClient.invalidateQueries({ queryKey: ['education-submissions'] })
+                      await queryClient.invalidateQueries({ queryKey: ['jobs'] })
+                    } catch (error) { setArchiveError(error instanceof Error ? error.message : 'Archive failed') }
+                  }}>Archive</Button>}
                   {canReview && (
                     <Button
                       variant="secondary"
@@ -176,7 +191,7 @@ export default function SubmissionQueue({ centers, reviewable, mineOnly = false,
         </div>
       )}
 
-      <ReviewDecisionModal key={audience} submission={reviewTarget?.audience === audience ? reviewTarget.submission : null} onClose={() => setReviewTarget(null)} />
+      <ReviewDecisionModal audience={audience} key={audience} submission={reviewTarget?.audience === audience ? reviewTarget.submission : null} onClose={() => setReviewTarget(null)} />
     </div>
   )
 }

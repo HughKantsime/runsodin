@@ -1,5 +1,7 @@
 """Caller-owned, organization-bound AMS inventory updates for raw daemon DBs."""
 import math
+import json
+import uuid
 from core.material_identity import canonical_reported_material
 from modules.printers.telemetry.validators import coerce_int_or_raise
 
@@ -44,20 +46,34 @@ def _graph(conn, printer_id, tags):
         placeholders = ','.join('?' for _ in tags)
         matches = conn.execute(f'SELECT id,rfid_tag FROM spools WHERE rfid_tag IN ({placeholders})', tuple(tags)).fetchall()  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- only '?' placeholders generated from the bound value count; values are bound
     ids = {row[1] for row in slots if row[1] is not None} | {row[0] for row in matches}
+    ids.update(row[0] for row in conn.execute('SELECT id FROM spools WHERE location_printer_id=?', (printer_id,)).fetchall())
     spools = _rows(conn, 'spools', ids, _SPOOL_COLUMNS)
     if ids:
         placeholders = ','.join('?' for _ in ids)
         previous = conn.execute(f'SELECT id,assigned_spool_id,printer_id,slot_number FROM filament_slots WHERE assigned_spool_id IN ({placeholders})', tuple(sorted(ids))).fetchall()  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- only '?' placeholders generated from the bound value count; values are bound
         slots = list({row[0]: row for row in slots + previous}.values())
+    repairs = {}
     for spool in spools:
         if spool[2] is not None:
             located = conn.execute('SELECT id,assigned_spool_id,printer_id,slot_number FROM filament_slots WHERE printer_id=? AND slot_number=?', (spool[2], spool[5])).fetchone()
             if located is None or located[1] != spool[0]:
-                raise AMSInventoryError('contradictory', printer_id, slots=(() if located is None else (located[0],)), spools=(spool[0],), numbers=(() if spool[5] is None else (spool[5],)))
+                linked = [row for row in slots if row[1] == spool[0]]
+                if linked:
+                    raise AMSInventoryError('contradictory', printer_id, slots=[r[0] for r in linked], spools=(spool[0],))
+                repairs[spool[0]] = (spool[2], spool[5])
+                continue
             slots = list({row[0]: row for row in slots + [located]}.values())
     if {row[0] for row in spools} != ids:
         raise AMSInventoryError('unavailable', printer_id, slots=[row[0] for row in slots], spools=ids)
-    return ({row[0]: (row[1],row[2],row[3]) for row in slots}, {row[0]: (row[2],row[5]) for row in spools}, {row[1]: row[0] for row in matches})
+    for spool_id in ids:
+        linked = [r for r in slots if r[1] == spool_id]
+        if len(linked) > 1:
+            raise AMSInventoryError('ambiguous', printer_id, slots=[r[0] for r in linked], spools=(spool_id,))
+        if any(r[2] != printer_id for r in linked) and spool_id not in {r[0] for r in matches}:
+            raise AMSInventoryError('cross-printer', printer_id, slots=[r[0] for r in linked], spools=(spool_id,))
+    return ({row[0]: (row[1],row[2],row[3]) for row in slots},
+            {row[0]: (None, None) if row[0] in repairs else (row[2],row[5]) for row in spools},
+            {row[1]: row[0] for row in matches}, repairs)
 
 
 def sync_ams_inventory(conn, printer_id, units):
@@ -101,7 +117,7 @@ def sync_ams_inventory(conn, printer_id, units):
     if not getattr(conn, '_postgres', False):
         conn.execute('UPDATE printers SET name=name WHERE id=?', (printer_id,))
     before = _graph(conn, printer_id, tags)
-    printer_ids = {printer_id} | {value[0] for value in before[1].values() if value[0] is not None} | {value[1] for value in before[0].values()}
+    printer_ids = {v[0] for v in before[3].values() if v[0] is not None} | {printer_id} | {value[0] for value in before[1].values() if value[0] is not None} | {value[1] for value in before[0].values()}
     printers = {row[0]: row[1] for row in _rows(conn, 'printers', printer_ids, 'id,org_id', lock=True)}
     _rows(conn, 'filament_slots', set(before[0]), 'id', lock=True)
     spools = {row[0]: row for row in _rows(conn, 'spools', set(before[1]), _SPOOL_COLUMNS, lock=True)}
@@ -113,13 +129,18 @@ def sync_ams_inventory(conn, printer_id, units):
     for slot in before[0].values():
         if slot[0] is not None:
             row = spools[slot[0]]
-            if row[2] is not None and (row[2],row[5]) != (slot[1],slot[2]):
+            location = before[1][row[0]]
+            if location[0] is not None and location != (slot[1],slot[2]):
                 raise AMSInventoryError('contradictory', printer_id, slots=before[0], spools=(row[0],), numbers=(slot[2],))
     for row in spools.values():
         if row[1] is not None and row[1] != org:
             raise AMSInventoryError('unavailable', printer_id, slots=before[0], spools=before[1])
         if row[2] is not None and printers[row[2]] is not None and printers[row[2]] != org:
             raise AMSInventoryError('unavailable', printer_id, slots=before[0], spools=before[1])
+    for spool_id, location in before[3].items():
+        conn.execute('INSERT INTO inventory_repairs(event_id,spool_id,action,before_json,after_json) VALUES(?,?,?,?,?)',
+                     (str(uuid.uuid4()), spool_id, 'stale-location.clear', json.dumps(location), json.dumps([None, None])))
+        conn.execute('UPDATE spools SET location_printer_id=NULL,location_slot=NULL WHERE id=?', (spool_id,))
     # Clear the original association graph before writing any final targets.
     # A sequential clear/write loop loses assignments during valid permutations.
     destinations = {number: before[2].get(tray.get('tag_uid'))

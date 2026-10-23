@@ -87,12 +87,20 @@ def _ams_mutation_graph(db, printer_id, tags):
     matches = db.query(Spool).filter(Spool.rfid_tag.in_(tags)).populate_existing().all() if tags else []
     spool_ids = {slot.assigned_spool_id for slot in slots if slot.assigned_spool_id is not None}
     spool_ids.update(spool.id for spool in matches)
+    displaced = db.query(Spool).filter(Spool.location_printer_id == printer_id).populate_existing().all()
+    spool_ids.update(spool.id for spool in displaced)
+    previous = db.query(FilamentSlot).filter(FilamentSlot.assigned_spool_id.in_(spool_ids)).populate_existing().all()
+    slots = list({slot.id: slot for slot in slots + previous}.values())
     spools = db.query(Spool).filter(Spool.id.in_(spool_ids)).populate_existing().all() if spool_ids else []
     if {spool.id for spool in spools} != spool_ids:
         raise HTTPException(409, "Spool association unavailable for this organization")
+    for spool_id in spool_ids:
+        linked = [slot for slot in slots if slot.assigned_spool_id == spool_id]
+        if len(linked) > 1:
+            raise HTTPException(409, f"AMS association ambiguous: spool_id={spool_id} filament_slot_ids={sorted(s.id for s in linked)}; use Resolve inventory conflicts")
     return (
         {slot.id: slot.assigned_spool_id for slot in slots},
-        {spool.id: spool.location_printer_id for spool in spools},
+        {spool.id: (spool.location_printer_id, spool.location_slot) for spool in spools},
         {spool.rfid_tag: spool.id for spool in matches},
     )
 
@@ -110,7 +118,7 @@ def _lock_ams_mutation(db, printer_id, current_user, tags, acquired_connection):
             db.execute(text("UPDATE printers SET name=name WHERE id=:id"), {"id": printer_id})
         db.expire_all()
         before = _ams_mutation_graph(db, printer_id, tags)
-        printer_ids = {printer_id} | {value for value in before[1].values() if value is not None}
+        printer_ids = {printer_id} | {value[0] for value in before[1].values() if value[0] is not None}
         printers = db.query(Printer).filter(Printer.id.in_(printer_ids)).order_by(Printer.id).with_for_update(nowait=True).populate_existing().all()
         db.query(FilamentSlot).filter(FilamentSlot.id.in_(before[0])).order_by(FilamentSlot.id).with_for_update(nowait=True).populate_existing().all()
         spools = db.query(Spool).filter(Spool.id.in_(before[1])).order_by(Spool.id).with_for_update(nowait=True).populate_existing().all()
@@ -130,6 +138,8 @@ def _lock_ams_mutation(db, printer_id, current_user, tags, acquired_connection):
                 raise HTTPException(409, "Spool association unavailable for this organization")
             if spool.location_printer_id is not None and not check_org_access(current_user, printers[spool.location_printer_id].org_id):
                 raise HTTPException(409, "Spool association unavailable for this organization")
+        from modules.inventory.stale_locations import repair_stale_locations
+        repair_stale_locations(db, spools, current_user['id'])
         return printer, {spool.rfid_tag: spool for spool in spools if spool.rfid_tag in tags}
     except OperationalError as exc:
         db.rollback()
@@ -597,7 +607,6 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
                 db_slot.filament_type = ftype
                 db_slot.color = color_name
                 db_slot.color_hex = color_hex
-                db_slot.spoolman_spool_id = None
                 db_slot.loaded_at = datetime.now(timezone.utc)
                 updated_slots.append({
                     "slot": ams_slot.slot_number, "type": ftype.value, "color": color_name,
@@ -605,30 +614,10 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
                 })
                 continue
 
-            spoolman_match = find_spoolman_match(color_hex, ams_slot.filament_type)
-            if spoolman_match:
-                filament = spoolman_match.get("filament") or {}
-                vendor = filament.get("vendor") or {}
-                vendor_name = vendor.get("name") or ""
-                filament_name = filament.get("name") or ""
-                color_name = f"{vendor_name} {filament_name}".strip() if vendor_name else filament_name
-                spoolman_id = spoolman_match.get("id")
-                db_slot.filament_type = ftype
-                db_slot.color = color_name
-                db_slot.color_hex = color_hex
-                db_slot.spoolman_spool_id = spoolman_id
-                db_slot.loaded_at = datetime.now(timezone.utc)
-                updated_slots.append({
-                    "slot": ams_slot.slot_number, "type": ftype.value, "color": color_name,
-                    "color_hex": color_hex, "spoolman_id": spoolman_id, "matched": "spoolman",
-                })
-                continue
-
             color_name = get_color_name(color_hex)
             db_slot.filament_type = ftype
             db_slot.color = color_name
             db_slot.color_hex = color_hex
-            db_slot.spoolman_spool_id = None
             db_slot.loaded_at = datetime.now(timezone.utc)
             updated_slots.append({
                 "slot": ams_slot.slot_number, "type": ftype.value, "color": color_name,
@@ -637,7 +626,6 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
         else:
             db_slot.color = None
             db_slot.color_hex = None
-            db_slot.spoolman_spool_id = None
             updated_slots.append({
                 "slot": ams_slot.slot_number, "type": db_slot.filament_type.value,
                 "color": None, "empty": True,

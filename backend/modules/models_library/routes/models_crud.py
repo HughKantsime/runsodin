@@ -54,7 +54,8 @@ def list_models(
     db: Session = Depends(get_db)
 ):
     """List all print models."""
-    query = db.query(Model)
+    from modules.models_library.education_retention import visible_models
+    query = visible_models(db)
     if category:
         query = query.filter(Model.category == category)
 
@@ -73,7 +74,8 @@ def list_models_with_pricing(
     current_user: dict = Depends(require_role("viewer", scope="read:models"))
 ):
     """List all print models with calculated cost and suggested price."""
-    query = db.query(Model)
+    from modules.models_library.education_retention import visible_models
+    query = visible_models(db)
     if category:
         query = query.filter(Model.category == category)
     effective_org = _get_org_filter(current_user, org_id) if org_id is not None else get_org_scope(current_user)
@@ -279,6 +281,8 @@ def delete_model(model_id: int, current_user: dict = Depends(require_action("mod
     if not check_org_access(current_user, model.org_id):
         raise HTTPException(status_code=404, detail="Model not found")
 
+    from modules.models_library.education_retention import assert_model_deletable
+    assert_model_deletable(db, model.id)
     db.delete(model)
     db.commit()
 

@@ -26,7 +26,7 @@ const queryString = (values: Record<string, string | number | boolean | undefine
 
 export const education = {
   capabilities: (): Promise<EducationCapabilities> => fetchAPI('/education/capabilities'),
-  readiness: (): Promise<EducationReadiness> => fetchAPI('/education/readiness'),
+  readiness: (orgId?: number | null): Promise<EducationReadiness> => fetchAPI(`/education/readiness${queryString({ org_id: orgId })}`),
 
   listCenters: (options: {
     includeArchived?: boolean
@@ -71,20 +71,22 @@ export const education = {
     method: 'POST', body: JSON.stringify(data),
   }),
 
-  listGrants: (centerId: number, cursor?: string): Promise<EducationGrantPage> => fetchAPI(
-    `/education/cost-centers/${centerId}/grants${queryString({ cursor, limit: 100 })}`
+  listGrants: (centerId: number, cursor?: string, orgId?: number): Promise<EducationGrantPage> => fetchAPI(
+    `/education/cost-centers/${centerId}/grants${queryString({ cursor, limit: 100, org_id: orgId })}`
   ),
   replaceGrants: (centerId: number, data: {
+    org_id?: number
     revision: number
     grants: Array<{ user_id: number; roles: Array<'student' | 'manager'> }>
     command_id: string
   }): Promise<{ id: number; revision: number; grants: Array<{ user_id: number; roles: string[] }> }> => fetchAPI(
     `/education/cost-centers/${centerId}/grants`, { method: 'PUT', body: JSON.stringify(data) }
   ),
-  listCenterPrinters: (centerId: number, cursor?: string): Promise<EducationPrinterPage> => fetchAPI(
-    `/education/cost-centers/${centerId}/printers${queryString({ cursor, limit: 100 })}`
+  listCenterPrinters: (centerId: number, cursor?: string, orgId?: number): Promise<EducationPrinterPage> => fetchAPI(
+    `/education/cost-centers/${centerId}/printers${queryString({ cursor, limit: 100, org_id: orgId })}`
   ),
   replaceCenterPrinters: (centerId: number, data: {
+    org_id?: number
     revision: number
     printer_ids: number[]
     command_id: string
@@ -95,6 +97,7 @@ export const education = {
   listSubmissions: (filters: EducationSubmissionFilters = {}): Promise<CursorPage<EducationSubmission>> => fetchAPI(
     `/education/submissions${queryString({
       status: filters.status,
+      archived: filters.archived,
       cost_center_id: filters.costCenterId,
       cursor: filters.cursor,
       limit: filters.limit,
@@ -133,6 +136,7 @@ export const education = {
   ): Promise<EducationDecisionResult> => fetchAPI(`/education/submissions/${id}/approve`, {
     method: 'POST', body: JSON.stringify(data),
   }),
+  archiveSubmission: (id: number, data: { revision: number; reason?: string; command_id: string }) => fetchAPI(`/education/submissions/${id}/archive`, { method: 'POST', body: JSON.stringify(data) }),
   rejectSubmission: (
     id: number,
     data: { revision: number; reason: string; command_id: string },

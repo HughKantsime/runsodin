@@ -15,6 +15,10 @@ INVENTORY = ROOT / "ops" / "database_parity" / "sqlite_compatibility_inventory.j
 
 
 CLASSIFICATIONS: dict[str, tuple[str, str]] = {
+    "backend/core/schema/education_archive_validation.py": (
+        "sqlite-provider-only",
+        "SQLite PRAGMA verifies the exact enforced additive archive actor FK; PostgreSQL uses its reflected constraints.",
+    ),
     "backend/core/account_bound_session_schema.py": (
         "sqlite-provider-only",
         "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
@@ -422,6 +426,7 @@ PRESERVED_BUNDLES = (
     BACKEND / "core/schema/preserved027/bundle",
     BACKEND / "core/schema/preserved029/bundle",
     BACKEND / "core/schema/preserved034/bundle",
+    BACKEND / "core/schema/preserved035/overlay",
 )
 
 

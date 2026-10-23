@@ -4,15 +4,17 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import EducationWorkbench from './EducationWorkbench'
 const state = vi.hoisted(() => ({
+  principal: { id: 1, username: 'student', role: 'viewer', group_id: 7 } as any,
   capabilities: { education_enabled: true, student: false, manager: false, tenant_admin: false, student_cost_center_ids: [], managed_cost_center_ids: [] },
   licensed: true, error: false, loading: false, licenseError: false,
 }))
+vi.mock('../../contexts/OrgContext', () => ({ useOrg: () => ({ orgId: 7, orgs: [{ id: 7, name: 'School' }], switchOrg: vi.fn() }) }))
 vi.mock('../../permissions', () => ({ getCurrentUser: () => ({ id: 1, username: 'student', role: 'viewer', group_id: 7 }) }))
 vi.mock('../../api', () => ({ auth: { me: vi.fn() }, education: {}, getEducationMode: vi.fn() }))
 vi.mock('../../LicenseContext', () => ({ useLicense: () => ({ isEducation: state.licensed, hasFeature: () => state.licensed, loading: state.loading, loadError: state.licenseError }) }))
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({}),
-  useQuery: ({ queryKey }: { queryKey: string[] }) => ({ data: queryKey[0] === 'auth' ? { id: 1, username: 'student', role: 'viewer', group_id: 7 } : queryKey[0] === 'education-mode' ? { enabled: true } : state.capabilities, isError: state.error, isLoading: false }),
+  useQuery: ({ queryKey }: { queryKey: string[] }) => ({ data: queryKey[0] === 'auth' ? state.principal : queryKey[0] === 'education-mode' ? { enabled: true } : state.capabilities, isError: state.error, isLoading: false }),
   useInfiniteQuery: () => ({ data: { pages: [{ items: [] }] }, hasNextPage: false }),
 }))
 vi.mock('../../components/education/CostCenterManager', () => ({ default: () => null }))
@@ -20,7 +22,7 @@ vi.mock('../../components/education/ClassroomManager', () => ({ default: () => n
 vi.mock('../../components/education/SubmissionQueue', () => ({ default: ({ reviewable }: { reviewable: boolean }) => <div data-testid="submission-queue">{reviewable ? 'review' : 'mine'}</div> }))
 vi.mock('../../components/education/SubmissionUploadModal', () => ({ default: () => null, educationAudience: () => 'owned-student' }))
 vi.mock('../../components/education/ReadinessPanel', () => ({ default: () => null }))
-beforeEach(() => { Object.assign(state.capabilities, { education_enabled: true, student: false, manager: false, tenant_admin: false }); state.licensed = true; state.error = false; state.loading = false; state.licenseError = false })
+beforeEach(() => { state.principal = { id: 1, username: 'student', role: 'viewer', group_id: 7 }; Object.assign(state.capabilities, { education_enabled: true, student: false, manager: false, tenant_admin: false }); state.licensed = true; state.error = false; state.loading = false; state.licenseError = false })
 afterEach(cleanup)
 it('does not call an account without grants a student', () => { render(<MemoryRouter><EducationWorkbench /></MemoryRouter>); expect(screen.getByText('No classroom access')).toBeInTheDocument(); expect(screen.queryByText('Student')).not.toBeInTheDocument(); expect(screen.getByText(/An Operator needs Manager/)).toBeInTheDocument() })
 it('shows dual submission and review access', () => { Object.assign(state.capabilities, { student: true, manager: true }); render(<MemoryRouter><EducationWorkbench /></MemoryRouter>); expect(screen.getByText('Manager + Student')).toBeInTheDocument(); expect(screen.getByText('Review queue')).toBeInTheDocument(); expect(screen.getByText('My submissions')).toBeInTheDocument() })
@@ -39,4 +41,13 @@ it('renders exactly one submission queue as the tabs change', () => {
     fireEvent.click(screen.getByRole('button', { name: tab }))
     expect(screen.getAllByTestId('submission-queue').map((node) => node.textContent)).toEqual([expected])
   }
+})
+
+it('allows platform school setup without granting classroom capabilities', () => {
+  state.principal = { id: 88, username: 'platform', role: 'admin', group_id: null }
+  state.capabilities.education_enabled = false
+  render(<MemoryRouter><EducationWorkbench /></MemoryRouter>)
+  expect(screen.getByText('Education administration')).toBeInTheDocument()
+  expect(screen.getByLabelText('School to administer')).toHaveValue('7')
+  expect(screen.queryByTestId('submission-queue')).not.toBeInTheDocument()
 })

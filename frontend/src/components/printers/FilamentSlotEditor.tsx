@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Search } from 'lucide-react'
 import { printers } from '../../api'
 import { canDo } from '../../permissions'
@@ -60,6 +61,14 @@ interface FilamentSlotEditorProps {
 export default function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }: FilamentSlotEditorProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [search, setSearch] = useState('')
+  useEffect(() => {
+    if (!isEditing) return
+    const close = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { setIsEditing(false); setSearch('') }
+    }
+    document.addEventListener('keydown', close)
+    return () => document.removeEventListener('keydown', close)
+  }, [isEditing])
   const filteredFilaments = allFilaments?.filter(f =>
     f.display_name.toLowerCase().includes(search.toLowerCase()) ||
     f.brand.toLowerCase().includes(search.toLowerCase()) ||
@@ -112,7 +121,9 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
     <>
       <div
         className="bg-[var(--brand-input-bg)] rounded-md p-2 cursor-pointer hover:brightness-110 transition-all min-w-0 text-center flex flex-col items-center gap-1"
-        onClick={() => { if (typeof canDo === 'function' ? canDo('printers.slots') : true) setIsEditing(true) }}
+        onPointerDown={event => event.stopPropagation()}
+        onDragStart={event => { event.preventDefault(); event.stopPropagation() }}
+        onClick={(event) => { event.stopPropagation(); if (typeof canDo === 'function' ? canDo('printers.slots') : true) setIsEditing(true) }}
       >
         <SpoolRing
           color={colorHex ? `#${colorHex}` : '#888'}
@@ -124,8 +135,8 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
         <span className="text-xs text-[var(--brand-text-muted)] truncate block">{getShortName(slot)}</span>
       </div>
 
-      {isEditing && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" role="dialog" aria-modal="true" aria-label={`Select filament for slot ${slot.slot_number}`}>
+      {isEditing && createPortal(
+        <div onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()} onPointerUp={e => e.stopPropagation()} onPointerMove={e => e.stopPropagation()} onDragEnd={e => e.stopPropagation()} onDrop={e => e.stopPropagation()} onDragStart={e => { e.preventDefault(); e.stopPropagation() }} onDrag={e => e.stopPropagation()} className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" role="dialog" aria-modal="true" aria-label={`Select filament for slot ${slot.slot_number}`}>
           <div
             className="absolute inset-0 bg-black/50"
             onClick={() => { setIsEditing(false); setSearch('') }}
@@ -212,7 +223,7 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
               <button onClick={() => { setIsEditing(false); setSearch('') }} className="flex-1 text-sm bg-[var(--brand-input-bg)] hover:brightness-110 rounded-md py-2">Cancel</button>
             </div>
           </div>
-        </div>
+        </div>, document.body
       )}
     </>
   )

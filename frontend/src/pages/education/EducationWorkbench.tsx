@@ -12,6 +12,7 @@ import {
   UsersRound,
 } from 'lucide-react'
 import { auth, education, getEducationMode } from '../../api'
+import { useOrg } from '../../contexts/OrgContext'
 import { useLicense } from '../../LicenseContext'
 import type { EducationCapabilities, EducationCostCenter, EducationSubmission, User } from '../../types'
 import CostCenterManager from '../../components/education/CostCenterManager'
@@ -19,12 +20,14 @@ import ClassroomManager from '../../components/education/ClassroomManager'
 import SubmissionQueue from '../../components/education/SubmissionQueue'
 import SubmissionUploadModal, { educationAudience } from '../../components/education/SubmissionUploadModal'
 import ReadinessPanel from '../../components/education/ReadinessPanel'
-import { Button, Card, EmptyState, PageHeader, StatCard, TabBar } from '../../components/ui'
+import { Button, Card, EmptyState, PageHeader, StatCard, TabBar, Select } from '../../components/ui'
 
 type WorkbenchTab = 'overview' | 'submissions' | 'review' | 'centers' | 'classroom'
 
 export default function EducationWorkbench() {
   const { data: principal } = useQuery<User | null>({ queryKey: ['auth', 'me'], queryFn: auth.me, enabled: false })
+  const org = useOrg()
+  const platformAdmin = principal?.role === 'admin' && principal?.group_id === null
   const audience = educationAudience(principal)
   const [revision, setRevision] = useState<EducationSubmission | null>(null)
   const queryClient = useQueryClient()
@@ -42,15 +45,16 @@ export default function EducationWorkbench() {
   const capabilities = capabilitiesQuery.data
 
   const centersQuery = useInfiniteQuery({
-    queryKey: ['education-centers', audience, includeArchived],
+    queryKey: ['education-centers', audience, includeArchived, org.orgId],
     queryFn: ({ pageParam }) => education.listCenters({
       includeArchived,
+      orgId: platformAdmin ? org.orgId : undefined,
       cursor: pageParam,
       limit: 100,
     }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => page.next_cursor || undefined,
-    enabled: !!audience && !!capabilities?.education_enabled,
+    enabled: !!audience && (!!capabilities?.education_enabled || (platformAdmin && !!org.orgId)),
   })
   useEffect(() => {
     if (centersQuery.hasNextPage && !centersQuery.isFetchingNextPage) {
@@ -112,6 +116,21 @@ export default function EducationWorkbench() {
   }
 
   const installationEnabled = license.isEducation && license.hasFeature('education_workflows')
+  if (installationEnabled && platformAdmin) {
+    return <div className="p-4 md:p-6 space-y-4">
+      <PageHeader icon={GraduationCap} title="Education administration" subtitle="Manage a school without changing your platform account" />
+      <Select aria-label="School to administer" value={org.orgId ?? ''} onChange={event => org.switchOrg(event.target.value ? Number(event.target.value) : null)}>
+        <option value="">Select a school</option>
+        {org.orgs.map(school => <option key={school.id} value={school.id}>{school.name}</option>)}
+      </Select>
+      <p>Use a school-level admin account for classroom review. Platform Super Admin accounts cannot hold Education grants.</p>
+      {org.orgId && modeQuery.data?.enabled && <>
+        <CostCenterManager key={org.orgId} orgId={org.orgId} centers={centers} includeArchived={includeArchived} onIncludeArchivedChange={setIncludeArchived} loading={centersQuery.isLoading || centersQuery.isFetchingNextPage} />
+        <ReadinessPanel orgId={org.orgId} />
+      </>}
+      {!modeQuery.data?.enabled && <p>Enable Education mode in Settings to configure a school.</p>}
+    </div>
+  }
   if (!installationEnabled || !capabilities?.education_enabled) {
     return (
       <div className="p-4 md:p-6">

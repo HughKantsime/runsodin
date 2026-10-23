@@ -866,6 +866,14 @@
     },
     {
       "classification": "sqlite-provider-only",
+      "line": 36,
+      "path": "backend/core/schema/education_archive_validation.py",
+      "pattern": "PRAGMA",
+      "reason": "SQLite PRAGMA verifies the exact enforced additive archive actor FK; PostgreSQL uses its reflected constraints.",
+      "source": "keys = conn.exec_driver_sql('PRAGMA foreign_key_list(education_submissions)').fetchall()"
+    },
+    {
+      "classification": "sqlite-provider-only",
       "line": 37,
       "path": "backend/core/schema/mfa_enrollments.py",
       "pattern": "PRAGMA",
@@ -1018,7 +1026,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 246,
+      "line": 247,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1026,7 +1034,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 480,
+      "line": 487,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1034,7 +1042,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 506,
+      "line": 513,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1042,7 +1050,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 508,
+      "line": 515,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1050,7 +1058,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 518,
+      "line": 525,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1058,7 +1066,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 533,
+      "line": 540,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1066,7 +1074,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 535,
+      "line": 542,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1690,7 +1698,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 149,
+      "line": 152,
       "path": "backend/modules/organizations/education_policy_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Static source-discovery regex contains SQL vocabulary and regex question marks; it executes no database statement",
@@ -1706,7 +1714,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 41,
+      "line": 43,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1714,7 +1722,15 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 54,
+      "line": 49,
+      "path": "backend/modules/printers/monitors/ams_inventory.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
+      "source": "ids.update(row[0] for row in conn.execute('SELECT id FROM spools WHERE location_printer_id=?', (printer_id,)).fetchall())"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 58,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1722,7 +1738,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 92,
+      "line": 112,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1730,43 +1746,19 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 102,
+      "line": 135,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
-      "source": "conn.execute('UPDATE printers SET name=name WHERE id=?', (printer_id,))"
+      "source": "conn.execute('INSERT INTO inventory_repairs(event_id,spool_id,action,before_json,after_json) VALUES(?,?,?,?,?)',"
     },
     {
       "classification": "dialect-neutral",
-      "line": 132,
+      "line": 137,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
-      "source": "conn.execute('UPDATE filament_slots SET assigned_spool_id=NULL,spool_confirmed=? WHERE id=?', (False, old_id))"
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 136,
-      "path": "backend/modules/printers/monitors/ams_inventory.py",
-      "pattern": "qmark-parameter",
-      "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
-      "source": "conn.execute('UPDATE spools SET location_printer_id=NULL,location_slot=NULL WHERE id=?', (association[0],))"
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 142,
-      "path": "backend/modules/printers/monitors/ams_inventory.py",
-      "pattern": "qmark-parameter",
-      "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
-      "source": "existing = conn.execute('SELECT id,assigned_spool_id FROM filament_slots WHERE printer_id=? AND slot_number=?', (printer_id, number)).fetchone()"
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 145,
-      "path": "backend/modules/printers/monitors/ams_inventory.py",
-      "pattern": "qmark-parameter",
-      "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
-      "source": "conn.execute('UPDATE filament_slots SET filament_type=?,color_hex=?,loaded_at=CURRENT_TIMESTAMP WHERE id=?', (filament_type, color, identifier))"
+      "source": "conn.execute('UPDATE spools SET location_printer_id=NULL,location_slot=NULL WHERE id=?', (spool_id,))"
     },
     {
       "classification": "dialect-neutral",
@@ -1774,11 +1766,43 @@
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
+      "source": "conn.execute('UPDATE filament_slots SET assigned_spool_id=NULL,spool_confirmed=? WHERE id=?', (False, old_id))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 151,
+      "path": "backend/modules/printers/monitors/ams_inventory.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
+      "source": "conn.execute('UPDATE spools SET location_printer_id=NULL,location_slot=NULL WHERE id=?', (association[0],))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 157,
+      "path": "backend/modules/printers/monitors/ams_inventory.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
+      "source": "existing = conn.execute('SELECT id,assigned_spool_id FROM filament_slots WHERE printer_id=? AND slot_number=?', (printer_id, number)).fetchone()"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 160,
+      "path": "backend/modules/printers/monitors/ams_inventory.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
+      "source": "conn.execute('UPDATE filament_slots SET filament_type=?,color_hex=?,loaded_at=CURRENT_TIMESTAMP WHERE id=?', (filament_type, color, identifier))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 162,
+      "path": "backend/modules/printers/monitors/ams_inventory.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
       "source": "conn.execute('UPDATE filament_slots SET color=NULL WHERE id=?', (identifier,))"
     },
     {
       "classification": "dialect-neutral",
-      "line": 149,
+      "line": 164,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1786,7 +1810,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 150,
+      "line": 165,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1794,7 +1818,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 154,
+      "line": 169,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1802,7 +1826,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 168,
+      "line": 183,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1810,35 +1834,11 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 170,
+      "line": 185,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
       "source": "conn.execute('UPDATE spools SET location_printer_id=?,location_slot=?,remaining_weight_g=? WHERE id=?', (printer_id, number, weight, spool_id))"
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 188,
-      "path": "backend/modules/printers/monitors/ams_inventory.py",
-      "pattern": "qmark-parameter",
-      "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
-      "source": "f'SELECT id,assigned_spool_id,slot_number FROM filament_slots WHERE printer_id=? AND slot_number>=? ORDER BY id{suffix}',"
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 193,
-      "path": "backend/modules/printers/monitors/ams_inventory.py",
-      "pattern": "qmark-parameter",
-      "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
-      "source": "conn.execute('UPDATE filament_slots SET filament_type=?,color_hex=NULL,color=NULL,assigned_spool_id=NULL,spool_confirmed=? WHERE id=?',"
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 196,
-      "path": "backend/modules/printers/monitors/ams_inventory.py",
-      "pattern": "qmark-parameter",
-      "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
-      "source": "conn.execute('UPDATE spools SET location_printer_id=NULL,location_slot=NULL'"
     },
     {
       "classification": "dialect-neutral",

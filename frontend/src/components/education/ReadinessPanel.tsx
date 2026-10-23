@@ -3,8 +3,8 @@ import { AlertCircle, CheckCircle2, DatabaseBackup, KeyRound, Link2, Printer, Sc
 import { education } from '../../api'
 import { Card, EmptyState } from '../ui'
 
-export default function ReadinessPanel() {
-  const query = useQuery({ queryKey: ['education-readiness'], queryFn: education.readiness })
+export default function ReadinessPanel({ orgId }: { orgId?: number | null }) {
+  const query = useQuery({ queryKey: ['education-readiness', orgId], queryFn: () => education.readiness(orgId) })
   if (query.isLoading) return <p className="text-sm text-[var(--brand-text-secondary)]">Checking POC readiness…</p>
   if (!query.data || query.isError) {
     return <EmptyState icon={AlertCircle} title="Readiness unavailable" description="ODIN could not load the tenant readiness signals." />
@@ -20,7 +20,8 @@ export default function ReadinessPanel() {
   const rows = [
     { icon: School, label: 'Education entitlement', detail: 'Signed Education workflow feature', ready: value.education_license },
     { icon: School, label: 'Education mode', detail: value.education_mode ? 'Enabled' : 'Enable in Settings', ready: value.education_mode },
-    { icon: KeyRound, label: 'Single sign-on', detail: value.oidc.ready ? `${value.oidc.provider} is configured` : 'Identity provider setup required', ready: value.oidc.ready },
+    { icon: KeyRound, label: 'SSO sign-in configured', detail: value.oidc.ready ? `${value.oidc.provider} is configured` : value.oidc.reasons?.join('; ') || 'Identity provider setup required', ready: value.oidc.ready },
+    ...(value.oidc.auto_create ? [{ icon: KeyRound, label: 'SSO auto-create lands in this school', detail: value.oidc.tenant_reasons?.join('; ') || 'New SSO accounts land in this school', ready: !!value.oidc.tenant_ready }] : []),
     { icon: Link2, label: 'Google Classroom', detail: value.classroom.connected ? `Connected as ${value.classroom.account_email}` : 'Optional; not connected', ready: value.classroom.connected, optional: true },
     { icon: UsersRound, label: 'Pilot class setup', detail: value.pilot.complete_centers > 0 ? `${value.pilot.complete_centers} active class(es) have an active student, manager, and authorized printer together. File compatibility and physical printing still need testing.` : 'Add an active student, manager, and authorized printer to the same active class in Classes & clubs.', ready: value.pilot.complete_centers > 0 },
     { icon: Printer, label: 'Education upload storage', detail: storageDetail, ready: storage?.status === 'ready' },

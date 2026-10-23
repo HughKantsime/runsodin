@@ -62,10 +62,13 @@ def register(app, registry) -> None:
         routes_classroom,
     )
 
+    from modules.organizations.education_slice_info import router as education_slice_router
+
     for router in (
         routes.router,
         auth_routes.router,
         routes_education.router,
+        education_slice_router,
         routes_education_submissions.router,
         routes_education_reviews.router,
         routes_classroom.router,

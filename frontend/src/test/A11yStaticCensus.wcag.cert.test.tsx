@@ -117,7 +117,7 @@ afterEach(cleanup)
 
 it('F12-12.7-03 census: at least 50 icon-only buttons carry aria-label (exact count in receipt)', () => {
   expect(summary.icon_only_with_aria_label).toBeGreaterThanOrEqual(50)
-  expect(summary.icon_only_with_aria_label).toBe(107)
+  expect(summary.icon_only_with_aria_label).toBe(108)
 })
 
 it('F12-12.7-03 census: every icon-only button has an accessible name (aria-label, aria-labelledby or title)', () => {

@@ -8,18 +8,19 @@ def readiness_for(db: Session, effective_org: int) -> dict:
     mode = db.execute(
         text("SELECT value FROM system_config WHERE key='education_mode'")
     ).fetchone()
-    oidc = db.execute(text("SELECT * FROM oidc_config WHERE id=1")).fetchone()
+    oidc = db.execute(text("SELECT * FROM oidc_config WHERE is_enabled IS TRUE LIMIT 1")).fetchone()
     oidc_map = oidc._mapping if oidc else {}
     provider = oidc_map.get("provider_type") or "microsoft"
-    discovery_ready = bool(oidc_map.get("discovery_url")) or provider in {"microsoft", "google"}
-    oidc_ready = bool(
-        oidc_map.get("is_enabled")
-        and oidc_map.get("client_id")
-        and oidc_map.get("client_secret_encrypted")
-        and oidc_map.get("default_group_id") == effective_org
-        and discovery_ready
-        and (provider != "google" or oidc_map.get("allowed_domains"))
-    )
+    reasons = []
+    if not oidc:
+        reasons.append("Enable an SSO identity provider")
+    if not oidc_map.get("client_id"):
+        reasons.append("Client ID is missing")
+    if not oidc_map.get("client_secret_encrypted"):
+        reasons.append("Client secret is missing")
+    oidc_ready = not reasons
+    auto_create = bool(oidc_map.get("auto_create_users"))
+    tenant_ready = not auto_create or oidc_map.get("default_group_id") == effective_org
     classroom = db.execute(
         text("SELECT * FROM classroom_connections WHERE org_id=:org_id"),
         {"org_id": effective_org},
@@ -68,6 +69,10 @@ def readiness_for(db: Session, effective_org: int) -> dict:
             "ready": oidc_ready,
             "provider": provider,
             "enabled": bool(oidc_map.get("is_enabled")),
+            "reasons": reasons,
+            "auto_create": auto_create,
+            "tenant_ready": tenant_ready,
+            "tenant_reasons": [] if tenant_ready else ["Set the auto-create default organisation to this school"],
         },
         "classroom": connection_status(classroom),
         "pilot": {

@@ -442,6 +442,10 @@ async def replace_cost_center_grants(
     if replay is not None:
         return replay
     if user_ids:
+        platform_query = text("SELECT id FROM users WHERE id IN :ids AND role='admin' AND group_id IS NULL").bindparams(bindparam("ids", expanding=True))
+        if db.execute(platform_query, {"ids": user_ids}).first():
+            db.rollback()
+            raise validation_error("Platform Super Admin cannot hold Education grants; use a school-level admin account", "grants")
         query = text(
             "SELECT id FROM users WHERE id IN :ids AND group_id=:org_id AND is_active IS TRUE"
         ).bindparams(bindparam("ids", expanding=True))

@@ -2,16 +2,18 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2, Printer, XCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
+import SubmissionSliceInfo from './SubmissionSliceInfo'
 import { education } from '../../api'
 import type { EducationSubmission, EducationAMSReport, EducationApprovalRequest } from '../../types'
 import { Button, Modal, Select, Textarea } from '../ui'
 
 interface ReviewDecisionModalProps {
+  audience?: string
   submission: EducationSubmission | null
   onClose: () => void
 }
 
-export default function ReviewDecisionModal({ submission, onClose }: ReviewDecisionModalProps) {
+export default function ReviewDecisionModal({ submission, onClose, audience = '' }: ReviewDecisionModalProps) {
   const queryClient = useQueryClient()
   const [printerId, setPrinterId] = useState('')
   const [reason, setReason] = useState('')
@@ -170,7 +172,8 @@ export default function ReviewDecisionModal({ submission, onClose }: ReviewDecis
               <Printer size={16} className="text-[var(--brand-primary)]" />
               <h3 className="text-sm font-semibold text-[var(--brand-text-primary)]">Approve to a printer</h3>
             </div>
-            <Select
+            <SubmissionSliceInfo audience={audience} id={submission.id} revision={submission.lifecycle_revision} printerId={printerId ? Number(printerId) : undefined} />
+        <Select
               label="Authorized printer"
               value={printerId}
               onChange={(event) => {

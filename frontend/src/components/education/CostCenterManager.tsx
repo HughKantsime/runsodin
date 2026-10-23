@@ -8,6 +8,7 @@ import ConfirmModal from '../shared/ConfirmModal'
 import { Button, Card, EmptyState, Input, Modal, Select, Textarea } from '../ui'
 
 interface CostCenterManagerProps {
+  orgId?: number | null
   centers: EducationCostCenter[]
   includeArchived: boolean
   onIncludeArchivedChange: (value: boolean) => void
@@ -24,6 +25,7 @@ const blankDraft: CenterDraft = { name: '', code: '', description: '' }
 
 export default function CostCenterManager({
   centers,
+  orgId,
   includeArchived,
   onIncludeArchivedChange,
   loading,
@@ -45,18 +47,18 @@ export default function CostCenterManager({
 
   const selected = centers.find((center) => center.id === selectedId) || null
   const grants = useInfiniteQuery({
-    queryKey: ['education-center-grants', selectedId],
-    queryFn: ({ pageParam }) => education.listGrants(selectedId!, pageParam),
+    queryKey: ['education-center-grants', selectedId, selected?.org_id],
+    queryFn: ({ pageParam }) => education.listGrants(selectedId!, pageParam, selected?.org_id),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => page.next_cursor || undefined,
-    enabled: !!selectedId,
+    enabled: !!selected,
   })
   const entitlements = useInfiniteQuery({
-    queryKey: ['education-center-printers', selectedId],
-    queryFn: ({ pageParam }) => education.listCenterPrinters(selectedId!, pageParam),
+    queryKey: ['education-center-printers', selectedId, selected?.org_id],
+    queryFn: ({ pageParam }) => education.listCenterPrinters(selectedId!, pageParam, selected?.org_id),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => page.next_cursor || undefined,
-    enabled: !!selectedId,
+    enabled: !!selected,
   })
   const userQuery = useQuery({ queryKey: ['users'], queryFn: users.list })
   const printerQuery = useQuery({
@@ -104,8 +106,8 @@ export default function CostCenterManager({
   const refreshCenter = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['education-centers'] }),
-      queryClient.invalidateQueries({ queryKey: ['education-center-grants', selectedId] }),
-      queryClient.invalidateQueries({ queryKey: ['education-center-printers', selectedId] }),
+      queryClient.invalidateQueries({ queryKey: ['education-center-grants', selectedId, selected?.org_id] }),
+      queryClient.invalidateQueries({ queryKey: ['education-center-printers', selectedId, selected?.org_id] }),
       queryClient.invalidateQueries({ queryKey: ['education-submissions'] }),
     ])
   }
@@ -113,13 +115,14 @@ export default function CostCenterManager({
   const saveCenter = useMutation({
     mutationFn: () => editing
       ? education.updateCenter(editing.id, {
+          org_id: editing.org_id,
           revision: editing.revision,
           name: draft.name,
           code: draft.code,
           description: draft.description,
           command_id: crypto.randomUUID(),
         })
-      : education.createCenter({ ...draft, command_id: crypto.randomUUID() }),
+      : education.createCenter({ ...draft, org_id: orgId, command_id: crypto.randomUUID() }),
     onSuccess: async () => {
       toast.success(editing ? 'Cost center updated' : 'Cost center created')
       setEditorOpen(false)
@@ -135,6 +138,7 @@ export default function CostCenterManager({
         .map(([userId, roles]) => ({ user_id: Number(userId), roles: [...roles] }))
         .filter((item) => item.roles.length > 0)
       return education.replaceGrants(selected.id, {
+        org_id: selected.org_id,
         revision: selected.revision,
         grants: grantsPayload,
         command_id: crypto.randomUUID(),
@@ -155,6 +159,7 @@ export default function CostCenterManager({
     mutationFn: () => {
       if (!selected) throw new Error('Select a cost center.')
       return education.replaceCenterPrinters(selected.id, {
+        org_id: selected.org_id,
         revision: selected.revision,
         printer_ids: [...printerDraft],
         command_id: crypto.randomUUID(),
@@ -177,6 +182,7 @@ export default function CostCenterManager({
       center.id,
       center.active ? 'archive' : 'reopen',
       {
+        org_id: center.org_id,
         revision: center.revision,
         reason: center.active ? 'Archived by tenant administrator' : 'Reopened by tenant administrator',
         command_id: crypto.randomUUID(),

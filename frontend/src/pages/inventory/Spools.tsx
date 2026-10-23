@@ -14,6 +14,7 @@ import SpoolGrid from '../../components/inventory/SpoolGrid'
 import { CreateSpoolModal, LoadSpoolModal, UseSpoolModal, DryingModal } from '../../components/inventory/SpoolModals'
 import { purchaseAudience, type PurchasePrincipal } from '../../components/inventory/PurchaseEvidenceModal'
 import { EditSpoolModal } from '../../components/inventory/SpoolEditModals'
+import InventoryConflicts from '../../components/inventory/InventoryConflicts'
 import SpoolmanLinkConflicts from '../../components/inventory/SpoolmanLinkConflicts'
 
 export default function Spools() {
@@ -198,6 +199,7 @@ export default function Spools() {
 
   return (
     <div className="p-4 md:p-6">
+      {createPrincipal?.role === 'admin' && <InventoryConflicts key={createOwner} audience={createOwner} />}
       {labelSpools.length > 0 && (
         <Modal isOpen onClose={() => setLabelSpools([])} title="Print Spool Labels" size="md">
           <p className="text-sm mb-4">Open each label sheet, then use your browser’s Print command. All {labelSpools.length} selected spools are included.</p>

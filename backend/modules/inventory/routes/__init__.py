@@ -18,3 +18,6 @@ router.include_router(drying_logs_router)
 # Phase 2 agent-surface alias for MCP list_filaments tool.
 router.include_router(filament_library_router)
 router.include_router(spoolman_router)
+
+from .conflicts import router as conflicts_router
+router.include_router(conflicts_router)

@@ -44,6 +44,9 @@ def _entry(
 
 
 POLICY_INVENTORY = (
+    _entry("organizations.education_slice_info", "slice_info", "submission/file/printer/slots", "read verified metadata", "tenant reviewer and entitled printer", (), "test_ctec_pilot.py", "guarded"),
+    _entry("models_library.education_retention", "hide_model/assert_model_deletable", "model/submission", "hide/delete guard", "tenant-authorized model editor", (), "test_ctec_pilot.py", "guarded"),
+    _entry("organizations.education_submission_archive", "archive_submission", "submission/job/claim", "soft archive", "tenant admin or active manager; terminal quiescent work", (), "test_ctec_pilot.py", "guarded"),
     _entry("models_library.upload_storage", "fresh actor/duplicate/model namespace helpers", "file/model/user/token", "authorize/serialize upload", "current operator with write:models; canonical Education file audience and exact owner namespace", ("generic print-file upload",), "test_print_file_upload_ownership_behavior.py", "guarded"),
     _entry("models_library.file_management", "list/read/delete/schedule generic file", "file/model/job/printer/submission", "read/delete/queue", "current scoped viewer/operator; canonical file audience; persisted Education lifecycle protection", ("generic queue",), "test_print_file_management_audience_behavior.py", "guarded"),
     _entry("archives.attempt_accounting", "capture_attempt_spools/account_archive", "physical attempt/job/file/spool", "capture/account", "trusted archive persistence; unresolved ownership leaves inventory unchanged", ("spool usage", "filament delivery outbox"), "test_archive_ownership_accounting_boundary.py", "guarded"),

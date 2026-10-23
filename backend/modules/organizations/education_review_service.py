@@ -143,6 +143,7 @@ def list_visible_submissions(
     cost_center_id: int | None = None,
     limit: int = 50,
     cursor: str | None = None,
+    archived: bool = False,
 ) -> dict:
     org_id = _org_id(principal)
     if status is not None and status not in VISIBLE_STATUSES:
@@ -153,7 +154,7 @@ def list_visible_submissions(
             extra={"fields": ["status"]},
         )
     audience = _SUBMISSION_AUDIENCE
-    filters = ["s.org_id=:org_id", audience]
+    filters = ["s.org_id=:org_id", audience, "s.archived_at IS NOT NULL" if archived else "s.archived_at IS NULL"]
     params = {
         "org_id": org_id,
         "user_id": int(principal["id"]),
@@ -169,6 +170,7 @@ def list_visible_submissions(
         payload = decode_cursor(cursor)
         expected = {
             "kind": "submissions",
+            "archived": archived,
             "org_id": org_id,
             "user_id": int(principal["id"]),
             "is_admin": bool(_tenant_admin(principal)),
@@ -222,6 +224,7 @@ def list_visible_submissions(
         next_cursor = encode_cursor(
             {
                 "kind": "submissions",
+            "archived": archived,
                 "org_id": org_id,
                 "user_id": int(principal["id"]),
                 "is_admin": bool(_tenant_admin(principal)),

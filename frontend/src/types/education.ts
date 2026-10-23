@@ -86,6 +86,7 @@ export interface EducationPrinterPage extends CursorPage<EducationPrinterEntitle
 }
 
 export interface EducationSubmissionFilters {
+  archived?: boolean
   status?: EducationSubmissionStatus
   costCenterId?: number
   cursor?: string
@@ -201,7 +202,7 @@ export interface ClassroomImportResult {
 export interface EducationReadiness {
   education_license: boolean
   education_mode: boolean
-  oidc: { ready: boolean; provider: string; enabled: boolean }
+  oidc: { ready: boolean; provider: string; enabled: boolean; reasons?: string[]; auto_create?: boolean; tenant_ready?: boolean; tenant_reasons?: string[] }
   classroom: ClassroomStatus
   pilot: {
     complete_centers: number

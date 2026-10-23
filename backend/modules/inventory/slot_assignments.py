@@ -6,17 +6,38 @@ from modules.inventory.models import Spool
 from modules.printers.models import FilamentSlot, Printer
 
 
-def lock_slot_graph(db):
-    """Use the AMS lock order: printers, slots, spools, all sorted by id.
+def _involved_graph(db, slot_id=None, spool_id=None):
+    """Snapshot only associations that can be changed by this move."""
+    slots = db.query(FilamentSlot.id, FilamentSlot.printer_id, FilamentSlot.slot_number, FilamentSlot.assigned_spool_id).all()
+    spools = db.query(Spool.id, Spool.location_printer_id, Spool.location_slot).all()
+    target = next((s for s in slots if s.id == slot_id), None)
+    involved_slots = [s for s in slots if s.id == slot_id or
+                      (spool_id is not None and s.assigned_spool_id == spool_id)]
+    spool_ids = {spool_id} - {None}
+    if target:
+        spool_ids.update(s.id for s in spools if
+                         (s.location_printer_id, s.location_slot) ==
+                         (target.printer_id, target.slot_number))
+        if target.assigned_spool_id is not None:
+            spool_ids.add(target.assigned_spool_id)
+    involved_spools = [s for s in spools if s.id in spool_ids]
+    printers = {s.printer_id for s in involved_slots}
+    printers.update(s.location_printer_id for s in involved_spools
+                    if s.location_printer_id is not None)
+    return (tuple(sorted(printers)),
+            tuple(sorted((s.id, s.assigned_spool_id, s.printer_id, s.slot_number)
+                         for s in involved_slots)),
+            tuple(sorted((s.id, s.location_printer_id, s.location_slot)
+                         for s in involved_spools)))
 
-    Lock the complete graph because historical duplicates can cross printers.
-    SQLite takes its writer boundary before reading; PostgreSQL NOWAIT refuses
-    contention with 409, including contention with the raw AMS monitor.
-    No commit/rollback boundary is introduced on the successful path.
+
+def lock_slot_graph(db, slot_id=None, spool_id=None):
+    """Printers, then slots, then spools, sorted, like the AMS monitor.
+
+    A no-target call establishes only SQLite's writer boundary. PostgreSQL
+    callers acquire the exact move graph before changing any associations.
+    Recheck after locking so a concurrent graph expansion fails closed.
     """
-    transaction = db.get_transaction()
-    if transaction is not None and db.info.get('slot_graph_lock') is transaction:
-        return
     try:
         with db.no_autoflush:
             connection = db.connection()
@@ -24,14 +45,21 @@ def lock_slot_graph(db):
                 if not connection.connection.driver_connection.in_transaction:
                     connection.exec_driver_sql('BEGIN IMMEDIATE')
                 else:
-                    # An explicit read transaction still needs writer promotion.
                     connection.exec_driver_sql('UPDATE printers SET name=name WHERE 1=0')
             elif connection.dialect.name == 'postgresql':
-                for model in (Printer, FilamentSlot, Spool):
-                    db.query(model.id).order_by(model.id).with_for_update(nowait=True).all()
+                if slot_id is None and spool_id is None:
+                    return
+                before = _involved_graph(db, slot_id, spool_id)
+                for model, ids in ((Printer, before[0]),
+                                   (FilamentSlot, [s[0] for s in before[1]]),
+                                   (Spool, [s[0] for s in before[2]])):
+                    if ids:
+                        db.query(model.id).filter(model.id.in_(ids)).order_by(
+                            model.id).with_for_update(nowait=True).all()
+                if _involved_graph(db, slot_id, spool_id) != before:
+                    raise HTTPException(409, 'Spool assignments changed; retry')
             else:
                 raise HTTPException(500, 'Unsupported database for slot assignments')
-        db.info['slot_graph_lock'] = db.get_transaction()
     except OperationalError as exc:
         db.rollback()
         if getattr(exc.orig, 'sqlstate', None) == '55P03' or getattr(exc.orig, 'sqlite_errorcode', None) in (5, 6, 517):
@@ -41,7 +69,7 @@ def lock_slot_graph(db):
 
 def assign_slot(db, slot, spool_id, current_user=None):
     """Move a spool, or unassign a slot, preserving both graph directions."""
-    lock_slot_graph(db)
+    lock_slot_graph(db, slot.id, spool_id)
     db.flush()
     with db.no_autoflush:
         # Flush above preserves metadata pending from earlier moves in an AMS
@@ -73,6 +101,8 @@ def assign_slot(db, slot, spool_id, current_user=None):
             if row.id != slot.id:
                 row.assigned_spool_id = None
                 row.spool_confirmed = False
+        # Release old unique links before setting the destination (ORM update order is by id).
+        db.flush()
         slot.assigned_spool_id = spool_id
         if target:
             target.location_printer_id = slot.printer_id
@@ -83,7 +113,7 @@ def assign_slot(db, slot, spool_id, current_user=None):
 
 
 def unload_spool_graph(db, spool, current_user=None):
-    lock_slot_graph(db)
+    lock_slot_graph(db, spool_id=spool.id)
     db.refresh(spool, ['location_printer_id', 'location_slot'])
     slots = db.query(FilamentSlot).filter(FilamentSlot.assigned_spool_id == spool.id).populate_existing().all()
     if current_user is not None:

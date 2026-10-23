@@ -32,6 +32,7 @@ RAW_REQUIRED_TABLES = frozenset(
         "timelapse_capture_tenancy",
         "alert_outbox",
         "production_recipes", "production_acceptances", "production_stock_additions",
+        "inventory_repairs",
         "cost_identities",
         "cost_order_memberships",
         "cost_job_bindings",
@@ -114,6 +115,7 @@ RAW_REQUIRED_TABLES = frozenset(
 POWER_OPERATION_COLUMNS = tuple("operation_nonce request_nonce owner_nonce printer_id target_key config_key destination_key purpose physical_job_id scheduled_job_id observation_key actor_user_id auth_kind authority_key state revision created_at changed_at command_started_at release_pending_at completed_at outcome cleanup_reason".split())
 
 RAW_REQUIRED_COLUMNS = {
+    "inventory_repairs": frozenset("event_id spool_id actor_id action before_json after_json created_at".split()),
     "production_recipes": frozenset("id owner definition".split()),
     "production_acceptances": frozenset("id owner job_uid claim_token recipe_id request_hash definition".split()),
     "production_stock_additions": frozenset("id owner receipt_id destination request_body state attempts".split()),
@@ -289,6 +291,7 @@ POST027_MIGRATIONS = (
     ("python:033-timelapse-capture-tenancy", "core.schema.migrations.033_timelapse_capture_tenancy"),
     ("python:034-alert-outbox", "core.schema.migrations.034_alert_outbox"),
     ("python:035-production-acceptance", "core.schema.migrations.035_production_acceptance"),
+    ("python:036-ctec-pilot", "core.schema.migrations.036_ctec_pilot"),
 )
 
 
@@ -559,6 +562,9 @@ def _bootstrap_database_contract(
             acquire_schema_writer_lock(connection)
         if _record_orm_baseline(connection):
             applied.append("orm-baseline:1")
+        if contract is None:
+            from importlib import import_module
+            import_module('core.schema.migrations.036_ctec_pilot').retry_spool_index(connection)
         validation = validate_schema(connection, _contract=contract)
         fingerprint = schema_fingerprint(connection)
     return {
