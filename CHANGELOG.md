@@ -2,6 +2,25 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.9] - 2026-10-23
+
+<!-- summary: CTEC pilot fixes, AMS self-repair, Education archive and a websocket freeze fix -->
+
+### Fixed
+
+- The server no longer freezes when the first browser connects after a long idle period: queued live updates are replayed in small batches without blocking other requests.
+- AMS inventory sync repairs stale spool locations on its own and records what it changed; genuinely conflicting slot links are refused and listed in a new admin screen to resolve. Reassigning a spool now moves it instead of leaving it linked to two slots.
+- The filament picker on a printer card always closes (Cancel, Escape or clicking outside).
+- Finished or failed Education submissions can be archived out of the Review Queue and Jobs list while their history is kept; models used by Education explain why they can't be deleted and can be hidden instead.
+- Education roles can no longer be given to a platform Super Admin account.
+- The Education SSO readiness check reports sign-in and auto-create routing separately, with the reason a step isn't met.
+- Recipes and inspected batches accept jobs dispatched by the current print lifecycle.
+- Anycubic LAN print starts are recorded in print history; Moonraker printer data is size-bounded.
+
+### Added
+
+- The Review Queue shows how a file was sliced (filament and slots) next to what the chosen printer has loaded, with a mismatch warning.
+
 ## [2.0.8] - 2026-10-22
 
 <!-- summary: Monitor-only Anycubic LAN printers and gated Square stock additions -->

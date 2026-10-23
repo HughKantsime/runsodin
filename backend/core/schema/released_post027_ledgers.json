@@ -217,6 +217,13 @@
    "python:033-timelapse-capture-tenancy",
    "python:034-alert-outbox",
    "python:035-production-acceptance"
+  ],
+  "2.0.9": [
+   "python:032-quiet-hours-deferred-deliveries",
+   "python:033-timelapse-capture-tenancy",
+   "python:034-alert-outbox",
+   "python:035-production-acceptance",
+   "python:036-ctec-pilot"
   ]
  }
 }
