@@ -74,6 +74,7 @@ export default function Setup() {
   const [printerIp, setPrinterIp] = useState('')
   const [serial, setSerial] = useState('')
   const [accessCode, setAccessCode] = useState('')
+  const [printerApiKey, setPrinterApiKey] = useState('')
   const [slotCount, setSlotCount] = useState(4)
   const [testResult, setTestResult] = useState(null)
   const [testLoading, setTestLoading] = useState(false)
@@ -113,6 +114,7 @@ export default function Setup() {
     setPrinterName('')
     setSerial('')
     setAccessCode('')
+    setPrinterApiKey('')
     setTestResult(null)
     setPrinterAdded(false)
     setSlotCount(['moonraker', 'prusalink', 'elegoo'].includes(printerType) ? 1 : 4)
@@ -189,8 +191,9 @@ export default function Setup() {
         ...apiOptions(token),
         body: JSON.stringify({
           name: printerName.trim() || 'Printer',
-          printer_type: printerType,
-          ip_address: printerIp.trim(),
+          api_type: printerType,
+          api_host: printerIp.trim(),
+          api_key: printerType === 'bambu' ? `${serial.trim()}|${accessCode.trim()}` : (printerType === 'prusalink' ? printerApiKey || null : null),
           model: printerModel,
           serial: serial.trim() || null,
           access_code: accessCode.trim() || null,
@@ -218,8 +221,9 @@ export default function Setup() {
         ...apiOptions(token),
         body: JSON.stringify({
           name: printerName.trim(),
-          printer_type: printerType,
-          ip_address: printerIp.trim(),
+          api_type: printerType,
+          api_host: printerIp.trim(),
+          api_key: printerType === 'bambu' ? `${serial.trim()}|${accessCode.trim()}` : (printerType === 'prusalink' ? printerApiKey || null : null),
           model: printerModel || null,
           serial: serial.trim() || null,
           access_code: accessCode.trim() || null,
@@ -243,6 +247,7 @@ export default function Setup() {
   const handleAddAnother = () => {
     setPrinterName('')
     setPrinterIp('')
+    setPrinterApiKey('')
     setSerial('')
     setAccessCode('')
     setPrinterModel('')
@@ -716,6 +721,16 @@ export default function Setup() {
                   </div>
                 </div>
               </>
+            )}
+
+            {printerType === 'prusalink' && (
+              <div>
+                <label htmlFor="setup-prusalink-key" className={labelClass}>PrusaLink API Key</label>
+                <input id="setup-prusalink-key" type="password" value={printerApiKey}
+                  onChange={e => setPrinterApiKey(e.target.value)} autoComplete="off"
+                  placeholder="PrusaLink API key or username|password" className={inputClass} />
+                <p className="text-xs text-white/50 mt-1">Enter the API key from PrusaLink Settings, or username|password for Digest authentication.</p>
+              </div>
             )}
 
             {/* Test result */}

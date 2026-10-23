@@ -122,8 +122,29 @@ def get_plug_config(printer_id: int, *, include_storage_identity=False) -> Optio
     return config
 
 
-def power_on(printer_id: int, expected_config=None) -> Optional[Union[bool, MqttPowerReceipt]]:
+def _explicit_power(printer_id, purpose, authority):
+    # A bare printer ID is neither manual authority nor a physical observation.
+    from modules.printers.power_authority import ManualPowerAuthority
+    if type(authority) is not ManualPowerAuthority:
+        return None
+    config = get_plug_config(printer_id)
+    if config and config['type'] in ('homeassistant', 'mqtt'):
+        # These protocols cannot prove command completion. Preserve the legacy
+        # process-local commands without claiming cross-process fencing.
+        return {'manual_on': power_on, 'manual_off': power_off,
+                'manual_toggle': power_toggle}[purpose](printer_id)
+    from modules.printers.power_fence import run
+    import sys
+    return run(sys.modules[__name__], printer_id, purpose, authority=authority)
+
+
+def power_on(printer_id: int, expected_config=None, *, authority=None) -> Optional[Union[bool, MqttPowerReceipt]]:
     """Turn on a printer's smart plug."""
+    # Low-level legacy helper retained for existing dispatch/protocol callers.
+    # Tasmota manual routes supply selected-request authority and automatic
+    # callbacks use power_fence. HA/MQTT retain the legacy protocol path.
+    if authority is not None:
+        return _explicit_power(printer_id, 'manual_on', authority)
     config = get_plug_config(printer_id)
     if not config:
         return None
@@ -144,8 +165,13 @@ def power_on(printer_id: int, expected_config=None) -> Optional[Union[bool, Mqtt
     return result
 
 
-def power_off(printer_id: int, expected_config=None) -> Optional[Union[bool, MqttPowerReceipt]]:
+def power_off(printer_id: int, expected_config=None, *, authority=None) -> Optional[Union[bool, MqttPowerReceipt]]:
     """Turn off a printer's smart plug."""
+    # Low-level legacy helper retained for existing dispatch/protocol callers.
+    # Tasmota manual routes supply selected-request authority and automatic
+    # callbacks use power_fence. HA/MQTT retain the legacy protocol path.
+    if authority is not None:
+        return _explicit_power(printer_id, 'manual_off', authority)
     config = get_plug_config(printer_id)
     if not config:
         return None
@@ -167,8 +193,13 @@ def power_off(printer_id: int, expected_config=None) -> Optional[Union[bool, Mqt
     return result
 
 
-def power_toggle(printer_id: int) -> Optional[Union[bool, MqttPowerReceipt]]:
+def power_toggle(printer_id: int, *, authority=None) -> Optional[Union[bool, MqttPowerReceipt]]:
     """Toggle a printer's smart plug."""
+    # Low-level legacy helper retained for existing dispatch/protocol callers.
+    # Tasmota manual routes supply selected-request authority and automatic
+    # callbacks use power_fence. HA/MQTT retain the legacy protocol path.
+    if authority is not None:
+        return _explicit_power(printer_id, 'manual_toggle', authority)
     config = get_plug_config(printer_id)
     if not config:
         return None
@@ -295,15 +326,18 @@ def prepare_dispatch_power(printer_id: int) -> PowerPreparation:
             return PowerPreparation(False, True, error="Power-on was not confirmed; check plug state before retrying")
 
 
-def _conditional_power_observation(printer_id, state, config):
+def _conditional_power_observation(printer_id, state, config, *, enable_flag="auto_on"):
     """Persist a measured boolean only against the exact stored plug identity."""
     if type(state) is not bool or '_stored_auth_token' not in config:
         return False
     try:
         with engine.begin() as conn:
-            result = conn.execute(text("""
+            flag_clause = (" AND plug_auto_on=:enabled" if enable_flag == 'auto_on' else
+                           " AND plug_auto_off=:enabled" if enable_flag == 'auto_off' else "")
+            result = conn.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe: internal constant SQL fragments only; all values bound
+                f"""
                 UPDATE printers SET plug_power_state=:state
-                WHERE id=:pid AND plug_auto_on=:enabled
+                WHERE id=:pid {flag_clause}
                 AND (plug_type=CAST(:kind AS VARCHAR) OR (plug_type IS NULL AND CAST(:kind AS VARCHAR) IS NULL))
                 AND (plug_host=CAST(:host AS VARCHAR) OR (plug_host IS NULL AND CAST(:host AS VARCHAR) IS NULL))
                 AND (plug_entity_id=CAST(:entity AS VARCHAR) OR (plug_entity_id IS NULL AND CAST(:entity AS VARCHAR) IS NULL))
@@ -388,7 +422,9 @@ def _auto_off_safe(printer_id):
         stamp = row[1] if isinstance(row[1], datetime) else datetime.fromisoformat(row[1].replace("Z", "+00:00"))
         if stamp.tzinfo is None:
             stamp = stamp.replace(tzinfo=timezone.utc)
-        age = (datetime.now(timezone.utc) - stamp).total_seconds()
+        clock = conn.execute(text('SELECT clock_timestamp()' if conn.dialect.name == 'postgresql' else "SELECT strftime('%Y-%m-%dT%H:%M:%fZ','now')")).scalar_one()
+        from modules.printers.power_fence import _utc
+        age = (_utc(clock) - stamp).total_seconds()
         if not 0 <= age <= 90:
             return False
         active = conn.execute(text("SELECT 1 FROM print_jobs WHERE printer_id=:pid AND status='running' LIMIT 1"), {"pid": printer_id}).first()
@@ -397,7 +433,9 @@ def _auto_off_safe(printer_id):
         return active is None and queued is None and claimed is None
 
 
-def on_print_start(printer_id: int, *, print_job_id=None):
+# HA/MQTT cannot prove remote completion. These callbacks deliberately retain
+# origin/main process-local locking and command behavior, without durable fences.
+def _unfenced_on_print_start(printer_id: int, *, print_job_id=None):
     """Cancel pending off for every start; auto-on remains an observed-start hook."""
     with _printer_power_lock(printer_id):
         timer = _cooldown_timers.pop(printer_id, None)
@@ -424,7 +462,7 @@ def on_print_start(printer_id: int, *, print_job_id=None):
             power_on(printer_id)
 
 
-def on_print_complete(printer_id: int):
+def _unfenced_on_print_complete(printer_id: int):
     """Schedule an identity-guarded off; cancellation cannot undo sent commands."""
     with _printer_power_lock(printer_id):
         previous = _cooldown_timers.pop(printer_id, None)
@@ -464,6 +502,79 @@ def on_print_complete(printer_id: int):
                 del _cooldown_timers[printer_id]
             timer.cancel()
             log.warning("Automatic power-off timer could not start")
+
+
+def on_print_start(printer_id: int, *, print_job_id=None):
+    """Route legacy protocols separately from target-first Tasmota admission."""
+    config = get_plug_config(printer_id)
+    if config and config["type"] in ("homeassistant", "mqtt"):
+        return _unfenced_on_print_start(printer_id, print_job_id=print_job_id)
+    # Cancel first under the local lock; target acquisition never nests inside it.
+    with _printer_power_lock(printer_id):
+        timer = _cooldown_timers.pop(printer_id, None)
+        if timer is not None:
+            timer.cancel()
+    if type(print_job_id) is not int or print_job_id <= 0:
+        return
+    from core.auth import SECRET_KEY
+    from core.dispatch_observations import bind_generic_observation
+    key = SECRET_KEY.encode() if isinstance(SECRET_KEY, str) else SECRET_KEY
+    if bind_generic_observation(engine, printer_id=printer_id, print_job_id=print_job_id, key=key) != 'no_claim':
+        return
+    from modules.printers.power_fence import run
+    import sys
+    run(sys.modules[__name__], printer_id, 'observed_on', physical_id=print_job_id)
+
+
+def on_print_complete(printer_id: int, *, print_job_id=None):
+    """Keep legacy timers; Tasmota OFF requires physical observation authority."""
+    config = get_plug_config(printer_id)
+    if config and config["type"] in ("homeassistant", "mqtt"):
+        return _unfenced_on_print_complete(printer_id)
+    # For Tasmota, bare IDs schedule inert metadata and never authorize OFF.
+    from modules.printers.power_fence import run, _snapshot
+    import sys
+    module = sys.modules[__name__]
+    # No target acquisition while scheduling under the process lock.
+    try:
+        expected = _snapshot(module, printer_id, 'cooldown_off', print_job_id, admission=False) if print_job_id is not None else None
+    except Exception:
+        expected = None
+    with _printer_power_lock(printer_id):
+        previous = _cooldown_timers.pop(printer_id, None)
+        if previous is not None:
+            previous.cancel()
+        # This is scheduling metadata only; the fenced callback refreshes
+        # the complete configuration and authority before any command.
+        if not config or not config['auto_off']:
+            return
+        minutes = config['cooldown_minutes']
+        if type(minutes) is not int or not 0 <= minutes <= 1440:
+            log.warning('Automatic power-off skipped: invalid cooldown')
+            return
+        def delayed_off():
+            try:
+                if expected is not None:
+                    run(module, printer_id, 'cooldown_off', physical_id=print_job_id,
+                        expected=expected, timer=timer)
+            except Exception:
+                log.warning('Automatic power-off could not be completed')
+            finally:
+                with _printer_power_lock(printer_id):
+                    if _cooldown_timers.get(printer_id) is timer:
+                        del _cooldown_timers[printer_id]
+        timer = threading.Timer(minutes * 60, delayed_off)
+        timer.daemon = True
+        _cooldown_timers[printer_id] = timer
+    # An immediate timer must also enter target-first, outside the local lock.
+    try:
+        timer.start()
+    except Exception:
+        with _printer_power_lock(printer_id):
+            if _cooldown_timers.get(printer_id) is timer:
+                del _cooldown_timers[printer_id]
+        timer.cancel()
+        log.warning('Automatic power-off timer could not start')
 
 
 # Per-print energy: cumulative plug counter read at start and end of a print.
@@ -615,7 +726,7 @@ def _on_job_completed_event(event) -> None:
     success = event.data.get("success", True)
     if printer_id is not None and success:
         try:
-            on_print_complete(printer_id)
+            on_print_complete(printer_id, print_job_id=event.data.get("print_job_id"))
         except Exception as e:
             log.warning("Smart plug completion hook failed")
 

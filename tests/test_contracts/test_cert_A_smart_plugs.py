@@ -116,10 +116,10 @@ def test_tasmota_plug_on_off_status_and_energy_over_http(plugs):
     config = plugs.client.get("/printers/301/plug", headers=plugs.client.roles["viewer"]).json()
     assert config == {"type": "tasmota", "host": plugs.device.host, "entity_id": None, "auto_on": True, "auto_off": True,
                       "cooldown_minutes": 7, "power_state": None, "energy_kwh": 0, "configured": True}
-    on = plugs.client.post("/printers/301/plug/on", headers=plugs.client.roles["operator"])
+    on = plugs.client.post("/printers/301/plug/on", headers={**plugs.client.roles["operator"], "X-Power-Request-Nonce": "a"*32})
     assert on.status_code == 200 and on.json() == {"power_state": True}
     assert stored(plugs, "plug_power_state")["plug_power_state"] in (1, True)
-    off = plugs.client.post("/printers/301/plug/off", headers=plugs.client.roles["admin"])
+    off = plugs.client.post("/printers/301/plug/off", headers={**plugs.client.roles["admin"], "X-Power-Request-Nonce": "b"*32})
     assert off.json() == {"power_state": False}
     state = plugs.client.get("/printers/301/plug/state", headers=plugs.client.roles["viewer"])
     assert state.json() == {"power_state": False}
@@ -206,13 +206,14 @@ def test_completion_event_powers_off_after_configured_cooldown(plugs, monkeypatc
     plugs.device.power = True
     plugs.db.execute(text("UPDATE printers SET gcode_state='IDLE',last_seen=:now WHERE id=301"),
                      {"now": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())})
+    plugs.db.execute(text("INSERT INTO print_jobs(id,printer_id,filename,job_name,started_at,status,observed_received_at) VALUES(901,301,'fixture.gcode','fixture',CURRENT_TIMESTAMP,'completed',CURRENT_TIMESTAMP)"))
     plugs.db.commit()
     ManualTimer.created = []
     monkeypatch.setattr(plugs.module.threading, "Timer", ManualTimer)
     monkeypatch.setattr(plugs.module, "_in_background", lambda function, *args: None)
     bus = InMemoryEventBus()
     plugs.module.register_subscribers(bus)
-    bus.publish(Event(events.JOB_COMPLETED, "cert", {"printer_id": 301, "success": True}))
+    bus.publish(Event(events.JOB_COMPLETED, "cert", {"printer_id": 301, "print_job_id": 901, "success": True}))
     assert [t.interval for t in ManualTimer.created] == [7 * 60]
     assert plugs.device.requests == []  # nothing sent before the cooldown elapses
     ManualTimer.created[0].function()

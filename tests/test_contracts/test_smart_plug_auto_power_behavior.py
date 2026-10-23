@@ -59,7 +59,8 @@ def test_timer_can_fire_immediately_without_leaving_registry_entry(auto_power,mo
         def cancel(self):pass
     monkeypatch.setattr(module.threading,'Timer',Immediate)
     module.on_print_complete(599)
-    assert calls==[('off',599)] and 599 not in module._cooldown_timers
+    # A bare printer ID cannot manufacture the physical observation for OFF.
+    assert calls==[] and 599 not in module._cooldown_timers
 
 
 @pytest.mark.parametrize('failure',['start','device'])
@@ -84,7 +85,11 @@ def test_actual_database_auto_off_gate_requires_recent_idle_state(review_db,monk
     from datetime import datetime,timezone,timedelta
     from sqlalchemy import text
     from modules.printers import smart_plug as module
-    review_db.execute(text("INSERT INTO printers(id,name,gcode_state,last_seen) VALUES(599,'Synthetic gate',:state,:stamp)"),{'state':state,'stamp':datetime.now(timezone.utc)-timedelta(seconds=age)});review_db.commit()
+    # Runtime compares the database clock. Capture that same clock/precision,
+    # rather than a Python microsecond timestamp ahead of SQLite's millisecond.
+    clock = review_db.execute(text("SELECT strftime('%Y-%m-%dT%H:%M:%fZ','now')")).scalar_one()
+    stamp = datetime.fromisoformat(clock.replace('Z', '+00:00')) - timedelta(seconds=age)
+    review_db.execute(text("INSERT INTO printers(id,name,gcode_state,last_seen) VALUES(599,'Synthetic gate',:state,:stamp)"),{'state':state,'stamp':stamp});review_db.commit()
     monkeypatch.setattr(module,'engine',review_db.get_bind())
     assert module._auto_off_safe(599) is expected
 
@@ -113,27 +118,14 @@ def test_real_event_bus_completion_then_start_cancels_pending_off(auto_power):
     assert calls==[]
 
 
-def test_blocked_off_for_one_printer_does_not_block_another_printer_start(auto_power,monkeypatch):
-    from concurrent.futures import ThreadPoolExecutor
-    from threading import Event
-    module,config,timers,calls=auto_power;entered=Event();release=Event()
-    def blocked(pid,**kwargs):
-        entered.set()
-        assert release.wait(5)
-        calls.append(('off',pid))
-    monkeypatch.setattr(module,'power_off',blocked)
+def test_inert_off_for_one_printer_does_not_block_another_printer_start(auto_power):
+    module,config,timers,calls=auto_power
     module.on_print_complete(599)
     module.on_print_complete(600)
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        off=pool.submit(timers[0].callback)
-        try:
-            assert entered.wait(5)
-            start=pool.submit(module.on_print_start,600)
-            start.result(timeout=2)
-            assert timers[1].cancelled and 600 not in module._cooldown_timers
-        finally:release.set()
-        off.result(timeout=5)
-    assert calls==[('off',599)]
+    timers[0].callback()
+    module.on_print_start(600)
+    assert timers[1].cancelled and 600 not in module._cooldown_timers
+    assert calls==[]
 
 
 def test_auto_off_disabled_at_final_config_fetch_sends_no_device_command(monkeypatch):
@@ -155,14 +147,14 @@ def test_auto_off_disabled_at_final_config_fetch_sends_no_device_command(monkeyp
     monkeypatch.setattr(module,'_update_power_state',lambda *args:None)
     module.on_print_complete(599)
     callbacks[0]()
-    assert len(fetches)==3 and calls==[]
+    assert len(fetches)==1 and calls==[]
     # The setting controls automation, not an explicit manual command.
     assert module.power_off(599) is False
     assert calls==[('192.0.2.1','OFF')]
 
 
-def test_completion_powers_off_after_the_configured_cooldown(auto_power):
-    """Advertised cycle: completion schedules OFF after cooldown_minutes, then the plug turns off."""
+def test_completion_without_physical_identity_schedules_only_inert_cooldown(auto_power):
+    """A bare completion can schedule metadata, never authorize an OFF."""
     from core.event_bus import InMemoryEventBus
     from core.interfaces.event_bus import Event
     from core import events
@@ -173,4 +165,35 @@ def test_completion_powers_off_after_the_configured_cooldown(auto_power):
     assert [timer.delay for timer in timers]==[900]
     assert calls==[]
     timers[0].callback()
-    assert calls==[('off',7)] and module._cooldown_timers=={}
+    # No actual physical print identity was published: the timer is inert.
+    # test_power_fence_runtime covers a real persisted completion and OFF.
+    assert calls==[] and module._cooldown_timers=={}
+
+
+@pytest.mark.parametrize('kind', ['homeassistant', 'mqtt'])
+def test_legacy_auto_on_and_off_keep_process_lock_and_bare_id_behavior(auto_power, monkeypatch, kind):
+    module, config, timers, calls = auto_power
+    config.update(type=kind, auto_on=True)
+    from contextlib import contextmanager
+    held = []
+    @contextmanager
+    def lock(pid):
+        held.append(pid)
+        try:
+            yield
+        finally:
+            held.pop()
+    monkeypatch.setattr(module, '_printer_power_lock', lock)
+    monkeypatch.setattr(module, 'power_on', lambda pid: calls.append(('on', pid, bool(held))))
+    monkeypatch.setattr(module, 'power_off', lambda pid, **kw: calls.append(('off', pid, bool(held))))
+    # No dispatch claim, matching the pre-fence path.
+    from types import SimpleNamespace
+    connection = SimpleNamespace(execute=lambda *a, **kw: SimpleNamespace(first=lambda: None))
+    @contextmanager
+    def connect():
+        yield connection
+    monkeypatch.setattr(module, 'engine', SimpleNamespace(connect=connect))
+    module.on_print_start(599)
+    module.on_print_complete(599)
+    timers[0].callback()
+    assert calls == [('on', 599, True), ('off', 599, True)]
