@@ -438,6 +438,11 @@
     "operator",
     "viewer"
    ],
+   "education.reorder": [
+    "admin",
+    "operator",
+    "viewer"
+   ],
    "jobs.approve": [
     "admin",
     "operator"
@@ -573,6 +578,9 @@
    "upload.upload": [
     "admin",
     "operator"
+   ],
+   "users.restore_superadmin": [
+    "admin"
    ]
   },
   "page_access": {
