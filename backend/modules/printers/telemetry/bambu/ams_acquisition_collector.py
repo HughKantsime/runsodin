@@ -94,9 +94,16 @@ class RawAMSAcquisitionCollector:
                 self.retire();return False
             from modules.printers.dispatch_readiness import raw_status_is_idle
             idle_without_error = raw_status_is_idle('bambu', packet)
-            if (self._snapshot is not None and self._snapshot.idle_without_error is True and isinstance(packet, dict)
-                    and ('gcode_state' in packet or 'print_error' in packet) and not idle_without_error):
-                self._snapshot = replace(self._snapshot, idle_without_error=False, **safe_status_fields(packet))
+            diagnostics = safe_status_fields(packet)
+            if self._snapshot is not None:
+                diagnostics = {key: value if value is not None else getattr(self._snapshot, key)
+                               for key, value in diagnostics.items()}
+            if (self._snapshot is not None and self._snapshot.idle_without_error is True
+                    and isinstance(packet, dict) and not idle_without_error
+                    and any(key in packet for key in ('gcode_state', 'print_error', 'hms'))):
+                self._snapshot = replace(self._snapshot,
+                    idle_without_error=self._snapshot.idle_without_error and idle_without_error,
+                    **diagnostics)
             try: facts=parse_raw_ams_facts(packet)
             except ValueError:self.retire();return False
             self._last_receipt=now;self._order+=1
@@ -111,7 +118,7 @@ class RawAMSAcquisitionCollector:
                 return False
             self._snapshot=RawAMSSnapshot(self.incarnation,uuid.uuid4().hex,
                 self._order,now,self._config,self._owner,
-                tuple(addressed[s] for s in sorted(addressed)), idle_without_error, **safe_status_fields(packet))
+                tuple(addressed[s] for s in sorted(addressed)), idle_without_error, **diagnostics)
             return True
 
     @property

@@ -191,7 +191,7 @@ def _get_printer_info(printer_id: int, *, connection=None) -> Optional[dict]:
 # Job lookup
 # ──────────────────────────────────────────────
 
-def _get_next_scheduled_job(printer_id: int) -> Optional[dict]:
+def _get_next_scheduled_job(printer_id: int, *, generic_only: bool = False) -> Optional[dict]:
     """Find the next SCHEDULED job for this printer that has a stored file on disk."""
     from core.db import engine
     from sqlalchemy import text
@@ -199,10 +199,11 @@ def _get_next_scheduled_job(printer_id: int) -> Optional[dict]:
 
     try:
         with engine.connect() as conn:
-            row = conn.execute(
+            rows = conn.execute(
                 text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: the SELECTED_PRINT_FILE_JOIN_SQL module constant; values are bound
                     f"""
-                SELECT j.id, j.item_name, pf.stored_path, pf.original_filename
+                SELECT j.id, j.item_name, j.printer_id, j.priority, j.queue_position, j.created_at,
+                       s.id AS education_submission_id, pf.stored_path, pf.original_filename
                 FROM jobs j
                 LEFT JOIN education_submissions s ON s.job_id=j.id
                 JOIN models m ON j.model_id=m.id
@@ -213,11 +214,19 @@ def _get_next_scheduled_job(printer_id: int) -> Optional[dict]:
                   AND pf.stored_path != ''
                 ORDER BY j.priority ASC, (j.queue_position IS NULL) ASC, j.queue_position ASC,
                          j.created_at ASC, j.id ASC
-                LIMIT 1
                 """),
                 {"pid": printer_id},
-            ).fetchone()
-        return dict(row._mapping) if row else None
+            ).fetchall()
+            from modules.jobs.education_order import education_order, ordered_waiting
+            candidates = [dict(row._mapping) for row in rows]
+            candidates = education_order(candidates,
+                {row['id'] for row in candidates if row['education_submission_id'] is not None},
+                lambda row, key: row[key])
+            waiting = ordered_waiting(conn, printer_id)
+            head = waiting[0]['id'] if waiting and not waiting[0]['hold'] else None
+            # A blocked/pending head stalls Education only; generic candidates remain.
+            return next((row for row in candidates
+                if row['education_submission_id'] is None or (not generic_only and row['id'] == head)), None)
     except Exception as e:
         log.error(f"[dispatch] Job lookup failed for printer {printer_id}: {e}")
         return None
@@ -843,8 +852,7 @@ def _run_admitted_dispatch(job,creds,stored_path,remote_filename,print_options,e
     except Exception:
         # An unexpected exception may occur after submission. Fail closed rather
         # than removing the only durable fence against a second physical print.
-        if getattr(before_start, "refusal", None) is None:
-            log.warning("[dispatch] Adapter outcome requires reconciliation for job %s", job_id)
+        log.warning("[dispatch] Adapter outcome requires reconciliation for job %s", job_id)
         uncertain = True
         success, message = False, "Printer command outcome is unknown; explicit reconciliation is required before retrying"
         if getattr(before_start, "refusal", None) is not None:
@@ -940,3 +948,10 @@ def attempt_dispatch(printer_id: int):
         log.info(f"[dispatch] Auto-dispatch succeeded: {msg}")
     else:
         log.warning(f"[dispatch] Auto-dispatch failed: {msg}")
+        if job.get('education_submission_id') is not None:
+            # Refusal of an Education head cannot starve generic work. Every
+            # fallback still enters the complete dispatch gates and target lock;
+            # an uncertain send/claim therefore continues to block all sends.
+            fallback = _get_next_scheduled_job(printer_id, generic_only=True)
+            if fallback:
+                dispatch_job(printer_id, fallback['id'])

@@ -507,6 +507,10 @@ class Scheduler:
             Job.priority, Job.queue_position.is_(None), Job.queue_position, Job.created_at, Job.id
         ).populate_existing().all()
         
+        from modules.jobs.education_order import education_order
+        education_ids = set(db.execute(text("SELECT job_id FROM education_submissions")).scalars())
+        pending_jobs = education_order(pending_jobs, education_ids)
+
         # Pre-fetch printer model requirements from uploaded print files.
         # This is the safety gate data: a job that uses an H2D file must not
         # be assigned to an X1C printer. We look up print_files.printer_model

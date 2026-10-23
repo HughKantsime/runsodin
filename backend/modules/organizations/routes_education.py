@@ -645,3 +645,28 @@ async def replace_cost_center_printers(
     )
     db.commit()
     return result
+
+
+from typing import Literal
+from pydantic import BaseModel, Field
+
+
+class EducationQueueOrder(BaseModel):
+    revision: str = Field(min_length=64, max_length=64)
+    job_ids: list[int]
+
+
+@router.get('/queues/{kind}')
+async def education_queue(kind: Literal['review', 'jobs', 'archive'], org_id: int | None = None,
+    archived: Literal['all', 'unarchived', 'archived'] = 'all', cost_center_id: int | None = None,
+    principal: dict = Depends(require_education_principal()), db: Session = Depends(get_db)):
+    from modules.organizations.education_queues import list_queue
+    return list_queue(db, principal=principal, kind=kind, org_id=org_id,
+                      archived=archived, cost_center_id=cost_center_id)
+
+
+@router.patch('/queues/jobs/{printer_id}/order')
+async def education_queue_order(printer_id: int, body: EducationQueueOrder,
+    principal: dict = Depends(require_education_principal(write=True)), db: Session = Depends(get_db)):
+    from modules.organizations.education_queues import reorder_queue
+    return reorder_queue(db, principal=principal, printer_id=printer_id, body=body)

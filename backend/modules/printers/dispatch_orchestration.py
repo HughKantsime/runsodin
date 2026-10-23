@@ -57,7 +57,12 @@ def dispatch_prepared(job,creds,source_path,remote_filename,payload_sha256,educa
         else:
             _require_target(handle)
             current_education_decision=dispatch._authorize_education_hardware_action(current_job,current_creds)
-            if current_education_decision is not None and not current_education_decision[0]:
+            from modules.jobs.education_order import head_refusal
+            with engine.connect() as queue_connection:
+                queue_refusal = head_refusal(queue_connection, current_job)
+            if queue_refusal:
+                result = (False, queue_refusal)
+            elif current_education_decision is not None and not current_education_decision[0]:
                 result=current_education_decision
             else:
                 _require_target(handle)

@@ -24,7 +24,19 @@ const queryString = (values: Record<string, string | number | boolean | undefine
   return encoded ? `?${encoded}` : ''
 }
 
+export interface EducationQueueItem {
+  id: number; job_id: number; item_name: string; submitter_username: string; center_name: string;
+  cost_center_id: number; job_status: string; lifecycle_revision: number; archived?: boolean;
+  section: 'printing' | 'committed' | 'waiting'; can_reorder: boolean; can_archive: boolean; blocked_reason?: string | null
+}
+export interface EducationPrinterQueue { printer_id: number; printer_name: string; revision: string; items: EducationQueueItem[] }
+export interface EducationQueueResult { items?: EducationQueueItem[]; printers?: EducationPrinterQueue[] }
+
 export const education = {
+  queue: (kind: 'review' | 'jobs' | 'archive', options: { orgId?: number | null; archived?: string } = {}): Promise<EducationQueueResult> => fetchAPI(
+    `/education/queues/${kind}${queryString({ org_id: options.orgId, archived: options.archived })}`),
+  reorderQueue: (printerId: number, data: { revision: string; job_ids: number[] }): Promise<{ revision: string; job_ids: number[] }> => fetchAPI(
+    `/education/queues/jobs/${printerId}/order`, { method: 'PATCH', body: JSON.stringify(data) }),
   capabilities: (): Promise<EducationCapabilities> => fetchAPI('/education/capabilities'),
   readiness: (orgId?: number | null): Promise<EducationReadiness> => fetchAPI(`/education/readiness${queryString({ org_id: orgId })}`),
 

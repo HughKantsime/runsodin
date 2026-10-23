@@ -5,7 +5,7 @@ from sqlalchemy import text
 from core.db import get_db
 from core.zip_bounds import open_bounded
 from core.print_payload_snapshot import stage_payload
-from modules.organizations.education_access import require_education_principal
+from modules.organizations.education_access import require_education_principal, is_superadmin, require_tenant_admin
 from modules.organizations.education_review_service import _reviewable_submission, assert_file_preview_allowed
 
 router = APIRouter(prefix='/education/submissions', tags=['Education'])
@@ -13,7 +13,14 @@ router = APIRouter(prefix='/education/submissions', tags=['Education'])
 
 @router.get('/{submission_id}/slice-info')
 def slice_info(submission_id: int, printer_id: int | None = Query(default=None, gt=0),
-               principal=Depends(require_education_principal()), db=Depends(get_db)):
+               principal=Depends(require_education_principal()), db=Depends(get_db),
+               org_id: int | None = None):
+    if is_superadmin(principal):
+        # Read-only platform inspection requires an explicit school. Mutation
+        # endpoints retain their original school-account authority checks.
+        principal = {**principal, 'group_id': require_tenant_admin(principal, org_id)}
+    elif org_id is not None and org_id != principal.get('group_id'):
+        raise HTTPException(404, 'Organization not found')
     row = _reviewable_submission(db, submission_id=submission_id, principal=principal)
     assert_file_preview_allowed(db, file_id=row.print_file_id, principal=principal)
     file = db.execute(text('SELECT f.stored_path,f.file_hash,f.storage_bytes,j.plate_index '

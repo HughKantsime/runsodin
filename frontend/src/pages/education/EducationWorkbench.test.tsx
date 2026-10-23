@@ -51,3 +51,37 @@ it('allows platform school setup without granting classroom capabilities', () =>
   expect(screen.getByLabelText('School to administer')).toHaveValue('7')
   expect(screen.queryByTestId('submission-queue')).not.toBeInTheDocument()
 })
+
+vi.mock('../../components/education/EducationQueues', () => ({ default: ({ kind, readOnly, orgId }: any) => <div data-testid="education-queues">{kind}:{String(readOnly)}:{orgId}</div> }))
+it('students have only their submissions and no staff queue tabs', () => {
+  state.capabilities.student = true
+  render(<MemoryRouter><EducationWorkbench /></MemoryRouter>)
+  expect(screen.getByText('My submissions')).toBeInTheDocument()
+  for (const name of ['Review queue', 'Job Queue', 'Archive']) expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
+})
+it.each(['jobs', 'archive'])('opens the %s deep link and preserves other query parameters', (tab) => {
+  window.history.replaceState({}, '', `/?tab=${tab}&keep=1`)
+  state.capabilities.manager = true
+  render(<MemoryRouter><EducationWorkbench /></MemoryRouter>)
+  expect(screen.getByTestId('education-queues')).toHaveTextContent(`${tab}:`)
+  fireEvent.click(screen.getByRole('button', { name: 'Review queue' }))
+  expect(new URLSearchParams(window.location.search).get('tab')).toBe('review')
+  expect(new URLSearchParams(window.location.search).get('keep')).toBe('1')
+  window.history.replaceState({}, '', '/')
+})
+it('platform queues use explicit school scope and read only', () => {
+  window.history.replaceState({}, '', '/?tab=jobs')
+  state.principal = { id: 88, username: 'platform', role: 'admin', group_id: null }
+  render(<MemoryRouter><EducationWorkbench /></MemoryRouter>)
+  expect(screen.getByTestId('education-queues')).toHaveTextContent('jobs:true:7')
+  window.history.replaceState({}, '', '/')
+})
+it('preserves Classroom callback behavior alongside tab links', () => {
+  window.history.replaceState({}, '', '/?tab=jobs&classroom=connected&keep=1')
+  state.capabilities.tenant_admin = true
+  render(<MemoryRouter><EducationWorkbench /></MemoryRouter>)
+  expect(new URLSearchParams(window.location.search).get('tab')).toBe('classroom')
+  expect(new URLSearchParams(window.location.search).has('classroom')).toBe(false)
+  expect(new URLSearchParams(window.location.search).get('keep')).toBe('1')
+  window.history.replaceState({}, '', '/')
+})

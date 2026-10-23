@@ -44,7 +44,9 @@ def _entry(
 
 
 POLICY_INVENTORY = (
-    _entry("organizations.education_slice_info", "slice_info", "submission/file/printer/slots", "read verified metadata", "tenant reviewer and entitled printer", (), "test_ctec_pilot.py", "guarded"),
+    _entry("jobs.education_order", "education_order/ordered_waiting/head_refusal", "Education job/printer/dispatch claim", "order/head check", "trusted scheduler/dispatch; authoritative head check under target lock", ("scheduler", "automatic and explicit dispatch"), "test_education_followup_queues.py", "guarded"),
+    _entry("organizations.education_queues", "list_queue/reorder_queue", "Education submission/job/printer/grant", "read/reorder", "live tenant admin or active manager; explicit-org platform reads only; target-serialized full-list revision check", ("Education workbench", "dispatch ordering"), "test_education_followup_queues.py", "guarded"),
+    _entry("organizations.education_slice_info", "slice_info", "submission/file/printer/slots", "read verified metadata", "tenant reviewer or explicit-org read-only platform admin; entitled printer", (), "test_ctec_pilot.py", "guarded"),
     _entry("models_library.education_retention", "hide_model/assert_model_deletable", "model/submission", "hide/delete guard", "tenant-authorized model editor", (), "test_ctec_pilot.py", "guarded"),
     _entry("organizations.education_submission_archive", "archive_submission", "submission/job/claim", "soft archive", "tenant admin or active manager; terminal quiescent work", (), "test_ctec_pilot.py", "guarded"),
     _entry("models_library.upload_storage", "fresh actor/duplicate/model namespace helpers", "file/model/user/token", "authorize/serialize upload", "current operator with write:models; canonical Education file audience and exact owner namespace", ("generic print-file upload",), "test_print_file_upload_ownership_behavior.py", "guarded"),

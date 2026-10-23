@@ -8,9 +8,12 @@ type Slice = {
   freshness: string
 }
 
-export default function SubmissionSliceInfo({ id, revision, printerId, audience = '' }: { id: number; revision: number; printerId?: number; audience?: string }) {
-  const query = useQuery({ queryKey: ['education-slice-info', audience, id, revision, printerId],
-    queryFn: () => fetchAPI<Slice>(`/education/submissions/${id}/slice-info${printerId ? `?printer_id=${printerId}` : ''}`) })
+export default function SubmissionSliceInfo({ id, revision, printerId, orgId, audience = '' }: { id: number; revision: number; printerId?: number; orgId?: number | null; audience?: string }) {
+  const params = new URLSearchParams()
+  if (printerId) params.set('printer_id', String(printerId))
+  if (orgId) params.set('org_id', String(orgId))
+  const query = useQuery({ queryKey: ['education-slice-info', audience, id, revision, printerId, orgId],
+    queryFn: () => fetchAPI<Slice>(`/education/submissions/${id}/slice-info${params.size ? `?${params}` : ''}`) })
   if (query.isLoading) return <p>Reading verified slice metadata…</p>
   if (!query.data) return <p role="status">Slice metadata unavailable: {query.error?.message}</p>
   const data = query.data

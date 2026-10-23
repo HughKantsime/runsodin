@@ -94,7 +94,7 @@ def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, tar
             return False
         admission = recheck_admitted(engine, **captured)
         if not admission.admitted:
-            return refuse("admission_changed", "Dispatch admission is no longer valid")
+            return refuse("admission_changed", f"Dispatch admission is no longer valid: {getattr(admission, 'reason', 'Admission recheck refused')}")
         with engine.connect() as conn:
             present = load_ams_configuration(conn, job['printer_id'])
         if present.owner_org_id != configuration.owner_org_id:

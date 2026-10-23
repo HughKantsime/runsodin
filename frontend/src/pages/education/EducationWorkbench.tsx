@@ -17,12 +17,13 @@ import { useLicense } from '../../LicenseContext'
 import type { EducationCapabilities, EducationCostCenter, EducationSubmission, User } from '../../types'
 import CostCenterManager from '../../components/education/CostCenterManager'
 import ClassroomManager from '../../components/education/ClassroomManager'
+import EducationQueues from '../../components/education/EducationQueues'
 import SubmissionQueue from '../../components/education/SubmissionQueue'
 import SubmissionUploadModal, { educationAudience } from '../../components/education/SubmissionUploadModal'
 import ReadinessPanel from '../../components/education/ReadinessPanel'
 import { Button, Card, EmptyState, PageHeader, StatCard, TabBar, Select } from '../../components/ui'
 
-type WorkbenchTab = 'overview' | 'submissions' | 'review' | 'centers' | 'classroom'
+type WorkbenchTab = 'overview' | 'submissions' | 'review' | 'jobs' | 'archive' | 'centers' | 'classroom'
 
 export default function EducationWorkbench() {
   const { data: principal } = useQuery<User | null>({ queryKey: ['auth', 'me'], queryFn: auth.me, enabled: false })
@@ -32,7 +33,19 @@ export default function EducationWorkbench() {
   const [revision, setRevision] = useState<EducationSubmission | null>(null)
   const queryClient = useQueryClient()
   const license = useLicense()
-  const [activeTab, setActiveTab] = useState<WorkbenchTab>('overview')
+  const requestedTab = () => (new URLSearchParams(window.location.search).get('tab') || 'overview') as WorkbenchTab
+  const [activeTab, setActiveTab] = useState<WorkbenchTab>(requestedTab)
+  const changeTab = (tab: WorkbenchTab) => {
+    setActiveTab(tab)
+    const url = new URL(window.location.href)
+    url.searchParams.set('tab', tab)
+    window.history.replaceState({}, '', url)
+  }
+  useEffect(() => {
+    const update = () => setActiveTab(requestedTab())
+    window.addEventListener('popstate', update)
+    return () => window.removeEventListener('popstate', update)
+  }, [])
   const [uploadOpen, setUploadOpen] = useState(false)
   const [includeArchived, setIncludeArchived] = useState(false)
 
@@ -68,7 +81,7 @@ export default function EducationWorkbench() {
   useEffect(() => {
     setUploadOpen(false)
     setRevision(null)
-    setActiveTab('overview')
+    setActiveTab(requestedTab())
   }, [audience])
   useEffect(() => {
     if (!capabilities?.student || (revision && !studentCenters.some(center => center.id === revision.cost_center_id))) setUploadOpen(false)
@@ -83,6 +96,8 @@ export default function EducationWorkbench() {
     if (capabilities?.student) items.push({ key: 'submissions', label: 'My submissions', icon: FileUp })
     if (capabilities?.manager || capabilities?.tenant_admin) {
       items.push({ key: 'review', label: 'Review queue', icon: ClipboardCheck })
+      items.push({ key: 'jobs', label: 'Job Queue', icon: Printer })
+      items.push({ key: 'archive', label: 'Archive', icon: BookOpenCheck })
     }
     if (capabilities?.tenant_admin) items.push({ key: 'centers', label: 'Classes & clubs', icon: Building2 })
     if (capabilities?.tenant_admin) items.push({ key: 'classroom', label: 'Google Classroom', icon: BookOpen })
@@ -90,13 +105,17 @@ export default function EducationWorkbench() {
   }, [capabilities])
 
   useEffect(() => {
+    if (capabilitiesQuery.isLoading || platformAdmin) return
     if (!tabs.some((tab) => tab.key === activeTab)) setActiveTab('overview')
-  }, [activeTab, tabs])
+  }, [activeTab, tabs, capabilitiesQuery.isLoading, platformAdmin])
 
   useEffect(() => {
     if (!capabilities?.tenant_admin || !new URLSearchParams(window.location.search).has('classroom')) return
     setActiveTab('classroom')
-    window.history.replaceState({}, '', window.location.pathname)
+    const url = new URL(window.location.href)
+    url.searchParams.delete('classroom')
+    url.searchParams.set('tab', 'classroom')
+    window.history.replaceState({}, '', url)
   }, [capabilities?.tenant_admin])
 
   if (!audience) return <div className="p-4 md:p-6">Sign in to view Education.</div>
@@ -127,6 +146,8 @@ export default function EducationWorkbench() {
       {org.orgId && modeQuery.data?.enabled && <>
         <CostCenterManager key={org.orgId} orgId={org.orgId} centers={centers} includeArchived={includeArchived} onIncludeArchivedChange={setIncludeArchived} loading={centersQuery.isLoading || centersQuery.isFetchingNextPage} />
         <ReadinessPanel orgId={org.orgId} />
+        <TabBar tabs={[{ key: 'review', label: 'Review queue' }, { key: 'jobs', label: 'Job Queue' }, { key: 'archive', label: 'Archive' }]} activeTab={activeTab} onTabChange={key => changeTab(key as WorkbenchTab)} />
+        {(['review', 'jobs', 'archive'] as const).includes(activeTab as 'review' | 'jobs' | 'archive') && <EducationQueues key={`${org.orgId}-${activeTab}`} audience={audience} orgId={org.orgId} readOnly kind={activeTab as 'review' | 'jobs' | 'archive'} />}
       </>}
       {!modeQuery.data?.enabled && <p>Enable Education mode in Settings to configure a school.</p>}
     </div>
@@ -188,7 +209,7 @@ export default function EducationWorkbench() {
         <TabBar
           tabs={tabs}
           activeTab={activeTab}
-          onTabChange={(key) => setActiveTab(key as WorkbenchTab)}
+          onTabChange={(key) => changeTab(key as WorkbenchTab)}
           variant="inline"
         />
       </div>
@@ -200,8 +221,8 @@ export default function EducationWorkbench() {
           studentCenters={studentCenters}
           managedCenters={managedCenters}
           onSubmit={openUpload}
-          onReview={() => setActiveTab('review')}
-          onManage={() => setActiveTab('centers')}
+          onReview={() => changeTab('review')}
+          onManage={() => changeTab('centers')}
         />
       )}
 
@@ -217,8 +238,11 @@ export default function EducationWorkbench() {
           key={`review-${audience}`}
           centers={capabilities.tenant_admin ? activeCenters : managedCenters}
           reviewable
+          reviewOnly
         />
       )}
+
+      {(activeTab === 'jobs' || activeTab === 'archive') && <EducationQueues key={`${audience}-${activeTab}`} audience={audience} kind={activeTab} />}
 
       {activeTab === 'centers' && capabilities.tenant_admin && (
         <CostCenterManager
@@ -243,7 +267,7 @@ export default function EducationWorkbench() {
         onCreated={() => {
           queryClient.invalidateQueries({ queryKey: ['education-submissions'] })
           queryClient.invalidateQueries({ queryKey: ['education-centers'] })
-          setActiveTab('submissions')
+          changeTab('submissions')
         }}
       />
     </div>

@@ -16,6 +16,7 @@ import ReviewDecisionModal from './ReviewDecisionModal'
 interface SubmissionQueueProps {
   centers: EducationCostCenter[]
   reviewable: boolean
+  reviewOnly?: boolean
   mineOnly?: boolean
   onRevise?: (submission: EducationSubmission) => void
 }
@@ -39,13 +40,13 @@ const formatDate = (value: string | null) => {
   return Number.isNaN(parsed.valueOf()) ? value : parsed.toLocaleString()
 }
 
-export default function SubmissionQueue({ centers, reviewable, mineOnly = false, onRevise }: SubmissionQueueProps) {
+export default function SubmissionQueue({ centers, reviewable, reviewOnly = false, mineOnly = false, onRevise }: SubmissionQueueProps) {
   const queryClient = useQueryClient()
   const { data: principal } = useQuery<User | null>({ queryKey: ['auth', 'me'], queryFn: auth.me, enabled: false })
   const audience = educationAudience(principal)
   const ownerId = principal?.id
   const currentPrincipal = () => queryClient.getQueryData<User | null>(['auth', 'me'])
-  const [status, setStatus] = useState('')
+  const [status, setStatus] = useState(reviewOnly ? 'submitted' : '')
   const [archiveError, setArchiveError] = useState('')
   const [centerId, setCenterId] = useState('')
   const [reviewTarget, setReviewTarget] = useState<{ submission: EducationSubmission; audience: string } | null>(null)
@@ -78,7 +79,7 @@ export default function SubmissionQueue({ centers, reviewable, mineOnly = false,
           aria-label="Filter submissions by status"
           value={status}
           onChange={(event) => setStatus(event.target.value)}
-          options={STATUS_OPTIONS}
+          options={reviewOnly ? STATUS_OPTIONS.filter(option => option.value === 'submitted') : STATUS_OPTIONS}
           wrapperClassName="sm:w-52"
         />
         <Select
