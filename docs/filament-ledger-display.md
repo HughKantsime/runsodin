@@ -27,9 +27,10 @@ A mapping is an inventory assignment, not proof that the physical filament is
 loaded. Manage assignments in the external service's own interface.
 
 External spool IDs are returned as `external_spool_id`, never as Odin local spool
-IDs. Slot edits, spool load/assignment/confirmation, QR assignment, manual slot
+IDs. Slot edits, spool load/unload/assignment/confirmation, QR assignment, manual slot
 assignment, slot-count changes and filament sync are rejected with HTTP 409 for
-linked printers. Unlinked printers keep their existing workflows. Printer
+linked printers. Moving a local spool out of a linked printer is also rejected.
+Unlinked printers keep their existing workflows. Printer
 controls and Odin's other integrations remain independent; this display adapter
 never writes assignments, weights, or printer settings. If an external service
 owns consumption, configure Odin's other consumption integrations accordingly.
@@ -77,7 +78,10 @@ Odin distinguishes these states instead of claiming an empty or full spool.
 Serve a cached display snapshot with bounded inventory reads. A display request
 should not wait for hardware probes. Odin uses a two-second HTTP timeout and
 15-second cache/backoff. Redirects and inherited HTTP proxies are disabled;
-requests honor the existing ITAR destination policy. Missing printers, malformed
+requests honor the current device destination policy and ITAR restriction.
+The connection is DNS-pinned even outside ITAR mode. Loopback, link-local,
+metadata and ODIN service endpoints are blocked; use a private service hostname
+or LAN address. Missing printers, malformed
 payloads and provider outages produce a visible warning while preserving the
 printer list. The adapter does not expose provider error bodies.
 
@@ -100,4 +104,11 @@ npm run build
 
 The checks cover explicit bindings, tool numbering, original labels, unknown
 amounts, cached reads, outages, organization scope, unchanged database rows,
-blocked local edits and normal behavior for unlinked printers.
+blocked local edits and cross-printer moves, destination-policy rejection,
+organization-safe errors and normal behavior for unlinked printers.
+
+The display response is never written back to the ORM. ODIN's stored slot
+inventory, telemetry observations, consumption accounting and dispatch decisions
+remain independent of this feed. In 2.x, organization and shared-printer visibility
+are applied before enrichment; external IDs are exposed only through those
+authorized printer responses.

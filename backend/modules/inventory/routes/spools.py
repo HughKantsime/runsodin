@@ -386,7 +386,7 @@ def load_spool(spool_id: int, request: SpoolLoadRequest, current_user: dict = De
         raise HTTPException(status_code=404, detail="Spool not found")
 
     printer = db.query(Printer).filter(Printer.id == request.printer_id).first()
-    if not printer:
+    if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
         raise HTTPException(status_code=404, detail="Printer not found")
     ensure_local_filaments(request.printer_id)
 
@@ -427,8 +427,6 @@ def unload_spool(
     if not check_org_access(current_user, spool.org_id):
         raise HTTPException(status_code=404, detail="Spool not found")
 
-    if spool.location_printer_id:
-        ensure_local_filaments(spool.location_printer_id)
     unload_spool_graph(db, spool, current_user)
 
     spool.storage_location = storage_location

@@ -12,7 +12,8 @@ from typing import Any
 import httpx
 
 from core.config import settings
-from core.itar import check_url_allowed, pin_for_request
+from core.itar import check_url_allowed
+from core.webhook_utils import pinned_device_destination
 
 log = logging.getLogger("odin.filament_ledger_display")
 
@@ -127,7 +128,7 @@ def _fetch_printers() -> tuple[bool, dict[str, dict[str, Any]]]:
 
         endpoint = f"{url}/api/filament-display"
         try:
-            with pin_for_request(endpoint):
+            with pinned_device_destination(endpoint):
                 with httpx.Client(
                     timeout=_REQUEST_TIMEOUT,
                     follow_redirects=False,

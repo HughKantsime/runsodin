@@ -289,7 +289,6 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
         })()}
         {/* H2D External Spools (Ext-L / Ext-R) */}
         {!externallyManagedFilament && isDualNozzle(printer.machine_type) && printer.external_spools && (
-
           <div className="mt-2 pt-2 border-t border-[var(--brand-border)]">
             <span className="text-[10px] text-[var(--brand-text-muted)] font-medium">External Spools</span>
             <div className="grid grid-cols-2 gap-2 mt-1">

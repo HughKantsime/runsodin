@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import PrinterCard from './PrinterCard'
-vi.mock('../../permissions', () => ({ canDo: () => true }))
+vi.mock('../../permissions', () => ({ canDo: () => true, getCurrentUser: () => ({ role: "admin", group_id: null }) }))
 vi.mock('../../api', () => ({ printers: { assignSlotSpool: vi.fn(), toggleLights: vi.fn(), setSpeed: vi.fn() } }))
 afterEach(cleanup)
 const localSlot={id:1,slot_number:1,color_hex:'123456',material_type:'PLA',color:'Test blue',remaining:45,assigned_spool_id:null,spool_confirmed:false}

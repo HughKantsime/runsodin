@@ -382,8 +382,6 @@ def list_filament_slots(printer_id: int, current_user: dict = Depends(require_ro
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer or (not check_org_access(current_user, printer.org_id) and not printer.shared):
         raise HTTPException(status_code=404, detail="Printer not found")
-    if not check_org_access(current_user, printer.org_id):
-        raise HTTPException(status_code=404, detail="Printer not found")
     enriched = enrich_printers([printer])[0]
     return enriched.filament_slots if hasattr(enriched, "filament_slots") else printer.filament_slots
 
@@ -405,9 +403,6 @@ def update_filament_slot(
     ).first()
 
     if not slot:
-        raise HTTPException(status_code=404, detail="Filament slot not found")
-    parent_printer = db.query(Printer).filter(Printer.id == printer_id).first()
-    if not parent_printer or not check_org_access(current_user, parent_printer.org_id):
         raise HTTPException(status_code=404, detail="Filament slot not found")
     ensure_local_filaments(printer_id)
 

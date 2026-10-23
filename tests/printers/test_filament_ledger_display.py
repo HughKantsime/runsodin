@@ -154,7 +154,7 @@ class FilamentLedgerDisplay(unittest.TestCase):
         self.client_patch = patch.object(ledger_display.httpx, "Client", FakeClient)
         self.client_patch.start()
         self.addCleanup(self.client_patch.stop)
-        self.pin_patch = patch.object(ledger_display, "pin_for_request")
+        self.pin_patch = patch.object(ledger_display, "pinned_device_destination")
         self.pin_patch.start()
         self.addCleanup(self.pin_patch.stop)
         self.addCleanup(self.reset_cache)
@@ -188,7 +188,7 @@ class FilamentLedgerDisplay(unittest.TestCase):
         self.assertEqual(result[0].filament_source, "filament-ledger")
         self.assertEqual(result[0].filament_source_status, "partial")
         self.assertEqual(result[0].filament_slots[0].slot_number, 1)
-        self.assertIn(result[0].filament_slots[0].filament_type.value, ("OTHER", "PLA+"))
+        self.assertEqual(result[0].filament_slots[0].filament_type.value, "PLA")
         self.assertEqual(result[0].filament_slots[0].material_type, "PLA+")
         self.assertEqual(result[0].filament_slots[0].color, "Example Maker Matte Blue")
         self.assertEqual(result[0].filament_slots[0].display_name, "Tool 1")
@@ -275,6 +275,18 @@ class FilamentLedgerDisplay(unittest.TestCase):
         self.assertEqual(len(FakeClient.calls), 1)
         self.assertEqual(self.db_snapshot(), before)
 
+    def test_shared_printer_read_visibility_survives_enrichment(self):
+        with engine.begin() as conn:
+            conn.execute(text("UPDATE printers SET shared=1 WHERE id=7"))
+        before = self.db_snapshot()
+        user = {"role": "viewer", "group_id": 13}
+        with SessionLocal() as db:
+            rows = list_printers(False, None, None, user, {}, db)
+            self.assertEqual([row.id for row in rows], [7, 8])
+            self.assertEqual(get_printer(7, current_user=user, _agent_scope={}, db=db).filament_source, "filament-ledger")
+            self.assertEqual(list_filament_slots(7, user, db)[0].external_spool_id, 8301)
+        self.assertEqual(self.db_snapshot(), before)
+
     def test_local_filament_mutation_routes_reject_configured_printer(self):
         db = SessionLocal()
         user = {"role": "admin", "group_id": None}
@@ -315,6 +327,55 @@ class FilamentLedgerDisplay(unittest.TestCase):
         self.assertEqual(result.color, "edited")
         db.rollback()
         db.close()
+
+    def test_cross_org_mutations_do_not_disclose_binding(self):
+        from fastapi import HTTPException
+        user = {"role": "operator", "group_id": 13}
+        with SessionLocal() as db:
+            for action in (
+                lambda: assign_spool_to_slot(7, 1, 3, user, db),
+                lambda: confirm_slot_assignment(7, 1, user, db),
+                lambda: manual_slot_assignment(7, 1, ManualSlotAssignment(color="changed"), user, db),
+            ):
+                with self.assertRaises(HTTPException) as err:
+                    result = action()
+                    if asyncio.iscoroutine(result):
+                        asyncio.run(result)
+                self.assertEqual(err.exception.status_code, 404)
+        self.assertEqual(FakeClient.calls, [])
+
+    def test_spool_moves_and_unloads_cannot_clear_linked_source(self):
+        from fastapi import HTTPException
+        from modules.inventory.slot_assignments import assign_slot, unload_spool_graph
+        from modules.inventory.models import Spool
+        from modules.printers.models import FilamentSlot
+        with engine.begin() as conn:
+            conn.execute(text("UPDATE filament_slots SET assigned_spool_id=3 WHERE printer_id=7"))
+            conn.execute(text("UPDATE spools SET location_printer_id=7,location_slot=1 WHERE id=3"))
+        before = self.db_snapshot()
+        user = {"role": "admin", "group_id": None}
+        with SessionLocal() as db:
+            destination = db.query(FilamentSlot).filter_by(printer_id=8).one()
+            with self.assertRaises(HTTPException) as err:
+                assign_slot(db, destination, 3, user)
+            self.assertEqual(err.exception.status_code, 409)
+            db.rollback()
+            spool = db.query(Spool).filter_by(id=3).one()
+            with self.assertRaises(HTTPException) as err:
+                unload_spool_graph(db, spool, user)
+            self.assertEqual(err.exception.status_code, 409)
+            db.rollback()
+        self.assertEqual(self.db_snapshot(), before)
+
+    def test_destination_policy_blocks_before_http_even_outside_itar(self):
+        self.pin_patch.stop()
+        settings.filament_ledger_url = "http://127.0.0.1:9876"
+        with SessionLocal() as db:
+            from modules.printers.models import Printer
+            row = db.query(Printer).filter_by(id=7).one()
+            result = ledger_display.enrich_printers([row])[0]
+        self.assertEqual(result.filament_source_status, "unavailable")
+        self.assertEqual(FakeClient.calls, [])
 
     def test_no_binding_disables_provider_calls_and_guard(self):
         settings.filament_ledger_printers = {}

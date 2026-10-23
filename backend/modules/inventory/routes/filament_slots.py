@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from core.db import get_db
-from core.rbac import require_role, require_action
+from core.rbac import require_role, require_action, check_org_access
 from modules.inventory.models import Spool
 from modules.printers.models import FilamentSlot, Printer
 from modules.printers.ledger_display import ensure_local_filaments
@@ -25,6 +25,9 @@ def assign_spool_to_slot(
     current_user: dict = Depends(require_action("printers.slots", scope="write:printers")), db: Session = Depends(get_db)
 ):
     """Assign a spool to a printer slot."""
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
+        raise HTTPException(status_code=404, detail="Printer not found")
     ensure_local_filaments(printer_id)
     slot = db.query(FilamentSlot).filter(
         FilamentSlot.printer_id == printer_id,
@@ -52,6 +55,9 @@ def confirm_slot_assignment(
     current_user: dict = Depends(require_action("printers.slots", scope="write:printers")), db: Session = Depends(get_db)
 ):
     """Confirm the spool assignment for a slot."""
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
+        raise HTTPException(status_code=404, detail="Printer not found")
     ensure_local_filaments(printer_id)
     slot = db.query(FilamentSlot).filter(
         FilamentSlot.printer_id == printer_id,
