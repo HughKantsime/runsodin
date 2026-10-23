@@ -37,7 +37,7 @@ def test_live_current_trigger_union_uses_table_name_keys_and_native_power_shape(
 def test_live_executable_counts():
     # Update together with the migration that adds a PostgreSQL function or trigger.
     functions, triggers = canonical_functions(), canonical_triggers()
-    assert (len(functions), len(triggers)) == (21, 31)
+    assert (len(functions), len(triggers)) == (28, 38)
     assert "power_target_operation_guard" in functions and "spool_purchase_evidence_guard" in functions
     assert all(value[6] == "" for value in functions.values())
 
@@ -45,6 +45,9 @@ def test_live_executable_counts():
 # Raw tables (and their exact columns) each registered post-027 migration adds. A new
 # migration must extend this map; the test below fails until it does.
 POST027_RAW_TABLES = {
+    "python:037-education-memberships": {
+        "education_memberships": frozenset("user_id org_id retained_at ended_at".split()),
+    },
     "python:032-quiet-hours-deferred-deliveries": {
         "quiet_hours_deferred_deliveries": frozenset(
             "id user_id org_id scope_key channel alert_type severity title message printer_id job_id spool_id state "
@@ -77,6 +80,11 @@ def test_live_inventory_is_preserved027_plus_exactly_the_registered_post027_tabl
     live_columns = {table: sorted(columns) for table, columns in RAW_REQUIRED_COLUMNS.items()}
     expected_columns = {**accepted["raw_columns"], **{table: sorted(columns) for table, columns in added.items()}}
     assert live_columns == expected_columns
-    # No registered post-027 migration adds an executable: live equals the accepted 027 set.
-    assert json.loads(json.dumps(canonical_functions())) == accepted["functions"]
-    assert json.loads(json.dumps([[list(k), list(v)] for k, v in sorted(canonical_triggers().items())])) == accepted["triggers"]
+    # 037 adds exactly the retained-identity functions and triggers.
+    import importlib
+    retained=importlib.import_module('core.schema.migrations.037_education_memberships')
+    functions=canonical_functions();triggers=canonical_triggers()
+    assert set(functions)-set(accepted['functions']) == set(retained.pg_functions())
+    assert json.loads(json.dumps({k:v for k,v in functions.items() if k not in retained.pg_functions()})) == accepted["functions"]
+    assert json.loads(json.dumps([[list(k), list(v)] for k, v in sorted(triggers.items()) if k not in retained.pg_triggers()])) == accepted["triggers"]
+    for key,ddl in retained.pg_triggers().items():assert triggers[key] == (ddl,key[1],'public','O')

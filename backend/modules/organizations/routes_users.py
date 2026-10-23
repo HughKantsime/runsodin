@@ -642,3 +642,15 @@ async def delete_group(group_id: int, current_user: dict = Depends(require_super
     db.execute(text("DELETE FROM groups WHERE id = :id"), {"id": group_id})
     db.commit()
     return {"status": "deleted"}
+
+
+class RestoreSuperadminRequest(PydanticBaseModel):
+    confirmation: str
+
+
+@router.post('/users/{user_id}/restore-superadmin', tags=['Users'], dependencies=[Depends(require_interactive_session())])
+async def restore_platform_superadmin(user_id: int, body: RestoreSuperadminRequest,
+                                      current_user: dict = Depends(require_superadmin()),
+                                      db: Session = Depends(get_db)):
+    from modules.organizations.education_superadmin_restore import restore_superadmin
+    return restore_superadmin(db, actor=current_user, user_id=user_id, confirmation=body.confirmation)

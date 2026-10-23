@@ -114,6 +114,8 @@ RAW_REQUIRED_TABLES = frozenset(
 # a newer migration helper before selecting its closed source contract.
 POWER_OPERATION_COLUMNS = tuple("operation_nonce request_nonce owner_nonce printer_id target_key config_key destination_key purpose physical_job_id scheduled_job_id observation_key actor_user_id auth_kind authority_key state revision created_at changed_at command_started_at release_pending_at completed_at outcome cleanup_reason".split())
 
+RAW_REQUIRED_TABLES = RAW_REQUIRED_TABLES | frozenset({'education_memberships'})
+
 RAW_REQUIRED_COLUMNS = {
     "inventory_repairs": frozenset("event_id spool_id actor_id action before_json after_json created_at".split()),
     "production_recipes": frozenset("id owner definition".split()),
@@ -217,6 +219,7 @@ for _economic_table in ('orders', 'order_items', 'jobs'):
     RAW_REQUIRED_COLUMNS[_economic_table] = RAW_REQUIRED_COLUMNS.get(_economic_table, frozenset()) | frozenset({'economic_uid'})
 for _source_table in ('spools', 'print_jobs'):
     RAW_REQUIRED_COLUMNS[_source_table] = RAW_REQUIRED_COLUMNS.get(_source_table, frozenset()) | frozenset({'economic_uid', 'economic_birth_nonce'})
+RAW_REQUIRED_COLUMNS['education_memberships'] = frozenset({'user_id','org_id','retained_at','ended_at'})
 RAW_REQUIRED_COLUMNS['orders'] |= frozenset({'economic_global_origin_nonce'})
 RAW_REQUIRED_COLUMNS['spools'] |= frozenset({'purchase_evidence_nonce','purchase_revision'})
 RAW_REQUIRED_COLUMNS['cost_source_lifetimes'] = frozenset({'birth_nonce','resource_kind','resource_id','state','identity_uid','owner_scope','owner_key','job_uid','order_uid','item_uid','attempt_uid'})
@@ -292,6 +295,7 @@ POST027_MIGRATIONS = (
     ("python:034-alert-outbox", "core.schema.migrations.034_alert_outbox"),
     ("python:035-production-acceptance", "core.schema.migrations.035_production_acceptance"),
     ("python:036-ctec-pilot", "core.schema.migrations.036_ctec_pilot"),
+    ("python:037-education-memberships", "core.schema.migrations.037_education_memberships"),
 )
 
 
@@ -554,8 +558,14 @@ def _bootstrap_database_contract(
             applied.append("python:027-power-target-operations")
         if contract is None:
             for migration_id, module_name in POST027_MIGRATIONS:
+                if migration_id == "python:037-education-memberships":
+                    continue
                 if apply_python_migration(connection, module_name):
                     applied.append(migration_id)
+
+    if contract is None:
+        if apply_dedicated_python_migration(engine, "core.schema.migrations.037_education_memberships"):
+            applied.append("python:037-education-memberships")
 
     with engine.begin() as connection:
         if connection.dialect.name == "postgresql":

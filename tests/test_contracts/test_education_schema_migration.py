@@ -352,7 +352,7 @@ def test_preexisting_table_with_inverted_check_is_not_adopted(tmp_path: Path) ->
         )
         connection.exec_driver_sql("DROP TABLE education_storage_accounts")
         connection.exec_driver_sql(
-            statement.replace("reserved_bytes >= 0", "reserved_bytes <= 0")
+            statement.replace("REFERENCES users(id, group_id)", "REFERENCES education_memberships(user_id, org_id)").replace("reserved_bytes >= 0", "reserved_bytes <= 0")
         )
 
     with pytest.raises(RuntimeError, match="checks manifest mismatch"):
@@ -391,7 +391,7 @@ def test_preexisting_table_with_changed_string_operator_is_not_adopted(
         )
         connection.exec_driver_sql("DROP TABLE education_storage_accounts")
         connection.exec_driver_sql(
-            statement.replace("scope_kind='tenant'", "scope_kind<>'tenant'", 1)
+            statement.replace("REFERENCES users(id, group_id)", "REFERENCES education_memberships(user_id, org_id)").replace("scope_kind='tenant'", "scope_kind<>'tenant'", 1)
         )
 
     with pytest.raises(RuntimeError, match="checks manifest mismatch"):

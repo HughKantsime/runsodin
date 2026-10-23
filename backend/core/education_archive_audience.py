@@ -8,7 +8,8 @@ _BASE_SELECT = (
     "FROM education_submissions s "
     "JOIN education_cost_centers c ON c.id=s.cost_center_id AND c.org_id=s.org_id "
     "JOIN jobs j ON j.id=s.job_id AND j.charged_to_org_id=s.org_id "
-    "JOIN users u ON u.id=s.submitted_by AND u.group_id=s.org_id "
+    "JOIN education_memberships em ON em.user_id=s.submitted_by AND em.org_id=s.org_id "
+    "JOIN users u ON u.id=em.user_id "
 )
 
 
