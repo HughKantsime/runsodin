@@ -419,19 +419,12 @@ def test_revoked_selected_session_cannot_fall_back_to_valid_api_key(runtime, tok
     assert calls == [] and rows(engine) == []
 
 
-def test_monitor_startup_refuses_missing_fence_storage_before_subscribing(monkeypatch):
-    from core.monitor_bootstrap import bootstrap_monitor_authority
-    from core.registry import registry
-    from core import db, event_bus
-    from core.event_bus import InMemoryEventBus
+def test_missing_fence_storage_blocks_dispatch_not_monitor_startup(monkeypatch):
+    # Telemetry must not depend on power storage; every dispatch admission
+    # inspects it and fails closed when it cannot.
+    from core.dispatch_target_guard import unresolved_target
     from sqlalchemy import create_engine
-    monkeypatch.setattr(registry, '_providers', dict(registry._providers))
-    monkeypatch.setattr(db, 'engine', create_engine('sqlite://'))
-    bus = InMemoryEventBus()
-    monkeypatch.setattr(event_bus, '_bus', bus)
-    with pytest.raises(RuntimeError, match='Monitor power storage validation failed'):
-        bootstrap_monitor_authority()
-    assert not any(bus._handlers.values())
+    assert unresolved_target(create_engine('sqlite://'), 9, 'a' * 64) is True
 
 
 def test_cooldown_captures_trigger_before_idle_telemetry_then_rechecks_at_send(runtime, monkeypatch):

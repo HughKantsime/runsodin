@@ -55,5 +55,8 @@
     "typescript": "^6.0.2",
     "vite": "8.3.4",
     "vitest": "4.1.12"
+  },
+  "overrides": {
+    "zod": "4.6.7"
   }
 }

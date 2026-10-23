@@ -21,16 +21,6 @@ def bootstrap_monitor_authority() -> None:
     except Exception:
         raise RuntimeError("Monitor Education authority initialization failed") from None
     try:
-        from core.db import engine
-        from core.power_target_operations import _history
-
-        # Independently supervised monitors must validate recorded 027 storage
-        # before installing any power producer. Never resume or clear a row.
-        with engine.begin() as conn:
-            _history(conn)
-    except Exception:
-        raise RuntimeError("Monitor power storage validation failed") from None
-    try:
         from core.event_bus import get_event_bus
         from modules.printers import register_subscribers
 
