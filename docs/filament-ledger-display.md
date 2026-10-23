@@ -14,6 +14,9 @@ environment:
   FILAMENT_LEDGER_PRINTERS: '{"1":"example-printer"}'
 ```
 
+An omitted or blank `FILAMENT_LEDGER_PRINTERS` disables the integration.
+Malformed nonblank JSON is rejected at startup.
+
 The JSON object maps an Odin printer ID to an external printer key. Bind printers
 explicitly; Odin does not guess from names or change physical tool assignments.
 The source must be reachable from the Odin container. Deploy it on a trusted
@@ -25,6 +28,9 @@ colors when known, and remaining percentages only when both weights are known
 and initial weight is positive. The card identifies the source as read only.
 A mapping is an inventory assignment, not proof that the physical filament is
 loaded. Manage assignments in the external service's own interface.
+
+`loaded_colors` is empty for linked printer responses, including during outages,
+so stale local slot labels are not presented alongside the external display.
 
 External spool IDs are returned as `external_spool_id`, never as Odin local spool
 IDs. Slot edits, spool load/unload/assignment/confirmation, QR assignment, manual slot

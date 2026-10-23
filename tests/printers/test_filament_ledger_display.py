@@ -155,7 +155,7 @@ class FilamentLedgerDisplay(unittest.TestCase):
         self.client_patch.start()
         self.addCleanup(self.client_patch.stop)
         self.pin_patch = patch.object(ledger_display, "pinned_device_destination")
-        self.pin_patch.start()
+        self.pin_patch.start().return_value.__enter__.return_value = ["192.168.1.42"]
         self.addCleanup(self.pin_patch.stop)
         self.addCleanup(self.reset_cache)
 
@@ -186,6 +186,7 @@ class FilamentLedgerDisplay(unittest.TestCase):
             rows = db.query(__import__("modules.printers.models", fromlist=["Printer"]).Printer).order_by("id").all()
             result = ledger_display.enrich_printers(rows)
         self.assertEqual(result[0].filament_source, "filament-ledger")
+        self.assertEqual(result[0].loaded_colors, [])
         self.assertEqual(result[0].filament_source_status, "partial")
         self.assertEqual(result[0].filament_slots[0].slot_number, 1)
         self.assertEqual(result[0].filament_slots[0].filament_type.value, "PLA")
@@ -241,6 +242,7 @@ class FilamentLedgerDisplay(unittest.TestCase):
                 result2 = ledger_display.enrich_printers([row])[0]
             self.assertEqual(result1.filament_source_status, "unavailable")
             self.assertEqual(result1.filament_slots, [])
+            self.assertEqual(result1.loaded_colors, [])
             self.assertEqual(result2.filament_slots, [])
             self.assertEqual(len(FakeClient.calls), 1)
         self.assertEqual(self.db_snapshot(), before)
@@ -397,6 +399,27 @@ class FilamentLedgerDisplay(unittest.TestCase):
             result = ledger_display.enrich_printers([row])[0]
         self.assertEqual(result.filament_source_status, "unavailable")
         self.assertEqual(FakeClient.calls, [])
+
+    def test_binding_environment_accepts_blank_and_valid_json_only(self):
+        from core.config import Settings
+        for raw in ("", "  ", "{}", "null"):
+            with patch.dict(os.environ, {"FILAMENT_LEDGER_PRINTERS": raw}):
+                self.assertEqual(Settings(_env_file=None).filament_ledger_printers, {})
+        with patch.dict(os.environ, {"FILAMENT_LEDGER_PRINTERS": '{"7":"u1"}'}):
+            self.assertEqual(Settings(_env_file=None).filament_ledger_printers, {7: "u1"})
+        for raw in ('not-json', '[]', '{"bad-id":"u1"}'):
+            with patch.dict(os.environ, {"FILAMENT_LEDGER_PRINTERS": raw}), self.assertRaises(ValueError):
+                Settings(_env_file=None)
+
+    def test_public_or_mixed_pinned_addresses_fail_before_http(self):
+        from contextlib import nullcontext
+        for ips in (["8.8.8.8"], ["192.168.1.42", "8.8.8.8"], []):
+            self.reset_cache()
+            with patch.object(ledger_display, "pinned_device_destination", return_value=nullcontext(ips)):
+                available, printers = ledger_display._fetch_printers()
+            self.assertFalse(available)
+            self.assertEqual(printers, {})
+            self.assertEqual(FakeClient.calls, [])
 
     def test_no_binding_disables_provider_calls_and_guard(self):
         settings.filament_ledger_printers = {}

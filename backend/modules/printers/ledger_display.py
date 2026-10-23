@@ -12,7 +12,7 @@ from typing import Any
 import httpx
 
 from core.config import settings
-from core.itar import check_url_allowed
+from core.itar import is_private_destination
 from core.webhook_utils import pinned_device_destination
 
 log = logging.getLogger("odin.filament_ledger_display")
@@ -119,16 +119,12 @@ def _fetch_printers() -> tuple[bool, dict[str, dict[str, Any]]]:
         if _cached_url == url and now < _cached_until:
             return _cached_available, _cached_printers or {}
 
-        # This integration is deliberately restricted to an explicitly safe URL.
-        allowed, _reason = check_url_allowed(url)
-        if not allowed:
-            _cached_url, _cached_until = url, now + _CACHE_SECONDS
-            _cached_printers, _cached_available = None, False
-            return False, {}
-
         endpoint = f"{url}/api/filament-display"
         try:
-            with pinned_device_destination(endpoint):
+            with pinned_device_destination(endpoint) as ips:
+                # Validate the exact addresses the connection will use.
+                if not ips or not all(is_private_destination(ip) for ip in ips):
+                    raise ValueError("display destination must be private")
                 with httpx.Client(
                     timeout=_REQUEST_TIMEOUT,
                     follow_redirects=False,
@@ -203,6 +199,7 @@ def _to_printer_dto(row: Any, ledger_printer: dict[str, Any] | None, available: 
         base = PrinterResponse.model_validate(row).model_dump()
         base.update({
             "filament_slots": [],
+            "loaded_colors": [],
             "filament_source": "filament-ledger",
             "filament_source_status": "unavailable",
         })
@@ -212,6 +209,7 @@ def _to_printer_dto(row: Any, ledger_printer: dict[str, Any] | None, available: 
         base = PrinterResponse.model_validate(row).model_dump()
         base.update({
             "filament_slots": [],
+            "loaded_colors": [],
             "filament_source": "filament-ledger",
             "filament_source_status": "unavailable",
         })
@@ -221,6 +219,7 @@ def _to_printer_dto(row: Any, ledger_printer: dict[str, Any] | None, available: 
     base = PrinterResponse.model_validate(row).model_dump()
     base.update({
         "filament_slots": slots,
+        "loaded_colors": [],
         "filament_source": "filament-ledger",
         "filament_source_status": "partial" if partial else "fresh",
     })
