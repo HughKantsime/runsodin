@@ -194,7 +194,7 @@ def model_schedule_options(model_id: int,
 
 @router.get("/{model_id}/plates")
 def model_plate_summaries(model_id: int,
-    current_user: dict = Depends(require_role("operator", scope="write:jobs")), db: Session = Depends(get_db)):
+    current_user: dict = Depends(require_action("models.plates", scope="write:jobs")), db: Session = Depends(get_db)):
     """Per-plate sellable pieces, filament grams and print time of the file scheduling would use.
 
     Model-level fields describe plate 1. Kept apart from schedule-options, whose response is
@@ -202,7 +202,7 @@ def model_plate_summaries(model_id: int,
     """
     from core.print_payload_snapshot import stage_payload, PayloadUnavailable
     options = model_schedule_options(model_id, current_user=current_user, db=db)
-    if options["print_file_id"] is None or not options["plate_indices"]:
+    if options["print_file_id"] is None:
         return {**options, "plates": []}
     model = db.query(Model).filter(Model.id == model_id).first()
     file = _schedule_file(db, model, current_user)
@@ -210,10 +210,11 @@ def model_plate_summaries(model_id: int,
         raise HTTPException(409, "Selected print file changed; refresh scheduling options")
     try:
         with stage_payload(file.stored_path, options["payload_sha256"]) as snapshot:
-            plates = _plate_summaries(snapshot.path, options["plate_indices"])
+            plates = _plate_summaries(snapshot.path) if Path(file.stored_path).suffix.lower() == ".3mf" else []
     except PayloadUnavailable as exc:
         raise HTTPException(400, str(exc)) from None
-    return {**options, "plates": plates}
+    from core.print_file_binding import target_printer
+    return {**options, "target_printer_id": target_printer(db, file.id), "plates": plates}
 
 
 @router.post("/{model_id}/schedule")
@@ -254,6 +255,8 @@ def schedule_from_model(
         if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
             raise HTTPException(404, "Printer not found")
     file = _schedule_file(db, model, current_user)
+    from core.print_file_binding import require_bound_target
+    require_bound_target(db, file.id if file else None, printer_id)
     if (opts.print_file_id is None) != (opts.payload_sha256 is None):
         raise HTTPException(400, "File identity and payload hash must be supplied together")
     if opts.print_file_id is not None and (file is None or file.id != opts.print_file_id):
@@ -346,6 +349,7 @@ def schedule_from_model(
     if submission:
         alert_plan = _stage_submission_alert(db, current_user, model, job_id)
         log_audit(db, "job.created", "job", job_id, {"item_name": model.name, "status": "submitted"})
+    log_audit(db, "model.scheduled", "model", model.id, {"job_id": job_id, "print_file_id": file_id, "plate_index": plate_index, "printer_id": printer_id})
     db.commit()
     if alert_plan is not None:
         from modules.notifications.alert_dispatcher import deliver_staged_alert

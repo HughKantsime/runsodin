@@ -148,6 +148,7 @@ CASES = {
     "printers.slots": lambda u: ("patch", f"/api/printers/{printer()}/slots/1", {"json": {"color": "blue"}}),
     "printers.reorder": lambda u: ("post", "/api/printers/reorder", {"json": {"printer_ids": [printer(), printer()]}}),
     "printers.plug": lambda u: ("post", f"/api/printers/{plug_printer()}/plug/on", {}),
+    "models.plates": lambda u: ("get", f"/api/models/{model()}/plates", {}),
     "models.create": lambda u: ("post", "/api/models", {"json": {"name": f"MX model new {next(SEQ)}"}}),
     "models.edit": lambda u: ("patch", f"/api/models/{model()}", {"json": {"name": f"MX model renamed {next(SEQ)}"}}),
     "models.delete": lambda u: ("delete", f"/api/models/{model()}", {}),

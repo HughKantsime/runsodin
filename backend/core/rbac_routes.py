@@ -193,6 +193,7 @@ ACTION_ROUTES: dict[str, list[tuple[str, str]]] = {
     ],
     "spools.delete": [("DELETE", "/api/spools/{spool_id}")],
     "timeline.move": [("PATCH", "/api/jobs/{job_id}/move")],
+    "models.plates": [("GET", "/api/models/{model_id}/plates")],
     "upload.upload": [("POST", "/api/print-files/upload")],
     "upload.schedule": [("POST", "/api/print-files/{file_id}/schedule")],
     "upload.delete": [("DELETE", "/api/print-files/{file_id}")],

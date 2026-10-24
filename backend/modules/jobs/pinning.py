@@ -201,6 +201,17 @@ def _pin_checked_changes(db, current_user, job, updates):
             if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
                 raise HTTPException(status_code=404, detail="Printer not found")
     changes = updates.model_dump(exclude_unset=True)
+    from core.print_file_binding import job_file_id, target_printer, require_bound_target
+    file_id = job_file_id(db, changes.get("model_id", job.model_id), job.print_file_id)
+    bound = target_printer(db, file_id)
+    if bound is not None:
+        if job.print_file_id is None and changes.get("model_id", job.model_id) != job.model_id:
+            from core.errors import OdinError, ErrorCode
+            raise OdinError(ErrorCode.resource_conflict, "Schedule this bound file from the model library", status=409)
+        for field in ("printer_id", "pinned_printer_id"):
+            if field in changes:
+                require_bound_target(db, file_id, changes[field])
+        changes.update(pin_columns(bound))
     # printer_id is the scheduler's assignment, never a pin. On a pinned job it
     # must agree with the pin this PATCH leaves in place: a conflicting
     # printer_id is refused (409) rather than silently retargeting the job --

@@ -4,6 +4,8 @@ from pathlib import Path
 import os
 import re
 import uuid
+import json
+from typing import Optional
 from fastapi import HTTPException
 from sqlalchemy import text
 from core.api_token_policy import parse_token_scopes, token_scope_granted
@@ -84,6 +86,8 @@ def _own_upload_model(db, normalized_name, raw_name, org_id):
         "OR EXISTS (SELECT 1 FROM education_upload_operations o WHERE o.final_path=p.stored_path AND o.final_path IS NOT NULL))) "
         "ORDER BY m.id LIMIT 2"
     ), {"name": normalized_name, "raw": raw_name, "org": org_id}).fetchall()
+    from core.print_file_binding import job_file_id, target_printer
+    rows = [row for row in rows if target_printer(db, job_file_id(db, row[0])) is None]
     # An ambiguous namespace requires a new model, not an arbitrary attachment.
     return rows[0] if len(rows) == 1 else None
 
@@ -97,4 +101,28 @@ def _new_upload_path(file_id, filename):
     safe_name = re.sub(r'[^a-zA-Z0-9._-]', '_', filename or "file")
     path = root / f"{file_id}_{uuid.uuid4().hex}_{safe_name}"
     return path
+
+
+
+def _normalize_model_name(name: str) -> str:
+    """Strip printer model suffixes for variant matching."""
+    # Patterns: " (X1C)", " (H2D)", "_P1S", " - A1", etc.
+    patterns = [
+        r'\s*[\(\[\-_]\s*(X1C?|X1E|H2D|P1[SP]|A1(\s*Mini)?|Kobra\s*S1)\s*[\)\]]?\s*$',
+    ]
+    result = name
+    for p in patterns:
+        result = re.sub(p, '', result, flags=re.IGNORECASE)
+    return result.strip()
+
+
+
+
+def _studio_print_notes(note: Optional[str], profile_metadata: Optional[dict]) -> Optional[str]:
+    pieces = []
+    if note:
+        pieces.append(note)
+    if profile_metadata:
+        pieces.append("ODIN Studio profile_metadata: " + json.dumps(profile_metadata, sort_keys=True))
+    return "\n\n".join(pieces) if pieces else None
 

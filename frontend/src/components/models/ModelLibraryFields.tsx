@@ -1,3 +1,4 @@
+import ModelPlates from './ModelPlates'
 import { useState, useEffect, useRef } from 'react'
 import { Pencil, Trash2, Clock, Scale, Star, Package, CalendarPlus, History, X, ChevronDown, Palette, DollarSign, EyeOff } from 'lucide-react'
 import clsx from 'clsx'
@@ -110,6 +111,8 @@ export function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavori
             </div>
           )}
         </div>
+
+        {canDo('models.plates') && <ModelPlates model={model} onSchedule={onSchedule} />}
 
         {(model.estimated_cost > 0 || model.suggested_price > 0) && (
           <div className="flex items-center justify-between mt-3 pt-3 border-t border-[var(--brand-card-border)]">

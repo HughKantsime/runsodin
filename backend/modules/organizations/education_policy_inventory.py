@@ -44,6 +44,7 @@ def _entry(
 
 
 POLICY_INVENTORY = (
+    _entry("jobs.queue_creation", "_stage_prospective_queue_job", "job/model/file/upload destination", "stage caller-authorized queue entry", "internal adapter; callers retain tenant and Education authorization; bound files require exact destination", ("queue",), "test_upload_binding_and_plates.py", "excluded_internal"),
     _entry("jobs.education_order", "education_order/ordered_waiting/head_refusal", "Education job/printer/dispatch claim", "order/head check", "trusted scheduler/dispatch; authoritative head check under target lock", ("scheduler", "automatic and explicit dispatch"), "test_education_followup_queues.py", "guarded"),
     _entry("organizations.education_queues", "list_queue/reorder_queue", "Education submission/job/printer/grant", "read/reorder", "live tenant admin or active manager; explicit-org platform reads only; target-serialized full-list revision check", ("Education workbench", "dispatch ordering"), "test_education_followup_queues.py", "guarded"),
     _entry("organizations.education_superadmin_restore", "restore_superadmin", "user/membership/grants/credentials", "restore platform admin", "verified interactive platform superadmin; typed target confirmation; no live Education work", (), "test_education_superadmin_restore.py", "guarded"),

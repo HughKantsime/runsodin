@@ -459,8 +459,9 @@ def validate_analysis(parsed) -> Analysis:
 
 
 def _plate_summary(value):
-    return (type(value) is dict and set(value) == {"plate_index", "sellable_pieces", "filament_grams", "print_time_seconds"}
+    return (type(value) is dict and set(value) == {"plate_index", "is_sliced", "sellable_pieces", "filament_grams", "print_time_seconds"}
             and _integer(value["plate_index"], 0, 1023)
+            and type(value["is_sliced"]) is bool
             and (value["sellable_pieces"] is None or _integer(value["sellable_pieces"], 0, 10**6))
             and _number(value["filament_grams"], 0, 1e7, optional=True)
             and (value["print_time_seconds"] is None or _integer(value["print_time_seconds"], 0, 10**8)))

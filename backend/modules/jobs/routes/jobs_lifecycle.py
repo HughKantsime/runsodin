@@ -600,6 +600,8 @@ def move_job(
     # Moving a job onto a printer is an explicit printer choice: a pinned job's
     # pin follows the move (it never stays pointing at the old printer).
     # A deleted:<id> pin is re-pinned to the printer the operator chose.
+    from core.print_file_binding import job_file_id, require_bound_target
+    require_bound_target(db, job_file_id(db, job.model_id, job.print_file_id), request.printer_id)
     from modules.jobs.pinning import ISSUE_DELETED, parse_target, pin_columns
     moved = {"printer_id": request.printer_id, "scheduled_start": request.scheduled_start,
              "scheduled_end": scheduled_end}

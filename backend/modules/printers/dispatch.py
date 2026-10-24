@@ -265,7 +265,12 @@ def _load_job(job_id: int, *, connection=None) -> Optional[dict]:
                 """),
                 {"jid": job_id},
             ).fetchone()
-        return dict(row._mapping) if row else None
+            if row:
+                from core.print_file_binding import target_printer
+                job = dict(row._mapping)
+                job["upload_target_printer_id"] = target_printer(conn, job["resolved_print_file_id"])
+                return job
+        return None
     except Exception as e:
         log.error("[dispatch] Job configuration could not be loaded")
         return None
@@ -673,6 +678,8 @@ def _notify_start_outcome(job: dict, reason: str, *, gate_refusal=None, message=
 
 def _validated_print_options(job,creds,stored_path,payload_sha256):
     printer_id=job['printer_id']
+    if job.get("upload_target_printer_id") not in (None, printer_id):
+        return None, "Print file is bound to another printer; no command was sent"
     api_type=creds['api_type']
     print_options = {}
     if job.get("print_file_id") is not None:

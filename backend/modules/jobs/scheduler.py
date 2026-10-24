@@ -610,6 +610,15 @@ class Scheduler:
             from modules.jobs.pinning import job_pin, job_issue, BLOCKING
             if education_context is None:
                 pin, issue = job_pin(job), job_issue(db, job)
+                from core.print_file_binding import job_file_id, target_printer
+                bound = target_printer(db, job_file_id(db, job.model_id, job.print_file_id))
+                if bound is not None:
+                    if pin is not None and pin != bound:
+                        result.skipped_count += 1
+                        skipped.append((job.id, "upload_binding_mismatch"))
+                        result.errors.append(f"Could not schedule job {job.id}: print file is bound to printer {bound}")
+                        continue
+                    approved_printer_id = bound
                 if pin is not None:
                     approved_printer_id = pin
                 if issue in BLOCKING:
