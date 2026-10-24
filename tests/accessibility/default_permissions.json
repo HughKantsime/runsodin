@@ -188,6 +188,10 @@
     ],
     "users.restore_superadmin": [
       "admin"
+    ],
+    "models.plates": [
+      "admin",
+      "operator"
     ]
   },
   "page_access": {

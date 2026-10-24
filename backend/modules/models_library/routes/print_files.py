@@ -22,26 +22,13 @@ from core.errors import ErrorCode, OdinError
 from core.middleware.dry_run import dry_run_preview, is_dry_run
 from core.rbac import AGENT_WRITE_SCOPE, check_org_access, require_any_scope, require_role, require_action
 from core.responses import build_next_actions, next_action
-from modules.models_library.upload_storage import _fresh_upload_actor, _visible_upload_duplicate, _own_upload_model, _new_upload_path
+from modules.models_library.upload_storage import _studio_print_notes, _normalize_model_name, _fresh_upload_actor, _visible_upload_duplicate, _own_upload_model, _new_upload_path
 
 log = logging.getLogger("odin.api")
 
 router = APIRouter(tags=["Print Files"])
 
-
 ALLOWED_PRINT_FILE_EXTENSIONS = {".3mf", ".gcode", ".bgcode"}
-
-
-def _normalize_model_name(name: str) -> str:
-    """Strip printer model suffixes for variant matching."""
-    # Patterns: " (X1C)", " (H2D)", "_P1S", " - A1", etc.
-    patterns = [
-        r'\s*[\(\[\-_]\s*(X1C?|X1E|H2D|P1[SP]|A1(\s*Mini)?|Kobra\s*S1)\s*[\)\]]?\s*$',
-    ]
-    result = name
-    for p in patterns:
-        result = re.sub(p, '', result, flags=re.IGNORECASE)
-    return result.strip()
 
 
 def _parse_studio_profile_metadata(raw: Optional[str]) -> Optional[dict]:
@@ -79,7 +66,7 @@ def _validate_studio_print_file_name(filename: str) -> str:
     return ext
 
 
-def _get_accessible_printer(db: Session, printer_id: int, current_user: dict):
+def _get_accessible_printer(db: Session, printer_id: int, current_user: dict, *, allow_shared=False):
     printer = db.execute(
         text("SELECT id, name, org_id, api_type, machine_type, is_active, shared, bed_x_mm, bed_y_mm FROM printers WHERE id = :id"),
         {"id": printer_id},
@@ -91,7 +78,7 @@ def _get_accessible_printer(db: Session, printer_id: int, current_user: dict):
             status=404,
             retriable=False,
         )
-    if not check_org_access(current_user, printer._mapping.get("org_id")):
+    if not (check_org_access(current_user, printer._mapping.get("org_id")) or (allow_shared and printer._mapping.get("shared"))):
         raise OdinError(
             ErrorCode.printer_not_found,
             f"Printer {printer_id} not found",
@@ -99,16 +86,6 @@ def _get_accessible_printer(db: Session, printer_id: int, current_user: dict):
             retriable=False,
         )
     return printer
-
-
-def _studio_print_notes(note: Optional[str], profile_metadata: Optional[dict]) -> Optional[str]:
-    pieces = []
-    if note:
-        pieces.append(note)
-    if profile_metadata:
-        pieces.append("ODIN Studio profile_metadata: " + json.dumps(profile_metadata, sort_keys=True))
-    return "\n\n".join(pieces) if pieces else None
-
 
 # ──────────────────────────────────────────────
 # Print Files (3MF upload & management)
@@ -142,10 +119,15 @@ async def _extract_preview_mesh(path):
 async def upload_3mf(
     request: Request,
     file: UploadFile = File(...),
+    target_printer_id: Optional[int] = Form(None),
     current_user: dict = Depends(require_action("upload.upload", scope="write:models")), db: Session = Depends(get_db)
 ):
     """Upload and parse a print file (.3mf, .gcode, or .bgcode)."""
     from modules.models_library import print_file_meta as pfm
+
+    from core.print_file_binding import bind_file
+    if target_printer_id is not None:
+        _get_accessible_printer(db, target_printer_id, current_user, allow_shared=True)
 
     fname = file.filename or ""
     ext = os.path.splitext(fname)[1].lower()
@@ -246,7 +228,7 @@ async def upload_3mf(
 
             # Check for existing model with same name (multi-variant support)
             normalized_name = _normalize_model_name(metadata.project_name)
-            existing_model = _own_upload_model(db, normalized_name, metadata.project_name, current_user.get("group_id"))
+            existing_model = None if target_printer_id is not None else _own_upload_model(db, normalized_name, metadata.project_name, current_user.get("group_id"))
 
             color_req = {}
             for f_item in metadata.filaments:
@@ -320,7 +302,10 @@ async def upload_3mf(
                 "id": file_id,
             })
 
-            log_audit(db, "print_file_uploaded", "print_file", file_id)
+            if target_printer_id is not None:
+                _get_accessible_printer(db, target_printer_id, current_user, allow_shared=True)
+            bind_file(db, file_id, target_printer_id)
+            log_audit(db, "print_file_uploaded", "print_file", file_id, {"target_printer_id": target_printer_id})
             db.flush()
             commit_started = True
             db.commit()
@@ -353,6 +338,7 @@ async def upload_3mf(
                 "compatible_api_types": meta["compatible_api_types"],
                 "compatibility_facts": meta["safety_facts"],
                 "duplicate": duplicate_info,
+                "target_printer_id": target_printer_id,
             }
 
         else:
@@ -389,7 +375,7 @@ async def upload_3mf(
                        {"p": stored_path, "fn": file.filename, "id": file_id})
 
             # Check for existing model or create new
-            existing_model = _own_upload_model(db, normalized_name, project_name, current_user.get("group_id"))
+            existing_model = None if target_printer_id is not None else _own_upload_model(db, normalized_name, project_name, current_user.get("group_id"))
 
             if existing_model:
                 model_id = existing_model[0]
@@ -418,7 +404,10 @@ async def upload_3mf(
                 "id": file_id,
             })
 
-            log_audit(db, "print_file_uploaded", "print_file", file_id)
+            if target_printer_id is not None:
+                _get_accessible_printer(db, target_printer_id, current_user, allow_shared=True)
+            bind_file(db, file_id, target_printer_id)
+            log_audit(db, "print_file_uploaded", "print_file", file_id, {"target_printer_id": target_printer_id})
             db.flush()
             commit_started = True
             db.commit()
@@ -446,6 +435,7 @@ async def upload_3mf(
                 "compatible_api_types": meta["compatible_api_types"],
                 "compatibility_facts": meta["safety_facts"],
                 "duplicate": duplicate_info,
+                "target_printer_id": target_printer_id,
             }
     except Exception as exc:
         rollback_failed = False
@@ -463,7 +453,7 @@ async def upload_3mf(
             log.warning("Upload transaction outcome unknown for file %s; payload retained", file_id)
             reference = f" with file reference {file_id}" if file_id is not None else ""
             raise HTTPException(status_code=500, detail=f"Upload outcome is uncertain. Contact support{reference} before retrying.") from None
-        if isinstance(exc, HTTPException):
+        if isinstance(exc, (HTTPException, OdinError)):
             raise
         busy = isinstance(exc, OperationalError) and (
             getattr(getattr(exc, "orig", None), "sqlstate", None) == "55P03"
@@ -538,6 +528,7 @@ async def submit_studio_print(
     uploaded = await upload_3mf(
         request=request,
         file=file,
+        target_printer_id=target_printer_id,
         current_user=current_user,
         db=db,
     )
@@ -671,10 +662,10 @@ def schedule_print_file(file_id: int, printer_id: Optional[int] = None,
     from modules.models_library.file_management import schedule_generic_file
     return schedule_generic_file(db, file_id, printer_id, current_user)
 
-
 # ──────────────────────────────────────────────
 # Mesh / 3D Viewer
 # ──────────────────────────────────────────────
+
 
 @router.get("/print-files/{file_id}/mesh", tags=["3D Viewer"])
 async def get_print_file_mesh(file_id: int, current_user: dict = Depends(require_role("viewer", scope="read:models")), db: Session = Depends(get_db)):

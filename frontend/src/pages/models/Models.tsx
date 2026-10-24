@@ -161,17 +161,28 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
     enabled: isOpen && !!model?.id,
     staleTime: 0,
   })
+  const { data: plateData, isLoading: loadingPlates, error: plateError } = useQuery({
+    queryKey: ['model-plates', model?.id], queryFn: () => models.plates(model.id), enabled: isOpen && !!model?.id, staleTime: 0,
+  })
+  useEffect(() => {
+    const indices = payloadOptions?.plate_indices || []
+    if (indices.length) setScheduleOpts(prev => ({ ...prev, plate_index: indices.includes(prev.plate_index) ? prev.plate_index : indices[0] }))
+  }, [payloadOptions])
+  const boundPrinter = plateData?.target_printer_id
   const [selectedPrinter, setSelectedPrinter] = useState(null)
   const [scheduleOpts, setScheduleOpts] = useState({ priority: 3, quantity: 1, due_date: '', notes: '', plate_index: null })
 
   useEffect(() => {
     if (isOpen) {
       setSelectedPrinter(null)
-      setScheduleOpts({ priority: 3, quantity: 1, due_date: '', notes: '', plate_index: null })
+      setScheduleOpts({ priority: 3, quantity: 1, due_date: '', notes: '', plate_index: model?.selectedPlateIndex ?? null })
     }
-  }, [isOpen, model?.id])
+  }, [isOpen, model?.id, model?.selectedPlateIndex])
 
-  const activePrinters = printersData?.filter(p => p.is_active) || []
+  useEffect(() => {
+    if (isOpen && boundPrinter) setSelectedPrinter(boundPrinter)
+  }, [boundPrinter, isOpen, model?.id])
+  const activePrinters = printersData?.filter(p => p.is_active && (!boundPrinter || p.id === boundPrinter)) || []
   const variants = variantsData?.variants || []
   const variantProfiles = new Set(variants.map(v => v.printer_model?.toLowerCase()).filter(p => p && p !== 'unknown'))
   const hasMatch = (printer) => {
@@ -188,7 +199,9 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Schedule Print" size="md">
+      {(payloadError || plateError) && <p role="alert">Unable to load scheduling details. Refresh and try again.</p>}
       <p className="text-sm text-[var(--brand-muted)] mb-2">{model.name}</p>
+      {boundPrinter && <p className="text-sm mb-2">Bound to printer {boundPrinter}</p>}
 
         {variants.length > 0 && (
           <div className="flex flex-col gap-1.5 mb-3">
@@ -268,15 +281,17 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
         {/* Plate selector for multi-plate files */}
         {(() => {
           const plateIndices = payloadOptions?.plate_indices || []
-          if (plateIndices.length <= 1) return null
+          const summaries = plateData?.plates || plateIndices.map(i => ({ plate_index: i, is_sliced: true }))
+          if (!summaries.length) return null
           return (
             <div className="mb-4">
               <label className="block text-xs text-[var(--brand-muted)] mb-1">Plate</label>
               <div className="flex flex-wrap gap-2">
-                {plateIndices.map(i => (
+                {summaries.map(plate => { const i = plate.plate_index; return (
                   <button
                     key={i}
                     type="button"
+                    disabled={!plate.is_sliced || !plateIndices.includes(i)}
                     onClick={() => setScheduleOpts(prev => ({ ...prev, plate_index: i }))}
                     className={clsx('px-3 py-1 rounded text-xs border transition-colors',
                       scheduleOpts.plate_index === i
@@ -284,9 +299,9 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
                         : 'border-[var(--brand-card-border)] text-[var(--brand-muted)] hover:border-[var(--brand-card-border)]'
                     )}
                   >
-                    Plate {i + 1}
+                    Plate {i + 1} — {plate.is_sliced ? `${plate.print_time_seconds != null ? Math.round(plate.print_time_seconds / 60) + ' min' : 'Time unknown'} · ${plate.filament_grams != null ? plate.filament_grams + ' g' : 'Filament unknown'}` : 'Requires slicing'}
                   </button>
-                ))}
+                )})}
               </div>
             </div>
           )
@@ -295,6 +310,7 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
         <p className="text-sm text-[var(--brand-muted)] mb-2">Assign to Printer</p>
         <div className="flex flex-wrap gap-2 mb-6">
           <button
+            disabled={!!boundPrinter}
             onClick={() => setSelectedPrinter(null)}
             className={clsx('px-3 py-1.5 rounded-md border text-sm transition-colors',
               selectedPrinter === null ? 'border-[var(--brand-primary)] bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]' : 'border-[var(--brand-card-border)] hover:border-[var(--brand-card-border)]'
@@ -326,7 +342,7 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
       {payloadError && <p role="alert" className="text-red-400 text-sm mb-3">Scheduling options could not be loaded: {payloadError.message}</p>}
       <div className="flex justify-end gap-3">
         <button onClick={onClose} disabled={isScheduling} className="px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md text-sm transition-colors">Cancel</button>
-        <button onClick={() => onConfirm(selectedPrinter, { ...scheduleOpts, quantity: Number(scheduleOpts.quantity), due_date: scheduleOpts.due_date ? scheduleOpts.due_date + 'T00:00:00Z' : null, notes: scheduleOpts.notes || null, print_file_id: payloadOptions?.print_file_id, payload_sha256: payloadOptions?.payload_sha256 })} disabled={isScheduling || loadingPayload || !!payloadError || !Number.isInteger(Number(scheduleOpts.quantity)) || Number(scheduleOpts.quantity) < 1} className="px-4 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary-hover)] rounded-md text-sm transition-colors">
+        <button onClick={() => onConfirm(selectedPrinter, { ...scheduleOpts, quantity: Number(scheduleOpts.quantity), due_date: scheduleOpts.due_date ? scheduleOpts.due_date + 'T00:00:00Z' : null, notes: scheduleOpts.notes || null, print_file_id: payloadOptions?.print_file_id, payload_sha256: payloadOptions?.payload_sha256 })} disabled={isScheduling || loadingPayload || loadingPlates || !!payloadError || !!plateError || (!!payloadOptions?.plate_indices?.length && !payloadOptions.plate_indices.includes(scheduleOpts.plate_index)) || !Number.isInteger(Number(scheduleOpts.quantity)) || Number(scheduleOpts.quantity) < 1} className="px-4 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary-hover)] rounded-md text-sm transition-colors">
           {isScheduling ? 'Scheduling...' : 'Create Job'}
         </button>
       </div>

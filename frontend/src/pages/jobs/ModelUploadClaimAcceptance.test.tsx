@@ -4,10 +4,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import Upload from './Upload'
 import Models from '../models/Models'
-const api=vi.hoisted(()=>({update:vi.fn(),schedule:vi.fn(),variants:vi.fn(),options:vi.fn()}))
+const api=vi.hoisted(()=>({update:vi.fn(),schedule:vi.fn(),variants:vi.fn(),options:vi.fn(),plates:vi.fn(),form:vi.fn()}))
 vi.mock('../../api',()=>({
  filaments:{combined:vi.fn().mockResolvedValue([])},printFiles:{list:vi.fn().mockResolvedValue([])},getApprovalSetting:vi.fn().mockResolvedValue({require_job_approval:false}),
- models:{update:api.update,schedule:api.schedule,getVariants:api.variants,scheduleOptions:api.options,listWithPricing:vi.fn().mockResolvedValue([{id:41,name:'Synthetic model',category:'Synthetic',variant_count:1}])},
+ models:{update:api.update,schedule:api.schedule,getVariants:api.variants,scheduleOptions:api.options,plates:api.plates,listWithPricing:vi.fn().mockResolvedValue([{id:41,name:'Synthetic model',category:'Synthetic',variant_count:1}])},
  printers:{list:vi.fn().mockResolvedValue([{id:9,name:'Synthetic printer',model:'X1C',is_active:true}])},
 }))
 vi.mock('../../permissions',()=>({getCurrentUser:()=>({id:2,role:'operator'}),canDo:()=>true}))
@@ -17,9 +17,9 @@ class UploadRequest {
  status=200;responseText=JSON.stringify(uploadData);withCredentials=false
  upload={addEventListener:vi.fn()};handlers:Record<string,Function>={}
  addEventListener(name:string,fn:Function){this.handlers[name]=fn}
- open=vi.fn();send(){queueMicrotask(()=>this.handlers.load?.())}
+ open=vi.fn();send(form:FormData){api.form(form);queueMicrotask(()=>this.handlers.load?.())}
 }
-beforeEach(()=>{api.update.mockResolvedValue({});api.schedule.mockResolvedValue({});api.variants.mockResolvedValue({variants:[{id:5,printer_model:'X1C',plate_count:3}]});api.options.mockResolvedValue({print_file_id:5,payload_sha256:'a'.repeat(64),plate_indices:[0,1,2]});vi.stubGlobal('XMLHttpRequest',UploadRequest)})
+beforeEach(()=>{api.plates.mockResolvedValue({plates:[{plate_index:0,is_sliced:true,print_time_seconds:3600,filament_grams:10},{plate_index:2,is_sliced:true,print_time_seconds:1800,filament_grams:5},{plate_index:6,is_sliced:false}]});api.update.mockResolvedValue({});api.schedule.mockResolvedValue({});api.variants.mockResolvedValue({variants:[{id:5,printer_model:'X1C',plate_count:3}]});api.options.mockResolvedValue({print_file_id:5,payload_sha256:'a'.repeat(64),plate_indices:[0,1,2]});vi.stubGlobal('XMLHttpRequest',UploadRequest)})
 afterEach(()=>{cleanup();vi.clearAllMocks();vi.unstubAllGlobals()})
 function mount(page:React.ReactNode,path='/upload'){
  const client=new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}})
@@ -51,18 +51,50 @@ test('F05-5.1-04 object selection changes count and persists quantity_per_bed to
 test('F05-5.1-05 verified schedule options render all selectable plates',async()=>{
  mount(<Models/>,'/models?schedule=41')
  const dialog=await screen.findByRole('dialog')
- expect(await within(dialog).findByRole('button',{name:'Plate 3'})).toBeInTheDocument()
- expect(within(dialog).getByRole('button',{name:'Plate 1'})).toBeInTheDocument()
- expect(within(dialog).getByRole('button',{name:'Plate 2'})).toBeInTheDocument()
+ expect(await within(dialog).findByRole('button',{name:/Plate 3/})).toBeInTheDocument()
+ expect(within(dialog).getByRole('button',{name:/Plate 1/})).toBeInTheDocument()
+ expect(within(dialog).getByRole('button',{name:/Plate 7.*Requires slicing/})).toBeDisabled()
+ expect(within(dialog).getByRole('button',{name:/Plate 1/})).toHaveTextContent('60 min · 10 g')
  expect(api.variants).toHaveBeenCalledWith(41)
  expect(api.options).toHaveBeenCalledWith(41)
 })
 test('F05-5.1-05 selected plate index reaches scheduling request',async()=>{
  mount(<Models/>,'/models?schedule=41')
  const dialog=await screen.findByRole('dialog')
- fireEvent.click(await within(dialog).findByRole('button',{name:'Plate 3'}))
+ fireEvent.click(await within(dialog).findByRole('button',{name:/Plate 3/}))
  fireEvent.click(await within(dialog).findByRole('button',{name:/Synthetic printer/}))
  fireEvent.click(within(dialog).getByRole('button',{name:'Create Job'}))
  await waitFor(()=>expect(api.schedule).toHaveBeenCalled())
  expect(api.schedule).toHaveBeenCalledWith(41,9,expect.objectContaining({plate_index:2,print_file_id:5,payload_sha256:'a'.repeat(64)}))
+})
+
+test('upload includes the selected printer in multipart data',async()=>{
+ const view=mount(<Upload/>)
+ const selector=await screen.findByLabelText('Target printer (optional)')
+ await screen.findByRole('option',{name:'Synthetic printer'})
+ fireEvent.change(selector,{target:{value:'9'}})
+ fireEvent.change(view.container.querySelector('input[type=file]')!,{target:{files:[new File(['G28'],'synthetic.gcode')]}})
+ await waitFor(()=>expect(api.form).toHaveBeenCalled())
+ expect(api.form.mock.calls[0][0].get('target_printer_id')).toBe('9')
+})
+test('binding is visible and prevents auto assignment',async()=>{
+ api.plates.mockResolvedValue({target_printer_id:9,plates:[]})
+ mount(<Models/>,'/models?schedule=41')
+ const dialog=await screen.findByRole('dialog')
+ expect(await within(dialog).findByText('Bound to printer 9')).toBeInTheDocument()
+ expect(within(dialog).getByRole('button',{name:'Auto-assign'})).toBeDisabled()
+ fireEvent.click(within(dialog).getByRole('button',{name:'Create Job'}))
+ await waitFor(()=>expect(api.schedule).toHaveBeenCalledWith(41,9,expect.anything()))
+})
+
+test('model library lists sparse plates and opens scheduling on the selected plate',async()=>{
+ mount(<Models/>,'/models')
+ fireEvent.click(await screen.findByText('Plates'))
+ expect(await screen.findByText('60 min · 10 g')).toBeInTheDocument()
+ expect(screen.getByText('Requires slicing')).toBeInTheDocument()
+ fireEvent.click(screen.getByRole('button',{name:'Schedule plate 3'}))
+ const dialog=await screen.findByRole('dialog')
+ fireEvent.click(await within(dialog).findByRole('button',{name:/Synthetic printer/}))
+ fireEvent.click(within(dialog).getByRole('button',{name:'Create Job'}))
+ await waitFor(()=>expect(api.schedule).toHaveBeenCalledWith(41,9,expect.objectContaining({plate_index:2})))
 })
