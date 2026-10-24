@@ -127,8 +127,17 @@ def education_reorder_request(user):
     group=next(g for g in listing.json()['printers'] if g['printer_id']==pid)
     return ("patch",f"/api/education/queues/jobs/{pid}/order",{"json":{"revision":group['revision'],"job_ids":[jid]}})
 
+def recovery_request(user):
+    pid = printer()
+    jid = job(status="scheduled", printer_id=pid)
+    sql("INSERT INTO printer_dispatch_claims(printer_id,job_id,physical_key,configuration_key,payload_sha256,token,owner_org_id,state) VALUES(:p,:j,:physical,:configuration,:payload,:token,1,'uncertain')",
+        p=pid,j=jid,physical=f"{pid:064x}",configuration="b"*64,payload="c"*64,token=f"{pid:032x}")
+    snapshot=C[user].get(f"/api/printers/{pid}/dispatch-recovery").json()
+    return ("post",f"/api/printers/{pid}/dispatch-recovery/hold",{"json":{"attempt_handle":snapshot["attempt_handle"],"snapshot_handle":snapshot["snapshot_handle"],"reason_category":"investigation"}})
+
 # key -> builder(user) returning (method, path, request kwargs) for one fresh call
 CASES = {
+    "printers.dispatch_recovery": recovery_request,
     "users.restore_superadmin": restore_request,
     "education.reorder": education_reorder_request,
     "settings.edit": lambda u: ("put", "/api/settings/energy-rate", {"json": {"energy_cost_per_kwh": 0.2}}),
@@ -320,8 +329,8 @@ def test_narrowing_the_key_refuses_the_previous_holder(matrix, key):
 @pytest.mark.parametrize("key", REFUSABLE)
 def test_widening_the_key_admits_the_previously_refused_role(matrix, key):
     r = matrix["results"][key]
-    if key == "users.restore_superadmin":
-        # Widening the matrix must not bypass the independent Super Admin guard.
+    if key in {"users.restore_superadmin", "printers.dispatch_recovery"}:
+        # Recovery retains its independent admin floor. Widening the matrix must not bypass the independent Super Admin guard.
         assert _denied(r["widened_refused"]), r
     else:
         assert _ok(r["widened_refused"]), r

@@ -188,6 +188,9 @@
     ],
     "users.restore_superadmin": [
       "admin"
+    ],
+    "printers.dispatch_recovery": [
+      "admin"
     ]
   },
   "page_access": {

@@ -25,7 +25,11 @@ import type {
 
 export interface DispatchRecoveryInspection {
   state: string
-  release_available: false
+  release_available: boolean
+  attempt_handle?: string
+  snapshot_handle?: string
+  actions?: { hold: boolean; reconcile_retain: boolean; release: boolean }
+  blockers?: string[]
   job_id?: number | null
   job?: { status: string; held: boolean } | null
   receipt_present?: boolean
@@ -34,7 +38,16 @@ export interface DispatchRecoveryInspection {
   guidance?: string
 }
 
+export type DispatchRecoveryAction = 'hold' | 'reconcile-retain' | 'release'
+export interface DispatchRecoveryDecision {
+  outcome: 'held' | 'retained' | 'released'
+  held: boolean
+  claim_retained: boolean
+  refresh_required: boolean
+}
+
 export const printers = {
+  recoverDispatch: (id: number, action: DispatchRecoveryAction, body: Record<string, unknown>): Promise<DispatchRecoveryDecision> => fetchAPI(`/printers/${id}/dispatch-recovery/${action}`, { method: 'POST', body: JSON.stringify(body) }),
   dispatchRecovery: (id: number): Promise<DispatchRecoveryInspection> => fetchAPI(`/printers/${id}/dispatch-recovery`),
   list: (activeOnly = false, tag = '', orgId: number | null = null): Promise<Printer[]> => fetchAPI('/printers?active_only=' + activeOnly + (tag ? '&tag=' + encodeURIComponent(tag) : '') + (orgId != null ? '&org_id=' + orgId : '')),
   allTags: (): Promise<string[]> => fetchAPI('/printers/tags'),

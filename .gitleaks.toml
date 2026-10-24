@@ -34,6 +34,6 @@ useDefault = true
 [[allowlists]]
   description = "Frozen034 Python source-path SHA-256 manifest entries"
   condition = "AND"
-  paths = ['''^backend/core/schema/preserved034/manifest\.json$''', '''^backend/core/schema/preserved035/manifest\.json$''', '''^backend/core/schema/preserved036/manifest\.json$''']
+  paths = ['''^backend/core/schema/preserved034/manifest\.json$''', '''^backend/core/schema/preserved035/manifest\.json$''', '''^backend/core/schema/preserved036/manifest\.json$''', '''^backend/core/schema/preserved037/manifest\.json$''']
   regexTarget = "line"
   regexes = ['''^\s*"[A-Za-z0-9_./-]+\.py"\s*:\s*"[0-9a-f]{64}",?\s*$''']

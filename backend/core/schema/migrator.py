@@ -97,6 +97,7 @@ _ALLOWED_PYTHON_MIGRATIONS = frozenset(
         "core.schema.migrations.034_alert_outbox",
         "core.schema.migrations.035_production_acceptance",
         "core.schema.migrations.037_education_memberships",
+        "core.schema.migrations.038_dispatch_recovery",
         "core.schema.migrations.036_ctec_pilot",
     }
 )

@@ -1,0 +1,575 @@
+"""Transactional, checksummed migration runner for SQLite and PostgreSQL."""
+
+from __future__ import annotations
+
+import hashlib
+import importlib
+import inspect as python_inspect
+import re
+from contextvars import ContextVar
+from pathlib import Path
+from typing import Iterable
+
+from sqlalchemy import Column, DateTime, MetaData, String, Table, inspect, text
+from sqlalchemy.sql.sqltypes import DateTime as SQLAlchemyDateTime
+from sqlalchemy.engine import Connection, Engine
+from sqlalchemy.sql import func
+
+
+class MigrationError(RuntimeError):
+    """Raised when migration history or execution is unsafe."""
+
+
+_ACTIVE_PYTHON_MIGRATION: ContextVar[str | None] = ContextVar(
+    "odin_active_python_migration", default=None
+)
+# Exact SQLite declarations from v1.9.12's historical container entrypoint.
+# These are adoption alternatives, never definitions used to create columns.
+_LEGACY_ENTRYPOINT_SHAPES = {
+    ("printers", "shared", "BOOLEAN"): "BOOLEAN DEFAULT 0",
+    ("printers", "tags", "JSON"): "TEXT DEFAULT '[]'",
+    ("printers", "timelapse_enabled", "BOOLEAN"): "INTEGER DEFAULT 0",
+    ("printers", "bed_x_mm", "FLOAT"): "REAL",
+    ("printers", "bed_y_mm", "FLOAT"): "REAL",
+    ("printers", "machine_type", "VARCHAR(20)"): "TEXT",
+    ("spools", "pa_profile", "VARCHAR(50)"): "TEXT",
+    ("spools", "low_stock_threshold_g", "INTEGER"): "INTEGER DEFAULT 50",
+    ("jobs", "required_tags", "JSON"): "TEXT DEFAULT '[]'",
+    ("jobs", "target_type", "VARCHAR(20)"): "TEXT DEFAULT 'specific'",
+    ("jobs", "target_filter", "VARCHAR(100)"): "TEXT",
+    ("vision_settings", "build_plate_empty_enabled", "INTEGER"): "INTEGER DEFAULT 0",
+    ("vision_settings", "build_plate_empty_threshold", "FLOAT"): "REAL DEFAULT 0.70",
+}
+
+
+MIGRATION_TABLE = Table(
+    "odin_schema_migrations",
+    MetaData(),
+    Column("migration_id", String(255), primary_key=True),
+    Column("checksum", String(64), nullable=False),
+    Column("dialect", String(32), nullable=False),
+    Column("applied_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+_ALTER_ADD_RE = re.compile(
+    r"^ALTER\s+TABLE\s+([A-Za-z_][A-Za-z0-9_]*)\s+ADD\s+COLUMN\s+"
+    r"([A-Za-z_][A-Za-z0-9_]*)\s+(.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+_CREATE_INDEX_RE = re.compile(
+    r"^CREATE\s+(UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?"
+    r"([A-Za-z_][A-Za-z0-9_]*)\s+ON\s+([A-Za-z_][A-Za-z0-9_]*)\s*"
+    r"\(([^)]+)\)",
+    re.IGNORECASE | re.DOTALL,
+)
+_ALLOWED_PYTHON_MIGRATIONS = frozenset(
+    {
+        "core.schema.migrations.001_legacy_columns",
+        "core.schema.migrations.002_education_tenant_integrity",
+        "core.schema.migrations.003_education_monitor_claims",
+        "core.schema.migrations.004_quiet_hours_scoped_claims",
+        "core.schema.migrations.005_order_production_snapshots",
+        "core.schema.migrations.006_print_job_measurements",
+        "core.schema.migrations.007_attempt_accounting",
+        "core.schema.migrations.008_profile_revisions",
+        "core.schema.migrations.009_cost_foundation",
+        "core.schema.migrations.010_h2d_nozzle_observations",
+        "core.schema.migrations.011_dispatch_claims",
+        "core.schema.migrations.012_dispatch_receipts",
+        "core.schema.migrations.013_observation_received_time",
+        "core.schema.migrations.014_dispatch_senders",
+        "core.schema.migrations.015_timelapse_retirements",
+        "core.schema.migrations.016_timelapse_ownership",
+        "core.schema.migrations.017_timelapse_recovery",
+        "core.schema.migrations.018_timelapse_unlinks",
+        "core.schema.migrations.019_timelapse_publications",
+        "core.schema.migrations.020_ams_evidence",
+        "core.schema.migrations.021_economic_identity",
+        "core.schema.migrations.022_economic_source_lifetimes",
+        "core.schema.migrations.023_timelapse_retirement_membership",
+        "core.schema.migrations.024_audit_actor",
+        "core.schema.migrations.025_spool_purchase_evidence",
+        "core.schema.migrations.026_global_order_origins",
+        "core.schema.migrations.027_power_target_operations",
+        # Post-027: keep in step with bootstrap.POST027_MIGRATIONS.
+        "core.schema.migrations.032_quiet_hours_deferred_deliveries",
+        "core.schema.migrations.033_timelapse_capture_tenancy",
+        "core.schema.migrations.034_alert_outbox",
+        "core.schema.migrations.035_production_acceptance",
+        "core.schema.migrations.037_education_memberships",
+        "core.schema.migrations.036_ctec_pilot",
+    }
+)
+
+
+def strip_sql_comments(sql: str) -> str:
+    """Strip SQL `--` comments; repository migrations contain no quoted `--`."""
+    output: list[str] = []
+    for line in sql.splitlines():
+        marker = line.find("--")
+        output.append(line[:marker] if marker >= 0 else line)
+    return "\n".join(output)
+
+
+def split_sql_statements(sql: str) -> list[str]:
+    """Split the repository's simple migration SQL after comments are removed."""
+    return [
+        statement.strip()
+        for statement in strip_sql_comments(sql).split(";")
+        if statement.strip()
+    ]
+
+
+def translate_statement(statement: str, dialect: str) -> str:
+    if dialect != "postgresql":
+        return statement
+    translated = re.sub(
+        r"\bINTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT\b",
+        "BIGSERIAL PRIMARY KEY",
+        statement,
+        flags=re.IGNORECASE,
+    )
+    translated = re.sub(
+        r"DEFAULT\s*\(\s*datetime\s*\(\s*'now'\s*\)\s*\)",
+        "DEFAULT CURRENT_TIMESTAMP",
+        translated,
+        flags=re.IGNORECASE,
+    )
+    translated = re.sub(
+        r"\bDATETIME\b",
+        "TIMESTAMP WITH TIME ZONE",
+        translated,
+        flags=re.IGNORECASE,
+    )
+    translated = re.sub(
+        r"\bBOOLEAN\s+DEFAULT\s+0\b",
+        "BOOLEAN DEFAULT FALSE",
+        translated,
+        flags=re.IGNORECASE,
+    )
+    translated = re.sub(
+        r"\bBOOLEAN\s+DEFAULT\s+1\b",
+        "BOOLEAN DEFAULT TRUE",
+        translated,
+        flags=re.IGNORECASE,
+    )
+    return translated
+
+
+def _checksum(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def acquire_schema_writer_lock(connection: Connection) -> None:
+    """Bound the existing PostgreSQL writer fence in the caller transaction."""
+    if connection.dialect.name != "postgresql":
+        return
+    if connection.connection.driver_connection.autocommit:
+        raise MigrationError("Schema writer transaction required")
+    bound = int(connection.execute(text("SELECT setting FROM pg_settings WHERE name='lock_timeout'")).scalar_one())
+    if bound == 0 or bound > 2000:
+        connection.execute(text("SELECT set_config('lock_timeout','2000',true)"))
+    connection.execute(text("SELECT pg_advisory_xact_lock(71403114720480978)"))
+
+
+def ensure_ledger(connection: Connection) -> None:
+    MIGRATION_TABLE.create(bind=connection, checkfirst=True)
+
+
+def _recorded(connection: Connection, migration_id: str) -> tuple[str, str] | None:
+    row = connection.execute(
+        text(
+            "SELECT checksum, dialect FROM odin_schema_migrations "
+            "WHERE migration_id = :migration_id"
+        ),
+        {"migration_id": migration_id},
+    ).fetchone()
+    return (str(row[0]), str(row[1])) if row else None
+
+
+def _column_exists(connection: Connection, table_name: str, column_name: str) -> bool:
+    inspector = inspect(connection)
+    if table_name not in inspector.get_table_names():
+        return False
+    return column_name in {
+        column["name"] for column in inspector.get_columns(table_name)
+    }
+
+
+def _normalized_type(value: object) -> str:
+    if isinstance(value, SQLAlchemyDateTime):
+        return "TIMESTAMP WITH TIME ZONE" if value.timezone else "DATETIME"
+    normalized = re.sub(r"\s+", " ", str(value).upper().strip())
+    return normalized.replace("CHARACTER VARYING", "VARCHAR").replace(
+        "DOUBLE PRECISION", "FLOAT"
+    )
+
+
+def _expected_type(definition: str) -> str:
+    match = re.match(
+        r"(TIMESTAMP(?:\s+WITH(?:OUT)?\s+TIME\s+ZONE)?|DATETIME|"
+        r"VARCHAR(?:\s*\(\s*\d+\s*\))?|BOOLEAN|INTEGER|BIGINT|FLOAT|REAL|TEXT|JSON)"
+        r"(?![A-Za-z0-9_])",
+        definition.strip(),
+        re.IGNORECASE,
+    )
+    if not match:
+        raise MigrationError(f"Unsupported migration column definition: {definition}")
+    return re.sub(r"\s*\(\s*", "(", re.sub(r"\s*\)\s*", ")", _normalized_type(match.group(1))))
+
+
+def _normalized_default(value: object | None) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    while normalized.startswith("(") and normalized.endswith(")"):
+        normalized = normalized[1:-1].strip()
+    normalized = re.sub(r"::[A-Za-z_][A-Za-z0-9_ ]*(?:\[\])?$", "", normalized)
+    if len(normalized) >= 2 and normalized[0] == normalized[-1] == "'":
+        normalized = normalized[1:-1].replace("''", "'")
+    normalized = normalized.lower()
+    if normalized in {"0", "false"}:
+        return "false"
+    if normalized in {"1", "true"}:
+        return "true"
+    return normalized
+
+
+def _reflected_default(
+    connection: Connection,
+    table_name: str,
+    column_name: str,
+    fallback: object | None,
+) -> object | None:
+    if connection.dialect.name != "sqlite":
+        return fallback
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", table_name):
+        raise MigrationError(f"Unsafe migration table identifier: {table_name}")
+    for row in connection.exec_driver_sql(f'PRAGMA table_info("{table_name}")'):
+        if row[1] == column_name:
+            return row[4]
+    return fallback
+
+
+def validate_column_shape(
+    connection: Connection,
+    table_name: str,
+    column_name: str,
+    definition: str,
+) -> None:
+    """Validate canonical shape or a source-proven, migration-scoped predecessor."""
+    try:
+        _validate_column_shape_exact(connection, table_name, column_name, definition)
+    except MigrationError:
+        # Existing 1.9.x SQLite installations can already contain integer seconds.
+        # Adopt only that exact measurement declaration; never create it or relax
+        # default/nullability validation or PostgreSQL contracts.
+        if (
+            connection.dialect.name == "sqlite"
+            and _ACTIVE_PYTHON_MIGRATION.get() == "python:006-print-job-measurements"
+            and (table_name, column_name, definition)
+            == ("print_jobs", "print_duration_seconds", "REAL")
+        ):
+            _validate_column_shape_exact(connection, table_name, column_name, "INTEGER")
+            return
+        legacy = _LEGACY_ENTRYPOINT_SHAPES.get((table_name, column_name, definition))
+        if (
+            connection.dialect.name != "sqlite"
+            or _ACTIVE_PYTHON_MIGRATION.get() != "python:001-legacy-columns"
+            or legacy is None
+        ):
+            raise
+        _validate_column_shape_exact(connection, table_name, column_name, legacy)
+
+
+def _validate_column_shape_exact(
+    connection: Connection,
+    table_name: str,
+    column_name: str,
+    definition: str,
+) -> None:
+    """Fail closed when an adopted column differs from its migration contract."""
+    columns = {
+        column["name"]: column
+        for column in inspect(connection).get_columns(table_name)
+    }
+    column = columns.get(column_name)
+    if column is None:
+        raise MigrationError(f"Migration column is missing: {table_name}.{column_name}")
+    if _normalized_type(column["type"]) != _expected_type(definition):
+        raise MigrationError(
+            f"Migration column shape mismatch: {table_name}.{column_name}"
+        )
+
+    expected_nullable = "NOT NULL" not in definition.upper()
+    if bool(column.get("nullable", True)) != expected_nullable:
+        raise MigrationError(
+            f"Migration column shape mismatch: {table_name}.{column_name}"
+        )
+
+    default_match = re.search(
+        r"\bDEFAULT\s+('(?:''|[^'])*'|[^\s,]+)", definition, re.IGNORECASE
+    )
+    expected_default = _normalized_default(default_match.group(1)) if default_match else None
+    actual_default = _reflected_default(
+        connection, table_name, column_name, column.get("default")
+    )
+    if _normalized_default(actual_default) != expected_default:
+        raise MigrationError(
+            f"Migration column shape mismatch: {table_name}.{column_name}"
+        )
+
+    reference = re.search(
+        r"\bREFERENCES\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*"
+        r"([A-Za-z_][A-Za-z0-9_]*)\s*\)",
+        definition,
+        re.IGNORECASE,
+    )
+    if reference:
+        expected_target = f"{reference.group(1)}.{reference.group(2)}"
+        targets = {
+            f"{foreign_key['referred_table']}.{remote}"
+            for foreign_key in inspect(connection).get_foreign_keys(table_name)
+            if column_name in foreign_key.get("constrained_columns", [])
+            for remote in foreign_key.get("referred_columns", [])
+        }
+        if targets != {expected_target}:
+            raise MigrationError(
+                f"Migration column shape mismatch: {table_name}.{column_name}"
+            )
+
+
+def _validate_index_shape(
+    connection: Connection,
+    table_name: str,
+    index_name: str,
+    columns: list[str],
+    unique: bool,
+) -> bool:
+    matches = [
+        item
+        for item in inspect(connection).get_indexes(table_name)
+        if item.get("name") == index_name
+    ]
+    if not matches:
+        return False
+    item = matches[0]
+    if list(item.get("column_names") or []) != columns or bool(item.get("unique")) != unique:
+        raise MigrationError(f"Migration index shape mismatch: {index_name}")
+    return True
+
+
+def apply_migration_file(
+    connection: Connection,
+    path: Path,
+    *,
+    migration_id: str,
+) -> bool:
+    """Apply and record one migration inside the caller's transaction."""
+    ensure_ledger(connection)
+    dialect = connection.dialect.name
+    checksum = _checksum(path)
+    prior = _recorded(connection, migration_id)
+    if prior:
+        if prior != (checksum, dialect):
+            raise MigrationError(f"Migration history mismatch: {migration_id}")
+        return False
+
+    for original in split_sql_statements(path.read_text(encoding="utf-8")):
+        statement = translate_statement(original, dialect)
+        alter = _ALTER_ADD_RE.match(statement)
+        if alter:
+            table_name, column_name, definition = alter.groups()
+            if _column_exists(connection, table_name, column_name):
+                # v1.9.12's initial idempotency schema required explicit ISO
+                # timestamps without a default. Migration 006 supplies a
+                # default only when adding the column to an older schema.
+                # Adopt that exact historical shape without changing data or
+                # weakening validation for other columns/migrations.
+                if (
+                    connection.dialect.name == "sqlite"
+                    and migration_id == "core/migrations/006_idempotency_keys_upgrade.sql"
+                    and table_name == "idempotency_keys"
+                    and column_name == "updated_at"
+                    and definition.strip() == "TEXT NOT NULL DEFAULT ''"
+                    and _reflected_default(connection, table_name, column_name, None) is None
+                ):
+                    definition = "TEXT NOT NULL"
+                validate_column_shape(connection, table_name, column_name, definition)
+                continue
+        create_index = _CREATE_INDEX_RE.match(statement)
+        if create_index:
+            unique_marker, index_name, table_name, column_list = create_index.groups()
+            indexed_columns = [
+                item.strip().split()[0].strip('"')
+                for item in column_list.split(",")
+            ]
+            if not set(indexed_columns).issubset(
+                {
+                    column["name"]
+                    for column in inspect(connection).get_columns(table_name)
+                }
+            ):
+                # A later migration may add these columns and owns creation of
+                # the corresponding index. This is required when adopting an
+                # unledgered intermediate schema.
+                continue
+            if _validate_index_shape(
+                connection,
+                table_name,
+                index_name,
+                indexed_columns,
+                bool(unique_marker),
+            ):
+                continue
+        connection.execute(text(statement))
+        if alter:
+            validate_column_shape(connection, table_name, column_name, definition)
+        elif create_index and not _validate_index_shape(
+            connection,
+            table_name,
+            index_name,
+            indexed_columns,
+            bool(unique_marker),
+        ):
+            raise MigrationError(f"Migration index is missing: {index_name}")
+
+    connection.execute(
+        MIGRATION_TABLE.insert().values(
+            migration_id=migration_id,
+            checksum=checksum,
+            dialect=dialect,
+        )
+    )
+    return True
+
+
+def apply_python_migration(connection: Connection, module_name: str) -> bool:
+    """Apply one source-checksummed Python migration module."""
+    ensure_ledger(connection)
+    if module_name not in _ALLOWED_PYTHON_MIGRATIONS:
+        raise MigrationError(f"Unsupported Python migration: {module_name}")
+    module = importlib.import_module(module_name)  # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import -- exact module name is checked against a closed allowlist
+    migration_id = str(module.MIGRATION_ID)
+    source_path = Path(python_inspect.getsourcefile(module) or "")
+    if not source_path.is_file():
+        raise MigrationError(f"Cannot checksum Python migration: {migration_id}")
+    checksum = _checksum(source_path)
+    dialect = connection.dialect.name
+    prior = _recorded(connection, migration_id)
+    if prior and prior != (checksum, dialect):
+        raise MigrationError(f"Migration history mismatch: {migration_id}")
+    context_token = _ACTIVE_PYTHON_MIGRATION.set(migration_id)
+    def validate():
+        if migration_id == 'python:002-education-tenant-integrity':
+            from core.schema.education_archive_validation import validate_education_with_archive
+            validate_education_with_archive(module, connection)
+        else:
+            module.validate(connection)
+    try:
+        if prior:
+            validate()
+            return False
+        module.apply(connection)
+        validate()
+    finally:
+        _ACTIVE_PYTHON_MIGRATION.reset(context_token)
+    connection.execute(
+        MIGRATION_TABLE.insert().values(
+            migration_id=migration_id,
+            checksum=checksum,
+            dialect=dialect,
+        )
+    )
+    return True
+
+
+def apply_dedicated_python_migration(engine: Engine, module_name: str) -> bool:
+    """Apply a migration that owns its connection and transaction boundary.
+
+    SQLite cannot change ``PRAGMA foreign_keys`` inside an active transaction.
+    The Education ownership migration therefore checks out one connection,
+    disables enforcement before ``BEGIN IMMEDIATE``, records the migration in
+    the same transaction as its DDL/data work, and restores enforcement before
+    the connection is returned to the pool.  A connection whose pragma cannot
+    be restored is invalidated and the pool is disposed.
+    """
+    if module_name not in _ALLOWED_PYTHON_MIGRATIONS:
+        raise MigrationError(f"Unsupported Python migration: {module_name}")
+
+    if engine.dialect.name != "sqlite":
+        with engine.begin() as connection:
+            if connection.dialect.name == "postgresql":
+                acquire_schema_writer_lock(connection)
+            return apply_python_migration(connection, module_name)
+
+    connection = engine.connect()
+    restore_error: Exception | None = None
+    try:
+        if connection.in_transaction():
+            raise MigrationError(
+                "Dedicated SQLite migration received an active transaction"
+            )
+
+        connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
+        disabled = int(
+            connection.exec_driver_sql("PRAGMA foreign_keys").scalar_one()
+        )
+        connection.commit()
+        if disabled != 0:
+            raise MigrationError(
+                "Dedicated SQLite migration could not disable foreign keys"
+            )
+
+        connection.exec_driver_sql("BEGIN IMMEDIATE")
+        applied = apply_python_migration(connection, module_name)
+        violations = connection.exec_driver_sql("PRAGMA foreign_key_check").fetchall()
+        if violations:
+            raise MigrationError(
+                f"Dedicated SQLite migration produced foreign-key violations: {violations[:5]}"
+            )
+        connection.commit()
+        return applied
+    except Exception:
+        if connection.in_transaction():
+            connection.rollback()
+        raise
+    finally:
+        try:
+            if connection.in_transaction():
+                connection.rollback()
+            connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+            enabled = int(
+                connection.exec_driver_sql("PRAGMA foreign_keys").scalar_one()
+            )
+            connection.commit()
+            if enabled != 1:
+                raise MigrationError(
+                    "Dedicated SQLite migration could not restore foreign keys"
+                )
+        except Exception as exc:  # pragma restoration is a startup-fatal error
+            restore_error = exc
+            if connection.in_transaction():
+                connection.rollback()
+            connection.invalidate()
+            engine.dispose()
+        finally:
+            connection.close()
+        if restore_error is not None:
+            raise MigrationError(
+                "Dedicated SQLite migration left foreign-key state uncertain"
+            ) from restore_error
+
+
+def run_migration_files(
+    engine: Engine,
+    files: Iterable[tuple[str, Path]],
+) -> list[str]:
+    applied: list[str] = []
+    with engine.begin() as connection:
+        if connection.dialect.name == "postgresql":
+            acquire_schema_writer_lock(connection)
+        for migration_id, path in files:
+            if apply_migration_file(connection, path, migration_id=migration_id):
+                applied.append(migration_id)
+    return applied

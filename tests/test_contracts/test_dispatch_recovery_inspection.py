@@ -44,7 +44,9 @@ def test_absent_claim_is_explicit_not_completed(recovery_client,review_db):
     client,issue,calls=recovery_client
     review_db.execute(text('DELETE FROM printer_dispatch_claims WHERE printer_id=299'));review_db.commit()
     response=client.get('/printers/299/dispatch-recovery',headers=issue(['read:printers']))
-    assert response.status_code==200 and response.json()=={'state':'no_retained_claim','release_available':False}
+    assert response.status_code==200
+    assert response.json()['state']=='no_retained_claim' and not response.json()['release_available']
+    assert not any(response.json()['actions'].values()) and 'attempt_handle' not in response.json()
     assert calls==[]
 
 

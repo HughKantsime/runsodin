@@ -45,6 +45,9 @@ def test_live_executable_counts():
 # Raw tables (and their exact columns) each registered post-027 migration adds. A new
 # migration must extend this map; the test below fails until it does.
 POST027_RAW_TABLES = {
+    "python:038-dispatch-recovery": {
+        "dispatch_recovery_history": frozenset("id created_at audit_id actor_id actor_identity owner_org_id charged_org_id printer_id job_id attempt_handle snapshot_handle decision reason_category facts".split()),
+    },
     "python:037-education-memberships": {
         "education_memberships": frozenset("user_id org_id retained_at ended_at".split()),
     },

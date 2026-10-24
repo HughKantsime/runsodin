@@ -35,6 +35,7 @@ RBAC_DEFAULT_PAGE_ACCESS = {
 }
 
 RBAC_DEFAULT_ACTION_ACCESS = {
+    "printers.dispatch_recovery": ["admin"],
     "settings.edit": ["admin"],
     "users.restore_superadmin": ["admin"],
     # Education grants still decide which centers a principal may reorder.

@@ -37,6 +37,7 @@ def log_audit(
     )
     stage_actor(db, entry, ip)
     db.add(entry)
+    return entry
 
 
 # No database work at import; the supplied flush Connection owns the stamp.
