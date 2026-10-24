@@ -154,6 +154,18 @@ class EducationPolicyService(EducationPolicyProvider):
     def discover_start_authority(self, db, **kwargs):
         return discover_start_authority(db, **kwargs)
 
+    def recovery_visibility(self, db, *, evidence, principal):
+        from modules.organizations.education_policy import recovery_visibility
+        return recovery_visibility(db, evidence=evidence, principal=principal)
+
+    def recovery_terminal_resolved(self, db, *, evidence):
+        from modules.organizations.education_policy import recovery_terminal_resolved
+        return recovery_terminal_resolved(db, evidence=evidence)
+
+    def recovery_authority(self, db, *, evidence, principal, lock=False):
+        from modules.organizations.education_policy import recovery_authority
+        return recovery_authority(db, evidence=evidence, principal=principal, lock=lock)
+
     def lock_start_authority(self, db, context):
         return lock_start_authority(db, context)
 

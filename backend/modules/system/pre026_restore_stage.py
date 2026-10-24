@@ -18,6 +18,7 @@ PRESERVED029=object()
 PRESERVED034=object()
 PRESERVED035=object()
 PRESERVED036=object()
+PRESERVED037=object()
 STAGE_SECONDS=3600
 _LEDGER_COPY='COPY public.odin_schema_migrations (migration_id, checksum, dialect, applied_at) FROM stdin;'
 _LEDGER_ROW=re.compile(r'([A-Za-z0-9_:./-]{1,255})\t([0-9a-f]{64})\t(sqlite|postgresql)\t[0-9: .+-]{10,40}')
@@ -105,10 +106,11 @@ def identify_contract(archive,url,password_file,directory):
     ids=archive_ledger_ids(archive,url,password_file,directory)
     post=set(post027_migration_ids())
     if post<=ids:return None # Current path validates tables, structure and schema exactly.
-    from core.schema import preserved034, preserved035, preserved036
+    from core.schema import preserved034, preserved035, preserved036, preserved037
     if ids == preserved034.ledger_ids():return PRESERVED034
     if ids == preserved035.ledger_ids():return PRESERVED035
     if ids == preserved036.ledger_ids():return PRESERVED036
+    if ids == preserved037.ledger_ids():return PRESERVED037
     if ids&post:
         raise b.BackupValidationError('PostgreSQL archive is from an intermediate post-027 build; restore it on that build or a matching release')
     if not ids<=ledger_ids():raise b.BackupValidationError('Unsupported PostgreSQL archive schema version or partial table inventory')
@@ -127,12 +129,12 @@ def prepared_archive(archive,target_url,maintenance_url,password_file,maintenanc
     from modules.system.postgres_canonical_executables import validate_executables
     from core.database_config import create_database_engine
     from core.schema import bootstrap_database
-    from core.schema import preserved029, preserved034, preserved035, preserved036
+    from core.schema import preserved029, preserved034, preserved035, preserved036, preserved037
     contract=identify_contract(archive,target_url,password_file,directory)
     if contract is None:
         yield archive
         return
-    preserved = preserved036 if contract is PRESERVED036 else preserved035 if contract is PRESERVED035 else preserved034 if contract is PRESERVED034 else preserved029
+    preserved = preserved037 if contract is PRESERVED037 else preserved036 if contract is PRESERVED036 else preserved035 if contract is PRESERVED035 else preserved034 if contract is PRESERVED034 else preserved029
     maintenance_password_file=b._require_distinct_maintenance_secret(password_file,maintenance_password_file)
     original_sha=b._sha256(archive);original_size=archive.stat().st_size
     name='odin_validate_'+uuid.uuid4().hex[:20]
@@ -154,15 +156,15 @@ def prepared_archive(archive,target_url,maintenance_url,password_file,maintenanc
                 drop=lambda names:artifacts.drop_databases(maintenance_url,maintenance_password_file,names),
                 existing=lambda:artifacts.existing_databases(maintenance_url,maintenance_password_file),
                 deadline=monotonic()+STAGE_SECONDS)
-        except (preserved029.Preserved029Refused, preserved034.Preserved034Refused, preserved035.Preserved035Refused, preserved036.Preserved036Refused) as refusal:
+        except (preserved029.Preserved029Refused, preserved034.Preserved034Refused, preserved035.Preserved035Refused, preserved036.Preserved036Refused, preserved037.Preserved037Refused) as refusal:
             # The child's exit code says whether the preserved sources judged the archive.
             detail=(refusal.detail or '')[:300]
             if refusal.category=='archive':raise b.ArchiveRefused(detail or 'Historical PostgreSQL archive refused ('+refusal.kind+')') from None
             if refusal.category=='retry':raise b.PostgreSQLClientFailed('Historical PostgreSQL archive stage hit a retryable failure'+(': '+detail if detail else ''),retryable=True) from None
             raise b.RestoreEnvironmentError('Historical PostgreSQL archive stage could not run ('+refusal.kind+(': '+detail if detail else '')+')') from None
-        except (preserved029.Preserved029Error, preserved034.Preserved034Error, preserved035.Preserved035Error, preserved036.Preserved036Error) as error:
+        except (preserved029.Preserved029Error, preserved034.Preserved034Error, preserved035.Preserved035Error, preserved036.Preserved036Error, preserved037.Preserved037Error) as error:
             # Parent-side refusals are source-authored text (never driver output).
-            if str(error).startswith(('Preserved029 stage ledger differs','Preserved034 stage ledger differs','Preserved035 stage ledger differs','Preserved036 stage ledger differs')):raise b.ArchiveRefused(str(error)) from None
+            if str(error).startswith(('Preserved029 stage ledger differs','Preserved034 stage ledger differs','Preserved035 stage ledger differs','Preserved036 stage ledger differs','Preserved037 stage ledger differs')):raise b.ArchiveRefused(str(error)) from None
             raise b.RestoreEnvironmentError('Historical PostgreSQL archive stage did not validate: '+str(error)[:200]) from None
         with engine.connect() as c:
             if tuple(c.execute(text('SELECT oid,datdba FROM pg_database WHERE datname=current_database()')).one())!=identity:raise b.BackupValidationError('Historical stage identity differs')
