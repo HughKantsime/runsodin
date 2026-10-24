@@ -686,6 +686,11 @@ class MoonrakerMonitor:
         """Sync MMU/ACE gate data to filament_slots DB table."""
         try:
             with engine.begin() as conn:
+                from core.interfaces.inventory_moves import inventory_moves
+                inventory_moves().observe_empty_slots(conn, self.printer_id,
+                    # Only an explicit empty gate is departure evidence; unknown or
+                    # buffered gates keep their spool.
+                    [s.gate + 1 for s in slots if getattr(s, 'gate_status', None) == 0])
                 for slot in slots:
                     slot_num = slot.gate + 1  # DB uses 1-based slot numbers
                     material_key = (slot.material or "").upper()

@@ -15,6 +15,10 @@ INVENTORY = ROOT / "ops" / "database_parity" / "sqlite_compatibility_inventory.j
 
 
 CLASSIFICATIONS: dict[str, tuple[str, str]] = {
+    "backend/modules/inventory/slot_assignments.py": (
+        "sqlite-provider-only",
+        "SQLite BEGIN IMMEDIATE establishes the assignment writer boundary; PostgreSQL uses sorted NOWAIT row locks and a graph recheck.",
+    ),
     "backend/core/schema/migrations/037_education_memberships.py": (
         "sqlite-provider-only",
         "SQLite rebuilds retained Education ownership on a dedicated connection and verifies enforced FK actions with PRAGMA; PostgreSQL swaps and validates native constraints atomically.",

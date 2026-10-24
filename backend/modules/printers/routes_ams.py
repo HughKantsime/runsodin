@@ -199,7 +199,10 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
                 raise HTTPException(502, "No ACE slot report received")
         finally:
             client.disconnect()
-        printer = _lock_ams_mutation(db, printer_id, current_user, [], acquired_connection)
+        printer, _ = _lock_ams_mutation(db, printer_id, current_user, [], acquired_connection)
+        from core.interfaces.inventory_moves import inventory_moves
+        inventory_moves().observe_slots(db, printer_id,
+            [(s['slot_number'], s['material'] == 'EMPTY', None) for s in slots], set(), current_user)
         updated = []
         for observed in slots:
             slot_num = observed['slot_number']
@@ -250,6 +253,9 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
                     "slots_synced": 0, "slots": [], "mismatches": [],
                     "message": "No MMU/ACE detected on this printer"}
         printer, _ = _lock_ams_mutation(db, printer_id, current_user, [], acquired_connection)
+        from core.interfaces.inventory_moves import inventory_moves
+        inventory_moves().observe_slots(db, printer_id,
+            [(s.gate + 1, not s.loaded, None) for s in mk_status.filament_slots], set(), current_user)
         updated_slots = []
         for mmu_slot in mk_status.filament_slots:
             slot_num = mmu_slot.gate + 1
@@ -475,6 +481,11 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
 
     printer, locked_rfid = _lock_ams_mutation(db, printer_id, current_user,
         [slot.rfid_tag for slot in bambu_status.ams_slots if slot.rfid_tag], acquired_connection)
+    from core.interfaces.inventory_moves import inventory_moves
+    from modules.printers.telemetry.bambu.ams_identity import is_rfid_tag
+    inventory_moves().observe_slots(db, printer_id,
+        [(s.slot_number, s.empty, s.rfid_tag if is_rfid_tag(s.rfid_tag) else None) for s in bambu_status.ams_slots],
+        {locked_rfid[s.rfid_tag].id for s in bambu_status.ams_slots if not s.empty and s.rfid_tag in locked_rfid}, current_user)
     updated_slots = []
     for ams_slot in bambu_status.ams_slots:
         db_slot = db.query(FilamentSlot).filter(

@@ -214,6 +214,8 @@ def scan_assign_spool(
         db.add(new_slot)
         assign_slot(db, new_slot, spool.id, current_user)
 
+    log_audit(db, 'scan_assign', 'spool', spool.id,
+              {'printer_id': data.printer_id, 'slot': data.slot})
     db.commit()
 
     spool_name = f"{spool.filament.brand} {spool.filament.name}" if spool.filament else spool.qr_code

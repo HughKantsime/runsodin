@@ -81,6 +81,8 @@ class MoonrakerFilamentSlot:
     material: str = ""
     color_hex: str = ""
     loaded: bool = False
+    # Raw Happy Hare gate_status: -1 unknown, 0 empty, 1 available, 2 from buffer.
+    gate_status: Optional[int] = None
     name: str = ""
     temperature: int = 0
 
@@ -335,6 +337,7 @@ class MoonrakerPrinter:
                 material=gate_material[i] if i < len(gate_material) else "",
                 color_hex=gate_color[i] if i < len(gate_color) else "",
                 loaded=gate_status[i] == 1 if i < len(gate_status) else False,
+                gate_status=gate_status[i] if i < len(gate_status) and type(gate_status[i]) is int else None,
                 name=gate_names[i] if i < len(gate_names) else "",
                 temperature=gate_temps[i] if i < len(gate_temps) else 0,
             )

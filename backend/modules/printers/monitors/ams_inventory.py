@@ -146,6 +146,11 @@ def sync_ams_inventory(conn, printer_id, units):
     # A sequential clear/write loop loses assignments during valid permutations.
     destinations = {number: before[2].get(tray.get('tag_uid'))
                     for number, tray in identified if tray.get('tray_type')}
+    from core.interfaces.inventory_moves import inventory_moves
+    moves = inventory_moves()
+    moves.observed_departures(conn, printer_id,
+                              [(number, tray.get('tray_type') or '', tray.get('tag_uid')) for number, tray in identified],
+                              {value for value in destinations.values() if value is not None})
     for number, spool_id in destinations.items():
         if spool_id is None:
             continue
@@ -172,6 +177,8 @@ def sync_ams_inventory(conn, printer_id, units):
         # Mutation authority is the validated locked snapshot, never a new lookup.
         spool_id = before[2].get(tray.get('tag_uid')) if material else None
         if spool_id is not None:
+            moves.break_seal(conn, spool_id)
+            conn.execute('UPDATE spools SET storage_location=NULL WHERE id=?', (spool_id,))
             conn.execute('UPDATE filament_slots SET assigned_spool_id=?,spool_confirmed=? WHERE id=?', (spool_id, True, identifier))
             row = spools[spool_id]
             initial = row[3]

@@ -86,9 +86,12 @@ class AnycubicLANMonitorThread(ElegooMonitorThread):
 
 
 def sync_slots(printer_id, boxes):
-    """Update observations only; preserve slot IDs and owner spool assignments."""
+    """Preserve identity on color reports; explicit empty unloads through inventory."""
     with engine.begin() as conn:
         slots = filament_slots(boxes)
+        from core.interfaces.inventory_moves import inventory_moves
+        inventory_moves().observe_empty_slots(conn, printer_id,
+            [s['slot_number'] for s in slots if s['material'] == 'EMPTY'])
         for slot in slots:
             params = {'pid': printer_id, 'sn': slot['slot_number'], 'ft': slot_filament_value(slot['material']),
                       'color': slot['material'] if slot['material'] != 'EMPTY' else None,

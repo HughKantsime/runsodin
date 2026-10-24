@@ -14,6 +14,7 @@ import SpoolGrid from '../../components/inventory/SpoolGrid'
 import { CreateSpoolModal, LoadSpoolModal, UseSpoolModal, DryingModal } from '../../components/inventory/SpoolModals'
 import { purchaseAudience, type PurchasePrincipal } from '../../components/inventory/PurchaseEvidenceModal'
 import { EditSpoolModal } from '../../components/inventory/SpoolEditModals'
+import StockReliability from '../../components/inventory/StockReliability'
 import InventoryConflicts from '../../components/inventory/InventoryConflicts'
 import SpoolmanLinkConflicts from '../../components/inventory/SpoolmanLinkConflicts'
 
@@ -249,6 +250,7 @@ export default function Spools() {
             />
           </div>
 
+          <StockReliability key={`${createOwner}:${org.orgId}`} orgId={org.orgId} />
           <SpoolmanLinkConflicts />
           {/* Low warning */}
           {lowSpools.length > 0 && (
