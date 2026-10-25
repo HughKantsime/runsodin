@@ -128,7 +128,7 @@ def revise_valuation(executor, observation_id, *, expected_revision, audit_reaso
     db=TransactionView(executor)
     db.execute(text('UPDATE terminal_filament_measurements SET observation_id=observation_id WHERE 0')) if db.dialect.name=='sqlite' else None
     lock=' FOR UPDATE NOWAIT' if db.dialect.name=='postgresql' else ''
-    row=db.execute(text('SELECT attempt_uid,attempt_birth,order_uid,item_uid,owner_scope,owner_key,measurement_basis,measured_grams,snapshot_json FROM terminal_filament_measurements WHERE observation_id=:id'+lock),{'id':observation_id}).first()
+    row=db.execute(text('SELECT attempt_uid,attempt_birth,order_uid,item_uid,owner_scope,owner_key,measurement_basis,measured_grams,snapshot_json FROM terminal_filament_measurements WHERE observation_id=:id'+lock),{'id':observation_id}).first()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: lock suffix from the closed set {'', ' FOR UPDATE NOWAIT'}; values are bound
     if row is None:raise ValueError('Missing terminal observation')
     bound=db.execute(text('SELECT job_uid FROM cost_attempt_bindings WHERE attempt_uid=:uid'),{'uid':row[0]}).first()
     if bound is None:raise ValueError('Missing retained binding')

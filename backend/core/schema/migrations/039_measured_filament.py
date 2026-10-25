@@ -147,7 +147,7 @@ def validate(connection):
     event_bad=event_bad.replace('WHERE observation_id=NEW.observation_id),0)', 'WHERE observation_id=NEW.observation_id AND revision<NEW.revision),0)')
     event_bad+=' OR NOT EXISTS(SELECT 1 FROM terminal_filament_measurements m WHERE m.observation_id=NEW.observation_id)'
     for table,condition in [('terminal_filament_measurements',terminal_bad),('filament_cost_events',event_bad)]:
-        if connection.execute(text('SELECT 1 FROM '+table+' AS source WHERE '+condition.replace('NEW.','source.')+' LIMIT 1')).first():
+        if connection.execute(text('SELECT 1 FROM '+table+' AS source WHERE '+condition.replace('NEW.','source.')+' LIMIT 1')).first():  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragments: table from the closed pair above, condition from this module's own conditions()
             raise MigrationError('Measured filament retained association or revision differs')
     if connection.execute(text('SELECT 1 FROM terminal_filament_measurements m WHERE NOT EXISTS(SELECT 1 FROM filament_cost_events e WHERE e.observation_id=m.observation_id AND e.revision=1) LIMIT 1')).first():
         raise MigrationError('Measured filament original event missing')
