@@ -59,6 +59,8 @@ def seed(db):
             dict(zip(['id', 'name', 'status', 'printer', 'due', 'ss', 'se', 'as_', 'ae', 'oi', 'created', 'dur', 'file'], r)))
     db.execute(text("UPDATE jobs SET fail_reason='adhesion' WHERE id IN (210,213)"))
     db.execute(text("UPDATE jobs SET created_at=:c,updated_at=:c WHERE id IN (13,101)"), {'c': CREATED})
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fixture SQL
+    db.execute(text("UPDATE jobs SET ams_mapping='[0]' WHERE id=204"))
     db.commit()
 
 
@@ -140,7 +142,9 @@ def test_capture_jobs_queue_timeline_recent_and_failure_wire(wire_client):
     assert {s['job_id'] for s in wire['timeline_two_day']['slots']} == {203, 204, 205, 206} - {206}  # failed jobs are not timeline statuses
     wire['job_205'] = ok(client.get('/jobs/205'))
     assert (wire['job_205']['duration_hours'], wire['job_205']['actual_start'], wire['job_205']['actual_end']) == (2.0, '2026-10-11T10:00:00', '2026-10-11T12:30:00')
+    assert wire['job_205']['ams_mapping'] is None
     wire['job_204'] = ok(client.get('/jobs/204'))
+    assert wire['job_204']['ams_mapping'] == [0]
     wire['job_203'] = ok(client.get('/jobs/203'))
 
     wire['recent_terminal'] = ok(client.get('/jobs/recent-terminal'))
@@ -420,3 +424,16 @@ def test_archive_reprint_pins_the_chosen_printer(reprint_client, review_db):  # 
     review_db.expire_all()
     row = review_db.execute(text('SELECT target_type,target_filter FROM jobs WHERE id=:id'), {'id': response.json()['job_id']}).one()
     assert pinned_printer_id(*row) == 9
+
+
+@pytest.mark.parametrize('role', ['admin', 'operator', 'viewer'])
+def test_ams_mapping_read_contract_and_rbac(wire_client, role):
+    client, identity, db = wire_client
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fixture SQL
+    db.execute(text("UPDATE jobs SET ams_mapping='[0]' WHERE id=205"))
+    db.commit()
+    identity['role'] = role
+    assert ok(client.get('/jobs/205'))['ams_mapping'] == [0]
+    # The same field never grants access to another organization's job.
+    identity['group_id'] = 2
+    assert client.get('/jobs/205').status_code in (403, 404)

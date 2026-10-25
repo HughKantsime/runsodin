@@ -48,7 +48,7 @@ def safe_status_fields(packet):
 
 class RawAMSAcquisitionCollector:
     def __init__(self, *, topic, configuration_key, owner_org_id, selected_slots,
-                 subscribe_mid, clock=time.monotonic, max_age=120.0, incarnation=None):
+                 subscribe_mid, clock=time.monotonic, max_age=120.0, incarnation=None, allow_unreported=False):
         if (not isinstance(topic,str) or not re.fullmatch(r'device/[^/\s+#\x00]+/report',topic)
             or not isinstance(configuration_key,str) or not re.fullmatch(r'[0-9a-f]{64}',configuration_key)
             or (owner_org_id is not None and (type(owner_org_id) is not int or owner_org_id <= 0))
@@ -60,6 +60,7 @@ class RawAMSAcquisitionCollector:
             raise ValueError('AMS acquisition configuration unavailable')
         if incarnation is not None and (type(incarnation) is not str or not re.fullmatch("[0-9a-f]{32}",incarnation)):
             raise ValueError("AMS acquisition incarnation unavailable")
+        self._allow_unreported = allow_unreported is True
         self.incarnation=incarnation if incarnation is not None else uuid.uuid4().hex
         self._topic=topic;self._config=configuration_key;self._owner=owner_org_id
         self._selected=frozenset(selected_slots);self._mid=subscribe_mid
@@ -108,7 +109,8 @@ class RawAMSAcquisitionCollector:
             except ValueError:self.retire();return False
             self._last_receipt=now;self._order+=1
             addressed={f.slot_number:f for f in facts if f.slot_number in self._selected}
-            if any(f.material_state != 'reported' for f in addressed.values()):
+            if any(f.material_state != 'reported' and not (self._allow_unreported
+                    and f.material_state in ('explicit_empty', 'unknown')) for f in addressed.values()):
                 self.retire();return False
             # A packet must explicitly report every selected tray. A partial
             # report cannot combine with earlier packet fields to create one.

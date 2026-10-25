@@ -196,3 +196,14 @@ def test_diagnostic_status_is_safe_and_tracks_later_busy_packet(owned):
     from modules.printers.telemetry.bambu.ams_acquisition_collector import safe_status_fields
     assert safe_status_fields({'gcode_state': 'private-serial', 'print_error': 'private-token'}) == dict(
         gcode_state=None, print_error=None, active_hms_codes=None)
+
+
+@pytest.mark.parametrize('tray', [{'id':0}, {'id':0,'tray_type':''}])
+def test_trusted_diagnostic_read_preserves_addressed_unreported_slot(tray):
+    c=RawAMSAcquisitionCollector(topic='device/synthetic/report',configuration_key='a'*64,
+        owner_org_id=1,selected_slots=[1],subscribe_mid=7,allow_unreported=True)
+    ready(c)
+    assert report(c, {'ams':{'ams':[{'id':0,'tray':[tray]}]}})
+    fact=snap(c).trays[0]
+    assert fact.slot_number==1 and fact.material is None
+    assert fact.material_state in ('unknown','explicit_empty')

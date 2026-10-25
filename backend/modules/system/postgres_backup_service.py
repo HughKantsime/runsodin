@@ -17,6 +17,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from modules.system.backup_failure_alerts import report_backup_failure
+
 from sqlalchemy import Enum as SQLAlchemyEnum, inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.engine import make_url
@@ -593,6 +595,7 @@ def inspect_postgres_archive(
     return {"size_bytes": size, "sha256": _sha256(archive), **metadata}
 
 
+@report_backup_failure
 def create_postgres_backup(
     database_url: str,
     *,

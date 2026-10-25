@@ -40,7 +40,7 @@ def test_child_changed_runtime_refuses_and_does_not_emit_early_success(monkeypat
         checks.append(runtime)
         if len(checks)==(1 if when=='before_network' else 2):
             raise ValueError('synthetic private failure')
-    def acquire(channel,*args):
+    def acquire(channel,*args,**kwargs):
         assert not output
         network.append(1)
         channel.put({'snapshot':_snapshot('c'*32,KEY,1),'error':None})
@@ -88,7 +88,7 @@ def test_final_parent_revalidation_and_original_receipt_preserved(monkeypatch,ch
 def test_child_duplicate_result_cannot_replace_first_result(monkeypatch, first):
     output = []
     monkeypatch.setattr(module, 'revalidate_runtime_identity', lambda runtime: None)
-    def acquire(channel, *args):
+    def acquire(channel, *args, **kwargs):
         channel.put(first)
         channel.put({'snapshot': _snapshot('c'*32, KEY, 1), 'error': None})
     monkeypatch.setattr(module, '_network_worker', acquire)
@@ -96,3 +96,22 @@ def test_child_duplicate_result_cannot_replace_first_result(monkeypatch, first):
         [1], 'c'*32, time.monotonic()+1, runtime=RUNTIME)
     assert output == [{'snapshot': None, 'error': 'AMS runtime evidence unavailable',
         'runtime_incarnation': None, 'clock_domain': None}]
+
+
+def worker_unreported(channel,config,key,owner,slots,incarnation,deadline):
+    from dataclasses import replace
+    from modules.printers.telemetry.bambu.ams_evidence import RawTrayFact
+    snapshot=replace(_snapshot(incarnation,key,owner),
+        trays=(RawTrayFact(1,0,0,None,'explicit_empty'),))
+    channel.put({'snapshot':snapshot,'error':None,
+        'runtime_incarnation':RUNTIME.incarnation,'clock_domain':RUNTIME.clock_domain})
+
+
+@pytest.mark.parametrize('allow_unreported',[False,True])
+def test_diagnostic_snapshot_retains_runtime_and_cleanup_checks(allow_unreported):
+    result=_run_owned_worker(CONFIG,KEY,1,[1],3,worker=worker_unreported,
+        required_runtime=RUNTIME,allow_unreported=allow_unreported)
+    assert result.success is allow_unreported
+    assert result.cleanup_confirmed
+    if allow_unreported:
+        assert result.snapshot.trays[0].material_state=='explicit_empty'

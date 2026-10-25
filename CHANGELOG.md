@@ -2,6 +2,17 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.17] - 2026-10-25
+
+<!-- summary: Compacted database backups, a 1 GiB backup limit, backup failure alerts, and clearer AMS refusals -->
+
+### Fixed
+
+- Database backups work again on installs whose database file has grown past 100 MB. Backups are now written compacted, so they contain only live data (a 315 MB database file produced a 27 MB backup). The size limit is now 1 GiB, and it applies to the compacted backup and to uploaded restore files. Uploads are streamed to disk instead of held in memory.
+- A backup that fails or is refused now raises an alert for administrators, once a day per reason, and the error says why: size, disk space or validation.
+- Dispatch to an AMS slot with no filament type set now names the slot and says to set the filament type on the printer, instead of reporting a failed AMS read.
+- Job details include the job's stored AMS slot mapping.
+
 ## [2.0.16] - 2026-10-25
 
 <!-- summary: Filament cost per order, device-bound paid licenses, and frontend type fixes -->

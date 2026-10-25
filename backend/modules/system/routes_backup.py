@@ -83,14 +83,19 @@ async def restore_backup(
             status_code=400,
             detail=f"Only {expected_suffix} files are supported for this database",
         )
-    content = await file.read(MAX_BACKUP_BYTES + 1)
-    if len(content) > MAX_BACKUP_BYTES:
-        raise HTTPException(status_code=413, detail="Backup file too large")
     descriptor, temporary_name = tempfile.mkstemp(prefix="odin-restore-upload-", suffix=".db")
     temporary = Path(temporary_name)
     try:
         with os.fdopen(descriptor, "wb") as handle:
-            handle.write(content)
+            size = 0
+            while True:
+                chunk = await file.read(min(1024 * 1024, MAX_BACKUP_BYTES - size + 1))
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > MAX_BACKUP_BYTES:
+                    raise HTTPException(status_code=413, detail="Backup file too large")
+                handle.write(chunk)
             handle.flush()
             os.fsync(handle.fileno())
         temporary.chmod(0o600)
@@ -141,8 +146,10 @@ def create_backup(current_user: dict = Depends(require_superadmin(scope="admin")
             )
         else:
             path, metadata = create_online_backup(settings.database_url)
-    except BackupValidationError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except (BackupValidationError, OSError) as exc:
+        from modules.system.backup_failure_alerts import backup_failure_reason
+        _reason, message = backup_failure_reason(exc)
+        raise HTTPException(status_code=500, detail=message) from exc
     log_audit(
         db,
         "backup_created",

@@ -14,7 +14,7 @@ from modules.printers.telemetry.bambu.ams_evidence import RawTrayFact
 from modules.printers.telemetry.bambu.trusted_ams_acquisition import RuntimeBoundAMSResult
 
 
-@pytest.mark.parametrize('change', ['none', 'material', 'busy', 'expired', 'cleanup', 'target',
+@pytest.mark.parametrize('change', ['none', 'material', 'unreported', 'read_failed', 'busy', 'expired', 'cleanup', 'target',
                                     'configuration', 'job', 'grant', 'claim', 'runtime', 'runtime_replaced', 'mapping_mismatch', 'mapping_mutated'])
 @pytest.mark.parametrize('phase', ['direct', 'prepared', 'concurrent'])
 def test_post_upload_gate_rechecks_same_attempt_after_read(setup, monkeypatch, change, phase):
@@ -65,9 +65,9 @@ def test_post_upload_gate_rechecks_same_attempt_after_read(setup, monkeypatch, c
         snapshot = RawAMSSnapshot(inputs['token'], 'c'*32, 1,
             time.monotonic() - (20 if change == 'expired' else 0),
             options['configuration_key'], 1,
-            (RawTrayFact(1, 0, 0, 'PLA' if change == 'material' else 'PETG', 'reported'),),
+            (RawTrayFact(1, 0, 0, None if change == 'unreported' else ('PLA' if change == 'material' else 'PETG'), 'explicit_empty' if change == 'unreported' else 'reported'),),
             idle_without_error=change != 'busy')
-        return RuntimeBoundAMSResult(True, snapshot,
+        return RuntimeBoundAMSResult(change != 'read_failed', snapshot,
             'd'*32 if change == 'runtime' else RUNTIME.incarnation, RUNTIME.clock_domain,
             change != 'cleanup', None)
     monkeypatch.setattr(gate, 'read_current_selected_ams', acquired)
@@ -91,6 +91,11 @@ def test_post_upload_gate_rechecks_same_attempt_after_read(setup, monkeypatch, c
             results = list(pool.map(lambda _:checked.prepare(), range(2)))
         assert sum(results) == (1 if change == 'none' else 0)
     assert checked() is (change == 'none')
+    if change in ('unreported', 'read_failed'):
+        assert checked.refusal.code == ('tray_material_unreported' if change == 'unreported' else 'ams_read_failed')
+        if change == 'unreported':
+            assert 'slot 1' in checked.refusal.detail
+            assert 'set the filament type on the printer' in checked.refusal.detail
     assert checked.prepare() is False
     expected_events = [] if change == 'mapping_mutated' else ['owned_read']
     assert events == expected_events

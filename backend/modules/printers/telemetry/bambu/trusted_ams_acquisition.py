@@ -36,7 +36,7 @@ def _trusted_network_worker(channel,config,key,owner,slots,incarnation,deadline,
     try:
         revalidate_runtime_identity(runtime)
         captured=_BufferedResult()
-        _network_worker(captured,config,key,owner,slots,incarnation,deadline)
+        _network_worker(captured,config,key,owner,slots,incarnation,deadline,allow_unreported=True)
         revalidate_runtime_identity(runtime)
         if type(captured.value) is not dict or set(captured.value)!={'snapshot','error'}:
             raise ValueError('AMS result shape unavailable')
@@ -51,7 +51,8 @@ def read_current_selected_ams(config,*,configuration_key,owner_org_id,selected_s
     """No caller runtime labels. Never renew the worker's original receipt.
 
     This binds local process/clock provenance, not the supplied configuration
-    to the database or authorization to dispatch hardware.
+    to the database or authorization to dispatch hardware. Unreported material
+    may be returned for diagnostics; dispatch still refuses it at the AMS gate.
     """
     failure=lambda cleanup:RuntimeBoundAMSResult(False,None,None,None,cleanup,
                                                  'AMS runtime evidence unavailable')
@@ -66,7 +67,7 @@ def read_current_selected_ams(config,*,configuration_key,owner_org_id,selected_s
     except Exception:
         return failure(True)
     result=_run_owned_worker(config,configuration_key,owner_org_id,selected_slots,timeout,
-        worker=partial(_trusted_network_worker,runtime=runtime),required_runtime=runtime,acquisition_id=operation_id)
+        worker=partial(_trusted_network_worker,runtime=runtime),required_runtime=runtime,acquisition_id=operation_id,allow_unreported=True)
     if not result.success or not result.cleanup_confirmed:
         return failure(result.cleanup_confirmed)
     try:

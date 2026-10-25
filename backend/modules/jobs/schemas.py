@@ -159,6 +159,9 @@ class JobResponse(JobBase):
     estimated_cost: Optional[float] = None
     suggested_price: Optional[float] = None
 
+    # Stored dispatch selection; read-only, with the job's existing visibility.
+    ams_mapping: Optional[List[int]] = None
+
     # Model versioning
     model_revision_id: Optional[int] = None
 

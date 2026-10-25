@@ -21,7 +21,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-MAX_BACKUP_BYTES = 100 * 1024 * 1024
+from modules.system.backup_failure_alerts import report_backup_failure
+
+MAX_BACKUP_BYTES = 1024 * 1024 * 1024
 MIN_BACKUP_FREE_BYTES = 16 * 1024 * 1024
 REQUIRED_TABLES = frozenset(
     {
@@ -432,28 +434,43 @@ def validate_database(path: Path) -> dict[str, object]:
     return {"size_bytes": size, "sha256": _sha256(path), "table_count": len(tables)}
 
 
+@report_backup_failure
 def _create_online_backup_unlocked(paths: BackupPaths, prefix: str) -> tuple[Path, dict[str, object]]:
     if not paths.database.is_file():
         raise BackupValidationError("Live database does not exist")
     paths.backups.mkdir(parents=True, exist_ok=True)
-    required_free = max(paths.database.stat().st_size * 2, MIN_BACKUP_FREE_BYTES)
-    available = shutil.disk_usage(paths.backups).free
-    if available < required_free:
-        raise BackupValidationError(
-            "Insufficient free disk space for a verified backup"
-        )
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
     target = paths.backups / f"{prefix}{timestamp}.db"
-    source = sqlite3.connect(str(paths.database))
-    destination = sqlite3.connect(str(target))
+    # mode=ro still sees committed WAL pages; VACUUM INTO owns its read snapshot.
+    source = None
     try:
-        source.backup(destination)
+        source = sqlite3.connect(paths.database.as_uri() + "?mode=ro", uri=True)
+        pages = source.execute("PRAGMA page_count").fetchone()[0]
+        free_pages = source.execute("PRAGMA freelist_count").fetchone()[0]
+        page_size = source.execute("PRAGMA page_size").fetchone()[0]
+        estimate = max(0, pages - free_pages) * page_size
+        required_free = max(estimate + max(estimate // 4, MIN_BACKUP_FREE_BYTES),
+                            MIN_BACKUP_FREE_BYTES)
+        if shutil.disk_usage(paths.backups).free < required_free:
+            raise BackupValidationError("Insufficient free disk space for a verified backup")
+        # Reserve the filename with restrictive permissions before SQLite writes it.
+        descriptor = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        os.close(descriptor)
+        source.execute("VACUUM INTO ?", (str(target),))
+        _secure(target)
+        metadata = validate_database(target)
+        _fsync_directory(paths.backups)
+        return target, metadata
+    except sqlite3.Error as exc:
+        target.unlink(missing_ok=True)
+        reason = "Insufficient free disk space" if getattr(exc, "sqlite_errorcode", None) == sqlite3.SQLITE_FULL else "SQLite backup snapshot failed validation"
+        raise BackupValidationError(reason) from exc
+    except Exception:
+        target.unlink(missing_ok=True)
+        raise
     finally:
-        destination.close()
-        source.close()
-    _secure(target)
-    _fsync_directory(paths.backups)
-    return target, validate_database(target)
+        if source is not None:
+            source.close()
 
 
 def create_online_backup(database_url: str, base_dir: Path | None = None) -> tuple[Path, dict[str, object]]:

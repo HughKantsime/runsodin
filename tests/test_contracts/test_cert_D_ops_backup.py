@@ -96,7 +96,7 @@ def test_backup_endpoints_are_admin_only(backup_client, role, group):
     assert not (live.parent / 'backups').exists() or not list((live.parent / 'backups').iterdir())
 
 
-def test_online_backup_uses_sqlite_backup_api_and_captures_uncheckpointed_wal(backup_client):
+def test_compacted_backup_captures_uncheckpointed_wal(backup_client):
     client, _, live, _ = backup_client
     holder = sqlite3.connect(str(live))
     try:

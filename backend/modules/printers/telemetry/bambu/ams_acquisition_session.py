@@ -28,7 +28,8 @@ def _code(value):
 
 class AMSSessionController:
     """Paho callbacks bound to one subscription and one completed acquisition."""
-    def __init__(self,config,configuration_key,owner_org_id,selected_slots,incarnation):
+    def __init__(self,config,configuration_key,owner_org_id,selected_slots,incarnation,*,allow_unreported=False):
+        self.allow_unreported=allow_unreported
         self.config=config;self.key=configuration_key;self.owner=owner_org_id
         self.selected=tuple(selected_slots);self.incarnation=incarnation
         self.done=Event();self._lock=RLock();self.collector=None
@@ -50,7 +51,7 @@ class AMSSessionController:
                 if len(result)!=2 or _code(result[0])!=0:raise ValueError()
                 self.collector=RawAMSAcquisitionCollector(topic=self.config.topic_report,
                     configuration_key=self.key,owner_org_id=self.owner,
-                    selected_slots=self.selected,subscribe_mid=result[1],incarnation=self.incarnation)
+                    selected_slots=self.selected,subscribe_mid=result[1],incarnation=self.incarnation,allow_unreported=self.allow_unreported)
                 pending=self._pending_ack.pop(result[1],None)
                 if pending is not None:self.on_subscribe(client,userdata,result[1],pending)
             except Exception:self._refuse()
@@ -108,7 +109,7 @@ class AMSSessionController:
             return snapshot
 
 
-def _network_worker(channel,config,key,owner,slots,incarnation,deadline):
+def _network_worker(channel,config,key,owner,slots,incarnation,deadline,*,allow_unreported=False):
     import logging
     logging.disable(logging.CRITICAL)
     adapter=None;snapshot=None;error='AMS acquisition unavailable'
@@ -120,7 +121,7 @@ def _network_worker(channel,config,key,owner,slots,incarnation,deadline):
         enforce_host_destination(config.host, scheme="mqtt")
         policy=resolve_bambu_broker_config(config.host,printer_id='ams-read-acquisition')
         if config.port!=policy.port or config.use_tls is not policy.use_tls:raise ValueError()
-        controller=AMSSessionController(config,key,owner,slots,incarnation)
+        controller=AMSSessionController(config,key,owner,slots,incarnation,allow_unreported=allow_unreported)
         adapter=BambuTelemetryAdapter(config,lambda event:None)
         def factory():
             client=mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,
@@ -145,7 +146,7 @@ def _network_worker(channel,config,key,owner,slots,incarnation,deadline):
     channel.put({'snapshot':snapshot,'error':error})
 
 
-def _valid_snapshot(snapshot,*,key,owner,slots,incarnation,started,deadline,now):
+def _valid_snapshot(snapshot,*,key,owner,slots,incarnation,started,deadline,now,allow_unreported=False):
     if type(snapshot) is not RawAMSSnapshot or now > deadline:return False
     if (type(snapshot.incarnation) is not str or type(snapshot.configuration_key) is not str
         or snapshot.incarnation!=incarnation or snapshot.configuration_key!=key
@@ -175,9 +176,12 @@ def _valid_snapshot(snapshot,*,key,owner,slots,incarnation,started,deadline,now)
             or type(fact.unit_id) is not int or type(fact.tray_id) is not int
             or not 0<=fact.unit_id<=3 or not 0<=fact.tray_id<=3
             or fact.slot_number!=fact.unit_id*4+fact.tray_id+1
-            or fact.material_state!='reported' or fact.mechanically_ready is not None
-            or type(fact.material) is not str or canonical_reported_material(fact.material) is None
-            or canonical_reported_material(fact.material)!=fact.material):return False
+            or fact.mechanically_ready is not None):return False
+        if fact.material_state == 'reported':
+            if (type(fact.material) is not str or canonical_reported_material(fact.material) is None
+                or canonical_reported_material(fact.material)!=fact.material):return False
+        elif not (allow_unreported and fact.material_state in ('explicit_empty','unknown')
+                  and fact.material is None):return False
     return True
 
 
@@ -213,7 +217,7 @@ def _cleanup_owned(process,channel):
     return certain
 
 
-def _run_owned_worker(config,key,owner,slots,timeout,*,worker=_network_worker,required_runtime=None,acquisition_id=None):
+def _run_owned_worker(config,key,owner,slots,timeout,*,worker=_network_worker,required_runtime=None,acquisition_id=None,allow_unreported=False):
     if acquisition_id is not None and (type(acquisition_id) is not str or re.fullmatch('[0-9a-f]{32}',acquisition_id) is None):
         return AMSAcquisitionResult(False,None,'AMS acquisition identity unavailable',True)
     started=time.monotonic();deadline=started+timeout;incarnation=acquisition_id or uuid.uuid4().hex
@@ -239,7 +243,7 @@ def _run_owned_worker(config,key,owner,slots,timeout,*,worker=_network_worker,re
                     raise ValueError('AMS runtime binding unavailable')
             candidate=received.get('snapshot')
             if _valid_snapshot(candidate,key=key,owner=owner,slots=slots,
-                incarnation=incarnation,started=started,deadline=deadline,now=time.monotonic()):
+                incarnation=incarnation,started=started,deadline=deadline,now=time.monotonic(),allow_unreported=allow_unreported):
                 snapshot=candidate;error=None
             else:error='AMS acquisition evidence unavailable'
     except Exception:pass

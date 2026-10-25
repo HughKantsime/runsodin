@@ -134,7 +134,9 @@ def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, tar
         if tray.slot_number != slots[0]:
             return refuse("tray_slot_mismatch", f"Reported slot={tray.slot_number}; expected slot={slots[0]}")
         if tray.material_state != 'reported':
-            return refuse("tray_material_unreported", "Selected tray material was not reported")
+            if tray.material_state == 'explicit_empty':
+                return refuse("tray_material_unreported", f"AMS slot {tray.slot_number} is empty: load a spool and set the filament type on the printer")
+            return refuse("tray_material_unreported", f"AMS slot {tray.slot_number}: set the filament type on the printer")
         if tray.material != facts['material']:
             return refuse("material_mismatch", f"Reported material={canonical_reported_material(tray.material)}; required material={canonical_reported_material(facts['material'])}")
         if tray.mechanically_ready is not None:
