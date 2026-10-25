@@ -29,12 +29,13 @@
     {
       "actual_end": null,
       "actual_start": null,
+      "ams_mapping": null,
       "approved_at": null,
       "approved_by": null,
       "charged_to_org_id": 1,
       "colors_list": [],
       "colors_required": null,
-      "created_at": "2026-10-24T22:13:32",
+      "created_at": "2026-10-25T18:30:11",
       "due_date": null,
       "duration_hours": null,
       "effective_duration": 1.0,
@@ -69,17 +70,18 @@
       "suggested_price": null,
       "target_filter": null,
       "target_type": null,
-      "updated_at": "2026-10-24T22:13:32"
+      "updated_at": "2026-10-25T18:30:11"
     },
     {
       "actual_end": null,
       "actual_start": null,
+      "ams_mapping": null,
       "approved_at": null,
       "approved_by": null,
       "charged_to_org_id": 1,
       "colors_list": [],
       "colors_required": null,
-      "created_at": "2026-10-24T22:13:32",
+      "created_at": "2026-10-25T18:30:11",
       "due_date": null,
       "duration_hours": null,
       "effective_duration": 1.0,
@@ -114,7 +116,7 @@
       "suggested_price": null,
       "target_filter": null,
       "target_type": null,
-      "updated_at": "2026-10-24T22:13:32"
+      "updated_at": "2026-10-25T18:30:11"
     }
   ],
   "reschedule": {

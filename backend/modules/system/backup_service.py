@@ -439,6 +439,10 @@ def _create_online_backup_unlocked(paths: BackupPaths, prefix: str) -> tuple[Pat
     if not paths.database.is_file():
         raise BackupValidationError("Live database does not exist")
     paths.backups.mkdir(parents=True, exist_ok=True)
+    # Fail closed on a full disk before opening the database; the live-page
+    # estimate below refines the requirement.
+    if shutil.disk_usage(paths.backups).free < MIN_BACKUP_FREE_BYTES:
+        raise BackupValidationError("Insufficient free disk space for a verified backup")
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
     target = paths.backups / f"{prefix}{timestamp}.db"
     # mode=ro still sees committed WAL pages; VACUUM INTO owns its read snapshot.
