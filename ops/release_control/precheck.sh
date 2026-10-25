@@ -11,6 +11,8 @@ cd "$(dirname "$0")/../.."
 PYTHON="${PYTHON:-python3.11}"
 # Components run under an isolated HOME; point browser tests at the real cache, as aggregate.py does.
 export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/Library/Caches/ms-playwright}"
+# Likewise Docker: the isolated HOME has no Docker context, so PostgreSQL tests would skip.
+export DOCKER_HOST="${DOCKER_HOST:-$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null)}"
 stamp="$(date -u +%Y%m%dt%H%M%Sz)"
 out="artifacts/precheck/$stamp"
 mkdir -p "$out"
