@@ -13,7 +13,7 @@ from xml.etree import ElementTree as ET
 
 from .policy import load_inventory
 from .report import render
-from .run_gate import execute, sha256, validate_result
+from .run_gate import execute, sha256, utc_now, validate_result
 
 ROOT = Path(__file__).parents[2]
 RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{2,96}$")
@@ -79,10 +79,34 @@ def main() -> int:
         "ODIN_TELEMETRY_V2": "1",
     }
     native_rel = str(native.relative_to(ROOT))
+    first_failed_id: str | None = None
     for component in inventory["components"]:
         component_id = str(component["id"])
         output_dir = components_dir / component_id
         output_dir.mkdir()
+        if first_failed_id is not None:
+            finding = f"not run: {first_failed_id} failed (fail-fast)"
+            timestamp = utc_now()
+            log_path = output_dir / "result.log"
+            log_path.write_text(finding + "\n", encoding="utf-8")
+            result = {
+                "schema_version": 1, "gate_id": component_id.lower(), "status": "fail",
+                "command": [str(item) for item in component["command"]],
+                "working_directory": str((ROOT / str(component["working_directory"])).resolve()),
+                "started_at": timestamp, "ended_at": timestamp, "duration_seconds": 0,
+                "exit_code": None, "timed_out": False,
+                "counts": {"tests": 1, "passed": 0, "failures": 1,
+                           "errors": 0, "skipped": 0, "xfailed": 0},
+                "tool_versions": {"python": sys.version.split()[0]},
+                "log": {"path": str(log_path), "sha256": sha256(log_path), "sanitized": True},
+                "artifacts": [], "findings": [finding],
+            }
+            validate_result(result)
+            (output_dir / "result.json").write_text(
+                json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
+            results.append(result)
+            continue
         allowlist = tuple(str(item) for item in component["environment_allowlist"])
         overrides = {key: value for key, value in env_values.items() if key in allowlist and value}
         patterns = [str(item).format(native=native_rel) for item in component["expected_artifacts"]]
@@ -107,6 +131,8 @@ def main() -> int:
                 json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
             )
         results.append(result)
+        if result["status"] != "pass":
+            first_failed_id = component_id
 
     final_junit = run_dir / "junit.xml"
     _junit(results, final_junit)

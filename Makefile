@@ -213,6 +213,9 @@ test-telemetry-v2-smoke-structured: ## Run Telemetry V2 live-broker smoke with s
 release-control-local-gate: ## Validate local workflow, results, installer isolation, and release controls
 	$(PYTHON) -m ops.release_control.local_gate
 
+release-precheck: ## Before pushing a candidate: CV01, CV03 and CV02 locally (PRECHECK_FULL=1 adds CV04, CV05)
+	bash ops/release_control/precheck.sh
+
 trusted-validation-gate: ## Run the ten ordered trusted validation components
 	$(PYTHON) -m ops.release_control.aggregate
 
