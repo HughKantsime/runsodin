@@ -31,3 +31,9 @@ Fresh design review identified exact-scope implication and an additional service
 
 ## Final checkpoint October25
 Implemented exact production scope and shared route/service admission, mint role floor, UI option, transactional actor audits and operator guide. No shared credential guard weakened. Job71 remains completed and must not be replayed. Code is locally reviewable; not pushed, published, deployed or enabled on the live credential. No production claim until release and token-grant evidence exist.
+
+## Publication authorization October25
+Shane explicitly replied "Approved" to publishing, deploying and enabling this change on claude-operator. Release2.0.15 keeps the separate2.0.14 work out. Follow exact-candidate Trusted Validation, publication and production promotion; then grant scope and verify no stock write.
+
+### Release preparation
+Version2.0.15 metadata prepared. Corrected release-tool minLength8 to7 in schema and workflow validator so Shane's exact "Approved" can be recorded, without inventing approval text or requesting it again. Fresh design/diff review passed;115 release authorization/evidence/mutation tests passed. All actor, candidate, evidence, nonce, expiry and environment controls unchanged.

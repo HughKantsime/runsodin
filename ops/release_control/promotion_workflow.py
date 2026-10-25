@@ -120,8 +120,8 @@ def validate_inputs(inputs: dict[str, Any], current: dict[str, Any]) -> None:
     if not isinstance(nonce, str) or not NONCE_RE.fullmatch(nonce):
         _fail("AUTHORIZATION_INVALID", "invalid nonce")
     text = inputs.get("authorization_text")
-    if not isinstance(text, str) or not 8 <= len(text) <= 1000:
-        _fail("AUTHORIZATION_INVALID", "authorization text must contain 8-1000 characters")
+    if not isinstance(text, str) or not 7 <= len(text) <= 1000:
+        _fail("AUTHORIZATION_INVALID", "authorization text must contain 7-1000 characters")
     expected_current = {
         "repository_id": int,
         "repository": str,

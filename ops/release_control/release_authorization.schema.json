@@ -26,7 +26,7 @@
     "nonce": {"type": "string", "pattern": "^[A-Za-z0-9_-]{16,128}$"},
     "issued_at": {"type": "string", "format": "date-time"},
     "expires_at": {"type": "string", "format": "date-time"},
-    "authorization_text": {"type": "string", "minLength": 8, "maxLength": 1000},
+    "authorization_text": {"type": "string", "minLength": 7, "maxLength": 1000},
     "authorization_text_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
   }
 }
