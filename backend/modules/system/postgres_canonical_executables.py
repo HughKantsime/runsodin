@@ -52,6 +52,11 @@ def canonical_functions(*, _contract=None):
         for name,source in retained.pg_functions().items():
             if name in functions:raise BackupValidationError('Canonical function registry collision')
             functions[name]=(source,['search_path=pg_catalog, public'],False,'v','u','trigger','','plpgsql',False,False,'f',False,0,100.0,0.0,'-')
+    if _contract is None:
+        recovery=importlib.import_module('core.schema.migrations.038_dispatch_recovery')
+        for name,source in recovery.pg_functions().items():
+            if name in functions:raise BackupValidationError('Canonical function registry collision')
+            functions[name]=(source,None,False,'v','u','trigger','','plpgsql',False,False,'f',False,0,100.0,0.0,'-')
     functions['odin_reject_education_audit_mutation']=(" BEGIN RAISE EXCEPTION 'education audit events are immutable'; END; ",None,False,'v','u','trigger','','plpgsql',False,False,'f',False,0,100.0,0.0,'-')
     return functions if _contract is None else {n:v for n,v in functions.items() if n in INVENTORY["functions"]}
 
@@ -109,6 +114,11 @@ def canonical_triggers(*, _contract=None):
         for key,definition in retained.pg_triggers().items():
             if key in triggers:raise BackupValidationError('Canonical trigger registry collision')
             triggers[key]=(definition,key[1],'public','O')
+    if _contract is None:
+        recovery=importlib.import_module('core.schema.migrations.038_dispatch_recovery')
+        for key,definition in recovery.pg_triggers().items():
+            if key in triggers:raise BackupValidationError('Canonical trigger registry collision')
+            triggers[key]=(definition,'odin_recovery_immutable','public','O')
     for action in ('DELETE','UPDATE'):
         name='trg_education_audit_no_'+action.lower()
         function='odin_reject_education_audit_mutation'

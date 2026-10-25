@@ -29,6 +29,11 @@ assert bootstrap_database(engine)['applied']==[]
 with engine.connect() as c:
  assert {r[0] for r in c.execute(text('SELECT migration_id FROM odin_schema_migrations'))}==set(manifest['ledger_ids'])
 assert len(manifest['ledger_ids'])==58
+from modules.system.postgres_canonical_executables import canonical_functions,canonical_triggers
+functions,triggers=canonical_functions(),canonical_triggers()
+assert (len(functions),len(triggers))==(28,38)
+assert 'odin_recovery_immutable' not in functions
+assert not any(table=='dispatch_recovery_history' for table,name in triggers)
 """
     result = subprocess.run([sys.executable, '-I', '-c', code, str(runner), str(tmp_path/'frozen.db')], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr

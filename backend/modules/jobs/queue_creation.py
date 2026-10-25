@@ -29,8 +29,10 @@ def _stage_prospective_queue_job(db: Session, job: Job, actor: dict):
             if Path(path).suffix.lower() == ".3mf":
                 validate_plate(path, 0, "bambu")
         from modules.jobs.pinning import pin_columns
-        for key, value in pin_columns(bound).items():
-            setattr(job, key, value)
+        # Creation-time target columns only; status belongs to the state machine.
+        pin = pin_columns(bound)
+        job.target_type = pin["target_type"]
+        job.target_filter = pin["target_filter"]
     owner = job.charged_to_org_id
     actor_org = actor.get("group_id")
     global_authority = actor.get("role") == "admin" and actor_org is None

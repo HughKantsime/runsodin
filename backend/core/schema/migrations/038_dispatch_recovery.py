@@ -30,6 +30,17 @@ def sqlite_triggers():
     return {'recovery_no_'+op.lower(): f"CREATE TRIGGER recovery_no_{op.lower()} BEFORE {op} ON dispatch_recovery_history BEGIN SELECT RAISE(ABORT, 'immutable recovery history'); END" for op in ('UPDATE','DELETE')}
 
 
+def pg_functions():
+    return {'odin_recovery_immutable': " BEGIN RAISE EXCEPTION 'immutable recovery history'; END; "}
+
+
+def pg_triggers():
+    return {
+        (history.name, 'recovery_immutable'): 'CREATE TRIGGER recovery_immutable BEFORE DELETE OR UPDATE ON public.dispatch_recovery_history FOR EACH ROW EXECUTE FUNCTION odin_recovery_immutable()',
+        (history.name, 'recovery_no_truncate'): 'CREATE TRIGGER recovery_no_truncate BEFORE TRUNCATE ON public.dispatch_recovery_history FOR EACH STATEMENT EXECUTE FUNCTION odin_recovery_immutable()',
+    }
+
+
 def apply(connection):
     existed = inspect(connection).has_table(history.name)
     if not existed:
@@ -38,9 +49,10 @@ def apply(connection):
             for definition in sqlite_triggers().values():
                 connection.exec_driver_sql(definition)
         elif connection.dialect.name == 'postgresql':
-            connection.exec_driver_sql("CREATE FUNCTION odin_recovery_immutable() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'immutable recovery history'; END; $$")
-            connection.exec_driver_sql('CREATE TRIGGER recovery_immutable BEFORE UPDATE OR DELETE ON dispatch_recovery_history FOR EACH ROW EXECUTE FUNCTION odin_recovery_immutable()')
-            connection.exec_driver_sql('CREATE TRIGGER recovery_no_truncate BEFORE TRUNCATE ON dispatch_recovery_history FOR EACH STATEMENT EXECUTE FUNCTION odin_recovery_immutable()')
+            for name, source in pg_functions().items():
+                connection.exec_driver_sql(f'CREATE FUNCTION public.{name}() RETURNS trigger LANGUAGE plpgsql AS $$'+source+'$$')
+            for definition in pg_triggers().values():
+                connection.exec_driver_sql(definition.replace('EXECUTE FUNCTION odin_recovery_immutable()', 'EXECUTE FUNCTION public.odin_recovery_immutable()'))
         else:
             raise RuntimeError('Unsupported recovery history dialect')
     validate(connection)

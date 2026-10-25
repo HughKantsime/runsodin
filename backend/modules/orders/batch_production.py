@@ -235,7 +235,7 @@ def inspect_batch(db, user, data):
             # Mapping was verified against live tracked variation on save. Freeze it;
             # do not call external services while this acceptance transaction holds locks.
             changes.append({'type':'ADJUSTMENT','adjustment':{
-                'catalog_object_id':mapping['variation_id'],'location_id':mapping['location_id'],
+                'catalog_object_id':mapping['variation_id'],'from_location_id':mapping['location_id'],'to_location_id':mapping['location_id'],
                 'from_state':'NONE','to_state':'IN_STOCK','quantity':str(quantity),
                 'occurred_at':timestamp,'reference_id':identifier}})
     definition = {'version':1,'job_id':data.job_id,'job_uid':evidence['economic_uid'],

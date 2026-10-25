@@ -261,3 +261,31 @@ def test_install_unknown_configuration_refuses(monkeypatch):
     from modules.system import postgres_canonical_executables as guards
     monkeypatch.setattr(guards,'canonical_functions',lambda:{'owned':('BEGIN RETURN NEW; END;',['search_path=public'])})
     with pytest.raises(BackupValidationError):guards.install_trusted_guards(SimpleNamespace(exec_driver_sql=lambda s:pytest.fail('Must not execute')))
+
+
+def test_dispatch_recovery_executables_are_exact_and_tampering_is_rejected():
+    import importlib
+    from modules.system.postgres_canonical_executables import validate_executables
+    recovery = importlib.import_module('core.schema.migrations.038_dispatch_recovery')
+    functions, triggers = canonical_functions(), canonical_triggers()
+    assert functions['odin_recovery_immutable'] == (
+        recovery.pg_functions()['odin_recovery_immutable'], None, False, 'v', 'u',
+        'trigger', '', 'plpgsql', False, False, 'f', False, 0, 100.0, 0.0, '-')
+    for key, definition in recovery.pg_triggers().items():
+        assert triggers[key] == (definition, 'odin_recovery_immutable', 'public', 'O')
+
+    class Connection:
+        def __init__(self, changed=False):
+            self.changed = changed
+        def execute(self, query):
+            if 'FROM pg_proc' in str(query):
+                rows = [(name, *values) for name, values in functions.items()]
+                if self.changed:
+                    rows = [(name, source.replace('immutable recovery history', 'tampered'), *rest)
+                            for name, source, *rest in rows]
+            else:
+                rows = [(table, name, *values) for (table, name), values in triggers.items()]
+            return SimpleNamespace(all=lambda: rows)
+    validate_executables(Connection())
+    with pytest.raises(BackupValidationError, match='noncanonical'):
+        validate_executables(Connection(changed=True))

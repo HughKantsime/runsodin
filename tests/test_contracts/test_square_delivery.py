@@ -43,7 +43,7 @@ def http(monkeypatch,payload=None,status=200,exception=None):
 
 def counts(raw):
     return {'counts':[{'catalog_object_id':c['adjustment']['catalog_object_id'],
-        'location_id':c['adjustment']['location_id'],'state':'IN_STOCK','quantity':'123.00000'}
+        'location_id':c['adjustment']['to_location_id'],'state':'IN_STOCK','quantity':'123.00000'}
         for c in json.loads(raw)['changes']]}
 
 
@@ -295,3 +295,70 @@ def test_withdrawn_baseline_send_has_distinct_terminal_conflict(batch,monkeypatc
     factory.assert_not_called()
     saved=batch[3].execute(select(batches.additions)).mappings().one()
     assert (saved['state'],saved['attempts'])==('withdrawn_baseline',0)
+
+
+def legacy_body(raw):
+    data=json.loads(raw)
+    for c in data['changes']:
+        a=c['adjustment']
+        a['location_id']=a.pop('to_location_id')
+        assert a.pop('from_location_id')==a['location_id']
+    return json.dumps(data)
+
+
+def test_new_adjustment_shape_and_count_location(batch):
+    row=prepared(batch)
+    request=wire.validate_request(row['request_body'])
+    for c in request['changes']:
+        a=c['adjustment']
+        assert a['from_location_id']==a['to_location_id']=='L1'
+        assert 'location_id' not in a
+    assert wire.valid_counts(counts(row['request_body']),request)
+
+
+@pytest.mark.parametrize('mutation',['different_locations','retired','mixed'])
+def test_location_shape_rejected_before_wire(batch,monkeypatch,mutation):
+    row=prepared(batch);data=json.loads(row['request_body']);a=data['changes'][0]['adjustment']
+    if mutation=='different_locations':a['from_location_id']='L2'
+    elif mutation=='retired':data=json.loads(legacy_body(row['request_body']))
+    else:a['location_id']='L1'
+    monkeypatch.setattr(wire,'LIVE_WRITES_ENABLED',True);factory,_=http(monkeypatch,{})
+    with pytest.raises(HTTPException) as exc:
+        wire.SquareWriter('sandbox','synthetic').send(json.dumps(data),tenant_enabled=True)
+    assert exc.value.status_code==409
+    factory.assert_not_called()
+
+
+@pytest.mark.parametrize('state',['prepared','unknown'])
+def test_legacy_evidence_readable_and_never_sent(batch,monkeypatch,state):
+    row=prepared(batch);raw=legacy_body(row['request_body'])
+    batch[3].execute(update(batches.additions).values(request_body=raw,state=state,attempts=int(state=='unknown')))
+    batch[3].commit()
+    factory,_=http(monkeypatch,{'changes':[]})
+    page=batch[0].get('/products/production/history',params={'state':state})
+    assert page.status_code==200 and page.json()['additions'][0]['id']==row['id']
+    answer=recovery.check(batch[3],batch[1],row['id'])
+    if state=='prepared':
+        assert answer['readiness']=='checks_passed'
+        assert answer['preview'][0]['location_id']=='L1'
+        enable(batch);monkeypatch.setattr(wire,'LIVE_WRITES_ENABLED',True)
+        with pytest.raises(HTTPException) as exc:recovery.execute_prepared(batch[3],batch[1],row['id'])
+        assert exc.value.status_code==409
+        assert exc.value.detail=='This addition was prepared for a retired Square API shape; review it'
+        factory.assert_not_called()
+    else:assert answer['readiness']=='manual_review'
+    saved=batch[3].execute(select(batches.additions)).mappings().one()
+    assert saved['request_body']==raw and saved['attempts']==int(state=='unknown')
+
+
+@pytest.mark.parametrize('legacy',[False,True])
+def test_reconcile_from_to_adjustments(batch,monkeypatch,legacy):
+    row=prepared(batch)
+    raw=legacy_body(row['request_body']) if legacy else row['request_body']
+    _,session=http(monkeypatch,history(row['request_body']))
+    assert wire.SquareInventoryProbe('sandbox','synthetic').reconciled(raw)
+    sent=json.loads(session.request.call_args.kwargs['data'])
+    assert sent['location_ids']==['L1']
+    wrong=history(row['request_body']);wrong['changes'][0]['adjustment']['from_location_id']='L2'
+    http(monkeypatch,wrong)
+    assert not wire.SquareInventoryProbe('sandbox','synthetic').reconciled(raw)
