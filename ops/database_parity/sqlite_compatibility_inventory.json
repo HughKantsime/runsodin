@@ -1034,7 +1034,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 158,
+      "line": 164,
       "path": "backend/core/schema/migrations/039_measured_filament.py",
       "pattern": "PRAGMA",
       "reason": "SQLite retained-reference PRAGMA and immutable triggers; PostgreSQL uses native constraints and guarded functions.",

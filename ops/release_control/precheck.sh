@@ -9,6 +9,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 PYTHON="${PYTHON:-python3.11}"
+# Components run under an isolated HOME; point browser tests at the real cache, as aggregate.py does.
+export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/Library/Caches/ms-playwright}"
 stamp="$(date -u +%Y%m%dt%H%M%Sz)"
 out="artifacts/precheck/$stamp"
 mkdir -p "$out"

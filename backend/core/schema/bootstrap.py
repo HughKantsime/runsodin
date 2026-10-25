@@ -563,7 +563,7 @@ def _bootstrap_database_contract(
             applied.append("python:027-power-target-operations")
         if contract is None:
             for migration_id, module_name in POST027_MIGRATIONS:
-                if migration_id == "python:037-education-memberships":
+                if migration_id in {"python:037-education-memberships", "python:039-measured-filament"}:
                     continue
                 if apply_python_migration(connection, module_name):
                     applied.append(migration_id)
@@ -575,6 +575,12 @@ def _bootstrap_database_contract(
     with engine.begin() as connection:
         if connection.dialect.name == "postgresql":
             acquire_schema_writer_lock(connection)
+        # 037 rebuilds SQLite tables in its dedicated transaction. Install039's
+        # forward references only afterwards: before optional025 adoption its
+        # purchase trigger is intentionally unresolved and SQLite cannot rename
+        # any table while such a trigger exists.
+        if contract is None and apply_python_migration(connection, "core.schema.migrations.039_measured_filament"):
+            applied.append("python:039-measured-filament")
         if _record_orm_baseline(connection):
             applied.append("orm-baseline:1")
         if contract is None:

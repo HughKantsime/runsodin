@@ -144,6 +144,12 @@ def validate(connection):
     # future writes. Reinstalled guards do not prove pre-existing associations.
     terminal_bad='NOT EXISTS('+conditions()['terminal_filament_measurements'].split(' OR NOT EXISTS(',1)[1]
     event_bad='NEW.expected_revision'+conditions()['filament_cost_events'].split(' OR NEW.expected_revision',1)[1]
+    # SQLite permits the declared FK/trigger references before optional025 is
+    # adopted, but resolves every table in a SELECT even with no retained rows.
+    # With no purchase table, no non-null purchase reference can be valid. Keep
+    # the installed guards unchanged so later025 adoption enables the full proof.
+    if not inspect(connection).has_table('spool_purchase_evidence'):
+        event_bad=event_bad.split(' OR (NEW.purchase_evidence_nonce',1)[0]+' OR NEW.purchase_evidence_nonce IS NOT NULL'
     event_bad=event_bad.replace('WHERE observation_id=NEW.observation_id),0)', 'WHERE observation_id=NEW.observation_id AND revision<NEW.revision),0)')
     event_bad+=' OR NOT EXISTS(SELECT 1 FROM terminal_filament_measurements m WHERE m.observation_id=NEW.observation_id)'
     for table,condition in [('terminal_filament_measurements',terminal_bad),('filament_cost_events',event_bad)]:
