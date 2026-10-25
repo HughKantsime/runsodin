@@ -1,0 +1,16 @@
+{
+  "date": "2026-10-25",
+  "base": "d4aaded660e6fbc02cd4828ba8c2aafbf2477a36",
+  "branch": "feat/operator-stock-inspections",
+  "scope": "write:production",
+  "security_tests": 165,
+  "production_regression_tests": 156,
+  "frontend_tests": 10,
+  "frontend_build": "passed",
+  "independent_review": "no security blockers; documentation and audit failure evidence advisories resolved",
+  "gitleaks_staged": "no leaks",
+  "production_version_observed": "2.0.13",
+  "production_changed": false,
+  "deployed": false,
+  "token_scope_enabled": false
+}

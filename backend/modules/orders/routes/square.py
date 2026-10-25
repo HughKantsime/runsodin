@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 from typing import Literal
 
+from modules.orders.production_auth import require_production_operator
 from core.rbac import require_action
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.exceptions import RequestValidationError
@@ -244,7 +245,7 @@ def baseline_review(addition_id: str, data: BaselineReview, user=Depends(admin),
     return review(db, user, addition_id, data)
 
 
-@router.post('/batches/additions/{addition_id}/send', dependencies=[interactive, Depends(require_action('products.square_send', scope='write'))])
-def send_addition(addition_id: str, user=Depends(require_role('operator', scope='write')), db: Session = Depends(get_db)):
+@router.post('/batches/additions/{addition_id}/send', dependencies=[Depends(require_production_operator()), Depends(require_action('products.square_send', scope='write:production'))])
+def send_addition(addition_id: str, user=Depends(require_role('operator', scope='write:production')), db: Session = Depends(get_db)):
     from modules.orders.stock_recovery import execute_prepared
     return execute_prepared(db, user, addition_id)

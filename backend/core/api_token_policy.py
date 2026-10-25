@@ -3,6 +3,8 @@ import json
 
 VALID_SCOPES = {
     "read", "write",
+    # Explicit opt-in for inspected stock operations; broad write/admin do not imply it.
+    "write:production",
     "read:printers", "write:printers",
     "read:jobs", "write:jobs",
     "read:spools", "write:spools",
@@ -32,7 +34,9 @@ def parse_token_scopes(value):
 
 
 def token_scope_granted(scopes, required):
-    """Broad permissions cover their resources, never the reverse direction."""
+    """Broad permissions imply resources except explicit production delegation."""
+    if required == "write:production":
+        return required in scopes
     if required in scopes or "admin" in scopes:
         return True
     action, separator, resource = required.partition(":")
