@@ -30,6 +30,7 @@ _CACHE_SECONDS = 15.0
 _REQUEST_TIMEOUT = 2.0
 _MAX_RESPONSE_BYTES = 512 * 1024
 _cache_lock = threading.Lock()
+_transport_lock = threading.Lock()
 _cached_url: str | None = None
 _cached_until = 0.0
 _cached_printers: dict[str, dict[str, Any]] | None = None
@@ -141,15 +142,16 @@ def _fetch_payload(url: str, deadline: float) -> tuple[bool, dict[str, dict[str,
                 timeout=httpx.Timeout(remaining),
                 follow_redirects=False,
                 trust_env=False,
+                headers={"Accept-Encoding": "identity"},
             ) as client:
                 with client.stream("GET", endpoint) as response:
                     if response.status_code != 200:
                         raise ValueError("unexpected display status")
                     body = bytearray()
-                    for chunk in response.iter_bytes():
-                        body.extend(chunk)
-                        if len(body) > _MAX_RESPONSE_BYTES:
+                    for chunk in response.iter_raw(chunk_size=64 * 1024):
+                        if len(body) + len(chunk) > _MAX_RESPONSE_BYTES:
                             raise ValueError("display response too large")
+                        body.extend(chunk)
                         if time.monotonic() > deadline:
                             raise TimeoutError
         return True, _valid_payload(json.loads(bytes(body)))
@@ -166,6 +168,10 @@ def _fetch_within_deadline(url: str) -> tuple[bool, dict[str, dict[str, Any]]]:
     deadline is abandoned; it cannot publish a late result because only this
     caller updates the cache.
     """
+    # DNS cannot be cancelled portably. Keep a single transport worker even
+    # after a timeout, so repeated refreshes cannot accumulate stuck threads.
+    if not _transport_lock.acquire(blocking=False):
+        return False, {}
     deadline = time.monotonic() + _REQUEST_TIMEOUT
     outcome: dict[str, Any] = {}
     finished = threading.Event()
@@ -176,6 +182,7 @@ def _fetch_within_deadline(url: str) -> tuple[bool, dict[str, dict[str, Any]]]:
         except Exception as exc:  # pragma: no cover - defensive worker boundary
             outcome["error"] = exc
         finally:
+            _transport_lock.release()
             finished.set()
 
     worker = threading.Thread(
@@ -183,7 +190,11 @@ def _fetch_within_deadline(url: str) -> tuple[bool, dict[str, dict[str, Any]]]:
         name="filament-ledger-refresh",
         daemon=True,
     )
-    worker.start()
+    try:
+        worker.start()
+    except BaseException:
+        _transport_lock.release()
+        raise
     if not finished.wait(max(0.0, deadline - time.monotonic())):
         log.info("Filament Ledger display unavailable (TimeoutError)")
         return False, {}

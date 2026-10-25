@@ -63,7 +63,7 @@ class _FakeStream:
     def __exit__(self, *_args):
         return False
 
-    def iter_bytes(self):
+    def iter_raw(self, chunk_size=None):
         for chunk in self.client.chunks:
             if self.client.gate is not None:
                 self.client.gate.wait(5)
@@ -165,6 +165,8 @@ def refresh_and_wait():
 def _clean_cache():
     reset_cache()
     yield
+    assert ledger_display._transport_lock.acquire(timeout=2)
+    ledger_display._transport_lock.release()
     reset_cache()
 
 
@@ -659,3 +661,29 @@ def test_cache_expiry_is_measured_from_fetch_completion(fake, monkeypatch):
     # A start-relative expiry would be started + 10, roughly 0.2s earlier.
     assert cached_until >= completed + 9.9
     assert cached_until >= started + 10.1
+
+
+def test_timed_out_dns_does_not_accumulate_transport_workers(fake, monkeypatch):
+    monkeypatch.setattr(ledger_display, "_REQUEST_TIMEOUT", 0.05)
+    gate = threading.Event()
+    started = threading.Event()
+    calls = []
+
+    @contextmanager
+    def slow_pin(endpoint):
+        calls.append(endpoint)
+        started.set()
+        gate.wait(5)
+        yield ["192.168.1.42"]
+
+    monkeypatch.setattr(ledger_display, "pinned_device_destination", slow_pin)
+    try:
+        assert ledger_display._fetch_within_deadline("http://ledger") == (False, {})
+        assert started.is_set()
+        for _ in range(5):
+            assert ledger_display._fetch_within_deadline("http://ledger") == (False, {})
+        assert len(calls) == 1
+    finally:
+        gate.set()
+        assert ledger_display._transport_lock.acquire(timeout=2)
+        ledger_display._transport_lock.release()
