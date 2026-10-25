@@ -223,22 +223,15 @@ async def upload_license(
 
     license_info = verify_license_text(license_text)
     if not license_info.valid or license_info.error:
-        raise HTTPException(status_code=400, detail="Invalid or expired license file")
-    try:
-        save_license_file(license_text)
-    except OSError:
-        # Replacement may already be visible. Never overwrite a concurrent update.
-        raise HTTPException(status_code=503, detail="License installation could not be confirmed; check current license status")
-
-    try:
-        log_audit(db, "license.uploaded", "system", details={"tier": license_info.tier, "licensee": license_info.licensee})
-        db.commit()
-    except Exception:
+        raise HTTPException(status_code=400, detail=license_info.error or "Invalid or expired license file")
+    def audit_installation(_candidate):
         try:
-            db.rollback()
+            log_audit(db, "license.uploaded", "system", details={"tier": license_info.tier, "licensee": license_info.licensee})
+            db.commit()
         except Exception:
-            pass
-        raise HTTPException(status_code=503, detail="License installation could not be confirmed; check current license status")
+            db.rollback()
+            raise
+    install_portal_license(license_text, after_install=audit_installation)
     return {
         "status": "activated", "tier": license_info.tier,
         "licensee": license_info.licensee, "expires_at": license_info.expires_at,
@@ -275,11 +268,18 @@ def get_license_installation_id(current_user: dict = Depends(require_role("admin
     import license_manager as _lm
     fingerprint = _lm.device_fingerprint()
     return {"installation_id": get_installation_id(),
-            "device_fingerprint": _lm.short_fingerprint(fingerprint) if fingerprint else None}
+            "device_fingerprint": _lm.short_fingerprint(fingerprint) if fingerprint else None,
+            "license_error": get_license().error}
 
 
 class LicenseActivateRequest(PydanticBaseModel):
     key: str
+    binding_protocol: str | None = None
+    convert_to_device_binding: bool = False
+    confirm_purchase_wide: bool = False
+
+    # None preserves ordinary legacy refresh; device-v1 must never downgrade.
+
 
 
 async def _fetch_license_challenge(license_server_url: str, installation_id: str) -> str:
@@ -334,6 +334,12 @@ async def activate_license(
     license_server_url = settings.license_server_url
     if license_server_url.startswith("http://") and not license_server_url.startswith("http://localhost") and not license_server_url.startswith("http://127."):
         license_server_url = "https://" + license_server_url[7:]
+    if request.binding_protocol not in (None, "device-v1"):
+        raise HTTPException(status_code=400, detail="Unsupported binding protocol")
+    current = get_license()
+    bound_requested = request.binding_protocol == "device-v1" or (current.device_bound and current.key == request.key)
+    if request.convert_to_device_binding and not (bound_requested and request.confirm_purchase_wide):
+        raise HTTPException(status_code=400, detail="Confirm purchase-wide conversion and device-v1 binding first")
     installation_id = get_installation_id()
 
     # S1: bind this device's Ed25519 public key to the activation. On
@@ -343,17 +349,16 @@ async def activate_license(
     # pair can't succeed — they don't hold the private key.
     _priv, device_pubkey = get_device_keypair()
 
-    # Proof of possession of the device key over a portal nonce. The portal
-    # requires it for Pro trial keys (TRIAL_PROOF_REQUIRED without it) and
-    # ignores it for paid keys in 2.0, so a challenge the server cannot give
-    # (an older license server, the challenge rate limit) does not block paid
-    # activation: the request then goes without proof.
+    # Explicit device-v1 and already-bound refreshes require fresh proof.
+    # Ordinary legacy activation retains compatibility with older portals.
     proof = {}
     try:
         nonce = await _fetch_license_challenge(license_server_url, installation_id)
         proof = {"nonce": nonce,
                  "bootstrap_signature": sign_license_challenge("activate-bootstrap", request.key, installation_id, nonce)}
-    except Exception as exc:  # any challenge failure means "no proof available"
+    except Exception as exc:
+        if bound_requested:
+            raise HTTPException(status_code=502, detail={"code": "PROOF_REQUIRED", "message": "Device binding needs a fresh portal challenge. Check connectivity or use offline activation. Your installed license is unchanged."}) from exc
         log.warning("License activation: no usable challenge from the license server (%s); sending without proof of possession",
                     getattr(exc, "status_code", type(exc).__name__))
 
@@ -368,6 +373,8 @@ async def activate_license(
                         "key": request.key,
                         "installation_id": installation_id,
                         "device_pubkey": device_pubkey,
+                        **({"binding_protocol": "device-v1"} if bound_requested else {}),
+                        **({"convert_to_device_binding": True, "confirm_purchase_wide": True} if request.convert_to_device_binding else {}),
                         **proof,
                     },
                 )
@@ -377,15 +384,13 @@ async def activate_license(
         log.error("License activation failed — could not reach license server: %s", e)
         raise HTTPException(status_code=502, detail="Could not reach license server. Check network connectivity and LICENSE_SERVER_URL.")
 
-    if resp.status_code != 200:
-        detail = resp.json().get("error", "Activation failed") if resp.headers.get("content-type", "").startswith("application/json") else f"License server returned {resp.status_code}"
-        raise HTTPException(status_code=resp.status_code, detail=detail)
-
-    data = resp.json()
+    from .license_portal import activation_response
+    data = activation_response(resp)
     license_content = data.get("license_file")
-    if not license_content:
-        raise HTTPException(status_code=502, detail="License server returned no license file")
-
+    if bound_requested:
+        candidate = verify_license_text(license_content.strip()) if isinstance(license_content, str) else None
+        if candidate is None or not candidate.valid or not candidate.device_bound or candidate.trial:
+            raise HTTPException(status_code=502, detail="The portal did not return a valid device-v1 paid license. Your installed license is unchanged. Update the portal or contact support.")
     license_info = install_portal_license(license_content)
 
     return {
@@ -462,6 +467,7 @@ async def request_pro_trial(
 class OfflineActivationRequestBody(PydanticBaseModel):
     key: str
     nonce: str  # issued by GET /api/v1/challenge on the licensing server
+    binding_protocol: str | None = None
 
 
 @router.post("/license/activation-request", tags=["License"])
@@ -488,7 +494,9 @@ def build_activation_request(
 
     if not body.key.strip() or not body.nonce.strip():
         raise HTTPException(status_code=400, detail="A license key and a challenge nonce from the licensing server are required.")
-    body = OfflineActivationRequestBody(key=body.key.strip(), nonce=body.nonce.strip())
+    if body.binding_protocol not in (None, "device-v1"):
+        raise HTTPException(status_code=400, detail="Unsupported binding protocol")
+    body = OfflineActivationRequestBody(key=body.key.strip(), nonce=body.nonce.strip(), binding_protocol=body.binding_protocol)
     installation_id = get_installation_id()
     _priv, device_pubkey = get_device_keypair()
     bootstrap_signature = sign_license_challenge(
@@ -499,6 +507,7 @@ def build_activation_request(
         "key": body.key,
         "activation_request": {
             "installation_id": installation_id,
+            **({"binding_protocol": "device-v1"} if body.binding_protocol else {}),
             "hostname": socket.gethostname(),
             "odin_version": __version__,
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -605,6 +614,7 @@ async def reactivate_license(
                     f"{license_server_url}/api/v1/reactivate",
                     json={
                         "key": current_license.key,
+                        **({"binding_protocol": "device-v1"} if current_license.device_bound else {}),
                         "installation_id": installation_id,
                         "nonce": nonce,
                         "signature": signature,
@@ -614,19 +624,20 @@ async def reactivate_license(
         log.error("License reactivation failed — could not reach license server: %s", e)
         raise HTTPException(status_code=502, detail="Could not reach license server.")
 
-    if resp.status_code != 200:
-        detail = resp.json().get("error", "Reactivation failed") if resp.headers.get("content-type", "").startswith("application/json") else f"License server returned {resp.status_code}"
-        raise HTTPException(status_code=resp.status_code, detail=detail)
-
-    data = resp.json()
+    from .license_portal import activation_response
+    data = activation_response(resp)
     license_content = data.get("license_file")
     if not license_content:
         raise HTTPException(status_code=502, detail="License server returned no license file")
 
-    license_info = install_portal_license(license_content)
-
-    log_audit(db, "license.reactivated", "system", details={"tier": license_info.tier, "licensee": license_info.licensee})
-    db.commit()
+    if current_license.device_bound:
+        candidate = verify_license_text(license_content.strip()) if isinstance(license_content, str) else None
+        if candidate is None or not candidate.valid or not candidate.device_bound or candidate.trial:
+            raise HTTPException(status_code=502, detail="The portal returned an invalid device-bound refresh. Your installed license is unchanged; contact support.")
+    def audit_refresh(candidate):
+        log_audit(db, "license.reactivated", "system", details={"tier": candidate.tier, "licensee": candidate.licensee})
+        db.commit()
+    license_info = install_portal_license(license_content, after_install=audit_refresh)
     return {
         "status": "reactivated",
         "tier": license_info.tier,

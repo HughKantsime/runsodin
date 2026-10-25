@@ -17,7 +17,7 @@ def test_public_license_wire_capture(signed_license, monkeypatch):
     response = TestClient(app).get('/license')
     assert response.status_code == 200
     body = response.json()
-    assert set(body) == {'valid','tier','tier_name','issued_at','expires_at','expired','trial','trial_days_left','max_printers','max_users','features','managed_externally','binding_present','binding_matches_current','license_sha256'}
+    assert set(body) == {'valid','tier','tier_name','issued_at','expires_at','expired','trial','trial_days_left','max_printers','max_users','features','managed_externally','device_bound','binding_present','binding_matches_current','license_sha256'}
     assert body['expires_at'] == '2099-01-01'
     assert body['max_users'] == 500 and body['max_printers'] == 20
     assert 'licensee' not in body and 'installation_id' not in body

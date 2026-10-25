@@ -41,6 +41,7 @@
     "managed_externally": false,
     "binding_present": false,
     "binding_matches_current": false,
-    "license_sha256": "ef0f45bd6943025970176d3bcbe6f48ea914cd47dfb1b0d72bea7ef88ca6c118"
+    "license_sha256": "ef0f45bd6943025970176d3bcbe6f48ea914cd47dfb1b0d72bea7ef88ca6c118",
+    "device_bound": false
   }
 }

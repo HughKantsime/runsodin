@@ -91,7 +91,7 @@ def test_replace_failure_preserves_license_and_removes_staging(owned_import,monk
     assert not list(path.parent.glob('.odin-license-*.tmp'))
     audit.assert_not_called();db.commit.assert_not_called()
 
-def test_directory_sync_failure_is_unconfirmed_without_restoring_old_bytes(owned_import,monkeypatch):
+def test_directory_sync_failure_preserves_old_bytes(owned_import,monkeypatch):
     import stat
     upload,path,signed,audit,db,lm,sign=owned_import
     original=lm.os.fsync
@@ -102,8 +102,8 @@ def test_directory_sync_failure_is_unconfirmed_without_restoring_old_bytes(owned
     monkeypatch.setattr(lm,'_cached_license',lm.load_license())
     candidate=sign(max_users=374)
     with pytest.raises(HTTPException) as exc: upload(candidate)
-    assert exc.value.status_code==503 and path.read_bytes()==candidate
-    assert lm._cached_license is None and lm.load_license().max_users==374
+    assert exc.value.status_code==503 and path.read_text()==signed
+    assert lm._cached_license is None and lm.load_license().max_users!=374
     assert not list(path.parent.glob('.odin-license-*.tmp'))
     audit.assert_not_called();db.commit.assert_not_called()
 
@@ -179,7 +179,7 @@ def test_deep_json_returns_fixed_refusal_without_mutation(owned_import):
     audit.assert_not_called();db.commit.assert_not_called()
 
 @pytest.mark.parametrize('failure',['audit','commit','commit_and_rollback'])
-def test_audit_failure_reports_unconfirmed_without_restoring_license(owned_import,failure):
+def test_audit_failure_retains_previous_license(owned_import,failure):
     upload,path,signed,audit,db,lm,sign=owned_import
     if failure=='audit': audit.side_effect=RuntimeError('Synthetic audit failure')
     else: db.commit.side_effect=RuntimeError('Synthetic uncertain commit')
@@ -187,8 +187,8 @@ def test_audit_failure_reports_unconfirmed_without_restoring_license(owned_impor
     candidate=sign(max_users=374)
     with pytest.raises(HTTPException) as exc: upload(candidate)
     assert exc.value.status_code==503
-    assert exc.value.detail=='License installation could not be confirmed; check current license status'
-    assert path.read_bytes()==candidate and lm.load_license().max_users==374
+    assert exc.value.detail=='License installation failed; the previous license was retained.'
+    assert path.read_text()==signed and lm.load_license().max_users!=374
     db.rollback.assert_called_once()
 
 

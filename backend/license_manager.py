@@ -228,9 +228,9 @@ def device_fingerprint(public_key_b64: Optional[str] = None) -> Optional[str]:
     None when no device key exists yet (it never creates one).
     """
     if public_key_b64 is None:
-        if not os.path.isfile(os.path.join(LICENSE_DIR, DEVICE_PRIVATE_KEY_FILENAME)):
+        public_key_b64 = _read_existing_device_pubkey()
+        if public_key_b64 is None:
             return None
-        public_key_b64 = get_device_keypair()[1]
     return hashlib.sha256(base64.b64decode(public_key_b64)).hexdigest()
 
 
@@ -284,6 +284,8 @@ class LicenseInfo:
         self.features = []
         self.error = None
         self.expired = False
+        self.device_bound = False
+        self.device_fingerprint = None
         self.binding_present = False
         self.binding_matches_current = False
         self.license_sha256 = ""
@@ -345,10 +347,12 @@ class LicenseInfo:
             "max_users": self.max_users,
             "features": self.effective_features(),
             "managed_externally": license_is_managed_externally(),
+            "device_bound": self.device_bound,
             "binding_present": self.binding_present,
             "binding_matches_current": self.binding_matches_current,
             "license_sha256": self.license_sha256,
             "error": self.error,
+            "device_fingerprint": self.device_fingerprint,
             "installation_id": get_installation_id(),
         }
 
@@ -374,6 +378,7 @@ class LicenseInfo:
             "max_users": self.max_users,
             "features": self.effective_features(),
             "managed_externally": license_is_managed_externally(),
+            "device_bound": self.device_bound,
             "binding_present": self.binding_present,
             "binding_matches_current": self.binding_matches_current,
             "license_sha256": self.license_sha256,
@@ -446,8 +451,8 @@ def load_license() -> LicenseInfo:
         info = LicenseInfo()
         info.error = "Failed to read license file"
         return info
-    # Runtime retains defensive installation-ID creation after a valid signature.
-    return verify_license_text(raw, installation_id_reader=get_installation_id)
+    # Verification must never create identity files.
+    return verify_license_text(raw)
 
 
 def _read_existing_installation_id() -> str:
@@ -490,7 +495,17 @@ def _read_existing_device_pubkey() -> Optional[str]:
     """This installation's device public key, or None when none exists (never creates one)."""
     if not os.path.isfile(os.path.join(LICENSE_DIR, DEVICE_PRIVATE_KEY_FILENAME)):
         return None
-    return get_device_keypair()[1]
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    try:
+        with open(os.path.join(LICENSE_DIR, DEVICE_PRIVATE_KEY_FILENAME), "rb") as stream:
+            private = serialization.load_pem_private_key(stream.read(), password=None)
+        if not isinstance(private, Ed25519PrivateKey):
+            return None
+        return base64.b64encode(private.public_key().public_bytes(
+            serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode("ascii")
+    except (OSError, ValueError, TypeError):
+        return None
 
 
 TRIAL_DEVICE_MISMATCH = "This trial license was issued to a different device key. Start or activate the trial from this server."
@@ -550,9 +565,29 @@ def verify_license_text(raw: str, installation_id_reader=None, device_pubkey_rea
             info.error = "License must be bound to this installation"
             return info
 
-        # A trial license names the device key that requested it (portal 2.0):
-        # it is valid only on the server that holds that key. Paid licenses are
-        # not device-bound in 2.0.
+        binding_fields = {"binding_version", "device_pubkey", "device_fingerprint"}
+        # Trials predate the paid protocol and keep their existing key checks.
+        if not is_trial and binding_fields.intersection(payload):
+            info.device_bound = True
+            pubkey = payload.get("device_pubkey")
+            fingerprint = payload.get("device_fingerprint")
+            try:
+                raw_key = base64.b64decode(pubkey, validate=True) if isinstance(pubkey, str) else b""
+                well_formed = (
+                    type(payload.get("binding_version")) is int and payload["binding_version"] == 1
+                    and isinstance(payload_install_id, str) and bool(payload_install_id)
+                    and len(raw_key) == 32 and base64.b64encode(raw_key).decode("ascii") == pubkey
+                    and fingerprint == hashlib.sha256(raw_key).hexdigest()
+                )
+            except (ValueError, TypeError):
+                well_formed = False
+            if not well_formed:
+                info.error = "Unsupported or malformed device binding. Request a new device-v1 license from the portal."
+                return info
+            info.device_fingerprint = fingerprint
+            if pubkey != device_pubkey_reader():
+                info.error = "Device key mismatch. Restore this installation's original .odin-device.key and installation ID, or contact support for an authorized re-issue."
+                return info
         trial_device = payload.get("device_pubkey") if is_trial else None
         if trial_device is not None and trial_device != device_pubkey_reader():
             info.error = TRIAL_DEVICE_MISMATCH
@@ -656,7 +691,7 @@ def save_license_file(content: str, directory: str = None) -> str:
     return path
 
 
-def install_portal_license(license_content) -> "LicenseInfo":
+def install_portal_license(license_content, after_install=None) -> "LicenseInfo":
     """Verify a portal-issued license and install it only if it is valid.
 
     The candidate is checked with the runtime rules (signature, binding,
@@ -669,10 +704,48 @@ def install_portal_license(license_content) -> "LicenseInfo":
     candidate = verify_license_text(license_content.strip())
     if not candidate.valid or candidate.error:
         raise HTTPException(status_code=400, detail=candidate.error or "License server returned an invalid license")
+    target = os.path.join(LICENSE_DIR, LICENSE_FILENAME)
+    try:
+        with open(target, "rb") as stream:
+            previous = stream.read()
+    except FileNotFoundError:
+        previous = None
+    except OSError:
+        raise HTTPException(status_code=503, detail="Cannot read the current license safely. Check storage permissions; the installed license is unchanged.")
     try:
         save_license_file(license_content)
-    except OSError:
-        raise HTTPException(status_code=503, detail="License installation could not be confirmed; check current license status")
+        if after_install is not None:
+            after_install(candidate)
+    except Exception:
+        # save may fail its directory sync after replacement. Restore the old
+        # visible artifact as well; never intentionally discard a paid license.
+        try:
+            try:
+                with open(target, "rb") as stream:
+                    unchanged = stream.read() == previous
+            except FileNotFoundError:
+                unchanged = previous is None
+            if unchanged:
+                pass
+            elif previous is not None:
+                fd, recovery = tempfile.mkstemp(prefix=".odin-license-recovery-", dir=LICENSE_DIR)
+                try:
+                    with os.fdopen(fd, "wb") as stream:
+                        stream.write(previous)
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                    os.replace(recovery, target)
+                finally:
+                    if os.path.exists(recovery):
+                        os.unlink(recovery)
+            elif os.path.exists(target):
+                os.unlink(target)
+        except OSError:
+            raise HTTPException(status_code=503, detail="License recovery could not be confirmed. Check storage and restore the license from your secure host backup.")
+        finally:
+            global _cached_license
+            _cached_license = None
+        raise HTTPException(status_code=503, detail="License installation failed; the previous license was retained.")
     return get_license()
 
 
@@ -701,14 +774,25 @@ def quarantine_installed_license() -> Optional[str]:
 # ── Cached license (reloaded when file changes) ──
 _cached_license: Optional[LicenseInfo] = None
 _cached_mtime: float = 0
+_cached_identity = None
 
 
 def get_license() -> LicenseInfo:
     """Get the current license, with caching. Reloads if file changed."""
-    global _cached_license, _cached_mtime
+    global _cached_license, _cached_mtime, _cached_identity
 
     license_path = _find_license_file()
     current_mtime = os.path.getmtime(license_path) if license_path else 0
+
+    # Hash identity contents, not mtimes: restores can preserve timestamps.
+    identity = []
+    for name in (INSTALL_ID_FILENAME, DEVICE_PRIVATE_KEY_FILENAME):
+        try:
+            with open(os.path.join(LICENSE_DIR, name), "rb") as stream:
+                identity.append(hashlib.sha256(stream.read()).digest())
+        except OSError:
+            identity.append(None)
+    identity = tuple(identity)
 
     # A valid license that reaches its expiry instant while cached is re-read
     # (and so reverts to Community) without waiting for a file change or restart.
@@ -717,9 +801,10 @@ def get_license() -> LicenseInfo:
         and _cached_license.expiry_deadline is not None
         and datetime.now(timezone.utc) >= _cached_license.expiry_deadline
     )
-    if _cached_license is None or current_mtime != _cached_mtime or expired_in_cache:
+    if _cached_license is None or current_mtime != _cached_mtime or expired_in_cache or identity != _cached_identity:
         _cached_license = load_license()
         _cached_mtime = current_mtime
+        _cached_identity = identity
 
     return _cached_license
 

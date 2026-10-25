@@ -2,6 +2,18 @@
 
 ODIN supports application-managed, verified backup and offline restore for SQLite and PostgreSQL 16. Database files and dumps may contain student or customer data. Never email them; move them only through approved encrypted storage.
 
+## Paid license identity and recovery
+
+A device-v1 paid license requires both the original installation ID and the Ed25519 private device key. Hardware replacement works without a transfer when both are preserved. In the configured `LICENSE_DIR` (normally `/data`), preserve `.odin-install-id`, `.odin-device.key`, and `odin.license` together in a separate encrypted host/volume backup. Keep the private key readable only by the ODIN service account (`0600`); never paste it into a ticket, log, request code, or chat.
+
+Application database backups, portable exports, and support bundles do **not** transfer a bound license. Do not add the private key to these artifacts. Stop ODIN before restoring its identity files, restore both identity files and the signed license to the configured license directory, preserve ownership and key permissions, then restart and verify Settings > License. Do not overwrite another running installation's identity: cloning the private key clones its identity.
+
+Legacy paid licenses remain valid indefinitely under their original installation and expiry rules. Conversion is voluntary and applies to the whole purchase, including every grant. Coordinate installation owners before confirming conversion; previous offline legacy files cannot be revoked.
+
+For a mismatch, first restore the original identity files. If the old key is available and you are transferring to a new identity, unactivate the old installation before activating the new one. For an offline transfer, generate the signed unactivation request (which quarantines the local license immediately), process it on the portal, then use a fresh offline challenge for the replacement installation. Challenges expire after 15 minutes. If either identity file is lost, contact support for purchase verification and an authorized re-issue; do not generate replacement identity files expecting them to unlock the old license. Old offline files cannot be remotely revoked. Recovery and offline import remain available without a valid paid entitlement.
+
+Older ODIN releases do not enforce paid device binding. Roll out the new ODIN verifier before enabling bound new-purchase issuance on the portal; keep existing purchases in legacy mode unless explicitly converted.
+
 ## Shared controls
 
 - Backup creation, listing, download, deletion, and restore staging require a superadmin.
