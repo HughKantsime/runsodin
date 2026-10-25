@@ -248,6 +248,10 @@ def inspect_batch(db, user, data):
             db.execute(additions.insert().values(id=uuid.uuid4().hex,owner=owner,receipt_id=identifier,
                 destination=packed(destination),request_body=packed({'idempotency_key':identifier,'changes':changes}),
                 state='prepared',attempts=0))
+        from core.audit import log_audit
+        log_audit(db, 'production.inspected', 'production_acceptance', None,
+            {'receipt_id':identifier, 'job_id':data.job_id, 'operator_id':user['id'],
+             'auth_kind':user.get('_auth_kind'), 'api_token_id':user.get('_token_id')})
         db.commit()
     except IntegrityError:
         db.rollback()

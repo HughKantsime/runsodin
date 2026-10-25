@@ -2,7 +2,7 @@
 
 All notable changes to O.D.I.N. are documented here.
 
-## [2.0.14] - 2026-10-25
+## [2.0.16] - 2026-10-25
 
 <!-- summary: Filament cost per order, device-bound paid licenses, and frontend type fixes -->
 
@@ -14,6 +14,15 @@ All notable changes to O.D.I.N. are documented here.
 ### Fixed
 
 - TypeScript errors across the frontend pages, with no change in behaviour.
+
+## [2.0.15] - 2026-10-25
+
+<!-- summary: Explicit production operator tokens for inspections and Square stock sends -->
+
+### Added
+
+- Operators can explicitly delegate production inspections, addition checks and Square stock sends with a `write:production` token. Credential changes, connector setup, baselines and recipe qualification still require a password session.
+- Production inspection and stock-send reservation audits identify the operator and token ID, without retaining the credential. Existing duplicate-send protection, tenant boundaries and Square activation checks remain enforced.
 
 ## [2.0.13] - 2026-10-24
 

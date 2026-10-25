@@ -137,10 +137,8 @@ def check(db,user,addition_id):
 
 def execute_prepared(db,user,addition_id):
     """Reserve exactly once after live reads and fenced local revalidation."""
-    store.assert_interactive(user)
-    from core.rbac import is_interactive_session
-    if user.get('role') not in ('admin','operator') or not is_interactive_session(user):
-        raise HTTPException(403,'Interactive operator access is required')
+    from modules.orders.production_auth import assert_production_operator
+    assert_production_operator(user)
     if not wire.LIVE_WRITES_ENABLED:
         raise HTTPException(503,'Square stock writes require both activation keys')
     owner=store.tenant(user);row=operation(db,owner,addition_id)
@@ -166,6 +164,10 @@ def execute_prepared(db,user,addition_id):
         .values(state='unknown',attempts=1)).rowcount
     if changed!=1:
         db.rollback();raise HTTPException(409,'This addition is already reserved. Reconcile its outcome instead of sending again.')
+    from core.audit import log_audit
+    log_audit(db, 'production.stock_send_reserved', 'production_stock_addition', None,
+        {'addition_id':addition_id, 'receipt_id':current['receipt_id'], 'operator_id':user['id'],
+         'auth_kind':user.get('_auth_kind'), 'api_token_id':user.get('_token_id')})
     db.commit()  # Durable intent; connector changes from here cannot retarget saved body.
     try:confirmed=wire.SquareWriter(doc['environment'],doc['token']).send(row['request_body'],tenant_enabled=doc.get('stock_writes_enabled')) is True
     except Exception:confirmed=False

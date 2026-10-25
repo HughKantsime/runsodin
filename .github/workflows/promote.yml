@@ -29,7 +29,7 @@ on:
         required: true
         type: string
       authorization_text:
-        description: Verbatim 8-1000 character owner authorization
+        description: Verbatim 7-1000 character owner authorization
         required: true
         type: string
 

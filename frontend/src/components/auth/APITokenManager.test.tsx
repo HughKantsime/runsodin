@@ -38,3 +38,12 @@ it('reports a failed revoke and keeps the token visible',async()=>{
   expect(await screen.findByRole('alert')).toHaveTextContent('Unable to revoke this token. Try again.')
   expect(screen.getByText('Retained integration')).toBeInTheDocument()
 })
+
+it('offers explicit production inspection and Square-send delegation',async()=>{
+  vi.mocked(apiTokens.create).mockResolvedValue({ token: 'synthetic-ui-production-value' } as any)
+  render(<APITokenManager/>);fireEvent.click(await screen.findByText('New Token'))
+  fireEvent.change(screen.getByLabelText('Token name'),{target:{value:'Production operator'}})
+  fireEvent.click(screen.getByText('Record production inspections and send accepted stock to Square'))
+  fireEvent.click(screen.getByText('Create Token'))
+  await waitFor(()=>expect(apiTokens.create).toHaveBeenCalledWith({name:'Production operator',scopes:['write:production'],expires_days:null}))
+})

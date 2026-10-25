@@ -214,6 +214,9 @@ async def create_api_token(request: Request, body: dict, current_user: dict = De
             status=403,
         )
 
+    if "write:production" in scopes and current_user["role"] not in ("admin", "operator"):
+        raise HTTPException(403, "Only operators and admins can mint write:production tokens")
+
     from core.api_token_policy import camera_scope_combination_error, camera_token_expiry_error, CAMERA_TOKEN_DEFAULT_DAYS
     if "read:cameras" in scopes:
         # Camera tokens live in OBS configs and copied URLs: camera-only, never

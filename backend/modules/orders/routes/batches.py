@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from core.db import get_db
 from core.rbac import require_role, require_interactive_session
 from modules.orders import batch_production as service
+from modules.orders.production_auth import require_production_operator
 from modules.orders import square_store
 from modules.orders.batch_schemas import RecipeInput, InspectionInput
 
@@ -65,13 +66,13 @@ def create_recipe(data:RecipeInput,user=Depends(admin),db:Session=Depends(get_db
     return service.create_recipe(db,user,data)
 
 
-@router.post('/inspections',dependencies=[interactive, Depends(require_action('products.inspections', scope='write'))])
-def inspect_batch(data:InspectionInput,user=Depends(operator),db:Session=Depends(get_db)):
+@router.post('/inspections',dependencies=[Depends(require_production_operator()), Depends(require_action('products.inspections', scope='write:production'))])
+def inspect_batch(data:InspectionInput,user=Depends(require_role('operator',scope='write:production')),db:Session=Depends(get_db)):
     return service.inspect_batch(db,user,data)
 
 
-@router.post('/additions/{addition_id}/check',dependencies=[interactive, Depends(require_action('products.inspections', scope='write'))])
-def check_addition(addition_id:str,user=Depends(operator),db:Session=Depends(get_db)):
+@router.post('/additions/{addition_id}/check',dependencies=[Depends(require_production_operator()), Depends(require_action('products.inspections', scope='write:production'))])
+def check_addition(addition_id:str,user=Depends(require_role('operator',scope='write:production')),db:Session=Depends(get_db)):
     from modules.orders.stock_recovery import check
     return check(db,user,addition_id)
 
