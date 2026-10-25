@@ -174,6 +174,8 @@ def bind_education_observation(executor,*,print_job_id,context,key):
 
 def publish_observed_start(printer_id,print_job_id,job_name):
     """Delivery failure must not undo a committed observation or request reinsertion."""
+    from core.job_timeline import for_attempt
+    for_attempt(print_job_id, "started")
     from core.event_bus import get_event_bus
     from core.interfaces.event_bus import Event
     from core import events

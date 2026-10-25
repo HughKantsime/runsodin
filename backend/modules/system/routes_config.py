@@ -197,6 +197,7 @@ async def run_retention_cleanup(current_user: dict = Depends(require_superadmin(
                     """DELETE FROM jobs WHERE id IN :candidate_ids
                     AND status IN ('completed','failed','cancelled')
                     AND order_item_id IS NULL
+                    AND NOT EXISTS (SELECT 1 FROM production_acceptances a WHERE a.job_uid=jobs.economic_uid)
                     AND NOT EXISTS (SELECT 1 FROM order_production_jobs p WHERE p.job_id=jobs.id)
                     AND NOT EXISTS (SELECT 1 FROM education_submissions e WHERE e.job_id=jobs.id)
                     AND """ + expired("updated_at") + " RETURNING id").bindparams(bindparam("candidate_ids", expanding=True))

@@ -182,7 +182,11 @@ class EducationPolicyService(EducationPolicyProvider):
         return classify_monitor_observation(db, **kwargs)
 
     def terminal_monitor_observation(self, db, **kwargs) -> dict:
-        return terminal_monitor_observation(db, **kwargs)
+        result = terminal_monitor_observation(db, **kwargs)
+        if result.get('physical_ended') or result.get('transitioned'):
+            from core.job_terminal_observations import claim_terminal
+            claim_terminal(db, kwargs['print_job_id'])
+        return result
 
     def resolve_active_monitor_observation(self, db, *, printer_id: int) -> dict:
         return resolve_active_monitor_observation(db, printer_id=printer_id)

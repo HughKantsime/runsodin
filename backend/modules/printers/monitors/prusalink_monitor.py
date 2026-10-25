@@ -163,7 +163,10 @@ class PrusaLinkMonitorThread(threading.Thread):
 
         # Only fire events on transitions
         if current_state != self._last_state:
-            if odin_state == "RUNNING" and self._last_state != "PRINTING":
+            if odin_state == "RUNNING" and self._last_state in ('PAUSED','ATTENTION'):
+                from core.job_timeline import for_printer
+                for_printer(self.printer_id, 'resumed')
+            elif odin_state == "RUNNING" and self._last_state != "PRINTING":
                 # Print started
                 printer_events.on_print_start(
                     self.printer_id,

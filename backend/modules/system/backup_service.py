@@ -156,7 +156,7 @@ _LATE_TRIGGER_MODULES = (
     '021_economic_identity', '022_economic_source_lifetimes',
     '023_timelapse_retirement_membership', '024_audit_actor',
     '025_spool_purchase_evidence', '026_global_order_origins',
-    '027_power_target_operations', '037_education_memberships', '038_dispatch_recovery', '039_measured_filament',
+    '027_power_target_operations', '037_education_memberships', '038_dispatch_recovery', '039_measured_filament', '040_job_foundation',
 )
 
 
@@ -182,7 +182,7 @@ def _canonical_sqlite_triggers():
                         if name in definitions:
                             raise ValueError('Duplicate packaged trigger')
                         definitions[name] = sql
-            elif suffix.startswith(('037_', '038_', '039_')):
+            elif suffix.startswith(('037_', '038_', '039_', '040_')):
                 definitions = module.sqlite_triggers()
             elif suffix.startswith('022_'):
                 definitions = module._sqlite_triggers()
@@ -335,6 +335,15 @@ def _required_sqlite_guards(columns, allowed):
         require('filament_cost_events', 'event_id observation_id revision expected_revision audit_reason spool_uid purchase_evidence_nonce currency amount_decimal reason calculation_version created_at')
         for table, names in _PURCHASE_COLUMNS.items():
             require(table, names)
+    if any(t in columns for t in ('job_summary_outbox','stock_snapshots','job_timeline_events','timeline_writer_state')):
+        require('job_summary_outbox', 'print_attempt_uid attempt_birth job_id printer_id org_id outcome observed_at delivery_state')
+        require('stock_snapshots', 'owner_scope owner_key variation location quantity calculated_at read_at')
+        require('job_timeline_events', 'id job_id print_attempt_uid printer_id org_id kind code detail actor_user_id actor_token_id occurred_at recorded_at')
+        require('timeline_writer_state', 'process_id started_at clean_shutdown last_drained_at drop_epoch error_epoch printer_ids epoch_history')
+        require('jobs', 'id charged_to_org_id')
+        require('printers', 'id')
+        require('users', 'id')
+        require('api_tokens', 'id')
     # Table requirements do not imply unrelated late families on the same source.
     required = set()
     for name, (table, _) in allowed.items():

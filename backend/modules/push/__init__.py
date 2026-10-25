@@ -35,4 +35,5 @@ def register(app, registry) -> None:
 
 def register_subscribers(bus) -> None:
     from modules.push import fanout
-    fanout.register_subscribers(bus)
+    from modules.notifications import alert_outbox
+    fanout.register_subscribers(alert_outbox)

@@ -7,6 +7,8 @@ Job lifecycle and telemetry parsing helpers are in mqtt_job_lifecycle.py
 and mqtt_telemetry.py respectively.
 """
 
+from core.base import AlertType, AlertSeverity
+
 import os
 import sys
 sys.path.insert(0, os.environ.get('BACKEND_PATH', '/app/backend'))
@@ -335,10 +337,18 @@ class PrinterMonitor:
                                 )
                             continue
                         cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
-                            f"UPDATE print_jobs SET status = 'completed', ended_at = {sql.now()} WHERE id = ?",
-                            (row[0],))
+                            f"UPDATE print_jobs SET status = ?, ended_at = {sql.now()} WHERE id = ?",
+                            ({"FINISH":"completed","FAILED":"failed"}.get(gcode_state,"cancelled"),row[0]))
                         log.info(f"[{self.name}] Closed orphaned job {row[0]} ({row[1]}) — printer is {gcode_state or 'idle'}")
+                from core.job_terminal_observations import claim_terminal, terminal_event
+                recovered_events=[]
+                for row in rows:
+                    claim_terminal(conn,row[0])
+                    item=terminal_event(conn,row[0])
+                    if item is not None:recovered_events.append(item)
                 conn.commit()
+                from core.job_timeline import enqueue
+                for item in recovered_events:enqueue(item)
         except Exception as e:
             log.error(f"[{self.name}] Orphaned job recovery failed: {e}")
 
@@ -427,81 +437,10 @@ class PrinterMonitor:
     def _dispatch_alert(self, alert_type: str, severity: str, title: str,
                         message: str = "", job_id: int = None, spool_id: int = None,
                         metadata: dict = None):
-        """
-        Create alert records for all users who have this alert type enabled.
-        Uses raw SQL to avoid importing SQLAlchemy into the monitor daemon.
-        Handles deduplication for spool_low alerts.
-        """
-        try:
-            with get_db() as conn:
-                cur = conn.cursor()
-
-                # Get all users with preferences for this alert type
-                cur.execute("""
-                    SELECT user_id, in_app, browser_push, email
-                    FROM alert_preferences
-                    WHERE alert_type = ? AND in_app IS TRUE
-                """, (alert_type,))
-                prefs = cur.fetchall()
-
-                # If no preferences exist, seed defaults for all active users
-                if not prefs:
-                    cur.execute("SELECT id FROM users WHERE is_active IS TRUE")
-                    users = cur.fetchall()
-                    defaults = {
-                        'print_complete': (True, False, False),
-                        'print_failed': (True, True, False),
-                        'spool_low': (True, False, False),
-                        'maintenance_overdue': (True, False, False),
-                        'schedule_bump': (True, False, False),
-                    }
-                    for (uid,) in users:
-                        for at, (ia, bp, em) in defaults.items():
-                            # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
-                            cur.execute(f"""
-                                {sql.insert_or_ignore_prefix()} alert_preferences
-                                (user_id, alert_type, in_app, browser_push, email, threshold_value)
-                                VALUES (?, ?, ?, ?, ?, ?){sql.on_conflict_ignore('user_id, alert_type')}
-                            """, (uid, at, ia, bp, em, 100.0 if at == 'spool_low' else None))
-                    conn.commit()
-                    # Re-query
-                    cur.execute("""
-                        SELECT user_id, in_app, browser_push, email
-                        FROM alert_preferences
-                        WHERE alert_type = ? AND in_app IS TRUE
-                    """, (alert_type,))
-                    prefs = cur.fetchall()
-
-                created = 0
-                for user_id, in_app, browser_push, email in prefs:
-                    # Dedup: spool_low — skip if unread alert exists for same spool
-                    if alert_type == 'spool_low' and spool_id:
-                        cur.execute("""
-                            SELECT 1 FROM alerts
-                            WHERE user_id = ? AND alert_type = 'SPOOL_LOW'
-                            AND spool_id = ? AND is_read IS FALSE AND is_dismissed IS FALSE
-                            LIMIT 1
-                        """, (user_id, spool_id))
-                        if cur.fetchone():
-                            continue
-
-                    # Create in-app alert
-                    cur.execute("""
-                        INSERT INTO alerts
-                        (user_id, alert_type, severity, title, message,
-                         printer_id, job_id, spool_id, metadata_json, is_read, is_dismissed, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE, FALSE, ?)
-                    """, (user_id, alert_type.upper(), severity.upper(), title, message,
-                          self.printer_id, job_id, spool_id,
-                          json.dumps(metadata) if metadata else None,
-                          datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')))
-                    created += 1
-
-                conn.commit()
-                if created > 0:
-                    log.info(f"[{self.name}] Alert dispatched: {alert_type} to {created} users")
-        except Exception as e:
-            log.error(f"[{self.name}] Failed to dispatch alert: {e}")
+        """Use the shared scoped alert policy in monitor processes too."""
+        from modules.notifications.alert_dispatch import dispatch_alert
+        return dispatch_alert(alert_type, severity, title, message,
+            printer_id=self.printer_id, job_id=job_id, spool_id=spool_id, metadata=metadata)
 
     def _on_status(self, status, generation=None):
         """Handle incoming MQTT status update."""
@@ -973,8 +912,8 @@ class PrinterMonitor:
                     if remaining is not None and remaining < threshold and remaining > 0:
                         spool_label = f"{brand} {fil_name}" if brand and fil_name else f"Spool #{spool_id}"
                         self._dispatch_alert(
-                            alert_type='spool_low',
-                            severity='warning',
+                            alert_type=AlertType.SPOOL_LOW,
+                            severity=AlertSeverity.WARNING,
                             title=f"Low Spool: {spool_label} ({self.name} slot {slot_num})",
                             message=f"{remaining:.0f}g remaining (threshold: {threshold:.0f}g)",
                             spool_id=spool_id,
@@ -987,6 +926,12 @@ class PrinterMonitor:
         """Handle print state transitions."""
         log.info(f"[{self.name}] State: {old_state} -> {new_state}")
 
+        from core.job_timeline import for_printer
+        if new_state == 'PAUSE' and old_state == 'RUNNING':
+            for_printer(self.printer_id, 'paused')
+            if self._state.get('stg_cur') == 6:for_printer(self.printer_id, 'runout')
+        elif new_state == 'RUNNING' and old_state == 'PAUSE':
+            for_printer(self.printer_id, 'resumed')
         # Entering RUNNING or PAUSE without a tracked job = new job
         if new_state in ('RUNNING', 'PAUSE') and not self._current_job_id:
             if old_state in (None, 'IDLE', 'FINISH', 'FAILED', 'PREPARE', 'PAUSE'):

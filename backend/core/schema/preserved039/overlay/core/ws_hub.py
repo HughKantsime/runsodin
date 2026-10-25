@@ -1,0 +1,189 @@
+"""
+WebSocket Event Hub — IPC between monitor processes and FastAPI WebSocket.
+
+Monitor processes (mqtt_monitor, moonraker_monitor, etc.) call push_event()
+to write events to a shared SQLite table. The FastAPI WebSocket handler
+reads new events by ID and broadcasts them.
+
+Replaces the previous file-based IPC (/tmp/odin_ws_events with fcntl locks)
+with a reliable SQLite table that never silently drops events.
+
+Copied to core/ as part of the modular architecture refactor.
+Old import path (from ws_hub import ...) continues to work via re-exports in ws_hub.py.
+"""
+
+import json
+import time
+import logging
+from typing import List, Tuple
+
+from sqlalchemy import inspect, text
+
+# Resolved at use time: never a stale engine bound at import.
+from core.db import live_engine as engine
+
+log = logging.getLogger("ws_hub")
+
+_CLEANUP_INTERVAL = 30   # seconds between cleanup runs
+_EVENT_TTL = 60           # delete events older than this (seconds)
+_last_cleanup = 0
+_EVENT_BATCH_SIZE = 128
+
+
+def ensure_table():
+    """Verify the bootstrap-owned WebSocket event table is present."""
+    with engine.connect() as conn:
+        if "ws_events" not in inspect(conn).get_table_names():
+            raise RuntimeError("WebSocket event table is missing; run database bootstrap")
+
+
+def push_event(event_type: str, data: dict, *, audience: dict | None = None):
+    """
+    Called by monitor processes to publish an event.
+    Signature unchanged from the file-based version — monitors need zero changes.
+    """
+    try:
+        payload = json.dumps({"type": event_type, "data": data, **({"_audience": audience} if audience else {})})
+        # Its own transaction; on the dispatch's shared connection when one is open.
+        from core.dispatch_connection import dispatch_transaction
+        with dispatch_transaction(engine) as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO ws_events (event_type, data, created_at) "
+                    "VALUES (:event_type, :data, :created_at)"
+                ),
+                {
+                    "event_type": event_type,
+                    "data": payload,
+                    "created_at": time.time(),
+                },
+            )
+    except Exception:
+        log.warning("Failed to persist WebSocket event", exc_info=True)
+
+
+def read_events_since(last_id: int) -> Tuple[List[dict], int]:
+    """
+    Read events with id > last_id.
+    Returns (events_list, new_last_id).
+    """
+    try:
+        with engine.connect() as conn:
+            cur = conn.execute(
+                text("SELECT id, data FROM ws_events WHERE id > :last_id ORDER BY id LIMIT :limit"),
+                {"last_id": last_id, "limit": _EVENT_BATCH_SIZE},
+            )
+            rows = cur.fetchall()
+
+        events = []
+        newest_id = last_id
+        for row_id, payload in rows:
+            try:
+                events.append(json.loads(payload))
+            except json.JSONDecodeError:
+                pass
+            newest_id = row_id
+
+        return events, newest_id
+
+    except Exception:
+        log.warning("Failed to read WebSocket events", exc_info=True)
+        return [], last_id
+
+
+def current_event_id() -> int:
+    """Capture the boot/idle watermark; database failures must not replay from zero."""
+    with engine.connect() as conn:
+        return conn.execute(text("SELECT COALESCE(MAX(id), 0) FROM ws_events")).scalar_one()
+
+
+def cleanup_events():
+    """TTL maintenance independent of websocket presence and reads."""
+    global _last_cleanup
+    now = time.time()
+    if now - _last_cleanup >= _CLEANUP_INTERVAL:
+        _cleanup(now - _EVENT_TTL)
+        _last_cleanup = now
+
+
+def _cleanup(before_ts: float):
+    """Delete events older than the given timestamp."""
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text("DELETE FROM ws_events WHERE created_at < :before_ts"),
+                {"before_ts": before_ts},
+            )
+    except Exception:
+        log.warning("Failed to clean WebSocket events", exc_info=True)
+
+
+# ---------------------------------------------------------------------------
+# Event bus integration
+# ---------------------------------------------------------------------------
+
+# Events that have dedicated handlers with legacy name translation.
+# The wildcard handler skips these to avoid double-publishing.
+_TRANSLATED_EVENTS = frozenset()
+
+
+def _handle_job_started(event) -> None:
+    """Forward job.started as 'job_started' for WebSocket frontend compatibility."""
+    push_event("job_started", event.data)
+
+
+def _handle_job_completed(event) -> None:
+    """Forward job.completed / job.failed as 'job_completed' for frontend compatibility."""
+    push_event("job_completed", event.data)
+
+
+def _handle_alert_dispatched(event) -> None:
+    """Forward notifications.alert_dispatched as 'alert_new' for frontend compatibility."""
+    data = dict(event.data)
+    user_ids = data.pop("_ws_user_ids", None)
+    push_event(
+        "alert_new",
+        data,
+        audience={"user_ids": user_ids} if user_ids is not None else None,
+    )
+
+
+def _handle_other_events(event) -> None:
+    """
+    Catch-all handler for events that do not need name translation.
+    Forwards the event to ws_events under its canonical event_type.
+    Skips events handled by dedicated translators to avoid duplicates.
+    """
+    if event.event_type not in _TRANSLATED_EVENTS:
+        push_event(event.event_type, event.data)
+
+
+def subscribe_to_bus(bus) -> None:
+    """
+    Register ws_hub as a subscriber on the event bus.
+
+    Called once from main.py lifespan after the bus singleton is ready.
+    """
+    global _TRANSLATED_EVENTS
+    from core import events as ev
+
+    # Job lifecycle events — translate to legacy ws event names the frontend expects
+    bus.subscribe(ev.JOB_STARTED, _handle_job_started)
+    bus.subscribe(ev.JOB_COMPLETED, _handle_job_completed)
+    bus.subscribe(ev.JOB_FAILED, _handle_job_completed)
+
+    # Alert events — translate to legacy ws event name
+    bus.subscribe("notifications.alert_dispatched", _handle_alert_dispatched)
+
+    # Record which events have dedicated translators so the wildcard skips them
+    _TRANSLATED_EVENTS = frozenset({
+        ev.JOB_STARTED,
+        ev.JOB_COMPLETED,
+        ev.JOB_FAILED,
+        "notifications.alert_dispatched",
+    })
+
+    # All other events forwarded as-is (printer.*, vision.*, inventory.*, system.*)
+    bus.subscribe("*", _handle_other_events)
+
+    log.debug("ws_hub subscribed to event bus")

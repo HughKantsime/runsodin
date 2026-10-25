@@ -37,7 +37,7 @@ def test_live_current_trigger_union_uses_table_name_keys_and_native_power_shape(
 def test_live_executable_counts():
     # Update together with the migration that adds a PostgreSQL function or trigger.
     functions, triggers = canonical_functions(), canonical_triggers()
-    assert (len(functions), len(triggers)) == (31, 44)
+    assert (len(functions), len(triggers)) == (32, 45)
     assert "power_target_operation_guard" in functions and "spool_purchase_evidence_guard" in functions
     assert all(value[6] == "" for value in functions.values())
 
@@ -45,6 +45,12 @@ def test_live_executable_counts():
 # Raw tables (and their exact columns) each registered post-027 migration adds. A new
 # migration must extend this map; the test below fails until it does.
 POST027_RAW_TABLES = {
+    "python:040-job-foundation": {
+        "job_summary_outbox": frozenset("print_attempt_uid attempt_birth job_id printer_id org_id outcome observed_at delivery_state".split()),
+        "stock_snapshots": frozenset("owner_scope owner_key variation location quantity calculated_at read_at".split()),
+        "job_timeline_events": frozenset("id job_id print_attempt_uid printer_id org_id kind code detail actor_user_id actor_token_id occurred_at recorded_at".split()),
+        "timeline_writer_state": frozenset("process_id started_at clean_shutdown last_drained_at drop_epoch error_epoch printer_ids epoch_history".split()),
+    },
     "python:039-measured-filament": {
         "terminal_filament_measurements": frozenset("observation_id attempt_uid attempt_birth owner_scope owner_key order_uid item_uid allocation_key outcome measurement_basis measured_grams reported_value reconciliation_reason snapshot_json created_at".split()),
         "filament_cost_events": frozenset("event_id observation_id revision expected_revision audit_reason spool_uid purchase_evidence_nonce currency amount_decimal reason calculation_version created_at".split()),
@@ -97,6 +103,9 @@ def test_live_inventory_is_preserved027_plus_exactly_the_registered_post027_tabl
     measured=importlib.import_module('core.schema.migrations.039_measured_filament')
     added_functions.update(measured.pg_functions())
     added_triggers.update(measured.pg_triggers())
+    timeline=importlib.import_module("core.schema.migrations.040_job_foundation")
+    added_functions.update(timeline.pg_functions())
+    added_triggers.update(timeline.pg_triggers())
     assert set(functions)-set(accepted['functions']) == set(added_functions)
     assert json.loads(json.dumps({k:v for k,v in functions.items() if k not in added_functions})) == accepted["functions"]
     assert json.loads(json.dumps([[list(k), list(v)] for k, v in sorted(triggers.items()) if k not in added_triggers])) == accepted["triggers"]

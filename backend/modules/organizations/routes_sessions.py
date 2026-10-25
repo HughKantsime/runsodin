@@ -521,6 +521,8 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
         WHERE id = :id"""),
         {"anon_name": f"[deleted-{user_id}]", "id": user_id})
 
+    db.execute(text("UPDATE job_timeline_events SET actor_user_id=NULL,actor_token_id=NULL WHERE actor_user_id=:uid OR actor_token_id IN (SELECT id FROM api_tokens WHERE user_id=:uid)"), {"uid": user_id})
+
     from core.audit_actor import erase_actor_history, actor_is_erased
     erase_actor_history(db, user_id)
 

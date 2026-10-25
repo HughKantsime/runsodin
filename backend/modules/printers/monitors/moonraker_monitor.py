@@ -17,6 +17,8 @@ Handles:
 - Klipper error capture (hms_error_history table)
 - Reconnection on failure
 """
+
+from core.base import AlertType, AlertSeverity
 from core.base import slot_filament_value
 
 import os
@@ -102,6 +104,7 @@ class MoonrakerMonitor:
         if self.printer.connect():
             # Auto-discover camera URL and save to DB
             self._discover_and_save_camera()
+            self._recover_after_reconnect()
             self._running = True
             self._thread = threading.Thread(
                 target=self._poll_loop,
@@ -195,13 +198,15 @@ class MoonrakerMonitor:
         """Restore job tracking state after a reconnect."""
         try:
             with engine.connect() as conn:
-                row = conn.execute(
+                rows = conn.execute(
                     text("SELECT id, job_name FROM print_jobs "
-                    "WHERE printer_id = :pid AND status = 'running' ORDER BY id DESC LIMIT 1"),
-                    {"pid": self.printer_id}).fetchone()
+                    "WHERE printer_id = :pid AND status = 'running' ORDER BY id DESC LIMIT 2"),
+                    {"pid": self.printer_id}).fetchall()
+                row=rows[0] if len(rows)==1 else None
                 if row:
                     self._current_job_db_id = row[0]
                     self._last_filename = row[1] or ""
+                    if self._prev_state is None:self._prev_state="RUNNING"
                     log.info(f"[{self.name}] Recovered job tracking: {row[0]} ({row[1]})")
         except Exception as e:
             log.warning(f"[{self.name}] Job recovery after reconnect failed: {e}")
@@ -332,10 +337,12 @@ class MoonrakerMonitor:
         if status.filament_detected is not None:
             if self._prev_filament_detected is True and status.filament_detected is False:
                 if internal_state in ("RUNNING",):
+                    from core.job_timeline import for_printer
+                    for_printer(self.printer_id, "runout")
                     log.warning(f"[{self.name}] Filament runout detected!")
                     printer_events.dispatch_alert(
-                        alert_type="filament_runout",
-                        severity="warning",
+                        alert_type=AlertType.PRINTER_ERROR,
+                        severity=AlertSeverity.WARNING,
                         title=f"Filament Runout: {self.name}",
                         message=f"Filament sensor triggered on {self.name}",
                         printer_id=self.printer_id,
@@ -352,10 +359,14 @@ class MoonrakerMonitor:
 
             # Job paused
             elif internal_state == "PAUSE" and self._prev_state == "RUNNING":
+                from core.job_timeline import for_printer
+                for_printer(self.printer_id, "paused")
                 log.info(f"[{self.name}] Print paused")
 
             # Job resumed
             elif internal_state == "RUNNING" and self._prev_state == "PAUSE":
+                from core.job_timeline import for_printer
+                for_printer(self.printer_id, "resumed")
                 log.info(f"[{self.name}] Print resumed")
 
             # Job ended (was running/paused, now idle/error)
@@ -507,7 +518,11 @@ class MoonrakerMonitor:
                         error_code=status.error_message or None,
                     )
                     if result.get("education_owned") or result.get("education_reserved"):
+                        from core.job_terminal_observations import terminal_event
+                        timeline_item = terminal_event(conn, self._current_job_db_id) if (result.get('physical_ended') or result.get('transitioned')) else None
                         conn.commit()
+                        from core.job_timeline import enqueue
+                        if timeline_item is not None:enqueue(timeline_item)
                         # Physical completion whenever the print really ended (also when
                         # Education refused the job transition); the job only if applied.
                         applied = result.get('authorized') is True and result.get('transitioned') is True
@@ -569,7 +584,12 @@ class MoonrakerMonitor:
                     # Auto-deduct filament if completed
                     if end_status == "completed" and ended:
                         self._auto_deduct_filament(conn, row[0], observed_grams=filament_used_g)
+                from core.job_terminal_observations import claim_terminal, terminal_event
+                claim_terminal(conn, self._current_job_db_id)
+                timeline_item=terminal_event(conn, self._current_job_db_id)
                 reconcile_job_write(conn, production_orders)
+            from core.job_timeline import enqueue
+            if timeline_item is not None:enqueue(timeline_item)
             # Physical completion always; the job only when its transition applied.
             committed_completion = end_status == 'completed'
             completion_job_id = row[0] if row and row[0] and ended else None
@@ -595,16 +615,18 @@ class MoonrakerMonitor:
             job_name = self._last_filename or "Unknown"
             if end_status == "completed":
                 printer_events.dispatch_alert(
-                    alert_type="print_complete",
-                    severity="success",
+                    alert_type=AlertType.PRINT_COMPLETE,
+                    severity=AlertSeverity.INFO,
+                    job_id=row[0] if row else None,
                     title=f"Print Complete: {job_name}",
                     message=f"Finished on {self.name}",
                     printer_id=self.printer_id,
                 )
             else:
                 printer_events.dispatch_alert(
-                    alert_type="print_failed",
-                    severity="error",
+                    alert_type=AlertType.PRINT_FAILED,
+                    severity=AlertSeverity.CRITICAL,
+                    job_id=row[0] if row else None,
                     title=f"Print Failed: {job_name}",
                     message=f"Failed on {self.name}",
                     printer_id=self.printer_id,

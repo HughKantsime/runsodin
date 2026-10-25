@@ -5,6 +5,8 @@ Provides dispatch_alert(), check_low_spool(), _start_bed_cooled_monitor().
 Central alert creation for all notification channels.
 """
 
+from core.base import AlertType, AlertSeverity
+
 import json
 import logging
 import threading
@@ -41,6 +43,9 @@ def dispatch_alert(
     Handles deduplication, in-app alerts, webhooks, push, and email.
     Respects quiet hours for external channels.
     """
+    alert_type = AlertType(alert_type).value
+    severity = AlertSeverity({"success": "info", "error": "critical"}.get(severity, severity)).value
+
     # Track per-user channel preferences for external delivery after commit
     _push_users = []  # user_ids with browser_push enabled
     _email_users = []  # user_ids with email enabled
@@ -230,8 +235,8 @@ def check_low_spool(
             spool_id = row['spool_id']
 
         dispatch_alert(
-            alert_type="spool_low",
-            severity="warning",
+            alert_type=AlertType.SPOOL_LOW,
+            severity=AlertSeverity.WARNING,
             title=f"Low Filament: {spool_desc}",
             message=f"{remaining_grams:.0f}g remaining on {printer_name} slot {slot_number}",
             printer_id=printer_id,
@@ -292,8 +297,8 @@ def _start_bed_cooled_monitor(printer_id: int, printer_name: str):
                         bed_temp = float(row['bed_temp'])
                         if bed_temp < threshold:
                             dispatch_alert(
-                                alert_type="bed_cooled",
-                                severity="info",
+                                alert_type=AlertType.BED_COOLED,
+                                severity=AlertSeverity.INFO,
                                 title=f"Bed Cooled: {printer_name}",
                                 message=f"Bed temperature dropped to {bed_temp:.0f}°C — safe to remove print",
                                 printer_id=printer_id,

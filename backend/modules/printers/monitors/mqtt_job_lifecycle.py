@@ -7,6 +7,8 @@ mutating self — PrinterMonitor._job_started() and _job_ended() are thin
 wrappers that assign the returned values.
 """
 
+from core.base import AlertType, AlertSeverity
+
 import logging
 import time
 from datetime import datetime, timezone
@@ -163,7 +165,7 @@ def record_job_started(
                     if stale_ids:
                         log.info(f"[{printer_name}] Swept {len(stale_ids)} stale scheduled job(s): {', '.join(stale_names)}")
                         pending_alerts.append(dict(
-                            alert_type='schedule_bump', severity='info',
+                            alert_type=AlertType.QUEUE_SKIPPED, severity=AlertSeverity.INFO,
                             title=f"Stale schedule swept on {printer_name}",
                             message=f"Jobs reset to pending (past 2hr window): {', '.join(stale_names)}",
                             metadata={"bumped_job_ids": stale_ids, "reason": "stale_schedule"}
@@ -286,7 +288,7 @@ def record_job_started(
                         if displaced_ids:
                             log.info(f"[{printer_name}] Bumped {len(displaced_ids)} scheduled job(s) for ad-hoc print: {', '.join(displaced_names)}")
                             pending_alerts.append(dict(
-                                alert_type='schedule_bump', severity='info',
+                                alert_type=AlertType.QUEUE_SKIPPED, severity=AlertSeverity.INFO,
                                 title=f"Scheduled jobs bumped on {printer_name}",
                                 message=f"Ad-hoc print displaced: {', '.join(displaced_names)}. Jobs reset to pending.",
                                 metadata={"bumped_job_ids": displaced_ids, "reason": "ad_hoc_print", "ad_hoc_file": job_name}
@@ -405,7 +407,11 @@ def record_job_ended(
                 if education_result.get("education_owned") or education_result.get(
                     "education_reserved"
                 ):
+                    from core.job_terminal_observations import terminal_event
+                    timeline_item = terminal_event(conn, current_job_id) if (education_result.get('physical_ended') or education_result.get('transitioned')) else None
                     conn.commit()
+                    from core.job_timeline import enqueue
+                    if timeline_item is not None:enqueue(timeline_item)
                     # The physical print completion is published whenever the print
                     # really ended -- also when Education refused the job transition
                     # (physical_ended) -- but names the job only when it applied.
@@ -503,8 +509,13 @@ def record_job_ended(
                 bind_print_attempt(qmark_runner(cur), current_job_id, linked_job_id)
                 log.info(f"[{printer_name}] Created job {linked_job_id} for '{job_name}' ({job_status}, duration={duration_hours}h)")
 
+            from core.job_terminal_observations import claim_terminal, terminal_event
+            claim_terminal(conn, current_job_id)
+            timeline_item=terminal_event(conn, current_job_id)
             reconcile_job_write(conn, production_orders)
             conn.commit()
+            from core.job_timeline import enqueue
+            if timeline_item is not None:enqueue(timeline_item)
             # The physical print completion is always published (archive capture,
             # energy recording, auto power-off are keyed by the print). Job-scoped
             # effects only see the job when this print end actually completed it.
@@ -524,8 +535,8 @@ def record_job_ended(
         # Dispatch alerts via Path B (supports webhooks, push, email)
         if status == 'completed':
             _dispatch_alert_b(
-                alert_type='print_complete',
-                severity='info',
+                alert_type=AlertType.PRINT_COMPLETE,
+                severity=AlertSeverity.INFO,
                 title=f"Print Complete: {job_name} ({printer_name})",
                 message=f"Job finished successfully on {printer_name}.",
                 printer_id=printer_id,
@@ -552,8 +563,8 @@ def record_job_ended(
             if err:
                 msg += f" Error code: {err}"
             _dispatch_alert_b(
-                alert_type='print_failed',
-                severity='critical',
+                alert_type=AlertType.PRINT_FAILED,
+                severity=AlertSeverity.CRITICAL,
                 title=f"Print Failed: {job_name} ({printer_name})",
                 message=msg,
                 printer_id=printer_id,

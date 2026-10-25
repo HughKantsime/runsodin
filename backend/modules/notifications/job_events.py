@@ -5,6 +5,8 @@ Provides job_started(), job_completed(), update_job_progress() and the
 monitor compatibility wrappers used by PrusaLink and Elegoo monitors.
 """
 
+from core.base import AlertType, AlertSeverity
+
 import logging
 from typing import Optional
 
@@ -65,6 +67,8 @@ def job_started(
             if not result.fresh:
                 return job_id
 
+        from core.job_timeline import for_attempt
+        for_attempt(job_id, "started")
         log.info(f"Job started on printer {printer_id}: {job_name} (print_jobs.id={job_id})")
 
         if education_result and (
@@ -130,7 +134,11 @@ def job_completed(
                 if education_result.get("education_owned") or education_result.get(
                     "education_reserved"
                 ):
+                    from core.job_terminal_observations import terminal_event
+                    timeline_item = terminal_event(conn, print_job_id) if (education_result.get('physical_ended') or education_result.get('transitioned')) else None
                     conn.commit()
+                    from core.job_timeline import enqueue
+                    if timeline_item is not None:enqueue(timeline_item)
                     # Physical completion whenever the print really ended (also when
                     # Education refused the job transition); the job only if applied.
                     applied = (education_result.get('authorized') is True
@@ -200,8 +208,13 @@ def job_completed(
                         cur.execute("ROLLBACK TO SAVEPOINT quota_consumption")
                         log.exception("Quota consumption for job %s could not be recorded", scheduled_job_id)
 
+            from core.job_terminal_observations import claim_terminal, terminal_event
+            claim_terminal(conn, print_job_id)
+            timeline_item=terminal_event(conn, print_job_id)
             reconcile_job_write(conn, production_orders)
             conn.commit()
+            from core.job_timeline import enqueue
+            if timeline_item is not None:enqueue(timeline_item)
             # The physical print completion is always published (keyed by the print);
             # job-scoped effects only see the job when this end actually completed it.
             committed_completion = success is True
@@ -219,8 +232,8 @@ def job_completed(
         # Create alert
         if success:
             dispatch_alert(
-                alert_type="print_complete",
-                severity="success",
+                alert_type=AlertType.PRINT_COMPLETE,
+                severity=AlertSeverity.INFO,
                 title=f"Print Complete: {job_name}",
                 message=f"Finished on {printer_name}",
                 printer_id=printer_id,
@@ -228,8 +241,8 @@ def job_completed(
             )
         else:
             dispatch_alert(
-                alert_type="print_failed",
-                severity="error",
+                alert_type=AlertType.PRINT_FAILED,
+                severity=AlertSeverity.CRITICAL,
                 title=f"Print Failed: {job_name}",
                 message=f"Failed on {printer_name}" + (f": {fail_reason}" if fail_reason else ""),
                 printer_id=printer_id,
@@ -322,7 +335,11 @@ def job_cancelled(
                 if education_result.get("education_owned") or education_result.get(
                     "education_reserved"
                 ):
+                    from core.job_terminal_observations import terminal_event
+                    timeline_item = terminal_event(conn, print_job_id) if (education_result.get('physical_ended') or education_result.get('transitioned')) else None
                     conn.commit()
+                    from core.job_timeline import enqueue
+                    if timeline_item is not None:enqueue(timeline_item)
                     if ((education_result.get("authorized") is True and education_result.get("transitioned") is True)
                             or education_result.get("physical_ended") is True):
                         _archive_physical_end(printer_id, print_job_id, "cancelled")
@@ -365,12 +382,17 @@ def job_cancelled(
                                              extra_fields={'actual_end': ended_at})
             alert_job_id = scheduled_job_id if job_applied else None
 
+            from core.job_terminal_observations import claim_terminal, terminal_event
+            claim_terminal(conn, print_job_id)
+            timeline_item=terminal_event(conn, print_job_id)
             reconcile_job_write(conn, production_orders)
             conn.commit()
+            from core.job_timeline import enqueue
+            if timeline_item is not None:enqueue(timeline_item)
 
         dispatch_alert(
-            alert_type="print_cancelled",
-            severity="warning",
+            alert_type=AlertType.PRINT_FAILED,
+            severity=AlertSeverity.WARNING,
             title=f"Print Cancelled: {job_name}",
             message=f"Cancelled on {printer_name}",
             printer_id=printer_id,
@@ -461,7 +483,7 @@ def on_print_start(printer_id: int, filename: str, total_layers: int = None,
 def on_print_complete(printer_id: int, filename: str,
                       duration_seconds: float = None, filament_used_g: float = None):
     """Called by PrusaLink/Elegoo monitors when a print completes."""
-    pj_id = _active_print_jobs.pop(printer_id, None) or _resolve_education_print_job(printer_id)
+    pj_id = _active_print_jobs.pop(printer_id, None) or _resolve_education_print_job(printer_id, filename)
     if pj_id:
         job_completed(
             printer_id=printer_id,
@@ -473,7 +495,7 @@ def on_print_complete(printer_id: int, filename: str,
 
 def on_print_failed(printer_id: int, filename: str, reason: str = None):
     """Called by PrusaLink/Elegoo monitors when a print fails."""
-    pj_id = _active_print_jobs.pop(printer_id, None) or _resolve_education_print_job(printer_id)
+    pj_id = _active_print_jobs.pop(printer_id, None) or _resolve_education_print_job(printer_id, filename)
     if pj_id:
         job_completed(
             printer_id=printer_id,
@@ -485,7 +507,7 @@ def on_print_failed(printer_id: int, filename: str, reason: str = None):
 
 def on_print_cancelled(printer_id: int, filename: str = None):
     """Called by PrusaLink/Elegoo monitors when a print is cancelled."""
-    pj_id = _active_print_jobs.pop(printer_id, None) or _resolve_education_print_job(printer_id)
+    pj_id = _active_print_jobs.pop(printer_id, None) or _resolve_education_print_job(printer_id, filename)
     if pj_id:
         job_cancelled(
             printer_id=printer_id,
@@ -493,14 +515,12 @@ def on_print_cancelled(printer_id: int, filename: str = None):
         )
 
 
-def _resolve_education_print_job(printer_id: int) -> int | None:
+def _resolve_education_print_job(printer_id: int, filename=None) -> int | None:
     """Recover only a unique policy-linked running observation after restart."""
     policy = _education_policy()
-    if not policy:
-        return None
     try:
         with get_db() as conn:
-            result = policy.resolve_active_monitor_observation(conn, printer_id=printer_id)
+            result = policy.resolve_active_monitor_observation(conn, printer_id=printer_id) if policy else {}
         if result.get("authorized"):
             return int(result["print_job_id"])
         if result.get("education_owned"):
@@ -511,11 +531,27 @@ def _resolve_education_print_job(printer_id: int) -> int | None:
             )
     except Exception as exc:
         log.error("Education observation recovery failed for printer %s: %s", printer_id, exc)
-    return None
+    # Generic monitors also reconcile a unique durable running observation.
+    try:
+        with get_db() as conn:
+            from core.dispatch_observations import generic_observation_reserved, prepare_generic_observation
+            if generic_observation_reserved(conn, printer_id=printer_id, observed_filename=filename):
+                identifier=prepare_generic_observation(conn,printer_id=printer_id,observed_filename=filename)
+                conn.commit()
+                return identifier
+            rows = conn.execute("SELECT p.id,p.filename,p.job_name FROM print_jobs p WHERE p.printer_id=? AND p.status='running' AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=p.scheduled_job_id) LIMIT 2", (printer_id,)).fetchall()
+            if len(rows)!=1:return None
+            if filename not in (None,'Unknown') and filename not in (rows[0][1],rows[0][2]):return None
+            return rows[0][0]
+    except Exception:
+        log.warning("Generic terminal reconciliation unavailable")
+        return None
 
 
 def on_print_paused(printer_id: int):
     """Called by PrusaLink/Elegoo monitors when a print is paused."""
+    from core.job_timeline import for_printer
+    for_printer(printer_id, "paused")
     log.info(f"Print paused on printer {printer_id}")
 
 
@@ -531,3 +567,9 @@ def on_progress_update(printer_id: int, progress_percent: float,
             remaining_minutes=remaining_min,
             current_layer=current_layer,
         )
+
+
+
+def on_print_resumed(printer_id: int):
+    from core.job_timeline import for_printer
+    for_printer(printer_id, 'resumed')

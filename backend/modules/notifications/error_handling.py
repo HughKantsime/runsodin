@@ -5,6 +5,8 @@ Provides record_error(), clear_error(), parse_hms_errors(), process_hms_errors()
 Normalizes error handling across all printer brands.
 """
 
+from core.base import AlertType, AlertSeverity
+
 import json
 import logging
 from typing import Optional
@@ -89,8 +91,8 @@ def record_error(
         # Create alert if requested (outside DB context)
         if create_alert:
             dispatch_alert(
-                alert_type="printer_error",
-                severity=severity,
+                alert_type=AlertType.PRINTER_ERROR,
+                severity=AlertSeverity.CRITICAL if severity == "error" else AlertSeverity(severity),
                 title=f"Error on {printer_name}",
                 message=f"[{source}:{error_code}] {error_message}",
                 printer_id=printer_id,
@@ -224,7 +226,11 @@ def _fail_active_job_for_hms(printer_id: int, hms_code: str, hms_message: str, o
                 saved = cur.execute("SELECT status FROM print_jobs WHERE id=?", (print_job_id,)).fetchone()
                 if not saved or saved[0] != 'failed':
                     return {"terminal_outcome": "retryable"}
+                from core.job_terminal_observations import terminal_event
+                timeline_item = terminal_event(conn, print_job_id) if (education_result.get('physical_ended') or education_result.get('transitioned')) else None
                 conn.commit()
+                from core.job_timeline import enqueue
+                if timeline_item is not None:enqueue(timeline_item)
                 committed = True
                 return {**education_result, "terminal_outcome": "committed"}
 
@@ -268,8 +274,13 @@ def _fail_active_job_for_hms(printer_id: int, hms_code: str, hms_message: str, o
                 transition_job(cur, scheduled_job_id, 'failed', 'monitor',
                                extra_fields={'actual_end': Expr(sql.now())})
 
+            from core.job_terminal_observations import claim_terminal, terminal_event
+            claim_terminal(conn, print_job_id)
+            timeline_item=terminal_event(conn, print_job_id)
             reconcile_job_write(conn, production_orders)
             conn.commit()
+            from core.job_timeline import enqueue
+            if timeline_item is not None:enqueue(timeline_item)
             committed = True
 
         log.warning(f"Printer {printer_id}: HMS {hms_code} failed active job "
@@ -284,8 +295,8 @@ def _fail_active_job_for_hms(printer_id: int, hms_code: str, hms_message: str, o
 
         # Dispatch failure alert (uses Path B — webhooks, push, email)
         dispatch_alert(
-            alert_type="print_failed",
-            severity="critical",
+            alert_type=AlertType.PRINT_FAILED,
+            severity=AlertSeverity.CRITICAL,
             title=f"Print Failed (HMS): {job_name or 'Unknown'}",
             message=f"Active job failed due to HMS error: {hms_message}",
             printer_id=printer_id,
@@ -329,6 +340,12 @@ def process_hms_errors(
             conn.commit()
     except Exception as e:
         log.error(f"Failed to store HMS errors for printer {printer_id}: {e}")
+
+    from core.job_timeline import for_printer
+    for error in errors:
+        code=str(error.get('code', '')).upper()
+        try:for_printer(printer_id, 'hms', code=code)
+        except ValueError:pass
 
     # Classify before either the outer printer-error alert or print-failure path.
     # Local sanitized telemetry/history remains allowed for Education.

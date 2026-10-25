@@ -144,7 +144,7 @@ def test_print_start_sweeps_only_this_printers_stale_schedules_then_links_window
     _, linked, _ = start(printer_id=9)
     assert status(db, [701, 702, 703]) == {701: ('pending', None), 702: ('scheduled', 10), 703: ('printing', 9)}
     assert linked == 703
-    assert alerts == [{'alert_type': 'schedule_bump', 'severity': 'info',
+    assert alerts == [{'alert_type': 'queue_skipped', 'severity': 'info',
                        'title': 'Stale schedule swept on Synthetic',
                        'message': 'Jobs reset to pending (past 2hr window): Queued part 701',
                        'metadata': {'bumped_job_ids': [701], 'reason': 'stale_schedule'}}]

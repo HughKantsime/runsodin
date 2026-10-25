@@ -180,6 +180,8 @@ class ElegooMonitorThread(threading.Thread):
         active = ("PRINTING", "HEATING", "HOMING", "LEVELING", "PAUSED")
         # Only fire events on transitions
         if current_state != self._last_state:
+            from core.job_timeline import for_printer
+            if self._last_state == 'PAUSED' and odin_state == 'RUNNING':for_printer(self.printer_id, 'resumed')
             if odin_state == "RUNNING" and self._last_state not in active:
                 # Print started
                 remaining_min = status.time_remaining // 60 if status.time_remaining else None
@@ -190,7 +192,7 @@ class ElegooMonitorThread(threading.Thread):
                     None,  # layer count from file
                     remaining_min,
                 )
-            elif odin_state == "FINISH" and self._last_state in active:
+            elif odin_state == "FINISH" and (self._last_state in active or self._last_state is None):
                 # Print completed
                 printer_events.on_print_complete(
                     self.printer_id,
@@ -198,12 +200,12 @@ class ElegooMonitorThread(threading.Thread):
                     status.current_ticks,
                     None,  # filament_used_g
                 )
-            elif odin_state == "STOPPED" and self._last_state in active:
+            elif odin_state == "STOPPED" and (self._last_state in active or self._last_state is None):
                 printer_events.on_print_cancelled(
                     self.printer_id,
                     status.filename or self._last_filename or "Unknown",
                 )
-            elif odin_state == "IDLE" and self._last_state in active:
+            elif odin_state == "IDLE" and (self._last_state in active or self._last_state is None):
                 # Went from active print to idle without FINISH — print failed
                 printer_events.on_print_failed(
                     self.printer_id,

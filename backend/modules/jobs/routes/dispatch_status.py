@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from core.db import get_db
-from core.rbac import check_org_access, require_role
+from core.rbac import check_org_access, require_role, require_any_scope, AGENT_READ_SCOPE, AGENT_WRITE_SCOPE
 from core.dispatch_claim_schema import PrinterDispatchClaim
 from core.dispatch_receipt_schema import DispatchAttemptReceipt
 from core.dispatch_receipts import observed_filename_matches
@@ -70,3 +70,16 @@ def dispatch_status(job_id: int,
     if (observed['current_layer'] or 0) > 0:
         result['phase'] = 'layer_observed'
     return result
+
+
+@router.get('/{job_id}/timeline')
+def job_timeline(job_id: int,
+                 current_user=Depends(require_role('viewer')),
+                 _agent_scope=Depends(require_any_scope('admin', AGENT_WRITE_SCOPE, AGENT_READ_SCOPE, 'read:jobs')),
+                 db: Session = Depends(get_db)):
+    job = db.get(Job, job_id)
+    if job is None or not check_org_access(current_user, job.charged_to_org_id):
+        raise HTTPException(404, 'Job not found')
+    rows=db.execute(text('SELECT id,print_attempt_uid,printer_id,kind,code,detail,occurred_at,recorded_at FROM job_timeline_events WHERE job_id=:job ORDER BY occurred_at,id'), {'job':job_id}).mappings().all()
+    import json
+    return {'job_id':job_id,'events':[{**dict(row),'detail':json.loads(row['detail'])} for row in rows]}

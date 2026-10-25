@@ -166,6 +166,11 @@ def main():
             c.execute(text("INSERT INTO production_recipes(id,owner,definition) VALUES(:id,1,'{}')"),{'id':'a'*32})
             c.execute(text("INSERT INTO production_acceptances(id,owner,job_uid,claim_token,recipe_id,request_hash,definition) VALUES(:id,1,:uid,:claim,:recipe,:hash,'{}')"),{'id':'b'*32,'uid':'u'*36,'claim':'c'*32,'recipe':'a'*32,'hash':'d'*64})
             c.execute(text("INSERT INTO production_stock_additions(id,owner,receipt_id,destination,request_body,state,attempts) VALUES(:id,1,:receipt,'{}','{}','prepared',0)"),{'id':'e'*32,'receipt':'b'*32})
+            #040 Foundation rows survive the same production backup/restore path.
+            c.execute(text("INSERT INTO job_summary_outbox(print_attempt_uid,attempt_birth,job_id,outcome) VALUES('roundtrip040-attempt','roundtrip040-birth',990034,'completed')"))
+            c.execute(text("INSERT INTO stock_snapshots(owner_scope,owner_key,variation,location,quantity,calculated_at,read_at) VALUES('global',0,'roundtrip040','main','3',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"))
+            c.execute(text("INSERT INTO job_timeline_events(id,job_id,print_attempt_uid,kind,occurred_at) VALUES('roundtrip040',990034,'roundtrip040-attempt','completed',CURRENT_TIMESTAMP)"))
+            c.execute(text("INSERT INTO timeline_writer_state(process_id,started_at,clean_shutdown,last_drained_at) VALUES('roundtrip040',CURRENT_TIMESTAMP,1,CURRENT_TIMESTAMP)"))
         backup, backup_metadata = b.create_postgres_backup(target, maintenance_url=maintenance, **args)
         with engine.begin() as c:
             c.execute(text("UPDATE system_config SET value='\"after-backup\"' WHERE key='historical_marker'"))
@@ -191,6 +196,13 @@ def main():
                 assert c.execute(text('SELECT COUNT(*) FROM '+table035)).scalar_one()==1
         print('post027-native-current-backup-restore-roundtrip-034-alert-outbox-row-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-035-all-three-rows-pass',flush=True)
+        with engine.connect() as c:
+            assert c.execute(text("SELECT outcome FROM job_summary_outbox WHERE print_attempt_uid='roundtrip040-attempt'")).scalar_one()=='completed'
+            assert c.execute(text("SELECT quantity FROM stock_snapshots WHERE variation='roundtrip040'")).scalar_one()=='3'
+            assert c.execute(text("SELECT kind FROM job_timeline_events WHERE id='roundtrip040'")).scalar_one()=='completed'
+            assert c.execute(text("SELECT clean_shutdown FROM timeline_writer_state WHERE process_id='roundtrip040'")).scalar_one()==1
+        print('post027-native-current-backup-restore-roundtrip-040-all-four-rows-pass',flush=True)
+
 
         engine.dispose()
 

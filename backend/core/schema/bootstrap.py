@@ -31,6 +31,7 @@ RAW_REQUIRED_TABLES = frozenset(
         "quiet_hours_deferred_deliveries",
         "timelapse_capture_tenancy",
         "alert_outbox",
+        "job_summary_outbox", "stock_snapshots", "job_timeline_events", "timeline_writer_state",
         "production_recipes", "production_acceptances", "production_stock_additions",
         "inventory_repairs",
         "cost_identities",
@@ -117,6 +118,10 @@ POWER_OPERATION_COLUMNS = tuple("operation_nonce request_nonce owner_nonce print
 RAW_REQUIRED_TABLES = RAW_REQUIRED_TABLES | frozenset({'education_memberships', 'dispatch_recovery_history', 'terminal_filament_measurements', 'filament_cost_events'})
 
 RAW_REQUIRED_COLUMNS = {
+    "job_summary_outbox": frozenset("print_attempt_uid attempt_birth job_id printer_id org_id outcome observed_at delivery_state".split()),
+    "stock_snapshots": frozenset("owner_scope owner_key variation location quantity calculated_at read_at".split()),
+    "job_timeline_events": frozenset("id job_id print_attempt_uid printer_id org_id kind code detail actor_user_id actor_token_id occurred_at recorded_at".split()),
+    "timeline_writer_state": frozenset("process_id started_at clean_shutdown last_drained_at drop_epoch error_epoch printer_ids epoch_history".split()),
     "inventory_repairs": frozenset("event_id spool_id actor_id action before_json after_json created_at".split()),
     "production_recipes": frozenset("id owner definition".split()),
     "production_acceptances": frozenset("id owner job_uid claim_token recipe_id request_hash definition".split()),
@@ -301,6 +306,7 @@ POST027_MIGRATIONS = (
     ("python:037-education-memberships", "core.schema.migrations.037_education_memberships"),
     ("python:038-dispatch-recovery", "core.schema.migrations.038_dispatch_recovery"),
     ("python:039-measured-filament", "core.schema.migrations.039_measured_filament"),
+    ("python:040-job-foundation", "core.schema.migrations.040_job_foundation"),
 )
 
 

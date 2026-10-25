@@ -71,15 +71,6 @@ def _get_devices_for_users(db: Session, user_ids: list[int]) -> list[PushDevice]
     return db.query(PushDevice).filter(PushDevice.user_id.in_(user_ids)).all()
 
 
-def _get_all_admin_user_ids(db: Session) -> list[int]:
-    """Return user IDs with admin or operator role to receive farm-wide alerts."""
-    from sqlalchemy import text
-    rows = db.execute(
-        text("SELECT id FROM users WHERE role IN ('admin', 'operator') AND is_active IS TRUE")
-    ).fetchall()
-    return [r.id for r in rows]
-
-
 def _is_in_quiet_hours(prefs: Optional[dict]) -> bool:
     """Return True if current local time falls within the device's quiet hours window."""
     if not prefs:
@@ -139,31 +130,38 @@ def _deliver_to_devices(devices: list[PushDevice], mapping: dict, data: dict):
             title=title,
             body=body,
             category=category,
-            data={"odin_event": category, **{k: str(v) for k, v in data.items()}},
+            data={"odin_event": category, **{k: str(v) for k, v in data.items()
+                  if k in {"printer_id", "job_id", "spool_id", "alert_type", "severity"} and v is not None}},
         )
         if success:
             log.debug(f"Push delivered to device {device.device_id[:8]}… [{category}]")
 
 
-def _handle_event(event: Event):
-    """Main event handler — routes each event type to APNs delivery."""
-    mapping = _EVENT_MAP.get(event.event_type)
-    if not mapping:
+def deliver_alert(db, plan):
+    """Called after the alert outbox commit; scope is rechecked at delivery time."""
+    from sqlalchemy import text
+    from core.recipient_policy import resolve_alert_scope
+    if plan.suppress_external:
         return
+    eligible, org_id = resolve_alert_scope(db, printer_id=plan.printer_id,
+        job_id=plan.job_id, spool_id=plan.spool_id)
+    if org_id != plan.org_id:
+        return
+    atype = plan.alert_type.value
+    # Use the in-app recipients selected by stage_alert, then recheck preferences.
+    # This also preserves Education suppression, which produces no such plan.
+    users = {row[0] for row in db.execute(text(
+        "SELECT user_id FROM alert_preferences WHERE UPPER(alert_type)=:atype AND in_app IS TRUE"),
+        {"atype": atype.upper()})}
+    recipients = eligible & users & set(plan.in_app_users)
+    devices = _get_devices_for_users(db, sorted(recipients))
+    mapping = {"title": "ODIN notification", "category": atype.upper(),
+               "body_template": "Open ODIN to view this alert"}
+    _deliver_to_devices(devices, mapping, {
+        "alert_type": atype, "severity": plan.severity.value,
+        "job_id": plan.job_id, "printer_id": plan.printer_id, "spool_id": plan.spool_id})
 
-    try:
-        with SessionLocal() as db:
-            user_ids = _get_all_admin_user_ids(db)
-            devices = _get_devices_for_users(db, user_ids)
-            if not devices:
-                return
-            _deliver_to_devices(devices, mapping, event.data or {})
-    except Exception as e:
-        log.error(f"Push fanout error for {event.event_type}: {e}", exc_info=True)
 
-
-def register_subscribers(bus) -> None:
-    """Register push fanout as a subscriber for all relevant event types."""
-    for event_type in _EVENT_MAP:
-        bus.subscribe(event_type, _handle_event)
-    log.info(f"Push fanout subscribed to {len(_EVENT_MAP)} event types")
+def register_subscribers(drain):
+    """Register on the durable drain, never the process-local event bus."""
+    drain.register_delivery(deliver_alert)

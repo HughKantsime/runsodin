@@ -274,6 +274,8 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_acti
             if not job or not check_org_access(current_user, job.charged_to_org_id):
                 continue
             assert_generic_job_mutation_allowed(db, jid)
+            from modules.orders.services import assert_job_history_deletable
+            assert_job_history_deletable(db, jid)
             changed = db.execute(text("DELETE FROM jobs WHERE id = :id AND status IN ('pending','submitted','cancelled')"),
                        {"id": jid})
             if changed.rowcount:
@@ -596,7 +598,9 @@ def delete_job(job_id: int, current_user: dict = Depends(require_action("jobs.de
     if not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
     assert_generic_job_mutation_allowed(db, job_id)
+    from modules.orders.services import assert_job_history_deletable
     production_orders = prepare_job_write(db, [job_id])
+    assert_job_history_deletable(db, job_id)
     job = db.query(Job).filter(Job.id == job_id).populate_existing().first()
     if not job or not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")

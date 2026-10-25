@@ -99,6 +99,7 @@ _ALLOWED_PYTHON_MIGRATIONS = frozenset(
         "core.schema.migrations.037_education_memberships",
         "core.schema.migrations.038_dispatch_recovery",
         "core.schema.migrations.039_measured_filament",
+        "core.schema.migrations.040_job_foundation",
         "core.schema.migrations.036_ctec_pilot",
     }
 )

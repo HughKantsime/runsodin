@@ -97,6 +97,7 @@ def dispatch(engine, outbox_id: int) -> bool:
             if plan is not None:
                 with Session(bind=engine) as delivery_db:
                     _deliver_staged_alert(delivery_db, plan)
+                    deliver_mobile(delivery_db, plan)
         return True
     except Exception:
         logger.warning("Alert outbox dispatch failed for row %s; it will be replayed", outbox_id)
@@ -150,3 +151,20 @@ async def run_sweeper(interval: float = SWEEP_INTERVAL_SECONDS) -> None:
             logger.warning("Alert outbox sweep failed; it runs again at the next interval")
         older_than = REPLAY_AFTER_SECONDS
         await asyncio.sleep(interval)
+
+
+_deliveries = []
+
+
+def register_delivery(callback):
+    if callback not in _deliveries:
+        _deliveries.append(callback)
+
+
+def deliver_mobile(db, plan):
+    import sys
+    from modules.push.fanout import register_subscribers
+    register_subscribers(sys.modules[__name__])
+    for callback in tuple(_deliveries):
+        try:callback(db, plan)
+        except Exception:logger.warning("Mobile alert delivery failed after confirmed commit")

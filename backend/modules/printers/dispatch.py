@@ -52,6 +52,9 @@ except ImportError:
 
 def _ws(job_id: int, status: str, message: str):
     """Push a dispatch progress event to connected WebSocket clients."""
+    if status in ('uploading','starting','dispatched','failed'):
+        from core.job_timeline import enqueue, event
+        enqueue(event(job_id, 'dispatch_'+status))
     try:
         _ws_push("job_dispatch_event", {"job_id": job_id, "status": status, "message": message})
     except Exception as e:
@@ -644,6 +647,11 @@ def _confirm_education_dispatch(provider, reservation: dict) -> dict:
 
 def _notify_start_outcome(job: dict, reason: str, *, gate_refusal=None, message=None):
     """Record a safe outcome without changing or repeating physical dispatch."""
+    if gate_refusal is not None:
+        from core.job_timeline import enqueue, event
+        code = str(gate_refusal.code).upper()
+        try:enqueue(event(job['id'], 'gate_refused', printer_id=job.get('printer_id'), code=code))
+        except ValueError:pass
     creator = job.get("charged_to_user_id") or job.get("submitted_by")
     if creator is None:
         return
