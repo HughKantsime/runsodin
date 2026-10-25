@@ -113,7 +113,7 @@ def portal(device, monkeypatch):
         async def __aexit__(self, *args): pass
         async def post(self, url, json):
             calls.append((url, json))
-            return Mock(status_code=response['status'], json=lambda: response['body'])
+            return Mock(status_code=response['status'], headers={'content-type': 'application/json'}, json=lambda: response['body'])
     async def challenge(*args): return 'fresh-test-challenge'
     monkeypatch.setattr(routes, '_fetch_license_challenge', challenge)
     monkeypatch.setattr(routes.httpx, 'AsyncClient', Client)
@@ -122,13 +122,13 @@ def portal(device, monkeypatch):
     return device, routes, calls, response, activate
 
 
-def test_bound_activation_and_conversion_wire(portal):
+def test_bound_activation_wire(portal):
     device, routes, calls, response, activate = portal
     (upload, path, old, audit, db, lm, sign), fields = device
-    activate(**CONTRACT['conversion'])
+    activate(binding_protocol='device-v1')
     assert lm.get_license().device_bound
     body = calls[0][1]
-    assert all(body[k] == v for k, v in CONTRACT['conversion'].items())
+    assert all(body[k] == v for k, v in CONTRACT['request'].items())
     assert body['nonce'] and body['bootstrap_signature']
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
     Ed25519PublicKey.from_public_bytes(base64.b64decode(body['device_pubkey'])).verify(
@@ -136,9 +136,8 @@ def test_bound_activation_and_conversion_wire(portal):
         f"odin-license-v1\nactivate-bootstrap\nTEST-ONLY\n{fields['installation_id']}\nfresh-test-challenge".encode())
 
 
-@pytest.mark.parametrize('convert', [False, True])
 @pytest.mark.parametrize('bad', ['legacy', 'malformed', 'mismatch', 'no_file', 'refusal'])
-def test_failed_activation_and_conversion_preserve_old_file(portal, bad, convert):
+def test_failed_activation_preserves_old_file(portal, bad):
     device, routes, calls, response, activate = portal
     (upload, path, old, audit, db, lm, sign), fields = device
     if bad == 'legacy': response['body'] = {'license_file': old}
@@ -147,7 +146,7 @@ def test_failed_activation_and_conversion_preserve_old_file(portal, bad, convert
     elif bad == 'no_file': response['body'] = {}
     else: response.update(status=409, body=CONTRACT['refusals'][0])
     with pytest.raises(HTTPException):
-        activate(binding_protocol='device-v1', convert_to_device_binding=convert, confirm_purchase_wide=convert)
+        activate(binding_protocol='device-v1')
     assert path.read_text() == old and lm.load_license().valid
 
 
@@ -160,10 +159,10 @@ def test_bound_challenge_failure_never_posts(portal, monkeypatch):
     assert device[0][1].read_text() == device[0][2]
 
 
-def test_conversion_requires_confirmation(portal):
-    device, routes, calls, response, activate = portal
-    with pytest.raises(HTTPException): activate(binding_protocol='device-v1', convert_to_device_binding=True)
-    assert not calls
+def test_conversion_is_not_an_api_option():
+    from modules.system import routes_health as routes
+    assert 'convert_to_device_binding' not in routes.LicenseActivateRequest.model_fields
+    assert 'confirm_purchase_wide' not in routes.LicenseActivateRequest.model_fields
 
 
 def test_portal_postreplace_sync_failure_restores_old_license(portal, monkeypatch):
@@ -183,7 +182,7 @@ def test_structured_portal_refusals_preserve_current_file(portal, refusal):
     device, routes, calls, response, activate = portal
     response.update(status=403, body=refusal)
     with pytest.raises(HTTPException) as exc: activate(binding_protocol='device-v1')
-    assert exc.value.status_code == 502  # Portal auth never logs the ODIN user out.
+    assert exc.value.status_code == 403
     assert exc.value.detail['code'] == refusal['code']
     assert device[0][1].read_text() == device[0][2]
 
@@ -201,7 +200,7 @@ def test_offline_request_explicitly_carries_protocol(device):
     result = routes.build_activation_request(routes.OfflineActivationRequestBody(
         key='TEST-ONLY', nonce='fresh-offline-challenge', binding_protocol='device-v1'), current_user={'id':1})
     request = json.loads(result.body)['activation_request']
-    assert request['binding_protocol'] == 'device-v1'
+    assert request['paid_binding'] == 'device-v1'
     assert request['bootstrap_signature'] and request['nonce'] == 'fresh-offline-challenge'
     assert 'PRIVATE' not in result.body.decode()
 
@@ -226,7 +225,7 @@ def test_bound_refresh_refuses_unbound_portal_response(portal, monkeypatch):
     monkeypatch.setattr(routes, 'get_license', lm.get_license)
     response['body'] = {'license_file': old}
     with pytest.raises(HTTPException): activate()
-    assert calls[0][1]['binding_protocol'] == 'device-v1'
+    assert calls[0][1]['paid_binding'] == 'device-v1'
     assert path.read_text() == installed
 
 @pytest.mark.parametrize('failure', ['legacy_response', 'audit_failure'])
@@ -241,5 +240,88 @@ def test_bound_reactivation_preserves_file_on_failure(portal, failure):
         db.commit.side_effect = RuntimeError('test audit commit failure')
     with pytest.raises(HTTPException):
         asyncio.run(routes.reactivate_license(current_user={'id':1}, db=db, license_mutation_allowed=None))
-    assert calls[0][1]['binding_protocol'] == 'device-v1'
+    assert calls[0][1]['paid_binding'] == 'device-v1'
     assert path.read_text() == installed and lm.get_license().valid
+
+@pytest.mark.parametrize('bound', [False, True])
+def test_activate_missing_license_is_502(portal, bound):
+    device, routes, calls, response, activate = portal
+    response['body'] = {}
+    with pytest.raises(HTTPException) as exc:
+        activate(**({'binding_protocol': 'device-v1'} if bound else {}))
+    assert exc.value.status_code == 502
+    assert exc.value.detail == 'License server returned no license file'
+    assert device[0][1].read_text() == device[0][2]
+
+
+@pytest.mark.parametrize('bound', [False, True])
+def test_exact_portal_outbound_keys(portal, bound):
+    device, routes, calls, response, activate = portal
+    (upload, path, old, audit, db, lm, sign), fields = device
+    # Copied wire inputs from odin-site-license/api/_lib/paid-binding.js:
+    # paid_binding, installation_id, device_pubkey, nonce, bootstrap_signature
+    # (signature on refresh), hostname, odin_version. key is read by
+    # api/v1/activate.js, offline.js and reactivate.js; offline also carries
+    # generated_at metadata. Keep these lists independent of ODIN's fixture.
+    activate_keys = {'key', 'installation_id', 'device_pubkey', 'nonce', 'bootstrap_signature'}
+    offline_keys = {'installation_id', 'hostname', 'odin_version', 'generated_at',
+                    'device_pubkey', 'nonce', 'bootstrap_signature'}
+    refresh_keys = {'key', 'installation_id', 'nonce', 'signature'}
+    if bound:
+        activate_keys.add('paid_binding')
+        offline_keys.add('paid_binding')
+        refresh_keys.update({'paid_binding', 'device_pubkey'})
+    response['body'] = {'license_file': sign(key='TEST-ONLY', **(fields if bound else {})).decode()}
+    activate(**({'binding_protocol': 'device-v1'} if bound else {}))
+    assert set(calls[-1][1]) == activate_keys
+    offline = json.loads(routes.build_activation_request(routes.OfflineActivationRequestBody(
+        key='TEST-ONLY', nonce='fresh-offline-challenge',
+        binding_protocol='device-v1' if bound else None), current_user={'id': 1}).body)
+    assert set(offline) == {'key', 'activation_request'}
+    assert set(offline['activation_request']) == offline_keys
+    asyncio.run(routes.reactivate_license(current_user={'id': 1}, db=db, license_mutation_allowed=None))
+    refresh = calls[-1][1]
+    assert set(refresh) == refresh_keys
+    if bound:
+        assert refresh['paid_binding'] == offline['activation_request']['paid_binding'] == 'device-v1'
+        assert refresh['device_pubkey'] == fields['device_pubkey']
+
+
+@pytest.mark.parametrize('status', [401, 403])
+@pytest.mark.parametrize('bound', [False, True])
+@pytest.mark.parametrize('action', ['activate', 'reactivate'])
+@pytest.mark.parametrize('structured', [False, True])
+def test_portal_auth_status_preserved(portal, status, bound, action, structured):
+    device, routes, calls, response, activate = portal
+    (upload, path, old, audit, db, lm, sign), fields = device
+    installed = sign(key='TEST-ONLY', **(fields if bound else {})).decode()
+    lm.save_license_file(installed)
+    response.update(status=status, body={'error': 'Test refusal', **({'code': 'PROOF_FAILED'} if structured else {})})
+    with pytest.raises(HTTPException) as exc:
+        if action == 'activate':
+            activate()
+        else:
+            asyncio.run(routes.reactivate_license(current_user={'id': 1}, db=db, license_mutation_allowed=None))
+    assert exc.value.status_code == status
+    assert path.read_text() == installed
+
+
+@pytest.mark.parametrize('status', [401, 403])
+def test_non_json_portal_auth_status_preserved(status):
+    from modules.system.license_portal import activation_response
+    response = Mock(status_code=status, headers={'content-type': 'text/plain'})
+    with pytest.raises(HTTPException) as exc:
+        activation_response(response)
+    assert exc.value.status_code == status
+    assert exc.value.detail == f'License server returned {status}'
+    response.json.assert_not_called()
+
+
+@pytest.mark.parametrize('status', [401, 403])
+def test_unreadable_portal_auth_status_preserved(status):
+    from modules.system.license_portal import activation_response
+    response = Mock(status_code=status, headers={'content-type': 'application/json'})
+    response.json.side_effect = ValueError('test malformed response')
+    with pytest.raises(HTTPException) as exc:
+        activation_response(response)
+    assert exc.value.status_code == status

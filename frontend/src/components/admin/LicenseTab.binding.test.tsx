@@ -28,25 +28,12 @@ test('bound status and preservation guidance render without conversion', async (
   expect(screen.getByText(/Restoring application data alone/)).toBeInTheDocument()
 })
 
-test('conversion requires displayed fingerprint and explicit purchase-wide confirmation', async () => {
+test('existing purchases convert through support without a self-service action', async () => {
   const transport = setup()
-  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
-  expect(await screen.findByText('Legacy license')).toBeInTheDocument()
-  fireEvent.change(screen.getByRole('textbox', { name: 'License key' }), { target: { value: 'TEST-ONLY' } })
-  const convert = screen.getByRole('button', { name: 'Convert purchase to device binding' })
-  expect(convert).toBeDisabled()
-  fireEvent.click(screen.getByRole('button', { name: 'Show installation ID' }))
-  await screen.findByText('0123 4567 89ab cdef')
-  expect(convert).toBeEnabled()
-  fireEvent.click(convert)
+  await screen.findByText('Legacy license')
+  expect(screen.getByText(/To convert an existing purchase to device binding, contact support/)).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Convert purchase to device binding' })).not.toBeInTheDocument()
   expect(activateCalls(transport)).toHaveLength(0)
-  expect(confirm).toHaveBeenCalledWith(expect.stringContaining('whole purchase'))
-  expect(confirm).toHaveBeenCalledWith(expect.stringContaining('0123 4567 89ab cdef'))
-  confirm.mockReturnValue(true)
-  fireEvent.click(convert)
-  await waitFor(() => expect(activateCalls(transport)).toHaveLength(1))
-  const request = JSON.parse(activateCalls(transport)[0][1]!.body as string)
-  expect(request).toEqual({ key: 'TEST-ONLY', binding_protocol: 'device-v1', convert_to_device_binding: true, confirm_purchase_wide: true })
 })
 
 test('explicit bound activation reports actionable mismatch and retains status', async () => {

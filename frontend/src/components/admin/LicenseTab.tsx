@@ -59,13 +59,12 @@ export default function LicenseTab() {
     } catch (e) { console.error('Failed to fetch license:', e) }
   }
 
-  const handleActivate = async (convert = false) => {
+  const handleActivate = async () => {
     if (!licenseKey.trim()) return
-    if (convert && !confirm(`Device key: ${installation?.device || 'unavailable'}. Convert this whole purchase to device binding? Coordinate every installation owner first. Preserve the installation ID and .odin-device.key securely. Lost keys require support recovery. Previously issued legacy files remain valid. Continue?`)) return
     setActivating(true)
     setMessage(null)
     try {
-      const data = await licenseApi.activate(licenseKey.trim(), requestBound || convert ? 'device-v1' : undefined, convert)
+      const data = await licenseApi.activate(licenseKey.trim(), requestBound ? 'device-v1' : undefined)
       setMessage({ type: 'success', text: `License activated: ${data.tier} tier` })
       setLicenseKey('')
       setInstallation(null)
@@ -350,11 +349,9 @@ export default function LicenseTab() {
         <p className="text-sm text-[var(--brand-text-secondary)] mb-4">
           Enter your license key to activate online. The license will be bound to this installation.
         </p>
-        {currentAudience && licenseInfo?.valid && !licenseInfo.trial && !licenseInfo.device_bound && <p className="text-sm">To convert, enter the purchase key and show this installation&apos;s device key above. If no device key exists, activate normally or download an offline activation request to establish it, then show it again before conversion.</p>}
+        <p className="text-sm">To convert an existing purchase to device binding, contact support.</p>
         <label className="block text-sm mb-3"><input type="checkbox" checked={requestBound} onChange={e => setRequestBound(e.target.checked)} /> Request device-bound activation (requires portal support)</label>
-        {currentAudience && principal?.group_id == null && licenseInfo?.valid && !licenseInfo.trial && !licenseInfo.device_bound && (
-          <Button variant="secondary" disabled={!licenseKey.trim() || activating || installation?.audience !== currentAudience || !installation?.device} onClick={() => handleActivate(true)}>Convert purchase to device binding</Button>
-        )}
+
         <div className="flex gap-2">
           <Input aria-label="License key"
             type="text"

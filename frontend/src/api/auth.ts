@@ -157,7 +157,7 @@ export const license = {
       .then(async r => { if (!r.ok) throw new Error(errorDetailMessage((await r.json().catch(() => ({}))).detail) || 'Upload failed'); return r.json() })
   },
   remove: (): Promise<void> => fetchAPI('/license', { method: 'DELETE' }),
-  activate: (key: string, bindingProtocol?: 'device-v1', convert = false): Promise<License> => fetchAPI('/license/activate', { method: 'POST', body: JSON.stringify({ key, ...(bindingProtocol ? { binding_protocol: bindingProtocol } : {}), ...(convert ? { convert_to_device_binding: true, confirm_purchase_wide: true } : {}) }) }),
+  activate: (key: string, bindingProtocol?: 'device-v1'): Promise<License> => fetchAPI('/license/activate', { method: 'POST', body: JSON.stringify({ key, ...(bindingProtocol ? { binding_protocol: bindingProtocol } : {}) }) }),
   getInstallationId: (): Promise<{ installation_id: string; device_fingerprint?: string | null; license_error?: string | null }> => fetchAPI('/license/installation-id'),
   // Offline (air-gapped) exchange: the nonce is the challenge code the license
   // portal issues for this installation ID; ODIN signs it with the device key.

@@ -275,8 +275,6 @@ def get_license_installation_id(current_user: dict = Depends(require_role("admin
 class LicenseActivateRequest(PydanticBaseModel):
     key: str
     binding_protocol: str | None = None
-    convert_to_device_binding: bool = False
-    confirm_purchase_wide: bool = False
 
     # None preserves ordinary legacy refresh; device-v1 must never downgrade.
 
@@ -338,8 +336,6 @@ async def activate_license(
         raise HTTPException(status_code=400, detail="Unsupported binding protocol")
     current = get_license()
     bound_requested = request.binding_protocol == "device-v1" or (current.device_bound and current.key == request.key)
-    if request.convert_to_device_binding and not (bound_requested and request.confirm_purchase_wide):
-        raise HTTPException(status_code=400, detail="Confirm purchase-wide conversion and device-v1 binding first")
     installation_id = get_installation_id()
 
     # S1: bind this device's Ed25519 public key to the activation. On
@@ -373,8 +369,7 @@ async def activate_license(
                         "key": request.key,
                         "installation_id": installation_id,
                         "device_pubkey": device_pubkey,
-                        **({"binding_protocol": "device-v1"} if bound_requested else {}),
-                        **({"convert_to_device_binding": True, "confirm_purchase_wide": True} if request.convert_to_device_binding else {}),
+                        **({"paid_binding": "device-v1"} if bound_requested else {}),
                         **proof,
                     },
                 )
@@ -387,6 +382,8 @@ async def activate_license(
     from .license_portal import activation_response
     data = activation_response(resp)
     license_content = data.get("license_file")
+    if not license_content:
+        raise HTTPException(status_code=502, detail="License server returned no license file")
     if bound_requested:
         candidate = verify_license_text(license_content.strip()) if isinstance(license_content, str) else None
         if candidate is None or not candidate.valid or not candidate.device_bound or candidate.trial:
@@ -507,7 +504,7 @@ def build_activation_request(
         "key": body.key,
         "activation_request": {
             "installation_id": installation_id,
-            **({"binding_protocol": "device-v1"} if body.binding_protocol else {}),
+            **({"paid_binding": "device-v1"} if body.binding_protocol else {}),
             "hostname": socket.gethostname(),
             "odin_version": __version__,
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -614,7 +611,7 @@ async def reactivate_license(
                     f"{license_server_url}/api/v1/reactivate",
                     json={
                         "key": current_license.key,
-                        **({"binding_protocol": "device-v1"} if current_license.device_bound else {}),
+                        **({"paid_binding": "device-v1", "device_pubkey": get_device_keypair()[1]} if current_license.device_bound else {}),
                         "installation_id": installation_id,
                         "nonce": nonce,
                         "signature": signature,
@@ -625,7 +622,7 @@ async def reactivate_license(
         raise HTTPException(status_code=502, detail="Could not reach license server.")
 
     from .license_portal import activation_response
-    data = activation_response(resp)
+    data = activation_response(resp, "Reactivation failed")
     license_content = data.get("license_file")
     if not license_content:
         raise HTTPException(status_code=502, detail="License server returned no license file")

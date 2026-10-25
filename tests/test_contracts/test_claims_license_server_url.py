@@ -64,7 +64,7 @@ def _run_activate(monkeypatch, url):
     req = rh.LicenseActivateRequest(key="ODIN-TEST-AAAA-BBBB")
     with pytest.raises(HTTPException) as ei:
         asyncio.run(rh.activate_license(req, current_user={}, license_mutation_allowed=None))
-    assert ei.value.status_code == 502  # Remote portal auth must not become ODIN session auth.
+    assert ei.value.status_code == 403  # Preserve the portal status, as on origin/main.
     return captured
 
 
