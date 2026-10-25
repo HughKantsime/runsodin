@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 from time import monotonic
@@ -133,7 +134,9 @@ def test_real_owned_child_supervision_closed_ack_output_deadline_and_reap(tmp_pa
              'stderr':"import sys;print('preserved027-validated');print('uncertain',file=sys.stderr)",
              'nonzero':"raise SystemExit(2)",
              'wrong_ack':"print('not-an-ack')",
-             'oversized':"print('x'*20000,flush=True)",
+             # Keep this child live so the test proves supervisor termination rather than
+             # racing an already-exited process group on Darwin.
+             'oversized':"import time;print('x'*20000,flush=True);time.sleep(60)",
              'timeout':"import time;time.sleep(5)"}
     child=tmp_path/'owned_child.py';child.write_text(scripts[mode])
     process=[]
@@ -145,8 +148,10 @@ def test_real_owned_child_supervision_closed_ack_output_deadline_and_reap(tmp_pa
     control=tmp_path/'control';control.write_text('{}')
     if mode=='success':p._bounded_child(control,monotonic()+5)
     else:
-        with pytest.raises(p.Preserved027Error):p._bounded_child(control,monotonic()+(.15 if mode=='timeout' else 5))
+        expected='child output exceeded' if mode=='oversized' else None
+        with pytest.raises(p.Preserved027Error,match=expected):p._bounded_child(control,monotonic()+(.15 if mode=='timeout' else 5))
     assert process[0].returncode is not None
+    if mode=='oversized':assert process[0].returncode == -signal.SIGKILL
     assert process[0].stdout.closed and process[0].stderr.closed
 
 
