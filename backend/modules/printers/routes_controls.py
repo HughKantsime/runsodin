@@ -335,77 +335,22 @@ def toggle_printer_lights(printer_id: int, current_user: dict = Depends(require_
     if not printer.api_host or not printer.api_key:
         raise HTTPException(status_code=400, detail="Printer connection not configured")
 
-    decrypted_key = crypto.decrypt(printer.api_key)
-    if "|" not in decrypted_key:
-        raise HTTPException(status_code=400, detail="Invalid api_key format")
-
-    serial, access_code = decrypted_key.split("|", 1)
+    from modules.printers.monitor_commands import request_command
     turn_on = not printer.lights_on
-
-    from modules.printers.telemetry.feature_flag import is_v2_enabled
-
-    if is_v2_enabled():
-        from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
-        from modules.printers.telemetry.bambu.broker_policy import resolve_bambu_broker_config
-        from modules.printers.telemetry.bambu.session import run_command
-        endpoint = resolve_bambu_broker_config(
-            printer.api_host, printer_id=f"lights-{printer_id}",
-        )
-        config = BambuAdapterConfig(
-            printer_id=f"lights-{printer_id}",
-            serial=serial,
-            host=endpoint.host,
-            port=endpoint.port,
-            use_tls=endpoint.use_tls,
-            access_code=access_code,
-        )
-        success = run_command(config, "set_chamber_light", turn_on)
-        if not success:
-            raise HTTPException(status_code=503, detail="Failed to send light command")
-        printer.lights_on = turn_on
-        printer.lights_toggled_at = datetime.now(timezone.utc)
-        db.commit()
-        db.refresh(printer)
-        return {"lights_on": turn_on, "message": f"Lights {'on' if turn_on else 'off'}"}
-
+    outcome = request_command(printer_id, "light", on=turn_on)
+    if outcome != "accepted":
+        detail = ("Printer monitor is not connected" if outcome == "unavailable" else
+                  "Light command outcome unknown; refresh before any further action" if outcome == "unknown" else
+                  "Monitor refused light command")
+        raise HTTPException(503, detail={"outcome": outcome, "message": detail})
+    printer.lights_on = turn_on
+    printer.lights_toggled_at = datetime.now(timezone.utc)
     try:
-        from modules.printers.adapters.bambu import BambuPrinter
-
-        bambu = BambuPrinter(ip=printer.api_host, serial=serial, access_code=access_code)
-        if not bambu.connect():
-            raise HTTPException(status_code=503, detail="Failed to connect to printer")
-
-        time.sleep(3)
-
-        payload = {
-            'system': {
-                'sequence_id': '0',
-                'command': 'ledctrl',
-                'led_node': 'chamber_light',
-                'led_mode': 'on' if turn_on else 'off',
-            }
-        }
-        success = bambu._publish(payload)
-        time.sleep(1)
-        bambu.disconnect()
-
-        if not success:
-            raise HTTPException(status_code=503, detail="Failed to send light command")
-
-        printer.lights_on = turn_on
-        printer.lights_toggled_at = datetime.now(timezone.utc)
         db.commit()
-        db.refresh(printer)
-
-        return {"lights_on": turn_on, "message": f"Lights {'on' if turn_on else 'off'}"}
-
-    except ImportError:
-        raise HTTPException(status_code=500, detail="bambu_adapter not installed")
-    except HTTPException:
-        raise
-    except Exception as e:
-        log.error(f"Printer connection error (lights control): {e}")
-        raise HTTPException(status_code=503, detail="Printer connection error. Check printer IP and credentials.")
+    except Exception:
+        db.rollback()
+        raise HTTPException(503, detail={"outcome": "unknown", "message": "Command accepted; persistence unconfirmed. Refresh before further action"}) from None
+    return {"lights_on": turn_on, "outcome": "accepted", "message": f"Lights {'on' if turn_on else 'off'}"}
 
 
 # ====================================================================

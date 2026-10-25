@@ -205,7 +205,7 @@ async def remove_plug_config(printer_id: int, current_user: dict = Depends(requi
     return {"status": "ok"}
 
 
-def _power_receipt(result):
+def _power_receipt(result, *, fenced=True):
     if isinstance(result, smart_plug.MqttPowerReceipt):
         if result.status == "accepted":
             return {"accepted": True, "power_state": None}
@@ -213,31 +213,66 @@ def _power_receipt(result):
             raise HTTPException(409, "Power command may have been sent; confirmation unavailable. Check before retrying.")
         raise HTTPException(400, "Power command was not accepted")
     if type(result) is not bool:
-        raise HTTPException(400, "No smart plug configured or plug unreachable")
+        if not fenced:
+            raise HTTPException(400, "No smart plug configured or plug unreachable")
+        raise HTTPException(409, "Power command was refused or its outcome is uncertain; reconcile before retrying.")
     return {"power_state": result}
 
 
 @router.post("/printers/{printer_id}/plug/on", tags=["Smart Plug"])
-async def plug_power_on(printer_id: int, current_user: dict = Depends(require_action("printers.plug", scope="write:printers")), db: Session = Depends(get_db)):
+def plug_power_on(printer_id: int, request: Request, current_user: dict = Depends(require_action("printers.plug", scope="write:printers")), db: Session = Depends(get_db)):
     """Turn on a printer's smart plug."""
-    _require_printer_org_access(printer_id, current_user, db)
-    result = smart_plug.power_on(printer_id)
+    printer = _require_printer_org_access(printer_id, current_user, db)
+    if printer.plug_type in ('homeassistant', 'mqtt'):
+        # A frontend nonce is accepted, but these protocols cannot prove
+        # command completion and retain legacy process-local behavior.
+        return _power_receipt(smart_plug.power_on(printer_id), fenced=False)
+    # Finish the request's read transaction before target-first admission.
+    db.rollback()
+    from modules.printers.power_authority import capture
+    try:
+        authority = capture(db.get_bind(), request, current_user, printer_id, 'manual_on')
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    result = smart_plug.power_on(printer_id, authority=authority)
     return _power_receipt(result)
 
 
 @router.post("/printers/{printer_id}/plug/off", tags=["Smart Plug"])
-async def plug_power_off(printer_id: int, current_user: dict = Depends(require_action("printers.plug", scope="write:printers")), db: Session = Depends(get_db)):
+def plug_power_off(printer_id: int, request: Request, current_user: dict = Depends(require_action("printers.plug", scope="write:printers")), db: Session = Depends(get_db)):
     """Turn off a printer's smart plug."""
-    _require_printer_org_access(printer_id, current_user, db)
-    result = smart_plug.power_off(printer_id)
+    printer = _require_printer_org_access(printer_id, current_user, db)
+    if printer.plug_type in ('homeassistant', 'mqtt'):
+        # A frontend nonce is accepted, but these protocols cannot prove
+        # command completion and retain legacy process-local behavior.
+        return _power_receipt(smart_plug.power_off(printer_id), fenced=False)
+    # Finish the request's read transaction before target-first admission.
+    db.rollback()
+    from modules.printers.power_authority import capture
+    try:
+        authority = capture(db.get_bind(), request, current_user, printer_id, 'manual_off')
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    result = smart_plug.power_off(printer_id, authority=authority)
     return _power_receipt(result)
 
 
 @router.post("/printers/{printer_id}/plug/toggle", tags=["Smart Plug"])
-async def plug_power_toggle(printer_id: int, current_user: dict = Depends(require_action("printers.plug", scope="write:printers")), db: Session = Depends(get_db)):
+def plug_power_toggle(printer_id: int, request: Request, current_user: dict = Depends(require_action("printers.plug", scope="write:printers")), db: Session = Depends(get_db)):
     """Toggle a printer's smart plug."""
-    _require_printer_org_access(printer_id, current_user, db)
-    result = smart_plug.power_toggle(printer_id)
+    printer = _require_printer_org_access(printer_id, current_user, db)
+    if printer.plug_type in ('homeassistant', 'mqtt'):
+        # A frontend nonce is accepted, but these protocols cannot prove
+        # command completion and retain legacy process-local behavior.
+        return _power_receipt(smart_plug.power_toggle(printer_id), fenced=False)
+    # Finish the request's read transaction before target-first admission.
+    db.rollback()
+    from modules.printers.power_authority import capture
+    try:
+        authority = capture(db.get_bind(), request, current_user, printer_id, 'manual_toggle')
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    result = smart_plug.power_toggle(printer_id, authority=authority)
     return _power_receipt(result)
 
 

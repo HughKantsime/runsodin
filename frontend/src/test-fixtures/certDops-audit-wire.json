@@ -10,7 +10,7 @@
         "entity_type": "jobs",
         "id": 1,
         "ip_address": "198.51.100.7",
-        "timestamp": "2026-10-23T18:09:32",
+        "timestamp": "2026-10-24T22:13:36",
         "user_id": 3,
         "username": "admin"
       }
@@ -91,6 +91,10 @@
         "admin",
         "operator"
       ],
+      "models.plates": [
+        "admin",
+        "operator"
+      ],
       "orders.create": [
         "admin",
         "operator"
@@ -110,6 +114,9 @@
         "admin"
       ],
       "printers.delete": [
+        "admin"
+      ],
+      "printers.dispatch_recovery": [
         "admin"
       ],
       "printers.edit": [
@@ -302,7 +309,7 @@
       ]
     }
   },
-  "export_csv": "ID,Timestamp,Action,Entity Type,Entity ID,Details,IP Address,User ID,Username,Authentication\r\n1,2026-10-23T18:09:32,bulk_cancel,jobs,,1 jobs,198.51.100.7,3,admin,bearer_jwt\r\n",
+  "export_csv": "ID,Timestamp,Action,Entity Type,Entity ID,Details,IP Address,User ID,Username,Authentication\r\n1,2026-10-24T22:13:36,bulk_cancel,jobs,,1 jobs,198.51.100.7,3,admin,bearer_jwt\r\n",
   "me": {
     "group_id": null,
     "id": 3,

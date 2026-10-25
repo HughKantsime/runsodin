@@ -24,6 +24,7 @@ Paths are the /api paths; the /api/v1 aliases share the same route handlers.
 """
 
 ACTION_ROUTES: dict[str, list[tuple[str, str]]] = {
+    "printers.dispatch_recovery": [("POST", "/api/printers/{printer_id}/dispatch-recovery/" + action) for action in ("hold", "reconcile-retain", "release")],
     "users.restore_superadmin": [("POST", "/api/users/{user_id}/restore-superadmin")],
     "education.reorder": [("PATCH", "/api/education/queues/jobs/{printer_id}/order")],
     "products.square_manage": [
@@ -174,6 +175,8 @@ ACTION_ROUTES: dict[str, list[tuple[str, str]]] = {
         ("DELETE", "/api/models/{model_id}/variants/{variant_id}"),
     ],
     "spools.edit": [
+        ("POST", "/api/spools/receive"),
+        ("PUT", "/api/spools/reorder-policy"),
         ("POST", "/api/spools"),
         ("POST", "/api/spools/bulk-update"),
         ("POST", "/api/spools/scan-assign"),
@@ -191,6 +194,7 @@ ACTION_ROUTES: dict[str, list[tuple[str, str]]] = {
     ],
     "spools.delete": [("DELETE", "/api/spools/{spool_id}")],
     "timeline.move": [("PATCH", "/api/jobs/{job_id}/move")],
+    "models.plates": [("GET", "/api/models/{model_id}/plates")],
     "upload.upload": [("POST", "/api/print-files/upload")],
     "upload.schedule": [("POST", "/api/print-files/{file_id}/schedule")],
     "upload.delete": [("DELETE", "/api/print-files/{file_id}")],

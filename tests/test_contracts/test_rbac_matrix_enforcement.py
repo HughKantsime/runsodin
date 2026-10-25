@@ -12,7 +12,7 @@ role holding the key gets 2xx and a role without it gets 403; after narrowing
 the key the previously allowed role gets 403; after widening it the
 previously refused role gets 2xx. The platform superadmin is exempt, so keys
 whose default is admin-only are exercised with an organization admin. The
-only boundary replaced is the smart-plug driver (no physical plug).
+only boundary replaced is the smart-plug command worker (no physical plug).
 """
 import json
 
@@ -31,8 +31,11 @@ USERS = {"orgadmin": seed_user("mx-orgadmin", "admin", 1), "operator": seed_user
 C = {name: login("mx-" + name) for name in USERS}
 SUPER = login("mx-super")
 USERS["super"], C["super"] = SUPER_ID, SUPER
-import modules.printers.routes_smart_plug as RSP
-RSP.smart_plug.power_on = RSP.smart_plug.power_off = RSP.smart_plug.toggle = lambda printer_id: True
+from modules.printers import plug_power_acquisition as PW
+# Replace only physical I/O: routes, selected JWT authority and durable fence stay real.
+def plug_command(config, deadline, action):
+    return PW._OwnedHttpResult(PW.PowerAttempt('accepted', action == 'ON', True, True, True, False), PW._RECEIPT_SEAL)
+PW.bounded_http_power_action = plug_command
 sql("UPDATE system_config SET value=value WHERE key='none'")
 SEQ = itertools.count(100)
 
@@ -42,6 +45,13 @@ def printer(**kw):
         "VALUES (:i,:n,'Bambu Lab P1S','P1S',1,'bambu',1,1,'[]',0,0)",
         i=i, n=f"MX printer {i}")
     sql("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES (:i,1,'PLA')", i=i)
+    return i
+
+def plug_printer():
+    i = printer()
+    # A real fenced command needs a configured printer and a plug destination.
+    sql("UPDATE printers SET api_type='moonraker',api_host=:host,plug_type='tasmota',plug_host=:host WHERE id=:i",
+        host=f"192.0.2.80:{10000+i}", i=i)
     return i
 
 def job(status="pending", printer_id=None, submitted_by=None, user="operator"):
@@ -117,8 +127,17 @@ def education_reorder_request(user):
     group=next(g for g in listing.json()['printers'] if g['printer_id']==pid)
     return ("patch",f"/api/education/queues/jobs/{pid}/order",{"json":{"revision":group['revision'],"job_ids":[jid]}})
 
+def recovery_request(user):
+    pid = printer()
+    jid = job(status="scheduled", printer_id=pid)
+    sql("INSERT INTO printer_dispatch_claims(printer_id,job_id,physical_key,configuration_key,payload_sha256,token,owner_org_id,state) VALUES(:p,:j,:physical,:configuration,:payload,:token,1,'uncertain')",
+        p=pid,j=jid,physical=f"{pid:064x}",configuration="b"*64,payload="c"*64,token=f"{pid:032x}")
+    snapshot=C[user].get(f"/api/printers/{pid}/dispatch-recovery").json()
+    return ("post",f"/api/printers/{pid}/dispatch-recovery/hold",{"json":{"attempt_handle":snapshot["attempt_handle"],"snapshot_handle":snapshot["snapshot_handle"],"reason_category":"investigation"}})
+
 # key -> builder(user) returning (method, path, request kwargs) for one fresh call
 CASES = {
+    "printers.dispatch_recovery": recovery_request,
     "users.restore_superadmin": restore_request,
     "education.reorder": education_reorder_request,
     "settings.edit": lambda u: ("put", "/api/settings/energy-rate", {"json": {"energy_cost_per_kwh": 0.2}}),
@@ -137,7 +156,8 @@ CASES = {
     "printers.delete": lambda u: ("delete", f"/api/printers/{printer()}", {}),
     "printers.slots": lambda u: ("patch", f"/api/printers/{printer()}/slots/1", {"json": {"color": "blue"}}),
     "printers.reorder": lambda u: ("post", "/api/printers/reorder", {"json": {"printer_ids": [printer(), printer()]}}),
-    "printers.plug": lambda u: ("post", f"/api/printers/{printer()}/plug/on", {}),
+    "printers.plug": lambda u: ("post", f"/api/printers/{plug_printer()}/plug/on", {}),
+    "models.plates": lambda u: ("get", f"/api/models/{model()}/plates", {}),
     "models.create": lambda u: ("post", "/api/models", {"json": {"name": f"MX model new {next(SEQ)}"}}),
     "models.edit": lambda u: ("patch", f"/api/models/{model()}", {"json": {"name": f"MX model renamed {next(SEQ)}"}}),
     "models.delete": lambda u: ("delete", f"/api/models/{model()}", {}),
@@ -310,8 +330,8 @@ def test_narrowing_the_key_refuses_the_previous_holder(matrix, key):
 @pytest.mark.parametrize("key", REFUSABLE)
 def test_widening_the_key_admits_the_previously_refused_role(matrix, key):
     r = matrix["results"][key]
-    if key == "users.restore_superadmin":
-        # Widening the matrix must not bypass the independent Super Admin guard.
+    if key in {"users.restore_superadmin", "printers.dispatch_recovery"}:
+        # Recovery retains its independent admin floor. Widening the matrix must not bypass the independent Super Admin guard.
         assert _denied(r["widened_refused"]), r
     else:
         assert _ok(r["widened_refused"]), r

@@ -308,8 +308,17 @@ jobs:
           PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow verify-receipt --artifact-zip recovery.zip --output-dir "$RECOVERY_DIR" --kind publication --sha256 "$INPUT_RECOVERY_RECEIPT_SHA256"
           PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -c 'import json,os; from ops.release_control.mutation_workflow import verify_publication_recovery_scope; receipt=json.load(open(os.environ["RECOVERY_DIR"]+"/receipt.json")); inputs=json.load(open("inputs.json")); verify_publication_recovery_scope(receipt,inputs,prior_run_id=int(os.environ["INPUT_RECOVERY_PUBLICATION_RUN_ID"]),prior_workflow_sha=os.environ["RECOVERY_WORKFLOW_SHA"])'
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130
+      # The self-hosted runner's Docker VM (Colima, vz) emulates linux/amd64 with
+      # Rosetta. Registering QEMU here would take precedence over Rosetta, and
+      # QEMU user-mode intermittently segfaults (-11) in Debian's python3 package
+      # scripts. Require the host emulation instead of installing QEMU.
+      - name: Require host amd64 emulation
+        run: |
+          set -euo pipefail
+          machine=$(docker run --rm --platform linux/amd64 \
+            python:3.11-slim@sha256:0b23cfb7425d065008b778022a17b1551c82f8b4866ee5a7a200084b7e2eafbf \
+            python3 -c 'import platform; print(platform.machine())')
+          test "$machine" = x86_64
 
       - name: Set up Docker Buildx
         id: buildx

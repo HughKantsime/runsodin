@@ -16,5 +16,11 @@ def allow_loopback_devices(monkeypatch):
     real_blocked = webhook_utils.is_blocked_device_address
     monkeypatch.setattr(webhook_utils, "is_blocked_device_address",
                         lambda ip: False if str(ip) in ("127.0.0.1", "::1") else real_blocked(ip))
+    # sitecustomize runs before multiprocessing restores the parent sys.path.
+    # Make core importable at interpreter startup so the exemption is installed.
     existing = os.environ.get("PYTHONPATH", "")
-    monkeypatch.setenv("PYTHONPATH", str(SITE_DIR) + (os.pathsep + existing if existing else ""))
+    backend = Path(__file__).resolve().parents[2] / "backend"
+    paths = [str(SITE_DIR), str(backend)]
+    if existing:
+        paths.append(existing)
+    monkeypatch.setenv("PYTHONPATH", os.pathsep.join(paths))

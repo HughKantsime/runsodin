@@ -78,6 +78,8 @@ def test_live_routes_recipe_inspection_and_prepared_square_request(batch):
     assert change['adjustment']['quantity']=='4'
     assert change['adjustment']['from_state']=='NONE' and change['adjustment']['to_state']=='IN_STOCK'
     assert change['adjustment']['catalog_object_id']=='V1'
+    assert change['adjustment']['from_location_id']==change['adjustment']['to_location_id']=='L1'
+    assert 'location_id' not in change['adjustment']
     assert all(path!='/v2/inventory/changes/batch-create' for _,path,_,_ in calls)
     assert client.post('/products/production/inspections',json=body(batch,recipe)).json()['id']==receipt['id']
     changed=body(batch,recipe);changed['outputs'][0].update(accepted=3,rejected=2)

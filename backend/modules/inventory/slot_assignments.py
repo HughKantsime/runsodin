@@ -109,6 +109,8 @@ def assign_slot(db, slot, spool_id, current_user=None):
         db.flush()
         slot.assigned_spool_id = spool_id
         if target:
+            from modules.inventory.stock import break_seal
+            break_seal(db, target.id)
             target.location_printer_id = slot.printer_id
             target.location_slot = slot.slot_number
             target.storage_location = None
@@ -157,3 +159,81 @@ def slot_integrity_report(db):
         if slot is None or slot.assigned_spool_id != spool.id:
             contradictions.append(dict(spool_id=spool.id, filament_slot_id=slot.id if slot else None, direction='location'))
     return dict(duplicates=[dict(spool_id=key, filament_slot_ids=sorted(value)) for key, value in sorted(links.items()) if len(value) > 1], contradictions=contradictions)
+
+
+class TelemetryInventoryMoves:
+    """Raw DB counterpart of assign_slot for the locked AMS graph.
+
+    Call only after the monitor validates and locks every affected printer,
+    slot and spool. Explicit empty or a different real RFID is departure
+    evidence. Missing tags and material/color changes are never identity.
+    """
+    def observe_empty_slots(self, connection, printer_id, numbers):
+        from sqlalchemy.orm import Session
+        from sqlalchemy import text
+        if not numbers:
+            return
+        with Session(bind=connection, join_transaction_mode='rollback_only') as db:
+            owner = connection.execute(text('SELECT org_id FROM printers WHERE id=:pid'), {'pid': printer_id}).first()
+            if owner is None:
+                return
+            self.observe_slots(db, printer_id, [(number, True, None) for number in numbers], set(),
+                               {'role': 'operator', 'group_id': owner[0]})
+            db.flush()
+            db.commit()
+
+    def observe_slots(self, db, printer_id, observations, incoming_ids, current_user):
+        from core.dependencies import log_audit
+        from core.base import SpoolStatus
+        from modules.inventory.stock import break_seal
+        for number, empty, tag in observations:
+            slot = db.query(FilamentSlot).filter_by(printer_id=printer_id, slot_number=number).first()
+            if not slot:
+                continue
+            lock_slot_graph(db, slot.id)
+            db.refresh(slot)
+            if slot.assigned_spool_id is None:
+                continue
+            spool = db.query(Spool).filter_by(id=slot.assigned_spool_id).populate_existing().first()
+            if not spool or (not empty and (not tag or tag == spool.rfid_tag)):
+                continue
+            assign_slot(db, slot, None, current_user)
+            moving = spool.id in incoming_ids
+            retired = spool.remaining_weight_g is not None and spool.remaining_weight_g <= 0 and not moving
+            if not moving:
+                spool.storage_location = None if retired else 'Unlocated (removed from slot)'
+                if retired:
+                    spool.status = SpoolStatus.EMPTY
+            break_seal(db, spool.id)
+            log_audit(db, 'telemetry.retire' if retired else 'telemetry.relocate', 'spool', spool.id,
+                      {'printer_id': printer_id, 'slot': number, 'reason': 'empty' if empty else 'rfid_changed', 'moving': moving})
+
+    def break_seal(self, conn, spool_id):
+        from modules.inventory.stock import seal_key
+        conn.execute('DELETE FROM system_config WHERE key=?', (seal_key(spool_id),))
+
+    def observed_departures(self, conn, printer_id, observations, incoming_ids):
+        import json
+        import uuid
+        for number, material, tag in observations:
+            slot = conn.execute('SELECT id,assigned_spool_id FROM filament_slots WHERE printer_id=? AND slot_number=?', (printer_id, number)).fetchone()
+            if not slot or slot[1] is None:
+                continue
+            spool = conn.execute('SELECT rfid_tag,remaining_weight_g,status FROM spools WHERE id=?', (slot[1],)).fetchone()
+            if not spool:
+                raise ValueError('Locked spool disappeared')
+            if material != '' and (not tag or tag == spool[0]):
+                continue
+            # Clear both directions before the monitor writes final destinations.
+            conn.execute('UPDATE filament_slots SET assigned_spool_id=NULL,spool_confirmed=? WHERE id=?', (False, slot[0]))
+            conn.execute('UPDATE spools SET location_printer_id=NULL,location_slot=NULL WHERE id=? AND location_printer_id=? AND location_slot=?', (slot[1], printer_id, number))
+            relocating = slot[1] in incoming_ids
+            empty = spool[1] is not None and spool[1] <= 0 and not relocating
+            if not relocating:
+                conn.execute('UPDATE spools SET storage_location=?,status=? WHERE id=?',
+                             ('Unlocated (removed from slot)' if not empty else None, 'empty' if empty else spool[2], slot[1]))
+            self.break_seal(conn, slot[1])
+            conn.execute('INSERT INTO inventory_repairs(event_id,spool_id,action,before_json,after_json) VALUES(?,?,?,?,?)',
+                         (str(uuid.uuid4()), slot[1], 'telemetry.retire' if empty else 'telemetry.relocate',
+                          json.dumps({'printer_id': printer_id, 'slot': number, 'reason': 'empty' if material == '' else 'rfid_changed'}),
+                          json.dumps({'location': None, 'status': 'empty' if empty else spool[2], 'moving': relocating})))

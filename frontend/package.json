@@ -1,7 +1,7 @@
 {
   "name": "odin-ui",
   "private": true,
-  "version": "2.0.11",
+  "version": "2.0.15",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -55,5 +55,9 @@
     "typescript": "^6.0.2",
     "vite": "8.3.4",
     "vitest": "4.1.12"
+  },
+  "overrides": {
+    "zod": "4.6.7",
+    "undici": "7.30.1"
   }
 }

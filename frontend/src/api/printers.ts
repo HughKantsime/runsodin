@@ -25,7 +25,11 @@ import type {
 
 export interface DispatchRecoveryInspection {
   state: string
-  release_available: false
+  release_available: boolean
+  attempt_handle?: string
+  snapshot_handle?: string
+  actions?: { hold: boolean; reconcile_retain: boolean; release: boolean }
+  blockers?: string[]
   job_id?: number | null
   job?: { status: string; held: boolean } | null
   receipt_present?: boolean
@@ -34,7 +38,16 @@ export interface DispatchRecoveryInspection {
   guidance?: string
 }
 
+export type DispatchRecoveryAction = 'hold' | 'reconcile-retain' | 'release'
+export interface DispatchRecoveryDecision {
+  outcome: 'held' | 'retained' | 'released'
+  held: boolean
+  claim_retained: boolean
+  refresh_required: boolean
+}
+
 export const printers = {
+  recoverDispatch: (id: number, action: DispatchRecoveryAction, body: Record<string, unknown>): Promise<DispatchRecoveryDecision> => fetchAPI(`/printers/${id}/dispatch-recovery/${action}`, { method: 'POST', body: JSON.stringify(body) }),
   dispatchRecovery: (id: number): Promise<DispatchRecoveryInspection> => fetchAPI(`/printers/${id}/dispatch-recovery`),
   list: (activeOnly = false, tag = '', orgId: number | null = null): Promise<Printer[]> => fetchAPI('/printers?active_only=' + activeOnly + (tag ? '&tag=' + encodeURIComponent(tag) : '') + (orgId != null ? '&org_id=' + orgId : '')),
   allTags: (): Promise<string[]> => fetchAPI('/printers/tags'),
@@ -95,9 +108,28 @@ export const getPlugConfig = (printerId: number): Promise<PlugConfig> => fetchAP
 export const updatePlugConfig = (printerId: number, config: PlugConfig): Promise<PlugConfig> => fetchAPI(`/printers/${printerId}/plug`, { method: 'PUT', body: JSON.stringify(config) })
 export const removePlugConfig = (printerId: number): Promise<void> => fetchAPI(`/printers/${printerId}/plug`, { method: 'DELETE' })
 export interface PlugPowerReceipt { accepted?: boolean; power_state: boolean | null }
-export const plugPowerOn = (printerId: number): Promise<PlugPowerReceipt> => fetchAPI(`/printers/${printerId}/plug/on`, { method: 'POST' })
-export const plugPowerOff = (printerId: number): Promise<PlugPowerReceipt> => fetchAPI(`/printers/${printerId}/plug/off`, { method: 'POST' })
-export const plugPowerToggle = (printerId: number): Promise<PlugPowerReceipt> => fetchAPI(`/printers/${printerId}/plug/toggle`, { method: 'POST' })
+// Keep the same nonce after a lost/error response; a retry may only replay its
+// retained result. getRandomValues also works on self-hosted HTTP LAN origins.
+const pendingPowerNonces = new Map<string, string>()
+const pendingPowerRequests = new Map<string, Promise<PlugPowerReceipt>>()
+const newPowerRequestNonce = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('')
+const plugCommand = async (printerId: number, action: string, requestNonce?: string): Promise<PlugPowerReceipt> => {
+  const key = `${printerId}:${action}`
+  const pending = pendingPowerRequests.get(key)
+  if (pending) return pending
+  const nonce = requestNonce || pendingPowerNonces.get(key) || newPowerRequestNonce()
+  pendingPowerNonces.set(key, nonce)
+  const operation = fetchAPI<PlugPowerReceipt>(`/printers/${printerId}/plug/${action}`, { method: 'POST', headers: { 'X-Power-Request-Nonce': nonce } })
+    .then(receipt => {
+      if (pendingPowerNonces.get(key) === nonce) pendingPowerNonces.delete(key)
+      return receipt
+    }).finally(() => pendingPowerRequests.delete(key))
+  pendingPowerRequests.set(key, operation)
+  return operation
+}
+export const plugPowerOn = (printerId: number, requestNonce?: string): Promise<PlugPowerReceipt> => plugCommand(printerId, 'on', requestNonce)
+export const plugPowerOff = (printerId: number, requestNonce?: string): Promise<PlugPowerReceipt> => plugCommand(printerId, 'off', requestNonce)
+export const plugPowerToggle = (printerId: number, requestNonce?: string): Promise<PlugPowerReceipt> => plugCommand(printerId, 'toggle', requestNonce)
 export const getPlugEnergy = (printerId: number): Promise<PlugEnergyData> => fetchAPI(`/printers/${printerId}/plug/energy`)
 export const getPlugState = (printerId: number): Promise<PlugState> => fetchAPI(`/printers/${printerId}/plug/state`)
 

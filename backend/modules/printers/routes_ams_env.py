@@ -1,4 +1,5 @@
 """AMS environment routes — AMS telemetry, current readings, RFID refresh, slot configuration."""
+from core.base import FilamentType, slot_filament_value
 
 import logging
 import math
@@ -201,7 +202,7 @@ async def configure_ams_slot(
         raise HTTPException(status_code=503, detail="Printer unreachable or command failed")
 
     if slot is not None:
-        slot.filament_type = material
+        slot.filament_type = FilamentType(slot_filament_value(material))
         slot.color = body.color
         assign_slot(db, slot, spool_id, current_user)
         db.commit()

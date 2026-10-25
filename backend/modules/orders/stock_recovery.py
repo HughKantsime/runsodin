@@ -18,7 +18,7 @@ def operation(db, owner, addition_id):
 
 
 def snapshot(db, owner, row, *, lock=False, enforce_barrier=True):
-    request=wire.validate_request(row['request_body'])
+    request=wire.read_request(row['request_body'])
     receipt=db.execute(select(batches.receipts).where(batches.receipts.c.owner==owner,
         batches.receipts.c.id==row['receipt_id'])).mappings().one_or_none()
     if receipt is None:
@@ -46,7 +46,7 @@ def snapshot(db, owner, row, *, lock=False, enforce_barrier=True):
             mapping=doc['mappings'].get(str(pid))
             if not mapping:raise HTTPException(409,'An inspected product no longer has its Square mapping.')
             expected.append({'type':'ADJUSTMENT','adjustment':{
-                'catalog_object_id':mapping['variation_id'],'location_id':mapping['location_id'],
+                'catalog_object_id':mapping['variation_id'],'from_location_id':mapping['location_id'],'to_location_id':mapping['location_id'],
                 'from_state':'NONE','to_state':'IN_STOCK','quantity':str(quantity),
                 'occurred_at':detail['occurred_at'],'reference_id':row['receipt_id']}})
         if request['changes']!=expected:wire.invalid()
@@ -61,11 +61,11 @@ def live_check(doc, row, *, reconcile=False):
     reader=wire.SquareInventoryProbe(doc['environment'],doc['token'])
     if reader.merchant()!=doc['merchant_id']:raise HTTPException(409,'Square credential belongs to a different account.')
     locations={v['id'] for v in reader.locations(doc['merchant_id'])}
-    request=wire.validate_request(row['request_body'])
+    request=wire.read_request(row['request_body'])
     for change in request['changes']:
         a=change['adjustment']
-        if a['location_id'] not in locations:raise HTTPException(409,'The saved Square location is inactive or belongs to another account.')
-        if not reader.variation(a['catalog_object_id'],a['location_id'])['tracked']:
+        if a['to_location_id'] not in locations:raise HTTPException(409,'The saved Square location is inactive or belongs to another account.')
+        if not reader.variation(a['catalog_object_id'],a['to_location_id'])['tracked']:
             raise HTTPException(409,'Square inventory tracking is disabled for a saved variation.')
     if not reconcile:
         reader.require_write_scope()
@@ -103,15 +103,15 @@ def check(db,user,addition_id):
         if row['state']=='prepared':
             reader=wire.SquareInventoryProbe(doc['environment'],doc['token'])
             locations={v['id']:v['name'] for v in reader.locations(doc['merchant_id'])}
-            for change in wire.validate_request(row['request_body'])['changes']:
+            for change in wire.read_request(row['request_body'])['changes']:
                 a=change['adjustment']
                 pid,mapping=next((pid,m) for pid,m in doc['mappings'].items() if
-                    m['location_id']==a['location_id'] and m['variation_id']==a['catalog_object_id'])
-                if a['location_id'] not in locations:
+                    m['location_id']==a['to_location_id'] and m['variation_id']==a['catalog_object_id'])
+                if a['to_location_id'] not in locations:
                     raise HTTPException(409,'The saved Square location became unavailable during checks.')
                 preview.append({'product': store.own_product(db,owner,int(pid)).name, 'quantity': a['quantity'],
-                    'location': locations[a['location_id']], 'location_id': a['location_id'],
-                    'current_count': reader.count(a['catalog_object_id'],a['location_id'])['quantity']})
+                    'location': locations[a['to_location_id']], 'location_id': a['to_location_id'],
+                    'current_count': reader.count(a['catalog_object_id'],a['to_location_id'])['quantity']})
 
         current,_,_=lock_snapshot(db,user,addition_id,revision)
         if current['state']=='confirmed':
@@ -137,10 +137,8 @@ def check(db,user,addition_id):
 
 def execute_prepared(db,user,addition_id):
     """Reserve exactly once after live reads and fenced local revalidation."""
-    store.assert_interactive(user)
-    from core.rbac import is_interactive_session
-    if user.get('role') not in ('admin','operator') or not is_interactive_session(user):
-        raise HTTPException(403,'Interactive operator access is required')
+    from modules.orders.production_auth import assert_production_operator
+    assert_production_operator(user)
     if not wire.LIVE_WRITES_ENABLED:
         raise HTTPException(503,'Square stock writes require both activation keys')
     owner=store.tenant(user);row=operation(db,owner,addition_id)
@@ -149,6 +147,7 @@ def execute_prepared(db,user,addition_id):
         raise HTTPException(409,'This addition was withdrawn into a baseline and is never sent.')
     if row['state']!='prepared' or row['attempts']!=0:
         raise HTTPException(409,'Uncertain additions require read-only reconciliation, never another send.')
+    wire.validate_request(row['request_body'])  # Refuse retired evidence before reads or reservation.
     doc,_,_=snapshot(db,owner,row)
     if not store.writes_enabled(doc):
         raise HTTPException(503,'Square stock writes require both activation keys')
@@ -165,6 +164,10 @@ def execute_prepared(db,user,addition_id):
         .values(state='unknown',attempts=1)).rowcount
     if changed!=1:
         db.rollback();raise HTTPException(409,'This addition is already reserved. Reconcile its outcome instead of sending again.')
+    from core.audit import log_audit
+    log_audit(db, 'production.stock_send_reserved', 'production_stock_addition', None,
+        {'addition_id':addition_id, 'receipt_id':current['receipt_id'], 'operator_id':user['id'],
+         'auth_kind':user.get('_auth_kind'), 'api_token_id':user.get('_token_id')})
     db.commit()  # Durable intent; connector changes from here cannot retarget saved body.
     try:confirmed=wire.SquareWriter(doc['environment'],doc['token']).send(row['request_body'],tenant_enabled=doc.get('stock_writes_enabled')) is True
     except Exception:confirmed=False

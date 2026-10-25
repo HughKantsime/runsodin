@@ -187,6 +187,10 @@ def get_spoolman_link_conflicts(current_user: dict = Depends(require_role("admin
 @router.post("", tags=["Spools"])
 def create_spool(spool: SpoolCreate, current_user: dict = Depends(require_action("spools.edit", scope="write:spools")), db: Session = Depends(get_db)):
     """Create a new spool."""
+    return _create_spool_record(spool, current_user, db)
+
+
+def _create_spool_record(spool, current_user, db, *, commit=True):
     from modules.inventory.models import FilamentLibrary
     # Verify filament exists
     filament = db.query(FilamentLibrary).filter(FilamentLibrary.id == spool.filament_id).first()
@@ -247,7 +251,8 @@ def create_spool(spool: SpoolCreate, current_user: dict = Depends(require_action
         db_spool.spoolman_spool_id = spool.spoolman_spool_id
 
     log_audit(db, "create", "spool", db_spool.id, {"filament_id": spool.filament_id, "qr_code": db_spool.qr_code})
-    db.commit()
+    if commit:
+        db.commit()
     return {
         "id": db_spool.id,
         "qr_code": db_spool.qr_code,

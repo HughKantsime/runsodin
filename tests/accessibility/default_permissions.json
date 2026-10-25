@@ -188,85 +188,17 @@
     ],
     "users.restore_superadmin": [
       "admin"
+    ],
+    "printers.dispatch_recovery": [
+      "admin"
+    ],
+    "models.plates": [
+      "admin",
+      "operator"
     ]
   },
   "page_access": {
-    "admin": [
-      "admin"
-    ],
-    "alerts": [
-      "admin",
-      "operator",
-      "viewer"
-    ],
-    "analytics": [
-      "admin",
-      "operator",
-      "viewer"
-    ],
-    "audit": [
-      "admin"
-    ],
-    "branding": [
-      "admin"
-    ],
-    "calculator": [
-      "admin",
-      "operator",
-      "viewer"
-    ],
-    "cameras": [
-      "admin",
-      "operator",
-      "viewer"
-    ],
     "dashboard": [
-      "admin",
-      "operator",
-      "viewer"
-    ],
-    "education": [
-      "admin",
-      "operator",
-      "viewer"
-    ],
-    "education_reports": [
-      "admin",
-      "operator"
-    ],
-    "jobs": [
-      "admin",
-      "operator",
-      "viewer"
-    ],
-    "maintenance": [
-      "admin",
-      "operator"
-    ],
-    "models": [
-      "admin",
-      "operator",
-      "viewer"
-    ],
-    "orders": [
-      "admin",
-      "operator",
-      "viewer"
-    ],
-    "printers": [
-      "admin",
-      "operator",
-      "viewer"
-    ],
-    "products": [
-      "admin",
-      "operator",
-      "viewer"
-    ],
-    "settings": [
-      "admin"
-    ],
-    "spools": [
       "admin",
       "operator",
       "viewer"
@@ -276,9 +208,84 @@
       "operator",
       "viewer"
     ],
+    "jobs": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "printers": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "models": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "spools": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "cameras": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "analytics": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "calculator": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
     "upload": [
       "admin",
       "operator"
+    ],
+    "maintenance": [
+      "admin",
+      "operator"
+    ],
+    "settings": [
+      "admin"
+    ],
+    "admin": [
+      "admin"
+    ],
+    "audit": [
+      "admin"
+    ],
+    "branding": [
+      "admin"
+    ],
+    "education_reports": [
+      "admin",
+      "operator"
+    ],
+    "education": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "orders": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "products": [
+      "admin",
+      "operator",
+      "viewer"
+    ],
+    "alerts": [
+      "admin",
+      "operator",
+      "viewer"
     ]
   }
 }

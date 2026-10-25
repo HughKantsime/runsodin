@@ -151,6 +151,7 @@ export const models = {
   create: (data: ModelCreate): Promise<Model> => fetchAPI('/models', { method: 'POST', body: JSON.stringify(data) }),
   update: (id: number, data: ModelUpdate): Promise<Model> => fetchAPI('/models/' + id, { method: 'PATCH', body: JSON.stringify(data) }),
   delete: (id: number): Promise<void> => fetchAPI('/models/' + id, { method: 'DELETE' }),
+  plates: (id: number): Promise<{ target_printer_id?: number | null; plates: { plate_index: number; is_sliced: boolean; print_time_seconds: number | null; filament_grams: number | null }[] }> => fetchAPI('/models/' + id + '/plates'),
   scheduleOptions: (id: number): Promise<{ print_file_id: number | null; payload_sha256: string | null; plate_indices: number[] }> => fetchAPI('/models/' + id + '/schedule-options'),
   schedule: (id: number, printerId?: number, options?: ModelScheduleOptions): Promise<unknown> => fetchAPI('/models/' + id + '/schedule' + (printerId ? '?printer_id=' + printerId : ''), { method: 'POST', ...(options ? { body: JSON.stringify(options) } : {}) }),
 }

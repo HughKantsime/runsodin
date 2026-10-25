@@ -11,6 +11,8 @@ from .spoolman import router as spoolman_router
 router = APIRouter()
 # spool_ops first: static paths (/spools/export, /spools/labels/batch, etc.)
 # must register before parameterized /spools/{spool_id} in spools_router
+from .stock import router as stock_router
+router.include_router(stock_router)
 router.include_router(spool_ops_router)
 router.include_router(spools_router)
 router.include_router(filament_slots_router)

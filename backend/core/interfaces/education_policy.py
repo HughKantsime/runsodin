@@ -143,6 +143,18 @@ class EducationPolicyProvider(ABC):
         """Optional preinsert candidate discovery; absence grants no authority."""
         return None
 
+    def recovery_visibility(self, db, *, evidence, principal):
+        """Existing submission audience for sanitized recovery inspection."""
+        return False
+
+    def recovery_terminal_resolved(self, db, *, evidence):
+        """Prove authorized terminal lifecycle and exact receipt before release."""
+        return False
+
+    def recovery_authority(self, db, *, evidence, principal, lock=False):
+        """Authorize retained recovery without scheduled-only admission rules."""
+        return False
+
     def lock_start_authority(self, db, context):
         return False
 

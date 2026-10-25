@@ -1034,7 +1034,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 248,
+      "line": 249,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1042,7 +1042,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 488,
+      "line": 489,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1050,7 +1050,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 514,
+      "line": 515,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1058,7 +1058,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 516,
+      "line": 517,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1066,7 +1066,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 526,
+      "line": 527,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1074,7 +1074,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 541,
+      "line": 542,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1082,7 +1082,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 543,
+      "line": 544,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1417,6 +1417,62 @@
       "source": "if c.exec_driver_sql('PRAGMA foreign_keys').scalar_one()!=1:_refuse('unknown_authority')"
     },
     {
+      "classification": "sqlite-provider-only",
+      "line": 206,
+      "path": "backend/modules/inventory/slot_assignments.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite BEGIN IMMEDIATE establishes the assignment writer boundary; PostgreSQL uses sorted NOWAIT row locks and a graph recheck.",
+      "source": "conn.execute('DELETE FROM system_config WHERE key=?', (seal_key(spool_id),))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 212,
+      "path": "backend/modules/inventory/slot_assignments.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite BEGIN IMMEDIATE establishes the assignment writer boundary; PostgreSQL uses sorted NOWAIT row locks and a graph recheck.",
+      "source": "slot = conn.execute('SELECT id,assigned_spool_id FROM filament_slots WHERE printer_id=? AND slot_number=?', (printer_id, number)).fetchone()"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 215,
+      "path": "backend/modules/inventory/slot_assignments.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite BEGIN IMMEDIATE establishes the assignment writer boundary; PostgreSQL uses sorted NOWAIT row locks and a graph recheck.",
+      "source": "spool = conn.execute('SELECT rfid_tag,remaining_weight_g,status FROM spools WHERE id=?', (slot[1],)).fetchone()"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 221,
+      "path": "backend/modules/inventory/slot_assignments.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite BEGIN IMMEDIATE establishes the assignment writer boundary; PostgreSQL uses sorted NOWAIT row locks and a graph recheck.",
+      "source": "conn.execute('UPDATE filament_slots SET assigned_spool_id=NULL,spool_confirmed=? WHERE id=?', (False, slot[0]))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 222,
+      "path": "backend/modules/inventory/slot_assignments.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite BEGIN IMMEDIATE establishes the assignment writer boundary; PostgreSQL uses sorted NOWAIT row locks and a graph recheck.",
+      "source": "conn.execute('UPDATE spools SET location_printer_id=NULL,location_slot=NULL WHERE id=? AND location_printer_id=? AND location_slot=?', (slot[1], printer_id, number))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 226,
+      "path": "backend/modules/inventory/slot_assignments.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite BEGIN IMMEDIATE establishes the assignment writer boundary; PostgreSQL uses sorted NOWAIT row locks and a graph recheck.",
+      "source": "conn.execute('UPDATE spools SET storage_location=?,status=? WHERE id=?',"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 229,
+      "path": "backend/modules/inventory/slot_assignments.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite BEGIN IMMEDIATE establishes the assignment writer boundary; PostgreSQL uses sorted NOWAIT row locks and a graph recheck.",
+      "source": "conn.execute('INSERT INTO inventory_repairs(event_id,spool_id,action,before_json,after_json) VALUES(?,?,?,?,?)',"
+    },
+    {
       "classification": "dialect-neutral",
       "line": 39,
       "path": "backend/modules/notifications/channels.py",
@@ -1714,7 +1770,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 156,
+      "line": 157,
       "path": "backend/modules/organizations/education_policy_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Static source-discovery regex contains SQL vocabulary and regex question marks; it executes no database statement",
@@ -1730,7 +1786,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 43,
+      "line": 44,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1738,7 +1794,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 49,
+      "line": 50,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1746,7 +1802,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 58,
+      "line": 59,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1754,7 +1810,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 108,
+      "line": 109,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1762,7 +1818,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 118,
+      "line": 119,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1770,7 +1826,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 141,
+      "line": 142,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1778,7 +1834,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 143,
+      "line": 144,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1786,7 +1842,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 153,
+      "line": 159,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1794,7 +1850,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 157,
+      "line": 163,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1802,7 +1858,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 163,
+      "line": 168,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1810,7 +1866,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 166,
+      "line": 171,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1818,7 +1874,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 168,
+      "line": 173,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1826,7 +1882,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 170,
+      "line": 175,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1834,7 +1890,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 171,
+      "line": 176,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1842,7 +1898,15 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 175,
+      "line": 181,
+      "path": "backend/modules/printers/monitors/ams_inventory.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
+      "source": "conn.execute('UPDATE spools SET storage_location=NULL WHERE id=?', (spool_id,))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 182,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1850,7 +1914,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 189,
+      "line": 196,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1858,7 +1922,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 191,
+      "line": 198,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1866,7 +1930,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 209,
+      "line": 216,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1874,7 +1938,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 214,
+      "line": 221,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1882,7 +1946,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 217,
+      "line": 224,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -2386,7 +2450,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 55,
+      "line": 61,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "lastrowid",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2394,7 +2458,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 66,
+      "line": 72,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2402,7 +2466,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 103,
+      "line": 109,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2410,7 +2474,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 108,
+      "line": 114,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2418,7 +2482,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 113,
+      "line": 119,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2426,7 +2490,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 124,
+      "line": 130,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2434,7 +2498,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 130,
+      "line": 136,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2442,7 +2506,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 139,
+      "line": 145,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2450,7 +2514,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 146,
+      "line": 152,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2458,7 +2522,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 154,
+      "line": 160,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2466,7 +2530,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 160,
+      "line": 166,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2474,7 +2538,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 163,
+      "line": 169,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2482,7 +2546,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 167,
+      "line": 173,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2490,7 +2554,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 173,
+      "line": 179,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2498,23 +2562,23 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 178,
+      "line": 184,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
-      "source": "\"INSERT INTO filament_slots (printer_id, slot_number, filament_type, color, color_hex, assigned_spool_id, spool_confirmed) VALUES (?, 1, 'PLA', 'blue', '#2563EB', ?, TRUE)\","
+      "source": "\"INSERT INTO filament_slots (printer_id, slot_number, filament_type, color, color_hex, assigned_spool_id, spool_confirmed) VALUES (?, 1, ?, 'blue', '#2563EB', ?, TRUE)\","
     },
     {
       "classification": "dialect-neutral",
-      "line": 183,
+      "line": 189,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
-      "source": "\"UPDATE filament_slots SET filament_type='PLA', color='blue', color_hex='#2563EB', assigned_spool_id=?, spool_confirmed=TRUE WHERE id=?\","
+      "source": "\"UPDATE filament_slots SET filament_type=?, color='blue', color_hex='#2563EB', assigned_spool_id=?, spool_confirmed=TRUE WHERE id=?\","
     },
     {
       "classification": "dialect-neutral",
-      "line": 187,
+      "line": 193,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2522,7 +2586,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 191,
+      "line": 197,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2530,7 +2594,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 195,
+      "line": 201,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2538,7 +2602,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 199,
+      "line": 205,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2546,7 +2610,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 202,
+      "line": 208,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2554,7 +2618,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 204,
+      "line": 210,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2562,7 +2626,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 207,
+      "line": 213,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2570,7 +2634,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 211,
+      "line": 217,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2578,7 +2642,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 214,
+      "line": 220,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2586,7 +2650,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 218,
+      "line": 224,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2594,7 +2658,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 226,
+      "line": 232,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2602,7 +2666,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 228,
+      "line": 234,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2610,7 +2674,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 232,
+      "line": 238,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2618,7 +2682,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 234,
+      "line": 240,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2626,7 +2690,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 238,
+      "line": 244,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2634,7 +2698,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 243,
+      "line": 249,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2642,7 +2706,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 249,
+      "line": 255,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2650,7 +2714,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 250,
+      "line": 256,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2658,7 +2722,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 251,
+      "line": 257,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2666,7 +2730,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 252,
+      "line": 258,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2674,7 +2738,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 253,
+      "line": 259,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2682,7 +2746,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 254,
+      "line": 260,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2690,7 +2754,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 255,
+      "line": 261,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2698,7 +2762,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 256,
+      "line": 262,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2706,7 +2770,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 257,
+      "line": 263,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2714,7 +2778,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 258,
+      "line": 264,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2722,7 +2786,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 267,
+      "line": 273,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2730,7 +2794,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 271,
+      "line": 277,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2738,7 +2802,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 275,
+      "line": 281,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "qmark-parameter",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2746,7 +2810,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 314,
+      "line": 320,
       "path": "backend/scripts/seed_edu_sandbox.py",
       "pattern": "PRAGMA",
       "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
@@ -2762,7 +2826,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 33,
+      "line": 39,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "PRAGMA",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -2770,7 +2834,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 34,
+      "line": 40,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "PRAGMA",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -2778,7 +2842,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 35,
+      "line": 41,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "PRAGMA",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -2786,7 +2850,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 36,
+      "line": 42,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "PRAGMA",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -2794,7 +2858,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 37,
+      "line": 43,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "PRAGMA",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -2802,7 +2866,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 38,
+      "line": 44,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "PRAGMA",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -2810,7 +2874,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 39,
+      "line": 45,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "PRAGMA",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -2818,7 +2882,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 40,
+      "line": 46,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "PRAGMA",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -2826,7 +2890,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 41,
+      "line": 47,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "PRAGMA",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -2834,7 +2898,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 42,
+      "line": 48,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "PRAGMA",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -2842,7 +2906,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 43,
+      "line": 49,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "PRAGMA",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -2850,7 +2914,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 44,
+      "line": 50,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "PRAGMA",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -2858,7 +2922,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 45,
+      "line": 51,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "PRAGMA",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -2866,7 +2930,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 46,
+      "line": 52,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "PRAGMA",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -2874,7 +2938,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 50,
+      "line": 56,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -2882,7 +2946,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 51,
+      "line": 57,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -2890,7 +2954,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 53,
+      "line": 59,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -2898,7 +2962,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 54,
+      "line": 60,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -2906,7 +2970,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 55,
+      "line": 61,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -2914,7 +2978,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 56,
+      "line": 62,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -2922,7 +2986,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 57,
+      "line": 63,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -2930,7 +2994,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 58,
+      "line": 64,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -2938,7 +3002,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 59,
+      "line": 65,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -2946,7 +3010,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 60,
+      "line": 66,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -2954,7 +3018,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 61,
+      "line": 67,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -2962,7 +3026,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 89,
+      "line": 95,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -2970,7 +3034,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 147,
+      "line": 153,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "lastrowid",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -2978,7 +3042,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 227,
+      "line": 233,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -2986,7 +3050,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 232,
+      "line": 238,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -2994,7 +3058,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 237,
+      "line": 243,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3002,7 +3066,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 245,
+      "line": 251,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3010,7 +3074,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 253,
+      "line": 259,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3018,7 +3082,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 259,
+      "line": 265,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3026,7 +3090,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 263,
+      "line": 269,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3034,7 +3098,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 270,
+      "line": 276,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3042,7 +3106,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 275,
+      "line": 281,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3050,15 +3114,15 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 281,
+      "line": 287,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
-      "source": "\"UPDATE filament_slots SET filament_type='PLA', color='amber', color_hex='#C47A1A', \""
+      "source": "\"UPDATE filament_slots SET filament_type=?, color='amber', color_hex='#C47A1A', \""
     },
     {
       "classification": "dialect-neutral",
-      "line": 287,
+      "line": 293,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3066,7 +3130,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 292,
+      "line": 298,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3074,7 +3138,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 296,
+      "line": 302,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3082,7 +3146,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 302,
+      "line": 308,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3090,7 +3154,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 306,
+      "line": 312,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3098,7 +3162,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 310,
+      "line": 316,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3106,7 +3170,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 317,
+      "line": 323,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3114,7 +3178,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 321,
+      "line": 327,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3122,7 +3186,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 325,
+      "line": 331,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3130,7 +3194,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 330,
+      "line": 336,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3138,7 +3202,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 339,
+      "line": 345,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3146,7 +3210,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 349,
+      "line": 355,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3154,7 +3218,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 353,
+      "line": 359,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3162,7 +3226,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 367,
+      "line": 373,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3170,7 +3234,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 372,
+      "line": 378,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3178,7 +3242,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 376,
+      "line": 382,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3186,7 +3250,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 382,
+      "line": 388,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3194,7 +3258,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 387,
+      "line": 393,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3202,7 +3266,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 393,
+      "line": 399,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3210,7 +3274,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 403,
+      "line": 409,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3218,7 +3282,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 404,
+      "line": 410,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3226,7 +3290,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 407,
+      "line": 413,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3234,7 +3298,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 408,
+      "line": 414,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3242,7 +3306,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 409,
+      "line": 415,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3250,7 +3314,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 410,
+      "line": 416,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3258,7 +3322,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 411,
+      "line": 417,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3266,7 +3330,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 412,
+      "line": 418,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3274,7 +3338,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 414,
+      "line": 420,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "qmark-parameter",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
@@ -3282,7 +3346,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 455,
+      "line": 461,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "PRAGMA",
       "reason": "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",

@@ -334,6 +334,70 @@ class TestLogAuditDoesNotCommitInternally:
         raise AssertionError("log_audit function not found")
 
 
+def _telemetry_audit_transaction_is_atomic(sources):
+    """Telemetry stages departures with slot updates; each caller commits that session.
+
+    Like the revision/currency exceptions, this verifies the actual protocol,
+    rather than exempting an unaudited helper by name.
+    """
+    helper_path = "modules/inventory/slot_assignments.py"
+    expected = {helper_path: 1, "modules/printers/routes_ams.py": 3}
+    found = {}
+    for path, source in sources.items():
+        tree = ast.parse(source)
+        parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+        def db_call(node, name):
+            return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name) and node.func.value.id == "db"
+                    and node.func.attr == name)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "observe_slots" and path == helper_path:
+                if any(db_call(n, "commit") or db_call(n, "rollback") for n in ast.walk(node)):
+                    return False
+                audits = [n for n in ast.walk(node) if isinstance(n, ast.Call)
+                          and isinstance(n.func, ast.Name) and n.func.id == "log_audit"]
+                if len(audits) != 1 or ast.unparse(audits[0].args[0]) != "db":
+                    return False
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "observe_slots"):
+                continue
+            found[path] = found.get(path, 0) + 1
+            if not node.args or ast.unparse(node.args[0]) != "db":
+                return False
+            # Require an unconditional subsequent commit in this very statement
+            # block. A conditional/nested commit or early exit is not evidence.
+            statement = parents[node]
+            block = parents.get(statement)
+            body = getattr(block, "body", [])
+            if statement not in body:
+                return False
+            tail = body[body.index(statement) + 1:]
+            commit = next((i for i, n in enumerate(tail) if isinstance(n, ast.Expr)
+                           and db_call(n.value, "commit")), None)
+            if commit is None:
+                return False
+            def unsafe_rollback(node):
+                if not db_call(node, "rollback"):
+                    return False
+                ancestor = parents.get(node)
+                while ancestor is not None and not isinstance(ancestor, ast.ExceptHandler):
+                    ancestor = parents.get(ancestor)
+                return ancestor is None or not isinstance(ancestor.body[-1], ast.Raise)
+            if any(isinstance(n, ast.Return) or unsafe_rollback(n) or db_call(n, "commit")
+                   for stmt in tail[:commit] for n in ast.walk(stmt)):
+                return False
+            if any(isinstance(stmt, (ast.Break, ast.Continue)) for stmt in tail[:commit]):
+                return False
+    return found == expected
+
+
+def _telemetry_sources():
+    return {str(path.relative_to(BACKEND_DIR)): path.read_text()
+            for path in BACKEND_DIR.rglob("*.py")
+            if not any(bundle in path.parents for bundle in PRESERVED_BUNDLES)
+            and "observe_slots" in path.read_text()}
+
+
 class TestEveryCallSiteCommitsAfter:
     """Every log_audit() call must be followed by db.commit() in the same function."""
 
@@ -391,6 +455,9 @@ class TestEveryCallSiteCommitsAfter:
             if (not has_commit and py == BACKEND_DIR / "modules/archives/timelapse_lifetime_action.py"
                     and fn_name == "_complete"):
                 has_commit = _retirement_audit_transaction_is_atomic(source)
+            if (not has_commit and py == BACKEND_DIR / "modules/inventory/slot_assignments.py"
+                    and fn_name == "observe_slots"):
+                has_commit = _telemetry_audit_transaction_is_atomic(_telemetry_sources())
             if not has_commit:
                 missing.append(f"{py.relative_to(BACKEND_DIR.parent)}:{line_no} in {fn_name}()")
 
@@ -524,3 +591,22 @@ def test_retirement_transaction_recognizer_rejects_unsafe_boundaries(mutation):
         changed=source+'\ndef unsafe_retirement(db,principal,actual):\n    _complete(db,principal,actual)\n'
     assert changed!=source
     assert not _retirement_audit_transaction_is_atomic(changed)
+
+
+def test_telemetry_audit_protocol_recognizes_caller_owned_transaction():
+    assert _telemetry_audit_transaction_is_atomic(_telemetry_sources())
+
+
+@pytest.mark.parametrize("mutation", ["missing_commit", "wrong_session", "new_caller", "helper_commit"])
+def test_telemetry_audit_protocol_rejects_broken_boundaries(mutation):
+    sources = _telemetry_sources()
+    path = "modules/inventory/slot_assignments.py"
+    if mutation == "missing_commit":
+        sources[path] = sources[path].replace("            db.commit()", "            db.flush()")
+    elif mutation == "wrong_session":
+        sources[path] = sources[path].replace("self.observe_slots(db,", "self.observe_slots(other,")
+    elif mutation == "helper_commit":
+        sources[path] = sources[path].replace("        from core.dependencies import log_audit", "        db.commit()\n        from core.dependencies import log_audit")
+    else:
+        sources["modules/unsafe.py"] = "def unsafe(db):\n    provider.observe_slots(db, 1, [], set(), {})\n    db.commit()\n"
+    assert not _telemetry_audit_transaction_is_atomic(sources)

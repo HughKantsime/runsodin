@@ -20,7 +20,7 @@ case "$(uname -s 2>/dev/null)" in
         ;;
 esac
 
-ODIN_VERSION="2.0.11"
+ODIN_VERSION="2.0.15"
 ODIN_IMAGE="${ODIN_IMAGE:-ghcr.io/hughkantsime/odin:latest}"
 ODIN_REPO="${ODIN_REPO:-https://raw.githubusercontent.com/HughKantsime/runsodin/master}"
 ODIN_COMPOSE_SOURCE="${ODIN_COMPOSE_SOURCE:-${ODIN_REPO}/install/docker-compose.yml}"

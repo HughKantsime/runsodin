@@ -519,6 +519,10 @@
     "admin",
     "operator"
    ],
+   "models.plates": [
+    "admin",
+    "operator"
+   ],
    "orders.create": [
     "admin",
     "operator"
@@ -538,6 +542,9 @@
     "admin"
    ],
    "printers.delete": [
+    "admin"
+   ],
+   "printers.dispatch_recovery": [
     "admin"
    ],
    "printers.edit": [

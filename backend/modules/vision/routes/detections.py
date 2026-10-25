@@ -184,19 +184,63 @@ async def review_vision_detection(
 
 
 @router.post("/vision/detections/{detection_id}/dismiss-and-resume", tags=["Vigil AI"])
-async def dismiss_and_resume(
+# Sync handler: the fenced DB transaction and the bounded monitor socket call block.
+def dismiss_and_resume(
     detection_id: int,
     current_user: dict = Depends(require_role("operator",scope="write")),
     db: Session = Depends(get_db),
 ):
     from modules.vision.training_service import maintenance
     if not maintenance(current_user):raise HTTPException(404,"Detection not found")
-    det=db.query(VisionDetection).filter(VisionDetection.id==detection_id).first()
-    if det is None:raise HTTPException(404,"Detection not found")
-    # The legacy transport accepts no task identity and cannot fence a hardware
-    # handoff. Do not dismiss first, send an unfenced resume, or fabricate RUNNING.
-    # Verified task-bound command admission is required to restore this workflow.
-    raise HTTPException(409,"This alert cannot verify the printer's current task. Dismiss it separately; resume requires fresh task verification.")
+    from sqlalchemy import update
+    # Serialize source facts, including observation inserts, through transport.
+    try:
+        if db.get_bind().dialect.name == "postgresql":
+            db.execute(text("SET LOCAL lock_timeout = '4s'"))
+            db.execute(text("LOCK TABLE printers, print_jobs, vision_detections IN SHARE ROW EXCLUSIVE MODE"))
+        else:
+            db.execute(update(VisionDetection).where(VisionDetection.id == detection_id)
+                       .values(status=VisionDetection.status).execution_options(synchronize_session=False))
+        db.expire_all()
+        det = db.query(VisionDetection).filter(VisionDetection.id == detection_id).first()
+        if det is None:
+            raise HTTPException(404, "Detection not found")
+        printer = db.query(Printer).filter(Printer.id == det.printer_id).first()
+        if printer is None or not check_org_access(current_user, printer.org_id):
+            raise HTTPException(404, "Printer not found")
+        jobs = db.execute(text("SELECT id FROM print_jobs WHERE printer_id=:pid AND status='running' AND ended_at IS NULL"),
+                          {"pid": printer.id}).scalars().all()
+        state = printer.gcode_state
+        if (not printer.is_active or det.status == 'training' or
+                type(det.print_job_id) is not int or det.print_job_id <= 0 or
+                jobs != [det.print_job_id] or state not in ('PAUSE', 'PAUSED', 'RUNNING')):
+            raise HTTPException(409, "Detection does not match the sole current paused/running task")
+        statement = update(VisionDetection).where(
+            VisionDetection.id == detection_id, VisionDetection.printer_id == det.printer_id,
+            VisionDetection.print_job_id == det.print_job_id, VisionDetection.frame_path == det.frame_path,
+            VisionDetection.status == det.status, VisionDetection.reviewed_by == det.reviewed_by,
+            VisionDetection.reviewed_at == det.reviewed_at).values(
+                status='dismissed', reviewed_by=current_user['id'], reviewed_at=sa_func.now())
+        if db.execute(statement.execution_options(synchronize_session=False)).rowcount != 1:
+            raise HTTPException(409, "Detection changed; refresh before reviewing")
+        outcome = 'not_needed'
+        if state in ('PAUSE', 'PAUSED'):
+            from modules.printers.services import request_observed_task_resume
+            outcome = request_observed_task_resume(printer, det.print_job_id)
+            if outcome != 'accepted':
+                raise HTTPException(503 if outcome != 'refused' else 409,
+                                    detail={'outcome': outcome, 'message': 'Resume unconfirmed; refresh before further action'})
+        db.commit()
+        return {'id': detection_id, 'detection_id': detection_id, 'status': 'dismissed', 'outcome': outcome,
+                'actions': ['printer:resume_requested' if outcome == 'accepted' else 'printer:already_running'],
+                'resume_requested': outcome == 'accepted'}
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise HTTPException(503, detail={'outcome': 'unknown',
+            'message': 'Dismiss/resume outcome unknown; refresh before further action'}) from None
 
 
 # ============== Vigil AI: Per-Printer Vision Settings ==============

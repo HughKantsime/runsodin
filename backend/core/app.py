@@ -29,7 +29,7 @@ _version_file = pathlib.Path(__file__).parent.parent.parent / "VERSION"
 if _version_file.exists():
     __version__ = _version_file.read_text().strip()
 else:
-    __version__ = "2.0.11"
+    __version__ = "2.0.15"
 
 # Module discovery helpers
 

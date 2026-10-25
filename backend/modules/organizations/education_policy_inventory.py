@@ -44,6 +44,8 @@ def _entry(
 
 
 POLICY_INVENTORY = (
+    _entry("jobs.queue_creation", "_stage_prospective_queue_job", "job/model/file/upload destination", "stage caller-authorized queue entry", "internal adapter; callers retain tenant and Education authorization; bound files require exact destination", ("queue",), "test_upload_binding_and_plates.py", "excluded_internal"),
+    _entry("printers.routes_dispatch_recovery", "inspect_dispatch_recovery/hold_dispatch_recovery/retain_dispatch_recovery/release_dispatch_recovery", "printer/job/submission/monitor claim", "inspect/hold/retain/release", "owner and charged tenant admin; Education provider school/center authority; no Education revocation", ("recovery history",), "test_dispatch_recovery_actions.py", "guarded"),
     _entry("jobs.education_order", "education_order/ordered_waiting/head_refusal", "Education job/printer/dispatch claim", "order/head check", "trusted scheduler/dispatch; authoritative head check under target lock", ("scheduler", "automatic and explicit dispatch"), "test_education_followup_queues.py", "guarded"),
     _entry("organizations.education_queues", "list_queue/reorder_queue", "Education submission/job/printer/grant", "read/reorder", "live tenant admin or active manager; explicit-org platform reads only; target-serialized full-list revision check", ("Education workbench", "dispatch ordering"), "test_education_followup_queues.py", "guarded"),
     _entry("organizations.education_superadmin_restore", "restore_superadmin", "user/membership/grants/credentials", "restore platform admin", "verified interactive platform superadmin; typed target confirmation; no live Education work", (), "test_education_superadmin_restore.py", "guarded"),
@@ -61,13 +63,12 @@ POLICY_INVENTORY = (
     _entry("organizations.routes_education_reviews", "router:GET/POST /education/submissions/*", "submission/job/printer", "read/mutate", "submitter or active manager/tenant admin", ("Education outbox",), "test_education_review_workflow.py", "guarded"),
     _entry("organizations.education_review_service", "approve/reject/list", "submission/job/printer", "read/mutate", "current tenant audience", ("printers.services", "Education outbox"), "test_education_review_workflow.py", "guarded"),
     _entry("printers.services", "evaluate_submission_compatibility", "print file/printer/slots", "read", "trusted Education review service", (), "test_education_review_workflow.py", "guarded"),
-    _entry("organizations.education_policy", "authorize_dispatch/reconcile_dispatch_denial", "submission/job/printer", "dispatch", "trusted dispatch worker", ("printers.dispatch",), "test_education_dispatch_policy.py", "guarded"),
+    _entry("organizations.education_policy", "authorize_dispatch/reconcile_dispatch_denial/recovery_authority/recovery_terminal_resolved/recovery_visibility", "submission/job/printer", "dispatch", "trusted dispatch worker", ("printers.dispatch",), "test_education_dispatch_policy.py", "guarded"),
     _entry("organizations.routes_users", "update/delete user and group", "user/group", "lifecycle", "tenant admin/superadmin", (), "test_education_policy_inventory.py", "guarded"),
     _entry("organizations.routes", "delete_org", "organization", "lifecycle", "superadmin", (), "test_education_policy_inventory.py", "guarded"),
     _entry("printers.routes_crud", "update/delete printer", "printer", "lifecycle", "tenant admin", (), "test_education_policy_inventory.py", "guarded"),
     _entry("core.app.websocket", "websocket_endpoint", "event", "notify", "explicit live user", ("browser websocket",), "test_education_policy_inventory.py", "guarded"),
     _entry("printers.dispatch_admission", "admit", "job/printer/submission/retained claim", "dispatch-admission", "trusted dispatch worker; current scoped resources and exact committed claim", ("adapter-entry receipt",), "test_dispatch_receipt_admission_behavior.py", "guarded"),
-    _entry("printers.routes_dispatch_recovery", "GET /printers/{id}/dispatch-recovery", "printer/job/submission/retained claim", "read", "current scoped viewer with read:printers", (), "test_dispatch_recovery_inspection.py", "guarded"),
     _entry("printers.dispatch", "dispatch_job", "submission/job/printer", "dispatch", "trusted dispatch worker", ("printer adapter",), "test_education_dispatch_policy.py", "guarded"),
     _entry("printers.smart_plug", "printer state subscriber", "submission/job/printer", "dispatch", "trusted physical-action worker", ("smart plug",), "test_education_dispatch_policy.py", "batch2_required"),
     _entry("printers.routes_smart_plug", "router:/printers/{id}/plug/*", "printer", "physical-control", "authorized operator/admin", ("smart plug",), "test_education_dispatch_policy.py", "batch2_required"),
@@ -166,6 +167,7 @@ _EXPLICIT_SURFACE_PATHS = (
     "modules/organizations/routes_users.py",
     "modules/organizations/routes.py",
     "modules/printers/routes_crud.py",
+    "modules/printers/routes_dispatch_recovery.py",
     "modules/printers/routes_smart_plug.py",
     "modules/system/routes_maintenance.py",
     "modules/printers/monitors/prusalink_monitor.py",

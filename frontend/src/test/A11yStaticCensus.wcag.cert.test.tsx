@@ -125,15 +125,16 @@ it('F12-12.7-03 census: every icon-only button has an accessible name (aria-labe
 })
 
 it('F12-12.7-04 census: dialog-role modal surfaces are 35 shared-Modal call sites + 20 custom dialogs, not 17', () => {
-  // Square stock send confirmation adds one shared, focus-trapped Modal.
-  expect(summary.shared_modal_call_sites).toBe(35)
+  // Square stock send confirmation adds one shared, focus-trapped Modal; 2.0.13 adds
+  // dispatch-recovery confirmation, roll receiving and QR label Modals.
+  expect(summary.shared_modal_call_sites).toBe(38)
   expect(summary.shared_modal_alertdialog_call_sites).toBe(3)
   // Super Admin restore adds one named, focus-trapped confirmation dialog.
   // 20 static role="dialog", 1 alertdialog (SystemTab) and DetailDrawer's role that is 'dialog' while open.
   expect(summary.custom_dialog_role_elements).toHaveLength(22)
   const dialogOnly = summary.custom_dialog_role_elements.filter(d => d.endsWith(' dialog')).length
   expect(dialogOnly).toBe(20)
-  expect(summary.shared_modal_call_sites - summary.shared_modal_alertdialog_call_sites + dialogOnly).toBe(52)
+  expect(summary.shared_modal_call_sites - summary.shared_modal_alertdialog_call_sites + dialogOnly).toBe(55)
   expect(summary.shared_modal_call_sites - summary.shared_modal_alertdialog_call_sites + dialogOnly).not.toBe(17)
 })
 
@@ -148,7 +149,8 @@ it('F12-12.7-04 real shared Modal renders a named aria-modal dialog / alertdialo
 it('F12-12.7-06 census: scope="col" exists only on a minority of table headers', () => {
   // Merged tree: cert-fix-D's Analytics failure tables add 8 scoped headers (still a minority).
   expect(summary.th_scope_col).toBe(17)
-  expect(summary.th_total).toBe(122)
+  // 2.0.13 adds one unscoped header (inventory reorder table).
+  expect(summary.th_total).toBe(123)
   expect(summary.th_scope_col * 2).toBeLessThan(summary.th_total)
   expect(summary.th_scope_col_files).toEqual(['components/admin/ChargebackReport.tsx', 'components/jobs/JobTableHeader.tsx',
     'pages/analytics/Analytics.tsx'])

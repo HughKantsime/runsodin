@@ -455,6 +455,20 @@ def test_PA12_scope_mismatch_rejected(tmp_path, monkeypatch):
     _expect("AUTHORIZATION_SCOPE_MISMATCH", _eligible, source, paths)
 
 
+def test_owner_approved_word_passes_schema_with_verbatim_digest(tmp_path, monkeypatch):
+    from ops.release_control.release_authorization import load_and_validate, AuthorizationError
+    source = _run(tmp_path, monkeypatch); build_bundle(source, SHA); paths = _promotion_files(source, tmp_path)
+    payload = json.loads(paths[0].read_text())
+    payload['authorization_text'] = 'Approved'
+    payload['authorization_text_sha256'] = text_sha256('Approved')
+    _write(paths[0], payload)
+    assert load_and_validate(paths[0])['authorization_text'] == 'Approved'
+    for value in ('', *("x" * n for n in range(1, 7)), 'x' * 1001):
+        payload['authorization_text'] = value; payload['authorization_text_sha256'] = text_sha256(value)
+        _write(paths[0], payload)
+        with pytest.raises(AuthorizationError): load_and_validate(paths[0])
+
+
 def test_PA13_verbatim_text_hash_mismatch_rejected(tmp_path, monkeypatch):
     source = _run(tmp_path, monkeypatch); build_bundle(source, SHA); paths = _promotion_files(source, tmp_path)
     payload = json.loads(paths[0].read_text()); payload["authorization_text"] += " changed"; _write(paths[0], payload)

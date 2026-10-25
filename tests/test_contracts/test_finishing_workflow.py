@@ -29,6 +29,9 @@ def test_components_then_finished_receipt_and_prepared_addition_are_distinct(bat
     state=batch[0].get('/products/production/finishing').json()
     assert state['components'][0]['available']==0 and len(state['finishes'])==1
     addition=batch[3].execute(text('SELECT receipt_id,request_body FROM production_stock_additions')).one()
+    adjustment=json.loads(addition.request_body)['changes'][0]['adjustment']
+    assert adjustment['from_location_id']==adjustment['to_location_id']=='L1'
+    assert 'location_id' not in adjustment
     assert addition.receipt_id==done.json()['id'] and json.loads(addition.request_body)['changes'][0]['adjustment']['quantity']=='2'
     from modules.orders.stock_recovery import snapshot,operation
     aid=batch[3].execute(text('SELECT id FROM production_stock_additions')).scalar_one()

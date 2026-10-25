@@ -94,13 +94,20 @@ def test_invalid_action_refused_before_connection(monkeypatch, action):
 
 
 @pytest.mark.parametrize('action',['on','off','toggle'])
-@pytest.mark.parametrize('status,code',[('accepted',200),('unconfirmed',409),('rejected',400)])
-def test_actual_mqtt_route_receipt_never_fabricates_cached_state(mqtt_client,review_db,monkeypatch,action,status,code):
+@pytest.mark.parametrize('outcome,status', [('accepted',200),('unconfirmed',409),('rejected',400)])
+def test_mqtt_manual_route_preserves_publication_receipt_with_nonce(mqtt_client,review_db,monkeypatch,action,outcome,status):
     from modules.notifications import mqtt_republish
     client,issue,calls=mqtt_client;published=[]
-    monkeypatch.setattr(mqtt_republish,'publish_power_command',lambda topic,payload:(published.append((topic,payload)) or status))
-    response=client.post(f'/printers/299/plug/{action}',headers=issue(['write:printers']))
-    assert response.status_code==code
-    assert published==[('synthetic/command',action.upper())]
-    if code==200:assert response.json()=={'accepted':True,'power_state':None}
+    monkeypatch.setattr(mqtt_republish,'publish_power_command',lambda topic,payload:(published.append((topic,payload)) or outcome))
+    response=client.post(f'/printers/299/plug/{action}',headers={**issue(['write:printers']),'X-Power-Request-Nonce':'a'*32})
+    assert response.status_code==status
+    if outcome=='accepted':
+        assert response.json()=={'accepted': True, 'power_state': None}
+    elif outcome=='unconfirmed':
+        assert response.json()['detail']=='Power command may have been sent; confirmation unavailable. Check before retrying.'
+    else:
+        assert response.json()['detail']=='Power command was not accepted'
+    assert published==[('synthetic/command', {'on':'ON','off':'OFF','toggle':'TOGGLE'}[action])]
     assert review_db.execute(text('SELECT plug_power_state FROM printers WHERE id=299')).scalar_one()==1
+
+    assert review_db.execute(text('SELECT count(*) FROM power_target_operations')).scalar_one()==0

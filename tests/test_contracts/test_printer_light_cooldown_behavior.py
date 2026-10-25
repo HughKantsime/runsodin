@@ -10,6 +10,7 @@ from tests.test_contracts.test_api_token_delegation_behavior import token_client
 @pytest.fixture
 def light_client(token_client,offline_store,monkeypatch):
     from modules.printers import routes_controls
+    from modules.printers import monitor_commands
     from modules.printers.telemetry import feature_flag
     from modules.printers.telemetry.bambu import session, broker_policy
     client,issue=token_client;client.app.include_router(routes_controls.router)
@@ -18,7 +19,7 @@ def light_client(token_client,offline_store,monkeypatch):
     monkeypatch.setattr(routes_controls.crypto,'decrypt',lambda value:'|'.join(['synthetic-serial','synthetic-access']))
     monkeypatch.setattr(feature_flag,'is_v2_enabled',lambda:True)
     monkeypatch.setattr(broker_policy,'resolve_bambu_broker_config',lambda *a,**kw:SimpleNamespace(host='127.0.0.1',port=1883,use_tls=False))
-    monkeypatch.setattr(session,'run_command',lambda config,command,*args:(calls.append((command,args)) or True))
+    monkeypatch.setattr(monitor_commands,'request_command',lambda pid,action,**kw:(calls.append((action,(kw['on'],))) or 'accepted'))
     return client,issue,calls
 
 
@@ -27,7 +28,7 @@ def test_light_http_success_matches_boolean_receipt_and_persists_toggle(light_cl
     response=client.post('/printers/199/lights',headers=issue(['write:printers']))
     assert response.status_code==200
     assert response.json()['lights_on'] is True
-    assert calls==[('set_chamber_light',(True,))]
+    assert calls==[('light',(True,))]
     offline_store.expire_all()
     row=offline_store.execute(text('SELECT lights_on,lights_toggled_at FROM printers WHERE id=199')).one()
     assert row[0]==1 and row[1]
@@ -35,15 +36,15 @@ def test_light_http_success_matches_boolean_receipt_and_persists_toggle(light_cl
 
 @pytest.mark.parametrize('foreign',[False,True])
 def test_light_failures_leave_prior_state_and_timestamp_unchanged(light_client,offline_store,monkeypatch,foreign):
-    from modules.printers.telemetry.bambu import session
+    from modules.printers import monitor_commands
     client,issue,calls=light_client
     if foreign:
         offline_store.execute(text('UPDATE printers SET org_id=2,shared=1 WHERE id=199'));offline_store.commit()
     else:
-        monkeypatch.setattr(session,'run_command',lambda config,command,*args:(calls.append((command,args)) or False))
+        monkeypatch.setattr(monitor_commands,'request_command',lambda pid,action,**kw:(calls.append((action,(kw['on'],))) or 'unknown'))
     response=client.post('/printers/199/lights',headers=issue(['write:printers']))
     assert response.status_code==(404 if foreign else 503)
-    assert calls==([] if foreign else [('set_chamber_light',(True,))])
+    assert calls==([] if foreign else [('light',(True,))])
     assert tuple(offline_store.execute(text('SELECT lights_on,lights_toggled_at FROM printers WHERE id=199')).one())==(0,None)
 
 

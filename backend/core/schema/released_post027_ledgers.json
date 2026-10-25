@@ -240,6 +240,32 @@
    "python:035-production-acceptance",
    "python:036-ctec-pilot",
    "python:037-education-memberships"
+  ],
+  "2.0.12": [
+   "python:032-quiet-hours-deferred-deliveries",
+   "python:033-timelapse-capture-tenancy",
+   "python:034-alert-outbox",
+   "python:035-production-acceptance",
+   "python:036-ctec-pilot",
+   "python:037-education-memberships"
+  ],
+  "2.0.13": [
+   "python:032-quiet-hours-deferred-deliveries",
+   "python:033-timelapse-capture-tenancy",
+   "python:034-alert-outbox",
+   "python:035-production-acceptance",
+   "python:036-ctec-pilot",
+   "python:037-education-memberships",
+   "python:038-dispatch-recovery"
+  ],
+  "2.0.15": [
+   "python:032-quiet-hours-deferred-deliveries",
+   "python:033-timelapse-capture-tenancy",
+   "python:034-alert-outbox",
+   "python:035-production-acceptance",
+   "python:036-ctec-pilot",
+   "python:037-education-memberships",
+   "python:038-dispatch-recovery"
   ]
  }
 }

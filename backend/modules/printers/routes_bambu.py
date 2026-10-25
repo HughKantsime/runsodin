@@ -1,4 +1,5 @@
 """Bambu integration routes — test-connection, sync-ams, filament types, manual slot assignment, unmatched slots."""
+from core.base import slot_filament_value
 
 import logging
 from datetime import datetime, timezone
@@ -180,17 +181,17 @@ async def sync_bambu_ams(printer_id: int, current_user: dict = Depends(require_a
             db_slot = FilamentSlot(
                 printer_id=printer_id,
                 slot_number=slot_info.slot_number,
-                filament_type=FilamentType.EMPTY,
+                filament_type=FilamentType(slot_filament_value(FilamentType.EMPTY)),
             )
             db.add(db_slot)
 
         try:
-            db_slot.filament_type = FilamentType(slot_info.mapped_type)
+            db_slot.filament_type = FilamentType(slot_filament_value(FilamentType(slot_info.mapped_type)))
         except ValueError:
             try:
-                db_slot.filament_type = FilamentType.from_bambu_code(slot_info.filament_type)
+                db_slot.filament_type = FilamentType(slot_filament_value(slot_info.filament_type))
             except Exception:
-                db_slot.filament_type = FilamentType.OTHER
+                db_slot.filament_type = FilamentType(slot_filament_value(FilamentType.OTHER))
             unmatched_slots.append(slot_info.slot_number)
 
         if slot_info.mapped_type in ["PLA_SUPPORT", "SUPPORT", "PVA", "HIPS", "BVOH"]:
@@ -249,18 +250,18 @@ async def manual_slot_assignment(
         if not lib_entry:
             raise HTTPException(status_code=404, detail="Library filament not found")
         try:
-            slot.filament_type = FilamentType(lib_entry.material.upper())
+            slot.filament_type = FilamentType(slot_filament_value(lib_entry.material))
         except ValueError:
-            slot.filament_type = FilamentType.OTHER
+            slot.filament_type = FilamentType(slot_filament_value(FilamentType.OTHER))
         slot.color = lib_entry.name
         slot.color_hex = lib_entry.color_hex
         slot.spoolman_spool_id = f"lib_{lib_entry.id}"
     else:
         if assignment.filament_type:
             try:
-                slot.filament_type = FilamentType(assignment.filament_type.upper())
+                slot.filament_type = FilamentType(slot_filament_value(assignment.filament_type))
             except ValueError:
-                slot.filament_type = FilamentType.OTHER
+                slot.filament_type = FilamentType(slot_filament_value(FilamentType.OTHER))
         if assignment.color:
             slot.color = assignment.color
         if assignment.color_hex:

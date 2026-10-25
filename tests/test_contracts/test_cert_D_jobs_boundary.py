@@ -84,7 +84,7 @@ def test_only_the_jobs_module_imports_its_internals():
     offenders, computed = [], {}
     for path in BACKEND.rglob("*.py"):
         rel = path.relative_to(ROOT).as_posix()
-        if rel.startswith("backend/modules/jobs/") or "preserved027" in rel or "preserved029/bundle/" in rel or "preserved034/bundle/" in rel or "preserved035/overlay/" in rel or "preserved036/overlay/" in rel:
+        if rel.startswith("backend/modules/jobs/") or "preserved027" in rel or "preserved029/bundle/" in rel or "preserved034/bundle/" in rel or "preserved035/overlay/" in rel or "preserved036/overlay/" in rel or "preserved037/overlay/" in rel:
             continue
         for name, line, expression in _internal_imports(path.read_text(encoding="utf-8"), rel):
             if expression is not None and (rel, expression) in COMPUTED_IMPORTS:

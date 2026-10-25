@@ -2,6 +2,7 @@
 import math
 import json
 import uuid
+from core.base import slot_filament_value
 from core.material_identity import canonical_reported_material
 from modules.printers.telemetry.validators import coerce_int_or_raise
 
@@ -145,6 +146,11 @@ def sync_ams_inventory(conn, printer_id, units):
     # A sequential clear/write loop loses assignments during valid permutations.
     destinations = {number: before[2].get(tray.get('tag_uid'))
                     for number, tray in identified if tray.get('tray_type')}
+    from core.interfaces.inventory_moves import inventory_moves
+    moves = inventory_moves()
+    moves.observed_departures(conn, printer_id,
+                              [(number, tray.get('tray_type') or '', tray.get('tag_uid')) for number, tray in identified],
+                              {value for value in destinations.values() if value is not None})
     for number, spool_id in destinations.items():
         if spool_id is None:
             continue
@@ -155,11 +161,10 @@ def sync_ams_inventory(conn, printer_id, units):
                 displaced = spools[association[0]]
                 if (displaced[2], displaced[5]) == (printer_id, number):
                     conn.execute('UPDATE spools SET location_printer_id=NULL,location_slot=NULL WHERE id=?', (association[0],))
-    from modules.printers.bambu_integration import map_bambu_filament_type
     for number, tray in identified:
         material = tray.get('tray_type') or ''
         color = (tray.get('tray_color') or '')[:6] if material else None
-        filament_type = map_bambu_filament_type(material) if material else 'empty'
+        filament_type = slot_filament_value(material)
         existing = conn.execute('SELECT id,assigned_spool_id FROM filament_slots WHERE printer_id=? AND slot_number=?', (printer_id, number)).fetchone()
         if existing:
             identifier = existing[0]
@@ -172,6 +177,8 @@ def sync_ams_inventory(conn, printer_id, units):
         # Mutation authority is the validated locked snapshot, never a new lookup.
         spool_id = before[2].get(tray.get('tag_uid')) if material else None
         if spool_id is not None:
+            moves.break_seal(conn, spool_id)
+            conn.execute('UPDATE spools SET storage_location=NULL WHERE id=?', (spool_id,))
             conn.execute('UPDATE filament_slots SET assigned_spool_id=?,spool_confirmed=? WHERE id=?', (spool_id, True, identifier))
             row = spools[spool_id]
             initial = row[3]
@@ -212,7 +219,7 @@ def _clear_unplugged_ht(conn, printer_id, reported):
         if number in reported:
             continue
         conn.execute('UPDATE filament_slots SET filament_type=?,color_hex=NULL,color=NULL,assigned_spool_id=NULL,spool_confirmed=? WHERE id=?',
-                     ('empty', False, slot_id))
+                     (slot_filament_value('empty'), False, slot_id))
         if assigned is not None:
             conn.execute('UPDATE spools SET location_printer_id=NULL,location_slot=NULL'
                          ' WHERE id=? AND location_printer_id=? AND location_slot=?', (assigned, printer_id, number))

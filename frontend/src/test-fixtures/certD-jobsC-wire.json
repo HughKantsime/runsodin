@@ -30,7 +30,7 @@
     "name": "P1S-09",
     "success_rate": 70.0,
     "total_hours": 7.0,
-    "utilization_pct": 1.3
+    "utilization_pct": 1.2
    },
    {
     "avg_job_hours": 0,
@@ -141,10 +141,10 @@
   "suggested_price": null,
   "target_filter": "9",
   "target_type": "specific",
-  "updated_at": "2026-10-23T18:09:34"
+  "updated_at": "2026-10-24T22:13:57"
  },
  "fail_printing_response": {
-  "actual_end": "2026-10-23T18:09:34.644777Z",
+  "actual_end": "2026-10-24T22:13:57.232675Z",
   "actual_start": "2026-10-12T06:00:00",
   "approved_at": null,
   "approved_by": null,
@@ -624,7 +624,7 @@
    "suggested_price": null,
    "target_filter": "9",
    "target_type": "specific",
-   "updated_at": "2026-10-23T18:09:34"
+   "updated_at": "2026-10-24T22:13:57"
   },
   {
    "actual_end": null,
@@ -3104,6 +3104,10 @@
     "admin",
     "operator"
    ],
+   "models.plates": [
+    "admin",
+    "operator"
+   ],
    "orders.create": [
     "admin",
     "operator"
@@ -3123,6 +3127,9 @@
     "admin"
    ],
    "printers.delete": [
+    "admin"
+   ],
+   "printers.dispatch_recovery": [
     "admin"
    ],
    "printers.edit": [
@@ -3323,7 +3330,7 @@
   "charged_to_org_id": 1,
   "colors_list": [],
   "colors_required": null,
-  "created_at": "2026-10-23T18:09:34",
+  "created_at": "2026-10-24T22:13:57",
   "due_date": null,
   "duration_hours": 1.0,
   "effective_duration": 1.0,
@@ -3358,7 +3365,7 @@
   "suggested_price": null,
   "target_filter": "10",
   "target_type": "specific",
-  "updated_at": "2026-10-23T18:09:34"
+  "updated_at": "2026-10-24T22:13:57"
  },
  "printers": [
   {
@@ -3372,7 +3379,7 @@
    "camera_enabled": false,
    "camera_source": null,
    "camera_url": null,
-   "created_at": "2026-10-23T18:09:34",
+   "created_at": "2026-10-24T22:13:57",
    "fan_speed": null,
    "filament_slots": [
     {
@@ -3381,7 +3388,7 @@
      "color_hex": null,
      "filament_type": "PLA",
      "id": 1,
-     "loaded_at": "2026-10-23T18:09:34",
+     "loaded_at": "2026-10-24T22:13:57",
      "material_type": "PLA",
      "printer_id": 9,
      "remaining": null,
@@ -3420,7 +3427,7 @@
    "timelapse_enabled": false,
    "total_print_count": null,
    "total_print_hours": null,
-   "updated_at": "2026-10-23T18:09:34"
+   "updated_at": "2026-10-24T22:13:57"
   },
   {
    "api_host": null,
@@ -3433,7 +3440,7 @@
    "camera_enabled": false,
    "camera_source": null,
    "camera_url": null,
-   "created_at": "2026-10-23T18:09:34",
+   "created_at": "2026-10-24T22:13:57",
    "fan_speed": null,
    "filament_slots": [
     {
@@ -3442,7 +3449,7 @@
      "color_hex": null,
      "filament_type": "PLA",
      "id": 2,
-     "loaded_at": "2026-10-23T18:09:34",
+     "loaded_at": "2026-10-24T22:13:57",
      "material_type": "PLA",
      "printer_id": 10,
      "remaining": null,
@@ -3481,7 +3488,7 @@
    "timelapse_enabled": false,
    "total_print_count": null,
    "total_print_hours": null,
-   "updated_at": "2026-10-23T18:09:34"
+   "updated_at": "2026-10-24T22:13:57"
   }
  ],
  "recent_terminal": [

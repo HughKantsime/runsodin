@@ -1,4 +1,5 @@
 """AMS routes — AMS sync (multi-protocol: Bambu, Moonraker MMU)."""
+from core.base import slot_filament_value
 
 from modules.inventory.services import assign_slot, lock_slot_graph
 from datetime import datetime, timezone
@@ -185,7 +186,6 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
     if printer.api_type.lower() == "anycubic_lan":
         from modules.printers.adapters.anycubic_lan import AnycubicLANPrinter
         from modules.printers.parsing.anycubic_lan import filament_slots
-        from modules.printers.monitors.anycubic_lan_monitor import _material
         client = AnycubicLANPrinter(printer.api_host)
         try:
             if not client.connect() or not client.poll():
@@ -201,7 +201,10 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
                 raise HTTPException(502, "No ACE slot report received")
         finally:
             client.disconnect()
-        printer = _lock_ams_mutation(db, printer_id, current_user, [], acquired_connection)
+        printer, _ = _lock_ams_mutation(db, printer_id, current_user, [], acquired_connection)
+        from core.interfaces.inventory_moves import inventory_moves
+        inventory_moves().observe_slots(db, printer_id,
+            [(s['slot_number'], s['material'] == 'EMPTY', None) for s in slots], set(), current_user)
         updated = []
         for observed in slots:
             slot_num = observed['slot_number']
@@ -209,7 +212,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
             if slot is None:
                 slot = FilamentSlot(printer_id=printer_id, slot_number=slot_num)
                 db.add(slot)
-            slot.filament_type = FilamentType(_material(observed['material']))
+            slot.filament_type = FilamentType(slot_filament_value(observed['material']))
             slot.color = observed['material'] if observed['material'] != 'EMPTY' else None
             if observed['color_hex'] is not None or observed['material'] == 'EMPTY':
                 slot.color_hex = observed['color_hex'] if observed['material'] != 'EMPTY' else None
@@ -251,14 +254,10 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
             return {"success": True, "printer_id": printer_id, "printer_name": printer.name,
                     "slots_synced": 0, "slots": [], "mismatches": [],
                     "message": "No MMU/ACE detected on this printer"}
-        filament_type_map_mk = {
-            "PLA": FilamentType.PLA, "PETG": FilamentType.PETG, "ABS": FilamentType.ABS,
-            "ASA": FilamentType.ASA, "TPU": FilamentType.TPU, "PA": FilamentType.PA,
-            "PC": FilamentType.PC, "PVA": FilamentType.PVA,
-            "PA-CF": FilamentType.NYLON_CF, "PA-GF": FilamentType.NYLON_GF,
-            "PET-CF": FilamentType.PETG_CF, "PLA-CF": FilamentType.PLA_CF,
-        }
         printer, _ = _lock_ams_mutation(db, printer_id, current_user, [], acquired_connection)
+        from core.interfaces.inventory_moves import inventory_moves
+        inventory_moves().observe_slots(db, printer_id,
+            [(s.gate + 1, not s.loaded, None) for s in mk_status.filament_slots], set(), current_user)
         updated_slots = []
         for mmu_slot in mk_status.filament_slots:
             slot_num = mmu_slot.gate + 1
@@ -270,11 +269,11 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
                 db_slot = FilamentSlot(printer_id=printer_id, slot_number=slot_num)
                 db.add(db_slot)
             material_key = (mmu_slot.material or "").upper()
-            ftype = filament_type_map_mk.get(material_key, FilamentType.PLA)
+            ftype = FilamentType(slot_filament_value(material_key))
             color_hex = mmu_slot.color_hex[:6] if mmu_slot.color_hex else None
             color_name = mmu_slot.name or mmu_slot.material or None
             if mmu_slot.loaded:
-                db_slot.filament_type = ftype
+                db_slot.filament_type = FilamentType(slot_filament_value(ftype))
                 db_slot.color = color_name
                 db_slot.color_hex = color_hex
                 db_slot.loaded_at = datetime.now(timezone.utc)
@@ -282,7 +281,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
                     "slot": slot_num, "type": ftype.value, "color": color_name,
                     "color_hex": color_hex, "matched": "mmu_gate"})
             else:
-                db_slot.filament_type = FilamentType.EMPTY
+                db_slot.filament_type = FilamentType(slot_filament_value(FilamentType.EMPTY))
                 db_slot.color = None
                 db_slot.color_hex = None
                 updated_slots.append({"slot": slot_num, "type": "EMPTY", "color": None, "empty": True})
@@ -379,15 +378,6 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
             log.error(f"Printer connection error (Bambu sync): {e}")
             raise HTTPException(status_code=503, detail="Printer connection error. Check printer IP and credentials.")
 
-    filament_type_map = {
-        "PLA": FilamentType.PLA, "PETG": FilamentType.PETG, "ABS": FilamentType.ABS,
-        "ASA": FilamentType.ASA, "TPU": FilamentType.TPU, "PA": FilamentType.PA,
-        "PC": FilamentType.PC, "PVA": FilamentType.PVA,
-        "PLA-S": FilamentType.PLA_SUPPORT, "PA-S": FilamentType.PLA_SUPPORT,
-        "PETG-S": FilamentType.PLA_SUPPORT, "PA-CF": FilamentType.NYLON_CF,
-        "PA-GF": FilamentType.NYLON_GF, "PET-CF": FilamentType.PETG_CF,
-        "PLA-CF": FilamentType.PLA_CF,
-    }
 
     # RFID is globally unique: refuse inaccessible matches before any slot
     # updates, rather than silently transferring them or creating duplicates.
@@ -493,6 +483,11 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
 
     printer, locked_rfid = _lock_ams_mutation(db, printer_id, current_user,
         [slot.rfid_tag for slot in bambu_status.ams_slots if slot.rfid_tag], acquired_connection)
+    from core.interfaces.inventory_moves import inventory_moves
+    from modules.printers.telemetry.bambu.ams_identity import is_rfid_tag
+    inventory_moves().observe_slots(db, printer_id,
+        [(s.slot_number, s.empty, s.rfid_tag if is_rfid_tag(s.rfid_tag) else None) for s in bambu_status.ams_slots],
+        {locked_rfid[s.rfid_tag].id for s in bambu_status.ams_slots if not s.empty and s.rfid_tag in locked_rfid}, current_user)
     updated_slots = []
     for ams_slot in bambu_status.ams_slots:
         db_slot = db.query(FilamentSlot).filter(
@@ -508,14 +503,14 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
             db.flush()
 
         color_hex = ams_slot.color_hex[:6] if ams_slot.color_hex else None
-        ftype = filament_type_map.get(ams_slot.filament_type.upper(), FilamentType.PLA)
+        ftype = FilamentType(slot_filament_value(ams_slot.filament_type))
 
         if not ams_slot.empty:
             rfid_match = find_spool_by_rfid(ams_slot.rfid_tag)
 
             if rfid_match:
                 color_name = f"{rfid_match.filament.brand} {rfid_match.filament.name}".strip() if rfid_match.filament else "Unknown"
-                db_slot.filament_type = ftype
+                db_slot.filament_type = FilamentType(slot_filament_value(ftype))
                 db_slot.color = color_name
                 db_slot.color_hex = color_hex
                 assign_slot(db, db_slot, rfid_match.id, current_user)
@@ -590,7 +585,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
                         raise HTTPException(409, "Spool association changed; retry synchronization") from None
                     raise
                 color_name = f"{library_entry.brand} {library_entry.name}".strip()
-                db_slot.filament_type = ftype
+                db_slot.filament_type = FilamentType(slot_filament_value(ftype))
                 db_slot.color = color_name
                 db_slot.color_hex = color_hex
                 assign_slot(db, db_slot, new_spool.id, current_user)
@@ -606,7 +601,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
             library_match = find_library_match(color_hex, ams_slot.filament_type)
             if library_match:
                 color_name = f"{library_match.brand} {library_match.name}".strip()
-                db_slot.filament_type = ftype
+                db_slot.filament_type = FilamentType(slot_filament_value(ftype))
                 db_slot.color = color_name
                 db_slot.color_hex = color_hex
                 db_slot.loaded_at = datetime.now(timezone.utc)
@@ -617,7 +612,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
                 continue
 
             color_name = get_color_name(color_hex)
-            db_slot.filament_type = ftype
+            db_slot.filament_type = FilamentType(slot_filament_value(ftype))
             db_slot.color = color_name
             db_slot.color_hex = color_hex
             db_slot.loaded_at = datetime.now(timezone.utc)

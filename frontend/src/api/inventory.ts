@@ -16,7 +16,12 @@ import type {
 // QR code spool scanning + full CRUD
 export interface SpoolmanLinkConflict { spoolman_spool_id: number; spools: { id: number | null; qr_code: string | null; org_id: number | null; label: string }[] }
 
+export interface ReorderRow { material: string; color: string; sealed_rolls: number; sealed_g: number; open_g: number; total_g: number; threshold_g: number; reorder: boolean; shortfall_g: number }
+export interface ReceiveRolls { filament_id: number; quantity: number; initial_weight_g: number; storage_location: string; sealed: boolean }
 export const spools = {
+  reorder: (orgId?: number | null): Promise<ReorderRow[]> => fetchAPI('/spools/reorder' + (orgId != null ? `?org_id=${orgId}` : '')),
+  setReorderPolicy: (data: { material: string; color: string; threshold_g: number }): Promise<unknown> => fetchAPI('/spools/reorder-policy', { method: 'PUT', body: JSON.stringify(data) }),
+  receive: (data: ReceiveRolls): Promise<{ spools: { id: number; qr_code: string }[] }> => fetchAPI('/spools/receive', { method: 'POST', body: JSON.stringify(data) }),
   /** Admin-only: Spoolman spools linked to more than one ODIN spool (403 for other roles). */
   linkConflicts: (): Promise<SpoolmanLinkConflict[]> => fetchAPI('/spools/spoolman-link-conflicts'),
   list: (filters: SpoolListFilters = {}): Promise<Spool[]> => {

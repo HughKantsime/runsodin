@@ -115,3 +115,20 @@ def test_actual_http_hang_is_uncertain_reaped_and_not_retried(plug_peer,monkeypa
         assert {process.pid for process in multiprocessing.active_children()}==before
     finally:
         gate.set()
+
+
+def _normal_off(sender, config, deadline):
+    assert config == {'type': 'tasmota', 'host': '192.0.2.1', '_action': 'OFF'}
+    sender.send(('observed', False))
+    sender.close()
+
+
+def test_owned_explicit_off_accepts_false_only_after_normal_exit_and_cleanup(owned_worker):
+    select, processes, snapshots = owned_worker
+    select(_normal_off)
+    receipt = module.bounded_http_power_action({'type': 'tasmota', 'host': '192.0.2.1'}, time.monotonic() + 5, 'OFF')
+    assert receipt.confirmed(False)
+    assert not receipt.confirmed(True)
+    assert receipt.attempt.normal_exit and receipt.attempt.reaped and receipt.attempt.ipc_closed
+    assert not receipt.attempt.start_uncertain
+    assert len(processes) == 1

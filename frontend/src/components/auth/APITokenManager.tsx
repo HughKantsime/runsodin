@@ -11,6 +11,7 @@ const AVAILABLE_SCOPES = [
   { value: 'write:spools', label: 'Write Spools' },
   { value: 'read:models', label: 'Read Models' },
   { value: 'write:models', label: 'Write Models' },
+  { value: 'write:production', label: 'Record production inspections and send accepted stock to Square' },
   { value: 'read:analytics', label: 'Read Analytics' },
   { value: 'read:cameras', label: 'Read Cameras (OBS overlay only: must be the sole scope, up to 365 days)' },
   { value: 'read:education', label: 'Read Education' },

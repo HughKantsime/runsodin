@@ -3,7 +3,7 @@
 **O.D.I.N. (Orchestrated Dispatch & Inventory Network)**
 
 **Effective Date:** February 14, 2026
-**Last Updated:** October 23, 2026
+**Last Updated:** October 25, 2026
 
 **Sublab 3DP** ("Company," "we," "us," or "our")
 **Principal:** Shane Smith

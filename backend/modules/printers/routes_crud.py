@@ -1,4 +1,5 @@
 """Printer CRUD routes — create, read, update, delete, filament slots, test-connection, bulk-update."""
+from core.base import slot_filament_value
 
 from modules.inventory.services import assign_slot
 from core.rbac import should_filter_org, require_action
@@ -146,7 +147,7 @@ def create_printer(
         slot = FilamentSlot(
             printer_id=db_printer.id,
             slot_number=i,
-            filament_type=slot_data.filament_type if slot_data else None,
+            filament_type=FilamentType(slot_filament_value(slot_data.filament_type if slot_data else None)),
             color=slot_data.color if slot_data else None,
             color_hex=slot_data.color_hex if slot_data else None,
         )
@@ -298,7 +299,7 @@ def update_printer(
                     slot = FilamentSlot(
                         printer_id=printer.id,
                         slot_number=i,
-                        filament_type=FilamentType.EMPTY,
+                        filament_type=FilamentType(slot_filament_value(FilamentType.EMPTY)),
                     )
                     db.add(slot)
         elif new_count < current_count:
@@ -410,7 +411,7 @@ def update_filament_slot(
     if 'assigned_spool_id' in values:
         assign_slot(db, slot, values.pop('assigned_spool_id'), current_user)
     for field, value in values.items():
-        setattr(slot, field, value)
+        setattr(slot, field, FilamentType(slot_filament_value(value)) if field == "filament_type" else value)
 
     if slot.filament_type and slot.filament_type.value == "empty":
         slot.color = None

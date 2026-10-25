@@ -9,6 +9,30 @@ from modules.jobs.models import Job
 def _stage_prospective_queue_job(db: Session, job: Job, actor: dict):
     """Attest only the inserted billed owner; route authorization stays upstream."""
     from core.economic_identity import _add_created
+    from core.print_file_binding import job_file_id, target_printer, require_bound_target
+    file_id = job_file_id(db, job.model_id, job.print_file_id)
+    bound = target_printer(db, file_id)
+    if bound is not None:
+        require_bound_target(db, file_id, job.printer_id)
+        if job.print_file_id is None:
+            from core.print_payload_snapshot import hash_regular_payload, PayloadUnavailable
+            from core.errors import OdinError, ErrorCode
+            from core.print_payload import validate_plate
+            from pathlib import Path
+            path = db.execute(text("SELECT stored_path FROM print_files WHERE id=:id"), {"id":file_id}).scalar()
+            try:
+                job.payload_sha256 = hash_regular_payload(path)
+            except (PayloadUnavailable, TypeError):
+                raise OdinError(ErrorCode.resource_conflict, "Bound print payload is unavailable", status=409) from None
+            job.print_file_id = file_id
+            job.plate_index = 0
+            if Path(path).suffix.lower() == ".3mf":
+                validate_plate(path, 0, "bambu")
+        from modules.jobs.pinning import pin_columns
+        # Creation-time target columns only; status belongs to the state machine.
+        pin = pin_columns(bound)
+        job.target_type = pin["target_type"]
+        job.target_filter = pin["target_filter"]
     owner = job.charged_to_org_id
     actor_org = actor.get("group_id")
     global_authority = actor.get("role") == "admin" and actor_org is None

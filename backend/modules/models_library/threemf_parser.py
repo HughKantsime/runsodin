@@ -683,6 +683,9 @@ def plate_summaries(zf: zipfile.ZipFile) -> list:
     """
     numbers = sorted({int(m.group(1)) for name in zf.namelist()
                       if (m := re.fullmatch(r"Metadata/plate_([1-9][0-9]*)\.gcode", name))})
+    sliced_numbers = set(numbers)
+    numbers = sorted(sliced_numbers | {int(m.group(1)) for name in zf.namelist()
+                     if (m := re.fullmatch(r"Metadata/plate_([1-9][0-9]*)\.json", name))})
     sliced = {}
     try:
         with zf.open('Metadata/slice_info.config') as f:
@@ -709,6 +712,7 @@ def plate_summaries(zf: zipfile.ZipFile) -> list:
         grams, seconds = sliced.get(number, (None, None))
         summaries.append({
             'plate_index': number - 1,
+            'is_sliced': number in sliced_numbers,
             'sellable_pieces': sum(1 for obj in objects if obj.get('checked')) if objects is not None else None,
             'filament_grams': grams,
             'print_time_seconds': seconds,

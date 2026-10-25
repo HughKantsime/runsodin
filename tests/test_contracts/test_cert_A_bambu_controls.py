@@ -162,7 +162,23 @@ def test_ams_slot_configuration_requires_operator(cert_app, broker_socket):
 
 
 @pytest.mark.parametrize("role", ["operator", "admin"])
-def test_light_toggle_sends_chamber_ledctrl_and_flips_state(cert_app, broker_socket, review_db, role):
+def test_light_toggle_sends_chamber_ledctrl_and_flips_state(cert_app, broker_socket, review_db, role, monkeypatch):
+    from threading import Lock
+    from types import SimpleNamespace
+    import time
+    from modules.printers.adapters.bambu import BambuPrinter
+    from modules.printers import monitor_commands
+    # The monitor owns the one permitted MQTT connection. Any extra session fails.
+    transport = BambuPrinter(ip='192.0.2.31', serial=SERIAL, access_code=ACCESS)
+    assert transport.connect()
+    monitor = SimpleNamespace(_lock=Lock(), _bambu=transport, serial=SERIAL)
+    import paho.mqtt.client as paho
+    def no_extra_connection(*args, **kwargs):
+        pytest.fail('Light command opened a second MQTT connection')
+    monkeypatch.setattr(paho, 'Client', no_extra_connection)
+    monkeypatch.setattr(monitor_commands, 'request_command', lambda pid, action, **kw:
+        monitor_commands.execute({301: monitor}, dict(printer_id=pid, action=action,
+            deadline=time.monotonic()+3, **kw)))
     review_db.execute(text("UPDATE printers SET lights_on=0 WHERE id=301"))
     review_db.commit()
     first = cert_app.post("/printers/301/lights", headers=cert_app.roles[role])
@@ -173,6 +189,8 @@ def test_light_toggle_sends_chamber_ledctrl_and_flips_state(cert_app, broker_soc
         {"system": {"sequence_id": "0", "command": "ledctrl", "led_node": "chamber_light", "led_mode": "on"}},
         {"system": {"sequence_id": "0", "command": "ledctrl", "led_node": "chamber_light", "led_mode": "off"}},
     ]
+    assert len(broker_socket.instances) == 1
+    transport.disconnect()
     review_db.expire_all()
     row = review_db.execute(text("SELECT lights_on,lights_toggled_at FROM printers WHERE id=301")).one()
     assert row[0] in (0, False) and row[1] is not None

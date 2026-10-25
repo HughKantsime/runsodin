@@ -143,6 +143,8 @@ def _contents_responses() -> list[dict[str, object]]:
 
 def test_PI01_exact_valid_stage_inputs_context_pass():
     workflow.validate_inputs(_inputs(), _current())
+    inputs = _inputs(); inputs["authorization_text"] = "Approved"
+    workflow.validate_inputs(inputs, _current())
 
 
 def test_PI02_wrong_actor_login_or_id_rejects():
@@ -189,7 +191,7 @@ def test_PI09_invalid_nonce_rejects():
 
 
 def test_PI10_empty_or_oversized_text_rejects():
-    for value in ("", "x" * 1001):
+    for value in ("", *("x" * n for n in range(1, 7)), "x" * 1001):
         inputs = _inputs(); inputs["authorization_text"] = value
         _expect("AUTHORIZATION_INVALID", workflow.validate_inputs, inputs, _current())
 

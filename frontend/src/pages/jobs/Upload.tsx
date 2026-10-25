@@ -5,8 +5,9 @@ import { useNavigate, Link } from 'react-router-dom'
 import clsx from 'clsx'
 import toast from 'react-hot-toast'
 import ConfirmModal from '../../components/shared/ConfirmModal'
+import Select from '../../components/ui/Select'
 
-import { printFiles, getApprovalSetting } from '../../api'
+import { printFiles, getApprovalSetting, printers } from '../../api'
 import { models as modelsApi } from '../../api'
 import { getCurrentUser } from '../../permissions'
 
@@ -95,7 +96,7 @@ function FilamentBadge({ filament }) {
 function UploadSuccess({ data, onUploadAnother, onViewLibrary, onScheduleNow, onUpdateObjects, submitForApproval, onSaveQuantity }) {
   const [quickPrinted, setQuickPrinted] = useState(false)
   const quickPrintMut = useMutation({
-    mutationFn: () => modelsApi.schedule(data.model_id),
+    mutationFn: () => data.target_printer_id ? modelsApi.schedule(data.model_id, data.target_printer_id) : modelsApi.schedule(data.model_id),
     onSuccess: () => { setQuickPrinted(true); toast.success('Job queued') },
     onError: (err) => toast.error('Quick print failed: ' + err.message),
   })
@@ -304,6 +305,8 @@ export default function Upload() {
   const navigate = useNavigate()
   const [uploadedFile, setUploadedFile] = useState(null)
   const [uploadProgress, setUploadProgress] = useState(null)
+  const [targetPrinter, setTargetPrinter] = useState('')
+  const { data: uploadPrinters = [] } = useQuery({ queryKey: ['printers'], queryFn: () => printers.list(true) })
 
   // Sellable pieces (checked objects) persist as models.quantity_per_bed for a NEW model only.
   // The server stores the default checked count; toggles re-save, coalesced into one PATCH,
@@ -367,6 +370,7 @@ export default function Upload() {
         xhr.withCredentials = true  // send session cookie
         const formData = new FormData()
         formData.append('file', file)
+        if (targetPrinter) formData.append('target_printer_id', targetPrinter)
         xhr.send(formData)
       })
     },
@@ -402,6 +406,7 @@ export default function Upload() {
         </div>
       </div>
 
+      {uploadedFile?.target_printer_id && <p className="mb-3 text-sm">Bound to printer {uploadPrinters.find(p => p.id === uploadedFile.target_printer_id)?.name || uploadedFile.target_printer_id}</p>}
       {uploadedFile ? (
         <UploadSuccess
           data={uploadedFile}
@@ -416,6 +421,10 @@ export default function Upload() {
         />
       ) : (
         <>
+          <Select label="Target printer (optional)" id="upload-target-printer" value={targetPrinter} onChange={e => setTargetPrinter(e.target.value)} disabled={uploadMutation.isPending} className="w-full mb-4 rounded-md bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] px-3 py-2">
+            <option value="">Any compatible printer</option>
+            {uploadPrinters.filter(p => p.is_active).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </Select>
           <DropZone onFileSelect={handleFileSelect} isUploading={uploadMutation.isPending} uploadProgress={uploadProgress} />
           {uploadMutation.isError && (
             <div className="mt-4 bg-red-900/30 border border-red-700 rounded-md p-4">

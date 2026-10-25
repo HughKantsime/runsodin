@@ -2,6 +2,42 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.15] - 2026-10-25
+
+<!-- summary: Explicit production operator tokens for inspections and Square stock sends -->
+
+### Added
+
+- Operators can explicitly delegate production inspections, addition checks and Square stock sends with a `write:production` token. Credential changes, connector setup, baselines and recipe qualification still require a password session.
+- Production inspection and stock-send reservation audits identify the operator and token ID, without retaining the credential. Existing duplicate-send protection, tenant boundaries and Square activation checks remain enforced.
+
+## [2.0.13] - 2026-10-24
+
+<!-- summary: Dispatch recovery actions, filament inventory reliability, and upload printer binding with per-plate scheduling -->
+
+### Added
+
+- Dispatch recovery: from a printer's recovery panel, an admin can hold the job, record a retained investigation, or release a stuck dispatch claim. Release requires that no ODIN dispatch is in progress for that printer, fresh printer telemetry showing it isn't running the attempt, a held job, and the operator's confirmation for what ODIN can't see. It never sends a printer command or retries. Every decision is kept as history.
+- Filament inventory: a reorder view by material and color (sealed and open grams against a threshold), receiving new rolls into storage, and printable QR labels for non-RFID spools that scan-assign accepts.
+- When a slot explicitly reports empty or a different RFID tag, the spool leaves the slot automatically, with an audit entry. Spent rolls retire, and others become Unlocated. Material or color alone never decides identity.
+- Uploads can be bound to a printer. Scheduling, reassignment and dispatch then refuse any other printer.
+- Multi-plate 3MF models list each sliced plate with its estimate and filament, and a single plate can be scheduled on its own.
+
+## [2.0.12] - 2026-10-23
+
+<!-- summary: P1S lights, vision dismiss-and-resume, Tasmota power fencing, and slot-material and setup fixes -->
+
+### Fixed
+
+- No printer sync (Moonraker, Bambu AMS, Anycubic) or slot route can store a material label such as PLA+ that breaks the printer list; every slot write goes through one material mapping.
+- P1S chamber-light controls work again. Commands are sent over the monitor's existing printer connection instead of opening a second one the printer refuses.
+- Vigil AI "Dismiss and resume" works again. It resumes only a paused print that matches the detection's job and refuses stale or ambiguous cases.
+- The first-run setup wizard's printer connection test works, and it accepts a PrusaLink API key.
+
+### Changed
+
+- Direct Tasmota smart-plug commands are fenced across processes. A command whose outcome is uncertain blocks dispatch to that printer until it is reconciled. Home Assistant and MQTT plugs behave as before.
+
 ## [2.0.11] - 2026-10-23
 
 <!-- summary: Community fixes (PLA+, PrusaLink, Moonraker, G-code upload) and Sublab operations -->

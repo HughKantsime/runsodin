@@ -179,7 +179,7 @@ def finish(db,user,data):
         mapping=config['mappings'].get(str(data.product_id))
         if not mapping:raise HTTPException(409,'Map the finished product to Square before accepting good assemblies')
         dest={'merchant_id':config['merchant_id'],'environment':config['environment'],'connection_revision':config['revision']}
-        change={'type':'ADJUSTMENT','adjustment':{'catalog_object_id':mapping['variation_id'],'location_id':mapping['location_id'],'from_state':'NONE','to_state':'IN_STOCK','quantity':str(data.accepted),'occurred_at':timestamp,'reference_id':identifier}}
+        change={'type':'ADJUSTMENT','adjustment':{'catalog_object_id':mapping['variation_id'],'from_location_id':mapping['location_id'],'to_location_id':mapping['location_id'],'from_state':'NONE','to_state':'IN_STOCK','quantity':str(data.accepted),'occurred_at':timestamp,'reference_id':identifier}}
         db.execute(batches.additions.insert().values(id=uuid.uuid4().hex,owner=owner,receipt_id=identifier,destination=batches.packed(dest),request_body=batches.packed({'idempotency_key':identifier,'changes':[change]}),state='prepared',attempts=0))
     doc['finishes'][data.request_id]=row;save(db,owner,doc,raw);db.commit();return row
 

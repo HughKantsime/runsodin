@@ -13,7 +13,7 @@ from modules.orders.square_client import HOSTS, VERSION, SquareReader, identifie
 
 # Deployment switch is intentionally captured once, at process import/start.
 LIVE_WRITES_ENABLED = os.environ.get('ODIN_SQUARE_STOCK_WRITES') == '1'
-FIELDS = frozenset(('catalog_object_id','location_id','from_state','to_state','quantity','occurred_at','reference_id'))
+FIELDS = frozenset(('catalog_object_id','from_location_id','to_location_id','from_state','to_state','quantity','occurred_at','reference_id'))
 HEX = re.compile(r'^[a-f0-9]{32}$')
 
 
@@ -30,7 +30,7 @@ def timestamp(value):
         invalid()
 
 
-def validate_request(raw):
+def validate_request(raw, *, allow_legacy=False):
     try:
         if not isinstance(raw,str) or len(raw)>32768: invalid()
         doc=json.loads(raw)
@@ -41,18 +41,31 @@ def validate_request(raw):
         for change in changes:
             if not isinstance(change,dict) or set(change)!= {'type','adjustment'} or change['type']!='ADJUSTMENT': invalid()
             a=change['adjustment']
-            if not isinstance(a,dict) or set(a)!=FIELDS: invalid()
-            identifier(a['catalog_object_id']);identifier(a['location_id'])
+            if not isinstance(a,dict): invalid()
+            legacy_fields = (FIELDS - {'from_location_id','to_location_id'}) | {'location_id'}
+            if set(a)==legacy_fields:
+                if not allow_legacy:
+                    raise HTTPException(409, 'This addition was prepared for a retired Square API shape; review it')
+                location = a.pop('location_id')
+                a.update(from_location_id=location, to_location_id=location)
+            if set(a)!=FIELDS: invalid()
+            identifier(a['catalog_object_id']);identifier(a['from_location_id']);identifier(a['to_location_id'])
+            if a['from_location_id']!=a['to_location_id']: invalid()
             if (a['from_state'],a['to_state'])!=('NONE','IN_STOCK'): invalid()
             if not isinstance(a['quantity'],str) or not re.fullmatch(r'[1-9][0-9]{0,4}',a['quantity']) or int(a['quantity'])>80000: invalid()
             if a['reference_id']!=doc['idempotency_key']: invalid()
             timestamp(a['occurred_at'])
-            pair=(a['catalog_object_id'],a['location_id'])
+            pair=(a['catalog_object_id'],a['to_location_id'])
             if pair in pairs: invalid()
             pairs.add(pair)
         return doc
     except (ValueError,TypeError,KeyError):
         invalid()
+
+
+def read_request(raw):
+    """Normalize a parsed copy for inspection; saved request bytes remain evidence."""
+    return validate_request(raw, allow_legacy=True)
 
 
 def exchange(environment, token, path, raw, *, tenant_enabled=False):
@@ -86,7 +99,7 @@ def exchange(environment, token, path, raw, *, tenant_enabled=False):
 def valid_counts(response, request):
     counts=response.get('counts')
     if not isinstance(counts,list):return False
-    expected={(c['adjustment']['catalog_object_id'],c['adjustment']['location_id']) for c in request['changes']}
+    expected={(c['adjustment']['catalog_object_id'],c['adjustment']['to_location_id']) for c in request['changes']}
     found=Counter()
     try:
         for c in counts:
@@ -117,9 +130,9 @@ class SquareWriter:
 class SquareInventoryProbe(SquareReader):
     def reconciled(self, raw):
         """Bounded complete history, never current balances, proves old delivery."""
-        request=validate_request(raw)
+        request=read_request(raw)
         body={'catalog_object_ids':sorted({c['adjustment']['catalog_object_id'] for c in request['changes']}),
-              'location_ids':sorted({c['adjustment']['location_id'] for c in request['changes']}),
+              'location_ids':sorted({c['adjustment']['to_location_id'] for c in request['changes']}),
               'types':['ADJUSTMENT'],'limit':100,
               'updated_after':(min(timestamp(c['adjustment']['occurred_at']) for c in request['changes'])-timedelta(days=1)).isoformat()}
         expected=Counter(adjustment_signature(c['adjustment']) for c in request['changes'])
