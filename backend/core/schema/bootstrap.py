@@ -114,7 +114,7 @@ RAW_REQUIRED_TABLES = frozenset(
 # a newer migration helper before selecting its closed source contract.
 POWER_OPERATION_COLUMNS = tuple("operation_nonce request_nonce owner_nonce printer_id target_key config_key destination_key purpose physical_job_id scheduled_job_id observation_key actor_user_id auth_kind authority_key state revision created_at changed_at command_started_at release_pending_at completed_at outcome cleanup_reason".split())
 
-RAW_REQUIRED_TABLES = RAW_REQUIRED_TABLES | frozenset({'education_memberships', 'dispatch_recovery_history'})
+RAW_REQUIRED_TABLES = RAW_REQUIRED_TABLES | frozenset({'education_memberships', 'dispatch_recovery_history', 'terminal_filament_measurements', 'filament_cost_events'})
 
 RAW_REQUIRED_COLUMNS = {
     "inventory_repairs": frozenset("event_id spool_id actor_id action before_json after_json created_at".split()),
@@ -220,6 +220,8 @@ for _economic_table in ('orders', 'order_items', 'jobs'):
 for _source_table in ('spools', 'print_jobs'):
     RAW_REQUIRED_COLUMNS[_source_table] = RAW_REQUIRED_COLUMNS.get(_source_table, frozenset()) | frozenset({'economic_uid', 'economic_birth_nonce'})
 RAW_REQUIRED_COLUMNS['dispatch_recovery_history'] = frozenset('id created_at audit_id actor_id actor_identity owner_org_id charged_org_id printer_id job_id attempt_handle snapshot_handle decision reason_category facts'.split())
+RAW_REQUIRED_COLUMNS['terminal_filament_measurements'] = frozenset('observation_id attempt_uid attempt_birth owner_scope owner_key order_uid item_uid allocation_key outcome measurement_basis measured_grams reported_value reconciliation_reason snapshot_json created_at'.split())
+RAW_REQUIRED_COLUMNS['filament_cost_events'] = frozenset('event_id observation_id revision expected_revision audit_reason spool_uid purchase_evidence_nonce currency amount_decimal reason calculation_version created_at'.split())
 RAW_REQUIRED_COLUMNS['education_memberships'] = frozenset({'user_id','org_id','retained_at','ended_at'})
 RAW_REQUIRED_COLUMNS['orders'] |= frozenset({'economic_global_origin_nonce'})
 RAW_REQUIRED_COLUMNS['spools'] |= frozenset({'purchase_evidence_nonce','purchase_revision'})
@@ -298,6 +300,7 @@ POST027_MIGRATIONS = (
     ("python:036-ctec-pilot", "core.schema.migrations.036_ctec_pilot"),
     ("python:037-education-memberships", "core.schema.migrations.037_education_memberships"),
     ("python:038-dispatch-recovery", "core.schema.migrations.038_dispatch_recovery"),
+    ("python:039-measured-filament", "core.schema.migrations.039_measured_filament"),
 )
 
 

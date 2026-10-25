@@ -37,7 +37,7 @@ def test_live_current_trigger_union_uses_table_name_keys_and_native_power_shape(
 def test_live_executable_counts():
     # Update together with the migration that adds a PostgreSQL function or trigger.
     functions, triggers = canonical_functions(), canonical_triggers()
-    assert (len(functions), len(triggers)) == (29, 40)
+    assert (len(functions), len(triggers)) == (31, 44)
     assert "power_target_operation_guard" in functions and "spool_purchase_evidence_guard" in functions
     assert all(value[6] == "" for value in functions.values())
 
@@ -45,6 +45,10 @@ def test_live_executable_counts():
 # Raw tables (and their exact columns) each registered post-027 migration adds. A new
 # migration must extend this map; the test below fails until it does.
 POST027_RAW_TABLES = {
+    "python:039-measured-filament": {
+        "terminal_filament_measurements": frozenset("observation_id attempt_uid attempt_birth owner_scope owner_key order_uid item_uid allocation_key outcome measurement_basis measured_grams reported_value reconciliation_reason snapshot_json created_at".split()),
+        "filament_cost_events": frozenset("event_id observation_id revision expected_revision audit_reason spool_uid purchase_evidence_nonce currency amount_decimal reason calculation_version created_at".split()),
+    },
     "python:038-dispatch-recovery": {
         "dispatch_recovery_history": frozenset("id created_at audit_id actor_id actor_identity owner_org_id charged_org_id printer_id job_id attempt_handle snapshot_handle decision reason_category facts".split()),
     },
@@ -83,13 +87,16 @@ def test_live_inventory_is_preserved027_plus_exactly_the_registered_post027_tabl
     live_columns = {table: sorted(columns) for table, columns in RAW_REQUIRED_COLUMNS.items()}
     expected_columns = {**accepted["raw_columns"], **{table: sorted(columns) for table, columns in added.items()}}
     assert live_columns == expected_columns
-    # 037 and 038 add exactly their source-pinned functions and triggers.
+    # 037, 038 and 039 add exactly their source-pinned functions and triggers.
     import importlib
     retained=importlib.import_module('core.schema.migrations.037_education_memberships')
     recovery=importlib.import_module('core.schema.migrations.038_dispatch_recovery')
     added_functions = {**retained.pg_functions(), **recovery.pg_functions()}
     added_triggers = {**retained.pg_triggers(), **recovery.pg_triggers()}
     functions=canonical_functions();triggers=canonical_triggers()
+    measured=importlib.import_module('core.schema.migrations.039_measured_filament')
+    added_functions.update(measured.pg_functions())
+    added_triggers.update(measured.pg_triggers())
     assert set(functions)-set(accepted['functions']) == set(added_functions)
     assert json.loads(json.dumps({k:v for k,v in functions.items() if k not in added_functions})) == accepted["functions"]
     assert json.loads(json.dumps([[list(k), list(v)] for k, v in sorted(triggers.items()) if k not in added_triggers])) == accepted["triggers"]

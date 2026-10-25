@@ -33,6 +33,7 @@ export const products = {
 
 // Orders (v0.14.0)
 export const orders = {
+  measuredCosts: (id: number): Promise<OrderMeasuredCosts> => fetchAPI(`/orders/${id}/measured-costs`),
   list: (status?: OrderStatus, platform?: string): Promise<Order[]> => {
     const params = new URLSearchParams()
     if (status) params.append('status_filter', status)
@@ -79,4 +80,19 @@ export const orderInvoice = async (orderId: number, orderNumber?: string): Promi
   a.download = `invoice_${orderNumber || orderId}.pdf`
   a.click()
   URL.revokeObjectURL(url)
+}
+
+
+export interface OrderMeasuredCosts {
+  measured_filament_known_subtotal: string | null
+  currency: string | null
+  filament_state: 'fully_measured' | 'partial' | 'estimated_only' | 'unknown'
+  production_cogs_state: 'unavailable'
+  known_attempts: number
+  unresolved_attempts: number
+  open_attempts: number
+  reasons: string[]
+  successful_subtotal: string | null
+  failed_cancelled_subtotal: string | null
+  attempts: { attempt_id: number | null; outcome: 'completed' | 'failed' | 'cancelled' | 'open'; measurement_basis: 'printer_reported' | 'unavailable' | 'invalid'; amount: string | null; currency: string | null; reason: string | null }[]
 }

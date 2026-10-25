@@ -44,3 +44,27 @@ class PrivateUnitValuation(_Closed):
 class UnavailableValuation(_Closed):
     state:Literal['unavailable']
     reason:Literal['missing_historical_valuation']
+
+
+MeasuredReason=Literal['missing_measurement','invalid_measurement','missing_historical_valuation','unresolved_allocation','unresolved_purchase_evidence','currency_mismatch','valuation_bound_exceeded','mixed_order_plate','archive_ownership_unresolved','open_attempt','missing_terminal_observation','no_participating_attempts','inventory_shortfall']
+
+class MeasuredAttempt(_Closed):
+    attempt_id:StrictInt|None
+    outcome:Literal['completed','failed','cancelled','open']
+    measurement_basis:Literal['printer_reported','unavailable','invalid']
+    amount:str|None=Field(max_length=100)
+    currency:Literal['USD','EUR','GBP','CAD','AUD','JPY','NZD','CHF']|None
+    reason:MeasuredReason|None
+
+class OrderMeasuredCosts(_Closed):
+    measured_filament_known_subtotal:str|None=Field(max_length=100)
+    currency:Literal['USD','EUR','GBP','CAD','AUD','JPY','NZD','CHF']|None
+    filament_state:Literal['fully_measured','partial','estimated_only','unknown']
+    production_cogs_state:Literal['unavailable']
+    known_attempts:StrictInt=Field(ge=0)
+    unresolved_attempts:StrictInt=Field(ge=0)
+    open_attempts:StrictInt=Field(ge=0)
+    reasons:list[MeasuredReason]
+    successful_subtotal:str|None=Field(max_length=100)
+    failed_cancelled_subtotal:str|None=Field(max_length=100)
+    attempts:list[MeasuredAttempt]=Field(max_length=1000)

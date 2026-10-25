@@ -434,3 +434,28 @@ def test_incomplete_pending_pair_is_audited_and_cleaned(tmp_path: Path, survivor
         ).fetchone()[0] == 1
     finally:
         connection.close()
+
+
+def test_fresh_039_backup_validate_restore_round_trip(tmp_path):
+    from sqlalchemy import create_engine, text
+    from core.schema import bootstrap_database
+    live = tmp_path / 'fresh.sqlite'
+    engine = create_engine('sqlite:///' + str(live))
+    bootstrap_database(engine)
+    with engine.begin() as db:
+        assert db.execute(text("SELECT 1 FROM odin_schema_migrations WHERE migration_id='python:039-measured-filament'")).scalar_one() == 1
+        db.execute(text("INSERT INTO system_config(key,value) VALUES('round_trip','retained')"))
+    engine.dispose()
+    url = 'sqlite:///' + str(live)
+    candidate, metadata = create_online_backup(url, base_dir=tmp_path / 'backup')
+    assert validate_database(candidate)['table_count'] == metadata['table_count']
+    with sqlite3.connect(live) as db:
+        db.execute("UPDATE system_config SET value='changed' WHERE key='round_trip'")
+    base = tmp_path / 'restore'
+    stage_restore(candidate, url, base_dir=base)
+    assert apply_pending_restore(url, base_dir=base, pid_file=None)['status'] == 'applied_pending_validation'
+    assert finalize_pending_restore(url, base_dir=base, pid_file=None)['status'] == 'restored'
+    validate_database(live)
+    with sqlite3.connect(live) as db:
+        assert db.execute("SELECT value FROM system_config WHERE key='round_trip'").fetchone() == ('retained',)
+        assert db.execute("SELECT count(*) FROM sqlite_master WHERE type='trigger' AND tbl_name IN ('terminal_filament_measurements','filament_cost_events')").fetchone() == (6,)

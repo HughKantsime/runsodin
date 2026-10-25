@@ -19,14 +19,17 @@ def _columns(path):
 def test_current_union_and_every_missing_guard_refused(review_db, tmp_path):
     path = Path(review_db.get_bind().url.database)
     allowed = service._canonical_sqlite_triggers()
-    assert len(allowed) == 67
+    assert len(allowed) == 89
     with sqlite3.connect(path) as db:
         actual = {name: (table, service._normalized_schema_sql(sql)) for name, table, sql in db.execute(
             "SELECT name,tbl_name,sql FROM sqlite_master WHERE type='trigger'")}
     assert actual == allowed
     assert service.validate_database(path)['table_count'] > 30
-    # Every predecessor, Education and late guard is required even with empty rows.
-    for name in allowed:
+    # Admission requires the supported dependency families present in this DB.
+    required = service._required_sqlite_guards(_columns(path), allowed)
+    measured = importlib.import_module('core.schema.migrations.039_measured_filament')
+    assert set(measured.sqlite_triggers()) <= required
+    for name in required:
         candidate = tmp_path / 'missing.sqlite'
         with sqlite3.connect(path) as original, sqlite3.connect(candidate) as copy:
             original.backup(copy)
@@ -91,7 +94,7 @@ def test_late_packaged_integrity_failure_closed(review_db,monkeypatch,suffix):
     module = importlib.import_module('core.schema.migrations.'+suffix)
     def unavailable():
         raise RuntimeError('synthetic source mismatch')
-    monkeypatch.setattr(module,'_source',unavailable)
+    monkeypatch.setattr(module,'sqlite_triggers' if suffix.startswith(('037_', '038_', '039_')) else '_source',unavailable)
     with pytest.raises(service.BackupValidationError, match='Packaged backup trigger contract is unavailable'):
         service.validate_database(Path(review_db.get_bind().url.database))
 

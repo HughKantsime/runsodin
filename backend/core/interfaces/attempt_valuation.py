@@ -7,6 +7,7 @@ from core.registry import registry
 @runtime_checkable
 class AttemptValuationProvider(Protocol):
     def read_private_valuation(self, db: Any, request: Any, actor: dict, attempt_id: int) -> dict: ...
+    def read_order_measured_costs(self, db: Any, request: Any, actor: dict, order_id: int) -> dict: ...
 
 
 def require_attempt_valuation_provider() -> AttemptValuationProvider:

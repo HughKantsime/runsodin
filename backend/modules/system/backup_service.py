@@ -154,7 +154,7 @@ _LATE_TRIGGER_MODULES = (
     '021_economic_identity', '022_economic_source_lifetimes',
     '023_timelapse_retirement_membership', '024_audit_actor',
     '025_spool_purchase_evidence', '026_global_order_origins',
-    '027_power_target_operations', '037_education_memberships', '038_dispatch_recovery',
+    '027_power_target_operations', '037_education_memberships', '038_dispatch_recovery', '039_measured_filament',
 )
 
 
@@ -180,7 +180,7 @@ def _canonical_sqlite_triggers():
                         if name in definitions:
                             raise ValueError('Duplicate packaged trigger')
                         definitions[name] = sql
-            elif suffix.startswith(('037_', '038_')):
+            elif suffix.startswith(('037_', '038_', '039_')):
                 definitions = module.sqlite_triggers()
             elif suffix.startswith('022_'):
                 definitions = module._sqlite_triggers()
@@ -327,6 +327,12 @@ def _required_sqlite_guards(columns, allowed):
         require('power_target_operations', _POWER_COLUMNS)
     if 'education_audit_events' in columns:
         required_tables.add('education_audit_events')
+    if any(t in columns for t in ('terminal_filament_measurements', 'filament_cost_events')):
+        births()
+        require('terminal_filament_measurements', 'observation_id attempt_uid attempt_birth owner_scope owner_key order_uid item_uid allocation_key outcome measurement_basis measured_grams snapshot_json reported_value reconciliation_reason created_at')
+        require('filament_cost_events', 'event_id observation_id revision expected_revision audit_reason spool_uid purchase_evidence_nonce currency amount_decimal reason calculation_version created_at')
+        for table, names in _PURCHASE_COLUMNS.items():
+            require(table, names)
     # Table requirements do not imply unrelated late families on the same source.
     required = set()
     for name, (table, _) in allowed.items():

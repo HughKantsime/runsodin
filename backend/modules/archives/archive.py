@@ -38,6 +38,10 @@ def create_print_archive(print_job_id: int, printer_id: int, success: bool,
                 cur.execute('SELECT id FROM print_archives WHERE print_job_id=? ORDER BY id', (print_job_id,))
                 existing = cur.fetchone()
                 if existing:
+                    # Replay checks an existing original, never backfills legacy archives.
+                    cur.execute('SELECT 1 FROM terminal_filament_measurements m JOIN print_jobs p ON p.economic_uid=m.attempt_uid WHERE p.id=?', (print_job_id,))
+                    if cur.fetchone():
+                        _retain_terminal_safely(conn, print_job_id, archive_id=existing[0])
                     conn.commit()
                     return existing[0]
                 cur.execute('SELECT job_name,started_at,ended_at,scheduled_job_id,status,'
@@ -133,6 +137,7 @@ def create_print_archive(print_job_id: int, printer_id: int, success: bool,
                     accounting_state, reason = 'unresolved', 'archive_ownership_unresolved'
                 cur.execute('UPDATE print_archives SET accounting_state=?,accounting_reason=? WHERE id=?',
                             (accounting_state, reason, archive_id))
+                _retain_terminal_safely(conn, print_job_id, archive_id=archive_id, ownership_known=owner_state=='known', reconciliation_reason=reason)
                 conn.commit()
                 return archive_id
             except BaseException:
@@ -142,6 +147,25 @@ def create_print_archive(print_job_id: int, printer_id: int, success: bool,
         log.error('Archive persistence failed for attempt %s (%s); reconciliation required',
                   print_job_id, type(exc).__name__)
         return None
+
+
+def _retain_terminal_safely(conn, attempt_id, *, archive_id, **kwargs):
+    """Financial capture failure must not discard physical accounting or delivery.
+
+    PostgreSQL statement errors poison the transaction until rollback to savepoint.
+    The archive's inventory accounting state is left alone: the order cost read
+    reports an attempt without a retained cost row as unresolved.
+    """
+    from .measured_filament import retain_terminal
+    cur = conn.cursor()
+    cur.execute('SAVEPOINT measured_filament_capture')
+    try:
+        retain_terminal(conn, attempt_id, **kwargs)
+    except Exception:
+        cur.execute('ROLLBACK TO SAVEPOINT measured_filament_capture')
+        log.warning('Measured filament capture unresolved for attempt %s (archive %s)', attempt_id, archive_id, exc_info=True)
+    finally:
+        cur.execute('RELEASE SAVEPOINT measured_filament_capture')
 
 
 def _sync_spoolman_consumption(spoolman_spool_id: int, grams_used: float):
