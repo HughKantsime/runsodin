@@ -68,6 +68,10 @@ def register(app, registry) -> None:
     app.include_router(camera_relay.router)
 
     registry.register_provider("PrinterStateProvider", _self)
+    # Filament ownership boundary used by inventory writers without importing
+    # this module's read-only display adapter.
+    from modules.printers import ledger_display
+    ledger_display.register_providers(registry)
 
 
 def register_subscribers(bus) -> None:

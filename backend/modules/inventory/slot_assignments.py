@@ -1,6 +1,7 @@
 """Transactional spool moves shared by API writers (caller owns commit)."""
 from fastapi import HTTPException
 from sqlalchemy.exc import OperationalError
+from core.interfaces.filament_ownership import ensure_local_filament_management
 from core.rbac import check_org_access
 from modules.inventory.models import Spool
 from modules.printers.models import FilamentSlot, Printer
@@ -95,9 +96,8 @@ def assign_slot(db, slot, spool_id, current_user=None):
                 if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
                     raise HTTPException(404, 'Printer not found')
             # A move can also clear the source printer's assignment.
-            from modules.printers.ledger_display import ensure_local_filaments
             for printer_id in printer_ids:
-                ensure_local_filaments(printer_id)
+                ensure_local_filament_management(printer_id)
         for row in displaced:
             row.location_printer_id = None
             row.location_slot = None
@@ -126,9 +126,8 @@ def unload_spool_graph(db, spool, current_user=None):
             printer = db.query(Printer).filter_by(id=printer_id).populate_existing().first()
             if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
                 raise HTTPException(404, 'Printer not found')
-        from modules.printers.ledger_display import ensure_local_filaments
         for printer_id in printer_ids:
-            ensure_local_filaments(printer_id)
+            ensure_local_filament_management(printer_id)
     for slot in slots:
         slot.assigned_spool_id = None
         slot.spool_confirmed = False

@@ -35,8 +35,10 @@ so stale local slot labels are not presented alongside the external display.
 External spool IDs are returned as `external_spool_id`, never as Odin local spool
 IDs. Slot edits, spool load/unload/assignment/confirmation, QR assignment, manual slot
 assignment, slot-count changes and filament sync are rejected with HTTP 409 for
-linked printers. Moving a local spool out of a linked printer is also rejected.
-Unlinked printers keep their existing workflows. Printer
+linked printers. This includes AMS sync and every hardware slot configuration
+route (Odin's AMS sync and Bambu sync/configuration endpoints); they all return
+HTTP 409 without contacting the printer. Moving a local spool out of a linked
+printer is also rejected. Unlinked printers keep their existing workflows. Printer
 controls and Odin's other integrations remain independent; this display adapter
 never writes assignments, weights, or printer settings. If an external service
 owns consumption, configure Odin's other consumption integrations accordingly.
@@ -82,22 +84,29 @@ retain `spool_id`, set `spool_status: "unavailable"`, and `spool: null`.
 Odin distinguishes these states instead of claiming an empty or full spool.
 
 Serve a cached display snapshot with bounded inventory reads. A display request
-should not wait for hardware probes. Odin uses a two-second HTTP timeout and
-15-second cache/backoff. Redirects and inherited HTTP proxies are disabled;
-requests honor the current device destination policy and ITAR restriction.
+should not wait for hardware probes. Odin applies one two-second deadline to the
+whole refresh, including DNS resolution, connect, headers and the response body,
+and caps the response at 512 KiB. A read that finds the cache expired starts one
+background refresh; printer reads always serve the last completed snapshot (or
+`unavailable` when none exists) instead of waiting for it. The 15-second
+cache/backoff starts when the refresh finishes, not when it began. Redirects
+and inherited HTTP proxies are disabled; requests honor the current device
+destination policy and ITAR restriction.
 The connection is DNS-pinned even outside ITAR mode. Loopback, link-local,
 metadata and ODIN service endpoints are blocked; use a private service hostname
 or LAN address. Missing printers, malformed
-payloads and provider outages produce a visible warning while preserving the
-printer list. The adapter does not expose provider error bodies.
+payloads, oversized responses, timeouts and provider outages produce a visible
+warning while preserving the printer list. The adapter does not expose provider
+error bodies.
 
 ## Verification
 
-Backend checks use a temporary bootstrap database and a synthetic provider;
-no running printer, inventory service, or login is required:
+Backend checks use the shared contract database fixture and a synthetic provider;
+no running printer, inventory service, network egress or login is required:
 
 ```sh
-ODIN_TEST_BACKEND=backend python tests/printers/test_filament_ledger_display.py
+python -m pytest tests/test_contracts/test_filament_ledger_display.py \
+  --confcutdir=tests/test_contracts
 ```
 
 Run the card regressions and production build from `frontend/`:
@@ -109,8 +118,10 @@ npm run build
 ```
 
 The checks cover explicit bindings, tool numbering, original labels, unknown
-amounts, cached reads, outages, organization scope, unchanged database rows,
-blocked local edits and cross-printer moves, destination-policy rejection,
+amounts, cached reads, outages, the whole-refresh deadline, response-size cap,
+single-refresh concurrency, expiry measured from completion, organization scope,
+unchanged database rows, blocked local edits and cross-printer moves, the
+inventory/printers contract boundary, destination-policy rejection,
 organization-safe errors and normal behavior for unlinked printers.
 
 The display response is never written back to the ORM. ODIN's stored slot

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import re
@@ -12,45 +13,58 @@ from typing import Any
 import httpx
 
 from core.config import settings
+from core.interfaces.filament_ownership import (
+    EXTERNALLY_MANAGED_DETAIL,
+    INTERFACE_NAME as FILAMENT_OWNERSHIP_INTERFACE,
+    configured_ledger_printers,
+    ensure_local_filament_management,
+)
 from core.itar import is_private_destination
+from core.registry import registry
 from core.webhook_utils import pinned_device_destination
 
 log = logging.getLogger("odin.filament_ledger_display")
 
 _CACHE_SECONDS = 15.0
+# One deadline for the whole refresh: DNS resolution, connect, headers and body.
 _REQUEST_TIMEOUT = 2.0
+_MAX_RESPONSE_BYTES = 512 * 1024
 _cache_lock = threading.Lock()
 _cached_url: str | None = None
 _cached_until = 0.0
 _cached_printers: dict[str, dict[str, Any]] | None = None
 _cached_available = False
+_refreshing_url: str | None = None
 
 
 def _configured_printers() -> dict[int, str]:
     """Return explicit, valid Odin-id to Ledger-key bindings only."""
-    configured = getattr(settings, "filament_ledger_printers", None) or {}
-    result: dict[int, str] = {}
-    if not isinstance(configured, dict):
-        return result
-    for raw_id, raw_key in configured.items():
-        try:
-            printer_id = int(raw_id)
-        except (TypeError, ValueError):
-            continue
-        if printer_id > 0 and isinstance(raw_key, str) and raw_key.strip():
-            result[printer_id] = raw_key.strip()
-    return result
+    return configured_ledger_printers()
+
+
+class _LedgerFilamentOwnership:
+    """Registered provider for the core filament-ownership boundary."""
+
+    def ensure_local_management(self, printer_id: int) -> None:
+        from fastapi import HTTPException
+
+        if int(printer_id) in _configured_printers():
+            raise HTTPException(
+                status_code=409,
+                detail=EXTERNALLY_MANAGED_DETAIL,
+            )
+
+
+_OWNERSHIP = _LedgerFilamentOwnership()
+
+
+def register_providers(registry) -> None:
+    registry.register_provider(FILAMENT_OWNERSHIP_INTERFACE, _OWNERSHIP)
 
 
 def ensure_local_filaments(printer_id: int) -> None:
     """Reject local filament mutations for a printer owned by the Ledger view."""
-    from fastapi import HTTPException
-
-    if int(printer_id) in _configured_printers():
-        raise HTTPException(
-            status_code=409,
-            detail="Filament data for this printer is managed by Filament Ledger",
-        )
+    ensure_local_filament_management(printer_id)
 
 
 def _valid_payload(payload: Any) -> dict[str, dict[str, Any]]:
@@ -107,43 +121,131 @@ def _valid_payload(payload: Any) -> dict[str, dict[str, Any]]:
     return result
 
 
+def _fetch_payload(url: str, deadline: float) -> tuple[bool, dict[str, dict[str, Any]]]:
+    """Fetch and validate one display payload before ``deadline``.
+
+    Runs inside the bounded refresh worker. Every failure returns an empty
+    unavailable result without exposing response bodies, URLs or exception
+    details to callers.
+    """
+    endpoint = f"{url}/api/filament-display"
+    try:
+        with pinned_device_destination(endpoint) as ips:
+            # Validate the exact addresses the connection will use.
+            if not ips or not all(is_private_destination(ip) for ip in ips):
+                raise ValueError("display destination must be private")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError
+            with httpx.Client(
+                timeout=httpx.Timeout(remaining),
+                follow_redirects=False,
+                trust_env=False,
+            ) as client:
+                with client.stream("GET", endpoint) as response:
+                    if response.status_code != 200:
+                        raise ValueError("unexpected display status")
+                    body = bytearray()
+                    for chunk in response.iter_bytes():
+                        body.extend(chunk)
+                        if len(body) > _MAX_RESPONSE_BYTES:
+                            raise ValueError("display response too large")
+                        if time.monotonic() > deadline:
+                            raise TimeoutError
+        return True, _valid_payload(json.loads(bytes(body)))
+    except Exception as exc:
+        # Never surface response bodies, URLs, or exception details to clients.
+        log.info("Filament Ledger display unavailable (%s)", type(exc).__name__)
+        return False, {}
+
+
+def _fetch_within_deadline(url: str) -> tuple[bool, dict[str, dict[str, Any]]]:
+    """Run the refresh in a worker so DNS resolution cannot exceed the deadline.
+
+    The caller waits at most ``_REQUEST_TIMEOUT``. A worker that overruns the
+    deadline is abandoned; it cannot publish a late result because only this
+    caller updates the cache.
+    """
+    deadline = time.monotonic() + _REQUEST_TIMEOUT
+    outcome: dict[str, Any] = {}
+    finished = threading.Event()
+
+    def work() -> None:
+        try:
+            outcome["result"] = _fetch_payload(url, deadline)
+        except Exception as exc:  # pragma: no cover - defensive worker boundary
+            outcome["error"] = exc
+        finally:
+            finished.set()
+
+    worker = threading.Thread(
+        target=work,
+        name="filament-ledger-refresh",
+        daemon=True,
+    )
+    worker.start()
+    if not finished.wait(max(0.0, deadline - time.monotonic())):
+        log.info("Filament Ledger display unavailable (TimeoutError)")
+        return False, {}
+    if "error" in outcome:
+        log.info("Filament Ledger display unavailable (%s)", type(outcome["error"]).__name__)
+        return False, {}
+    return outcome.get("result", (False, {}))
+
+
+def _refresh(url: str) -> None:
+    """Refresh one URL in a background thread and publish a completed result."""
+    global _cached_url, _cached_until, _cached_printers, _cached_available, _refreshing_url
+    try:
+        available, printers = _fetch_within_deadline(url)
+    except Exception:  # pragma: no cover - defensive thread boundary
+        available, printers = False, {}
+    with _cache_lock:
+        if _refreshing_url != url:
+            return  # superseded by a newer configuration
+        _refreshing_url = None
+        _cached_url = url
+        _cached_available = available
+        _cached_printers = printers if available else None
+        # Expiry is measured from when the refresh actually finished.
+        _cached_until = time.monotonic() + _CACHE_SECONDS
+
+
 def _fetch_printers() -> tuple[bool, dict[str, dict[str, Any]]]:
-    global _cached_url, _cached_until, _cached_printers, _cached_available
+    """Read cached display printers without waiting for a refresh.
+
+    At most one refresh runs for a URL. A request that finds the cache expired
+    starts it in the background and is served the last completed snapshot
+    (stale is acceptable) or unavailable. Requests never wait on DNS or the
+    provider.
+    """
+    global _refreshing_url
     url = (getattr(settings, "filament_ledger_url", None) or "").strip().rstrip("/")
     if not url:
         return False, {}
 
-    now = time.monotonic()
     with _cache_lock:
         now = time.monotonic()
         if _cached_url == url and now < _cached_until:
             return _cached_available, _cached_printers or {}
-
-        endpoint = f"{url}/api/filament-display"
-        try:
-            with pinned_device_destination(endpoint) as ips:
-                # Validate the exact addresses the connection will use.
-                if not ips or not all(is_private_destination(ip) for ip in ips):
-                    raise ValueError("display destination must be private")
-                with httpx.Client(
-                    timeout=_REQUEST_TIMEOUT,
-                    follow_redirects=False,
-                    trust_env=False,
-                ) as client:
-                    response = client.get(endpoint)
-            if response.status_code != 200:
-                raise ValueError("unexpected display status")
-            printers = _valid_payload(response.json())
-        except Exception as exc:
-            # Never surface response bodies, URLs, or exception details to clients.
-            log.info("Filament Ledger display unavailable (%s)", type(exc).__name__)
-            _cached_url, _cached_until = url, now + _CACHE_SECONDS
-            _cached_printers, _cached_available = None, False
+        if _refreshing_url == url:
+            # One refresh is already running; serve stale or unavailable now.
+            if _cached_url == url and _cached_available:
+                return True, _cached_printers or {}
             return False, {}
+        _refreshing_url = url
+        if _cached_url == url and _cached_available:
+            current = (True, _cached_printers or {})
+        else:
+            current = (False, {})
 
-        _cached_url, _cached_until = url, now + _CACHE_SECONDS
-        _cached_printers, _cached_available = printers, True
-        return True, printers
+    threading.Thread(
+        target=_refresh,
+        args=(url,),
+        name="filament-ledger-refresh",
+        daemon=True,
+    ).start()
+    return current
 
 
 def _slot_from_tool(tool: dict[str, Any]) -> dict[str, Any]:
@@ -250,3 +352,8 @@ def enrich_printers(rows: list[Any]) -> list[Any]:
         key = configured[printer_id]
         result.append(_to_printer_dto(row, ledger_printers.get(key) if available else None, available))
     return result
+
+
+# Register the ownership boundary for app startup (via printers/__init__.py) and
+# for route-level harnesses that import this adapter directly.
+register_providers(registry)
