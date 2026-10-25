@@ -34,7 +34,7 @@ const SLICER_COLORS = {
   generic: 'bg-[var(--brand-muted)]/20 text-[var(--brand-muted)]',
 }
 
-export default function Profiles({ filterPrinterId, filterSlicer } = {}) {
+export default function Profiles({ filterPrinterId, filterSlicer }: { filterPrinterId?: number; filterSlicer?: string } = {}) {
   const queryClient = useQueryClient()
   const fileInputRef = useRef(null)
   const [slicer, setSlicer] = useState(filterSlicer || '')
@@ -62,7 +62,7 @@ export default function Profiles({ filterPrinterId, filterSlicer } = {}) {
   })
 
   const tagsMutation = useMutation({
-    mutationFn: ({ id, tags }) => profilesApi.update(id, { tags }),
+    mutationFn: ({ id, tags }: { id: number; tags: string }) => profilesApi.update(id, { tags }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['profiles'] })
       setTagProfile(null)
@@ -72,7 +72,7 @@ export default function Profiles({ filterPrinterId, filterSlicer } = {}) {
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (id) => profilesApi.delete(id),
+    mutationFn: (id: Parameters<typeof profilesApi.delete>[0]) => profilesApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['profiles'] })
       toast.success('Profile deleted')
@@ -81,7 +81,7 @@ export default function Profiles({ filterPrinterId, filterSlicer } = {}) {
   })
 
   const applyMutation = useMutation({
-    mutationFn: ({ profileId, printerId }) => profilesApi.apply(profileId, printerId),
+    mutationFn: ({ profileId, printerId }: { profileId: number; printerId: number }) => profilesApi.apply(profileId, printerId),
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ['profiles'] })
       if (res.applied === true) {

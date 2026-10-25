@@ -408,12 +408,12 @@ export default function Dashboard() {
   }
 
   const prevStatsRef = useRef(null)
-  const [highlightedKeys, setHighlightedKeys] = useState(new Set())
+  const [highlightedKeys, setHighlightedKeys] = useState(new Set<string>())
   const highlightTimerRef = useRef(null)
 
   const computeChangedKeys = useCallback((prev, current) => {
-    if (!prev) return new Set()
-    const changed = new Set()
+    if (!prev) return new Set<string>()
+    const changed = new Set<string>()
     for (const key of Object.keys(current)) {
       if (prev[key] !== current[key]) {
         changed.add(key)

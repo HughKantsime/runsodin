@@ -25,7 +25,7 @@ export default function PrintLog() {
   const [filterPrinter, _setFilterPrinter] = useState(() => searchParams.get('printer') || '')
   const [filterStatus, _setFilterStatus] = useState(() => searchParams.get('status') || '')
 
-  const updateSearchParams = useCallback((updates) => {
+  const updateSearchParams = useCallback((updates: Record<string, string>) => {
     setSearchParams(prev => {
       const next = new URLSearchParams(prev)
       Object.entries(updates).forEach(([key, value]) => {

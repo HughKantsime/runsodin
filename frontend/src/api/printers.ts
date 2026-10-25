@@ -51,7 +51,7 @@ export const printers = {
   dispatchRecovery: (id: number): Promise<DispatchRecoveryInspection> => fetchAPI(`/printers/${id}/dispatch-recovery`),
   list: (activeOnly = false, tag = '', orgId: number | null = null): Promise<Printer[]> => fetchAPI('/printers?active_only=' + activeOnly + (tag ? '&tag=' + encodeURIComponent(tag) : '') + (orgId != null ? '&org_id=' + orgId : '')),
   allTags: (): Promise<string[]> => fetchAPI('/printers/tags'),
-  get: (id: number): Promise<Printer> => fetchAPI('/printers/' + id),
+  get: (id: number | string): Promise<Printer> => fetchAPI('/printers/' + id),
   create: (data: PrinterCreate): Promise<Printer> => fetchAPI('/printers', { method: 'POST', body: JSON.stringify(data) }),
   update: (id: number, data: PrinterUpdate): Promise<Printer> => fetchAPI('/printers/' + id, { method: 'PATCH', body: JSON.stringify(data) }),
   delete: (id: number): Promise<void> => fetchAPI('/printers/' + id, { method: 'DELETE' }),
@@ -69,7 +69,7 @@ export const printers = {
 }
 
 export const printerTelemetry = {
-  get: (printerId: number, hours = 24): Promise<TelemetryDataPoint[]> => fetchAPI(`/printers/${printerId}/telemetry?hours=${hours}`),
+  get: (printerId: number | string, hours = 24): Promise<TelemetryDataPoint[]> => fetchAPI(`/printers/${printerId}/telemetry?hours=${hours}`),
   hmsHistory: (printerId: number, days = 30): Promise<HmsHistoryResponse> => fetchAPI(`/printers/${printerId}/hms-history?days=${days}`),
   nozzle: (printerId: number): Promise<NozzleLifecycle | null> => fetchAPI(`/printers/${printerId}/nozzle`),
   nozzleStatus: (printerId: number): Promise<unknown> => fetchAPI(`/printers/${printerId}/nozzle-status`),
@@ -79,12 +79,21 @@ export const printerTelemetry = {
 }
 
 export const maintenance = {
-  getStatus: (): Promise<unknown> => fetchAPI('/maintenance/status'),
+  getStatus: (): Promise<{
+    printer_id: number; printer_name: string; printer_model: string | null;
+    total_print_hours: number; total_print_count: number; prints_since_maintenance: number;
+    hours_since_maintenance: number; overall_status: string;
+    tasks: { task_id: number; task_name: string; description: string | null;
+      interval_print_hours: number | null; interval_days: number | null;
+      hours_since_service: number; days_since_service: number; last_serviced: string | null;
+      last_by: string | null; status: string; progress_percent: number;
+      next_due_print_hours: number | null; hours_until_due: number | null; next_due_date: string | null }[];
+  }[]> => fetchAPI('/maintenance/status'),
   getTasks: (): Promise<MaintenanceTask[]> => fetchAPI('/maintenance/tasks'),
   createTask: (data: MaintenanceTaskCreate): Promise<MaintenanceTask> => fetchAPI('/maintenance/tasks', { method: 'POST', body: JSON.stringify(data) }),
   updateTask: (id: number, data: MaintenanceTaskUpdate): Promise<MaintenanceTask> => fetchAPI('/maintenance/tasks/' + id, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteTask: (id: number): Promise<void> => fetchAPI('/maintenance/tasks/' + id, { method: 'DELETE' }),
-  getLogs: (printerId?: number): Promise<MaintenanceLog[]> => fetchAPI('/maintenance/logs' + (printerId ? '?printer_id=' + printerId : '')),
+  getLogs: (printerId?: number | string): Promise<MaintenanceLog[]> => fetchAPI('/maintenance/logs' + (printerId ? '?printer_id=' + printerId : '')),
   createLog: (data: MaintenanceLogCreate): Promise<MaintenanceLog> => fetchAPI('/maintenance/logs', { method: 'POST', body: JSON.stringify(data) }),
   deleteLog: (id: number): Promise<void> => fetchAPI('/maintenance/logs/' + id, { method: 'DELETE' }),
   seedDefaults: (): Promise<void> => fetchAPI('/maintenance/seed-defaults', { method: 'POST' }),

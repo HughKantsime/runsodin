@@ -64,6 +64,7 @@ export interface WsTokenResponse {
 }
 
 export interface AuthCapabilities {
+  smtp_enabled: boolean;
   oidc_enabled: boolean;
   oidc_provider_name: string | null;
   local_auth_enabled: boolean;

@@ -118,7 +118,7 @@ export const users = {
   update: (id: number, data: UserUpdate): Promise<User> => fetchAPI(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   delete: (id: number): Promise<void> => fetchAPI(`/users/${id}`, { method: 'DELETE' }),
   resetPasswordEmail: (id: number): Promise<unknown> => fetchAPI(`/users/${id}/reset-password-email`, { method: 'POST' }),
-  importCsv: async (file: File): Promise<unknown> => {
+  importCsv: async (file: File): Promise<{ created: number; skipped: number; errors: string[] }> => {
     const formData = new FormData()
     formData.append('file', file)
     const response = await fetch(`${API_BASE}/users/import`, {

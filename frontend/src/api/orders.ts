@@ -34,7 +34,7 @@ export const products = {
 // Orders (v0.14.0)
 export const orders = {
   measuredCosts: (id: number): Promise<OrderMeasuredCosts> => fetchAPI(`/orders/${id}/measured-costs`),
-  list: (status?: OrderStatus, platform?: string): Promise<Order[]> => {
+  list: (status?: string, platform?: string): Promise<Order[]> => {
     const params = new URLSearchParams()
     if (status) params.append('status_filter', status)
     if (platform) params.append('platform', platform)
@@ -49,7 +49,7 @@ export const orders = {
   updateItem: (orderId: number, itemId: number, data: OrderItemUpdate): Promise<unknown> => fetchAPI(`/orders/${orderId}/items/${itemId}`, { method: 'PATCH', body: JSON.stringify(data) }),
   confirmProduction: (orderId: number, itemId: number, quantity: number): Promise<Order> => fetchAPI(`/orders/${orderId}/items/${itemId}/confirm-production`, { method: 'POST', body: JSON.stringify({ quantity }) }),
   removeItem: (orderId: number, itemId: number): Promise<void> => fetchAPI(`/orders/${orderId}/items/${itemId}`, { method: 'DELETE' }),
-  schedule: (id: number): Promise<unknown> => fetchAPI(`/orders/${id}/schedule`, { method: 'POST' }),
+  schedule: (id: number): Promise<{ jobs_created: number }> => fetchAPI(`/orders/${id}/schedule`, { method: 'POST' }),
   ship: (id: number, data: OrderShipRequest): Promise<Order> => fetchAPI(`/orders/${id}/ship`, { method: 'PATCH', body: JSON.stringify(data) }),
 }
 

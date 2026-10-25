@@ -44,7 +44,7 @@ export default function Spools() {
   const [groupByPrinter, setGroupByPrinter] = useState(true)
   const [searchQuery, _setSearchQuery] = useState(() => searchParams.get('q') || '')
 
-  const updateSearchParams = useCallback((updates) => {
+  const updateSearchParams = useCallback((updates: Record<string, string>) => {
     setSearchParams(prev => {
       const next = new URLSearchParams(prev)
       Object.entries(updates).forEach(([key, value]) => {
@@ -158,7 +158,7 @@ export default function Spools() {
     setSelectedSpools(prev => prev.size === ids.length ? new Set() : new Set(ids))
   }
   const bulkSpoolAction = useMutation({
-    mutationFn: ({ action }) => bulkOps.spools([...selectedSpools], action),
+    mutationFn: ({ action }: { action: string }) => bulkOps.spools([...selectedSpools], action),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['spools'] }); setSelectedSpools(new Set()) },
     onError: (err: any) => toast.error('Bulk spool action failed: ' + (err?.message || 'Unknown error')),
   })

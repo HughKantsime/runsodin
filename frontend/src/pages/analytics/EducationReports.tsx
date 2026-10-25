@@ -36,7 +36,7 @@ export default function EducationReports() {
     queryFn: () => educationReports.getUsageReport(days),
   })
 
-  const summary = data?.summary || {}
+  const summary: Partial<NonNullable<typeof data>['summary']> = data?.summary || {}
   const users = data?.users || []
   const dailySubmissions = data?.daily_submissions || {}
 

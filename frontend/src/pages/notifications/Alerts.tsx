@@ -91,7 +91,7 @@ export default function Alerts() {
   const [offset, setOffset] = useState(0)
   const LIMIT = 25
 
-  const updateSearchParams = useCallback((updates) => {
+  const updateSearchParams = useCallback((updates: Record<string, string>) => {
     setSearchParams(prev => {
       const next = new URLSearchParams(prev)
       Object.entries(updates).forEach(([key, value]) => {

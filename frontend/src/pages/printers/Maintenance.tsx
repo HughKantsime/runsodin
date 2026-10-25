@@ -113,7 +113,7 @@ function LogMaintenanceModal({ printer, task, onClose, onSave, saving }) {
 
 /* ======================== Task Template Form ======================== */
 
-function TaskForm({ task, onSave, onCancel, saving }) {
+function TaskForm({ task, onSave, onCancel, saving }: { task?: Awaited<ReturnType<typeof maintenance.getTasks>>[number]; onSave: (data: Parameters<typeof maintenance.createTask>[0]) => void; onCancel: () => void; saving: boolean }) {
   const [form, setForm] = useState({
     name: task?.name || '',
     description: task?.description || '',
@@ -130,10 +130,10 @@ function TaskForm({ task, onSave, onCancel, saving }) {
       name: form.name,
       description: form.description || null,
       printer_model_filter: form.printer_model_filter || null,
-      interval_print_hours: form.interval_print_hours !== '' ? parseFloat(form.interval_print_hours) : null,
-      interval_days: form.interval_days !== '' ? parseInt(form.interval_days) : null,
-      estimated_cost: parseFloat(form.estimated_cost) || 0,
-      estimated_downtime_min: parseInt(form.estimated_downtime_min) || 30,
+      interval_print_hours: form.interval_print_hours !== '' ? parseFloat(String(form.interval_print_hours)) : null,
+      interval_days: form.interval_days !== '' ? parseInt(String(form.interval_days)) : null,
+      estimated_cost: parseFloat(String(form.estimated_cost)) || 0,
+      estimated_downtime_min: parseInt(String(form.estimated_downtime_min)) || 30,
     })
   }
 
@@ -322,31 +322,31 @@ export default function Maintenance() {
     toast.error(`${label}: ${err?.message || 'Unknown error'}`)
 
   const logMutation = useMutation({
-    mutationFn: data => maintenance.createLog(data),
+    mutationFn: (data: Parameters<typeof maintenance.createLog>[0]) => maintenance.createLog(data),
     onSuccess: () => { invalidate(); setLogModal(null) },
     onError: mutErr('Log maintenance failed'),
   })
 
   const createTaskMutation = useMutation({
-    mutationFn: data => maintenance.createTask(data),
+    mutationFn: (data: Parameters<typeof maintenance.createTask>[0]) => maintenance.createTask(data),
     onSuccess: () => { invalidate(); setShowTaskForm(false) },
     onError: mutErr('Create task failed'),
   })
 
   const updateTaskMutation = useMutation({
-    mutationFn: ({ id, data }) => maintenance.updateTask(id, data),
+    mutationFn: ({ id, data }: { id: number; data: Parameters<typeof maintenance.updateTask>[1] }) => maintenance.updateTask(id, data),
     onSuccess: () => { invalidate(); setEditingTask(null) },
     onError: mutErr('Update task failed'),
   })
 
   const deleteTaskMutation = useMutation({
-    mutationFn: id => maintenance.deleteTask(id),
+    mutationFn: (id: Parameters<typeof maintenance.deleteTask>[0]) => maintenance.deleteTask(id),
     onSuccess: invalidate,
     onError: mutErr('Delete task failed'),
   })
 
   const deleteLogMutation = useMutation({
-    mutationFn: id => maintenance.deleteLog(id),
+    mutationFn: (id: Parameters<typeof maintenance.deleteLog>[0]) => maintenance.deleteLog(id),
     onSuccess: invalidate,
     onError: mutErr('Delete log failed'),
   })

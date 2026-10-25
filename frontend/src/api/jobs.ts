@@ -22,7 +22,7 @@ const API_BASE = '/api'
 
 export const jobs = {
   recentTerminal: (orgId: number | null = null): Promise<RecentTerminalJob[]> => fetchAPI('/jobs/recent-terminal' + (orgId != null ? '?org_id=' + orgId : '')),
-  list: (status?: JobStatus, orgId: number | null = null): Promise<Job[]> => fetchAPI('/jobs' + (status ? '?status=' + status : '') + (orgId != null ? (status ? '&' : '?') + 'org_id=' + orgId : '')),
+  list: (status?: string, orgId: number | null = null): Promise<Job[]> => fetchAPI('/jobs' + (status ? '?status=' + status : '') + (orgId != null ? (status ? '&' : '?') + 'org_id=' + orgId : '')),
   get: (id: number): Promise<Job> => fetchAPI('/jobs/' + id),
   create: (data: JobCreate): Promise<Job> => fetchAPI('/jobs', { method: 'POST', body: JSON.stringify(data) }),
   update: (id: number, data: JobUpdate): Promise<Job> => fetchAPI('/jobs/' + id, { method: 'PATCH', body: JSON.stringify(data) }),

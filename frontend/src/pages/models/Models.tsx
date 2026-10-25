@@ -1,3 +1,4 @@
+import type { Model } from '../../api/models'
 import { ModelCard, ColorSlotInput } from '../../components/models/ModelLibraryFields'
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
@@ -27,8 +28,8 @@ import { canDo } from '../../permissions'
 import { useOrg } from '../../contexts/OrgContext'
 
 function ModelModal({ isOpen, onClose, onSubmit, editingModel }) {
-  const [formData, setFormData] = useState({ name: '', category: '', build_time_hours: '', cost_per_item: '', notes: '', units_per_bed: 1, markup_percent: 300 })
-  const [colorSlots, setColorSlots] = useState([{ color: '', grams: '' }])
+  const [formData, setFormData] = useState({ name: '', category: '', build_time_hours: '', cost_per_item: '', notes: '', units_per_bed: 1 as number | string, markup_percent: 300 as number | string })
+  const [colorSlots, setColorSlots] = useState<{ color: string; grams: string | number }[]>([{ color: '', grams: '' }])
 
   const { data: filamentData } = useQuery({ queryKey: ['filaments-combined'], queryFn: filaments.combined, enabled: isOpen })
 
@@ -36,7 +37,7 @@ function ModelModal({ isOpen, onClose, onSubmit, editingModel }) {
     if (editingModel) {
       setFormData({ name: editingModel.name || '', category: editingModel.category || '', build_time_hours: editingModel.build_time_hours || '', cost_per_item: editingModel.cost_per_item || '', notes: editingModel.notes || '', units_per_bed: editingModel.units_per_bed || 1, markup_percent: editingModel.markup_percent || 300 })
       if (editingModel.color_requirements && Object.keys(editingModel.color_requirements).length > 0) {
-        const slots = Object.values(editingModel.color_requirements).map(c => ({ color: c.color || '', grams: c.grams || '' }))
+        const slots = Object.values(editingModel.color_requirements as NonNullable<Model['color_requirements']>).map(c => ({ color: c.color || '', grams: c.grams || '' }))
         setColorSlots(slots.length > 0 ? slots : [{ color: '', grams: '' }])
       } else if (editingModel.required_colors?.length > 0) {
         setColorSlots(editingModel.required_colors.map(c => ({ color: c, grams: '' })))
@@ -44,7 +45,7 @@ function ModelModal({ isOpen, onClose, onSubmit, editingModel }) {
         setColorSlots([{ color: '', grams: '' }])
       }
     } else {
-      setFormData({ name: '', category: '', build_time_hours: '', cost_per_item: '', notes: '', units_per_bed: 1, markup_percent: 300 })
+      setFormData({ name: '', category: '', build_time_hours: '', cost_per_item: '', notes: '', units_per_bed: 1 as number | string, markup_percent: 300 as number | string })
       setColorSlots([{ color: '', grams: '' }])
     }
   }, [editingModel])
@@ -60,20 +61,20 @@ function ModelModal({ isOpen, onClose, onSubmit, editingModel }) {
     setColorSlots(prev => [...prev, { color: '', grams: '' }])
   }
   const removeColorSlot = (index) => { setColorSlots(prev => prev.filter((_, i) => i !== index)) }
-  const totalFilament = colorSlots.reduce((sum, slot) => sum + (parseFloat(slot.grams) || 0), 0)
+  const totalFilament = colorSlots.reduce((sum, slot) => sum + (parseFloat(String(slot.grams)) || 0), 0)
 
   const handleSubmit = (e) => {
     e.preventDefault()
     const color_requirements = {}
     colorSlots.forEach((slot, i) => {
       if (slot.color.trim()) {
-        color_requirements[`color${i + 1}`] = { color: slot.color.trim(), grams: parseFloat(slot.grams) || 0 }
+        color_requirements[`color${i + 1}`] = { color: slot.color.trim(), grams: parseFloat(String(slot.grams)) || 0 }
       }
     })
     onSubmit({
       name: formData.name, category: formData.category || null, build_time_hours: formData.build_time_hours ? Number(formData.build_time_hours) : null, cost_per_item: formData.cost_per_item ? Number(formData.cost_per_item) : null, notes: formData.notes || null, color_requirements: Object.keys(color_requirements).length > 0 ? color_requirements : null, units_per_bed: formData.units_per_bed ? Number(formData.units_per_bed) : 1, markup_percent: formData.markup_percent ? Number(formData.markup_percent) : 300,
     }, editingModel?.id)
-    setFormData({ name: '', category: '', build_time_hours: '', cost_per_item: '', notes: '', units_per_bed: 1, markup_percent: 300 })
+    setFormData({ name: '', category: '', build_time_hours: '', cost_per_item: '', notes: '', units_per_bed: 1 as number | string, markup_percent: 300 as number | string })
     setColorSlots([{ color: '', grams: '' }])
     onClose()
   }
@@ -170,12 +171,12 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
   }, [payloadOptions])
   const boundPrinter = plateData?.target_printer_id
   const [selectedPrinter, setSelectedPrinter] = useState(null)
-  const [scheduleOpts, setScheduleOpts] = useState({ priority: 3, quantity: 1, due_date: '', notes: '', plate_index: null })
+  const [scheduleOpts, setScheduleOpts] = useState({ priority: 3, quantity: 1 as number | string, due_date: '', notes: '', plate_index: null })
 
   useEffect(() => {
     if (isOpen) {
       setSelectedPrinter(null)
-      setScheduleOpts({ priority: 3, quantity: 1, due_date: '', notes: '', plate_index: model?.selectedPlateIndex ?? null })
+      setScheduleOpts({ priority: 3, quantity: 1 as number | string, due_date: '', notes: '', plate_index: model?.selectedPlateIndex ?? null })
     }
   }, [isOpen, model?.id, model?.selectedPlateIndex])
 
@@ -193,7 +194,7 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
     }
     return false
   }
-  const sortedPrinters = [...activePrinters].sort((a,b) => hasMatch(b) - hasMatch(a))
+  const sortedPrinters = [...activePrinters].sort((a,b) => Number(hasMatch(b)) - Number(hasMatch(a)))
 
   if (!model) return null
 
@@ -365,7 +366,7 @@ export default function Models() {
   const [searchQuery, _setSearchQuery] = useState(() => searchParams.get('q') || '')
   const [deleteConfirm, setDeleteConfirm] = useState(null)
 
-  const updateSearchParams = useCallback((updates) => {
+  const updateSearchParams = useCallback((updates: Record<string, string>) => {
     setSearchParams(prev => {
       const next = new URLSearchParams(prev)
       Object.entries(updates).forEach(([key, value]) => {
@@ -423,7 +424,7 @@ export default function Models() {
     onError: (err) => toast.error('Create model failed: ' + err.message),
   })
   const updateModel = useMutation({
-    mutationFn: ({ id, data }) => models.update(id, data),
+    mutationFn: ({ id, data }: { id: number; data: Parameters<typeof models.update>[1] }) => models.update(id, data),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['models'] }); toast.success('Model updated') },
     onError: (err) => toast.error('Update model failed: ' + err.message),
   })
@@ -433,7 +434,7 @@ export default function Models() {
     onError: (err) => toast.error('Delete model failed: ' + err.message),
   })
   const scheduleMutation = useMutation({
-    mutationFn: ({ modelId, printerId, options }) => models.schedule(modelId, printerId, options),
+    mutationFn: ({ modelId, printerId, options }: { modelId: number; printerId?: number; options?: Parameters<typeof models.schedule>[2] }) => models.schedule(modelId, printerId, options),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['jobs'] })
       setScheduleModel(null)

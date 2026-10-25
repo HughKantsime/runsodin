@@ -110,7 +110,7 @@ function ProjectDetail({ project, onClose, onDelete }) {
   })
 
   const updateMutation = useMutation({
-    mutationFn: (data) => projects.update(project.id, data),
+    mutationFn: (data: Parameters<typeof projects.update>[1]) => projects.update(project.id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id] })
@@ -238,7 +238,7 @@ export default function ProjectsPage() {
   })
 
   const createMutation = useMutation({
-    mutationFn: (data) => projects.create(data),
+    mutationFn: (data: Parameters<typeof projects.create>[0]) => projects.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] })
       setShowCreate(false)
@@ -248,7 +248,7 @@ export default function ProjectsPage() {
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (id) => projects.delete(id),
+    mutationFn: (id: Parameters<typeof projects.delete>[0]) => projects.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] })
       toast.success('Project archived')

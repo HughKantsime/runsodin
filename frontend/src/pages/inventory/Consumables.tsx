@@ -24,7 +24,7 @@ export default function Consumables() {
     name: '', sku: '', unit: 'piece', cost_per_unit: '', current_stock: '',
     min_stock: '', vendor: '', notes: '', status: 'active'
   })
-  const [adjustData, setAdjustData] = useState({ quantity: '', type: 'restock', notes: '' })
+  const [adjustData, setAdjustData] = useState({ quantity: '', type: 'restock' as 'restock' | 'deduct', notes: '' })
   const [confirmDelete, setConfirmDelete] = useState(null)
   const [confirmLargeAdjust, setConfirmLargeAdjust] = useState(false)
   const adjusting = useRef(false)
@@ -38,25 +38,25 @@ export default function Consumables() {
     toast.error(`${label}: ${err?.message || 'Unknown error'}`)
 
   const createMutation = useMutation({
-    mutationFn: (data) => consumables.create(data),
+    mutationFn: (data: Parameters<typeof consumables.create>[0]) => consumables.create(data),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['consumables'] }); handleCloseModal() },
     onError: mutErr('Create consumable failed'),
   })
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }) => consumables.update(id, data),
+    mutationFn: ({ id, data }: { id: number; data: Parameters<typeof consumables.update>[1] }) => consumables.update(id, data),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['consumables'] }); handleCloseModal() },
     onError: mutErr('Update consumable failed'),
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (id) => consumables.delete(id),
+    mutationFn: (id: Parameters<typeof consumables.delete>[0]) => consumables.delete(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['consumables'] }),
     onError: mutErr('Delete consumable failed'),
   })
 
   const adjustMutation = useMutation({
-    mutationFn: ({ id, data }) => consumables.adjust(id, data),
+    mutationFn: ({ id, data }: { id: number; data: Parameters<typeof consumables.adjust>[1] }) => consumables.adjust(id, data),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['consumables'] }); setShowAdjustModal(null) },
     onError: mutErr('Adjust stock failed'),
     onSettled: () => { adjusting.current = false },
@@ -230,7 +230,7 @@ export default function Consumables() {
                   <td className="p-3 text-right">
                     <div className="flex items-center justify-end gap-1">
                       {!item.managed_material && canDo('models.edit') && (
-                      <button onClick={() => { setShowAdjustModal(item); setAdjustData({ quantity: '', type: 'restock', notes: '' }) }}
+                      <button onClick={() => { setShowAdjustModal(item); setAdjustData({ quantity: '', type: 'restock' as 'restock' | 'deduct', notes: '' }) }}
                         className="p-1.5 text-[var(--brand-text-muted)] hover:bg-[var(--brand-card-border)] rounded-md" title="Adjust Stock">
                         <ArrowUpDown size={14} />
                       </button>
@@ -336,7 +336,7 @@ export default function Consumables() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-[var(--brand-text-muted)]">Type</label>
-                  <select value={adjustData.type} onChange={e => { setAdjustData(d => ({ ...d, type: e.target.value })); setConfirmLargeAdjust(false) }}
+                  <select value={adjustData.type} onChange={e => { setAdjustData(d => ({ ...d, type: e.target.value as typeof adjustData.type })); setConfirmLargeAdjust(false) }}
                     className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm">
                     <option value="restock">Restock</option>
                     <option value="deduct">Deduct</option>
