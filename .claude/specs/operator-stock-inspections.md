@@ -37,3 +37,6 @@ Shane explicitly replied "Approved" to publishing, deploying and enabling this c
 
 ### Release preparation
 Version2.0.15 metadata prepared. Corrected release-tool minLength8 to7 in schema and workflow validator so Shane's exact "Approved" can be recorded, without inventing approval text or requesting it again. Fresh design/diff review passed;115 release authorization/evidence/mutation tests passed. All actor, candidate, evidence, nonce, expiry and environment controls unchanged.
+
+### First Trusted Validation outcome
+Run40195870763 candidate6d7dd25d stopped atCV01:313/314 release-control tests passed, one failure because legal Last Updated headers saidOctober24 while release changelog saidOctober25. No publication/deploy. Corrected only those two headers; all314 local release-control tests now pass, installer smoke pending. One-token grant script independently reviewed; explicit checks (not optimizable assert side effects), normal/-O repeat/identity/audit/hash/expiry tests pass.
