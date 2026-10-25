@@ -211,7 +211,7 @@ def mutate(db, printer_id, actor, request, action, identity_loader):
         actor = {**actor, **live[0]}
         if not education_authority(db,before,actor,lock=True): refuse('not_found',404)
         def lock(sql):
-            db.execute(text(sql + (' FOR UPDATE NOWAIT' if dialect=='postgresql' else '')), {'pid':printer_id,'jid':before['job']['id']}).all()
+            db.execute(text(sql + (' FOR UPDATE NOWAIT' if dialect=='postgresql' else '')), {'pid':printer_id,'jid':before['job']['id']}).all()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — constant lock statements plus a fixed dialect suffix; values are bound
         # SQLite BEGIN IMMEDIATE already owns the writer. PostgreSQL follows
         # claim-before-printer for release, job-before-printer for admission/hold.
         if action != 'release':

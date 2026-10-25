@@ -1629,7 +1629,7 @@ def recovery_authority(db, *, evidence, principal, lock=False):
             'SELECT id FROM jobs WHERE id=:jid',
             'SELECT claim_id FROM education_monitor_claims WHERE submission_id=:sid AND org_id=:org AND job_id=:jid AND printer_id=:pid ORDER BY claim_id',
         ):
-            if not db.execute(text(query+(' FOR UPDATE NOWAIT' if lock and pg else '')),args).first():
+            if not db.execute(text(query+(' FOR UPDATE NOWAIT' if lock and pg else '')),args).first():  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — constant query plus a fixed dialect suffix; values are bound
                 # Terminal submissions may legitimately have no monitor claim.
                 if not query.startswith('SELECT claim_id'): return False
     return bool(evidence['submissions'])
@@ -1681,6 +1681,6 @@ def recovery_visibility(db, *, evidence, principal):
         if submission['org_id']!=actor['group_id'] or submission['org_id']!=evidence['job']['charged_to_org_id']:
             return False
         query='SELECT 1 FROM education_submissions s JOIN education_cost_centers c ON c.id=s.cost_center_id AND c.org_id=s.org_id WHERE s.id=:sid AND s.org_id=:org AND '+_SUBMISSION_AUDIENCE
-        if not db.execute(text(query),{'sid':submission['id'],'org':submission['org_id'],'user_id':actor['id'],'is_admin':int(actor['role']=='admin')}).first():
+        if not db.execute(text(query),{'sid':submission['id'],'org':submission['org_id'],'user_id':actor['id'],'is_admin':int(actor['role']=='admin')}).first():  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — query is a module constant; values are bound
             return False
     return bool(evidence['submissions'])

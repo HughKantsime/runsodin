@@ -98,6 +98,7 @@
         ]
       }
     },
-    "duplicate": null
+    "duplicate": null,
+    "target_printer_id": null
   }
 }

@@ -34,7 +34,7 @@
       "charged_to_org_id": 1,
       "colors_list": [],
       "colors_required": null,
-      "created_at": "2026-10-23T18:09:28",
+      "created_at": "2026-10-24T22:13:32",
       "due_date": null,
       "duration_hours": null,
       "effective_duration": 1.0,
@@ -69,7 +69,7 @@
       "suggested_price": null,
       "target_filter": null,
       "target_type": null,
-      "updated_at": "2026-10-23T18:09:28"
+      "updated_at": "2026-10-24T22:13:32"
     },
     {
       "actual_end": null,
@@ -79,7 +79,7 @@
       "charged_to_org_id": 1,
       "colors_list": [],
       "colors_required": null,
-      "created_at": "2026-10-23T18:09:28",
+      "created_at": "2026-10-24T22:13:32",
       "due_date": null,
       "duration_hours": null,
       "effective_duration": 1.0,
@@ -114,7 +114,7 @@
       "suggested_price": null,
       "target_filter": null,
       "target_type": null,
-      "updated_at": "2026-10-23T18:09:28"
+      "updated_at": "2026-10-24T22:13:32"
     }
   ],
   "reschedule": {
