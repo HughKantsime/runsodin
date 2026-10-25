@@ -1,3 +1,4 @@
+import MeasuredFilamentCost from './MeasuredFilamentCost'
 import ShowFulfillment from './ShowFulfillment'
 import {getCurrentUser} from '../../permissions'
 import { useState } from 'react'
@@ -215,6 +216,7 @@ export function OrderDetailModal({ isOpen, order, onClose, onSchedule, onShip, o
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={`Order ${order.order_number || `#${order.id}`}`} size="xl" mobileSheet={false}>
       <div className="space-y-4">
+        <MeasuredFilamentCost key={order.id} orderId={order.id} />
         {/* Status & Actions */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
           <span className={`px-3 py-1 rounded-md text-sm ${STATUS_CLASSES[order.status] || 'bg-[var(--brand-card-border)] text-[var(--brand-text-secondary)]'}`}>

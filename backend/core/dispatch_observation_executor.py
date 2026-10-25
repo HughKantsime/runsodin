@@ -49,7 +49,7 @@ class TransactionView:
     def __init__(self,executor):
         self.executor=executor
         self.native=isinstance(executor,(Connection,Session))
-        self.dialect=(executor.get_bind().dialect if isinstance(executor,Session) else executor.dialect) if self.native else SimpleNamespace(name='postgresql' if executor._postgres else 'sqlite')
+        self.dialect=(executor.get_bind().dialect if isinstance(executor,Session) else executor.dialect) if self.native else SimpleNamespace(name='postgresql' if getattr(executor,'_postgres',False) else 'sqlite')
     def execute(self,statement,parameters=None):
         if self.native:return self.executor.execute(statement,parameters or {})
         if not hasattr(statement,'compile'):statement=text(statement)

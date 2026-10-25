@@ -15,6 +15,7 @@ INVENTORY = ROOT / "ops" / "database_parity" / "sqlite_compatibility_inventory.j
 
 
 CLASSIFICATIONS: dict[str, tuple[str, str]] = {
+    "backend/core/schema/migrations/039_measured_filament.py": ("sqlite-provider-only", "SQLite retained-reference PRAGMA and immutable triggers; PostgreSQL uses native constraints and guarded functions."),
     "backend/modules/inventory/slot_assignments.py": (
         "sqlite-provider-only",
         "SQLite BEGIN IMMEDIATE establishes the assignment writer boundary; PostgreSQL uses sorted NOWAIT row locks and a graph recheck.",
@@ -441,6 +442,7 @@ PRESERVED_BUNDLES = (
     BACKEND / "core/schema/preserved035/overlay",
     BACKEND / "core/schema/preserved036/overlay",
     BACKEND / "core/schema/preserved037/overlay",
+    BACKEND / "core/schema/preserved038/overlay",
 )
 
 

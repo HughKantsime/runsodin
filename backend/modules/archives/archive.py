@@ -38,6 +38,11 @@ def create_print_archive(print_job_id: int, printer_id: int, success: bool,
                 cur.execute('SELECT id FROM print_archives WHERE print_job_id=? ORDER BY id', (print_job_id,))
                 existing = cur.fetchone()
                 if existing:
+                    from .measured_filament import retain_terminal
+                    # Replay checks an existing original, never backfills legacy archives.
+                    cur.execute('SELECT 1 FROM terminal_filament_measurements m JOIN print_jobs p ON p.economic_uid=m.attempt_uid WHERE p.id=?', (print_job_id,))
+                    if cur.fetchone():
+                        retain_terminal(conn, print_job_id)
                     conn.commit()
                     return existing[0]
                 cur.execute('SELECT job_name,started_at,ended_at,scheduled_job_id,status,'
@@ -133,6 +138,8 @@ def create_print_archive(print_job_id: int, printer_id: int, success: bool,
                     accounting_state, reason = 'unresolved', 'archive_ownership_unresolved'
                 cur.execute('UPDATE print_archives SET accounting_state=?,accounting_reason=? WHERE id=?',
                             (accounting_state, reason, archive_id))
+                from .measured_filament import retain_terminal
+                retain_terminal(conn, print_job_id, ownership_known=owner_state=='known', reconciliation_reason=reason)
                 conn.commit()
                 return archive_id
             except BaseException:

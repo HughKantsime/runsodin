@@ -9,6 +9,8 @@ ROUTES = [
 TABLES = [
     "print_archives",
     "filament_delivery_outbox",
+    "terminal_filament_measurements",
+    "filament_cost_events",
     "projects",
     "timelapses",
     "timelapse_retirements",
@@ -51,7 +53,7 @@ def register_providers(registry) -> None:
     from modules.archives.attempt_valuation_provider import AttemptValuationService
     from modules.archives.timelapse_media_provider import TimelapseMediaService
     from core.interfaces.timelapse_media import MEDIA_METHODS
-    definitions=(('AttemptValuationProvider',AttemptValuationService,('read_private_valuation',),'Invalid private valuation service'),
+    definitions=(('AttemptValuationProvider',AttemptValuationService,('read_private_valuation','read_order_measured_costs'),'Invalid private valuation service'),
                  ('TimelapseMediaProvider',TimelapseMediaService,MEDIA_METHODS,'Invalid timelapse media service'))
     missing=[]
     for name,factory,methods,message in definitions:
