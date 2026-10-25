@@ -32,7 +32,7 @@ def test_current_bootstrap_registers_power_storage_and_survives_restart(tmp_path
 
 def test_current_canonical_power_guards_are_exact_source_owned_union():
     functions, triggers = canonical_functions(), canonical_triggers()
-    assert (len(functions), len(triggers)) == (28, 38)
+    assert (len(functions), len(triggers)) == (29, 40)
     assert set(M.schema.pg_functions()) <= set(functions)
     assert all(type(key) is tuple and len(key)==2 for key in triggers)
     assert {(M.schema.TABLE,name) for name in M.schema.pg_triggers()} <= set(triggers)
