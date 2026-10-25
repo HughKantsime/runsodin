@@ -126,7 +126,7 @@ export default function Setup() {
     'Content-Type': 'application/json',
     ...(extraToken ? { Authorization: `Bearer ${extraToken}` } : {}),
   })
-  const apiOptions = (extraToken) => ({ headers: apiHeaders(extraToken), credentials: 'include' })
+  const apiOptions = (extraToken): RequestInit => ({ headers: apiHeaders(extraToken), credentials: 'include' })
 
   // === Step handlers ===
 

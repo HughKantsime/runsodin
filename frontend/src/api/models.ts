@@ -78,6 +78,11 @@ export interface ModelUpdate {
 }
 
 export interface ModelVariant {
+  bed_x_mm: number | null;
+  bed_y_mm: number | null;
+  plate_count: number;
+  filename: string;
+  printer_model: string;
   id: number;
   model_id: number;
   name: string;
@@ -103,6 +108,7 @@ export interface ModelCostResult {
 }
 
 export interface ModelWithPricing extends Model {
+  job_statistics: { completed_job_count: number; actual_print_hours: number; unknown_timing_job_count: number } | null;
   suggested_price?: number;
   estimated_cost?: number;
 }
@@ -110,6 +116,9 @@ export interface ModelWithPricing extends Model {
 // ---- Slicer Profile types ----
 
 export interface SlicerProfile {
+  description: string | null;
+  tags: string | null;
+  last_applied_at: string | null;
   id: number;
   name: string;
   slicer: string;
@@ -143,7 +152,7 @@ export interface ProfileListParams {
 }
 
 export const models = {
-  getVariants: (id: number): Promise<ModelVariant[]> => fetchAPI(`/models/${id}/variants`),
+  getVariants: (id: number): Promise<{ model_id: number; model_name: string; variants: ModelVariant[] }> => fetchAPI(`/models/${id}/variants`),
   deleteVariant: (modelId: number, variantId: number): Promise<void> => fetchAPI(`/models/${modelId}/variants/${variantId}`, { method: 'DELETE' }),
   list: (orgId: number | null = null): Promise<Model[]> => fetchAPI('/models' + (orgId != null && typeof orgId !== 'object' ? '?org_id=' + orgId : '')),
   listWithPricing: (category?: string, orgId: number | null = null): Promise<ModelWithPricing[]> => fetchAPI('/models-with-pricing' + (category ? '?category=' + category : '') + (orgId != null ? (category ? '&' : '?') + 'org_id=' + orgId : '')),
@@ -196,7 +205,7 @@ export const profilesApi = {
   revertRevision: (id: number, revision: number): Promise<ProfileRevision> => fetchAPI(`/profiles/${id}/revert/${revision}`, {method:'POST'}),
   diffRevisions: (id: number, from: number, to: number): Promise<{diff:string}> => fetchAPI(`/profiles/${id}/diff?from_revision=${from}&to_revision=${to}`),
 
-  list: (params: ProfileListParams = {}): Promise<SlicerProfile[]> => {
+  list: (params: ProfileListParams = {}): Promise<{ profiles: SlicerProfile[]; total: number }> => {
     const q = new URLSearchParams()
     if (params.slicer) q.set('slicer', params.slicer)
     if (params.category) q.set('category', params.category)
@@ -213,7 +222,7 @@ export const profilesApi = {
   update: (id: number, data: Partial<SlicerProfileCreate>): Promise<SlicerProfile> => fetchAPI(`/profiles/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   delete: (id: number): Promise<void> => fetchAPI(`/profiles/${id}`, { method: 'DELETE' }),
   exportUrl: (id: number): string => `/api/profiles/${id}/export`,
-  apply: (id: number, printerId: number): Promise<unknown> => fetchAPI(`/profiles/${id}/apply`, {
+  apply: (id: number, printerId: number): Promise<{ applied: boolean; outcome: string; commands_sent: number; commands_failed: number }> => fetchAPI(`/profiles/${id}/apply`, {
     method: 'POST', body: JSON.stringify({ printer_id: printerId }),
   }),
   import: async (file: File): Promise<SlicerProfile> => {

@@ -51,7 +51,7 @@ export default function Jobs() {
   const [sortDirection, setSortDirection] = useState('asc')
   const [jobTypeFilter, _setJobTypeFilter] = useState(() => searchParams.get('type') || 'all')
 
-  const updateSearchParams = useCallback((updates) => {
+  const updateSearchParams = useCallback((updates: Record<string, string>) => {
     setSearchParams(prev => {
       const next = new URLSearchParams(prev)
       Object.entries(updates).forEach(([key, value]) => {
@@ -85,7 +85,7 @@ export default function Jobs() {
   const [editingJob, setEditingJob] = useState(null)
   const [correctingJob, setCorrectingJob] = useState(null)
   const closeCorrection = useCallback(() => setCorrectingJob(null), [])
-  const [selectedJobs, setSelectedJobs] = useState(new Set())
+  const [selectedJobs, setSelectedJobs] = useState(new Set<number>())
   const [confirmAction, setConfirmAction] = useState(null)
   const [draggedId, setDraggedId] = useState(null)
   const [dragOverId, setDragOverId] = useState(null)
@@ -94,7 +94,7 @@ export default function Jobs() {
   const toggleSelectAll = (jobIds) => setSelectedJobs(prev => prev.size === jobIds.length ? new Set() : new Set(jobIds))
 
   const bulkAction = useMutation({
-    mutationFn: ({ action, extra }) => bulkOps.jobs([...selectedJobs], action, extra),
+    mutationFn: ({ action, extra }: { action: string; extra?: Record<string, unknown> }) => bulkOps.jobs([...selectedJobs], action, extra),
     onSuccess: (result, vars) => {
       queryClient.invalidateQueries({ queryKey: ['jobs'] }); setSelectedJobs(new Set())
       if (vars.action === 'reschedule') {
@@ -253,7 +253,7 @@ export default function Jobs() {
         case 'priority': return dir * ((a.priority ?? 99) - (b.priority ?? 99))
         case 'printer': return dir * ((a.printer?.name || '').localeCompare(b.printer?.name || ''))
         case 'duration_hours': return dir * ((a.duration_hours || 0) - (b.duration_hours || 0))
-        case 'scheduled_start': return dir * (new Date(a.scheduled_start || 0) - new Date(b.scheduled_start || 0))
+        case 'scheduled_start': return dir * (new Date(a.scheduled_start || 0).getTime() - new Date(b.scheduled_start || 0).getTime())
         default: return 0
       }
     })

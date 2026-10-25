@@ -173,8 +173,8 @@ function MatrixTable({ title, groups, access, type, onToggle, saving }: { title:
 
 export default function Permissions() {
   const queryClient = useQueryClient()
-  const [localPageAccess, setLocalPageAccess] = useState(null)
-  const [localActionAccess, setLocalActionAccess] = useState(null)
+  const [localPageAccess, setLocalPageAccess] = useState<Record<string, string[]> | null>(null)
+  const [localActionAccess, setLocalActionAccess] = useState<Record<string, string[]> | null>(null)
   const [dirty, setDirty] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
   const [showResetConfirm, setShowResetConfirm] = useState(false)

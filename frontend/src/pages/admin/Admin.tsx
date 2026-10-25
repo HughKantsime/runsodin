@@ -120,7 +120,7 @@ function ImportUsersModal({ onClose, onImported }: { onClose: () => void; onImpo
     const reader = new FileReader()
     reader.onload = (ev) => {
       try {
-        const text = ev.target.result
+        const text = ev.target.result as string
         const lines = text.split('\n').filter(l => l.trim())
         if (lines.length < 2) {
           setPreview({ error: 'CSV must have a header row and at least one data row' })
@@ -136,7 +136,7 @@ function ImportUsersModal({ onClose, onImported }: { onClose: () => void; onImpo
         const rows = []
         for (let i = 1; i < lines.length; i++) {
           const vals = lines[i].split(',').map(v => v.trim().replace(/^["']|["']$/g, ''))
-          const row = {}
+          const row: Record<string, string> = {}
           header.forEach((h, idx) => { row[h] = vals[idx] || '' })
           if (row.username) rows.push(row)
         }
@@ -319,7 +319,7 @@ export default function Admin() {
   })
 
   const updateUser = useMutation({
-    mutationFn: async ({ id, ...userData }) => {
+    mutationFn: async ({ id, ...userData }: { id: number } & Record<string, unknown>) => {
       const response = await fetch(`${API_BASE}/users/${id}`, { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(userData) })
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))

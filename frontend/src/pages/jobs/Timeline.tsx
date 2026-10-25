@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -236,7 +237,7 @@ export default function Timeline() {
   const [days, setDays] = useState(7)
   const [slotWidth, setSlotWidth] = useState(20)
 
-  const dragRef = useRef({
+  const dragRef = useRef<{ active: boolean; job: { start: string; end: string; job_id: number } | null; printerId: number | null; slotIndex: number | null; newStartTime: Date | null; startX?: number; startY?: number }>({
     active: false,
     job: null,
     printerId: null,
@@ -272,7 +273,7 @@ export default function Timeline() {
   const canMove = canDo('timeline.move')
 
   const moveJobMutation = useMutation({
-    mutationFn: ({ jobId, printerId, scheduledStart }) =>
+    mutationFn: ({ jobId, printerId, scheduledStart }: { jobId: number; printerId: number; scheduledStart: string }) =>
       jobActions.move(jobId, printerId, scheduledStart),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['timeline'] })
@@ -815,7 +816,7 @@ function MqttJobDetail({ block }) {
   )
 }
 
-function Row({ icon, label, value }) {
+function Row({ icon, label, value }: { icon?: ReactNode; label: ReactNode; value: ReactNode }) {
   return (
     <div className="flex items-center justify-between">
       <span className="text-[var(--brand-text-secondary)] flex items-center gap-1.5">

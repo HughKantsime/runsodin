@@ -3,6 +3,8 @@ import { fetchAPI } from './client'
 // ---- Reporting types ----
 
 export interface AnalyticsData {
+  jobs_by_date: Record<string, { created: number; completed: number }>;
+  top_by_jobs: { id: number; name: string; job_count: number }[];
   [key: string]: unknown;
 }
 
@@ -34,6 +36,7 @@ export interface TimeAccuracyData {
 }
 
 export interface FailureAnalyticsData {
+  total_failed: number;
   [key: string]: unknown;
 }
 
@@ -56,8 +59,41 @@ export interface StatsData {
   printer_stats: PrinterStats[];
 }
 
+export interface EducationMetrics {
+  total_jobs_submitted: number;
+  total_jobs_approved: number;
+  total_jobs_rejected: number;
+  total_jobs_completed: number;
+  total_jobs_failed: number;
+  total_print_hours: number | null;
+  estimated_print_hours: number | null;
+  estimated_filament_grams: number | null;
+  unknown_actual_hours_jobs: number;
+  unknown_estimated_hours_jobs: number;
+  unknown_filament_estimate_jobs: number;
+  accuracy_samples: number;
+  unknown_accuracy_jobs: number;
+  unproven_history_jobs: number;
+  total_cost: number | null;
+  unknown_cost_jobs: number;
+  approval_rate: number;
+  success_rate: number;
+  accuracy: number | null;
+  currency: string | null;
+}
+export interface EducationUserMetrics extends EducationMetrics {
+  user_id: number;
+  username: string;
+  email: string | null;
+  role: string;
+  last_activity: string | null;
+}
 export interface EducationUsageReport {
-  [key: string]: unknown;
+  summary: EducationMetrics & { total_users_active: number; total_jobs: number; rejection_rate: number };
+  users: EducationUserMetrics[];
+  daily_submissions: Record<string, number>;
+  by_printer: (EducationMetrics & { id: number; name: string | null; available: boolean })[];
+  by_model: (EducationMetrics & { id: number; name: string | null; available: boolean })[];
 }
 
 export interface ReportSchedule {

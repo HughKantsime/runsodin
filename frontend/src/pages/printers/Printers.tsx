@@ -104,13 +104,13 @@ export default function Printers() {
     else await updatePlugConfig(printerId, plug)
   }
   const createPrinter = useMutation({ mutationFn: async ({ plug, ...data }: any) => { const created = await printers.create(data); await savePlug(created?.id, plug); return created }, onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['printers'] }); setShowModal(false) }, onError: mutErr('Create printer failed') })
-  const updatePrinter = useMutation({ mutationFn: async ({ id, data }) => { const { plug, ...rest } = data; const saved = await printers.update(id, rest); await savePlug(id, plug); return saved }, onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['printers'] }); setShowModal(false); setEditingPrinter(null) }, onError: mutErr('Update printer failed') })
+  const updatePrinter = useMutation({ mutationFn: async ({ id, data }: { id: number; data: Parameters<typeof printers.update>[1] & { plug?: Parameters<typeof savePlug>[1] } }) => { const { plug, ...rest } = data; const saved = await printers.update(id, rest); await savePlug(id, plug); return saved }, onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['printers'] }); setShowModal(false); setEditingPrinter(null) }, onError: mutErr('Update printer failed') })
   const deletePrinter = useMutation({ mutationFn: printers.delete, onSuccess: () => queryClient.invalidateQueries({ queryKey: ['printers'] }), onError: mutErr('Delete printer failed') })
-  const updateSlot = useMutation({ mutationFn: ({ printerId, slotNumber, data }) => printers.updateSlot(printerId, slotNumber, data), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['printers'] }), onError: mutErr('Update slot failed') })
+  const updateSlot = useMutation({ mutationFn: ({ printerId, slotNumber, data }: { printerId: number; slotNumber: number; data: Parameters<typeof printers.updateSlot>[2] }) => printers.updateSlot(printerId, slotNumber, data), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['printers'] }), onError: mutErr('Update slot failed') })
   const reorderPrinters = useMutation({ mutationFn: printers.reorder, onSuccess: () => queryClient.invalidateQueries({ queryKey: ['printers'] }), onError: mutErr('Reorder printers failed') })
 
   // Bulk selection
-  const [selectedPrinters, setSelectedPrinters] = useState(new Set())
+  const [selectedPrinters, setSelectedPrinters] = useState(new Set<number>())
   const togglePrinterSelect = (id) => setSelectedPrinters(prev => {
     const next = new Set(prev)
     next.has(id) ? next.delete(id) : next.add(id)
@@ -120,7 +120,7 @@ export default function Printers() {
     setSelectedPrinters(prev => prev.size === ids.length ? new Set() : new Set(ids))
   }
   const bulkPrinterAction = useMutation({
-    mutationFn: ({ action, extra }) => bulkOps.printers([...selectedPrinters], action, extra),
+    mutationFn: ({ action, extra }: { action: string; extra?: Record<string, unknown> }) => bulkOps.printers([...selectedPrinters], action, extra),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['printers'] }); setSelectedPrinters(new Set()) },
     onError: mutErr('Bulk printer action failed'),
   })

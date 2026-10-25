@@ -3,6 +3,14 @@
 import type { PaginatedResponse } from './common';
 
 export interface Archive {
+  print_name: string;
+  printer_display: string;
+  printer_nickname: string | null;
+  user_name: string | null;
+  actual_duration_seconds: number | null;
+  filament_used_grams: number | null;
+  cost_estimate: number | null;
+  started_at: string | null;
   id: number;
   item_name: string;
   printer_id: number | null;
@@ -49,6 +57,7 @@ export interface ArchiveLogParams {
 }
 
 export interface ArchiveCompareResult {
+  diff: Record<string, { a: string | number | null; b: string | number | null }>;
   a: Archive;
   b: Archive;
   [key: string]: unknown;
@@ -74,6 +83,9 @@ export interface ArchiveReprintRequest {
 // ---- Projects ----
 
 export interface Project {
+  color: string;
+  archive_count: number;
+  expected_parts: number | null;
   id: number;
   name: string;
   description: string | null;

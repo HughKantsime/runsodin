@@ -36,7 +36,7 @@ export const archives = {
   updateTags: (id: number, tags: string[]): Promise<Archive> => fetchAPI(`/archives/${id}/tags`, { method: 'PATCH', body: JSON.stringify({ tags }) }),
   compare: (a: number, b: number): Promise<ArchiveCompareResult> => fetchAPI(`/archives/compare?a=${a}&b=${b}`),
   amsPreview: (id: number, printerId?: number): Promise<ArchiveAmsPreview> => fetchAPI(`/archives/${id}/ams-preview${printerId ? `?printer_id=${printerId}` : ''}`),
-  reprint: (id: number, data: ArchiveReprintRequest): Promise<unknown> => fetchAPI(`/archives/${id}/reprint`, { method: 'POST', body: JSON.stringify(data) }),
+  reprint: (id: number, data: ArchiveReprintRequest): Promise<{ message: string }> => fetchAPI(`/archives/${id}/reprint`, { method: 'POST', body: JSON.stringify(data) }),
   log: (params: ArchiveLogParams = {}): Promise<PaginatedResponse<Archive>> => {
     const q = new URLSearchParams()
     if (params.page) q.set('page', String(params.page))

@@ -24,7 +24,7 @@ export default function Products() {
   const [expandedProduct, setExpandedProduct] = useState(null)
   const [consumableList, setConsumableList] = useState([])
   const [addingConsumable, setAddingConsumable] = useState(null) // product id
-  const [newConsumable, setNewConsumable] = useState({ consumable_id: '', quantity_per_product: 1 })
+  const [newConsumable, setNewConsumable] = useState({ consumable_id: '', quantity_per_product: 1 as string | number })
   const [confirmAction, setConfirmAction] = useState(null)
 
   const knownPrices = productList.length > 0 && productList.every(product =>
@@ -95,7 +95,7 @@ export default function Products() {
   const handleSubmit = async (e) => {
     e.preventDefault()
     try {
-      const data = {
+      const data: Parameters<typeof products.create>[0] = {
         name: formData.name,
         sku: formData.sku || null,
         price: formData.price ? parseFloat(formData.price) : null,
@@ -179,12 +179,12 @@ export default function Products() {
     try {
       await products.addConsumable(productId, {
         consumable_id: parseInt(newConsumable.consumable_id),
-        quantity_per_product: parseFloat(newConsumable.quantity_per_product) || 1
+        quantity_per_product: parseFloat(String(newConsumable.quantity_per_product)) || 1
       })
       const full = await products.get(productId)
       setExpandedProduct(full)
       setAddingConsumable(null)
-      setNewConsumable({ consumable_id: '', quantity_per_product: 1 })
+      setNewConsumable({ consumable_id: '', quantity_per_product: 1 as string | number })
       loadData()
     } catch (err: any) {
       console.error('Failed to add consumable:', err)

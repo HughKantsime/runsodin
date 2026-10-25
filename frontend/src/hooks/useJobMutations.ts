@@ -21,7 +21,7 @@ export function useJobMutations() {
   })
 
   const updateJob = useMutation({
-    mutationFn: ({ id, data }) => jobs.update(id, data),
+    mutationFn: ({ id, data }: { id: number; data: Parameters<typeof jobs.update>[1] }) => jobs.update(id, data),
     onSuccess: () => { inv(); toast.success('Job updated') },
     onError: (err) => toast.error('Update job failed: ' + err.message),
   })
@@ -82,7 +82,7 @@ export function useJobMutations() {
   })
 
   const rejectJobMut = useMutation({
-    mutationFn: ({ jobId, reason }) => rejectJob(jobId, reason),
+    mutationFn: ({ jobId, reason }: { jobId: number; reason: string }) => rejectJob(jobId, reason),
     onSuccess: () => { inv(); toast.success('Job rejected') },
     onError: (err) => toast.error('Reject job failed: ' + err.message),
   })

@@ -20,7 +20,7 @@ const money = (value: unknown) => (typeof value === 'number' && Number.isFinite(
 
 const CHART_TOOLTIP = { backgroundColor: 'var(--chart-tooltip-bg)', border: 'none', borderRadius: '6px', boxShadow: 'var(--chart-tooltip-shadow)', color: 'var(--brand-text-primary)' }
 
-function JobsOverTimeChart({ data, days = 30 }) {
+function JobsOverTimeChart({ data, days = 30 }: { data: Record<string, { created: number; completed: number }>; days?: number }) {
   if (!data || Object.keys(data).length === 0) {
     return (
       <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
@@ -107,7 +107,7 @@ function PrinterUtilization({ data }) {
 }
 
 function ModelRankings({ topData, worstData, jobCountData = [] }) {
-  const RankRow = ({ item, index, isWorst }) => {
+  const RankRow = ({ item, index, isWorst }: { item: { name: string; value_per_hour?: number; value_per_bed?: number; build_time_hours?: number }; index: number; isWorst?: boolean }) => {
     const medalColors = isWorst
       ? ['bg-red-900/50 text-red-300', 'bg-red-900/30 text-red-400', 'bg-red-900/20 text-red-500']
       : ['bg-amber-900/50 text-amber-300', 'bg-amber-900/30 text-amber-400', 'bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)]']

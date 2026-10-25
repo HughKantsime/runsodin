@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+import type { Archive as ArchiveDto } from '../../types'
 import { useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -15,7 +17,7 @@ const STATUS_BADGES = {
   cancelled: 'bg-yellow-600/20 text-yellow-400',
 }
 
-function TagChips({ tags, onTagClick }) {
+function TagChips({ tags, onTagClick }: { tags: string[]; onTagClick?: (tag: string) => void }) {
   if (!tags || tags.length === 0) return null
   return (
     <div className="flex flex-wrap gap-1">
@@ -77,14 +79,17 @@ function CompareModal({ a, b, onClose }) {
     queryFn: () => archives.compare(a.id, b.id),
   })
 
+  const field = <K extends keyof ArchiveDto>(key: K, label: string, format: (value: ArchiveDto[K]) => ReactNode) => ({
+    key, label, format: (archive: ArchiveDto) => format(archive[key]),
+  })
   const fields = [
-    { key: 'printer_display', label: 'Printer' },
-    { key: 'status', label: 'Status' },
-    { key: 'actual_duration_seconds', label: 'Duration', fmt: formatDuration },
-    { key: 'filament_used_grams', label: 'Filament (g)', fmt: v => v != null ? `${v.toFixed(1)}g` : '--' },
-    { key: 'cost_estimate', label: 'Cost', fmt: v => v != null ? `$${v.toFixed(2)}` : '--' },
-    { key: 'started_at', label: 'Started', fmt: formatDate },
-    { key: 'completed_at', label: 'Completed', fmt: formatDate },
+    field('printer_display', 'Printer', v => v ?? '--'),
+    field('status', 'Status', v => v ?? '--'),
+    field('actual_duration_seconds', 'Duration', formatDuration),
+    field('filament_used_grams', 'Filament (g)', v => v != null ? `${v.toFixed(1)}g` : '--'),
+    field('cost_estimate', 'Cost', v => v != null ? `$${v.toFixed(2)}` : '--'),
+    field('started_at', 'Started', formatDate),
+    field('completed_at', 'Completed', formatDate),
   ]
 
   return (
@@ -104,12 +109,11 @@ function CompareModal({ a, b, onClose }) {
             <tbody>
               {fields.map(f => {
                 const isDiff = data.diff && f.key in data.diff
-                const fmt = f.fmt || (v => v ?? '--')
                 return (
                   <tr key={f.key} className={`border-t border-[var(--brand-card-border)] ${isDiff ? 'bg-amber-900/20' : ''}`}>
                     <td className="py-2 px-3 text-[var(--brand-text-muted)]">{f.label}</td>
-                    <td className="py-2 px-3">{fmt(data.a[f.key])}</td>
-                    <td className="py-2 px-3">{fmt(data.b[f.key])}</td>
+                    <td className="py-2 px-3">{f.format(data.a)}</td>
+                    <td className="py-2 px-3">{f.format(data.b)}</td>
                   </tr>
                 )
               })}
@@ -401,7 +405,7 @@ export default function ArchivesPage() {
   const [filterStatus, _setFilterStatus] = useState(() => searchParams.get('status') || '')
   const [filterTag, _setFilterTag] = useState(() => searchParams.get('tag') || '')
   const [selected, setSelected] = useState(null)
-  const [compareIds, setCompareIds] = useState(new Set())
+  const [compareIds, setCompareIds] = useState(new Set<number>())
   const [showCompare, setShowCompare] = useState(false)
 
   // Several filter setters run in one handler (e.g. tag click = tag + page 1).
@@ -410,7 +414,7 @@ export default function ArchivesPage() {
   // a ref and write the composed result.
   const paramsRef = useRef(searchParams)
   useEffect(() => { paramsRef.current = searchParams }, [searchParams])
-  const updateSearchParams = useCallback((updates) => {
+  const updateSearchParams = useCallback((updates: Record<string, string>) => {
     const next = new URLSearchParams(paramsRef.current)
     Object.entries(updates).forEach(([key, value]) => {
       if (value && value !== '' && !(key === 'page' && String(value) === '1')) {
@@ -470,7 +474,7 @@ export default function ArchivesPage() {
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (id) => archives.delete(id),
+    mutationFn: (id: Parameters<typeof archives.delete>[0]) => archives.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['archives'] })
       toast.success('Archive deleted')

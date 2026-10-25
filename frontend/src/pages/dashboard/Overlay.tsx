@@ -108,7 +108,7 @@ export default function Overlay() {
             src={cameraUrl}
             alt="Camera stream"
             className="w-full h-full object-contain"
-            onError={(e) => { e.target.style.display = 'none' }}
+            onError={(e) => { e.currentTarget.style.display = 'none' }}
           />
         </div>
       )}

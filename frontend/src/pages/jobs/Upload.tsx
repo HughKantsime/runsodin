@@ -93,7 +93,7 @@ function FilamentBadge({ filament }) {
   )
 }
 
-function UploadSuccess({ data, onUploadAnother, onViewLibrary, onScheduleNow, onUpdateObjects, submitForApproval, onSaveQuantity }) {
+function UploadSuccess({ data, onUploadAnother, onViewLibrary, onScheduleNow, onUpdateObjects, submitForApproval }) {
   const [quickPrinted, setQuickPrinted] = useState(false)
   const quickPrintMut = useMutation({
     mutationFn: () => data.target_printer_id ? modelsApi.schedule(data.model_id, data.target_printer_id) : modelsApi.schedule(data.model_id),
@@ -249,7 +249,7 @@ function UploadSuccess({ data, onUploadAnother, onViewLibrary, onScheduleNow, on
 function RecentUploads() {
   const queryClient = useQueryClient()
   const deleteMutation = useMutation({
-    mutationFn: (id) => printFiles.delete(id),
+    mutationFn: (id: number) => printFiles.delete(id),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["print-files"] }); toast.success('Upload deleted') },
     onError: (err) => toast.error('Delete failed: ' + err.message),
   })
@@ -344,7 +344,7 @@ export default function Upload() {
   const showSubmitForApproval = approvalEnabled && userRole === 'viewer'
 
   const uploadMutation = useMutation({
-    mutationFn: (file) => {
+    mutationFn: (file: File) => {
       setUploadProgress(0)
       return new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest()

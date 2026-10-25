@@ -5,6 +5,8 @@ const API_BASE = '/api'
 // ---- Vision types ----
 
 export interface VisionDetection {
+  printer_name?: string;
+  printer_nickname?: string;
   id: number;
   printer_id: number;
   print_job_id: number | null;
@@ -50,6 +52,10 @@ export interface VisionModel {
 }
 
 export interface VisionStats {
+  by_type: Record<string, number>;
+  days: number;
+  accuracy_pct: number | null;
+  total_reviewed: number;
   [key: string]: unknown;
 }
 

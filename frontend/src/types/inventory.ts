@@ -128,7 +128,7 @@ export interface SpoolDryingRecord {
 }
 
 export interface SpoolListFilters {
-  status?: SpoolStatus;
+  status?: string;
   printer_id?: number | string;
   org_id?: number;
 }

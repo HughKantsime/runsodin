@@ -3,6 +3,8 @@
 import type { FilamentType, PrinterSummary } from './printer';
 
 export type JobStatus =
+  | 'submitted'
+  | 'rejected'
   | 'pending'
   | 'scheduled'
   | 'printing'
@@ -155,6 +157,8 @@ export interface TimelineResponse {
 // ---- Print Jobs (MQTT tracked) ----
 
 export interface PrintJob {
+  progress_percent: number | null;
+  error_code: string | null;
   id: number;
   printer_id: number;
   job_id: number | null;
@@ -179,6 +183,10 @@ export interface PrintJobStats {
 // ---- Print Files ----
 
 export interface PrintFile {
+  thumbnail_b64: string | null;
+  project_name: string;
+  print_time_formatted: string;
+  total_weight_grams: number | null;
   id: number;
   filename: string;
   file_size: number | null;

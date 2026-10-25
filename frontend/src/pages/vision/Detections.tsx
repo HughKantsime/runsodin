@@ -27,7 +27,7 @@ const STATUS_META = {
   auto_paused: { label: 'Auto-Paused', color: 'text-purple-400', bg: 'bg-purple-500/15' },
 }
 
-function StatBar({ stats }) {
+function StatBar({ stats }: { stats: Awaited<ReturnType<typeof vision.getStats>> }) {
   if (!stats) return null
   const total = Object.values(stats.by_type || {}).reduce((a, b) => a + b, 0)
   return (
@@ -177,7 +177,7 @@ export default function Detections() {
     refetchInterval: 30000,
   })
 
-  const params = { limit: LIMIT, offset: page * LIMIT }
+  const params: Parameters<typeof vision.getDetections>[0] = { limit: LIMIT, offset: page * LIMIT }
   if (typeFilter) params.detection_type = typeFilter
   if (statusFilter) params.status = statusFilter
   if (printerFilter) params.printer_id = printerFilter
@@ -198,7 +198,7 @@ export default function Detections() {
   const items = data?.items || []
   const total = data?.total || 0
 
-  const [selectedIds, setSelectedIds] = useState(new Set())
+  const [selectedIds, setSelectedIds] = useState(new Set<number>())
 
   const selectionGeneration = useRef(0)
   const openDetection = (row) => { selectionGeneration.current++; setSelectedDetection(row) }

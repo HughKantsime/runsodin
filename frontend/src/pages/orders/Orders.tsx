@@ -74,7 +74,7 @@ export default function Orders() {
   const editRequest = useRef(0)
   const closeEdit = () => { editRequest.current += 1; setEditingOrder(null) }
   useEffect(() => () => { editRequest.current += 1 }, [])
-  const [editFormData, setEditFormData] = useState({})
+  const [editFormData, setEditFormData] = useState<Partial<Record<'customer_name' | 'customer_email' | 'platform' | 'order_number' | 'notes' | 'tracking_number', string> & Record<'revenue' | 'platform_fees' | 'payment_fees' | 'shipping_charged', string | number>>>({})
   const [editItems, setEditItems] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
   const [confirmAction, setConfirmAction] = useState(null)
