@@ -76,9 +76,11 @@ def sqlite_triggers():
 
 
 def pg_functions():
+    def qualified(condition):
+        return re.sub(r'(?<![.\w])(terminal_filament_measurements|filament_cost_events|cost_attempt_bindings|cost_source_lifetimes|cost_identities|spool_purchase_evidence)\b', r'public.\1', condition)
     return {table+'_guard': "BEGIN IF TG_OP<>'INSERT' THEN RAISE EXCEPTION 'immutable measured filament evidence'; END IF; "
-            + ("PERFORM 1 FROM terminal_filament_measurements WHERE observation_id=NEW.observation_id FOR UPDATE; " if table=='filament_cost_events' else '')
-            + f"IF {condition} THEN RAISE EXCEPTION 'measured filament reference or revision differs'; END IF; RETURN NEW; END;"
+            + ("PERFORM 1 FROM public.terminal_filament_measurements WHERE observation_id=NEW.observation_id FOR UPDATE; " if table=='filament_cost_events' else '')
+            + f"IF {qualified(condition)} THEN RAISE EXCEPTION 'measured filament reference or revision differs'; END IF; RETURN NEW; END;"
             for table,condition in conditions().items()}
 
 
@@ -87,7 +89,7 @@ def pg_triggers():
     for table in TABLES:
         for suffix,ops,level in [('guard','INSERT OR DELETE OR UPDATE','ROW'),('no_truncate','TRUNCATE','STATEMENT')]:
             name=table+'_'+suffix
-            result[(table,name)]=f'CREATE TRIGGER {name} BEFORE {ops} ON public.{table} FOR EACH {level} EXECUTE FUNCTION {table}_guard()'
+            result[(table,name)]=f'CREATE TRIGGER {name} BEFORE {ops} ON public.{table} FOR EACH {level} EXECUTE FUNCTION public.{table}_guard()'
     return result
 
 
@@ -102,20 +104,20 @@ def apply(connection):
         for ddl in sqlite_triggers().values():connection.exec_driver_sql(ddl)
     else:
         for name,body in pg_functions().items():
-            connection.exec_driver_sql(f'CREATE FUNCTION {name}() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog, public AS $${body}$$')
+            connection.exec_driver_sql(f'CREATE FUNCTION public.{name}() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog, public AS $${body}$$')
         for ddl in pg_triggers().values():connection.exec_driver_sql(ddl)
     validate(connection)
 
 
-def _shape(connection,table):
+def _shape(connection,table,schema=None):
     i=inspect(connection)
     return {
-      'columns':[(c['name'],str(c['type']),c['nullable'],str(c.get('default'))) for c in i.get_columns(table)],
-      'pk':i.get_pk_constraint(table)['constrained_columns'],
-      'unique':sorted(tuple(c['column_names']) for c in i.get_unique_constraints(table)),
-      'checks':sorted(re.sub(r'\s+','',c['sqltext']).lower() for c in i.get_check_constraints(table)),
-      'foreign':sorted((tuple(c['constrained_columns']),c['referred_table'],tuple(c['referred_columns']),str(c['options'])) for c in i.get_foreign_keys(table)),
-      'indexes':sorted((tuple(c['column_names']),c['unique']) for c in i.get_indexes(table) if not c.get('duplicates_constraint'))
+      'columns':[(c['name'],str(c['type']),c['nullable'],str(c.get('default'))) for c in i.get_columns(table,schema=schema)],
+      'pk':i.get_pk_constraint(table,schema=schema)['constrained_columns'],
+      'unique':sorted(tuple(c['column_names']) for c in i.get_unique_constraints(table,schema=schema)),
+      'checks':sorted(re.sub(r'\s+','',c['sqltext']).lower() for c in i.get_check_constraints(table,schema=schema)),
+      'foreign':sorted((tuple(c['constrained_columns']),c['referred_table'],tuple(c['referred_columns']),str(c['options'])) for c in i.get_foreign_keys(table,schema=schema)),
+      'indexes':sorted((tuple(c['column_names']),c['unique']) for c in i.get_indexes(table,schema=schema) if not c.get('duplicates_constraint'))
     }
 
 
@@ -123,9 +125,20 @@ def validate(connection):
     # Reflect dialect-native expected declarations; adoption requires exact constraints.
     for table,ddl in TABLES.items():
         name='_measured_contract_'+uuid.uuid4().hex[:12]
-        connection.exec_driver_sql('CREATE TABLE '+name+' '+ddl)
+        postgres=connection.dialect.name=='postgresql'
+        # PostgreSQL forbids temporary-to-permanent foreign keys. Reflect the
+        # remaining native shape in a temp table and compare declared FK targets
+        # separately, without creating any public validation objects.
+        reference=r' REFERENCES (\w+)\((\w+)\) ON DELETE RESTRICT'
+        expected_ddl=re.sub(reference,'',ddl) if postgres else ddl
+        connection.exec_driver_sql(('CREATE TEMPORARY TABLE ' if postgres else 'CREATE TABLE ')+name+' '+expected_ddl)
         try:
-            if _shape(connection,table)!=_shape(connection,name):raise MigrationError('Measured filament shape differs')
+            schema=connection.execute(text('SELECT nspname FROM pg_namespace WHERE oid=pg_my_temp_schema()')).scalar_one() if postgres else None
+            wanted=_shape(connection,name,schema)
+            if postgres:
+                wanted['foreign']=sorted(((column,),target,(key,),str({'ondelete':'RESTRICT'}))
+                    for column,target,key in re.findall(r'(\w+) TEXT(?: NOT NULL)?'+reference,ddl))
+            if _shape(connection,table)!=wanted:raise MigrationError('Measured filament shape differs')
         finally:connection.exec_driver_sql('DROP TABLE '+name)
     # Adoption must validate retained rows as well as the guards protecting
     # future writes. Reinstalled guards do not prove pre-existing associations.

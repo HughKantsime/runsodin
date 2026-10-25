@@ -14,8 +14,8 @@ const base: OrderMeasuredCosts = {
 describe('Measured filament panel', () => {
   it('shows known zero, scope and attempt breakdown', () => {
     render(<MeasuredFilamentView value={base} />)
-    expect(screen.getByText('Fully measured filament: USD 0.00')).toBeTruthy()
-    expect(screen.getByText('Printer-reported consumption.')).toBeTruthy()
+    expect(screen.getByText('Printer-reported estimate: USD 0.00')).toBeTruthy()
+    expect(screen.getByText('Printer-reported estimate.')).toBeTruthy()
     expect(screen.getByText('Attempt breakdown')).toBeTruthy()
     expect(screen.getByText(/Production COGS and measured margin are unavailable/)).toBeTruthy()
   })
@@ -29,7 +29,7 @@ describe('Measured filament panel', () => {
     render(<MeasuredFilamentView value={{ ...base, filament_state: 'partial', measured_filament_known_subtotal: null, currency: null, successful_subtotal: null, reasons: ['currency_mismatch'] }} />)
     expect(screen.getByText('Measured cost unavailable')).toBeTruthy()
     expect(screen.getByText('Currencies do not agree')).toBeTruthy()
-    expect(screen.queryByText('Fully measured filament: USD 0.00')).toBeNull()
+    expect(screen.queryByText('Printer-reported estimate: USD 0.00')).toBeNull()
   })
   it('loads through the private API and handles denial', async () => {
     vi.mocked(orders.measuredCosts).mockRejectedValueOnce(new Error('denied'))
@@ -43,8 +43,14 @@ describe('Measured filament panel', () => {
       .mockResolvedValueOnce({ ...base, measured_filament_known_subtotal: '7.00' })
     const view = render(<MeasuredFilamentCost orderId={1} />)
     view.rerender(<MeasuredFilamentCost orderId={2} />)
-    await screen.findByText('Fully measured filament: USD 7.00')
+    await screen.findByText('Printer-reported estimate: USD 7.00')
     finish(base)
-    await waitFor(() => expect(screen.queryByText('Fully measured filament: USD 0.00')).toBeNull())
+    await waitFor(() => expect(screen.queryByText('Printer-reported estimate: USD 0.00')).toBeNull())
   })
+})
+
+it('uses the currency minor units for JPY', () => {
+  render(<MeasuredFilamentView value={{ ...base, currency: 'JPY', measured_filament_known_subtotal: '1234.50', successful_subtotal: null }} />)
+  expect(screen.getByText('Printer-reported estimate: JPY 1,235')).toBeTruthy()
+  expect(screen.queryByText(/JPY 1,234\.50/)).toBeNull()
 })

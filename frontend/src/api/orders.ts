@@ -94,5 +94,5 @@ export interface OrderMeasuredCosts {
   reasons: string[]
   successful_subtotal: string | null
   failed_cancelled_subtotal: string | null
-  attempts: { attempt_id: number; outcome: 'completed' | 'failed' | 'cancelled' | 'open'; measurement_basis: 'printer_reported' | 'unavailable' | 'invalid'; amount: string | null; currency: string | null; reason: string | null }[]
+  attempts: { attempt_id: number | null; outcome: 'completed' | 'failed' | 'cancelled' | 'open'; measurement_basis: 'printer_reported' | 'unavailable' | 'invalid'; amount: string | null; currency: string | null; reason: string | null }[]
 }

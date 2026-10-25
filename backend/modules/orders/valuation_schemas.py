@@ -49,7 +49,7 @@ class UnavailableValuation(_Closed):
 MeasuredReason=Literal['missing_measurement','invalid_measurement','missing_historical_valuation','unresolved_allocation','unresolved_purchase_evidence','currency_mismatch','valuation_bound_exceeded','mixed_order_plate','archive_ownership_unresolved','open_attempt','missing_terminal_observation','no_participating_attempts','inventory_shortfall']
 
 class MeasuredAttempt(_Closed):
-    attempt_id:StrictInt
+    attempt_id:StrictInt|None
     outcome:Literal['completed','failed','cancelled','open']
     measurement_basis:Literal['printer_reported','unavailable','invalid']
     amount:str|None=Field(max_length=100)

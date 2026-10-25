@@ -4,7 +4,7 @@ Only frozen first-start receipts enter valuation. A retained observation is read
 before retry; inventory markers have no bearing on financial event insertion.
 """
 import json
-from decimal import Decimal, InvalidOperation, localcontext, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, localcontext, ROUND_HALF_UP, ROUND_HALF_EVEN
 from uuid import uuid4
 from sqlalchemy import text
 from core.dispatch_observation_executor import TransactionView
@@ -39,7 +39,8 @@ def calculate(grams, price, net):
         context.prec=90
         amount=Decimal(value)*Decimal(price)/Decimal(net)
         if amount>MAX_AMOUNT:raise ValueError('Valuation bound exceeded')
-        return format(amount,'f')
+        # Retain six decimal places, ties to even, within the storage CHECK.
+        return format(amount.quantize(Decimal('0.000001'), rounding=ROUND_HALF_EVEN),'f')
 
 
 def value_observation(db, graph, snapshot, basis, grams, *, ownership_known=True):

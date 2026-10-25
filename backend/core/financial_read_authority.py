@@ -23,7 +23,7 @@ def _refuse():
     raise HTTPException(403, 'Sign in again to verify financial read authority')
 
 
-def verify_financial_reader(db, request, actor):
+def verify_financial_reader(db, request, actor, *, read_only=False):
     if type(actor) is not dict or not has_verified_origin_request(db, request, actor):
         _refuse()
     identifier = actor.get('id')
@@ -31,13 +31,15 @@ def verify_financial_reader(db, request, actor):
         _refuse()
     postgres = db.get_bind().dialect.name == 'postgresql'
     kind = actor['_auth_kind']
-    if postgres:
+    if postgres and not read_only:
         _bound_postgres_actor_locks(db.connection())
         if kind != 'user_api_token':
             db.execute(text('LOCK TABLE public.token_blacklist IN SHARE MODE NOWAIT'))
         suffix = ' FOR UPDATE NOWAIT'
-    else:
+    elif not read_only:
         db.execute(text('UPDATE users SET id=id WHERE id=:id'), {'id': identifier})
+        suffix = ''
+    else:
         suffix = ''
     user = db.execute(text('SELECT id,username,role,group_id,is_active FROM users WHERE id=:id' + suffix), {'id': identifier}).first()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: lock suffix selected from the closed set {'', ' FOR UPDATE NOWAIT'}; values are bound
     if (not user or user.username != actor.get('username') or not has_permission(user.role, 'viewer')

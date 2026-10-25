@@ -3,17 +3,19 @@ from decimal import Decimal, localcontext
 from fastapi import HTTPException
 from sqlalchemy import text
 from core.financial_read_authority import verify_financial_reader
-from .valuation_parent_lock import lock_financial_attempt
 from .valuation_financial_graph import prove_financial_graph
-from .valuation_content_visibility import fence_content_membership,assert_content_visible
+from .valuation_content_visibility import assert_content_visible
 from .valuation_projection import parse_private_valuation
 from .valuation_retained_evidence import verify_retained_basis
 from .measured_filament import display_amount,MAX_AMOUNT,REASONS,value_observation
 
 MAX_ATTEMPTS=1000
+# The current terminal contract retains printer estimates only. No supported
+# basis proves physically measured grams; adding one requires provenance storage.
+MEASURED_BASES=frozenset()
 
 
-def summarize(attempts):
+def summarize(attempts, *, jobs_terminal=True):
     known=[a for a in attempts if a['amount'] is not None]
     currencies={a['currency'] for a in known}
     mismatch=len(currencies)>1
@@ -27,26 +29,30 @@ def summarize(attempts):
             values=[Decimal(a['amount']) for a in known if a['outcome'] in outcomes]
             return display_amount(sum(values,Decimal(0))) if values and not mismatch and not overflow else None
         success=subtotal(('completed',));failed=subtotal(('failed','cancelled'))
-    opened=sum(a['outcome']=='open' for a in attempts)
-    unresolved=sum(a['amount'] is None and a['outcome']!='open' for a in attempts)
+    opened=sum(a['outcome']=='open' and a['reason']=='open_attempt' for a in attempts)
+    unresolved=sum(a['amount'] is None and (a['outcome']!='open' or a['reason']!='open_attempt') for a in attempts)
     reasons=sorted({a['reason'] for a in attempts if a['reason'] is not None}|({'currency_mismatch'} if mismatch else set())|({'valuation_bound_exceeded'} if overflow else set()))
     if not attempts:reasons=['no_participating_attempts']
     return {'measured_filament_known_subtotal':display_amount(total) if total is not None else None,
-      'currency':currency,'filament_state':'fully_measured' if known and not unresolved and not opened and not mismatch and not overflow else 'partial' if known else 'unknown',
+      'currency':currency,'filament_state':'fully_measured' if known and jobs_terminal and all(a['measurement_basis'] in MEASURED_BASES for a in known) and not unresolved and not opened and not mismatch and not overflow else 'partial' if known else 'unknown',
       'known_attempts':len(known),'unresolved_attempts':unresolved,'open_attempts':opened,'reasons':reasons,
       'production_cogs_state':'unavailable','successful_subtotal':success,'failed_cancelled_subtotal':failed,'attempts':attempts}
 
 
 def read_order_measured_costs(db,request,actor,order_id):
-    reader=verify_financial_reader(db,request,actor)
-    fence_content_membership(db)
+    # Establish one read snapshot before authority and evidence SELECTs.
+    if db.get_bind().dialect.name=='postgresql':
+        # Authentication may already have issued SELECTs. End that read
+        # transaction, then reverify authority inside the aggregate snapshot.
+        db.rollback()
+        db.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY'))
+    elif not db.connection().connection.driver_connection.in_transaction:
+        db.execute(text('BEGIN'))
+    reader=verify_financial_reader(db,request,actor,read_only=True)
     try:
         if type(order_id) is not int or order_id<=0:raise ValueError('Invalid order')
-        # Same parent-first lock used by the financial attempt reader.
-        postgres=db.get_bind().dialect.name=='postgresql'
-        query='SELECT id FROM orders WHERE id=:id FOR UPDATE NOWAIT' if postgres else 'UPDATE orders SET id=id WHERE id=:id RETURNING id'
-        if db.execute(text(query),{'id':order_id}).first() is None:raise ValueError('Missing order')
         order=db.execute(text('SELECT org_id,economic_uid FROM orders WHERE id=:id'),{'id':order_id}).first()
+        if order is None:raise ValueError('Missing order')
         owner=('global',0) if order[0] is None else ('org',order[0])
         if not (reader.role=='admin' and reader.group_id is None) and (owner[0]!='org' or reader.group_id!=owner[1]):raise ValueError('Foreign order')
         uid=order[1]
@@ -66,16 +72,15 @@ def read_order_measured_costs(db,request,actor,order_id):
             if current is None:raise ValueError('Attempt disappeared')
             graph=None
             if current[1]:
-                lock_financial_attempt(db,identifier)
                 graph=prove_financial_graph(db,identifier)
                 if (graph['order_uid'],graph['owner_scope'],graph['owner_key'])!=(uid,*owner):raise ValueError('Wrong order binding')
                 assert_content_visible(db,graph=graph,principal=actor)
-            else:
-                # Cannot safely establish content audience for an unbound physical attempt.
-                # Refusal prevents a hidden legacy print from implying a complete total.
-                raise ValueError('Unproved historical attempt')
             outcome=current[0] if current[0] in ('completed','failed','cancelled') else 'open'
             item={'attempt_id':identifier,'outcome':outcome,'measurement_basis':'unavailable','amount':None,'currency':None,'reason':'open_attempt' if outcome=='open' else 'missing_terminal_observation'}
+            if graph is None:
+                item.update(attempt_id=None,reason='missing_historical_valuation')
+                attempts.append(item)
+                continue
             observation=db.execute(text('''SELECT observation_id,attempt_birth,outcome,measurement_basis,snapshot_json,measured_grams,reconciliation_reason
               FROM terminal_filament_measurements WHERE attempt_uid=:uid AND order_uid=:order_uid AND owner_scope=:scope AND owner_key=:owner'''),
               {'uid':graph['attempt_uid'],'order_uid':uid,'scope':owner[0],'owner':owner[1]}).first()
@@ -83,17 +88,21 @@ def read_order_measured_costs(db,request,actor,order_id):
                 if (observation[1],observation[2])!=(graph['attempt_birth'],outcome):raise ValueError('Terminal evidence differs')
                 event=db.execute(text('''SELECT currency,amount_decimal,reason,spool_uid,purchase_evidence_nonce FROM filament_cost_events WHERE observation_id=:id ORDER BY revision DESC LIMIT 1'''),{'id':observation[0]}).first()
                 if event is None or event[2] is not None and event[2] not in REASONS:raise ValueError('Invalid retained event')
-                if event[1] is not None:
-                    unit=parse_private_valuation(observation[4])
-                    if unit['target'] is None or any(unit['target'][k]!=graph[k] for k in ('order_uid','item_uid','job_uid','owner_scope','owner_key')) or (unit['attempt_uid'],unit['attempt_birth'])!=(graph['attempt_uid'],graph['attempt_birth']):raise ValueError('Retained snapshot differs')
-                    verify_retained_basis(db,unit)
-                    calculated=value_observation(db,graph,observation[4],observation[3],observation[5])
-                    if (calculated['amount_decimal'],calculated['currency'],calculated['spool_uid'],calculated['purchase_evidence_nonce'])!=(event[1],event[0],event[3],event[4]):raise ValueError('Retained calculation differs')
-                    amount=Decimal(event[1])
-                    if not amount.is_finite() or not 0<=amount<=MAX_AMOUNT:raise ValueError('Invalid retained amount')
-                item.update(measurement_basis=observation[3],amount=event[1],currency=event[0],reason=event[2] or observation[6])
+                try:
+                    if event[1] is not None:
+                        unit=parse_private_valuation(observation[4])
+                        if unit['target'] is None or any(unit['target'][k]!=graph[k] for k in ('order_uid','item_uid','job_uid','owner_scope','owner_key')) or (unit['attempt_uid'],unit['attempt_birth'])!=(graph['attempt_uid'],graph['attempt_birth']):raise ValueError('Retained snapshot differs')
+                        verify_retained_basis(db,unit)
+                        calculated=value_observation(db,graph,observation[4],observation[3],observation[5])
+                        if (calculated['amount_decimal'],calculated['currency'],calculated['spool_uid'],calculated['purchase_evidence_nonce'])!=(event[1],event[0],event[3],event[4]):raise ValueError('Retained calculation differs')
+                        amount=Decimal(event[1])
+                        if not amount.is_finite() or not 0<=amount<=MAX_AMOUNT:raise ValueError('Invalid retained amount')
+                    item.update(measurement_basis=observation[3],amount=event[1],currency=event[0],reason=event[2] or observation[6])
+                except (ValueError,ArithmeticError):
+                    item.update(attempt_id=None,amount=None,currency=None,reason='unresolved_purchase_evidence')
             attempts.append(item)
-        result=summarize(attempts)
+        jobs_terminal=db.execute(text("SELECT 1 FROM jobs j JOIN order_items i ON i.id=j.order_item_id WHERE i.order_id=:id AND (j.status IS NULL OR j.status NOT IN ('completed','failed','cancelled','rejected')) LIMIT 1"),{'id':order_id}).first() is None
+        result=summarize(attempts,jobs_terminal=jobs_terminal)
         for attempt in result['attempts']:
             if attempt['amount'] is not None:attempt['amount']=display_amount(Decimal(attempt['amount']))
         return result

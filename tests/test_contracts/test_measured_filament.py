@@ -11,7 +11,7 @@ from modules.archives.measured_filament import calculate, measurement, retain_te
 def test_decimal_calculation(grams,price,net,expected):
     result=calculate(grams,price,net)
     if expected is not None:assert Decimal(result)==Decimal(expected)
-    else:assert result.startswith('0.3333333333333333333333333333333333333333')
+    else:assert result == '0.333333'
 
 
 @pytest.mark.parametrize('value',[True,-1,float('nan'),float('inf'),1e20,Decimal('0.0000000000001'),Decimal('0E+1000000000'),'1'])
@@ -42,7 +42,7 @@ def test_terminal_exact_frozen_replay_and_private_aggregate(terminal,review_db):
     value=response.json()
     assert response.headers['cache-control']=='private, no-store'
     assert value['measured_filament_known_subtotal']=='0.22'
-    assert value['filament_state']=='fully_measured'
+    assert value['filament_state']=='partial'
     assert value['production_cogs_state']=='unavailable'
     assert value['known_attempts']==1
     assert 'price_decimal' not in response.text and 'spool_uid' not in response.text
@@ -228,19 +228,22 @@ def test_archive_writes_cost_even_after_earlier_monitor_deduction(archive_termin
     assert archive.create_print_archive(identifier,printer,True)==archive_id
 
 
-def test_event_failure_rolls_back_archive_inventory_and_outbox(archive_terminal,monkeypatch):
+def test_event_failure_preserves_archive_inventory_and_outbox(archive_terminal,monkeypatch):
     from modules.archives import measured_filament
     archive,engine,identifier,printer,_=archive_terminal
-    with engine.connect() as c:
+    with engine.begin() as c:
+        c.execute(text('UPDATE spools SET spoolman_spool_id=123'))
         before=c.execute(text('SELECT id,remaining_weight_g FROM spools ORDER BY id')).all()
     def refuse(*args,**kwargs):raise RuntimeError('injected event persistence failure')
     monkeypatch.setattr(measured_filament,'_append_event',refuse)
-    assert archive.create_print_archive(identifier,printer,True) is None
+    assert archive.create_print_archive(identifier,printer,True) is not None
     with engine.connect() as c:
-        assert c.execute(text('SELECT count(*) FROM print_archives WHERE print_job_id=:id'),{'id':identifier}).scalar_one()==0
+        assert c.execute(text('SELECT count(*) FROM print_archives WHERE print_job_id=:id'),{'id':identifier}).scalar_one()==1
+        # Inventory accounting is untouched by a cost-capture failure.
+        assert c.execute(text("SELECT accounting_state FROM print_archives WHERE print_job_id=:id"),{'id':identifier}).scalar_one()!='unresolved'
         assert c.execute(text('SELECT count(*) FROM terminal_filament_measurements')).scalar_one()==0
-        assert c.execute(text('SELECT count(*) FROM filament_delivery_outbox')).scalar_one()==0
-        assert c.execute(text('SELECT id,remaining_weight_g FROM spools ORDER BY id')).all()==before
+        assert c.execute(text('SELECT count(*) FROM filament_delivery_outbox')).scalar_one()==1
+        assert c.execute(text('SELECT id,remaining_weight_g FROM spools ORDER BY id')).all()!=before
 
 
 def test_concurrent_archive_delivery_is_one_physical_event(archive_terminal):
@@ -266,7 +269,7 @@ def test_org_owner_and_wrong_tenant_order_costs(org_attempt,review_db):
     result=client.get(f'/orders/{order}/measured-costs',headers=auth())
     assert result.status_code==200,result.text
     assert result.json()['measured_filament_known_subtotal']=='0.00'
-    assert result.json()['filament_state']=='fully_measured'
+    assert result.json()['filament_state']=='partial'
     for actor in ('foreign','unassigned'):
         denied=client.get(f'/orders/{order}/measured-costs',headers=auth(actor))
         assert denied.status_code==404,denied.text
@@ -346,3 +349,68 @@ def test_adoption_rejects_tainted_existing_same_owner_order(terminal,review_db):
     review_db.execute(text(migration.sqlite_triggers()['terminal_filament_measurements_no_update']))
     with pytest.raises(MigrationError,match='retained association'):migration.validate(review_db.connection())
     review_db.rollback()
+
+
+def test_legacy_attempt_is_unresolved_without_identifier(terminal,review_db):
+    client,auth,_,identifier,_,order=terminal
+    job=review_db.execute(text('SELECT scheduled_job_id FROM print_jobs WHERE id=:id'),{'id':identifier}).scalar_one()
+    # A physical print created without a schedule has no economic identity;
+    # linking it later must not manufacture historical authority.
+    review_db.execute(text("INSERT INTO print_jobs(id,printer_id,job_name,status,started_at) VALUES(9999,9,'Legacy','failed',CURRENT_TIMESTAMP)"))
+    review_db.execute(text('UPDATE print_jobs SET scheduled_job_id=:job WHERE id=9999'),{'job':job})
+    review_db.commit()
+    response=client.get(f'/orders/{order}/measured-costs',headers=auth('platform'))
+    assert response.status_code==200,response.text
+    value=response.json()
+    assert value['filament_state']=='partial'
+    assert value['known_attempts']==1 and value['unresolved_attempts']==1
+    legacy=next(a for a in value['attempts'] if a['reason']=='missing_historical_valuation')
+    assert legacy['attempt_id'] is None and legacy['amount'] is None
+
+
+def test_reverification_failure_is_unresolved(terminal,monkeypatch):
+    from modules.archives import order_measured_costs
+    client,auth,_,_,_,order=terminal
+    def refuse(*args):raise ValueError('retained basis differs')
+    monkeypatch.setattr(order_measured_costs,'verify_retained_basis',refuse)
+    response=client.get(f'/orders/{order}/measured-costs',headers=auth('platform'))
+    assert response.status_code==200,response.text
+    value=response.json()
+    assert value['unresolved_attempts']==1 and value['measured_filament_known_subtotal'] is None
+    assert value['attempts'][0]['reason']=='unresolved_purchase_evidence'
+    assert value['attempts'][0]['attempt_id'] is None
+
+
+def test_oversized_measurement_preserves_archive(archive_terminal):
+    archive,engine,identifier,printer,_=archive_terminal
+    with engine.begin() as c:
+        c.execute(text('UPDATE print_jobs SET filament_used_g=1e20 WHERE id=:id'),{'id':identifier})
+    assert archive.create_print_archive(identifier,printer,True) is not None
+    with engine.connect() as c:
+        assert c.execute(text('SELECT reason FROM filament_cost_events')).scalar_one()=='invalid_measurement'
+
+
+def test_read_endpoint_emits_no_write_or_lock_statements(terminal,review_db):
+    from sqlalchemy import event
+    client,auth,_,_,_,order=terminal
+    statements=[]
+    engine=review_db.get_bind()
+    def capture(conn,cursor,statement,parameters,context,executemany):statements.append(statement)
+    event.listen(engine,'before_cursor_execute',capture)
+    try:
+        response=client.get(f'/orders/{order}/measured-costs',headers=auth('platform'))
+        assert response.status_code==200,response.text
+    finally:event.remove(engine,'before_cursor_execute',capture)
+    assert not [s for s in statements if s.lstrip().upper().startswith(('UPDATE ','INSERT ','DELETE ','LOCK ')) or 'FOR UPDATE' in s.upper()]
+
+
+@pytest.mark.parametrize('price,expected',[('0.0000005','0.000000'),('0.0000015','0.000002')])
+def test_stored_cost_rounds_half_even_to_six_places(price,expected):
+    assert calculate(Decimal('1'),price,'1')==expected
+
+
+def test_fully_measured_requires_terminal_jobs_and_measured_grams():
+    from modules.archives.order_measured_costs import summarize
+    attempt=dict(attempt_id=1,outcome='completed',measurement_basis='printer_reported',amount='1.000000',currency='USD',reason=None)
+    assert summarize([attempt],jobs_terminal=True)['filament_state']=='partial'
+    assert summarize([attempt],jobs_terminal=False)['filament_state']=='partial'

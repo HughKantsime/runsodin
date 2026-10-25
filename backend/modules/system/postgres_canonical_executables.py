@@ -126,7 +126,7 @@ def canonical_triggers(*, _contract=None):
         measured=importlib.import_module('core.schema.migrations.039_measured_filament')
         for key,definition in measured.pg_triggers().items():
             if key in triggers:raise BackupValidationError('Canonical trigger registry collision')
-            triggers[key]=(definition,key[0]+'_guard','public','O')
+            triggers[key]=(definition.replace('EXECUTE FUNCTION public.','EXECUTE FUNCTION '),key[0]+'_guard','public','O')
     for action in ('DELETE','UPDATE'):
         name='trg_education_audit_no_'+action.lower()
         function='odin_reject_education_audit_mutation'
