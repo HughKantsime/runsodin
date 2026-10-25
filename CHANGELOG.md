@@ -2,6 +2,19 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.14] - 2026-10-25
+
+<!-- summary: Filament cost per order, device-bound paid licenses, and frontend type fixes -->
+
+### Added
+
+- Orders show the filament cost of their prints, valued from each spool's purchase price at the time the print finished. Totals say how many attempts are counted and why any are left out (an open print, a print with no cost history, missing purchase evidence, or mixed currencies). Gram counts come from the printer (Moonraker filament length, Bambu AMS percentages), so they're labelled as printer-reported estimates.
+- Paid licenses can be bound to this installation's device key. Licenses issued before this release keep working unchanged. Binding applies to new purchases; moving a bound license to another machine, or converting an existing purchase, goes through support.
+
+### Fixed
+
+- TypeScript errors across the frontend pages, with no change in behaviour.
+
 ## [2.0.13] - 2026-10-24
 
 <!-- summary: Dispatch recovery actions, filament inventory reliability, and upload printer binding with per-plate scheduling -->

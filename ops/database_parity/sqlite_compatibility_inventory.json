@@ -1034,7 +1034,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 145,
+      "line": 158,
       "path": "backend/core/schema/migrations/039_measured_filament.py",
       "pattern": "PRAGMA",
       "reason": "SQLite retained-reference PRAGMA and immutable triggers; PostgreSQL uses native constraints and guarded functions.",
@@ -1138,7 +1138,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 43,
+      "line": 42,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1146,7 +1146,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 48,
+      "line": 47,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1154,7 +1154,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 64,
+      "line": 63,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1162,7 +1162,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 69,
+      "line": 68,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1170,7 +1170,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 77,
+      "line": 76,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1178,7 +1178,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 80,
+      "line": 79,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1186,7 +1186,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 124,
+      "line": 123,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1194,7 +1194,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 132,
+      "line": 131,
       "path": "backend/modules/archives/archive.py",
       "pattern": "lastrowid",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1202,7 +1202,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 139,
+      "line": 138,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1210,7 +1210,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 195,
+      "line": 212,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1218,7 +1218,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 201,
+      "line": 218,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1226,7 +1226,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 216,
+      "line": 233,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1234,7 +1234,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 249,
+      "line": 266,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -1242,7 +1242,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 333,
+      "line": 350,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
@@ -2314,7 +2314,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 373,
+      "line": 379,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2322,7 +2322,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 376,
+      "line": 382,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2330,7 +2330,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 390,
+      "line": 396,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2338,7 +2338,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 390,
+      "line": 396,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "qmark-parameter",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2346,7 +2346,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 396,
+      "line": 402,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2354,7 +2354,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 396,
+      "line": 402,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "qmark-parameter",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2362,7 +2362,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 537,
+      "line": 543,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "qmark-parameter",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2370,7 +2370,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 675,
+      "line": 681,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
