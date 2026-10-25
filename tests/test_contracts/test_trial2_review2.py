@@ -69,11 +69,12 @@ def test_the_install_path_refuses_a_trial_license_for_another_device_key(issuer)
     assert lm._find_license_file() is None
 
 
-def test_paid_licenses_are_not_bound_to_the_device_key_in_2_0(issuer):
+def test_paid_license_partial_device_binding_is_rejected(issuer):
     import license_manager as lm
     lm.get_device_keypair()
-    lm.save_license_file(_license(issuer, device_pubkey=_other_pub()))  # ignored for paid keys
-    assert lm.get_license().valid
+    lm.save_license_file(_license(issuer, device_pubkey=_other_pub()))
+    assert not lm.get_license().valid
+    assert "malformed device binding" in lm.get_license().error
 
 
 PROBE = r'''

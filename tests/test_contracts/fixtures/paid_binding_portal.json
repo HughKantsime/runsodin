@@ -1,0 +1,31 @@
+{
+  "contract": "ODIN device-v1 client boundary; portal implementation is separate",
+  "request": {
+    "paid_binding": "device-v1"
+  },
+  "success": {
+    "license_file": "<ephemeral test-signed compact payload>"
+  },
+  "refusals": [
+    {
+      "code": "DEVICE_MISMATCH",
+      "error": "Device mismatch"
+    },
+    {
+      "code": "PROOF_REQUIRED",
+      "error": "Proof required"
+    },
+    {
+      "code": "PROOF_FAILED",
+      "error": "Proof failed"
+    },
+    {
+      "code": "CAPACITY_EXCEEDED",
+      "error": "Capacity exceeded"
+    },
+    {
+      "code": "LEGACY_REBIND_REQUIRED",
+      "error": "Administrator recovery required"
+    }
+  ]
+}

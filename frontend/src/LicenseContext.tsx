@@ -14,6 +14,7 @@ interface LicenseState {
   installation_id: string | null;
   features: string[];
   managed_externally: boolean;
+  device_bound: boolean;
   loading: boolean;
   loadError: boolean;
 }
@@ -33,7 +34,7 @@ interface LicenseContextValue extends LicenseState {
 const LicenseContext = createContext<LicenseContextValue>({
   tier: 'community', valid: false, licensee: null, expires: null,
   max_printers: 5, max_users: 1, installation_id: null, features: [],
-  managed_externally: false, loading: true, loadError: false,
+  managed_externally: false, device_bound: false, loading: true, loadError: false,
   isPro: false, isEducation: false, isEnterprise: false,
   hasFeature: (_feature) => false,
   isProPage: (page) => PRO_PAGES.includes(page),
@@ -55,7 +56,7 @@ export const PRO_SETTINGS_TABS = ['sso', 'webhooks', 'smtp']
 export function LicenseProvider({ children }: { children: ReactNode }) {
   const [license, setLicense] = useState<LicenseState>({
     tier: 'community', valid: false, licensee: null, expires: null, max_printers: 5, max_users: 1,
-    installation_id: null, features: [], managed_externally: false, loading: true, loadError: false,
+    installation_id: null, features: [], managed_externally: false, device_bound: false, loading: true, loadError: false,
   })
 
   const fetchLicense = async () => {
@@ -71,13 +72,14 @@ export function LicenseProvider({ children }: { children: ReactNode }) {
         installation_id: null,
         features: Array.isArray(data.features) ? data.features : [],
         managed_externally: data.managed_externally === true,
+        device_bound: data.device_bound === true,
         loading: false,
         loadError: false,
       })
     } catch {
       setLicense({
         tier: 'community', valid: false, licensee: null, expires: null, max_printers: 5, max_users: 1,
-        installation_id: null, features: [], managed_externally: false, loading: false, loadError: true,
+        installation_id: null, features: [], managed_externally: false, device_bound: false, loading: false, loadError: true,
       })
     }
   }

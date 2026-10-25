@@ -283,6 +283,7 @@ class TestValidLicense:
         with patch.object(lm, "_find_license_file", return_value=path), \
              patch.object(lm, "ODIN_PUBLIC_KEY", pub_pem), \
              patch.object(lm, "get_installation_id", return_value="edu-install-123"), \
+             patch.object(lm, "_read_existing_installation_id", return_value="edu-install-123"), \
              patch.dict(os.environ, {"ODIN_REQUIRE_LICENSE_BINDING": "true"}):
             info = lm.load_license()
             data = info.to_dict()
@@ -303,6 +304,7 @@ class TestValidLicense:
         with patch.object(lm, "_find_license_file", return_value=path), \
              patch.object(lm, "ODIN_PUBLIC_KEY", pub_pem), \
              patch.object(lm, "get_installation_id", return_value="local-install"), \
+             patch.object(lm, "_read_existing_installation_id", return_value="local-install"), \
              patch.dict(os.environ, {"ODIN_REQUIRE_LICENSE_BINDING": "1"}):
             info = lm.load_license()
 
@@ -340,7 +342,8 @@ class TestValidLicense:
 
         with patch.object(lm, "_find_license_file", return_value=path), \
              patch.object(lm, "ODIN_PUBLIC_KEY", pub_pem), \
-             patch.object(lm, "get_installation_id", return_value="test-install-id"):
+             patch.object(lm, "get_installation_id", return_value="test-install-id"), \
+             patch.object(lm, "_read_existing_installation_id", return_value="test-install-id"):
             info = lm.load_license()
             data = info.to_dict()
 
@@ -432,7 +435,8 @@ class TestValidLicense:
 
         with patch.object(lm, "_find_license_file", return_value=path), \
              patch.object(lm, "ODIN_PUBLIC_KEY", pub_pem), \
-             patch.object(lm, "get_installation_id", return_value="test-install-id"):
+             patch.object(lm, "get_installation_id", return_value="test-install-id"), \
+             patch.object(lm, "_read_existing_installation_id", return_value="test-install-id"):
             info = lm.load_license()
             d = info.to_dict()
         assert d["valid"] is True
@@ -447,7 +451,8 @@ class TestValidLicense:
 
         with patch.object(lm, "_find_license_file", return_value=path), \
              patch.object(lm, "ODIN_PUBLIC_KEY", pub_pem), \
-             patch.object(lm, "get_installation_id", return_value="private-install-id"):
+             patch.object(lm, "get_installation_id", return_value="private-install-id"), \
+             patch.object(lm, "_read_existing_installation_id", return_value="private-install-id"):
             info = lm.load_license()
             public = info.to_public_dict()
 

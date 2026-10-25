@@ -123,7 +123,7 @@ def test_settings_license_shows_the_identity_the_confirmation_email_and_page_sho
     short = hashlib.sha256(base64.b64decode(trial_route["device_pubkey"])).hexdigest()[:16]
     expected = " ".join(short[i:i + 4] for i in range(0, 16, 4))
     assert trial_route["identity_before_key"]["device_fingerprint"] is None  # never created just to be shown
-    assert trial_route["identity"] == {"installation_id": trial_route["installation_id"], "device_fingerprint": expected}
+    assert trial_route["identity"] == {"installation_id": trial_route["installation_id"], "device_fingerprint": expected, "license_error": None}
     online = trial_route["online"]["body"]
     assert (online["installation_id"], online["device_fingerprint"]) == (trial_route["installation_id"], expected)
     assert trial_route["offline"]["body"]["device_fingerprint"] == expected

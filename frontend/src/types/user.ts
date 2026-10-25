@@ -159,6 +159,7 @@ export interface GroupUpdate {
 
 /** Exact unauthenticated capability response; customer/device identity is absent. */
 export interface PublicLicense {
+  device_bound?: boolean;
   valid: boolean;
   tier: string;
   tier_name: string;

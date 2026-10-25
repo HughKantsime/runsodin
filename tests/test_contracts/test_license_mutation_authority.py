@@ -24,7 +24,7 @@ def authority_client(owned_import,monkeypatch):
         reached.append(True)
         raise HTTPException(status_code=418,detail='Owned external boundary reached')
     monkeypatch.setattr(routes,'get_installation_id',stop_before_external_or_device_operation)
-    monkeypatch.setattr(routes,'get_license',lambda:SimpleNamespace(key='synthetic-key'))
+    monkeypatch.setattr(routes,'get_license',lambda:SimpleNamespace(key='synthetic-key', device_bound=False))
     monkeypatch.setenv('ODIN_LICENSE_READ_ONLY','0')
     app=FastAPI()
     for method,url,name,body in ENDPOINTS: app.add_api_route(url,getattr(routes,name),methods=[method])

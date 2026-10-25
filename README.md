@@ -151,3 +151,7 @@ Built by [Sublab 3DP](https://runsodin.com)
 ODIN v1.9.18 and later requires Safari 16.4+, Chrome/Chromium 111+, or
 Firefox 128+ for the frontend. Update older managed browsers before upgrading.
 See [browser support and migration notes](docs/FRONTEND_BROWSER_SUPPORT.md).
+
+### Preserving paid license identity
+
+Device-bound paid licenses require the original `.odin-install-id` and `.odin-device.key` in `LICENSE_DIR` (normally `/data`). Preserve both with `odin.license` in a separate encrypted host backup, with the private key owned by the ODIN account and mode `0600`. Database restores and portable exports alone do not transfer this identity. Never include the private key in support bundles. For transfers and lost-key recovery, follow the [backup and restore runbook](docs/BACKUP_RESTORE_RUNBOOK.md#paid-license-identity-and-recovery). Legacy paid files keep their existing validation rules; conversion is voluntary and purchase-wide.

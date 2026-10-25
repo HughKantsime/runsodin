@@ -17,7 +17,8 @@
       ],
       "managed_externally": false,
       "binding_present": false,
-      "binding_matches_current": false
+      "binding_matches_current": false,
+      "device_bound": false
     },
     "pro": {
       "valid": true,
@@ -52,7 +53,8 @@
       ],
       "managed_externally": false,
       "binding_present": false,
-      "binding_matches_current": false
+      "binding_matches_current": false,
+      "device_bound": false
     }
   }
 }

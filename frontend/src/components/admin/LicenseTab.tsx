@@ -11,7 +11,7 @@ export default function LicenseTab() {
   const audience = (user: User | null | undefined) => user?.role === 'admin' && Number.isInteger(user.id) && user.id > 0 ? JSON.stringify([user.id, user.role, user.group_id ?? null]) : null
   const currentAudience = audience(principal)
   const generation = useRef(0)
-  const [installation, setInstallation] = useState<{ audience: string; id: string; device: string | null } | null>(null)
+  const [installation, setInstallation] = useState<{ audience: string; id: string; device: string | null; error?: string | null } | null>(null)
   const [idBusy, setIdBusy] = useState(false)
   const [idMessage, setIdMessage] = useState<string | null>(null)
   useEffect(() => {
@@ -32,7 +32,7 @@ export default function LicenseTab() {
       const data = await licenseApi.getInstallationId()
       if (stillCurrent(owner, stamp)) {
         if (typeof data.installation_id !== 'string' || !data.installation_id) throw new Error('Invalid identity response')
-        setInstallation({ audience: owner, id: data.installation_id, device: typeof data.device_fingerprint === 'string' ? data.device_fingerprint : null })
+        setInstallation({ audience: owner, id: data.installation_id, device: typeof data.device_fingerprint === 'string' ? data.device_fingerprint : null, error: data.license_error })
       }
     } catch {
       if (stillCurrent(owner, stamp)) setIdMessage('Could not load installation ID. Try again.')
@@ -43,6 +43,7 @@ export default function LicenseTab() {
   const [licenseInfo, setLicenseInfo] = useState<PublicLicense | null>(null)
   const [uploading, setUploading] = useState(false)
   const [activating, setActivating] = useState(false)
+  const [requestBound, setRequestBound] = useState(false)
   const [licenseKey, setLicenseKey] = useState('')
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -63,9 +64,10 @@ export default function LicenseTab() {
     setActivating(true)
     setMessage(null)
     try {
-      const data = await licenseApi.activate(licenseKey.trim())
+      const data = await licenseApi.activate(licenseKey.trim(), requestBound ? 'device-v1' : undefined)
       setMessage({ type: 'success', text: `License activated: ${data.tier} tier` })
       setLicenseKey('')
+      setInstallation(null)
       loadLicense()
     } catch (err) {
       setMessage({ type: 'error', text: 'Activation failed: ' + (err instanceof Error ? err.message : 'Unknown error') })
@@ -141,7 +143,7 @@ export default function LicenseTab() {
     setExporting('activation')
     setMessage(null)
     try {
-      const data = await licenseApi.getActivationRequest(licenseKey.trim(), challengeCode.trim())
+      const data = await licenseApi.getActivationRequest(licenseKey.trim(), challengeCode.trim(), requestBound ? 'device-v1' : undefined)
       saveJson(data, 'odin-activation-request.json')
       setMessage({ type: 'success', text: 'Activation request downloaded. Upload it on the license portal offline activation page.' })
     } catch (err) {
@@ -200,6 +202,8 @@ export default function LicenseTab() {
   return (
     <div className="space-y-6">
       <Card padding="lg">
+        {licenseInfo && !licenseInfo.trial && (licenseInfo.valid || licenseInfo.device_bound) && <p role="status">{licenseInfo.device_bound ? 'Device-bound license' : 'Legacy license'}</p>}
+        <p className="text-sm text-[var(--brand-text-secondary)]">Preserve the installation ID and .odin-device.key in a secure host backup. Restoring application data alone does not transfer a device-bound license. For a device mismatch, restore both originals or contact support for an authorized re-issue. With the old key available, unactivate before transferring.</p>
         <div className="flex items-center gap-2 mb-4">
           <FileText size={18} className="text-[var(--brand-primary)]" />
           <h3 className="font-semibold" style={{ color: 'var(--brand-text-primary)' }}>Current License</h3>
@@ -255,6 +259,7 @@ export default function LicenseTab() {
           </div>
         </div>
 
+        {installation?.audience === currentAudience && installation?.error && <p role="alert">{installation.error}</p>}
         {currentAudience && (
           <div className="mt-4 pt-4 border-t border-[var(--brand-card-border)]">
             <span className="text-[var(--brand-text-muted)] text-sm">Installation ID:</span>
@@ -344,6 +349,9 @@ export default function LicenseTab() {
         <p className="text-sm text-[var(--brand-text-secondary)] mb-4">
           Enter your license key to activate online. The license will be bound to this installation.
         </p>
+        <p className="text-sm">To convert an existing purchase to device binding, contact support.</p>
+        <label className="block text-sm mb-3"><input type="checkbox" checked={requestBound} onChange={e => setRequestBound(e.target.checked)} /> Request device-bound activation (requires portal support)</label>
+
         <div className="flex gap-2">
           <Input aria-label="License key"
             type="text"
@@ -357,7 +365,7 @@ export default function LicenseTab() {
             variant="primary"
             loading={activating}
             disabled={!licenseKey.trim()}
-            onClick={handleActivate}
+            onClick={() => handleActivate()}
           >
             Activate
           </Button>
@@ -436,7 +444,7 @@ export default function LicenseTab() {
           </button>
         )}
         {message && (
-          <div className={`mt-3 text-sm px-3 py-2 rounded-md ${message.type === 'success' ? 'bg-green-900/30 text-green-400' : 'bg-red-900/30 text-red-400'}`}>
+          <div role={message.type === 'error' ? 'alert' : 'status'} className={`mt-3 text-sm px-3 py-2 rounded-md ${message.type === 'success' ? 'bg-green-900/30 text-green-400' : 'bg-red-900/30 text-red-400'}`}>
             {message.text}
           </div>
         )}
