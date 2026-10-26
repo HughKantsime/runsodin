@@ -2,6 +2,22 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.18] - 2026-10-25
+
+<!-- summary: Per-print completion summaries, a lasting job timeline, Bed clear and start next, and alert fixes -->
+
+### Added
+
+- When a print finishes or stops, ODIN sends one summary for that print through its usual notifications. It includes the product and expected count from the qualified recipe, any pauses, runouts or printer errors during the print, a link to record the inspection for that job, the Square count after recording when stock data is fresh, and the next job for that printer, with whether a filament change is needed. A reprint gets its own summary; a restart or replay never sends a second.
+- Each job keeps a lasting timeline: dispatch steps, gate refusals, start, pause and resume, runouts, printer errors, finish, and bed-clear confirmations. It is shown on the job page. If part of a print's history may be missing, the summary says so instead of reporting no errors.
+- Bed clear, start next: from a summary, confirm the plate is clear and start the suggested job. It starts only that job, only if nothing changed since the suggestion, and only once, through the normal dispatch checks, and it records who confirmed the bed was clear.
+- The inspection page opens directly on a job from a link.
+
+### Fixed
+
+- Mobile app notifications are delivered, and only to users who can see the printer or job, following their alert preferences.
+- Alerts from Moonraker, PrusaLink, Elegoo and vision use the standard alert types and severities, so they are stored correctly on PostgreSQL. Moonraker completion alerts name the job.
+
 ## [2.0.17] - 2026-10-25
 
 <!-- summary: Compacted database backups, a 1 GiB backup limit, backup failure alerts, and clearer AMS refusals -->
