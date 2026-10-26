@@ -461,6 +461,53 @@ def test_spool_moves_and_unloads_cannot_clear_linked_source(db, fake):
     assert db_snapshot(db) == before
 
 
+@pytest.mark.parametrize("path", ["empty_slots", "moonraker", "anycubic"])
+def test_linked_printer_telemetry_departure_commits_slot_sync(db, fake, monkeypatch, path):
+    from types import SimpleNamespace
+    from modules.inventory.slot_assignments import TelemetryInventoryMoves, slot_integrity_report
+
+    db.execute(text("UPDATE filament_slots SET assigned_spool_id=3,spool_confirmed=1 WHERE printer_id=9"))
+    db.execute(text("UPDATE spools SET location_printer_id=9,location_slot=1 WHERE id=3"))
+    db.commit()
+    engine = db.get_bind()
+    moves = TelemetryInventoryMoves()
+    monkeypatch.setattr("core.interfaces.inventory_moves.inventory_moves", lambda: moves)
+
+    if path == "empty_slots":
+        # Match the monitors' outer transaction, including a later slot write.
+        with engine.begin() as connection:
+            moves.observe_empty_slots(connection, 9, [1])
+            connection.execute(text("UPDATE filament_slots SET color_hex='#abcdef' WHERE printer_id=9"))
+    elif path == "moonraker":
+        from modules.printers.monitors import moonraker_monitor as monitor
+        monkeypatch.setattr(monitor, "engine", engine)
+        instance = object.__new__(monitor.MoonrakerMonitor)
+        instance.printer_id, instance.name = 9, "fixture"
+        instance._sync_filament_slots([
+            SimpleNamespace(gate=0, gate_status=0, material="PLA+", color_hex="abcdef", name="Observed")
+        ])
+    else:
+        from modules.printers.monitors import anycubic_lan_monitor as monitor
+        monkeypatch.setattr(monitor, "engine", engine)
+        monkeypatch.setattr(monitor, "filament_slots", lambda _boxes: [
+            {"slot_number": 1, "material": "EMPTY", "color_hex": "abcdef"}
+        ])
+        monitor.sync_slots(9, [{}])
+
+    db.expire_all()
+    row = db.execute(text("SELECT assigned_spool_id,spool_confirmed,color_hex FROM filament_slots WHERE printer_id=9")).one()
+    assert row[0] is None and not row[1]
+    if path == "anycubic":
+        assert row[2] is None  # Empty ACE slots clear their observed color.
+    else:
+        assert row[2].lstrip("#") == "abcdef"
+    spool = db.execute(text("SELECT location_printer_id,location_slot,remaining_weight_g,storage_location FROM spools WHERE id=3")).one()
+    assert tuple(spool) == (None, None, 900, "Unlocated (removed from slot)")
+    assert slot_integrity_report(db) == {"duplicates": [], "contradictions": []}
+    assert db.execute(text("SELECT COUNT(*) FROM audit_logs WHERE action='telemetry.relocate'")).scalar() == 1
+    assert fake.calls == []
+
+
 def test_destination_policy_blocks_before_http_even_outside_itar(db, fake, monkeypatch):
     from core.webhook_utils import pinned_device_destination
     from modules.printers.models import Printer

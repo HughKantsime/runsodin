@@ -33,7 +33,7 @@ loaded. Manage assignments in the external service's own interface.
 so stale local slot labels are not presented alongside the external display.
 
 External spool IDs are returned as `external_spool_id`, never as Odin local spool
-IDs. Slot edits, spool load/unload/assignment/confirmation, QR assignment, manual slot
+IDs. User requests for slot edits, spool load/unload/assignment/confirmation, QR assignment, manual slot
 assignment, slot-count changes and filament sync are rejected with HTTP 409 for
 linked printers. This includes AMS sync and every hardware slot configuration
 route (Odin's AMS sync and Bambu sync/configuration endpoints); they all return
@@ -42,6 +42,17 @@ printer is also rejected. Unlinked printers keep their existing workflows. Print
 controls and Odin's other integrations remain independent; this display adapter
 never writes assignments, weights, or printer settings. If an external service
 owns consumption, configure Odin's other consumption integrations accordingly.
+
+Hardware telemetry still reconciles departures from Odin's local slot inventory.
+An explicitly empty Moonraker gate or Anycubic slot can clear an old local spool
+assignment and update observed material/color without hitting the request-only
+ownership refusal. This internal path retains organization checks and audit
+records; it does not update the external service or deduct filament weight.
+
+The contribution also tightens two access checks for every printer, including
+unlinked printers: confirming a slot on an inaccessible organization's printer
+returns HTTP 404, and unloading a spool checks access to its recorded location
+printer as well as printers linked through slots.
 
 ## Provider contract
 

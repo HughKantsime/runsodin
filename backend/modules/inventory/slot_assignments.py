@@ -68,8 +68,10 @@ def lock_slot_graph(db, slot_id=None, spool_id=None):
         raise
 
 
-def assign_slot(db, slot, spool_id, current_user=None):
+def assign_slot(db, slot, spool_id, current_user=None, *, telemetry_departure=False):
     """Move a spool, or unassign a slot, preserving both graph directions."""
+    if telemetry_departure and spool_id is not None:
+        raise ValueError('Telemetry departures can only clear an assignment')
     lock_slot_graph(db, slot.id, spool_id)
     db.flush()
     with db.no_autoflush:
@@ -96,8 +98,9 @@ def assign_slot(db, slot, spool_id, current_user=None):
                 if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
                     raise HTTPException(404, 'Printer not found')
             # A move can also clear the source printer's assignment.
-            for printer_id in printer_ids:
-                ensure_local_filament_management(printer_id)
+            if not telemetry_departure:
+                for printer_id in printer_ids:
+                    ensure_local_filament_management(printer_id)
         for row in displaced:
             row.location_printer_id = None
             row.location_slot = None
@@ -197,7 +200,10 @@ class TelemetryInventoryMoves:
             spool = db.query(Spool).filter_by(id=slot.assigned_spool_id).populate_existing().first()
             if not spool or (not empty and (not tag or tag == spool.rfid_tag)):
                 continue
-            assign_slot(db, slot, None, current_user)
+            # Hardware departure evidence is internal reconciliation, even when
+            # a synthetic org-scoped user supplies the access checks above.
+            # Retain those checks, but do not apply the request ownership gate.
+            assign_slot(db, slot, None, current_user, telemetry_departure=True)
             moving = spool.id in incoming_ids
             retired = spool.remaining_weight_g is not None and spool.remaining_weight_g <= 0 and not moving
             if not moving:
