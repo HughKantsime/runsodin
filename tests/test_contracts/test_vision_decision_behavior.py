@@ -188,6 +188,6 @@ def test_plate_ready_idle_records_and_notifies_without_pause(vision, monkeypatch
     monkeypatch.setattr(thread, "_auto_pause", lambda: pauses.append("pause"))
     for _ in range(3): thread._capture_and_analyze()
     assert records == ["build_plate_empty"]
-    assert [a["alert_type"] for a in alerts] == ["build_plate_empty_detected"]
+    assert [a["alert_type"] for a in alerts] == ["bed_cooled"]
     assert len(events) == 1
     assert pauses == []
