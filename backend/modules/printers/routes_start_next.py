@@ -7,9 +7,9 @@ from sqlalchemy.orm import Session
 from core.db import get_db
 from core.rbac import require_role, require_action, check_org_access
 from modules.printers.models import Printer
-from modules.jobs.completion_summary import next_suggestion
+from core.interfaces.completion import next_suggestion
 from modules.printers.start_next import start, load, replay, request_key
-from modules.orders.routes.show_orders import PrivateRoute
+from core.private_routes import PrivateRoute
 
 class StartNextRoute(PrivateRoute):
     invalid_detail = 'Invalid start-next request. Check the job, fingerprint, request id and bed confirmation.'

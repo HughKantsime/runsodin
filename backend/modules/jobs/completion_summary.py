@@ -10,7 +10,8 @@ import re
 from fastapi import HTTPException
 from sqlalchemy import select, text
 from core.job_timeline import utc, history_complete
-from modules.orders import batch_production as batches, assortment, square_store
+from core.interfaces.completion import order_services
+batches, assortment, square_store, show_fulfillment = order_services()
 
 BED_LINE = "ODIN has not checked the bed. Use 'Bed clear, start next' to start."
 
@@ -57,7 +58,7 @@ def finished_attempt(db, printer_id):
 def configuration_key(db, printer_id):
     # Use the normal dispatch configuration identity; only its opaque key leaves
     # this function. No credentials are persisted in suggestions or fingerprints.
-    from modules.printers.routes_dispatch_recovery import configured_identity
+    from modules.printers.services import configured_identity
     identity = configured_identity(printer_id, db.connection() if callable(getattr(db, 'connection', None)) else db)
     return identity.configuration_key if identity else None
 
@@ -184,7 +185,6 @@ def eligible(db, job, printer):
 
 def next_suggestion(db, printer, *, visible=None, at=None):
     from modules.jobs.models import Job
-    from modules.orders import show_fulfillment
     at = at or datetime.now(timezone.utc)
     finished = finished_attempt(db, printer.id)
     config = configuration_key(db, printer.id)

@@ -612,6 +612,7 @@ class MoonrakerMonitor:
             job_name = self._last_filename or "Unknown"
             if end_status == "completed":
                 dispatch_terminal_alert(self._current_job_db_id, printer_events.dispatch_alert,
+                    attempt_uid=timeline_item['attempt'] if timeline_item else None,
                     alert_type=AlertType.PRINT_COMPLETE,
                     severity=AlertSeverity.INFO,
                     job_id=row[0] if row else None,
@@ -621,6 +622,7 @@ class MoonrakerMonitor:
                 )
             else:
                 dispatch_terminal_alert(self._current_job_db_id, printer_events.dispatch_alert,
+                    attempt_uid=timeline_item['attempt'] if timeline_item else None,
                     alert_type=AlertType.PRINT_FAILED,
                     severity=AlertSeverity.CRITICAL,
                     job_id=row[0] if row else None,
@@ -993,10 +995,10 @@ MoonrakerMonitor.stop = MoonrakerMonitor.disconnect
 
 
 if __name__ == "__main__":
-    from core.job_timeline import start
-    start("moonraker_monitor")
     from core.log_redaction import install_log_redaction
     install_log_redaction()
+    from core.job_timeline import start
+    start("moonraker_monitor")
     import signal
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")

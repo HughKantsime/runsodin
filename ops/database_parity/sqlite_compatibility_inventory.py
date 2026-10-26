@@ -179,9 +179,9 @@ CLASSIFICATIONS: dict[str, tuple[str, str]] = {
         "dialect-neutral",
         "ORM named parameters and raw qmark operations use the shared DBAPI adapter; owned PostgreSQL production tests cover both boundaries",
     ),
-    "backend/modules/orders/routes/show_orders.py": (
+    "backend/core/private_routes.py": (
         "dialect-neutral",
-        "Pragma is an HTTP cache-control response header, not a SQLite statement; this route module executes no SQL",
+        "Pragma is an HTTP cache-control response header, not a SQLite statement; this HTTP response policy executes no SQL",
     ),
     "backend/modules/orders/production.py": (
         "dialect-neutral",

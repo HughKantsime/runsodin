@@ -82,7 +82,7 @@ def dispatch(engine, outbox_id: int) -> bool:
                     if kind and kind.startswith('terminal:'):
                         uid = read_db.execute(text('SELECT economic_uid FROM print_jobs WHERE id=:id'), {'id':int(kind.split(':',1)[1])}).scalar_one_or_none()
                     if uid:
-                        from modules.jobs.completion_summary import build_summary
+                        from core.interfaces.completion import build_summary
                         summary = build_summary(read_db, uid)
             except Exception:
                 logger.warning("Completion summary unavailable; preserving original terminal alert")
@@ -183,8 +183,8 @@ def register_delivery(callback):
 
 def deliver_mobile(db, plan):
     import sys
-    from modules.push.fanout import register_subscribers
-    register_subscribers(sys.modules[__name__])
+    from core.interfaces.terminal_delivery import register_mobile_delivery
+    register_mobile_delivery(sys.modules[__name__])
     for callback in tuple(_deliveries):
         try:callback(db, plan)
         except Exception:logger.warning("Mobile alert delivery failed after confirmed commit")

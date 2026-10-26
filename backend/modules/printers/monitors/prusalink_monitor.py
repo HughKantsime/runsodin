@@ -382,10 +382,10 @@ def start_prusalink_monitors():
 
 
 if __name__ == "__main__":
-    from core.job_timeline import start
-    start("prusalink_monitor")
     from core.log_redaction import install_log_redaction
     install_log_redaction()
+    from core.job_timeline import start
+    start("prusalink_monitor")
     import signal
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")

@@ -8,8 +8,9 @@ from fastapi import HTTPException
 from sqlalchemy import text, bindparam, JSON
 from sqlalchemy.orm import Session
 from core.system_config_values import config_text
+from core.durable_config import insert
 from core.rbac import check_org_access
-from modules.jobs.completion_summary import next_suggestion
+from core.interfaces.completion import next_suggestion
 
 _context = ContextVar('start_next_confirmation', default=None)
 
@@ -23,12 +24,6 @@ def request_key(request_id, user=None):
 def load(conn, key):
     raw = conn.execute(text('SELECT value FROM system_config WHERE key=:key'), {'key': key}).scalar_one_or_none()
     return json.loads(config_text(raw)) if raw is not None else None
-
-
-def insert(conn, key, value):
-    param = bindparam('value', type_=JSON) if conn.dialect.name == 'postgresql' else bindparam('value')
-    return conn.execute(text('INSERT INTO system_config(key,value) VALUES(:key,:value) ON CONFLICT(key) DO NOTHING').bindparams(param),
-                        {'key': key, 'value': json.dumps(value, sort_keys=True)}).rowcount == 1
 
 
 def save(conn, key, value):
@@ -48,7 +43,7 @@ def replay(record, user, printer_id):
 
 
 def admission_facts(db, job_id, printer_id):
-    from modules.jobs.completion_summary import configuration_key, finished_attempt
+    from core.interfaces.completion import configuration_key, finished_attempt
     row = db.execute(text('SELECT id,updated_at,printer_id,payload_sha256,plate_index,model_id,print_file_id,filament_type,colors_required,ams_mapping FROM jobs WHERE id=:id'), {'id': job_id}).mappings().first()
     finished = finished_attempt(db, printer_id)
     return {'job': {k:str(v) if v is not None else None for k,v in row.items()} if row else None,
@@ -123,7 +118,7 @@ def start(db, printer, user, data):
         result = {'success': False, 'message': 'Dispatch outcome requires review before retrying.', 'job_id': data.suggested_job_id, 'request_id': str(data.request_id), 'state': 'uncertain'}
     finally:
         _context.reset(marker)
-    with db.begin():
+    try:
         conn = db.connection()
         current = load(conn, key)
         if not success and current.get('claim_token'):
@@ -144,7 +139,10 @@ def start(db, printer, user, data):
         if success:
             from core.audit import log_audit
             log_audit(db, 'job.dispatched', 'job', data.suggested_job_id, {'printer_id':printer_id})
-            db.flush()
+        db.commit()
+    except BaseException:
+        db.rollback()
+        raise
     return result
 
 

@@ -30,7 +30,10 @@ DEPENDENCIES = BACKEND_DIR / "core" / "dependencies.py"
 AUDIT_IMPL = BACKEND_DIR / "core" / "audit.py"
 
 
-PRESERVED_BUNDLES = (BACKEND_DIR / "core/schema/preserved027/bundle", BACKEND_DIR / "core/schema/preserved029/bundle", BACKEND_DIR / "core/schema/preserved034/bundle")
+PRESERVED_BUNDLES = (BACKEND_DIR / "core/schema/preserved027/bundle", BACKEND_DIR / "core/schema/preserved029/bundle", BACKEND_DIR / "core/schema/preserved034/bundle") + tuple(
+    BACKEND_DIR / f"core/schema/preserved{version}/overlay"
+    for version in ("035", "036", "037", "038", "039")
+)
 
 
 def _enumerate_log_audit_call_sites() -> list[tuple[Path, int, str]]:

@@ -121,7 +121,7 @@ def create_database_engine(
             url,
             echo=echo,
             poolclass=poolclass or NullPool,
-            connect_args={"check_same_thread": False},
+            connect_args={"check_same_thread": False, "timeout": int(sqlite_busy_timeout_ms) / 1000.0},
         )
 
         @event.listens_for(sqlite_engine, "connect")
@@ -135,8 +135,7 @@ def create_database_engine(
             try:
                 if sqlite_busy_timeout_ms == SQLITE_BUSY_TIMEOUT_MS:
                     cursor.execute("PRAGMA busy_timeout=5000")  # = SQLITE_BUSY_TIMEOUT_MS (pinned by test)
-                else:
-                    cursor.execute(f"PRAGMA busy_timeout={int(sqlite_busy_timeout_ms)}")
+                # Non-default timeouts are bound through sqlite3.connect(timeout=...).
                 cursor.execute("PRAGMA journal_mode=WAL")
                 cursor.execute("PRAGMA foreign_keys=ON")
             finally:

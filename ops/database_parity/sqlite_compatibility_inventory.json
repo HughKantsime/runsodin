@@ -286,7 +286,7 @@
       "path": "backend/core/database_config.py",
       "pattern": "check_same_thread",
       "reason": "SQLite engine branch; PostgreSQL engine creation does not receive SQLite connect args",
-      "source": "connect_args={\"check_same_thread\": False},"
+      "source": "connect_args={\"check_same_thread\": False, \"timeout\": int(sqlite_busy_timeout_ms) / 1000.0},"
     },
     {
       "classification": "sqlite-provider-only",
@@ -302,19 +302,11 @@
       "path": "backend/core/database_config.py",
       "pattern": "PRAGMA",
       "reason": "SQLite engine branch; PostgreSQL engine creation does not receive SQLite connect args",
-      "source": "cursor.execute(f\"PRAGMA busy_timeout={int(sqlite_busy_timeout_ms)}\")"
-    },
-    {
-      "classification": "sqlite-provider-only",
-      "line": 140,
-      "path": "backend/core/database_config.py",
-      "pattern": "PRAGMA",
-      "reason": "SQLite engine branch; PostgreSQL engine creation does not receive SQLite connect args",
       "source": "cursor.execute(\"PRAGMA journal_mode=WAL\")"
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 141,
+      "line": 140,
       "path": "backend/core/database_config.py",
       "pattern": "PRAGMA",
       "reason": "SQLite engine branch; PostgreSQL engine creation does not receive SQLite connect args",
@@ -823,6 +815,14 @@
       "pattern": "qmark-parameter",
       "reason": "qmark_runner translates named parameters for the shared DBAPI cursor adapter, which rewrites them for PostgreSQL",
       "source": "return cursor.execute(re.sub(r\"(?<!:):([A-Za-z_]\\w*)\", bind, statement), tuple(values))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 7,
+      "path": "backend/core/private_routes.py",
+      "pattern": "PRAGMA",
+      "reason": "Pragma is an HTTP cache-control response header, not a SQLite statement; this HTTP response policy executes no SQL",
+      "source": "PRIVATE={'Cache-Control':'private, no-store','Pragma':'no-cache'}"
     },
     {
       "classification": "sqlite-provider-only",
@@ -1783,14 +1783,6 @@
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
       "source": "\"\"\"UPDATE printers SET"
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 12,
-      "path": "backend/modules/orders/routes/show_orders.py",
-      "pattern": "PRAGMA",
-      "reason": "Pragma is an HTTP cache-control response header, not a SQLite statement; this route module executes no SQL",
-      "source": "PRIVATE={'Cache-Control':'private, no-store','Pragma':'no-cache'}"
     },
     {
       "classification": "dialect-neutral",

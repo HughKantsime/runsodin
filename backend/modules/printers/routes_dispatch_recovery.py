@@ -62,12 +62,7 @@ class ReleaseRequest(RecoveryExpectation):
     attestation: Attestation
 
 
-def configured_identity(printer_id, connection):
-    from modules.printers.dispatch import _get_printer_info
-    from core.auth import SECRET_KEY
-    from core.dispatch_identity import build_identity
-    return build_identity(_get_printer_info(printer_id,connection=connection),SECRET_KEY.encode())
-
+from modules.printers.services import configured_identity
 
 @router.get('/printers/{printer_id}/dispatch-recovery',tags=['Printers'])
 def inspect_dispatch_recovery(printer_id:int=Path(gt=0), current_user:dict=Depends(require_role('viewer',scope='read:printers')), db:Session=Depends(get_db)):

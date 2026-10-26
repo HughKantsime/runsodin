@@ -295,9 +295,9 @@ class VisionMonitorDaemon:
         self._publish_monitor_status(max_threads, waiting)
 
 if __name__ == '__main__':
-    from core.job_timeline import start
-    start('vision_monitor')
     from core.log_redaction import install_log_redaction
     install_log_redaction()
+    from core.job_timeline import start
+    start('vision_monitor')
     daemon = VisionMonitorDaemon()
     daemon.run()

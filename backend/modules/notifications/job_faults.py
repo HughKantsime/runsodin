@@ -11,7 +11,7 @@ def stage(db, item):
     # Education generic notifications remain suppressed.
     if db.execute(text('SELECT 1 FROM education_submissions WHERE job_id=:id'), {'id': item['job']}).first():
         return None
-    from modules.printers.start_next import insert
+    from core.durable_config import insert
     identity = [item['attempt'], item['kind'], item.get('code')]
     key = 'job_fault:' + hashlib.sha256(json.dumps(identity).encode()).hexdigest()
     if not insert(db.connection(), key, {'sent': True}):

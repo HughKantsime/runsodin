@@ -184,3 +184,10 @@ def request_observed_task_resume(printer, print_job_id: int) -> str:
         return 'refused'  # Never inherit the legacy helper's default Bambu fallback.
     from modules.printers.route_utils import _send_printer_command
     return 'accepted' if _send_printer_command(printer, 'resume_print') else 'unknown'
+
+
+def configured_identity(printer_id, connection):
+    from modules.printers.dispatch import _get_printer_info
+    from core.auth import SECRET_KEY
+    from core.dispatch_identity import build_identity
+    return build_identity(_get_printer_info(printer_id,connection=connection),SECRET_KEY.encode())

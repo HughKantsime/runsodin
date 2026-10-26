@@ -667,3 +667,23 @@ def test_start_next_dispatch_audit_preserves_request_actor(queue,review_db,monke
         assert start_next.start(review_db,queue,user,request(advice(review_db,queue)))['success']
         assert review_db.execute(text("SELECT actor_user_id,actor_auth_kind FROM audit_logs WHERE action='job.dispatched' AND entity_id=202")).one()==(3,'session_jwt')
     finally:scope.clear()
+
+
+def test_start_next_audit_failure_rolls_back_result(queue, review_db, monkeypatch):
+    """Dispatch result and its audit share one commit, even if audit staging fails."""
+    from core import audit
+    from modules.printers import dispatch
+    user = {'id': 3, 'role': 'admin'}
+    data = request(advice(review_db, queue))
+    monkeypatch.setattr(dispatch, 'dispatch_job', lambda *args: (True, 'Synthetic accepted'))
+
+    def reject_audit(*args, **kwargs):
+        raise RuntimeError('Synthetic audit failure')
+
+    monkeypatch.setattr(audit, 'log_audit', reject_audit)
+    with pytest.raises(RuntimeError, match='Synthetic audit failure'):
+        start_next.start(review_db, queue, user, data)
+    record = start_next.load(review_db, start_next.request_key(data.request_id, user))
+    assert record['result']['state'] == 'preparing'
+    assert not record['result']['success']
+    assert review_db.execute(text("SELECT count(*) FROM audit_logs WHERE action='job.dispatched' AND entity_id=202")).scalar_one() == 0
