@@ -1295,6 +1295,10 @@
         "admin",
         "operator"
       ],
+      "products.outside_prints": [
+        "admin",
+        "operator"
+      ],
       "products.inspections": [
         "admin",
         "operator"

@@ -1,6 +1,6 @@
 """Explicit inspection inputs. Output quantities are pieces, never stock totals."""
 from typing import Literal
-from pydantic import BaseModel, ConfigDict, Field, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictBool, model_validator
 
 class Output(BaseModel):
     model_config = ConfigDict(extra='forbid')
@@ -27,7 +27,26 @@ class InspectedOutput(BaseModel):
 class InspectionInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
     recipe_id: str = Field(pattern=r'^[a-f0-9]{32}$')
-    job_id: StrictInt = Field(gt=0)
+    job_id: StrictInt | None = Field(default=None, gt=0)
+    print_job_id: StrictInt | None = Field(default=None, gt=0)
     square_revision: str | None = Field(default=None, max_length=64)
     inspection_confirmed: bool
     outputs: list[InspectedOutput] = Field(min_length=1, max_length=8)
+
+    @model_validator(mode='after')
+    def one_source(self):
+        if (self.job_id is None) == (self.print_job_id is None):
+            raise ValueError('Choose exactly one job_id or print_job_id')
+        return self
+
+class OutsideAttestation(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    started_outside_odin: StrictBool
+    file_revision_confirmed: StrictBool
+    statement: str | None = Field(default=None, max_length=2000)
+
+class OutsideBindingInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    recipe_id: str = Field(pattern=r'^[a-f0-9]{32}$')
+    attestation: OutsideAttestation
+    attested_by: Literal['owner_in_app', 'owner_confirmed_to_operator'] = 'owner_in_app'

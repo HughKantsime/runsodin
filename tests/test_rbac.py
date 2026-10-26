@@ -270,6 +270,9 @@ ENDPOINT_MATRIX = [
     # 13. Products
     # =========================================================================
     ("GET",  "/api/products", _api_read(), None, "List products"),
+    ("POST", "/api/products/production/outside-prints/999999/bind",
+     {"no_headers":401,"api_key_only":403,"viewer":403,"operator":422,"admin":422},
+     {}, "Outside print binding requires production authority and explicit attestation"),
     ("POST", "/api/products", _op_write(), {"name": "RBAC Temp Product"}, "Create product"),
     ("GET",  "/api/products/{product_id}", _api_read(), None, "Get product"),
     ("PATCH", "/api/products/{product_id}", _op_write(), {"description": "rbac"}, "Update product"),
@@ -1040,6 +1043,9 @@ def _create_ephemeral(endpoint_key, admin_token, test_data):
     return None
 
 
+PRODUCTION_OPERATOR_OPERATIONS = {("POST", "/api/products/production/outside-prints/999999/bind")}
+
+
 def _expectations(method, path, expected):
     """Per-role expectations for one row on the server under test.
 
@@ -1050,7 +1056,7 @@ def _expectations(method, path, expected):
     """
     expected = dict(expected)
     if expected.get("api_key_only") is not None and expected.get("admin") is not None:
-        expected["api_key_only"] = 403 if (method, path) in CREDENTIAL_OPERATIONS else expected["admin"]
+        expected["api_key_only"] = 403 if (method, path) in CREDENTIAL_OPERATIONS | PRODUCTION_OPERATOR_OPERATIONS else expected["admin"]
     feature = LICENSE_GATED.get((method, path))
     if feature and not _tier_has(feature):
         for role, status in expected.items():

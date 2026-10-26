@@ -44,6 +44,7 @@ def _entry(
 
 
 POLICY_INVENTORY = (
+    _entry("orders.outside_prints", "bind/evidence/inspect", "physical print/job/recipe/submission", "owner-attested binding and inspection", "production operator; exact printer owner; Education filename, job and recipe model excluded", ("production acceptance", "prepared stock addition"), "test_outside_print_binding.py", "guarded"),
     _entry("jobs.completion_summary", "next_suggestion/build_summary", "job/printer/submission", "read", "job audience; Education scheduler policy and compatibility", ("start-next",), "test_completion_summary.py", "guarded"),
     _entry("printers.start_next", "start/confirm_on_admission", "job/printer/submission", "dispatch", "scoped operator; normal dispatch admission and Education gates", ("dispatch admission",), "test_completion_summary.py", "guarded"),
     _entry("jobs.services", "delete_org_jobs", "organization/job", "delete", "trusted organization deletion after caller Education lifecycle guard", ("timeline cascade",), "test_job_timeline_foundation.py", "excluded_internal"),

@@ -1,12 +1,12 @@
 import ProductionHistory from './ProductionHistory'
 import { useEffect, useRef, useState } from 'react'
-import { production, ProductionState, ProductionJob, RecipeOutput } from '../../api/production'
+import { production, ProductionState, ProductionJob, OutsideProductionJob, RecipeOutput } from '../../api/production'
 import { square } from '../../api/square'
 import { getCurrentUser } from '../../permissions'
 
 export default function ProductionBatches({products,inspectJobId}:{products:{id:number;name:string}[];inspectJobId?:number}) {
   const [open,setOpen]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('')
-  const [state,setState]=useState<ProductionState|null>(null),[jobs,setJobs]=useState<ProductionJob[]>([])
+  const [state,setState]=useState<ProductionState|null>(null),[jobs,setJobs]=useState<(ProductionJob|OutsideProductionJob)[]>([])
   const [jobOffset,setJobOffset]=useState<number|null>(null)
   const [showRecipeEditor,setShowRecipeEditor]=useState(false)
   const [name,setName]=useState(''),[materials,setMaterials]=useState(''),[reference,setReference]=useState('')
@@ -25,7 +25,7 @@ export default function ProductionBatches({products,inspectJobId}:{products:{id:
     }
     if(g===generation.current){
       if(inspectJobId){
-        const target=j.jobs.find(v=>v.id===inspectJobId)
+        const target=j.jobs.find(v=>!v.kind&&v.id===inspectJobId)
         if(!target)throw new Error('Inspection unavailable for this job.')
         setJob(String(inspectJobId))
         const matches=s.recipes.filter(r=>r.qualified&&r.payload&&Object.keys(r.payload).every(k=>r.payload![k]===(target.payload as Record<string,unknown>)[k]))
@@ -57,7 +57,7 @@ export default function ProductionBatches({products,inspectJobId}:{products:{id:
       })}}>
         <h3 className="font-medium">Create a recipe revision</h3>
         <label className="block text-sm">Recipe name<input className={input} value={name} maxLength={160} disabled={busy} onChange={e=>setName(e.target.value)} required/></label>
-        <label className="block text-sm">Successful reference job<select aria-label="Successful reference job" className={input} value={reference} disabled={busy} onChange={e=>{setReference(e.target.value);setQualified(false)}} required><option value="">Choose completed job</option>{jobs.map(j=><option value={j.id} key={j.id}>{j.name} · job {j.id} · plate {j.payload.plate_index+1}</option>)}</select></label>
+        <label className="block text-sm">Successful reference job<select aria-label="Successful reference job" className={input} value={reference} disabled={busy} onChange={e=>{setReference(e.target.value);setQualified(false)}} required><option value="">Choose completed job</option>{jobs.filter((v):v is ProductionJob=>!v.kind).map(j=><option value={j.id} key={j.id}>{j.name} · job {j.id} · plate {j.payload.plate_index+1}</option>)}</select></label>
         <label className="block text-sm">Material and color requirements<textarea className={input} value={materials} maxLength={1000} disabled={busy} onChange={e=>{setQualified(false);setMaterials(e.target.value)}} placeholder="Material, colors or allowed alternatives, nozzle and finishing requirements" required/></label>
         <p className="text-sm">Fixed output per plate, including rejected pieces. Use this flow for finished single-print products. Assembly-dependent products need their own process.</p>
         {outputs.map((o,i)=><fieldset className="space-y-2 rounded-md border border-[var(--brand-card-border)] p-3" key={i}><legend>Output {i+1}</legend>
@@ -75,13 +75,13 @@ export default function ProductionBatches({products,inspectJobId}:{products:{id:
       </div>}
       {operator&&<form className="space-y-3 border-t border-[var(--brand-card-border)] pt-3" onSubmit={e=>{e.preventDefault();if(!recipe)return;void run(async()=>{
         const revision=counts.some(c=>Number(c.accepted)>0)?(await square.status()).revision:null
-        const saved=await production.inspect({recipe_id:recipe.id,job_id:Number(job),square_revision:revision,inspection_confirmed:confirmed,
+        const saved=await production.inspect({recipe_id:recipe.id,...(job.startsWith('outside:')?{print_job_id:Number(job.slice(8))}:{job_id:Number(job)}),square_revision:revision,inspection_confirmed:confirmed,
           outputs:recipe.outputs.map((o,i)=>({product_id:o.product_id,kind:o.kind,accepted:Number(counts[i].accepted),rejected:Number(counts[i].rejected),...(counts[i].baseline_disposition?{baseline_disposition:counts[i].baseline_disposition}:{})}))})
-        await load();setConfirmed(false);setNotice(`Inspection recorded for job ${saved.job_id}. ${saved.stock_status==='prepared'?'Square addition prepared, not sent.':saved.stock_status==='in_baseline'?'Accepted output counted in baseline; no Square addition.':'No sellable pieces added.'}`)
+        await load();setConfirmed(false);setNotice(`Inspection recorded for ${saved.print_job_id?`outside print ${saved.print_job_id}`:`job ${saved.job_id}`}. ${saved.stock_status==='prepared'?'Square addition prepared, not sent.':saved.stock_status==='in_baseline'?'Accepted output counted in baseline; no Square addition.':'No sellable pieces added.'}`)
       })}}>
         <h3 className="font-medium">Inspect a finished batch</h3>
         <label className="block text-sm">Qualified recipe<select aria-label="Qualified recipe" className={input} value={recipeId} disabled={busy} required onChange={e=>selectRecipe(e.target.value)}><option value="">Choose recipe</option>{state?.recipes.filter(r=>r.qualified).map(r=><option key={r.id} value={r.id}>{r.name} · {r.id.slice(0,8)}</option>)}</select></label>
-        <label className="block text-sm">Completed batch job<select aria-label="Completed batch job" className={input} value={job} disabled={busy} required onChange={e=>{setJob(e.target.value);setConfirmed(false)}}><option value="">Choose completed job</option>{jobs.map(j=><option key={j.id} value={j.id}>{j.name} · job {j.id}</option>)}</select></label>
+        <label className="block text-sm">Completed batch job<select aria-label="Completed batch job" className={input} value={job} disabled={busy} required onChange={e=>{setJob(e.target.value);setConfirmed(false)}}><option value="">Choose completed job</option>{jobs.map(j=>'print_job_id' in j?<option key={`outside:${j.print_job_id}`} value={`outside:${j.print_job_id}`}>{j.name} · owner-attested outside print {j.print_job_id}</option>:<option key={j.id} value={j.id}>{j.name} · job {j.id}</option>)}</select></label>
         {recipe?.outputs.map((o,i)=><fieldset key={`${o.product_id}-${o.kind}`} className="space-y-2 rounded-md border border-[var(--brand-card-border)] p-3"><legend className="text-sm">{o.product_name} · {o.kind} · expected {o.expected}</legend>
           {(['accepted','rejected'] as const).map(kind=><label key={kind} className="block text-sm">{kind==='accepted'?'Sellable pieces':'Rejected pieces'}<input aria-label={`${o.product_name} ${o.kind} ${kind}`} className={input} type="number" min="0" max={o.expected} step="1" required disabled={busy} value={counts[i]?.[kind]??''} onChange={e=>{setConfirmed(false);setCounts(old=>old.map((v,n)=>n===i?{...v,[kind]:e.target.value}:v))}}/></label>)}
           <label className="block text-sm">Baseline membership (required for older output with a baseline)<select aria-label={`${o.product_name} ${o.kind} baseline membership`} className={input} disabled={busy} value={counts[i]?.baseline_disposition??''} onChange={e=>{setConfirmed(false);setCounts(old=>old.map((v,n)=>n===i?{...v,baseline_disposition:(e.target.value||undefined) as 'in_baseline'|'send'|undefined}:v))}}><option value="">Choose if required</option><option value="in_baseline">Counted in baseline</option><option value="send">Not counted, send</option></select></label>

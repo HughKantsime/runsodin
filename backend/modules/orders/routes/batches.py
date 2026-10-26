@@ -61,7 +61,9 @@ def eligible_jobs(offset: int=Query(default=0,ge=0), job_id: int | None=Query(de
             if exc.status_code in (403,404,409):continue
             raise
         result.append({'id':job_id,'name':evidence['item_name'],'payload':service.recipe_payload(evidence)})
-    return {'jobs':result,'next_offset':offset+100 if len(candidates)==100 else None}
+    from modules.orders.outside_prints import eligible
+    outside, more = eligible(db,owner,offset)
+    return {'jobs':result+outside,'next_offset':offset+100 if len(candidates)==100 or more else None}
 
 
 @router.post('/recipes',dependencies=[interactive, Depends(require_action('products.recipes', scope='write'))])
@@ -71,6 +73,9 @@ def create_recipe(data:RecipeInput,user=Depends(admin),db:Session=Depends(get_db
 
 @router.post('/inspections',dependencies=[Depends(require_production_operator()), Depends(require_action('products.inspections', scope='write:production'))])
 def inspect_batch(data:InspectionInput,user=Depends(require_role('operator',scope='write:production')),db:Session=Depends(get_db)):
+    if data.print_job_id is not None:
+        from modules.orders.outside_prints import inspect
+        return inspect(db,user,data)
     return service.inspect_batch(db,user,data)
 
 
@@ -122,3 +127,11 @@ def inspect_components(data:ComponentInput,user=Depends(operator),db:Session=Dep
 def finish_components(data:FinishInput,user=Depends(operator),db:Session=Depends(get_db)):
     from modules.orders.finishing import finish
     return finish(db,user,data)
+
+
+from modules.orders.batch_schemas import OutsideBindingInput
+
+@router.post('/outside-prints/{print_job_id}/bind',dependencies=[Depends(require_production_operator()), Depends(require_action('products.outside_prints',scope='write:production'))])
+def bind_outside_print(print_job_id:int,data:OutsideBindingInput,user=Depends(require_role('operator',scope='write:production')),db:Session=Depends(get_db)):
+    from modules.orders.outside_prints import bind
+    return bind(db,user,print_job_id,data)

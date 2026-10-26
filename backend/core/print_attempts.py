@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 
 from sqlalchemy import text
 
@@ -100,6 +101,7 @@ def bind_print_attempt(run, print_job_id, job_id=None, *, seq=None) -> None:
     Called wherever a print is created for, or linked to, a job, so a late end or
     archive of that print is accounted to its own attempt, never to a later one.
     """
+    prune_heuristic_links(run)
     if print_job_id is None:
         return
     if job_id is None:
@@ -182,8 +184,54 @@ def filament_marker(run, job_id) -> str:
 def clear_job_attempts(run, job_id) -> None:
     """Drop the counter and every per-attempt marker of a deleted job (SQLite id reuse is safe)."""
     jid = int(job_id)
+    for key, value in run("SELECT key,value FROM system_config WHERE key LIKE :p", {"p":"outside_print_previous_job:%"}).fetchall():
+        saved = json.loads(value) if isinstance(value,str) else value
+        if saved["job_id"] == jid:
+            run("DELETE FROM system_config WHERE key=:key", {"key":key})
     for (print_job,) in run("SELECT id FROM print_jobs WHERE scheduled_job_id = :jid", {"jid": jid}).fetchall():
         run("DELETE FROM system_config WHERE key = :k", {"k": _print_seq_key(print_job)})
     run("DELETE FROM system_config WHERE key = :seq OR key LIKE :job OR key LIKE :filament OR key LIKE :started",
         {"seq": _seq_key(jid), "job": f"{PREFIX}job:{jid}:%", "filament": f"{PREFIX}filament:job:{jid}:%",
          "started": f"{PREFIX}started:{jid}:%"})
+
+
+def detach_print_attempt(run, print_job_id, job_id):
+    """Undo false monitor attribution without creating a new physical attempt."""
+    seq = bound_print_attempt(run, print_job_id, job_id)
+    run('DELETE FROM system_config WHERE key=:key', {'key':_print_seq_key(print_job_id)})
+    run('DELETE FROM system_config WHERE key=:key', {'key':f'{PREFIX}print:{int(print_job_id)}'})
+    if seq is not None:
+        # Only valid when the caller proved there are no other prints for the job.
+        for key in (f'{PREFIX}job:{int(job_id)}:{seq}', filament_marker_for(job_id,seq)):
+            run('DELETE FROM system_config WHERE key=:key', {'key':key})
+
+
+def heuristic_link_state(run, job_id):
+    """Keep the pre-match state so owner attestation can undo a false match."""
+    row = run('SELECT status,hold,actual_start,actual_end,duration_hours,queue_position FROM jobs WHERE id=:id',
+              {'id':job_id}).fetchone()
+    if row is None:
+        return
+    state = dict(zip(('status','hold','actual_start','actual_end','duration_hours','queue_position'), row))
+    return state
+
+
+def remember_heuristic_link(run, print_job_id, job_id, state):
+    """Persist only an applied link; replace stale evidence for reused print ids.
+
+    Snapshots expire after 30 days; ordinary attempt bindings also sweep them.
+    """
+    prune_heuristic_links(run)
+    run('INSERT INTO system_config(key,value) VALUES(:key,:value) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+        {'key':f'outside_print_previous_job:{int(print_job_id)}',
+         'value':json.dumps({'job_id':job_id, 'state':state, 'recorded_at':time.time()},default=str)})
+
+
+def prune_heuristic_links(run):
+    """Bound undo retention and discard snapshots whose physical print was deleted."""
+    for key, value in run('SELECT key,value FROM system_config WHERE key LIKE :p', {'p':'outside_print_previous_job:%'}).fetchall():
+        saved = json.loads(value) if isinstance(value,str) else value
+        pid = int(key.rsplit(':',1)[1])
+        if (time.time() - saved.get('recorded_at',0) > 30*86400 or
+                not run('SELECT 1 FROM print_jobs WHERE id=:id', {'id':pid}).fetchone()):
+            run('DELETE FROM system_config WHERE key=:key', {'key':key})

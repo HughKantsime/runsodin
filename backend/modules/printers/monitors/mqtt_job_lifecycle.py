@@ -182,6 +182,9 @@ def record_job_started(
                     LEFT JOIN print_files pf ON m.id = pf.model_id
                     WHERE j.printer_id = ?
                     AND j.status IN ('scheduled', 'pending')
+                    AND COALESCE(j.hold,false)=false
+                    AND NOT EXISTS (SELECT 1 FROM dispatch_attempt_receipts r WHERE r.job_id=j.id)
+                    AND NOT EXISTS (SELECT 1 FROM dispatch_recovery_history h WHERE h.job_id=j.id)
                     AND j.id IN ({candidate_placeholders})
                     AND NOT EXISTS (
                         SELECT 1 FROM education_submissions s WHERE s.job_id=j.id
@@ -247,12 +250,14 @@ def record_job_started(
                         log.info(f"[{printer_name}] {len(window_candidates)} scheduled jobs in ±2hr window - cannot auto-link")
 
                 if linked_job_id:
+                    from core.print_attempts import heuristic_link_state, remember_heuristic_link, qmark_runner
+                    previous_state = heuristic_link_state(qmark_runner(cur),linked_job_id)
                     from modules.jobs.services import transition_job, Expr
                     changed = transition_job(cur, linked_job_id, 'printing', 'monitor',
                         from_states=('scheduled', 'pending'),
                         extra_fields={'actual_start': Expr('COALESCE(actual_start, :started)',
                             started=datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'))},
-                        where="printer_id=:pid AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id)",
+                        where="printer_id=:pid AND COALESCE(hold,false)=false AND NOT EXISTS (SELECT 1 FROM dispatch_attempt_receipts r WHERE r.job_id=jobs.id) AND NOT EXISTS (SELECT 1 FROM dispatch_recovery_history h WHERE h.job_id=jobs.id) AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id)",
                         params={'pid': printer_id})
                     if not changed:
                         linked_job_id = None
@@ -265,9 +270,10 @@ def record_job_started(
                         if cur.rowcount == 1:
                             from core.print_attempts import bind_print_attempt, qmark_runner
                             bind_print_attempt(qmark_runner(cur), new_job_id, linked_job_id)
+                            remember_heuristic_link(qmark_runner(cur),new_job_id,linked_job_id,previous_state)
 
                 # ---- Ad-hoc print: bump displaced scheduled jobs ----
-                if not linked_job_id and candidates:
+                if not linked_job_id and candidate_ids:
                     log.info(f"[{printer_name}] No auto-match for '{job_base}' ({total_layers} layers) - ad-hoc print")
                     cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- only '?' placeholders generated from the bound value count; values are bound
                         f"""

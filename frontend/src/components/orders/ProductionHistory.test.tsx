@@ -64,3 +64,9 @@ it('shows each frozen mixed-output disposition',async()=>{
  vi.mocked(productionHistory.read).mockResolvedValue({...page,receipts:[{...receipt,outputs:[{...receipt.outputs[0],disposition:'in_baseline',send_quantity:0},{...receipt.outputs[0],kind:'flush',accepted:1,rejected:1,disposition:'send',send_quantity:1}]}]})
  await open();expect(screen.getByText(/Mini \(main\).*Counted in baseline/)).toBeVisible();expect(screen.getByText(/Mini \(flush\).*1 to send/)).toBeVisible()
 })
+it('labels an outside-print receipt with its physical ID and attested source',async()=>{
+ vi.mocked(productionHistory.read).mockResolvedValue({...page,receipts:[{...receipt,job_id:undefined,print_job_id:120}]})
+ render(<ProductionHistory operator/>);fireEvent.click(screen.getByRole('button',{name:'Inspection history and Square recovery'}))
+ await screen.findByText('Test minis · Owner-attested outside print 120')
+ expect(screen.queryByText(/job undefined/)).not.toBeInTheDocument()
+})

@@ -51,6 +51,9 @@ def test_support_bundle_redacts_transport_config_and_hides_markers(odin):
              "base_url": "https://odin.example.test"}, headers=odin.H)
     with odin.engine.begin() as c:
         c.execute(text("INSERT INTO system_config(key, value) VALUES('quota_attempt:job:1:x', 'true')"))
+    with odin.engine.begin() as c:
+        for prefix in ("outside_print_binding:", "outside_print_previous_job:"):
+            c.execute(text("INSERT INTO system_config(key,value) VALUES(:key,:value)"), {"key":prefix+"120", "value":json.dumps({"statement":"synthetic private attestation","actor_user_id":12,"filename":"private.3mf","configuration_key":"synthetic"})})
     r = odin.get("/api/admin/support-bundle", headers=odin.H)
     assert r.status_code == 200, r.text
     zf = zipfile.ZipFile(io.BytesIO(r.content))
@@ -58,4 +61,5 @@ def test_support_bundle_redacts_transport_config_and_hides_markers(odin):
     assert settings.get("smtp_config") == "[REDACTED]"
     assert settings.get("base_url") == "[REDACTED]"
     assert "topsecret" not in r.content.decode("utf-8", "replace")
-    assert not any(k.startswith("quota_attempt") for k in settings)
+    assert not any(k.startswith(("quota_attempt", "outside_print_binding:", "outside_print_previous_job:")) for k in settings)
+    assert "synthetic private attestation" not in json.dumps(settings)

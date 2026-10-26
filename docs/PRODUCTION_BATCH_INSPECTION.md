@@ -51,3 +51,10 @@ For Cabinet Latch, externally inspected job 55 belongs inside the owner's 300 ba
 ## Data and restore compatibility
 
 Migration035 adds three empty side tables without changing old migration bytes or ORM baseline tables. They are included in the backup inventory. Released034 PostgreSQL archives are validated by the pinned, isolated `preserved034` source snapshot, upgraded in an owned disposable database and returned to the ordinary current validation path. Older frozen restore packages remain unchanged. Never delete a receipt to get around a duplicate/conflicting inspection.
+
+
+## Prints started outside ODIN
+
+`POST /api/products/production/outside-prints/{print_job_id}/bind` accepts a qualified `recipe_id` and the owner's explicit confirmation of outside start and file revision. It requires password-session or explicit `write:production` operator authority plus the `products.outside_prints` action. The completed print's printer must belong to the owner and match the recipe configuration. An ODIN receipt, Education ownership, previous binding or existing physical acceptance prevents binding.
+
+The binding is retained as `outside_print_binding:<print_job_id>` in SystemConfig with an atomic audit record. It does not rewrite economic ownership history or claim ODIN dispatched the print. A false heuristic job match is detached; held, never-dispatched completed work is restored to pending and held, with completion times and attempt credit cleared. Future heuristic matches retain their previous state for correction. Inspect bound entries from the production job list using `print_job_id` in place of `job_id`. All yield, baseline, prepared-addition and explicit-send rules remain the same.

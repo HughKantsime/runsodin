@@ -770,6 +770,9 @@ class MoonrakerMonitor:
                     JOIN print_files pf ON {SELECTED_PRINT_FILE_JOIN_SQL}
                     WHERE j.printer_id = :pid
                       AND j.status IN ('printing', 'scheduled', 'pending')
+                      AND COALESCE(j.hold,false)=false
+                      AND NOT EXISTS (SELECT 1 FROM dispatch_attempt_receipts r WHERE r.job_id=j.id)
+                      AND NOT EXISTS (SELECT 1 FROM dispatch_recovery_history h WHERE h.job_id=j.id)
                       AND NOT EXISTS (
                           SELECT 1 FROM education_submissions s WHERE s.job_id=j.id
                       )
@@ -870,10 +873,14 @@ class MoonrakerMonitor:
                              "AND status IN ('running','printing','paused')"),
                         {'job': scheduled_job_id, 'id': self._current_job_db_id}).first():
             return False
+        from core.print_attempts import heuristic_link_state, remember_heuristic_link, sqlalchemy_runner
+        previous_state = heuristic_link_state(sqlalchemy_runner(conn),scheduled_job_id)
         from modules.jobs.services import transition_job
         changed = transition_job(conn, scheduled_job_id, 'printing', 'monitor',
             from_states=('printing', 'scheduled', 'pending'),
-            where="printer_id=:pid"
+            where="printer_id=:pid AND COALESCE(hold,false)=false"
+                  " AND NOT EXISTS (SELECT 1 FROM dispatch_attempt_receipts r WHERE r.job_id=jobs.id)"
+                  " AND NOT EXISTS (SELECT 1 FROM dispatch_recovery_history h WHERE h.job_id=jobs.id)"
                   " AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id)"
                   " AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.print_file_id=jobs.print_file_id)",
             params={'pid': self.printer_id}) or None
@@ -888,6 +895,7 @@ class MoonrakerMonitor:
             raise RuntimeError('Print linkage changed; transaction must roll back')
         from core.print_attempts import bind_print_attempt, sqlalchemy_runner
         bind_print_attempt(sqlalchemy_runner(conn), self._current_job_db_id, scheduled_job_id)
+        remember_heuristic_link(sqlalchemy_runner(conn),self._current_job_db_id,scheduled_job_id,previous_state)
         reconcile_job_write(conn, parents)
         return True
 

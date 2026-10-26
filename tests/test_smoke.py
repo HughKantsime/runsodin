@@ -97,6 +97,9 @@ GET_ENDPOINTS = [
     # Orders
     "/api/orders",
     "/api/products",
+    "/api/products/production",
+    "/api/products/production/jobs",
+    "/api/products/production/history",
     # Consumables
     "/api/consumables",
     "/api/consumables/low-stock",

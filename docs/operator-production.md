@@ -4,6 +4,7 @@ A password-authenticated admin or operator can create a per-user token with expl
 
 Permitted writes:
 
+- `POST /api/products/production/outside-prints/{print_job_id}/bind`
 - `POST /api/products/production/inspections`
 - `POST /api/products/production/additions/{addition_id}/check`
 - `POST /api/products/batches/additions/{addition_id}/send`
@@ -24,3 +25,8 @@ Inspection creation and send reservation stage audit records in the same transac
 ## Existing claude-operator credential
 
 The October25 credential lacks this scope until the change is deployed and an interactive admin grants it. Do not patch the running container or use the token to grant itself authority. Preserve the existing Keychain credential, hash, expiry and other scopes when applying an owner-approved scope update. Job71 is already recorded and Square was600 at the prior verification; never replay it as a test. Automated tests use isolated databases and synthetic Square transport, not the live business inventory.
+
+
+Outside prints use an explicit owner attestation before inspection. Bind a completed physical `print_job_id` with a qualified `recipe_id`, `attestation: {started_outside_odin: true, file_revision_confirmed: true}` and optional statement. `attested_by` is `owner_in_app` (default) or `owner_confirmed_to_operator`. The `products.outside_prints` action and production operator authority both apply. The printer and its configuration must match the recipe. Education and receipt-backed prints are refused.
+
+`GET /api/products/production/jobs` includes bound entries with `kind: outside_print`, `print_job_id` and `recipe`. Submit `print_job_id` instead of `job_id` to inspections. Counts, baseline choices and explicit addition sending follow the existing workflow. Binding alone never creates stock or sends to Square. The durable SystemConfig binding and audit evidence retain the attestation, actor IDs, recipe revision, observed filename, physical identity, archive IDs and any corrected job state. Actor columns remain NULL; identity is in audit details.
