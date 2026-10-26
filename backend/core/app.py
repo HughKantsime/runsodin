@@ -424,6 +424,8 @@ def create_app() -> FastAPI:
         faulthandler.register(signal.SIGUSR1, all_threads=True)
 
         _check_schema_drift(engine, Base)
+        from core.job_timeline import start, shutdown
+        start("api", engine.url)
 
         # 2.0 one-time data cleanup: biometric refresh tokens minted before the
         # credential-route hardening (a scoped token could create one) are
@@ -502,7 +504,10 @@ def create_app() -> FastAPI:
         # Replays job alerts a crash or a failed dispatch left in the outbox (migration 034).
         from modules.notifications.alert_outbox import run_sweeper
         outbox_task = asyncio.create_task(run_sweeper())
-        yield
+        try:
+            yield
+        finally:
+            shutdown()
         broadcast_task.cancel()
         cleanup_task.cancel()
         outbox_task.cancel()

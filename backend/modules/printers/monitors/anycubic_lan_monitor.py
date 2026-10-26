@@ -110,6 +110,8 @@ def sync_slots(printer_id, boxes):
 
 
 def main():
+    from core.job_timeline import start
+    start("anycubic_lan_monitor")
     from core.monitor_bootstrap import bootstrap_monitor_authority
     from core.log_redaction import install_log_redaction
     install_log_redaction()

@@ -382,6 +382,8 @@ def start_prusalink_monitors():
 
 
 if __name__ == "__main__":
+    from core.job_timeline import start
+    start("prusalink_monitor")
     from core.log_redaction import install_log_redaction
     install_log_redaction()
     import signal

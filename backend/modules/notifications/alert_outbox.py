@@ -15,6 +15,7 @@ no longer retried, kept DEAD_LETTER_RETENTION_DAYS for inspection, then pruned.
 from __future__ import annotations
 
 import importlib
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -82,17 +83,20 @@ def dispatch(engine, outbox_id: int) -> bool:
                 # dispatcher of the same row finds nothing to claim.
                 if db.execute(text("DELETE FROM alert_outbox WHERE id=:id"), {"id": outbox_id}).rowcount != 1:
                     return False
-                job = db.execute(text("SELECT id, item_name, submitted_by FROM jobs WHERE id=:id"),
-                                 {"id": row["job_id"]}).mappings().first()
-                actor = None
-                if row["actor_user_id"] is not None:
-                    actor = db.execute(text("SELECT id, username, role, group_id FROM users WHERE id=:id"),
-                                       {"id": row["actor_user_id"]}).mappings().first()
-                alert = _alert_for(db, row["alert_kind"], job, actor) if job is not None else None
-                if alert is not None:
-                    alert_type, title, message, recipients = alert
-                    plan = stage_alert(db, alert_type, AlertSeverity.INFO, title, message,
-                                       job_id=job["id"], target_user_ids=recipients)
+                if row['alert_kind'].startswith('terminal:'):
+                    plan = _stage_terminal(db, row, outbox_id)
+                else:
+                    job = db.execute(text("SELECT id, item_name, submitted_by FROM jobs WHERE id=:id"),
+                                     {"id": row["job_id"]}).mappings().first()
+                    actor = None
+                    if row["actor_user_id"] is not None:
+                        actor = db.execute(text("SELECT id, username, role, group_id FROM users WHERE id=:id"),
+                                           {"id": row["actor_user_id"]}).mappings().first()
+                    alert = _alert_for(db, row["alert_kind"], job, actor) if job is not None else None
+                    if alert is not None:
+                        alert_type, title, message, recipients = alert
+                        plan = stage_alert(db, alert_type, AlertSeverity.INFO, title, message,
+                                           job_id=job["id"], target_user_ids=recipients)
                 db.flush()
             if plan is not None:
                 with Session(bind=engine) as delivery_db:
@@ -168,3 +172,30 @@ def deliver_mobile(db, plan):
     for callback in tuple(_deliveries):
         try:callback(db, plan)
         except Exception:logger.warning("Mobile alert delivery failed after confirmed commit")
+
+
+def _stage_terminal(db, row, outbox_id):
+    """Resolve the immutable physical claim; never send for a recycled print ID."""
+    from modules.notifications.alert_dispatcher import stage_alert
+    physical_id = int(row['alert_kind'].split(':', 1)[1])
+    attempt = db.execute(text("SELECT s.outcome,s.delivery_state,s.printer_id,s.job_id,p.job_name,r.name FROM job_summary_outbox s JOIN print_jobs p ON p.economic_uid=s.print_attempt_uid AND p.economic_birth_nonce=s.attempt_birth LEFT JOIN printers r ON r.id=s.printer_id WHERE p.id=:id AND s.job_id=:job"), {'id':physical_id,'job':row['job_id']}).first()
+    if attempt is None:
+        return None
+    outcome, state, printer_id, job_id, name, printer_name = attempt
+    state = json.loads(state)
+    if state.get('alert_outbox_id') != outbox_id:
+        return None
+    payload = state.get('alert_payload')
+    if payload is None:
+        # Crash before post-commit dispatch: the transaction already saved enough
+        # facts to deliver without trusting an in-memory monitor callback.
+        complete = outcome == 'completed'
+        payload = dict(alert_type=AlertType.PRINT_COMPLETE if complete else AlertType.PRINT_FAILED,
+                       severity=AlertSeverity.INFO if complete else AlertSeverity.CRITICAL,
+                       title=f"Print {'Complete' if complete else 'Failed'}: {name or 'Unknown'}",
+                       message=f"{'Finished' if complete else 'Failed'} on {printer_name or 'printer'}",
+                       printer_id=printer_id, job_id=state.get('alert_job_id',job_id))
+    else:
+        payload['alert_type'] = AlertType(payload['alert_type'])
+        payload['severity'] = AlertSeverity(payload['severity'])
+    return stage_alert(db, **payload)

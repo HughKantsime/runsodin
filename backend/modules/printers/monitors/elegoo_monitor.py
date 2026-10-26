@@ -377,6 +377,8 @@ def start_elegoo_monitors():
     return threads
 
 if __name__ == "__main__":
+    from core.job_timeline import start
+    start("elegoo_monitor")
     from core.log_redaction import install_log_redaction
     install_log_redaction()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")

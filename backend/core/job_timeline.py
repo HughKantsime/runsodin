@@ -46,7 +46,7 @@ def event(job_id, kind, *, printer_id=None, print_attempt_uid=None, org_id=None,
 
 
 class TimelineWriter:
-    def __init__(self, url, *, capacity=512, busy_timeout_ms=100):
+    def __init__(self, url, *, capacity=512, busy_timeout_ms=100, process_name="process"):
         if not 1 <= capacity <= 4096 or not 1 <= busy_timeout_ms <= 250:raise ValueError('Invalid timeline bounds')
         options={'poolclass':NullPool}
         if url.get_backend_name()=='sqlite':options['connect_args']={'timeout':busy_timeout_ms/1000}
@@ -54,8 +54,12 @@ class TimelineWriter:
         self.timeout=busy_timeout_ms
         self.queue=deque();self.capacity=capacity;self.lock=threading.Lock()
         self.wake=threading.Event();self.stop=threading.Event()
-        self.process_id=str(os.getpid())+':'+uuid.uuid4().hex
+        self.process_id=process_name+':'+str(os.getpid())+':'+uuid.uuid4().hex
         self.started=now();self.drop_epoch=0;self.error_epoch=0;self.epochs=deque(maxlen=1024);self.printers=set()
+        # Startup is synchronous: never accept events before durable registration.
+        with self.engine.begin() as connection:
+            self._state(connection, None)
+        self.close_deadline=None
         self.thread=threading.Thread(target=self._run,name='job-timeline',daemon=True)
         self.thread.start()
 
@@ -117,13 +121,18 @@ class TimelineWriter:
             return False
 
     def _run(self):
-        while not self.stop.is_set():
+        while True:
             self.wake.wait(.2);self.wake.clear()
-            self._drain()
-        self._drain()
+            succeeded=self._drain()
+            if self.stop.is_set():
+                with self.lock:empty=not self.queue
+                if (succeeded and empty) or time.monotonic()>=self.close_deadline:
+                    break
+                self.wake.set()
         self.engine.dispose()
 
     def close(self):
+        self.close_deadline=time.monotonic()+.8
         self.stop.set();self.wake.set();self.thread.join(timeout=1)
 
 
@@ -131,19 +140,35 @@ _writer=None
 _writer_lock=threading.Lock()
 
 
-def enqueue(item):
+def start(process_name="process", url=None):
     global _writer
-    try:
+    with _writer_lock:
         if _writer is None:
-            with _writer_lock:
-                if _writer is None:
-                    from core.db import current_engine
-                    _writer=TimelineWriter(current_engine().url)
-                    atexit.register(_writer.close)
+            if url is None:
+                from core.db import current_engine
+                url = current_engine().url
+            _writer = TimelineWriter(url, process_name=process_name)
+            atexit.register(_writer.close)
+    return _writer
+
+
+def shutdown():
+    global _writer
+    with _writer_lock:
+        if _writer is not None:
+            _writer.close()
+            _writer = None
+
+
+def enqueue(item):
+    try:
+        # Runtime entrypoints register before accepting work. Embedded callers
+        # must also start explicitly; producers never perform startup SQL.
+        if _writer is None:
+            return False
         _writer.enqueue(item)
         return True
     except Exception:
-        # History is optional; transport and dispatch outcomes must survive.
         return False
 
 
@@ -164,7 +189,7 @@ def for_attempt(print_job_id, kind):
 
 def history_complete(db, printer_id, started_at, ended_at):
     """Conservative across crashes: missing or unclean writer evidence is incomplete."""
-    rows=db.execute(text('SELECT started_at,clean_shutdown,last_drained_at,printer_ids,epoch_history,drop_epoch,error_epoch FROM timeline_writer_state')).mappings().all()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant SQL; values are bound
+    rows=db.execute(text('SELECT process_id,started_at,clean_shutdown,last_drained_at,printer_ids,epoch_history,drop_epoch,error_epoch FROM timeline_writer_state')).mappings().all()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant SQL; values are bound
     relevant=[]
     def stamp(value):
         parsed=datetime.fromisoformat(str(value).replace('Z','+00:00'))
@@ -173,6 +198,17 @@ def history_complete(db, printer_id, started_at, ended_at):
     for row in rows:
         born=stamp(row['started_at'])
         if born>end:continue
+        if row['clean_shutdown'] and row['last_drained_at'] is not None and stamp(row['last_drained_at']) < start:
+            continue
+        role = row['process_id'].split(':')[0]
+        successors = [stamp(other['started_at']) for other in rows
+                      if other['process_id'].split(':')[0] == role
+                      and stamp(other['started_at']) > born]
+        restarted = min(successors) if successors else None
+        # Even a successful drain cannot prove the final interval before a crash.
+        if not row['clean_shutdown'] and restarted is not None:
+            if restarted >= start:return False
+            continue
         if not row['clean_shutdown'] and (row['last_drained_at'] is None or stamp(row['last_drained_at'])<end):return False
         if row['drop_epoch']+row['error_epoch']>len(json.loads(row['epoch_history'])):return False
         if any(start<=stamp(epoch[0])<=end for epoch in json.loads(row['epoch_history'])):return False

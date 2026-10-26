@@ -585,7 +585,9 @@ class MoonrakerMonitor:
                     if end_status == "completed" and ended:
                         self._auto_deduct_filament(conn, row[0], observed_grams=filament_used_g)
                 from core.job_terminal_observations import claim_terminal, terminal_event
-                claim_terminal(conn, self._current_job_db_id)
+                claim_terminal(conn, self._current_job_db_id,
+                               alert_job_id=row[0] if row and row[0] and ended else None,
+                               notify_cancelled=True)
                 timeline_item=terminal_event(conn, self._current_job_db_id)
                 reconcile_job_write(conn, production_orders)
             from core.job_timeline import enqueue
@@ -611,10 +613,11 @@ class MoonrakerMonitor:
                 except Exception as ce:
                     log.warning(f"[{self.name}] Failed to update care counters: {ce}")
             
+            from core.job_terminal_observations import dispatch_terminal_alert
             # Dispatch alerts
             job_name = self._last_filename or "Unknown"
             if end_status == "completed":
-                printer_events.dispatch_alert(
+                dispatch_terminal_alert(self._current_job_db_id, printer_events.dispatch_alert,
                     alert_type=AlertType.PRINT_COMPLETE,
                     severity=AlertSeverity.INFO,
                     job_id=row[0] if row else None,
@@ -623,7 +626,7 @@ class MoonrakerMonitor:
                     printer_id=self.printer_id,
                 )
             else:
-                printer_events.dispatch_alert(
+                dispatch_terminal_alert(self._current_job_db_id, printer_events.dispatch_alert,
                     alert_type=AlertType.PRINT_FAILED,
                     severity=AlertSeverity.CRITICAL,
                     job_id=row[0] if row else None,
@@ -996,6 +999,8 @@ MoonrakerMonitor.stop = MoonrakerMonitor.disconnect
 
 
 if __name__ == "__main__":
+    from core.job_timeline import start
+    start("moonraker_monitor")
     from core.log_redaction import install_log_redaction
     install_log_redaction()
     import signal

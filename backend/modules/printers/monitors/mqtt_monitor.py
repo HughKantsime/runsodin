@@ -388,6 +388,8 @@ class MQTTMonitorDaemon:
 
 
 def main():
+    from core.job_timeline import start
+    start("mqtt_monitor")
     daemon = MQTTMonitorDaemon()
 
     # Handle signals

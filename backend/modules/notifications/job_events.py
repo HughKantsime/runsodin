@@ -209,7 +209,7 @@ def job_completed(
                         log.exception("Quota consumption for job %s could not be recorded", scheduled_job_id)
 
             from core.job_terminal_observations import claim_terminal, terminal_event
-            claim_terminal(conn, print_job_id)
+            claim_terminal(conn, print_job_id, alert_job_id=scheduled_job_id if job_applied else None)
             timeline_item=terminal_event(conn, print_job_id)
             reconcile_job_write(conn, production_orders)
             conn.commit()
@@ -229,9 +229,11 @@ def job_completed(
             print_hours = duration_seconds / 3600.0
             increment_care_counters(printer_id, print_hours, 1)
 
+        from core.job_terminal_observations import dispatch_terminal_alert
+
         # Create alert
         if success:
-            dispatch_alert(
+            dispatch_terminal_alert(print_job_id, dispatch_alert,
                 alert_type=AlertType.PRINT_COMPLETE,
                 severity=AlertSeverity.INFO,
                 title=f"Print Complete: {job_name}",
@@ -240,7 +242,7 @@ def job_completed(
                 job_id=alert_job_id,
             )
         else:
-            dispatch_alert(
+            dispatch_terminal_alert(print_job_id, dispatch_alert,
                 alert_type=AlertType.PRINT_FAILED,
                 severity=AlertSeverity.CRITICAL,
                 title=f"Print Failed: {job_name}",

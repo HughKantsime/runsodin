@@ -185,7 +185,7 @@ class EducationPolicyService(EducationPolicyProvider):
         result = terminal_monitor_observation(db, **kwargs)
         if result.get('physical_ended') or result.get('transitioned'):
             from core.job_terminal_observations import claim_terminal
-            claim_terminal(db, kwargs['print_job_id'])
+            claim_terminal(db, kwargs['print_job_id'], deliver_alerts=False)
         return result
 
     def resolve_active_monitor_observation(self, db, *, printer_id: int) -> dict:
