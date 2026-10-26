@@ -15,635 +15,639 @@ vi.mock('../../BrandingContext', () => ({ useBrandingUpdate: () => vi.fn(), appl
 
 // WIRE-BEGIN
 const WIRE: any = {
- "orgs_list": [
-  {
-   "id": 3,
-   "name": "Org Alpha",
-   "description": "Tenant A",
-   "owner_id": 1,
-   "member_count": 1,
-   "created_at": "2026-10-15 00:58:19",
-   "has_settings": false
-  },
-  {
-   "id": 4,
-   "name": "Org Beta",
-   "description": "",
-   "owner_id": 1,
-   "member_count": 1,
-   "created_at": "2026-10-15 00:58:19",
-   "has_settings": false
-  }
- ],
- "users_list_with_orgs": [
-  {
-   "id": 1,
-   "username": "certadmin",
-   "email": "certadmin@example.test",
-   "role": "admin",
-   "is_active": 1,
-   "last_login": "2026-10-15 00:58:16.120519+00:00",
-   "created_at": "2026-10-15 00:58:15",
-   "group_id": null,
-   "mfa_enabled": false
-  },
-  {
-   "id": 2,
-   "username": "grp_owner",
-   "email": "grp_owner@example.test",
-   "role": "operator",
-   "is_active": 1,
-   "last_login": "2026-10-15 00:58:16.697038+00:00",
-   "created_at": "2026-10-15 00:58:16",
-   "group_id": 1,
-   "mfa_enabled": false
-  },
-  {
-   "id": 3,
-   "username": "grp_other_operator",
-   "email": "grp_other_operator@example.test",
-   "role": "operator",
-   "is_active": 1,
-   "last_login": "2026-10-15 00:58:17.412910+00:00",
-   "created_at": "2026-10-15 00:58:17",
-   "group_id": null,
-   "mfa_enabled": false
-  },
-  {
-   "id": 4,
-   "username": "grp_student",
-   "email": "grp_student@example.test",
-   "role": "viewer",
-   "is_active": 1,
-   "last_login": "2026-10-15 00:58:18.167990+00:00",
-   "created_at": "2026-10-15 00:58:17",
-   "group_id": 1,
-   "mfa_enabled": false
-  },
-  {
-   "id": 5,
-   "username": "grp_second_admin",
-   "email": "grp_second_admin@example.test",
-   "role": "admin",
-   "is_active": 1,
-   "last_login": null,
-   "created_at": "2026-10-15 00:58:18",
-   "group_id": null,
-   "mfa_enabled": false
-  },
-  {
-   "id": 6,
-   "username": "org_alpha_op",
-   "email": "org_alpha_op@example.test",
-   "role": "operator",
-   "is_active": 1,
-   "last_login": "2026-10-15 00:58:19.876672+00:00",
-   "created_at": "2026-10-15 00:58:19",
-   "group_id": 3,
-   "mfa_enabled": false
-  },
-  {
-   "id": 7,
-   "username": "org_beta_op",
-   "email": "org_beta_op@example.test",
-   "role": "operator",
-   "is_active": 1,
-   "last_login": "2026-10-15 00:58:20.338625+00:00",
-   "created_at": "2026-10-15 00:58:20",
-   "group_id": 4,
-   "mfa_enabled": false
-  },
-  {
-   "id": 8,
-   "username": "org_temp_member",
-   "email": "org_temp_member@example.test",
-   "role": "viewer",
-   "is_active": 1,
-   "last_login": null,
-   "created_at": "2026-10-15 00:58:20",
-   "group_id": null,
-   "mfa_enabled": false
-  }
- ],
- "printers_list": [
-  {
-   "name": "Alpha printer",
-   "model": null,
-   "slot_count": 4,
-   "is_active": true,
-   "api_type": "moonraker",
-   "api_host": "192.0.2.41",
-   "camera_url": null,
-   "camera_enabled": true,
-   "camera_source": null,
-   "nickname": null,
-   "bed_temp": null,
-   "bed_target_temp": null,
-   "nozzle_temp": null,
-   "nozzle_target_temp": null,
-   "gcode_state": null,
-   "print_stage": null,
-   "hms_errors": null,
-   "lights_on": null,
-   "nozzle_type": null,
-   "nozzle_diameter": null,
-   "fan_speed": null,
-   "bed_x_mm": null,
-   "bed_y_mm": null,
-   "last_seen": null,
-   "total_print_hours": 0.0,
-   "total_print_count": 0,
-   "hours_since_maintenance": 0.0,
-   "prints_since_maintenance": 0,
-   "last_error_code": null,
-   "last_error_message": null,
-   "last_error_at": null,
-   "camera_discovered": false,
-   "tags": [],
-   "timelapse_enabled": false,
-   "machine_type": null,
-   "id": 1,
-   "created_at": "2026-10-15T00:58:20",
-   "updated_at": "2026-10-15T00:58:20",
-   "filament_slots": [
+  "orgs_list": [
     {
-     "slot_number": 1,
-     "filament_type": "empty",
-     "color": null,
-     "color_hex": null,
-     "spoolman_spool_id": null,
-     "assigned_spool_id": null,
-     "spool_confirmed": false,
-     "id": 1,
-     "printer_id": 1,
-     "loaded_at": "2026-10-15T00:58:20",
-     "remaining": null,
-     "material_type": null
+      "id": 3,
+      "name": "Org Alpha",
+      "description": "Tenant A",
+      "owner_id": 1,
+      "member_count": 1,
+      "created_at": "2026-10-15 00:58:19",
+      "has_settings": false
     },
     {
-     "slot_number": 2,
-     "filament_type": "empty",
-     "color": null,
-     "color_hex": null,
-     "spoolman_spool_id": null,
-     "assigned_spool_id": null,
-     "spool_confirmed": false,
-     "id": 2,
-     "printer_id": 1,
-     "loaded_at": "2026-10-15T00:58:20",
-     "remaining": null,
-     "material_type": null
-    },
-    {
-     "slot_number": 3,
-     "filament_type": "empty",
-     "color": null,
-     "color_hex": null,
-     "spoolman_spool_id": null,
-     "assigned_spool_id": null,
-     "spool_confirmed": false,
-     "id": 3,
-     "printer_id": 1,
-     "loaded_at": "2026-10-15T00:58:20",
-     "remaining": null,
-     "material_type": null
-    },
-    {
-     "slot_number": 4,
-     "filament_type": "empty",
-     "color": null,
-     "color_hex": null,
-     "spoolman_spool_id": null,
-     "assigned_spool_id": null,
-     "spool_confirmed": false,
-     "id": 4,
-     "printer_id": 1,
-     "loaded_at": "2026-10-15T00:58:20",
-     "remaining": null,
-     "material_type": null
+      "id": 4,
+      "name": "Org Beta",
+      "description": "",
+      "owner_id": 1,
+      "member_count": 1,
+      "created_at": "2026-10-15 00:58:19",
+      "has_settings": false
     }
-   ],
-   "loaded_colors": [],
-   "shared": false,
-   "org_id": null,
-   "has_api_key": false
-  },
-  {
-   "name": "Shared floor printer",
-   "model": null,
-   "slot_count": 4,
-   "is_active": true,
-   "api_type": "moonraker",
-   "api_host": "192.0.2.42",
-   "camera_url": null,
-   "camera_enabled": true,
-   "camera_source": null,
-   "nickname": null,
-   "bed_temp": null,
-   "bed_target_temp": null,
-   "nozzle_temp": null,
-   "nozzle_target_temp": null,
-   "gcode_state": null,
-   "print_stage": null,
-   "hms_errors": null,
-   "lights_on": null,
-   "nozzle_type": null,
-   "nozzle_diameter": null,
-   "fan_speed": null,
-   "bed_x_mm": null,
-   "bed_y_mm": null,
-   "last_seen": null,
-   "total_print_hours": 0.0,
-   "total_print_count": 0,
-   "hours_since_maintenance": 0.0,
-   "prints_since_maintenance": 0,
-   "last_error_code": null,
-   "last_error_message": null,
-   "last_error_at": null,
-   "camera_discovered": false,
-   "tags": [],
-   "timelapse_enabled": false,
-   "machine_type": null,
-   "id": 2,
-   "created_at": "2026-10-15T00:58:20",
-   "updated_at": "2026-10-15T00:58:20",
-   "filament_slots": [
-    {
-     "slot_number": 1,
-     "filament_type": "empty",
-     "color": null,
-     "color_hex": null,
-     "spoolman_spool_id": null,
-     "assigned_spool_id": null,
-     "spool_confirmed": false,
-     "id": 5,
-     "printer_id": 2,
-     "loaded_at": "2026-10-15T00:58:20",
-     "remaining": null,
-     "material_type": null
-    },
-    {
-     "slot_number": 2,
-     "filament_type": "empty",
-     "color": null,
-     "color_hex": null,
-     "spoolman_spool_id": null,
-     "assigned_spool_id": null,
-     "spool_confirmed": false,
-     "id": 6,
-     "printer_id": 2,
-     "loaded_at": "2026-10-15T00:58:20",
-     "remaining": null,
-     "material_type": null
-    },
-    {
-     "slot_number": 3,
-     "filament_type": "empty",
-     "color": null,
-     "color_hex": null,
-     "spoolman_spool_id": null,
-     "assigned_spool_id": null,
-     "spool_confirmed": false,
-     "id": 7,
-     "printer_id": 2,
-     "loaded_at": "2026-10-15T00:58:20",
-     "remaining": null,
-     "material_type": null
-    },
-    {
-     "slot_number": 4,
-     "filament_type": "empty",
-     "color": null,
-     "color_hex": null,
-     "spoolman_spool_id": null,
-     "assigned_spool_id": null,
-     "spool_confirmed": false,
-     "id": 8,
-     "printer_id": 2,
-     "loaded_at": "2026-10-15T00:58:20",
-     "remaining": null,
-     "material_type": null
-    }
-   ],
-   "loaded_colors": [],
-   "shared": false,
-   "org_id": null,
-   "has_api_key": false
-  }
- ],
- "groups_list_with_orgs": [
-  {
-   "id": 3,
-   "name": "Org Alpha",
-   "description": "Tenant A",
-   "owner_id": 1,
-   "created_at": "2026-10-15 00:58:19",
-   "updated_at": "2026-10-15 00:58:19",
-   "owner_username": "certadmin",
-   "member_count": 1
-  },
-  {
-   "id": 4,
-   "name": "Org Beta",
-   "description": "",
-   "owner_id": 1,
-   "created_at": "2026-10-15 00:58:19",
-   "updated_at": "2026-10-15 00:58:19",
-   "owner_username": "certadmin",
-   "member_count": 1
-  },
-  {
-   "id": 1,
-   "name": "Period 3B",
-   "description": "Engineering",
-   "owner_id": null,
-   "created_at": "2026-10-15 00:58:18",
-   "updated_at": "2026-10-15T00:58:19.322119+00:00",
-   "owner_username": null,
-   "member_count": 2
-  }
- ],
- "license": {
-  "valid": true,
-  "tier": "enterprise",
-  "tier_name": "Enterprise",
-  "issued_at": "",
-  "expires_at": "2099-01-01",
-  "expired": false,
-  "trial": false,
-  "trial_days_left": null,
-  "max_printers": 9999,
-  "max_users": 9999,
-  "features": [
-   "analytics",
-   "audit_export",
-   "bom",
-   "branding",
-   "care_counters",
-   "cost_calculator",
-   "csv_export",
-   "email_notifications",
-   "job_approval",
-   "maintenance",
-   "mqtt_republish",
-   "multi_user",
-   "opcua",
-   "orders",
-   "permissions",
-   "print_quotas",
-   "products",
-   "push_notifications",
-   "rbac",
-   "sqlcipher",
-   "sso",
-   "usage_reports",
-   "user_groups",
-   "webhooks",
-   "white_label"
   ],
-  "managed_externally": false,
-  "binding_present": false,
-  "binding_matches_current": false,
-  "license_sha256": "b6afa8b2829680d87de0cd998e54611b61c9c1c33c490497c67f0e937fc86eb4",
-  "device_bound": false
- },
- "permissions": {
-  "page_access": {
-   "dashboard": [
-    "admin",
-    "operator",
-    "viewer"
-   ],
-   "timeline": [
-    "admin",
-    "operator",
-    "viewer"
-   ],
-   "jobs": [
-    "admin",
-    "operator",
-    "viewer"
-   ],
-   "printers": [
-    "admin",
-    "operator",
-    "viewer"
-   ],
-   "models": [
-    "admin",
-    "operator",
-    "viewer"
-   ],
-   "spools": [
-    "admin",
-    "operator",
-    "viewer"
-   ],
-   "cameras": [
-    "admin",
-    "operator",
-    "viewer"
-   ],
-   "analytics": [
-    "admin",
-    "operator",
-    "viewer"
-   ],
-   "calculator": [
-    "admin",
-    "operator",
-    "viewer"
-   ],
-   "upload": [
-    "admin",
-    "operator"
-   ],
-   "maintenance": [
-    "admin",
-    "operator"
-   ],
-   "settings": [
-    "admin"
-   ],
-   "admin": [
-    "admin"
-   ],
-   "branding": [
-    "admin"
-   ],
-   "education_reports": [
-    "admin",
-    "operator"
-   ],
-   "education": [
-    "admin",
-    "operator",
-    "viewer"
-   ],
-   "orders": [
-    "admin",
-    "operator",
-    "viewer"
-   ],
-   "products": [
-    "admin",
-    "operator",
-    "viewer"
-   ],
-   "alerts": [
-    "admin",
-    "operator",
-    "viewer"
-   ]
+  "users_list_with_orgs": [
+    {
+      "id": 1,
+      "username": "certadmin",
+      "email": "certadmin@example.test",
+      "role": "admin",
+      "is_active": 1,
+      "last_login": "2026-10-15 00:58:16.120519+00:00",
+      "created_at": "2026-10-15 00:58:15",
+      "group_id": null,
+      "mfa_enabled": false
+    },
+    {
+      "id": 2,
+      "username": "grp_owner",
+      "email": "grp_owner@example.test",
+      "role": "operator",
+      "is_active": 1,
+      "last_login": "2026-10-15 00:58:16.697038+00:00",
+      "created_at": "2026-10-15 00:58:16",
+      "group_id": 1,
+      "mfa_enabled": false
+    },
+    {
+      "id": 3,
+      "username": "grp_other_operator",
+      "email": "grp_other_operator@example.test",
+      "role": "operator",
+      "is_active": 1,
+      "last_login": "2026-10-15 00:58:17.412910+00:00",
+      "created_at": "2026-10-15 00:58:17",
+      "group_id": null,
+      "mfa_enabled": false
+    },
+    {
+      "id": 4,
+      "username": "grp_student",
+      "email": "grp_student@example.test",
+      "role": "viewer",
+      "is_active": 1,
+      "last_login": "2026-10-15 00:58:18.167990+00:00",
+      "created_at": "2026-10-15 00:58:17",
+      "group_id": 1,
+      "mfa_enabled": false
+    },
+    {
+      "id": 5,
+      "username": "grp_second_admin",
+      "email": "grp_second_admin@example.test",
+      "role": "admin",
+      "is_active": 1,
+      "last_login": null,
+      "created_at": "2026-10-15 00:58:18",
+      "group_id": null,
+      "mfa_enabled": false
+    },
+    {
+      "id": 6,
+      "username": "org_alpha_op",
+      "email": "org_alpha_op@example.test",
+      "role": "operator",
+      "is_active": 1,
+      "last_login": "2026-10-15 00:58:19.876672+00:00",
+      "created_at": "2026-10-15 00:58:19",
+      "group_id": 3,
+      "mfa_enabled": false
+    },
+    {
+      "id": 7,
+      "username": "org_beta_op",
+      "email": "org_beta_op@example.test",
+      "role": "operator",
+      "is_active": 1,
+      "last_login": "2026-10-15 00:58:20.338625+00:00",
+      "created_at": "2026-10-15 00:58:20",
+      "group_id": 4,
+      "mfa_enabled": false
+    },
+    {
+      "id": 8,
+      "username": "org_temp_member",
+      "email": "org_temp_member@example.test",
+      "role": "viewer",
+      "is_active": 1,
+      "last_login": null,
+      "created_at": "2026-10-15 00:58:20",
+      "group_id": null,
+      "mfa_enabled": false
+    }
+  ],
+  "printers_list": [
+    {
+      "name": "Alpha printer",
+      "model": null,
+      "slot_count": 4,
+      "is_active": true,
+      "api_type": "moonraker",
+      "api_host": "192.0.2.41",
+      "camera_url": null,
+      "camera_enabled": true,
+      "camera_source": null,
+      "nickname": null,
+      "bed_temp": null,
+      "bed_target_temp": null,
+      "nozzle_temp": null,
+      "nozzle_target_temp": null,
+      "gcode_state": null,
+      "print_stage": null,
+      "hms_errors": null,
+      "lights_on": null,
+      "nozzle_type": null,
+      "nozzle_diameter": null,
+      "fan_speed": null,
+      "bed_x_mm": null,
+      "bed_y_mm": null,
+      "last_seen": null,
+      "total_print_hours": 0.0,
+      "total_print_count": 0,
+      "hours_since_maintenance": 0.0,
+      "prints_since_maintenance": 0,
+      "last_error_code": null,
+      "last_error_message": null,
+      "last_error_at": null,
+      "camera_discovered": false,
+      "tags": [],
+      "timelapse_enabled": false,
+      "machine_type": null,
+      "id": 1,
+      "created_at": "2026-10-15T00:58:20",
+      "updated_at": "2026-10-15T00:58:20",
+      "filament_slots": [
+        {
+          "slot_number": 1,
+          "filament_type": "empty",
+          "color": null,
+          "color_hex": null,
+          "spoolman_spool_id": null,
+          "assigned_spool_id": null,
+          "spool_confirmed": false,
+          "id": 1,
+          "printer_id": 1,
+          "loaded_at": "2026-10-15T00:58:20",
+          "remaining": null,
+          "material_type": null
+        },
+        {
+          "slot_number": 2,
+          "filament_type": "empty",
+          "color": null,
+          "color_hex": null,
+          "spoolman_spool_id": null,
+          "assigned_spool_id": null,
+          "spool_confirmed": false,
+          "id": 2,
+          "printer_id": 1,
+          "loaded_at": "2026-10-15T00:58:20",
+          "remaining": null,
+          "material_type": null
+        },
+        {
+          "slot_number": 3,
+          "filament_type": "empty",
+          "color": null,
+          "color_hex": null,
+          "spoolman_spool_id": null,
+          "assigned_spool_id": null,
+          "spool_confirmed": false,
+          "id": 3,
+          "printer_id": 1,
+          "loaded_at": "2026-10-15T00:58:20",
+          "remaining": null,
+          "material_type": null
+        },
+        {
+          "slot_number": 4,
+          "filament_type": "empty",
+          "color": null,
+          "color_hex": null,
+          "spoolman_spool_id": null,
+          "assigned_spool_id": null,
+          "spool_confirmed": false,
+          "id": 4,
+          "printer_id": 1,
+          "loaded_at": "2026-10-15T00:58:20",
+          "remaining": null,
+          "material_type": null
+        }
+      ],
+      "loaded_colors": [],
+      "shared": false,
+      "org_id": null,
+      "has_api_key": false,
+      "filament_source": null,
+      "filament_source_status": null
+    },
+    {
+      "name": "Shared floor printer",
+      "model": null,
+      "slot_count": 4,
+      "is_active": true,
+      "api_type": "moonraker",
+      "api_host": "192.0.2.42",
+      "camera_url": null,
+      "camera_enabled": true,
+      "camera_source": null,
+      "nickname": null,
+      "bed_temp": null,
+      "bed_target_temp": null,
+      "nozzle_temp": null,
+      "nozzle_target_temp": null,
+      "gcode_state": null,
+      "print_stage": null,
+      "hms_errors": null,
+      "lights_on": null,
+      "nozzle_type": null,
+      "nozzle_diameter": null,
+      "fan_speed": null,
+      "bed_x_mm": null,
+      "bed_y_mm": null,
+      "last_seen": null,
+      "total_print_hours": 0.0,
+      "total_print_count": 0,
+      "hours_since_maintenance": 0.0,
+      "prints_since_maintenance": 0,
+      "last_error_code": null,
+      "last_error_message": null,
+      "last_error_at": null,
+      "camera_discovered": false,
+      "tags": [],
+      "timelapse_enabled": false,
+      "machine_type": null,
+      "id": 2,
+      "created_at": "2026-10-15T00:58:20",
+      "updated_at": "2026-10-15T00:58:20",
+      "filament_slots": [
+        {
+          "slot_number": 1,
+          "filament_type": "empty",
+          "color": null,
+          "color_hex": null,
+          "spoolman_spool_id": null,
+          "assigned_spool_id": null,
+          "spool_confirmed": false,
+          "id": 5,
+          "printer_id": 2,
+          "loaded_at": "2026-10-15T00:58:20",
+          "remaining": null,
+          "material_type": null
+        },
+        {
+          "slot_number": 2,
+          "filament_type": "empty",
+          "color": null,
+          "color_hex": null,
+          "spoolman_spool_id": null,
+          "assigned_spool_id": null,
+          "spool_confirmed": false,
+          "id": 6,
+          "printer_id": 2,
+          "loaded_at": "2026-10-15T00:58:20",
+          "remaining": null,
+          "material_type": null
+        },
+        {
+          "slot_number": 3,
+          "filament_type": "empty",
+          "color": null,
+          "color_hex": null,
+          "spoolman_spool_id": null,
+          "assigned_spool_id": null,
+          "spool_confirmed": false,
+          "id": 7,
+          "printer_id": 2,
+          "loaded_at": "2026-10-15T00:58:20",
+          "remaining": null,
+          "material_type": null
+        },
+        {
+          "slot_number": 4,
+          "filament_type": "empty",
+          "color": null,
+          "color_hex": null,
+          "spoolman_spool_id": null,
+          "assigned_spool_id": null,
+          "spool_confirmed": false,
+          "id": 8,
+          "printer_id": 2,
+          "loaded_at": "2026-10-15T00:58:20",
+          "remaining": null,
+          "material_type": null
+        }
+      ],
+      "loaded_colors": [],
+      "shared": false,
+      "org_id": null,
+      "has_api_key": false,
+      "filament_source": null,
+      "filament_source_status": null
+    }
+  ],
+  "groups_list_with_orgs": [
+    {
+      "id": 3,
+      "name": "Org Alpha",
+      "description": "Tenant A",
+      "owner_id": 1,
+      "created_at": "2026-10-15 00:58:19",
+      "updated_at": "2026-10-15 00:58:19",
+      "owner_username": "certadmin",
+      "member_count": 1
+    },
+    {
+      "id": 4,
+      "name": "Org Beta",
+      "description": "",
+      "owner_id": 1,
+      "created_at": "2026-10-15 00:58:19",
+      "updated_at": "2026-10-15 00:58:19",
+      "owner_username": "certadmin",
+      "member_count": 1
+    },
+    {
+      "id": 1,
+      "name": "Period 3B",
+      "description": "Engineering",
+      "owner_id": null,
+      "created_at": "2026-10-15 00:58:18",
+      "updated_at": "2026-10-15T00:58:19.322119+00:00",
+      "owner_username": null,
+      "member_count": 2
+    }
+  ],
+  "license": {
+    "valid": true,
+    "tier": "enterprise",
+    "tier_name": "Enterprise",
+    "issued_at": "",
+    "expires_at": "2099-01-01",
+    "expired": false,
+    "trial": false,
+    "trial_days_left": null,
+    "max_printers": 9999,
+    "max_users": 9999,
+    "features": [
+      "analytics",
+      "audit_export",
+      "bom",
+      "branding",
+      "care_counters",
+      "cost_calculator",
+      "csv_export",
+      "email_notifications",
+      "job_approval",
+      "maintenance",
+      "mqtt_republish",
+      "multi_user",
+      "opcua",
+      "orders",
+      "permissions",
+      "print_quotas",
+      "products",
+      "push_notifications",
+      "rbac",
+      "sqlcipher",
+      "sso",
+      "usage_reports",
+      "user_groups",
+      "webhooks",
+      "white_label"
+    ],
+    "managed_externally": false,
+    "binding_present": false,
+    "binding_matches_current": false,
+    "license_sha256": "b6afa8b2829680d87de0cd998e54611b61c9c1c33c490497c67f0e937fc86eb4",
+    "device_bound": false
   },
-  "action_access": {
-   "settings.edit": [
-    "admin"
-   ],
-   "jobs.create": [
-    "admin",
-    "operator"
-   ],
-   "jobs.edit": [
-    "admin",
-    "operator"
-   ],
-   "jobs.cancel": [
-    "admin",
-    "operator"
-   ],
-   "jobs.delete": [
-    "admin",
-    "operator"
-   ],
-   "jobs.start": [
-    "admin",
-    "operator"
-   ],
-   "jobs.complete": [
-    "admin",
-    "operator"
-   ],
-   "printers.add": [
-    "admin"
-   ],
-   "printers.edit": [
-    "admin",
-    "operator"
-   ],
-   "printers.delete": [
-    "admin"
-   ],
-   "printers.slots": [
-    "admin",
-    "operator"
-   ],
-   "printers.reorder": [
-    "admin",
-    "operator"
-   ],
-   "models.create": [
-    "admin",
-    "operator"
-   ],
-   "models.edit": [
-    "admin",
-    "operator"
-   ],
-   "models.delete": [
-    "admin"
-   ],
-   "spools.edit": [
-    "admin",
-    "operator"
-   ],
-   "spools.delete": [
-    "admin"
-   ],
-   "timeline.move": [
-    "admin",
-    "operator"
-   ],
-   "upload.upload": [
-    "admin",
-    "operator"
-   ],
-   "upload.schedule": [
-    "admin",
-    "operator"
-   ],
-   "upload.delete": [
-    "admin",
-    "operator"
-   ],
-   "maintenance.log": [
-    "admin",
-    "operator"
-   ],
-   "maintenance.tasks": [
-    "admin"
-   ],
-   "dashboard.actions": [
-    "admin",
-    "operator"
-   ],
-   "orders.create": [
-    "admin",
-    "operator"
-   ],
-   "orders.edit": [
-    "admin"
-   ],
-   "orders.delete": [
-    "admin",
-    "operator"
-   ],
-   "orders.ship": [
-    "admin",
-    "operator"
-   ],
-   "products.create": [
-    "admin",
-    "operator"
-   ],
-   "products.edit": [
-    "admin",
-    "operator"
-   ],
-   "products.delete": [
-    "admin"
-   ],
-   "jobs.approve": [
-    "admin",
-    "operator"
-   ],
-   "jobs.reject": [
-    "admin",
-    "operator"
-   ],
-   "jobs.resubmit": [
-    "admin",
-    "operator",
-    "viewer"
-   ],
-   "alerts.read": [
-    "admin",
-    "operator",
-    "viewer"
-   ],
-   "printers.plug": [
-    "admin",
-    "operator"
-   ]
+  "permissions": {
+    "page_access": {
+      "dashboard": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "timeline": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "jobs": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "printers": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "models": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "spools": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "cameras": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "analytics": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "calculator": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "upload": [
+        "admin",
+        "operator"
+      ],
+      "maintenance": [
+        "admin",
+        "operator"
+      ],
+      "settings": [
+        "admin"
+      ],
+      "admin": [
+        "admin"
+      ],
+      "branding": [
+        "admin"
+      ],
+      "education_reports": [
+        "admin",
+        "operator"
+      ],
+      "education": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "orders": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "products": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "alerts": [
+        "admin",
+        "operator",
+        "viewer"
+      ]
+    },
+    "action_access": {
+      "settings.edit": [
+        "admin"
+      ],
+      "jobs.create": [
+        "admin",
+        "operator"
+      ],
+      "jobs.edit": [
+        "admin",
+        "operator"
+      ],
+      "jobs.cancel": [
+        "admin",
+        "operator"
+      ],
+      "jobs.delete": [
+        "admin",
+        "operator"
+      ],
+      "jobs.start": [
+        "admin",
+        "operator"
+      ],
+      "jobs.complete": [
+        "admin",
+        "operator"
+      ],
+      "printers.add": [
+        "admin"
+      ],
+      "printers.edit": [
+        "admin",
+        "operator"
+      ],
+      "printers.delete": [
+        "admin"
+      ],
+      "printers.slots": [
+        "admin",
+        "operator"
+      ],
+      "printers.reorder": [
+        "admin",
+        "operator"
+      ],
+      "models.create": [
+        "admin",
+        "operator"
+      ],
+      "models.edit": [
+        "admin",
+        "operator"
+      ],
+      "models.delete": [
+        "admin"
+      ],
+      "spools.edit": [
+        "admin",
+        "operator"
+      ],
+      "spools.delete": [
+        "admin"
+      ],
+      "timeline.move": [
+        "admin",
+        "operator"
+      ],
+      "upload.upload": [
+        "admin",
+        "operator"
+      ],
+      "upload.schedule": [
+        "admin",
+        "operator"
+      ],
+      "upload.delete": [
+        "admin",
+        "operator"
+      ],
+      "maintenance.log": [
+        "admin",
+        "operator"
+      ],
+      "maintenance.tasks": [
+        "admin"
+      ],
+      "dashboard.actions": [
+        "admin",
+        "operator"
+      ],
+      "orders.create": [
+        "admin",
+        "operator"
+      ],
+      "orders.edit": [
+        "admin"
+      ],
+      "orders.delete": [
+        "admin",
+        "operator"
+      ],
+      "orders.ship": [
+        "admin",
+        "operator"
+      ],
+      "products.create": [
+        "admin",
+        "operator"
+      ],
+      "products.edit": [
+        "admin",
+        "operator"
+      ],
+      "products.delete": [
+        "admin"
+      ],
+      "jobs.approve": [
+        "admin",
+        "operator"
+      ],
+      "jobs.reject": [
+        "admin",
+        "operator"
+      ],
+      "jobs.resubmit": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "alerts.read": [
+        "admin",
+        "operator",
+        "viewer"
+      ],
+      "printers.plug": [
+        "admin",
+        "operator"
+      ]
+    }
+  },
+  "auth_me_admin": {
+    "id": 1,
+    "username": "certadmin",
+    "email": "certadmin@example.test",
+    "role": "admin",
+    "group_id": null
   }
- },
- "auth_me_admin": {
-  "id": 1,
-  "username": "certadmin",
-  "email": "certadmin@example.test",
-  "role": "admin",
-  "group_id": null
- }
 }
 // WIRE-END
 
