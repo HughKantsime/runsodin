@@ -82,4 +82,10 @@ def job_timeline(job_id: int,
         raise HTTPException(404, 'Job not found')
     rows=db.execute(text('SELECT id,print_attempt_uid,printer_id,kind,code,detail,occurred_at,recorded_at FROM job_timeline_events WHERE job_id=:job ORDER BY occurred_at,id'), {'job':job_id}).mappings().all()
     import json
-    return {'job_id':job_id,'events':[{**dict(row),'detail':json.loads(row['detail'])} for row in rows]}
+    events = []
+    for row in rows:
+        detail = json.loads(row['detail'])
+        if row['kind'] == 'bed_clear_confirmed':
+            detail = {k:v for k,v in detail.items() if k == 'attestation'}
+        events.append({**dict(row), 'detail':detail})
+    return {'job_id':job_id,'events':events}

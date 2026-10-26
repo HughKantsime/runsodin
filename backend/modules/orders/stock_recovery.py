@@ -130,11 +130,10 @@ def check(db,user,addition_id):
                 return result(current,'confirmed','Exact Square adjustment history confirms this addition. No stock was sent.')
             db.rollback()
             return result(current,'manual_review','The outcome is still unknown. Retain this receipt and review Square history; do not create another addition.')
-        from modules.orders.stock_snapshots import record
-        for variation,location,count,read_at in count_reads:
-            record(db,owner,variation,location,count,read_at=read_at)
         enabled=store.writes_enabled(doc)
-        db.commit()  # Retain the actual count reads as scoped stock snapshots.
+        db.rollback()
+        from modules.orders.stock_snapshots import best_effort
+        best_effort(db.get_bind(),owner,count_reads)
         return {**result(current,'checks_passed','Account, location, mapping, tracking and write scope checks passed.',enabled=enabled), 'preview':preview}
     except HTTPException as exc:
         db.rollback()

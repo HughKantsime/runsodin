@@ -16,7 +16,7 @@ export default function CompletionSummary({summary}:{summary:Summary}) {
     try{
       const result=await jobCompletion.start(summary.printer_id,{suggested_job_id:next.job_id,suggestion_fingerprint:next.fingerprint,request_id:request.current.id,bed_clear_confirmed:true,attestation:'owner_in_app'})
       if(result.success){setNotice(result.state==='dispatched'?'Next job dispatched.':'Start admitted; check dispatch status.');setConfirmed(null)}
-      else setError(result.message||'Start refused. Review the printer and queue.')
+      else {setError(result.message||'Start refused. Review the printer and queue.');if(result.state==='refused')request.current=null}
       await refetch()
     }catch(e){setError(e instanceof Error?e.message:'Could not start the next job.');setConfirmed(null);await refetch()}
     finally{setBusy(false)}

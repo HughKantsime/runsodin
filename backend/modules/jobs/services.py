@@ -16,4 +16,7 @@ __all__ = ["delete_org_jobs", "education_order", "waiting_rows", "ordered_waitin
 def delete_org_jobs(db, org_id):
     """Organization deletion removes owned jobs and their cascading history."""
     from sqlalchemy import text
+    from core.print_attempts import clear_job_attempts, sqlalchemy_runner
+    for job_id in db.execute(text('SELECT id FROM jobs WHERE charged_to_org_id=:org'), {'org':org_id}).scalars():
+        clear_job_attempts(sqlalchemy_runner(db), job_id)
     db.execute(text('DELETE FROM jobs WHERE charged_to_org_id=:org'), {'org':org_id})

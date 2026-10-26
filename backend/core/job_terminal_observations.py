@@ -23,7 +23,7 @@ def claim_terminal(executor, print_job_id, *, deliver_alerts=True,
     if claimed and not deliver_alerts:
         db.execute(text('UPDATE job_summary_outbox SET delivery_state=:state WHERE print_attempt_uid=:uid'),
                    {'uid':uid,'state':json.dumps({'education_suppressed': True})})
-    if claimed and deliver_alerts and job is not None and outcome in ('completed', 'failed'):
+    if claimed and deliver_alerts and job is not None and outcome in ('completed', 'failed', 'cancelled'):
         # 034 has no kind CHECK; keep its historical migration unchanged.
         identifier = db.execute(text("INSERT INTO alert_outbox(job_id,alert_kind) VALUES(:job,:kind) RETURNING id"),
             {'job':job,'kind':'terminal:'+str(print_job_id)}).scalar_one()
@@ -44,8 +44,15 @@ def terminal_event(executor, print_job_id):
     return event(row[0],row[3],printer_id=row[2],print_attempt_uid=row[1],org_id=row[4])
 
 
-def dispatch_terminal_alert(print_job_id, fallback, **payload):
+def dispatch_terminal_alert(print_job_id, fallback, *, attempt_uid=_DEFAULT_JOB, legacy_cancelled=False, **payload):
     """Use the claimed durable intent, or preserve legacy/unidentified delivery."""
+    def legacy_send():
+        # Preserve the historical daemon callback contract for unidentified
+        # PrusaLink/Elegoo cancellations. The sink normalizes its enum wire value.
+        original = {**payload, 'alert_type':'print_cancelled'} if legacy_cancelled else payload
+        return fallback(**original)
+    if attempt_uid is None:
+        return legacy_send()
     from core.db import current_engine
     from modules.notifications.alert_outbox import dispatch
     engine = current_engine()
@@ -60,10 +67,8 @@ def dispatch_terminal_alert(print_job_id, fallback, **payload):
                 state['alert_payload'] = payload
                 connection.execute(text('UPDATE job_summary_outbox SET delivery_state=:state WHERE print_attempt_uid=:uid'),
                                    {'uid':row[0],'state':json.dumps(state)})
-    if row is not None and row[2] == 'cancelled':
-        return None
     if row is None or (identifier is None and not state.get('education_suppressed')):
-        return fallback(**payload)
+        return legacy_send()
     if identifier is not None:
         return dispatch(engine, identifier)
     # Education claims deliberately have no generic alert delivery intent.

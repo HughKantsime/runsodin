@@ -74,6 +74,18 @@ def dispatch(engine, outbox_id: int) -> bool:
     plan = None
     try:
         with dispatch_scope(engine):
+            summary = None
+            try:
+                with dispatch_transaction(engine) as read_conn, Session(bind=read_conn) as read_db:
+                    kind = read_db.execute(text('SELECT alert_kind FROM alert_outbox WHERE id=:id'), {'id':outbox_id}).scalar_one_or_none()
+                    uid = None
+                    if kind and kind.startswith('terminal:'):
+                        uid = read_db.execute(text('SELECT economic_uid FROM print_jobs WHERE id=:id'), {'id':int(kind.split(':',1)[1])}).scalar_one_or_none()
+                    if uid:
+                        from modules.jobs.completion_summary import build_summary
+                        summary = build_summary(read_db, uid)
+            except Exception:
+                logger.warning("Completion summary unavailable; preserving original terminal alert")
             with dispatch_transaction(engine) as connection, Session(bind=connection) as db:
                 row = db.execute(text("SELECT job_id, alert_kind, actor_user_id FROM alert_outbox WHERE id=:id"),
                                  {"id": outbox_id}).mappings().first()
@@ -84,7 +96,7 @@ def dispatch(engine, outbox_id: int) -> bool:
                 if db.execute(text("DELETE FROM alert_outbox WHERE id=:id"), {"id": outbox_id}).rowcount != 1:
                     return False
                 if row['alert_kind'].startswith('terminal:'):
-                    plan = _stage_terminal(db, row, outbox_id)
+                    plan = _stage_terminal(db, row, outbox_id, summary=summary)
                 else:
                     job = db.execute(text("SELECT id, item_name, submitted_by FROM jobs WHERE id=:id"),
                                      {"id": row["job_id"]}).mappings().first()
@@ -99,7 +111,7 @@ def dispatch(engine, outbox_id: int) -> bool:
                                            job_id=job["id"], target_user_ids=recipients)
                 db.flush()
             if plan is not None:
-                with Session(bind=engine) as delivery_db:
+                with dispatch_transaction(engine) as delivery_conn, Session(bind=delivery_conn) as delivery_db:
                     _deliver_staged_alert(delivery_db, plan)
                     deliver_mobile(delivery_db, plan)
         return True
@@ -174,7 +186,7 @@ def deliver_mobile(db, plan):
         except Exception:logger.warning("Mobile alert delivery failed after confirmed commit")
 
 
-def _stage_terminal(db, row, outbox_id):
+def _stage_terminal(db, row, outbox_id, *, summary=None):
     """Resolve the immutable physical claim; never send for a recycled print ID."""
     from modules.notifications.alert_dispatcher import stage_alert
     physical_id = int(row['alert_kind'].split(':', 1)[1])
@@ -196,11 +208,9 @@ def _stage_terminal(db, row, outbox_id):
                        message=f"{'Finished' if complete else 'Failed'} on {printer_name or 'printer'}",
                        printer_id=printer_id, job_id=state.get('alert_job_id',job_id))
     else:
-        payload['alert_type'] = AlertType(payload['alert_type'])
+        payload['alert_type'] = AlertType.PRINT_FAILED if payload['alert_type'] == 'print_cancelled' else AlertType(payload['alert_type'])
         payload['severity'] = AlertSeverity(payload['severity'])
-    from modules.jobs.completion_summary import build_summary
-    uid = db.execute(text('SELECT economic_uid FROM print_jobs WHERE id=:id'), {'id': physical_id}).scalar_one()
-    summary = build_summary(db, uid)
-    payload['metadata'] = {**(payload.get('metadata') or {}), 'summary': summary}
-    payload['message'] = summary['text']
+    if summary is not None:
+        payload['metadata'] = {**(payload.get('metadata') or {}), 'summary': summary}
+        payload['message'] = summary['text']
     return stage_alert(db, **payload)

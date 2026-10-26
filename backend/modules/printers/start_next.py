@@ -14,8 +14,10 @@ from modules.jobs.completion_summary import next_suggestion
 _context = ContextVar('start_next_confirmation', default=None)
 
 
-def request_key(request_id):
-    return 'start_next:' + str(request_id)
+def request_key(request_id, user=None):
+    actor = principal(user) if user is not None else None
+    scope = ('token:' + str(actor['token_id']) if actor['token_id'] is not None else 'user:' + str(actor['user_id'])) if actor else ''
+    return 'start_next:' + scope + ':' + str(request_id)
 
 
 def load(conn, key):
@@ -36,7 +38,7 @@ def save(conn, key, value):
 
 
 def principal(user):
-    return {'user_id': user.get('id'), 'token_id': user.get('_token_id'), 'org_id': user.get('group_id')}
+    return {'user_id': user.get('id'), 'token_id': user.get('_token_id') if user.get('_auth_kind') not in ('session_jwt', 'bearer_jwt') else None, 'org_id': user.get('group_id')}
 
 
 def replay(record, user, printer_id):
@@ -45,11 +47,20 @@ def replay(record, user, printer_id):
     return record['result']
 
 
+def admission_facts(db, job_id, printer_id):
+    from modules.jobs.completion_summary import configuration_key, finished_attempt
+    row = db.execute(text('SELECT id,updated_at,printer_id,payload_sha256,plate_index,model_id,print_file_id,filament_type,colors_required,ams_mapping FROM jobs WHERE id=:id'), {'id': job_id}).mappings().first()
+    finished = finished_attempt(db, printer_id)
+    return {'job': {k:str(v) if v is not None else None for k,v in row.items()} if row else None,
+            'configuration_key': configuration_key(db, printer_id),
+            'finished_attempt_uid': finished['economic_uid'] if finished else None}
+
+
 def start(db, printer, user, data):
     # First operation is the durable idempotency lookup. Replays never consult
     # queue state, fingerprints or mutable printer facts.
     printer_id = printer.id
-    key = request_key(data.request_id)
+    key = request_key(data.request_id, user)
     prior = load(db, key)
     if prior is not None:
         return replay(prior, user, printer_id)
@@ -62,6 +73,7 @@ def start(db, printer, user, data):
     record = {'actor': principal(user), 'printer_id': printer_id, 'job_id': data.suggested_job_id,
               'fingerprint': data.suggestion_fingerprint, 'attestation': data.attestation or 'owner_in_app',
               'result': {'success': False, 'state': 'preparing', 'job_id': data.suggested_job_id, 'request_id': str(data.request_id)}}
+    facts = admission_facts(db, data.suggested_job_id, printer_id)
     # End the read transaction before taking a write lock. This is an ordinary
     # admission intent, never a shared dispatch transaction.
     db.rollback()
@@ -72,12 +84,8 @@ def start(db, printer, user, data):
         prior = load(conn, key)
         if prior is not None:
             return replay(prior, user, printer_id)
-        with Session(bind=conn) as fresh:
-            from modules.printers.models import Printer
-            current = fresh.get(Printer, printer_id)
-            suggestion = next_suggestion(fresh, current, visible=visible)
-        if suggestion['job_id'] != data.suggested_job_id or suggestion['fingerprint'] != data.suggestion_fingerprint:
-            raise HTTPException(409, {'message': 'Suggestion changed.', 'suggestion': suggestion})
+        if admission_facts(conn, data.suggested_job_id, printer_id) != facts:
+            raise HTTPException(409, 'Candidate changed before it could be claimed')
         # The guard binds the exact candidate/revision and finished attempt to a
         # single request. A crash retains the intent and cannot authorize a resend.
         guard = 'start_next_claim:' + hashlib.sha256(f'{printer_id}:{data.suggestion_fingerprint}'.encode()).hexdigest()
@@ -85,10 +93,25 @@ def start(db, printer, user, data):
             raise HTTPException(409, {'message': 'This suggestion already has a start request.', 'suggestion': suggestion})
         if not insert(conn, key, record):
             return replay(load(conn, key), user, printer_id)
-        changed = conn.execute(text("UPDATE jobs SET printer_id=:printer WHERE id=:job AND status='pending' AND hold IS FALSE AND (printer_id IS NULL OR printer_id=:printer)"),
-                               {'job': data.suggested_job_id, 'printer': printer_id}).rowcount
-        if changed != 1:
-            raise HTTPException(409, 'Candidate changed before it could be claimed')
+        from core.order_production import prepare_job_write, reconcile_job_write
+        from modules.jobs.models import Job
+        with Session(bind=conn) as claim_db:
+            parents = prepare_job_write(claim_db, [data.suggested_job_id], {'printer_id': printer_id})
+            job = claim_db.query(Job).filter(Job.id == data.suggested_job_id).with_for_update().one_or_none()
+            if job is None or getattr(job.status, 'value', job.status) != 'pending' or job.hold or job.printer_id not in (None, printer_id):
+                raise HTTPException(409, 'Candidate changed before it could be claimed')
+            record['assigned_by_claim'] = job.printer_id is None
+            job.printer_id = printer_id
+            claim_db.flush()
+            from core.registry import registry
+            policy = registry.get_provider('EducationPolicyProvider')
+            education = claim_db.execute(text('SELECT id,lifecycle_revision FROM education_submissions WHERE job_id=:id'), {'id':job.id}).first()
+            if education:
+                if policy is None or not policy.advance_schedule(claim_db, submission_id=education[0], job_id=job.id, printer_id=printer_id, expected_revision=education[1]):
+                    raise HTTPException(409, 'Education scheduling authority changed')
+            reconcile_job_write(claim_db, parents)
+        record['admission_facts'] = admission_facts(conn, data.suggested_job_id, printer_id)
+        save(conn, key, record)
     marker = _context.set({'key': key, 'record': record, 'user': user})
     try:
         from modules.printers.dispatch import dispatch_job
@@ -100,12 +123,28 @@ def start(db, printer, user, data):
         result = {'success': False, 'message': 'Dispatch outcome requires review before retrying.', 'job_id': data.suggested_job_id, 'request_id': str(data.request_id), 'state': 'uncertain'}
     finally:
         _context.reset(marker)
-    with engine.begin() as conn:
+    with db.begin():
+        conn = db.connection()
         current = load(conn, key)
+        if not success and current.get('claim_token'):
+            result['state'] = 'uncertain'
         current['result'] = result
         save(conn, key, current)
-        if not success and not current.get('claim_token'):
+        if result['state'] == 'refused' and not current.get('claim_token'):
+            if current.get('assigned_by_claim'):
+                with Session(bind=conn) as restore_db:
+                    parents = prepare_job_write(restore_db, [data.suggested_job_id], {'printer_id': None})
+                    job = restore_db.query(Job).filter(Job.id == data.suggested_job_id).with_for_update().one_or_none()
+                    if (job is not None and getattr(job.status, 'value', job.status) == 'pending'
+                            and admission_facts(conn, job.id, printer_id)['job'] == current['admission_facts']['job']):
+                        job.printer_id = None
+                        restore_db.flush()
+                        reconcile_job_write(restore_db, parents)
             conn.execute(text('DELETE FROM system_config WHERE key=:key'), {'key':guard})
+        if success:
+            from core.audit import log_audit
+            log_audit(db, 'job.dispatched', 'job', data.suggested_job_id, {'printer_id':printer_id})
+            db.flush()
     return result
 
 
@@ -117,17 +156,14 @@ def confirm_on_admission(conn, *, token, job):
     current = load(conn, key)
     if current is None or current.get('claim_token') or current['job_id'] != job['id'] or current['printer_id'] != job['printer_id']:
         raise RuntimeError('Start-next confirmation cannot be bound to this claim')
-    from modules.printers.models import Printer
-    with Session(bind=conn) as db:
-        suggestion = next_suggestion(db, db.get(Printer, job['printer_id']), visible=lambda j: check_org_access(context['user'], j.charged_to_org_id))
-    if suggestion['job_id'] != job['id'] or suggestion['fingerprint'] != record['fingerprint']:
+    if admission_facts(conn, job['id'], job['printer_id']) != current['admission_facts']:
         raise RuntimeError('Start-next suggestion changed before admission')
     at = datetime.now(timezone.utc)
     # Deliberately synchronous and on admission's connection. Any insert failure
     # rolls back both adapter_entered and its receipt; transport remains refused.
     conn.execute(text('INSERT INTO job_timeline_events(id,job_id,printer_id,org_id,kind,detail,actor_user_id,actor_token_id,occurred_at) VALUES(:id,:job,:printer,:org,\'bed_clear_confirmed\',:detail,:user,:token,:at)'),
         {'id': uuid.uuid4().hex, 'job': job['id'], 'printer': job['printer_id'], 'org': job.get('charged_to_org_id'),
-         'detail': json.dumps({'attestation': record['attestation'], 'claim_token': token, 'request_id': key.split(':',1)[1]}),
+         'detail': json.dumps({'attestation': record['attestation']}),
          'user': record['actor']['user_id'], 'token': record['actor']['token_id'], 'at': at})
     current['claim_token'] = token
     current['result'] = {**current['result'], 'success': True, 'state': 'admitted'}

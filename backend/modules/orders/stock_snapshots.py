@@ -17,3 +17,16 @@ def record(db, owner, variation, location, result, *, read_at=None):
     db.execute(text('INSERT INTO stock_snapshots(owner_scope,owner_key,variation,location,quantity,calculated_at,read_at) VALUES(:scope,:owner,:variation,:location,:quantity,:calculated,:read) ON CONFLICT(owner_scope,owner_key,variation,location) DO UPDATE SET quantity=:quantity,calculated_at=:calculated,read_at=:read'),
         dict(scope='org' if owner else 'global', owner=owner, variation=variation, location=location,
              quantity=result['quantity'], calculated=calculated, read=at))
+
+
+def best_effort(engine, owner, reads):
+    """Cache remote read results in a short, independent transaction."""
+    try:
+        from sqlalchemy.orm import Session
+        with Session(engine) as cache:
+            with cache.begin():
+                for variation, location, result, read_at in reads:
+                    record(cache, owner, variation, location, result, read_at=read_at)
+    except Exception:
+        import logging
+        logging.getLogger('odin.stock_snapshots').warning('Stock snapshot cache write failed')

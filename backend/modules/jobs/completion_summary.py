@@ -58,7 +58,7 @@ def configuration_key(db, printer_id):
     # Use the normal dispatch configuration identity; only its opaque key leaves
     # this function. No credentials are persisted in suggestions or fingerprints.
     from modules.printers.routes_dispatch_recovery import configured_identity
-    identity = configured_identity(printer_id, db.connection() if hasattr(db, 'connection') else db)
+    identity = configured_identity(printer_id, db.connection() if callable(getattr(db, 'connection', None)) else db)
     return identity.configuration_key if identity else None
 
 
@@ -156,6 +156,10 @@ def eligible(db, job, printer):
             return False
         if not evaluate_submission_compatibility(db, org_id=context['org_id'], print_file_id=file_id, printer_id=printer.id).get('compatible'):
             return False
+        from modules.jobs.education_order import head_refusal
+        connection = db.connection() if callable(getattr(db, 'connection', None)) else db
+        if head_refusal(connection, {'id':job.id, 'printer_id':printer.id, 'education_submission_id':context['id']}):
+            return False
     else:
         from modules.jobs.pinning import job_pin, job_issue, BLOCKING
         from core.scheduler_payload_authority import capture
@@ -186,6 +190,9 @@ def next_suggestion(db, printer, *, visible=None, at=None):
     config = configuration_key(db, printer.id)
     candidates = db.query(Job).filter(Job.status == 'pending', Job.hold.is_(False)).order_by(
         Job.priority, Job.queue_position.is_(None), Job.queue_position, Job.created_at, Job.id).all()
+    from modules.jobs.education_order import education_order
+    education_ids = set(db.execute(text('SELECT job_id FROM education_submissions')).scalars())
+    candidates = education_order(candidates, education_ids)
     ranked = []
     for scheduler_index, job in enumerate(candidates):
         if visible is not None and not visible(job):
@@ -222,7 +229,7 @@ def next_suggestion(db, printer, *, visible=None, at=None):
     _, job, reason, stock_inputs, order_created_at = min(ranked, key=lambda item: item[0])
     filament, changes, facts = material_facts(db, job, printer, finished, at, config)
     fingerprint = hashlib.sha256(batches.packed({'job_id': job.id, 'updated_at': str(job.updated_at),
-        'payload_sha256': job.payload_sha256, 'plate': job.plate_index, 'materials': facts['required'],
+        'printer_id': job.printer_id, 'payload_sha256': job.payload_sha256, 'plate': job.plate_index, 'materials': facts['required'],
         'configuration_key': config, 'finished_attempt_uid': finished['economic_uid'] if finished else None}).encode()).hexdigest()
     if not finished or not finished.get('economic_uid') or not config:
         fingerprint = None

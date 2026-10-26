@@ -154,7 +154,8 @@ def test_request_replay_before_recompute_and_actor_isolation(queue,review_db,mon
     monkeypatch.setattr(start_next,'next_suggestion',Mock(side_effect=AssertionError('No recompute on replay')))
     assert start_next.start(review_db,queue,user,data)==first
     assert send.call_count==1
-    with pytest.raises(HTTPException):start_next.start(review_db,queue,{'id':99},data)
+    with pytest.raises(HTTPException):start_next.replay(start_next.load(review_db,start_next.request_key(data.request_id,user)),{'id':99},queue.id)
+    assert start_next.load(review_db,start_next.request_key(data.request_id,{'id':99})) is None
 
 
 def test_concurrent_start_claim_once(queue,review_db,monkeypatch):
@@ -177,13 +178,15 @@ def test_bed_write_bound_to_admission_connection_and_failure_rolls_back(queue,re
     suggestion=advice(review_db,queue);data=request(suggestion)
     record={'actor':{'user_id':None,'token_id':None},'printer_id':201,'job_id':202,'fingerprint':suggestion['fingerprint'],'attestation':'owner_confirmed_to_operator','result':{}}
     key=start_next.request_key(data.request_id)
+    record['admission_facts']=start_next.admission_facts(review_db,202,201)
     start_next.insert(review_db.connection(),key,record);review_db.commit()
     marker=start_next._context.set({'key':key,'record':record,'user':{'role':'admin'}})
     try:
         with review_db.get_bind().begin() as conn:
             start_next.confirm_on_admission(conn,token='d'*32,job={'id':202,'printer_id':201})
             row=conn.execute(text("SELECT detail FROM job_timeline_events WHERE kind='bed_clear_confirmed'")).scalar_one()
-            assert json.loads(row)['claim_token']=='d'*32
+            assert json.loads(row)=={'attestation':'owner_confirmed_to_operator'}
+            assert start_next.load(conn,key)['claim_token']=='d'*32
         with pytest.raises(RuntimeError):
             with review_db.get_bind().begin() as conn:start_next.confirm_on_admission(conn,token='e'*32,job={'id':202,'printer_id':201})
     finally:start_next._context.reset(marker)
@@ -236,6 +239,7 @@ def test_real_admission_attestation_atomic_with_claim_and_receipt(setup,monkeypa
     record={'actor':{'user_id':3,'token_id':None},'printer_id':59,'job_id':53,'fingerprint':'f'*64,'attestation':'owner_confirmed_to_operator','result':{}}
     key=start_next.request_key(uuid.uuid4())
     with engine.begin() as conn:
+        record['admission_facts']=start_next.admission_facts(conn,53,59)
         start_next.insert(conn,key,record)
         if fail_write:
             conn.exec_driver_sql("CREATE TRIGGER refuse_bed BEFORE INSERT ON job_timeline_events WHEN NEW.kind='bed_clear_confirmed' BEGIN SELECT RAISE(ABORT,'synthetic bed write refusal'); END")
@@ -371,7 +375,7 @@ def test_missing_finished_identity_cannot_authorize_start(queue,review_db,monkey
 def test_admitted_request_replay_ignores_changed_queue_and_confirmation(queue,review_db,monkeypatch,stored_state):
     data=request(advice(review_db,queue));user={'id':1,'role':'admin'}
     stored={'actor':start_next.principal(user),'printer_id':201,'job_id':202,'result':{'success':True,'state':stored_state,'job_id':202,'request_id':str(data.request_id)}}
-    start_next.insert(review_db.connection(),start_next.request_key(data.request_id),stored);review_db.commit()
+    start_next.insert(review_db.connection(),start_next.request_key(data.request_id,user),stored);review_db.commit()
     data.bed_clear_confirmed=False;data.suggestion_fingerprint='f'*64
     monkeypatch.setattr(start_next,'next_suggestion',Mock(side_effect=AssertionError('No queue read on replay')))
     assert start_next.start(review_db,queue,user,data)==stored['result']
@@ -410,7 +414,8 @@ def test_start_next_runs_normal_dispatch_and_bed_is_committed_before_adapter(rev
         with engine.connect() as conn:
             event=conn.execute(text("SELECT detail,actor_user_id FROM job_timeline_events WHERE job_id=53 AND kind='bed_clear_confirmed'")).one()
             token=conn.execute(text('SELECT claim_token FROM dispatch_attempt_receipts WHERE job_id=53')).scalar_one()
-            assert json.loads(event[0])['claim_token']==token and event[1]==3
+            assert json.loads(event[0])=={'attestation':'owner_in_app'} and event[1]==3
+            assert token
             assert filename==f'odin-dispatch-{token}.gcode'
         seen.append(True)
         return True,'Synthetic hardware accepted'
@@ -465,3 +470,200 @@ def test_required_color_matches_fresh_slot_hex(queue,review_db):
     review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type,color,color_hex,loaded_at) VALUES(201,1,'PLA','Black','#000000',:at)"),{'at':now})
     result=service.material_facts(review_db,job,queue,{'ended_at':now-timedelta(minutes=1)},now,'c'*64)
     assert result[0]=='no_change'
+
+
+@pytest.mark.parametrize('state',['refused','uncertain'])
+def test_unassigned_claim_restored_only_after_definite_pre_admission_refusal(queue,review_db,monkeypatch,state):
+    from modules.printers import dispatch
+    from core import order_production
+    review_db.execute(text('UPDATE jobs SET printer_id=NULL WHERE id=202'));review_db.commit()
+    data=request(advice(review_db,queue))
+    prepare=Mock(wraps=order_production.prepare_job_write);reconcile=Mock(wraps=order_production.reconcile_job_write)
+    monkeypatch.setattr(order_production,'prepare_job_write',prepare);monkeypatch.setattr(order_production,'reconcile_job_write',reconcile)
+    def send(*args):
+        if state=='uncertain':raise TimeoutError('synthetic transport uncertainty')
+        return False,'Pre-admission refusal'
+    monkeypatch.setattr(dispatch,'dispatch_job',send)
+    result=start_next.start(review_db,queue,{'id':3,'role':'admin'},data)
+    assert result['state']==state
+    assert review_db.execute(text('SELECT printer_id FROM jobs WHERE id=202')).scalar_one()==(None if state=='refused' else 201)
+    assert prepare.call_count==reconcile.call_count==(2 if state=='refused' else 1)
+
+
+def test_password_principal_and_key_survive_relogin_but_tokens_keep_identity():
+    first={'id':3,'_auth_kind':'session_jwt','jti':'first'}
+    second={**first,'jti':'second'}
+    rid=uuid.uuid4()
+    assert start_next.principal(first)['user_id']==3
+    assert start_next.principal(first)['token_id'] is None
+    assert start_next.request_key(rid,first)==start_next.request_key(rid,second)
+    token={**first,'_auth_kind':'api_token','_token_id':7}
+    assert start_next.principal(token)['token_id']==7
+    assert start_next.request_key(rid,token)!=start_next.request_key(rid,{**token,'_token_id':8})
+
+
+def test_admission_does_not_recompute_queue(queue,review_db,monkeypatch):
+    facts=start_next.admission_facts(review_db,202,201)
+    key=start_next.request_key(uuid.uuid4())
+    record={'actor':{'user_id':3,'token_id':None},'printer_id':201,'job_id':202,'attestation':'owner_in_app','admission_facts':facts,'result':{}}
+    start_next.insert(review_db.connection(),key,record);review_db.commit()
+    monkeypatch.setattr(start_next,'next_suggestion',Mock(side_effect=AssertionError('Ranking forbidden under admission locks')))
+    marker=start_next._context.set({'key':key,'record':record})
+    try:
+        with review_db.get_bind().begin() as conn:start_next.confirm_on_admission(conn,token='c'*32,job={'id':202,'printer_id':201})
+    finally:start_next._context.reset(marker)
+
+
+@pytest.mark.parametrize('failure',['exception','sql'])
+def test_summary_failure_preserves_terminal_alert_and_outbox_claim(private_attempt,review_db,monkeypatch,failure):
+    from core.job_terminal_observations import claim_terminal
+    from modules.notifications import alert_outbox,alert_dispatcher
+    physical=private_attempt[3]
+    review_db.execute(text("UPDATE print_jobs SET status='completed',ended_at=CURRENT_TIMESTAMP WHERE id=:id"),{'id':physical})
+    claim_terminal(review_db.connection(),physical);review_db.commit()
+    outbox=review_db.execute(text("SELECT id FROM alert_outbox WHERE alert_kind=:kind"),{'kind':f'terminal:{physical}'}).scalar_one()
+    review_db.rollback()
+    def fail(db,*args):
+        if failure=='sql':db.execute(text('SELECT * FROM nonexistent_summary_table'))
+        raise RuntimeError('synthetic build failure')
+    monkeypatch.setattr(service,'build_summary',fail)
+    stage=Mock(return_value=None);monkeypatch.setattr(alert_dispatcher,'stage_alert',stage)
+    assert alert_outbox.dispatch(review_db.get_bind(),outbox)
+    assert stage.call_count==1
+    assert stage.call_args.kwargs['alert_type']=='print_complete'
+    assert 'summary' not in (stage.call_args.kwargs.get('metadata') or {})
+    assert review_db.execute(text('SELECT count(*) FROM alert_outbox WHERE id=:id'),{'id':outbox}).scalar_one()==0
+
+
+from tests.test_contracts.test_education_dispatch_policy import actual_education_dispatch
+
+
+def test_education_start_next_uses_real_suggestion_and_admission(actual_education_dispatch,monkeypatch):
+    from modules.printers import dispatch
+    from modules.printers.models import Printer
+    db,uploaded=actual_education_dispatch
+    jid=uploaded['job_id']
+    db.execute(text("UPDATE jobs SET status='pending' WHERE id=:id"),{'id':jid})
+    db.execute(text("UPDATE education_submissions SET status='pending' WHERE job_id=:id"),{'id':jid});db.commit()
+    # The prior finished attempt is the bed acknowledgment input; queue eligibility,
+    # Education policy, ordering, reservation and admission all execute normally.
+    monkeypatch.setattr(service,'finished_attempt',lambda *a:{'economic_uid':'previous-education-attempt','ended_at':'2026-10-01T00:00:00Z'})
+    printer=db.get(Printer,9)
+    suggestion=service.next_suggestion(db,printer)
+    assert suggestion['job_id']==jid and suggestion['fingerprint']
+    calls=[]
+    monkeypatch.setattr(dispatch,'_dispatch_bambu',lambda *a,**kw:(calls.append(a[0]) or True,'Synthetic accepted'))
+    result=start_next.start(db,printer,{'id':3,'role':'admin','group_id':1,'_auth_kind':'session_jwt'},request(suggestion))
+    assert result['success'],result
+    assert calls==[jid]
+    assert db.execute(text("SELECT actor_user_id,detail FROM job_timeline_events WHERE kind='bed_clear_confirmed' AND job_id=:id"),{'id':jid}).one()==(3,json.dumps({'attestation':'owner_in_app'}))
+    assert db.execute(text("SELECT count(*) FROM audit_logs WHERE action='job.dispatched' AND entity_id=:id"),{'id':jid}).scalar_one()==1
+
+
+def test_suggestion_preserves_education_queue_head_order(actual_education_dispatch,monkeypatch,tmp_path):
+    from tests.test_contracts.test_education_upload_scheduler_integration import _upload_and_approve
+    from modules.printers.models import Printer
+    from modules.jobs.education_order import head_refusal
+    db,uploaded=actual_education_dispatch
+    second=_upload_and_approve(db,tmp_path,'P1S')
+    first_id,second_id=uploaded['job_id'],second['job_id']
+    db.execute(text("UPDATE jobs SET status='pending',priority=1,queue_position=2 WHERE id=:id"),{'id':first_id})
+    db.execute(text("UPDATE jobs SET status='pending',priority=5,queue_position=1 WHERE id=:id"),{'id':second_id})
+    db.execute(text("UPDATE education_submissions SET status='pending' WHERE job_id IN (:first,:second)"),{'first':first_id,'second':second_id});db.commit()
+    suggestion=service.next_suggestion(db,db.get(Printer,9))
+    assert suggestion['job_id']==second_id
+    assert head_refusal(db,{'id':suggestion['job_id'],'printer_id':9,'education_submission_id':second['id']}) is None
+
+
+@pytest.mark.parametrize('resolved',[False,True])
+def test_runout_falls_back_only_without_resolvable_attempt(private_attempt,review_db,monkeypatch,resolved):
+    from core import db as core_db
+    from modules.notifications import job_faults,alert_dispatcher,alert_outbox
+    monkeypatch.setattr(core_db,'engine',review_db.get_bind())
+    physical=private_attempt[3]
+    printer_id,job_id=review_db.execute(text('SELECT printer_id,scheduled_job_id FROM print_jobs WHERE id=:id'),{'id':physical}).one()
+    review_db.execute(text('UPDATE print_jobs SET status=:status WHERE id=:id'),{'status':'running' if resolved else 'completed','id':physical});review_db.commit()
+    stage=Mock(return_value=None);monkeypatch.setattr(alert_dispatcher,'stage_alert',stage)
+    job_faults._notify(printer_id,'runout',None)
+    assert stage.call_count==1
+    if resolved:
+        assert stage.call_args.kwargs['job_id']==job_id
+        assert stage.call_args.kwargs['metadata']['fault']['kind']=='runout'
+    else:
+        assert stage.call_args.kwargs.get('job_id') is None
+        assert stage.call_args.args[3].startswith('Filament Runout:')
+
+
+def test_pending_education_advice_never_skips_scheduled_queue_head(actual_education_dispatch,tmp_path):
+    from tests.test_contracts.test_education_upload_scheduler_integration import _upload_and_approve
+    from modules.printers.models import Printer
+    db,uploaded=actual_education_dispatch
+    second=_upload_and_approve(db,tmp_path,'P1S')
+    db.execute(text('UPDATE jobs SET queue_position=1 WHERE id=:id'),{'id':uploaded['job_id']})
+    db.execute(text('UPDATE jobs SET queue_position=2 WHERE id=:id'),{'id':second['job_id']});db.commit()
+    assert service.next_suggestion(db,db.get(Printer,9))['job_id'] is None
+
+
+@pytest.mark.parametrize('mutation',["updated_at='2026-10-02'", "payload_sha256='changed'", 'plate_index=2', 'printer_id=NULL'])
+def test_admission_cheap_facts_refuse_changed_candidate(queue,review_db,mutation):
+    key=start_next.request_key(uuid.uuid4())
+    record={'actor':{'user_id':3,'token_id':None},'printer_id':201,'job_id':202,'attestation':'owner_in_app','admission_facts':start_next.admission_facts(review_db,202,201),'result':{}}
+    start_next.insert(review_db.connection(),key,record)
+    review_db.execute(text('UPDATE jobs SET '+mutation+' WHERE id=202'));review_db.commit()
+    marker=start_next._context.set({'key':key,'record':record})
+    try:
+        with pytest.raises(RuntimeError,match='changed before admission'):
+            with review_db.get_bind().begin() as conn:start_next.confirm_on_admission(conn,token='c'*32,job={'id':202,'printer_id':201})
+    finally:start_next._context.reset(marker)
+    assert review_db.execute(text("SELECT count(*) FROM job_timeline_events WHERE kind='bed_clear_confirmed'")).scalar_one()==0
+
+
+def test_refusal_after_admission_retains_uncertain_request(queue,review_db,monkeypatch):
+    from modules.printers import dispatch
+    engine=review_db.get_bind()
+    def admitted_but_unknown(printer_id,job_id):
+        with engine.begin() as conn:start_next.confirm_on_admission(conn,token='c'*32,job={'id':job_id,'printer_id':printer_id})
+        return False,'Adapter outcome requires reconciliation'
+    monkeypatch.setattr(dispatch,'dispatch_job',admitted_but_unknown)
+    data=request(advice(review_db,queue));user={'id':3,'role':'admin','_auth_kind':'session_jwt'}
+    result=start_next.start(review_db,queue,user,data)
+    assert result['state']=='uncertain'
+    stored=start_next.load(review_db,start_next.request_key(data.request_id,user))
+    assert stored['result']==result and stored['claim_token']=='c'*32
+
+
+def test_password_relogin_replays_same_operation_before_queue_read(queue,review_db,monkeypatch):
+    from modules.printers import dispatch
+    send=Mock(return_value=(False,'Pre-admission refusal'));monkeypatch.setattr(dispatch,'dispatch_job',send)
+    data=request(advice(review_db,queue))
+    first={'id':3,'role':'admin','_auth_kind':'session_jwt','jti':'old-session'}
+    result=start_next.start(review_db,queue,first,data)
+    monkeypatch.setattr(start_next,'next_suggestion',Mock(side_effect=AssertionError('No recompute after relogin')))
+    assert start_next.start(review_db,queue,{**first,'jti':'new-session'},data)==result
+    assert send.call_count==1
+
+
+def test_refusal_restores_claim_assignment_even_when_printer_configuration_changed(queue,review_db,monkeypatch):
+    from modules.printers import dispatch
+    review_db.execute(text('UPDATE jobs SET printer_id=NULL WHERE id=202'));review_db.commit()
+    data=request(advice(review_db,queue))
+    def refused(*args):
+        monkeypatch.setattr(service,'configuration_key',lambda *a:'changed-configuration')
+        return False,'Printer configuration changed before admission'
+    monkeypatch.setattr(dispatch,'dispatch_job',refused)
+    assert start_next.start(review_db,queue,{'id':3,'role':'admin'},data)['state']=='refused'
+    assert review_db.execute(text('SELECT printer_id FROM jobs WHERE id=202')).scalar_one() is None
+
+
+def test_start_next_dispatch_audit_preserves_request_actor(queue,review_db,monkeypatch):
+    from core.audit_actor import RequestAuditScope,register_request_session,bind_verified_actor,_SCOPE_KEY
+    from modules.printers import dispatch
+    user={'id':3,'username':'admin','role':'admin','_auth_kind':'session_jwt'}
+    scope=RequestAuditScope('127.0.0.1')
+    register_request_session(review_db,SimpleNamespace(scope={_SCOPE_KEY:scope}))
+    bind_verified_actor(review_db,user)
+    monkeypatch.setattr(dispatch,'dispatch_job',lambda *args:(True,'Synthetic accepted'))
+    try:
+        assert start_next.start(review_db,queue,user,request(advice(review_db,queue)))['success']
+        assert review_db.execute(text("SELECT actor_user_id,actor_auth_kind FROM audit_logs WHERE action='job.dispatched' AND entity_id=202")).one()==(3,'session_jwt')
+    finally:scope.clear()

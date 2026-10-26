@@ -45,3 +45,13 @@ it('job detail reads and displays the timeline in server order',async()=>{
  mount(<JobTimeline jobId={2}/>);await screen.findByText(/runout · SLOT_1/)
  expect(jobCompletion.timeline).toHaveBeenCalledWith(2);expect(screen.getAllByRole('listitem')[0]).toHaveTextContent('started')
 })
+it.each(['refused','uncertain'])('%s retries use the appropriate request identity',async(state)=>{
+ vi.mocked(jobCompletion.start).mockResolvedValue({success:false,state,message:'Try again'})
+ mount();fireEvent.click(screen.getByRole('button',{name:'Completion summary · job 2'}));await screen.findByText(/Next: job 3/)
+ fireEvent.click(screen.getByLabelText('I checked the printer and cleared the bed.'))
+ const button=screen.getByRole('button',{name:'Bed clear, start next'})
+ fireEvent.click(button);await screen.findByRole('alert');await waitFor(()=>expect(button).not.toBeDisabled())
+ fireEvent.click(button);await waitFor(()=>expect(jobCompletion.start).toHaveBeenCalledTimes(2))
+ const ids=vi.mocked(jobCompletion.start).mock.calls.map(call=>call[1].request_id)
+ if(state==='refused')expect(ids[0]).not.toBe(ids[1]);else expect(ids[0]).toBe(ids[1])
+})

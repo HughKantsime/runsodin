@@ -43,7 +43,9 @@ def dispatch_alert(
     Handles deduplication, in-app alerts, webhooks, push, and email.
     Respects quiet hours for external channels.
     """
-    alert_type = AlertType(alert_type).value
+    # Historical daemon cancellation callbacks keep their existing name; storage
+    # and preference resolution use the supported failure category on both DBs.
+    alert_type = AlertType.PRINT_FAILED.value if alert_type == 'print_cancelled' else AlertType(alert_type).value
     severity = AlertSeverity({"success": "info", "error": "critical"}.get(severity, severity)).value
 
     # Track per-user channel preferences for external delivery after commit

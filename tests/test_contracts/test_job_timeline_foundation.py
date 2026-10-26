@@ -246,3 +246,25 @@ def test_engine_creation_failure_schedules_nonfatal_start_retry(engine,monkeypat
     finally:job_timeline.shutdown()
     with engine.connect() as c:
         assert c.execute(text('SELECT clean_shutdown FROM timeline_writer_state')).scalar_one()==1
+
+
+def test_fault_staging_failure_keeps_history_without_error_or_drop_epoch(engine,monkeypatch):
+    seed(engine)
+    from modules.notifications import job_faults
+    def fail(db,item):
+        # SQL failure poisons PostgreSQL transactions too; the savepoint must
+        # roll it back without discarding any timeline rows in the batch.
+        db.execute(text('INSERT INTO nonexistent_fault_table VALUES(1)'))
+    monkeypatch.setattr(job_faults,'stage',fail)
+    writer=TimelineWriter(engine.url)
+    try:
+        writer.enqueue(event(1,'paused',printer_id=1,print_attempt_uid='physical-attempt'))
+        writer.enqueue(event(1,'resumed',printer_id=1,print_attempt_uid='physical-attempt'))
+        deadline=time.monotonic()+3
+        while time.monotonic()<deadline:
+            with engine.connect() as conn:
+                if conn.execute(text('SELECT count(*) FROM job_timeline_events')).scalar_one()==2:break
+            time.sleep(.02)
+        else:pytest.fail('Fault staging discarded timeline batch')
+        assert writer.error_epoch==0 and writer.drop_epoch==0
+    finally:writer.close()

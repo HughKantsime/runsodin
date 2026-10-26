@@ -62,7 +62,7 @@ def get_next_suggestion(printer_id: int = Path(gt=0), db: Session = Depends(get_
 @router.post('/printers/{printer_id}/start-next', tags=['Printers'], response_model=StartResult)
 def start_next(data: StartNext, printer_id: int = Path(gt=0), db: Session = Depends(get_db),
                current_user: dict = Depends(require_action('jobs.start', scope='write:jobs'))):
-    prior = load(db, request_key(data.request_id))
+    prior = load(db, request_key(data.request_id, current_user))
     if prior is not None:
         return replay(prior, current_user, printer_id)
     return start(db, visible_printer(db, printer_id, current_user), current_user, data)

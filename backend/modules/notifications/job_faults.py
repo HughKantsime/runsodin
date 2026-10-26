@@ -50,6 +50,16 @@ def _notify(printer_id, kind, code):
         with Session(engine) as db:
             row = db.execute(text("SELECT scheduled_job_id,economic_uid FROM print_jobs WHERE printer_id=:id AND status IN ('running','printing','paused') ORDER BY id DESC LIMIT 2"), {'id': printer_id}).all()
             if len(row) != 1 or row[0][0] is None or row[0][1] is None:
+                if kind == 'runout':
+                    from modules.notifications.alert_dispatcher import stage_alert
+                    name = db.execute(text('SELECT name FROM printers WHERE id=:id'), {'id': printer_id}).scalar_one_or_none()
+                    if name is None:return
+                    plan = stage_alert(db, AlertType.PRINTER_ERROR, AlertSeverity.WARNING,
+                        f'Filament Runout: {name}', f'Filament sensor triggered on {name}', printer_id=printer_id)
+                    db.commit()
+                    if plan is not None:
+                        _deliver_staged_alert(db, plan)
+                        deliver_mobile(db, plan)
                 return
             plan = stage(db, dict(job=row[0][0], attempt=row[0][1], printer=printer_id, kind=kind, code=code))
             db.commit()

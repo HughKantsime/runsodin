@@ -166,14 +166,13 @@ def preview(db,user,product_id):
         if not reader.variation(mapping['variation_id'],mapping['location_id'])['tracked']:raise HTTPException(409,'Enable Square inventory tracking before suggesting stock.')
         stock=reader.count(mapping['variation_id'],mapping['location_id'])
     except HTTPException as exc:return {**result,'status':'blocked','message':str(exc.detail)}
+    from modules.orders.stock_snapshots import best_effort
+    best_effort(db.get_bind(),owner,[(mapping['variation_id'],mapping['location_id'],stock,None)])
     # Re-read authority after remote reads; no stale preview after edits/deletion.
     store.lock_owner(db,owner,user);current=store.own_product(db,owner,product_id,lock=True)
     latest,_=store.load(db,owner);latest_policy,_=load(db,owner)
     if not latest or latest['revision']!=revision or latest_policy['revision']!=policy_revision or current.name!=product_name:
         db.rollback();raise HTTPException(409,'Product, Square connection or assortment changed during checks. Reload before continuing.')
-    from modules.orders.stock_snapshots import record
-    record(db,owner,mapping['variation_id'],mapping['location_id'],stock)
-    db.commit()
     result.update(stock=stock,retrieved_at=batches.now())
     try:
         value=Decimal(stock['quantity']) if stock['state']=='known' and isinstance(stock['quantity'],str) else None

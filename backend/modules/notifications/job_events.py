@@ -233,7 +233,7 @@ def job_completed(
 
         # Create alert
         if success:
-            dispatch_terminal_alert(print_job_id, dispatch_alert,
+            dispatch_terminal_alert(print_job_id, dispatch_alert, attempt_uid=timeline_item['attempt'] if timeline_item else None,
                 alert_type=AlertType.PRINT_COMPLETE,
                 severity=AlertSeverity.INFO,
                 title=f"Print Complete: {job_name}",
@@ -242,7 +242,7 @@ def job_completed(
                 job_id=alert_job_id,
             )
         else:
-            dispatch_terminal_alert(print_job_id, dispatch_alert,
+            dispatch_terminal_alert(print_job_id, dispatch_alert, attempt_uid=timeline_item['attempt'] if timeline_item else None,
                 alert_type=AlertType.PRINT_FAILED,
                 severity=AlertSeverity.CRITICAL,
                 title=f"Print Failed: {job_name}",
@@ -385,13 +385,18 @@ def job_cancelled(
             alert_job_id = scheduled_job_id if job_applied else None
 
             from core.job_terminal_observations import claim_terminal, terminal_event
-            claim_terminal(conn, print_job_id)
+            claim_terminal(conn, print_job_id, alert_job_id=scheduled_job_id if job_applied else None)
             timeline_item=terminal_event(conn, print_job_id)
             reconcile_job_write(conn, production_orders)
             conn.commit()
             from core.job_timeline import enqueue
             if timeline_item is not None:enqueue(timeline_item)
 
+        from core.job_terminal_observations import dispatch_terminal_alert
+        dispatch_terminal_alert(print_job_id, dispatch_alert, attempt_uid=timeline_item['attempt'] if timeline_item else None, legacy_cancelled=True,
+            alert_type=AlertType.PRINT_FAILED, severity=AlertSeverity.WARNING,
+            title=f"Print Cancelled: {job_name}", message=f"Cancelled on {printer_name}",
+            printer_id=printer_id, job_id=alert_job_id)
         log.info(f"Job cancelled on printer {printer_id}: {job_name}")
 
         bus = get_event_bus()

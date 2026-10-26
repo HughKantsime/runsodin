@@ -44,6 +44,8 @@ def _entry(
 
 
 POLICY_INVENTORY = (
+    _entry("jobs.completion_summary", "next_suggestion/build_summary", "job/printer/submission", "read", "job audience; Education scheduler policy and compatibility", ("start-next",), "test_completion_summary.py", "guarded"),
+    _entry("printers.start_next", "start/confirm_on_admission", "job/printer/submission", "dispatch", "scoped operator; normal dispatch admission and Education gates", ("dispatch admission",), "test_completion_summary.py", "guarded"),
     _entry("jobs.services", "delete_org_jobs", "organization/job", "delete", "trusted organization deletion after caller Education lifecycle guard", ("timeline cascade",), "test_job_timeline_foundation.py", "excluded_internal"),
     _entry("orders.services", "assert_job_history_deletable", "job/production acceptance", "retention guard", "caller-authorized job deletion; retains inspected business history", ("job deletion",), "test_job_terminal_foundation.py", "excluded_internal"),
     _entry("jobs.queue_creation", "_stage_prospective_queue_job", "job/model/file/upload destination", "stage caller-authorized queue entry", "internal adapter; callers retain tenant and Education authorization; bound files require exact destination", ("queue",), "test_upload_binding_and_plates.py", "excluded_internal"),

@@ -362,3 +362,17 @@ def test_reconcile_from_to_adjustments(batch,monkeypatch,legacy):
     wrong=history(row['request_body']);wrong['changes'][0]['adjustment']['from_location_id']='L2'
     http(monkeypatch,wrong)
     assert not wire.SquareInventoryProbe('sandbox','synthetic').reconciled(raw)
+
+
+def test_snapshot_failure_never_changes_recovery_check_or_commits_caller(batch,monkeypatch):
+    from modules.orders import stock_snapshots
+    row=prepared(batch)
+    http(monkeypatch,counts(row['request_body']))
+    def fail(*a,**kw):raise RuntimeError('synthetic cache failure')
+    monkeypatch.setattr(stock_snapshots,'record',fail)
+    commits=[]
+    from sqlalchemy import event
+    event.listen(batch[3],'after_commit',lambda session:commits.append(True))
+    result=recovery.check(batch[3],batch[1],row['id'])
+    assert result['readiness']=='checks_passed'
+    assert commits==[]

@@ -30,3 +30,15 @@ def test_actual_user_erasure_anonymizes_timeline_actor(review_db):
     review_db.execute(text("INSERT INTO job_timeline_events(id,job_id,kind,actor_user_id,occurred_at) VALUES('erase',441,'bed_clear_confirmed',441,CURRENT_TIMESTAMP)"));review_db.commit()
     asyncio.run(erase_user_data(441,{'id':3,'role':'admin','group_id':1},review_db))
     assert review_db.execute(text("SELECT actor_user_id,actor_token_id FROM job_timeline_events WHERE id='erase'")).one()==(None,None)
+
+
+def test_bed_confirmation_never_exposes_private_claim_identifiers(status_client,review_db):
+    import json
+    client,headers=status_client
+    review_db.execute(text("INSERT INTO job_timeline_events(id,job_id,kind,detail,occurred_at) VALUES('private',53,'bed_clear_confirmed',:detail,CURRENT_TIMESTAMP)"),
+        {'detail':json.dumps({'attestation':'owner_in_app','claim_token':'private-claim','request_id':'private-request'})})
+    review_db.commit()
+    response=client.get('/jobs/53/timeline',headers=headers)
+    assert response.status_code==200
+    assert response.json()['events'][0]['detail']=={'attestation':'owner_in_app'}
+    assert 'private-claim' not in response.text and 'private-request' not in response.text

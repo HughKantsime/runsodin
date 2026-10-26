@@ -121,10 +121,15 @@ class TimelineWriter:
                     if item['kind'] in ('paused','runout','failed') and item.get('attempt'):
                         from sqlalchemy.orm import Session
                         from modules.notifications.job_faults import stage
-                        with Session(bind=c) as fault_db:
-                            plan=stage(fault_db,item)
-                            fault_db.flush()
+                        try:
+                            with c.begin_nested():
+                                with Session(bind=c) as fault_db:
+                                    plan=stage(fault_db,item)
+                                    fault_db.flush()
                             if plan is not None:plans.append(plan)
+                        except Exception:
+                            import logging
+                            logging.getLogger('odin.job_timeline').warning('Fault staging failed; timeline retained')
                 with self.lock:empty=not self.queue
                 self._state(c,now() if empty else None,self.stop.is_set() and empty)
             self.last_heartbeat=time.monotonic()

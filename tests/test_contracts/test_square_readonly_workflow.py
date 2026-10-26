@@ -247,3 +247,17 @@ def test_owner_deleted_before_first_connection_save_cannot_leave_credentials(sho
     r=client.put('/products/square',json={'access_token':'synthetic','environment':'sandbox'})
     assert r.status_code==409
     assert db.execute(text("SELECT COUNT(*) FROM system_config WHERE key='square_readonly:88'")).scalar()==0
+
+
+@pytest.mark.parametrize('failure',['write','commit'])
+def test_stock_snapshot_failure_does_not_break_successful_square_read(shop,monkeypatch,failure):
+    from modules.orders import stock_snapshots
+    from sqlalchemy import event
+    status=mapped(shop)
+    def fail(*args,**kwargs):raise RuntimeError('synthetic cache failure')
+    if failure=='write':monkeypatch.setattr(stock_snapshots,'record',fail)
+    else:event.listen(Session,'before_commit',fail)
+    try:response=shop[0].get('/products/101/square',params={'revision':status['revision']})
+    finally:
+        if failure=='commit':event.remove(Session,'before_commit',fail)
+    assert response.status_code==200 and response.json()['quantity']=='7.00000'

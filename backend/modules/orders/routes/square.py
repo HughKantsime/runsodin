@@ -197,9 +197,9 @@ def stock(product_id: int, revision: str = Query(max_length=64), user=Depends(vi
         'quantity': None, 'calculated_at': None, 'state': 'untracked'}
     still_current(db, owner, doc)
     store.own_product(db, owner, product_id)
-    from modules.orders.stock_snapshots import record
-    record(db, owner, mapping['variation_id'], mapping['location_id'], result)
-    db.commit()
+    from modules.orders.stock_snapshots import best_effort
+    db.rollback()
+    best_effort(db.get_bind(), owner, [(mapping['variation_id'], mapping['location_id'], result, None)])
     return {'revision': revision, 'retrieved_at': datetime.now(timezone.utc).isoformat(), **result}
 
 

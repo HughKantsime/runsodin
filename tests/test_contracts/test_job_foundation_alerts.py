@@ -128,3 +128,14 @@ def test_plate_ready_detection_finishes_alert_and_websocket(monkeypatch):
     assert alerts[0]['severity']==AlertSeverity.INFO
     assert alerts[0]['title']=='Plate Ready: Printer'
     assert events[0][0]=='vision_detection'
+
+
+def test_legacy_cancellation_callback_uses_supported_storage_enum(engine,monkeypatch):
+    from modules.notifications import alert_dispatch
+    monkeypatch.setattr(alert_dispatch,'engine',engine)
+    monkeypatch.setattr(alert_dispatch,'get_event_bus',lambda:SimpleNamespace(publish=lambda *a:None))
+    with engine.begin() as conn:
+        conn.execute(text("INSERT INTO users(id,username,password_hash,role,is_active) VALUES(88,'cancel-owner','unused','admin',TRUE)"))
+    alert_dispatch.dispatch_alert('print_cancelled',AlertSeverity.WARNING,'Print Cancelled: synthetic')
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT alert_type,title FROM alerts WHERE user_id=88")).one()==('print_failed','Print Cancelled: synthetic')

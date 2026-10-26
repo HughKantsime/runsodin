@@ -214,3 +214,24 @@ def test_mixed_existing_recipe_checks_all_current_main_policies_not_flush(batch,
     monkeypatch.setattr(SquareReader,'variation',lambda *_:{'tracked':True});stock(monkeypatch,'2')
     answer=batch[0].post(f'{BASE}/104/preview').json()
     assert answer['status']==expected_status,answer
+
+
+def test_snapshot_failure_preserves_preview_and_authority_locks(batch,monkeypatch):
+    from modules.orders import stock_snapshots
+    ready(batch);policy(batch);stock(monkeypatch)
+    def fail(*a,**kw):raise RuntimeError('synthetic cache failure')
+    monkeypatch.setattr(stock_snapshots,'record',fail)
+    original=assortment.recipes_for
+    def recipes(db,*args):
+        assert db.in_transaction()
+        # A mid-flow commit used to release these authority locks.
+        return original(db,*args)
+    monkeypatch.setattr(assortment,'recipes_for',recipes)
+    commits=[]
+    from sqlalchemy import event
+    def committed(session):commits.append(True)
+    event.listen(__import__('sqlalchemy').orm.Session,'after_commit',committed)
+    try:response=batch[0].post(f'{BASE}/101/preview')
+    finally:event.remove(__import__('sqlalchemy').orm.Session,'after_commit',committed)
+    assert response.status_code==200 and response.json()['status']=='candidate'
+    assert commits==[]
