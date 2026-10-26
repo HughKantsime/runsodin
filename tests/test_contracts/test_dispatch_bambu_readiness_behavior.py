@@ -90,5 +90,7 @@ def test_actual_owned_broker_fresh_report_through_spawned_worker(monkeypatch,mod
             assert receipt.is_published()
         assert bounded_status_is_idle({'api_type':'bambu','ip':broker.host,'serial':'synthetic','access_code':''},time.monotonic()+3) is (mode=='idle')
     finally:
-        if responder is not None:responder.disconnect();responder.loop_stop()
+        # Stop the network loop before disconnecting: a disconnect lets paho's thread
+        # exit and clear itself, racing loop_stop()'s join.
+        if responder is not None:responder.loop_stop();responder.disconnect()
         broker.stop()

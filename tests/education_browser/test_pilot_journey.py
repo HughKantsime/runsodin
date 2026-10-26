@@ -14,6 +14,19 @@ from playwright.sync_api import expect, sync_playwright
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def _hdiutil(args, cleanup=None, attempts=3):
+    """hdiutil intermittently fails on a busy host; retry briefly, then fail with its error."""
+    for attempt in range(attempts):
+        result = subprocess.run(['hdiutil', *args], capture_output=True, text=True)
+        if result.returncode == 0:
+            return
+        if cleanup is not None:
+            cleanup.unlink(missing_ok=True)
+        if attempt + 1 < attempts:
+            time.sleep(2 * (attempt + 1))
+    raise subprocess.CalledProcessError(result.returncode, result.args, result.stdout, result.stderr)
+
+
 @pytest.fixture
 def upload_volume(tmp_path):
     root = tmp_path / 'upload-volume'
@@ -24,12 +37,9 @@ def upload_volume(tmp_path):
     # Use a real bounded filesystem, so host-wide fullness cannot silently
     # turn every browser journey into the storage-reserve rejection path.
     image = tmp_path / 'browser-uploads.sparseimage'
-    subprocess.run(['hdiutil', 'create', '-size', '4g', '-type', 'SPARSE',
-                    '-fs', 'APFS', '-volname', 'ODIN-Browser-Test', str(image)],
-                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    subprocess.run(['hdiutil', 'attach', str(image), '-mountpoint', str(root),
-                    '-nobrowse', '-noverify'], check=True,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    _hdiutil(['create', '-size', '4g', '-type', 'SPARSE', '-fs', 'APFS',
+              '-volname', 'ODIN-Browser-Test', str(image)], cleanup=image)
+    _hdiutil(['attach', str(image), '-mountpoint', str(root), '-nobrowse', '-noverify'])
     try:
         yield root
     finally:
