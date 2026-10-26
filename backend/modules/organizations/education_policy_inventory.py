@@ -44,6 +44,8 @@ def _entry(
 
 
 POLICY_INVENTORY = (
+    _entry("jobs.services", "delete_org_jobs", "organization/job", "delete", "trusted organization deletion after caller Education lifecycle guard", ("timeline cascade",), "test_job_timeline_foundation.py", "excluded_internal"),
+    _entry("orders.services", "assert_job_history_deletable", "job/production acceptance", "retention guard", "caller-authorized job deletion; retains inspected business history", ("job deletion",), "test_job_terminal_foundation.py", "excluded_internal"),
     _entry("jobs.queue_creation", "_stage_prospective_queue_job", "job/model/file/upload destination", "stage caller-authorized queue entry", "internal adapter; callers retain tenant and Education authorization; bound files require exact destination", ("queue",), "test_upload_binding_and_plates.py", "excluded_internal"),
     _entry("printers.routes_dispatch_recovery", "inspect_dispatch_recovery/hold_dispatch_recovery/retain_dispatch_recovery/release_dispatch_recovery", "printer/job/submission/monitor claim", "inspect/hold/retain/release", "owner and charged tenant admin; Education provider school/center authority; no Education revocation", ("recovery history",), "test_dispatch_recovery_actions.py", "guarded"),
     _entry("jobs.education_order", "education_order/ordered_waiting/head_refusal", "Education job/printer/dispatch claim", "order/head check", "trusted scheduler/dispatch; authoritative head check under target lock", ("scheduler", "automatic and explicit dispatch"), "test_education_followup_queues.py", "guarded"),

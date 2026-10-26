@@ -11,22 +11,62 @@ from tests.test_contracts.test_post027_migration_040 import engine
 
 
 def test_every_monitor_alert_call_uses_enum_members():
-    paths=list(Path('backend/modules/printers/monitors').glob('*.py'))+[Path('backend/modules/notifications/job_events.py')]
-    count=0
+    # Frozen restore bundles are historical code, never live callers.
+    paths = [p for p in Path('backend').rglob('*.py')
+             if not any(part.startswith('preserved') for part in p.parts)]
+    checked = set()
     for path in paths:
-        tree=ast.parse(path.read_text())
+        tree = ast.parse(path.read_text())
+        assignments = {}
+        annotations = {}
         for node in ast.walk(tree):
-            if not isinstance(node,ast.Call):continue
-            name=getattr(node.func,'attr',getattr(node.func,'id',''))
-            if not any(k.arg=='alert_type' for k in node.keywords):continue
-            for keyword in node.keywords:
-                if keyword.arg not in ('alert_type','severity'):continue
-                expected=AlertType if keyword.arg=='alert_type' else AlertSeverity
-                assert isinstance(keyword.value,ast.Attribute), (path,node.lineno,keyword.arg)
-                assert isinstance(keyword.value.value,ast.Name) and keyword.value.value.id==expected.__name__
-                assert keyword.value.attr in expected.__members__, (path,node.lineno,keyword.value.attr)
-                count+=1
-    assert count>10
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        assignments.setdefault(target.id, []).append(node.value)
+            if isinstance(node, ast.arg) and isinstance(node.annotation, ast.Name):
+                annotations[node.arg] = node.annotation.id
+
+        def is_enum(value, expected, seen=frozenset()):
+            if isinstance(value, ast.Attribute):
+                return (isinstance(value.value, ast.Name)
+                        and value.value.id == expected.__name__
+                        and value.attr in expected.__members__)
+            if isinstance(value, ast.Call):
+                return isinstance(value.func, ast.Name) and value.func.id == expected.__name__
+            if isinstance(value, ast.IfExp):
+                return is_enum(value.body, expected, seen) and is_enum(value.orelse, expected, seen)
+            if isinstance(value, ast.Dict):
+                return all(is_enum(v, expected, seen) for v in value.values)
+            if isinstance(value, ast.Subscript):
+                return is_enum(value.value, expected, seen)
+            if isinstance(value, ast.Name) and value.id not in seen:
+                if annotations.get(value.id) == expected.__name__:
+                    return True  # Typed forwarding wrapper; its callers are checked too.
+                values = assignments.get(value.id, [])
+                return bool(values) and all(is_enum(v, expected, seen | {value.id}) for v in values)
+            return False
+
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            name = getattr(node.func, 'attr', getattr(node.func, 'id', ''))
+            if name not in ('dispatch_alert', 'create_alert', '_dispatch_alert',
+                            '_dispatch_alert_b', 'dispatch_terminal_alert'):
+                continue
+            values = {k.arg: k.value for k in node.keywords}
+            # Raw dispatch wrappers also accept enum values positionally.
+            if name in ('dispatch_alert', 'create_alert', '_dispatch_alert', '_dispatch_alert_b'):
+                offset = 1 if node.args and isinstance(node.args[0], ast.Name) and node.args[0].id in ('db', 'session') else 0
+                for i, key in enumerate(('alert_type', 'severity')):
+                    if key not in values and len(node.args) > offset + i:
+                        values[key] = node.args[offset + i]
+            for key, expected in (('alert_type', AlertType), ('severity', AlertSeverity)):
+                assert key in values, (path, node.lineno, 'unvalidated forwarding call')
+                assert is_enum(values[key], expected), (path, node.lineno, key)
+            checked.add(path)
+    assert Path('backend/modules/vision/detection_thread.py') in checked
+    assert len(checked) >= 8
 
 
 def test_mobile_recipient_isolation_preferences_and_allowlist(engine, monkeypatch):
@@ -67,3 +107,24 @@ def test_mobile_callback_is_registered_by_the_durable_drain(engine,monkeypatch):
     assert len(called)==1 and called[0].job_id==2
     assert not alert_outbox.dispatch(engine,identifier)
     assert len(called)==1
+
+
+def test_plate_ready_detection_finishes_alert_and_websocket(monkeypatch):
+    from modules.vision import detection_thread as vision
+    from modules.notifications import event_dispatcher
+    thread=object.__new__(vision.PrinterVisionThread)
+    thread._last_alert={};thread.printer_id=1;thread.printer_name='Printer'
+    thread.print_job_id=None;thread.settings={}
+    monkeypatch.setattr(vision.frame_storage,'save_detection_frame',lambda *a:'frame')
+    monkeypatch.setattr(thread,'_insert_detection',lambda *a:17)
+    alerts=[];events=[]
+    def dispatch(**payload):
+        AlertType(payload['alert_type']);AlertSeverity(payload['severity'])
+        alerts.append(payload)
+    monkeypatch.setattr(event_dispatcher,'dispatch_alert',dispatch)
+    monkeypatch.setattr(vision,'ws_push',lambda *a:events.append(a))
+    thread._on_detection('build_plate_empty',{'confidence':.99,'bbox':None},None)
+    assert alerts[0]['alert_type']==AlertType.BED_COOLED
+    assert alerts[0]['severity']==AlertSeverity.INFO
+    assert alerts[0]['title']=='Plate Ready: Printer'
+    assert events[0][0]=='vision_detection'

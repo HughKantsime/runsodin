@@ -11,7 +11,7 @@ import re
 import threading
 import time
 import uuid
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from sqlalchemy.pool import NullPool
 
 # Values are bounded facts, never arbitrary strings or copies of transport messages.
@@ -27,7 +27,12 @@ _CODE = re.compile(r'[A-Z0-9_:-]{1,64}\Z')
 
 
 def now():
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(timezone.utc)
+
+
+def utc(value):
+    parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
 
 
 def event(job_id, kind, *, printer_id=None, print_attempt_uid=None, org_id=None,
@@ -42,23 +47,26 @@ def event(job_id, kind, *, printer_id=None, print_attempt_uid=None, org_id=None,
     if code is not None and (kind not in ('hms','gate_refused','runout') or not isinstance(code,str) or not _CODE.fullmatch(code)):
         raise ValueError('Invalid timeline code')
     return dict(id=uuid.uuid4().hex,job=job_id,kind=kind,printer=printer_id,attempt=print_attempt_uid,
-                org=org_id,code=code,detail=json.dumps(detail,sort_keys=True),occurred=occurred_at or now())
+                org=org_id,code=code,detail=json.dumps(detail,sort_keys=True),occurred=utc(occurred_at) if occurred_at is not None else now())
 
 
 class TimelineWriter:
     def __init__(self, url, *, capacity=512, busy_timeout_ms=100, process_name="process"):
         if not 1 <= capacity <= 4096 or not 1 <= busy_timeout_ms <= 250:raise ValueError('Invalid timeline bounds')
-        options={'poolclass':NullPool}
-        if url.get_backend_name()=='sqlite':options['connect_args']={'timeout':busy_timeout_ms/1000}
-        self.engine=create_engine(url,**options)
+        from core.database_config import create_database_engine
+        role = {'mqtt_monitor':'monitor-bambu', 'moonraker_monitor':'monitor-moonraker',
+                'prusalink_monitor':'monitor-prusalink', 'elegoo_monitor':'monitor-elegoo',
+                'anycubic_lan_monitor':'monitor-anycubic-lan', 'vision_monitor':'vision'}.get(process_name, 'api')
+        self.engine=create_database_engine(url, role=role, poolclass=NullPool,
+                                           sqlite_busy_timeout_ms=busy_timeout_ms)
         self.timeout=busy_timeout_ms
         self.queue=deque();self.capacity=capacity;self.lock=threading.Lock()
         self.wake=threading.Event();self.stop=threading.Event()
         self.process_id=process_name+':'+str(os.getpid())+':'+uuid.uuid4().hex
         self.started=now();self.drop_epoch=0;self.error_epoch=0;self.epochs=deque(maxlen=1024);self.printers=set()
-        # Startup is synchronous: never accept events before durable registration.
-        with self.engine.begin() as connection:
-            self._state(connection, None)
+        # A failed registration is nonfatal; the worker retains epochs and retries.
+        self.last_heartbeat=0.0
+        self._drain()  # Best effort only; failures are retried by the worker.
         self.close_deadline=None
         self.thread=threading.Thread(target=self._run,name='job-timeline',daemon=True)
         self.thread.start()
@@ -82,6 +90,8 @@ class TimelineWriter:
 
     def _drain(self):
         with self.lock:
+            if not self.queue and not self.stop.is_set() and time.monotonic()-self.last_heartbeat < 5:
+                return True
             items=[self.queue.popleft() for _ in range(min(32,len(self.queue)))]
         try:
             with self.engine.begin() as c:
@@ -109,6 +119,7 @@ class TimelineWriter:
                     c.execute(text("INSERT INTO job_timeline_events(id,job_id,print_attempt_uid,printer_id,org_id,kind,code,detail,occurred_at) SELECT :id,j.id,:attempt,:printer,j.charged_to_org_id,:kind,:code,:detail,:occurred FROM jobs j WHERE j.id=:job ON CONFLICT(id) DO NOTHING"),item)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant SQL; values are bound
                 with self.lock:empty=not self.queue
                 self._state(c,now() if empty else None,self.stop.is_set() and empty)
+            self.last_heartbeat=time.monotonic()
             return True
         except Exception:
             with self.lock:
@@ -138,23 +149,53 @@ class TimelineWriter:
 
 _writer=None
 _writer_lock=threading.Lock()
+_retry_timer=None
 
 
 def start(process_name="process", url=None):
-    global _writer
     with _writer_lock:
-        if _writer is None:
+        return _start_writer(process_name, url)
+
+
+def _start_writer(process_name, url):
+    """Called under the startup lock, including by the retry timer."""
+    global _writer
+    if _writer is None:
+        try:
             if url is None:
                 from core.db import current_engine
                 url = current_engine().url
             _writer = TimelineWriter(url, process_name=process_name)
-            atexit.register(_writer.close)
+        except Exception:
+            _retry_start(process_name, url)
+            return None
+        atexit.register(_writer.close)
     return _writer
 
 
+def _retry_start(process_name, url):
+    global _retry_timer
+    if _retry_timer is not None:
+        return
+    def retry():
+        global _retry_timer
+        with _writer_lock:
+            if _retry_timer is not timer:
+                return
+            _retry_timer=None
+            _start_writer(process_name, url)
+    timer=threading.Timer(5, retry)
+    timer.daemon=True
+    _retry_timer=timer
+    timer.start()
+
+
 def shutdown():
-    global _writer
+    global _writer, _retry_timer
     with _writer_lock:
+        if _retry_timer is not None:
+            _retry_timer.cancel()
+            _retry_timer=None
         if _writer is not None:
             _writer.close()
             _writer = None
@@ -192,8 +233,7 @@ def history_complete(db, printer_id, started_at, ended_at):
     rows=db.execute(text('SELECT process_id,started_at,clean_shutdown,last_drained_at,printer_ids,epoch_history,drop_epoch,error_epoch FROM timeline_writer_state')).mappings().all()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant SQL; values are bound
     relevant=[]
     def stamp(value):
-        parsed=datetime.fromisoformat(str(value).replace('Z','+00:00'))
-        return parsed.astimezone(timezone.utc).replace(tzinfo=None) if parsed.tzinfo else parsed
+        return utc(value)
     start,end=stamp(started_at),stamp(ended_at)
     for row in rows:
         born=stamp(row['started_at'])

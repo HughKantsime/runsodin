@@ -105,19 +105,22 @@ SQLITE_BUSY_TIMEOUT_MS = 5000
 
 
 def create_database_engine(
-    database_url: str,
+    database_url: str | URL,
     *,
     role: str = "api",
     password_file: str | None = None,
     echo: bool = False,
+    poolclass=None,
+    sqlite_busy_timeout_ms: int = SQLITE_BUSY_TIMEOUT_MS,
 ) -> Engine:
     """Create a dialect-correct engine without persisting a resolved credential URL."""
-    url = resolve_database_url(database_url, password_file=password_file)
+    # Internal callers may reuse an already resolved URL without reading credentials again.
+    url = database_url if isinstance(database_url, URL) else resolve_database_url(database_url, password_file=password_file)
     if url.get_backend_name() == "sqlite":
         sqlite_engine = create_engine(
             url,
             echo=echo,
-            poolclass=NullPool,
+            poolclass=poolclass or NullPool,
             connect_args={"check_same_thread": False},
         )
 
@@ -130,7 +133,10 @@ def create_database_engine(
             # copied or restored file from silently running in rollback mode.
             cursor = dbapi_connection.cursor()
             try:
-                cursor.execute("PRAGMA busy_timeout=5000")  # = SQLITE_BUSY_TIMEOUT_MS (pinned by test)
+                if sqlite_busy_timeout_ms == SQLITE_BUSY_TIMEOUT_MS:
+                    cursor.execute("PRAGMA busy_timeout=5000")  # = SQLITE_BUSY_TIMEOUT_MS (pinned by test)
+                else:
+                    cursor.execute(f"PRAGMA busy_timeout={int(sqlite_busy_timeout_ms)}")
                 cursor.execute("PRAGMA journal_mode=WAL")
                 cursor.execute("PRAGMA foreign_keys=ON")
             finally:
@@ -140,14 +146,12 @@ def create_database_engine(
     restore_data_directory = os.getenv('ODIN_DATA_DIR', '/data')
     if role not in _RESTORE_LOCK_EXEMPT_ROLES:
         assert_postgres_restore_ready(restore_data_directory)
+    pool_options = {} if poolclass is NullPool else dict(pool_size=10, max_overflow=20, pool_timeout=30, pool_recycle=1800)
     engine = create_engine(
         url,
         echo=echo,
-        poolclass=QueuePool,
-        pool_size=10,
-        max_overflow=20,
-        pool_timeout=30,
-        pool_recycle=1800,
+        poolclass=poolclass or QueuePool,
+        **pool_options,
         # Sessions run in UTC: server-default now() timestamps (audit_logs,
         # legacy spool_usage.used_at) are then UTC, like every naive time ODIN
         # writes and reads (core.db_compat.as_utc_datetime).

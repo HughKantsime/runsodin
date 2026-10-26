@@ -216,7 +216,7 @@ def test_all_runtime_entrypoints_register_before_monitor_work():
     assert 'finally:\n            shutdown()' in source
 
 
-@pytest.mark.parametrize('source,outcome',[(source,outcome) for source in ('mqtt','moonraker','generic') for outcome in ('completed','failed')]+[('moonraker','cancelled')])
+@pytest.mark.parametrize('source,outcome',[(source,outcome) for source in ('mqtt','moonraker','generic') for outcome in ('completed','failed','cancelled')])
 def test_actual_identified_monitor_terminal_uses_durable_mobile(private_attempt,review_db,monkeypatch,source,outcome):
     from core import db as core_db
     from core.db_utils import _ConnectionAdapter
@@ -246,6 +246,9 @@ def test_actual_identified_monitor_terminal_uses_durable_mobile(private_attempt,
     for module in (event_dispatcher,job_events,alert_dispatch):
         def unexpected_raw_send(*a,**kw):pytest.fail('Identified terminal bypassed durable drain')
         monkeypatch.setattr(module,'dispatch_alert',unexpected_raw_send)
+    from core import job_timeline
+    timeline=[]
+    monkeypatch.setattr(job_timeline,'enqueue',timeline.append)
     external=[];mobile=[]
     monkeypatch.setattr(alert_dispatcher,'_deliver_staged_alert',lambda db,plan:external.append(plan))
     monkeypatch.setattr(alert_outbox,'_deliveries',[])
@@ -255,9 +258,11 @@ def test_actual_identified_monitor_terminal_uses_durable_mobile(private_attempt,
         monitor=moon.MoonrakerMonitor(printer_id,'Owned','127.0.0.1')
         monitor._current_job_db_id=identifier
         monitor._job_ended(outcome,SimpleNamespace(filename='owned.gcode',filament_used_mm=0,error_message=None))
+    elif outcome=='cancelled':job_events.job_cancelled(printer_id,identifier)
     else:job_events.job_completed(printer_id,identifier,success=outcome=='completed')
-    assert len(external)==len(mobile)==1
-    assert mobile[0].printer_id==printer_id
+    assert len(external)==len(mobile)==int(outcome!='cancelled')
+    if mobile:assert mobile[0].printer_id==printer_id
+    assert any(item['kind']==outcome for item in timeline)
     with engine.connect() as c:
         assert c.execute(text('SELECT status FROM print_jobs WHERE id=:id'),{'id':identifier}).scalar_one()==outcome
         assert c.execute(text('SELECT count(*) FROM job_summary_outbox')).scalar_one()==1
@@ -316,3 +321,19 @@ def test_new_attempt_after_restart_can_have_complete_history(engine,old_clean):
             c.execute(text('INSERT INTO timeline_writer_state(process_id,started_at,clean_shutdown,last_drained_at,printer_ids) VALUES(:pid,:born,:clean,:drained,:printers)'),
                 dict(pid=pid,born=born,clean=clean,drained=drained,printers='[1]'))
         assert history_complete(c,1,'2026-10-25 12:03:00','2026-10-25 12:04:00')
+
+
+@pytest.mark.parametrize('previous,expected',[(None,[]),('PRINTING',['failed'])])
+def test_elegoo_idle_on_start_does_not_fail_running_job(monkeypatch,previous,expected):
+    from modules.printers.monitors import elegoo_monitor as elegoo
+    from modules.notifications import event_dispatcher
+    calls=[]
+    monkeypatch.setattr(event_dispatcher,'on_print_failed',lambda *a:calls.append('failed'))
+    monkeypatch.setattr(elegoo,'ws_push',lambda *a:None)
+    monkeypatch.setattr(elegoo,'_mqtt_republish',None)
+    monitor=elegoo.ElegooMonitorThread(1,'Printer','192.0.2.1')
+    monitor._last_state=previous
+    monitor._last_heartbeat=time.time()
+    monitor._last_ams_env=time.time()
+    monitor._process_status(SimpleNamespace(internal_state='IDLE',filename=None,progress_percent=0))
+    assert calls==expected

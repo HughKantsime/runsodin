@@ -586,8 +586,7 @@ class MoonrakerMonitor:
                         self._auto_deduct_filament(conn, row[0], observed_grams=filament_used_g)
                 from core.job_terminal_observations import claim_terminal, terminal_event
                 claim_terminal(conn, self._current_job_db_id,
-                               alert_job_id=row[0] if row and row[0] and ended else None,
-                               notify_cancelled=True)
+                               alert_job_id=row[0] if row and row[0] and ended else None)
                 timeline_item=terminal_event(conn, self._current_job_db_id)
                 reconcile_job_write(conn, production_orders)
             from core.job_timeline import enqueue
@@ -625,7 +624,7 @@ class MoonrakerMonitor:
                     message=f"Finished on {self.name}",
                     printer_id=self.printer_id,
                 )
-            else:
+            elif end_status == "failed":
                 dispatch_terminal_alert(self._current_job_db_id, printer_events.dispatch_alert,
                     alert_type=AlertType.PRINT_FAILED,
                     severity=AlertSeverity.CRITICAL,

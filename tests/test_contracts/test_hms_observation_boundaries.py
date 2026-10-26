@@ -464,3 +464,49 @@ def test_exact_original_pending_start_resolves_hms_to_concrete_observation(hms_b
     db.expire_all()
     assert db.execute(text('SELECT status FROM print_jobs WHERE id=201')).scalar_one()=='failed'
     assert monitor._pending_hms_terminal is None and monitor._current_job_id is None
+
+
+def test_identified_hms_failure_delivers_only_once_through_outbox(private_attempt,review_db,monkeypatch):
+    from contextlib import contextmanager
+    from core import db as core_db
+    from core.db_utils import _ConnectionAdapter
+    from modules.notifications import error_handling,alert_outbox,alert_dispatcher
+    from modules.archives import archive
+    from core.base import AlertType
+    identifier=private_attempt[3]
+    printer,filename=review_db.execute(text('SELECT printer_id,filename FROM print_jobs WHERE id=:id'),{'id':identifier}).one()
+    review_db.rollback()
+    engine=review_db.get_bind()
+    monkeypatch.setattr(core_db,'engine',engine)
+    @contextmanager
+    def database():
+        raw=engine.raw_connection()
+        try:yield _ConnectionAdapter(raw,False)
+        finally:raw.close()
+    monkeypatch.setattr(error_handling,'get_db',database)
+    monkeypatch.setattr(archive,'create_print_archive',lambda *a,**kw:None)
+    direct=[];delivered=[]
+    monkeypatch.setattr(error_handling,'dispatch_alert',lambda **kw:direct.append(kw))
+    monkeypatch.setattr(alert_dispatcher,'_deliver_staged_alert',lambda db,plan:delivered.append(plan))
+    monkeypatch.setattr(alert_outbox,'deliver_mobile',lambda *a:None)
+    for _ in range(2):
+        error_handling.process_hms_errors(printer,STOPPING_ERROR,observed_filename=filename)
+        alert_outbox.sweep(engine,older_than_seconds=0)
+    assert not any(item['alert_type']==AlertType.PRINT_FAILED for item in direct)
+    assert len(delivered)==1 and delivered[0].alert_type==AlertType.PRINT_FAILED
+
+
+from tests.test_contracts.test_private_attempt_valuation_route import private_attempt, creators, review_db
+
+
+@pytest.mark.parametrize('state',['IDLE','',None,'FAILED','FINISH'])
+def test_bambu_orphan_recovery_keeps_main_generic_outcome(hms_boundary,monkeypatch,state):
+    from modules.printers.monitors import mqtt_printer
+    db,handler,registry,outgoing=hms_boundary
+    monkeypatch.setattr(mqtt_printer,'get_db',handler.get_db)
+    monitor=mqtt_printer.PrinterMonitor(9,'Recovery','192.0.2.1','synthetic','')
+    monitor._status_received.set()
+    monitor._state={'gcode_state':state}
+    monitor._recover_orphaned_jobs()
+    db.expire_all()
+    assert db.execute(text('SELECT status FROM print_jobs WHERE id=201')).scalar_one()=='completed'

@@ -52,9 +52,12 @@ except ImportError:
 
 def _ws(job_id: int, status: str, message: str):
     """Push a dispatch progress event to connected WebSocket clients."""
-    if status in ('uploading','starting','dispatched','failed'):
-        from core.job_timeline import enqueue, event
-        enqueue(event(job_id, 'dispatch_'+status))
+    try:
+        if status in ('uploading','starting','dispatched','failed'):
+            from core.job_timeline import enqueue, event
+            enqueue(event(job_id, 'dispatch_'+status))
+    except Exception:
+        log.debug('Timeline enqueue failed')
     try:
         _ws_push("job_dispatch_event", {"job_id": job_id, "status": status, "message": message})
     except Exception as e:

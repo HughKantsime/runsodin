@@ -104,12 +104,15 @@ def test_real_sqlalchemy_checkout_refusal_invalidates_without_reconnect(tmp_path
     engine.dispose()
 
 
-def test_ordinary_engine_event_order_and_maintenance_exception(tmp_path,monkeypatch):
+@pytest.mark.parametrize("unpooled", [False, True])
+def test_ordinary_engine_event_order_and_maintenance_exception(tmp_path,monkeypatch,unpooled):
     from core import database_config as config
     from sqlalchemy.engine import make_url
-    callbacks={};calls=[]
+    from sqlalchemy.pool import NullPool
+    pool_options={'poolclass':NullPool} if unpooled else {}
+    callbacks={};calls=[];options=[]
     monkeypatch.setattr(config,'resolve_database_url',lambda *a,**kw:make_url('postgresql+psycopg://synthetic@db/owned'))
-    monkeypatch.setattr(config,'create_engine',lambda *a,**kw:SimpleNamespace())
+    monkeypatch.setattr(config,'create_engine',lambda *a,**kw:(options.append(kw) or SimpleNamespace()))
     monkeypatch.setattr(config,'assert_postgres_restore_ready',lambda *args:calls.append('gate'))
     def register(engine,name):
         def decorate(fn):callbacks[name]=fn;return fn
@@ -119,8 +122,12 @@ def test_ordinary_engine_event_order_and_maintenance_exception(tmp_path,monkeypa
         def execute(self,statement,*args):calls.append('shared' if 'pg_advisory' in statement else statement)
         def close(self):calls.append('close')
     connection=SimpleNamespace(cursor=Cursor,commit=lambda:calls.append('commit'))
-    config.create_database_engine('synthetic',role='api');callbacks['connect'](connection,SimpleNamespace(invalidate=lambda *args:None));callbacks['checkout'](None,None,None)
+    config.create_database_engine('synthetic',role='api',**pool_options);callbacks['connect'](connection,SimpleNamespace(invalidate=lambda *args:None));callbacks['checkout'](None,None,None)
     assert calls==['gate',"SET lock_timeout = '5s'",'shared','SET lock_timeout = 0','commit','gate','close','gate']
+    assert options[0]['connect_args']=={'application_name':'odin-api','options':'-c TimeZone=UTC'}
+    if unpooled:
+        assert options[0]['poolclass'] is NullPool
+        assert not {'pool_size','max_overflow','pool_timeout','pool_recycle'} & options[0].keys()
     for role in ('backup','restore'):
         calls.clear();callbacks.clear();engine=config.create_database_engine('synthetic',role=role)
         assert not calls and not callbacks and not engine._odin_restore_barrier_required

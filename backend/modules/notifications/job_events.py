@@ -392,15 +392,6 @@ def job_cancelled(
             from core.job_timeline import enqueue
             if timeline_item is not None:enqueue(timeline_item)
 
-        dispatch_alert(
-            alert_type=AlertType.PRINT_FAILED,
-            severity=AlertSeverity.WARNING,
-            title=f"Print Cancelled: {job_name}",
-            message=f"Cancelled on {printer_name}",
-            printer_id=printer_id,
-            job_id=alert_job_id,
-        )
-
         log.info(f"Job cancelled on printer {printer_id}: {job_name}")
 
         bus = get_event_bus()

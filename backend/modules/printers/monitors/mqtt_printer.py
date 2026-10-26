@@ -338,7 +338,7 @@ class PrinterMonitor:
                             continue
                         cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
                             f"UPDATE print_jobs SET status = ?, ended_at = {sql.now()} WHERE id = ?",
-                            ({"FINISH":"completed","FAILED":"failed"}.get(gcode_state,"cancelled"),row[0]))
+                            ("completed",row[0]))
                         log.info(f"[{self.name}] Closed orphaned job {row[0]} ({row[1]}) — printer is {gcode_state or 'idle'}")
                 from core.job_terminal_observations import claim_terminal, terminal_event
                 recovered_events=[]
@@ -434,7 +434,7 @@ class PrinterMonitor:
                 log.debug(f"[{self.name}] Scheduler trigger failed (non-critical): {e}")
         Thread(target=_do, daemon=True).start()
 
-    def _dispatch_alert(self, alert_type: str, severity: str, title: str,
+    def _dispatch_alert(self, alert_type: AlertType, severity: AlertSeverity, title: str,
                         message: str = "", job_id: int = None, spool_id: int = None,
                         metadata: dict = None):
         """Use the shared scoped alert policy in monitor processes too."""

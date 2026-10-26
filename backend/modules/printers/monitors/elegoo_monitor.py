@@ -205,7 +205,7 @@ class ElegooMonitorThread(threading.Thread):
                     self.printer_id,
                     status.filename or self._last_filename or "Unknown",
                 )
-            elif odin_state == "IDLE" and (self._last_state in active or self._last_state is None):
+            elif odin_state == "IDLE" and self._last_state in active:
                 # Went from active print to idle without FINISH — print failed
                 printer_events.on_print_failed(
                     self.printer_id,

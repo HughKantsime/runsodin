@@ -293,8 +293,9 @@ def _fail_active_job_for_hms(printer_id: int, hms_code: str, hms_message: str, o
         except Exception as e:
             log.error(f"Failed to create print archive for job {print_job_id}: {e}")
 
-        # Dispatch failure alert (uses Path B — webhooks, push, email)
-        dispatch_alert(
+        # Deliver the terminal claim once through the durable outbox.
+        from core.job_terminal_observations import dispatch_terminal_alert
+        dispatch_terminal_alert(print_job_id, dispatch_alert,
             alert_type=AlertType.PRINT_FAILED,
             severity=AlertSeverity.CRITICAL,
             title=f"Print Failed (HMS): {job_name or 'Unknown'}",

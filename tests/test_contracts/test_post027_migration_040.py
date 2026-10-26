@@ -87,7 +87,7 @@ def test_postgres_monitor_alert_values_insert(pg_engine):
     with pg_engine.begin() as c:
         c.execute(text("INSERT INTO users(id,username,password_hash,role,is_active) VALUES(412,'alerts','unused','operator',TRUE)"))
         for atype,severity in pairs:
-            c.execute(text("INSERT INTO alerts(user_id,alert_type,severity,title,message,is_read,is_dismissed) VALUES(412,:atype,:severity,'monitor contract','',0,0)"),{'atype':atype,'severity':severity})
+            c.execute(text("INSERT INTO alerts(user_id,alert_type,severity,title,message,is_read,is_dismissed) VALUES(412,:atype,:severity,'monitor contract','',false,false)"),{'atype':atype,'severity':severity})
 
 
 def test_pre040_frozen_database_upgrades_and_preserves_jobs(tmp_path):

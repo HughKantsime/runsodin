@@ -328,20 +328,22 @@ class PrinterVisionThread(threading.Thread):
             detection_type, confidence, frame_path, bbox
         )
 
+        from core.base import AlertType, AlertSeverity
+
         # Map detection type to alert type
         alert_type_map = {
-            'spaghetti': 'spaghetti_detected',
-            'first_layer': 'first_layer_issue',
-            'detachment': 'detachment_detected',
-            'build_plate_empty': 'build_plate_empty_detected',
+            'spaghetti': AlertType.SPAGHETTI_DETECTED,
+            'first_layer': AlertType.FIRST_LAYER_ISSUE,
+            'detachment': AlertType.DETACHMENT_DETECTED,
+            'build_plate_empty': AlertType.BED_COOLED,
         }
         alert_type = alert_type_map[detection_type]
 
         severity_map = {
-            'spaghetti': 'critical',
-            'first_layer': 'warning',
-            'detachment': 'critical',
-            'build_plate_empty': 'info',
+            'spaghetti': AlertSeverity.CRITICAL,
+            'first_layer': AlertSeverity.WARNING,
+            'detachment': AlertSeverity.CRITICAL,
+            'build_plate_empty': AlertSeverity.INFO,
         }
 
         title_map = {

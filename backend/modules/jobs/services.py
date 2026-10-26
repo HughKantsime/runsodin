@@ -16,10 +16,4 @@ __all__ = ["delete_org_jobs", "education_order", "waiting_rows", "ordered_waitin
 def delete_org_jobs(db, org_id):
     """Organization deletion removes owned jobs and their cascading history."""
     from sqlalchemy import text
-    from modules.orders.services import assert_job_history_deletable
-    from core.order_production import prepare_job_write, reconcile_job_write
-    ids=list(db.execute(text('SELECT id FROM jobs WHERE charged_to_org_id=:org ORDER BY id'),{'org':org_id}).scalars())
-    parents=prepare_job_write(db,ids) if ids else []
-    for identifier in ids:assert_job_history_deletable(db,identifier)
-    db.execute(text('DELETE FROM jobs WHERE charged_to_org_id=:org'),{'org':org_id})
-    if ids:reconcile_job_write(db,parents)
+    db.execute(text('DELETE FROM jobs WHERE charged_to_org_id=:org'), {'org':org_id})
