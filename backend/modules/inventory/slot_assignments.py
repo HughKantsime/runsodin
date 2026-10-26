@@ -1,6 +1,7 @@
 """Transactional spool moves shared by API writers (caller owns commit)."""
 from fastapi import HTTPException
 from sqlalchemy.exc import OperationalError
+from core.interfaces.filament_ownership import ensure_local_filament_management
 from core.rbac import check_org_access
 from modules.inventory.models import Spool
 from modules.printers.models import FilamentSlot, Printer
@@ -67,8 +68,10 @@ def lock_slot_graph(db, slot_id=None, spool_id=None):
         raise
 
 
-def assign_slot(db, slot, spool_id, current_user=None):
+def assign_slot(db, slot, spool_id, current_user=None, *, telemetry_departure=False):
     """Move a spool, or unassign a slot, preserving both graph directions."""
+    if telemetry_departure and spool_id is not None:
+        raise ValueError('Telemetry departures can only clear an assignment')
     lock_slot_graph(db, slot.id, spool_id)
     db.flush()
     with db.no_autoflush:
@@ -94,6 +97,10 @@ def assign_slot(db, slot, spool_id, current_user=None):
                 printer = db.query(Printer).filter_by(id=printer_id).populate_existing().first()
                 if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
                     raise HTTPException(404, 'Printer not found')
+            # A move can also clear the source printer's assignment.
+            if not telemetry_departure:
+                for printer_id in printer_ids:
+                    ensure_local_filament_management(printer_id)
         for row in displaced:
             row.location_printer_id = None
             row.location_slot = None
@@ -119,10 +126,13 @@ def unload_spool_graph(db, spool, current_user=None):
     db.refresh(spool, ['location_printer_id', 'location_slot'])
     slots = db.query(FilamentSlot).filter(FilamentSlot.assigned_spool_id == spool.id).populate_existing().all()
     if current_user is not None:
-        for printer_id in {slot.printer_id for slot in slots}:
+        printer_ids = ({slot.printer_id for slot in slots} | {spool.location_printer_id}) - {None}
+        for printer_id in printer_ids:
             printer = db.query(Printer).filter_by(id=printer_id).populate_existing().first()
             if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
                 raise HTTPException(404, 'Printer not found')
+        for printer_id in printer_ids:
+            ensure_local_filament_management(printer_id)
     for slot in slots:
         slot.assigned_spool_id = None
         slot.spool_confirmed = False
@@ -190,7 +200,10 @@ class TelemetryInventoryMoves:
             spool = db.query(Spool).filter_by(id=slot.assigned_spool_id).populate_existing().first()
             if not spool or (not empty and (not tag or tag == spool.rfid_tag)):
                 continue
-            assign_slot(db, slot, None, current_user)
+            # Hardware departure evidence is internal reconciliation, even when
+            # a synthetic org-scoped user supplies the access checks above.
+            # Retain those checks, but do not apply the request ownership gate.
+            assign_slot(db, slot, None, current_user, telemetry_departure=True)
             moving = spool.id in incoming_ids
             retired = spool.remaining_weight_g is not None and spool.remaining_weight_g <= 0 and not moving
             if not moving:

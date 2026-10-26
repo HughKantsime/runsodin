@@ -7,8 +7,10 @@ Copied to core/ as part of the modular architecture refactor.
 Old import path (from config import settings) continues to work via re-exports in config.py.
 """
 
-from typing import Optional, List
-from pydantic_settings import BaseSettings
+import json
+from typing import Annotated, Dict, Optional, List
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, NoDecode
 
 
 class Settings(BaseSettings):
@@ -19,6 +21,17 @@ class Settings(BaseSettings):
 
     # Spoolman integration (optional)
     spoolman_url: Optional[str] = None
+
+    # Optional read-only display source. Empty by default.
+    filament_ledger_url: Optional[str] = None
+    filament_ledger_printers: Annotated[Dict[int, str], NoDecode] = Field(default_factory=dict)
+
+    @field_validator("filament_ledger_printers", mode="before")
+    @classmethod
+    def parse_filament_ledger_printers(cls, value):
+        if isinstance(value, str):
+            value = json.loads(value) if value.strip() else {}
+        return {} if value is None else value
 
     # Scheduler defaults
     blackout_start: str = "22:30"

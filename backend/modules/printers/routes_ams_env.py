@@ -16,6 +16,7 @@ from core.db import get_db
 from core.db_compat import sql
 from core.rbac import require_role, check_org_access, require_action
 from modules.printers.models import Printer, FilamentSlot
+from modules.printers.ledger_display import ensure_local_filaments
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -172,6 +173,7 @@ async def configure_ams_slot(
     """
     from modules.printers.route_utils import _bambu_command_direct
     printer = _ams_printer(printer_id, db, current_user, write=True)
+    ensure_local_filaments(printer_id)
     if printer.api_type != "bambu":
         raise HTTPException(status_code=400, detail="AMS slot config is only supported on Bambu printers")
     if ams_id < 0 or ams_id > 3 or slot_id < 0 or slot_id > 3:

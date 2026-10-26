@@ -16,6 +16,7 @@ from core.rbac import check_org_access, require_role, require_action
 from core.config import settings
 import core.crypto as crypto
 from modules.printers.models import Printer, FilamentSlot
+from modules.printers.ledger_display import ensure_local_filaments
 from modules.inventory.models import Spool, FilamentLibrary
 from core.base import FilamentType, SpoolStatus
 
@@ -108,6 +109,7 @@ async def sync_bambu_ams(printer_id: int, current_user: dict = Depends(require_a
         raise HTTPException(status_code=501, detail="Bambu integration not available")
 
     printer = _owned_printer(db, printer_id, current_user)
+    ensure_local_filaments(printer_id)
 
     if printer.api_type != "bambu":
         raise HTTPException(status_code=400, detail=f"Printer is type '{printer.api_type}', not 'bambu'")
@@ -234,6 +236,7 @@ async def manual_slot_assignment(
 ):
     """Manually assign filament to a slot when auto-matching fails."""
     _owned_printer(db, printer_id, current_user)
+    ensure_local_filaments(printer_id)
     slot = db.query(FilamentSlot).filter(
         FilamentSlot.printer_id == printer_id,
         FilamentSlot.slot_number == slot_number,

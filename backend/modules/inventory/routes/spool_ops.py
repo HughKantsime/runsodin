@@ -19,6 +19,7 @@ from core.dependencies import log_audit
 from core.rbac import require_role, check_org_access, get_org_scope, should_filter_org, require_action
 from modules.inventory.models import Spool
 from modules.printers.models import FilamentSlot, Printer
+from core.interfaces.filament_ownership import ensure_local_filament_management
 from ._helpers import ScanAssignRequest, ScanAssignResponse, generate_single_label
 
 log = logging.getLogger("odin.api")
@@ -178,6 +179,7 @@ def scan_assign_spool(
             success=False,
             message=f"Printer not found: {data.printer_id}",
         )
+    ensure_local_filament_management(data.printer_id)
 
     # Validate slot number
     if data.slot < 1 or data.slot > (printer.slot_count or 4):
