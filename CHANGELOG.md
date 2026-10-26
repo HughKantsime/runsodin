@@ -4,11 +4,13 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [2.0.19] - 2026-10-26
 
-<!-- summary: Optional read-only filament display from an external mapping service (contributed by rkj) -->
+<!-- summary: Optional read-only external filament display (contributed by rkj), automatic device-bound activation for new licenses, and test reliability fixes -->
 
 ### Added
 
 - Optional, read-only display of filament mappings from an external filament mapping or accounting service, contributed by Roman (rkj, PR #27). When a printer is linked, its slots show the externally managed spool, and ODIN's own AMS sync and hardware slot configuration for that printer are disabled, so the two can't disagree. Telemetry can still clear a slot when the printer reports it empty. Nothing changes for printers that aren't linked. See `docs/filament-ledger-display.md`.
+
+- Activating a new paid license works without extra steps when the license server issues it bound to this device. ODIN retries once as a device-bound activation. Licenses bought earlier are unchanged.
 
 ### Changed
 

@@ -113,7 +113,8 @@ def portal(device, monkeypatch):
         async def __aexit__(self, *args): pass
         async def post(self, url, json):
             calls.append((url, json))
-            return Mock(status_code=response['status'], headers={'content-type': 'application/json'}, json=lambda: response['body'])
+            answer = response['sequence'].pop(0) if response.get('sequence') else response
+            return Mock(status_code=answer['status'], headers={'content-type': 'application/json'}, json=lambda: answer['body'])
     async def challenge(*args): return 'fresh-test-challenge'
     monkeypatch.setattr(routes, '_fetch_license_challenge', challenge)
     monkeypatch.setattr(routes.httpx, 'AsyncClient', Client)
@@ -325,3 +326,54 @@ def test_unreadable_portal_auth_status_preserved(status):
     with pytest.raises(HTTPException) as exc:
         activation_response(response)
     assert exc.value.status_code == status
+
+
+@pytest.mark.parametrize('result', ['bound', 'legacy', 'trial', 'mismatch', 'refusal'])
+def test_automatic_binding_retry_uses_fresh_proof(portal, monkeypatch, result):
+    device, routes, calls, response, activate = portal
+    (upload, path, old, audit, db, lm, sign), fields = device
+    challenges = []
+    async def challenge(*args):
+        nonce = f'fresh-challenge-{len(challenges)}'
+        challenges.append(nonce)
+        return nonce
+    monkeypatch.setattr(routes, '_fetch_license_challenge', challenge)
+    response['sequence'] = [{'status': 400, 'body': {'code': 'BINDING_REQUIRED'}}]
+    if result == 'legacy': response['body'] = {'license_file': old}
+    elif result == 'trial': response['body'] = {'license_file': sign(trial=True, **fields).decode()}
+    elif result == 'mismatch': response['body'] = {'license_file': sign(**(fields | {'installation_id': 'other'})).decode()}
+    elif result == 'refusal': response.update(status=409, body={'code': 'CAPACITY_EXCEEDED'})
+    if result == 'bound':
+        assert activate()['status'] == 'activated'
+        assert lm.load_license().valid and lm.load_license().device_bound
+        assert not lm.load_license().trial
+    else:
+        with pytest.raises(HTTPException) as exc:
+            activate()
+        assert path.read_text() == old
+        if result == 'refusal':
+            assert exc.value.status_code == 409
+            assert exc.value.detail['code'] == 'CAPACITY_EXCEEDED'
+    assert len(calls) == len(challenges) == 2
+    first, retry = [body for _, body in calls]
+    keys = {'key', 'installation_id', 'device_pubkey', 'nonce', 'bootstrap_signature'}
+    assert set(first) == keys
+    assert set(retry) == keys | {'paid_binding'}
+    assert retry['paid_binding'] == 'device-v1'
+    assert first['nonce'] == challenges[0] and retry['nonce'] == challenges[1]
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    Ed25519PublicKey.from_public_bytes(base64.b64decode(retry['device_pubkey'])).verify(
+        base64.b64decode(retry['bootstrap_signature']),
+        f"odin-license-v1\nactivate-bootstrap\nTEST-ONLY\n{fields['installation_id']}\n{challenges[1]}".encode())
+
+
+@pytest.mark.parametrize('code', ['BINDING_REQUIRED', 'PROOF_REQUIRED', 'DEVICE_MISMATCH', 'CAPACITY_EXCEEDED', None])
+@pytest.mark.parametrize('bound', [False, True])
+def test_refusals_retry_only_unbound_binding_required(portal, code, bound):
+    device, routes, calls, response, activate = portal
+    response.update(status=400, body={'code': code})
+    with pytest.raises(HTTPException) as exc:
+        activate(**({'binding_protocol': 'device-v1'} if bound else {}))
+    assert exc.value.status_code == 400
+    assert len(calls) == (2 if code == 'BINDING_REQUIRED' and not bound else 1)
+    assert device[0][1].read_text() == device[0][2]

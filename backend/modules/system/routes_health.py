@@ -345,42 +345,53 @@ async def activate_license(
     # pair can't succeed — they don't hold the private key.
     _priv, device_pubkey = get_device_keypair()
 
-    # Explicit device-v1 and already-bound refreshes require fresh proof.
-    # Ordinary legacy activation retains compatibility with older portals.
-    proof = {}
-    try:
-        nonce = await _fetch_license_challenge(license_server_url, installation_id)
-        proof = {"nonce": nonce,
-                 "bootstrap_signature": sign_license_challenge("activate-bootstrap", request.key, installation_id, nonce)}
-    except Exception as exc:
-        if bound_requested:
-            raise HTTPException(status_code=502, detail={"code": "PROOF_REQUIRED", "message": "Device binding needs a fresh portal challenge. Check connectivity or use offline activation. Your installed license is unchanged."}) from exc
-        log.warning("License activation: no usable challenge from the license server (%s); sending without proof of possession",
-                    getattr(exc, "status_code", type(exc).__name__))
+    async def activate_attempt(bound_requested):
+        # Explicit device-v1 and already-bound refreshes require fresh proof.
+        # Ordinary legacy activation retains compatibility with older portals.
+        proof = {}
+        try:
+            nonce = await _fetch_license_challenge(license_server_url, installation_id)
+            proof = {"nonce": nonce,
+                     "bootstrap_signature": sign_license_challenge("activate-bootstrap", request.key, installation_id, nonce)}
+        except Exception as exc:
+            if bound_requested:
+                raise HTTPException(status_code=502, detail={"code": "PROOF_REQUIRED", "message": "Device binding needs a fresh portal challenge. Check connectivity or use offline activation. Your installed license is unchanged."}) from exc
+            log.warning("License activation: no usable challenge from the license server (%s); sending without proof of possession",
+                        getattr(exc, "status_code", type(exc).__name__))
 
-    # v1.8.9 (codex pass 13): DNS-pinned, no env proxy.
-    from core.itar import pin_for_request, ItarOutboundBlocked, should_trust_env
-    try:
-        with pin_for_request(license_server_url):
-            async with httpx.AsyncClient(timeout=15, trust_env=should_trust_env()) as client:
-                resp = await client.post(
-                    f"{license_server_url}/api/v1/activate",
-                    json={
-                        "key": request.key,
-                        "installation_id": installation_id,
-                        "device_pubkey": device_pubkey,
-                        **({"paid_binding": "device-v1"} if bound_requested else {}),
-                        **proof,
-                    },
-                )
-    except ItarOutboundBlocked as ite:
-        raise HTTPException(status_code=502, detail=f"License server blocked by ITAR: {ite}")
-    except Exception as e:
-        log.error("License activation failed — could not reach license server: %s", e)
-        raise HTTPException(status_code=502, detail="Could not reach license server. Check network connectivity and LICENSE_SERVER_URL.")
+        # v1.8.9 (codex pass 13): DNS-pinned, no env proxy.
+        from core.itar import pin_for_request, ItarOutboundBlocked, should_trust_env
+        try:
+            with pin_for_request(license_server_url):
+                async with httpx.AsyncClient(timeout=15, trust_env=should_trust_env()) as client:
+                    resp = await client.post(
+                        f"{license_server_url}/api/v1/activate",
+                        json={
+                            "key": request.key,
+                            "installation_id": installation_id,
+                            "device_pubkey": device_pubkey,
+                            **({"paid_binding": "device-v1"} if bound_requested else {}),
+                            **proof,
+                        },
+                    )
+        except ItarOutboundBlocked as ite:
+            raise HTTPException(status_code=502, detail=f"License server blocked by ITAR: {ite}")
+        except Exception as e:
+            log.error("License activation failed — could not reach license server: %s", e)
+            raise HTTPException(status_code=502, detail="Could not reach license server. Check network connectivity and LICENSE_SERVER_URL.")
 
-    from .license_portal import activation_response
-    data = activation_response(resp)
+        from .license_portal import activation_response
+        return activation_response(resp)
+
+    try:
+        data = await activate_attempt(bound_requested)
+    except HTTPException as exc:
+        if bound_requested or not isinstance(exc.detail, dict) or exc.detail.get("code") != "BINDING_REQUIRED":
+            raise
+        # The portal chooses binding for new purchases. A second attempt gets
+        # fresh proof, and must pass the same paid device-bound verification.
+        bound_requested = True
+        data = await activate_attempt(bound_requested)
     license_content = data.get("license_file")
     if not license_content:
         raise HTTPException(status_code=502, detail="License server returned no license file")

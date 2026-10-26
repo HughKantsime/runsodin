@@ -350,7 +350,7 @@ export default function LicenseTab() {
           Enter your license key to activate online. The license will be bound to this installation.
         </p>
         <p className="text-sm">To convert an existing purchase to device binding, contact support.</p>
-        <label className="block text-sm mb-3"><input type="checkbox" checked={requestBound} onChange={e => setRequestBound(e.target.checked)} /> Request device-bound activation (requires portal support)</label>
+        <label className="block text-sm mb-3"><input type="checkbox" checked={requestBound} onChange={e => setRequestBound(e.target.checked)} /> Request device-bound activation — device binding is chosen automatically for new purchases; this box is only needed for offline activation of a new purchase.</label>
 
         <div className="flex gap-2">
           <Input aria-label="License key"
