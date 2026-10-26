@@ -268,10 +268,13 @@ def test_actual_identified_monitor_terminal_uses_durable_mobile(private_attempt,
         monitor._job_ended(outcome,SimpleNamespace(filename='owned.gcode',filament_used_mm=0,error_message=None))
     elif outcome=='cancelled':job_events.job_cancelled(printer_id,identifier)
     else:job_events.job_completed(printer_id,identifier,success=outcome=='completed')
-    # Cancellations alert only where origin/main did (generic job_events), never from MQTT or Moonraker.
-    expected = int(outcome != 'cancelled' or source == 'generic')
+    # Cancellations alert only where origin/main did: generic job_events ('Print Cancelled')
+    # and Moonraker (its non-completed branch sends 'Print Failed'); never Bambu MQTT.
+    expected = int(outcome != 'cancelled' or source != 'mqtt')
     assert len(external)==len(mobile)==expected
-    if outcome == 'cancelled' and expected:
+    if outcome == 'cancelled' and source == 'moonraker':
+        assert mobile[0].title.startswith('Print Failed: ')
+    elif outcome == 'cancelled' and expected:
         from core.base import AlertType, AlertSeverity
         assert mobile[0].alert_type == AlertType.PRINT_FAILED
         assert mobile[0].severity == AlertSeverity.WARNING

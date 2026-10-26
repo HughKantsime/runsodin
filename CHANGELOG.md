@@ -16,7 +16,7 @@ All notable changes to O.D.I.N. are documented here.
 ### Fixed
 
 - Mobile app notifications are delivered, and only to users who can see the printer or job, following their alert preferences.
-- Alerts from Moonraker, PrusaLink, Elegoo and vision use the standard alert types and severities, so they are stored correctly on PostgreSQL. Moonraker completion alerts name the job.
+- Alerts from Moonraker, PrusaLink, Elegoo and vision use the standard alert types and severities, so they are stored correctly on PostgreSQL. Moonraker completion alerts name the job. PrusaLink, Elegoo and Anycubic cancellations were sent with an alert type that isn't valid. They now arrive as "Print Cancelled" warnings under print-failed, and follow your print-failed notification preferences.
 
 ## [2.0.17] - 2026-10-25
 
