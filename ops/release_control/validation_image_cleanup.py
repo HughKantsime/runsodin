@@ -23,7 +23,9 @@ IMAGE_ID_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 TAG_RE = re.compile(r"^[a-z0-9][a-z0-9._/-]{0,127}:[a-z0-9][a-z0-9._-]{0,63}$")
 GHA_TAG_RE = re.compile(r"^odin-(?:candidate:candidate|dbparity:parity)-gha-[0-9]+-1$")
 Command = Callable[..., subprocess.CompletedProcess[str]]
-PROBE_IMAGE_ID = "sha256:9534e5a8e315485d4061ed659af0fd78a284c015f9b73661b41d6bab25604534"
+HISTORICAL_PROBE_IMAGE_ID = "sha256:9534e5a8e315485d4061ed659af0fd78a284c015f9b73661b41d6bab25604534"
+PROBE_IMAGE_ID = "sha256:0b23cfb7425d065008b778022a17b1551c82f8b4866ee5a7a200084b7e2eafbf"
+PROBE_IMAGE_REF = f"python:3.11-slim@{PROBE_IMAGE_ID}"
 HOST_MIN_FREE_BYTES = 5 * 1024**3
 DOCKER_MIN_FREE_KIB = 3 * 1024**2
 VALIDATION_DOCKER_MIN_FREE_KIB = 6 * 1024**2
@@ -668,7 +670,7 @@ def _load_allowlist(path: Path) -> tuple[dict[str, object], str]:
         or not isinstance(docker_min, int)
         or isinstance(docker_min, bool)
         or docker_min != DOCKER_MIN_FREE_KIB
-        or probe != PROBE_IMAGE_ID
+        or probe not in {HISTORICAL_PROBE_IMAGE_ID, PROBE_IMAGE_ID}
         or not isinstance(targets, list)
     ):
         raise ValidationImageError("cleanup allowlist policy is invalid")
@@ -727,7 +729,29 @@ def _host_free_bytes() -> int:
     return stats.f_bavail * stats.f_frsize
 
 
+def ensure_probe_image(*, command: Command = _command) -> None:
+    """Recover a pruned probe without changing any tags or removing images."""
+    def inspect(reference: str) -> subprocess.CompletedProcess[str]:
+        return command(
+            ["docker", "image", "inspect", "--format", "{{.Id}}", reference],
+            capture=True,
+            check=False,
+        )
+
+    observed = inspect(PROBE_IMAGE_ID)
+    if observed.returncode:
+        pulled = command(["docker", "pull", PROBE_IMAGE_REF], capture=True, check=True)
+        if pulled.returncode:
+            raise ValidationImageError("Docker capacity probe pull failed")
+        observed = inspect(PROBE_IMAGE_REF)
+    if observed.returncode or (observed.stdout or "").strip() != PROBE_IMAGE_ID:
+        raise ValidationImageError("Docker capacity probe image identity mismatch")
+
+
 def _docker_free_kib(probe_image_id: str, *, command: Command = _command) -> int:
+    if probe_image_id != PROBE_IMAGE_ID:
+        raise ValidationImageError("Docker capacity probe image is not the active pin")
+    ensure_probe_image(command=command)
     completed = command(
         [
             "docker", "run", "--pull=never", "--rm", "--network", "none",
@@ -969,7 +993,7 @@ def execute_cleanup(
                 }
             )
         host_free = _host_free_bytes()
-        docker_free = _docker_free_kib(str(policy["probe_image_id"]), command=command)
+        docker_free = _docker_free_kib(PROBE_IMAGE_ID, command=command)
         if (
             host_free < int(policy["host_min_free_bytes"])
             or docker_free < int(policy["docker_min_free_kib"])

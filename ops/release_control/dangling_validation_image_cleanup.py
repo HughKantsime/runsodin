@@ -13,6 +13,7 @@ from typing import Callable
 from .validation_image_cleanup import (
     DOCKER_MIN_FREE_KIB,
     HOST_MIN_FREE_BYTES,
+    HISTORICAL_PROBE_IMAGE_ID,
     IMAGE_ID_RE,
     PROBE_IMAGE_ID,
     ROOT,
@@ -99,7 +100,7 @@ PARENT_TARGETS = [
 def _policy(targets: list[dict[str, object]]) -> dict[str, object]:
     return {
         "schema_version": 1,
-        "probe_image_id": PROBE_IMAGE_ID,
+        "probe_image_id": HISTORICAL_PROBE_IMAGE_ID,
         "host_min_free_bytes": HOST_MIN_FREE_BYTES,
         "docker_min_free_kib": DOCKER_MIN_FREE_KIB,
         "targets": targets,

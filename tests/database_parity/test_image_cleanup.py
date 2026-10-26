@@ -8,13 +8,15 @@ import pytest
 
 from ops.database_parity import runner
 from ops.release_gate.policy import GatePolicyError
-from ops.release_control.validation_image_cleanup import VALIDATION_CAPACITY_COMMAND
+from ops.release_control.validation_image_cleanup import VALIDATION_CAPACITY_COMMAND, PROBE_IMAGE_ID
 
 
 IMAGE_ID = "sha256:" + "a" * 64
 
 
 def _capacity_probe(args: list[str]):
+    if args == ["docker", "image", "inspect", "--format", "{{.Id}}", PROBE_IMAGE_ID]:
+        return subprocess.CompletedProcess(args, 0, PROBE_IMAGE_ID + "\n")
     if tuple(args) != VALIDATION_CAPACITY_COMMAND:
         return None
     return subprocess.CompletedProcess(

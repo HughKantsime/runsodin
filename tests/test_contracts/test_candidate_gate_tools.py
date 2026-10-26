@@ -15,7 +15,7 @@ from ops.release_gate.policy import (
 from ops.release_gate.report import render_report
 from ops.release_gate import runner
 from ops.release_gate.runner import ResourceNames, validate_run_id
-from ops.release_control.validation_image_cleanup import VALIDATION_CAPACITY_COMMAND
+from ops.release_control.validation_image_cleanup import VALIDATION_CAPACITY_COMMAND, PROBE_IMAGE_ID
 
 
 @pytest.fixture(autouse=True)
@@ -36,6 +36,8 @@ def _write_junit(path: Path, body: str) -> Path:
 
 
 def _capacity_probe(args: list[str]):
+    if args == ["docker", "image", "inspect", "--format", "{{.Id}}", PROBE_IMAGE_ID]:
+        return subprocess.CompletedProcess(args, 0, PROBE_IMAGE_ID + "\n")
     if tuple(args) != VALIDATION_CAPACITY_COMMAND:
         return None
     return subprocess.CompletedProcess(
