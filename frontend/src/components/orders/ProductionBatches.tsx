@@ -1,10 +1,10 @@
 import ProductionHistory from './ProductionHistory'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { production, ProductionState, ProductionJob, RecipeOutput } from '../../api/production'
 import { square } from '../../api/square'
 import { getCurrentUser } from '../../permissions'
 
-export default function ProductionBatches({products}:{products:{id:number;name:string}[]}) {
+export default function ProductionBatches({products,inspectJobId}:{products:{id:number;name:string}[];inspectJobId?:number}) {
   const [open,setOpen]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('')
   const [state,setState]=useState<ProductionState|null>(null),[jobs,setJobs]=useState<ProductionJob[]>([])
   const [jobOffset,setJobOffset]=useState<number|null>(null)
@@ -19,9 +19,22 @@ export default function ProductionBatches({products}:{products:{id:number;name:s
   const run=async(fn:()=>Promise<void>)=>{setBusy(true);setError('');try{await fn()}catch(e){setError(e instanceof Error?e.message:'Could not complete the request. Reload and try again.')}finally{setBusy(false)}}
   const load=async()=>{
     const g=++generation.current
-    const [s,j]=await Promise.all([production.state(),operator?production.jobs():Promise.resolve({jobs:[],next_offset:null})])
-    if(g===generation.current){setState(s);setJobs(j.jobs);setJobOffset(j.next_offset);setHistoryRevision(old=>old+1)}
+    const [s,j]=await Promise.all([production.state(),operator?production.jobs(0,inspectJobId):Promise.resolve({jobs:[],next_offset:null})])
+    if(inspectJobId){
+      while(s.next_offset!==null){const page=await production.state(s.next_offset);s.recipes.push(...page.recipes);s.next_offset=page.next_offset}
+    }
+    if(g===generation.current){
+      if(inspectJobId){
+        const target=j.jobs.find(v=>v.id===inspectJobId)
+        if(!target)throw new Error('Inspection unavailable for this job.')
+        setJob(String(inspectJobId))
+        const matches=s.recipes.filter(r=>r.qualified&&r.payload&&Object.keys(r.payload).every(k=>r.payload![k]===(target.payload as Record<string,unknown>)[k]))
+        if(matches.length===1){setRecipeId(matches[0].id);setCounts(matches[0].outputs.map(()=>({accepted:'',rejected:''})))}
+        else setError(matches.length?'Recipe ambiguous. Review the recipe revisions.':'No qualified recipe for this job.')
+      }
+      setState(s);setJobs(j.jobs);setJobOffset(j.next_offset);setHistoryRevision(old=>old+1)}
   }
+  useEffect(()=>{if(inspectJobId){setOpen(true);void run(load)}},[inspectJobId])
   const toggle=()=>{const next=!open;setOpen(next);if(next)void run(load)}
   const selectRecipe=(id:string)=>{setRecipeId(id);setConfirmed(false);setNotice('');setCounts((state?.recipes.find(r=>r.id===id)?.outputs??[]).map(()=>({accepted:'',rejected:''})))}
   const readyCounts=!!recipe&&counts.length===recipe.outputs.length&&counts.every((c,i)=>c.accepted!==''&&c.rejected!==''&&Number.isInteger(Number(c.accepted))&&Number.isInteger(Number(c.rejected))&&Number(c.accepted)>=0&&Number(c.rejected)>=0&&Number(c.accepted)+Number(c.rejected)===recipe.outputs[i].expected)

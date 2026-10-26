@@ -114,6 +114,7 @@ ACTION_ROUTES: dict[str, list[tuple[str, str]]] = {
     "jobs.start": [
         ("POST", "/api/jobs/{job_id}/start"),
         ("POST", "/api/jobs/{job_id}/dispatch"),
+        ("POST", "/api/printers/{printer_id}/start-next"),
     ],
     "jobs.complete": [
         ("POST", "/api/jobs/{job_id}/complete"),

@@ -3,6 +3,7 @@ MODULE_VERSION = "1.0.0"
 MODULE_DESCRIPTION = "Printer communication, adapters, monitors, and fleet management"
 
 ROUTES = [
+    "printers.routes_start_next",
     "printers.routes",           # aggregator
     "printers.camera_routes",
     "printers.routes_crud",

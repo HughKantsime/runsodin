@@ -340,13 +340,6 @@ class MoonrakerMonitor:
                     from core.job_timeline import for_printer
                     for_printer(self.printer_id, "runout")
                     log.warning(f"[{self.name}] Filament runout detected!")
-                    printer_events.dispatch_alert(
-                        alert_type=AlertType.PRINTER_ERROR,
-                        severity=AlertSeverity.WARNING,
-                        title=f"Filament Runout: {self.name}",
-                        message=f"Filament sensor triggered on {self.name}",
-                        printer_id=self.printer_id,
-                    )
             self._prev_filament_detected = status.filament_detected
 
         # Detect state change

@@ -198,4 +198,9 @@ def _stage_terminal(db, row, outbox_id):
     else:
         payload['alert_type'] = AlertType(payload['alert_type'])
         payload['severity'] = AlertSeverity(payload['severity'])
+    from modules.jobs.completion_summary import build_summary
+    uid = db.execute(text('SELECT economic_uid FROM print_jobs WHERE id=:id'), {'id': physical_id}).scalar_one()
+    summary = build_summary(db, uid)
+    payload['metadata'] = {**(payload.get('metadata') or {}), 'summary': summary}
+    payload['message'] = summary['text']
     return stage_alert(db, **payload)

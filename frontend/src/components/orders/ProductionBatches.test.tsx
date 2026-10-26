@@ -35,3 +35,17 @@ it('rejected-only batch does not depend on Square being available',async()=>{
  vi.mocked(production.inspect).mockResolvedValue({id:'rejected',recipe_id:recipe.id,job_id:2,recipe_name:'Mini batch',occurred_at:'2026-10-20T12:00:00Z',stock_status:'no_sellable_output',outputs:[]})
  fireEvent.click(screen.getByRole('button',{name:'Record inspection'}));await screen.findByText(/No sellable pieces added/);expect(square.status).not.toHaveBeenCalled();expect(production.inspect).toHaveBeenCalledWith(expect.objectContaining({square_revision:null}))
 })
+it('inspection deep link opens the requested job and matches the exact qualified payload',async()=>{
+ vi.mocked(production.state).mockResolvedValue({...state,recipes:[{...recipe,payload:jobs.jobs[0].payload}]})
+ render(<ProductionBatches products={[]} inspectJobId={2}/>)
+ await waitFor(()=>expect(screen.getByLabelText('Completed batch job')).toHaveValue('2'))
+ expect(production.jobs).toHaveBeenCalledWith(0,2)
+ expect(screen.getByLabelText('Qualified recipe')).toHaveValue(recipe.id)
+ expect(screen.getByRole('button',{name:'Record inspection'})).toBeDisabled()
+})
+it('inspection deep link reports an unavailable job without substituting another',async()=>{
+ vi.mocked(production.jobs).mockRejectedValue(new Error('This job has multiple physical attempts.'))
+ render(<ProductionBatches products={[]} inspectJobId={900}/>)
+ await screen.findByRole('alert')
+ expect(screen.getByLabelText('Completed batch job')).toHaveValue('')
+})

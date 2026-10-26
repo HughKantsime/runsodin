@@ -1,0 +1,36 @@
+{
+  "routes": {
+    "suggestion": "/api/printers/{printer_id}/next-suggestion",
+    "start": "/api/printers/{printer_id}/start-next"
+  },
+  "suggestion": {
+    "job_id": 202,
+    "reason": "Scheduler queue order",
+    "filament": "verify_needed"
+  },
+  "request": {
+    "suggested_job_id": 202,
+    "suggestion_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "request_id": "00000000-0000-4000-8000-000000000001",
+    "bed_clear_confirmed": true,
+    "attestation": "owner_in_app"
+  },
+  "summary_fields": [
+    "job_id",
+    "print_attempt_uid",
+    "printer",
+    "job_name",
+    "actual_print_seconds",
+    "recipe_state",
+    "expected_outputs",
+    "health",
+    "health_events",
+    "inspection_url",
+    "inspection_available",
+    "inspection_unavailable_reason",
+    "square_projection",
+    "next",
+    "bed_line",
+    "text"
+  ]
+}

@@ -426,3 +426,28 @@ def test_sqlite_backup_restore_retains_baseline_and_review_without_receipt_edits
         audit=restored.execute("SELECT details FROM audit_logs WHERE action='square.baseline_review'").fetchone()[0]
         assert json.loads(audit)['addition_id']==row['id']
         assert restored.execute("SELECT value FROM system_config WHERE key='square_readonly:1'").fetchone()[0]
+
+
+def test_count_snapshots_commit_only_after_remote_reads_and_authority_recheck(batch,monkeypatch):
+    from modules.orders import stock_snapshots
+    row=prepared(batch);db=batch[3]
+    checked=[];reads=[]
+    original_lock=recovery.lock_snapshot
+    original_record=stock_snapshots.record
+    original_count=wire.SquareInventoryProbe.count
+    def count(reader,*args):
+        assert not db.connection().connection.driver_connection.in_transaction
+        reads.append(True)
+        return original_count(reader,*args)
+    def lock(*args,**kwargs):
+        value=original_lock(*args,**kwargs);checked.append(True);return value
+    def record(*args,**kwargs):
+        assert checked and reads and kwargs['read_at'] is not None
+        return original_record(*args,**kwargs)
+    monkeypatch.setattr(wire.SquareInventoryProbe,'count',count)
+    monkeypatch.setattr(recovery,'lock_snapshot',lock)
+    monkeypatch.setattr(stock_snapshots,'record',record)
+    assert recovery.check(db,batch[1],row['id'])['readiness']=='checks_passed'
+    db.rollback()
+    saved=db.execute(text("SELECT quantity,owner_key FROM stock_snapshots WHERE variation='V1' AND location='L1'")).one()
+    assert saved==('7.00000',1)

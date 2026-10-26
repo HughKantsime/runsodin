@@ -161,6 +161,8 @@ def _check_attempt(engine,*,token,job,creds,key,payload_sha256,transport_filenam
                 raise _Refused('Education reservation filename differs')
             from core.dispatch_receipts import store_admission_receipt
             if not already_admitted:
+                from modules.printers.start_next import confirm_on_admission
+                confirm_on_admission(conn, token=token, job=current_job)
                 store_admission_receipt(conn,token=token,job=current_job,creds=current_creds,key=key,
                     configuration_key=current_identity.configuration_key,filename=transport_filename,
                     broker_connection=broker_connection,power_accepted=power_accepted)

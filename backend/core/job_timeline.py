@@ -94,6 +94,7 @@ class TimelineWriter:
                 return True
             items=[self.queue.popleft() for _ in range(min(32,len(self.queue)))]
         try:
+            plans=[]
             with self.engine.begin() as c:
                 if c.dialect.name=='postgresql':
                     c.exec_driver_sql("SET LOCAL lock_timeout = '100ms'")
@@ -117,9 +118,27 @@ class TimelineWriter:
                     # Derive ownership from current authoritative job data. A deleted
                     # job drops its queued history rather than resurrecting it.
                     c.execute(text("INSERT INTO job_timeline_events(id,job_id,print_attempt_uid,printer_id,org_id,kind,code,detail,occurred_at) SELECT :id,j.id,:attempt,:printer,j.charged_to_org_id,:kind,:code,:detail,:occurred FROM jobs j WHERE j.id=:job ON CONFLICT(id) DO NOTHING"),item)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant SQL; values are bound
+                    if item['kind'] in ('paused','runout','failed') and item.get('attempt'):
+                        from sqlalchemy.orm import Session
+                        from modules.notifications.job_faults import stage
+                        with Session(bind=c) as fault_db:
+                            plan=stage(fault_db,item)
+                            fault_db.flush()
+                            if plan is not None:plans.append(plan)
                 with self.lock:empty=not self.queue
                 self._state(c,now() if empty else None,self.stop.is_set() and empty)
             self.last_heartbeat=time.monotonic()
+            # External sends follow commit and cannot roll back history/claims.
+            for plan in plans:
+                try:
+                    from sqlalchemy.orm import Session
+                    from modules.notifications.alert_dispatcher import _deliver_staged_alert
+                    from modules.notifications.alert_outbox import deliver_mobile
+                    with Session(bind=self.engine) as delivery_db:
+                        _deliver_staged_alert(delivery_db,plan)
+                        deliver_mobile(delivery_db,plan)
+                except Exception:
+                    pass
             return True
         except Exception:
             with self.lock:
@@ -218,6 +237,9 @@ def for_printer(printer_id, kind, *, code=None, detail=None):
     # Producers with known job identity use event() directly. Printer-only
     # resolution is queued for the dedicated writer too.
     item=event(1,kind,printer_id=printer_id,code=code,detail=detail)
+    if kind in ('paused','runout'):
+        from modules.notifications.job_faults import notify
+        notify(printer_id,kind,code)
     item['resolve_printer']=printer_id
     return enqueue(item)
 

@@ -1,5 +1,6 @@
 """Read-only reconciliation and exactly-once reservation for explicit stock sends."""
 import json
+from datetime import datetime, timezone
 from collections import defaultdict
 
 from fastapi import HTTPException
@@ -100,6 +101,7 @@ def check(db,user,addition_id):
         db.rollback()  # No database locks held during remote reads.
         matched=live_check(doc,row,reconcile=row['state']=='unknown')
         preview=[]
+        count_reads=[]
         if row['state']=='prepared':
             reader=wire.SquareInventoryProbe(doc['environment'],doc['token'])
             locations={v['id']:v['name'] for v in reader.locations(doc['merchant_id'])}
@@ -109,9 +111,11 @@ def check(db,user,addition_id):
                     m['location_id']==a['to_location_id'] and m['variation_id']==a['catalog_object_id'])
                 if a['to_location_id'] not in locations:
                     raise HTTPException(409,'The saved Square location became unavailable during checks.')
+                count = reader.count(a['catalog_object_id'],a['to_location_id'])
+                count_reads.append((a['catalog_object_id'],a['to_location_id'],count,datetime.now(timezone.utc)))
                 preview.append({'product': store.own_product(db,owner,int(pid)).name, 'quantity': a['quantity'],
                     'location': locations[a['to_location_id']], 'location_id': a['to_location_id'],
-                    'current_count': reader.count(a['catalog_object_id'],a['to_location_id'])['quantity']})
+                    'current_count': count['quantity']})
 
         current,_,_=lock_snapshot(db,user,addition_id,revision)
         if current['state']=='confirmed':
@@ -126,8 +130,11 @@ def check(db,user,addition_id):
                 return result(current,'confirmed','Exact Square adjustment history confirms this addition. No stock was sent.')
             db.rollback()
             return result(current,'manual_review','The outcome is still unknown. Retain this receipt and review Square history; do not create another addition.')
+        from modules.orders.stock_snapshots import record
+        for variation,location,count,read_at in count_reads:
+            record(db,owner,variation,location,count,read_at=read_at)
         enabled=store.writes_enabled(doc)
-        db.rollback()
+        db.commit()  # Retain the actual count reads as scoped stock snapshots.
         return {**result(current,'checks_passed','Account, location, mapping, tracking and write scope checks passed.',enabled=enabled), 'preview':preview}
     except HTTPException as exc:
         db.rollback()

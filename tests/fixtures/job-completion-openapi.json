@@ -1,0 +1,302 @@
+{
+  "routes": {
+    "/api/printers/{printer_id}/next-suggestion": {
+      "get": {
+        "tags": [
+          "Printers"
+        ],
+        "summary": "Get Next Suggestion",
+        "operationId": "get_next_suggestion_api_printers__printer_id__next_suggestion_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "printer_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "title": "Printer Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Suggestion"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/printers/{printer_id}/start-next": {
+      "post": {
+        "tags": [
+          "Printers"
+        ],
+        "summary": "Start Next",
+        "operationId": "start_next_api_printers__printer_id__start_next_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "printer_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "title": "Printer Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartNext"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "schemas": {
+    "StartNext": {
+      "properties": {
+        "suggested_job_id": {
+          "type": "integer",
+          "exclusiveMinimum": 0.0,
+          "title": "Suggested Job Id"
+        },
+        "suggestion_fingerprint": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Suggestion Fingerprint"
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid",
+          "title": "Request Id"
+        },
+        "bed_clear_confirmed": {
+          "type": "boolean",
+          "title": "Bed Clear Confirmed"
+        },
+        "attestation": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "owner_in_app",
+                "owner_confirmed_to_operator"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Attestation"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "suggested_job_id",
+        "suggestion_fingerprint",
+        "request_id",
+        "bed_clear_confirmed"
+      ],
+      "title": "StartNext"
+    },
+    "Suggestion": {
+      "properties": {
+        "job_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Job Id"
+        },
+        "reason": {
+          "type": "string",
+          "title": "Reason"
+        },
+        "filament": {
+          "type": "string",
+          "enum": [
+            "no_change",
+            "change_needed",
+            "verify_needed"
+          ],
+          "title": "Filament"
+        },
+        "fingerprint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fingerprint"
+        },
+        "load": {
+          "items": {
+            "type": "object"
+          },
+          "type": "array",
+          "title": "Load"
+        },
+        "finished_attempt_uid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Finished Attempt Uid"
+        },
+        "inputs": {
+          "type": "object",
+          "title": "Inputs"
+        }
+      },
+      "type": "object",
+      "required": [
+        "job_id",
+        "reason",
+        "filament",
+        "fingerprint"
+      ],
+      "title": "Suggestion"
+    },
+    "StartResult": {
+      "properties": {
+        "success": {
+          "type": "boolean",
+          "title": "Success"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "preparing",
+            "admitted",
+            "dispatched",
+            "refused",
+            "uncertain"
+          ],
+          "title": "State"
+        },
+        "job_id": {
+          "type": "integer",
+          "title": "Job Id"
+        },
+        "request_id": {
+          "type": "string",
+          "title": "Request Id"
+        },
+        "message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Message"
+        }
+      },
+      "type": "object",
+      "required": [
+        "success",
+        "state",
+        "job_id",
+        "request_id"
+      ],
+      "title": "StartResult"
+    }
+  },
+  "claims": {
+    "start_requires": [
+      "jobs.start",
+      "write:jobs"
+    ],
+    "suggestion_requires": [
+      "read:printers"
+    ],
+    "hardware_certified": false,
+    "summary_fields": [
+      "job_id",
+      "print_attempt_uid",
+      "printer",
+      "job_name",
+      "actual_print_seconds",
+      "recipe_state",
+      "expected_outputs",
+      "health",
+      "health_events",
+      "inspection_url",
+      "inspection_available",
+      "inspection_unavailable_reason",
+      "square_projection",
+      "next",
+      "bed_line",
+      "text"
+    ]
+  }
+}

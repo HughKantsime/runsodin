@@ -171,6 +171,9 @@ def preview(db,user,product_id):
     latest,_=store.load(db,owner);latest_policy,_=load(db,owner)
     if not latest or latest['revision']!=revision or latest_policy['revision']!=policy_revision or current.name!=product_name:
         db.rollback();raise HTTPException(409,'Product, Square connection or assortment changed during checks. Reload before continuing.')
+    from modules.orders.stock_snapshots import record
+    record(db,owner,mapping['variation_id'],mapping['location_id'],stock)
+    db.commit()
     result.update(stock=stock,retrieved_at=batches.now())
     try:
         value=Decimal(stock['quantity']) if stock['state']=='known' and isinstance(stock['quantity'],str) else None

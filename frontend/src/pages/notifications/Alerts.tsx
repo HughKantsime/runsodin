@@ -1,3 +1,4 @@
+import CompletionSummary from '../../components/jobs/CompletionSummary'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -323,6 +324,7 @@ export default function Alerts() {
                         <div className="text-sm font-semibold" style={{ color: 'var(--brand-text-primary)' }}>
                           {alert.title}
                         </div>
+                        {alert.metadata_json?.summary && <CompletionSummary summary={alert.metadata_json.summary} />}
                         {alert.message && (
                           <p className="text-xs mt-1 leading-relaxed" style={{ color: 'var(--brand-text-secondary)' }}>
                             {alert.message}

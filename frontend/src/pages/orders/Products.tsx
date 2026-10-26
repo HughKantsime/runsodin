@@ -1,3 +1,4 @@
+import { useSearchParams } from 'react-router-dom'
 import OperationsWorkbench from '../../components/orders/OperationsWorkbench'
 import Finishing from '../../components/orders/Finishing'
 import AssortmentPolicyPanel from '../../components/orders/AssortmentPolicy'
@@ -14,6 +15,9 @@ import { EmptyState } from '../../components/ui'
 import { DialogSurface } from '../../components/ui'
 
 export default function Products() {
+  const [searchParams] = useSearchParams()
+  const requestedInspection = Number(searchParams.get('inspect'))
+  const inspectJobId = Number.isSafeInteger(requestedInspection) && requestedInspection > 0 ? requestedInspection : undefined
   const [productList, setProductList] = useState([])
   const [modelList, setModelList] = useState([])
   const [loading, setLoading] = useState(true)
@@ -224,7 +228,7 @@ export default function Products() {
 
 
       <SquareInventory products={productList} />
-      <ProductionBatches products={productList} />
+      <ProductionBatches inspectJobId={inspectJobId} products={productList} />
       <Finishing products={productList} />
       <OperationsWorkbench />
       <AssortmentPolicyPanel />

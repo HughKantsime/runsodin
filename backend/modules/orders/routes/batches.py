@@ -44,11 +44,14 @@ def history(offset:int=Query(default=0,ge=0,le=1000000), query:str=Query(default
 
 
 @router.get('/jobs')
-def eligible_jobs(offset: int=Query(default=0,ge=0), user=Depends(operator), db: Session=Depends(get_db)):
+def eligible_jobs(offset: int=Query(default=0,ge=0), job_id: int | None=Query(default=None,gt=0), user=Depends(operator), db: Session=Depends(get_db)):
     from fastapi import HTTPException
     owner=square_store.tenant(user)
     from modules.jobs.models import Job
     clause=Job.charged_to_org_id.is_(None) if owner==0 else Job.charged_to_org_id==owner
+    if job_id is not None:
+        evidence=service.job_evidence(db,owner,job_id)
+        return {'jobs':[{'id':job_id,'name':evidence['item_name'],'payload':service.recipe_payload(evidence)}],'next_offset':None}
     candidates=db.execute(select(Job.id).where(clause,Job.status=='completed').order_by(Job.id.desc()).limit(100).offset(offset)).scalars().all()
     result=[]
     for job_id in candidates:

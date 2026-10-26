@@ -16,13 +16,13 @@ beforeEach(()=>{
 })
 afterEach(()=>{cleanup();vi.clearAllMocks()})
 it('renders recorded zero prices in both product presentations',async()=>{
-  render(<Products />)
+  render(<MemoryRouter><Products /></MemoryRouter>)
   await screen.findAllByText('Synthetic free product')
   expect(screen.getByText('Price: $0.00')).toBeTruthy()
   expect(screen.getAllByText('$0.00').length).toBeGreaterThan(0)
 })
 it('preserves an explicit zero during an unchanged edit',async()=>{
-  render(<Products />)
+  render(<MemoryRouter><Products /></MemoryRouter>)
   fireEvent.click((await screen.findAllByTitle('Edit'))[0])
   fireEvent.click(await screen.findByRole('button',{name:'Save Changes'}))
   await waitFor(()=>expect(products.update).toHaveBeenCalledWith(1,expect.objectContaining({price:0})))
@@ -30,7 +30,7 @@ it('preserves an explicit zero during an unchanged edit',async()=>{
 it('does not offer editing after a failed full product load',async()=>{
   vi.mocked(products.get).mockRejectedValue(new Error('Synthetic isolated load failure'))
   const notify=vi.spyOn(toast,'error')
-  render(<Products />)
+  render(<MemoryRouter><Products /></MemoryRouter>)
   fireEvent.click((await screen.findAllByTitle('Edit'))[0])
   await waitFor(()=>expect(notify).toHaveBeenCalledWith('Could not load product for editing'))
   expect(screen.queryByRole('button',{name:'Save Changes'})).toBeNull()
@@ -40,14 +40,14 @@ it('does not offer editing after a failed full product load',async()=>{
 })
 it('edits full product fields instead of stale list values',async()=>{
   vi.mocked(products.get).mockResolvedValue({...product,name:'Current product',sku:'CURRENT',price:12.5,description:'Current description'} as any)
-  render(<Products />)
+  render(<MemoryRouter><Products /></MemoryRouter>)
   fireEvent.click((await screen.findAllByTitle('Edit'))[0])
   fireEvent.click(await screen.findByRole('button',{name:'Save Changes'}))
   await waitFor(()=>expect(products.update).toHaveBeenCalledWith(1,{name:'Current product',sku:'CURRENT',price:12.5,description:'Current description'}))
 })
 it('preserves an unknown price as unknown during unchanged editing',async()=>{
   vi.mocked(products.get).mockResolvedValue({...product,price:null} as any)
-  render(<Products />)
+  render(<MemoryRouter><Products /></MemoryRouter>)
   fireEvent.click((await screen.findAllByTitle('Edit'))[0])
   fireEvent.click(await screen.findByRole('button',{name:'Save Changes'}))
   await waitFor(()=>expect(products.update).toHaveBeenCalledWith(1,expect.objectContaining({price:null})))
@@ -58,7 +58,7 @@ it('ignores a slow edit after a newer product editor opens',async()=>{
   const slow=new Promise(resolve=>{resolveFirst=resolve})
   vi.mocked(products.list).mockResolvedValue([product,{...product,id:2,name:'Second product'}] as any)
   vi.mocked(products.get).mockImplementation((id:any)=>id===1?slow as any:Promise.resolve({...product,id:2,name:'Current second'}) as any)
-  render(<Products />)
+  render(<MemoryRouter><Products /></MemoryRouter>)
   const edits=await screen.findAllByTitle('Edit')
   fireEvent.click(edits[0]);fireEvent.click(edits[1])
   await screen.findByRole('button',{name:'Save Changes'})
@@ -69,7 +69,7 @@ it('ignores a slow edit after a newer product editor opens',async()=>{
 it('does not replace a create form with a pending edit response',async()=>{
   let resolveEdit:any
   vi.mocked(products.get).mockImplementation(()=>new Promise(resolve=>{resolveEdit=resolve}) as any)
-  render(<Products />)
+  render(<MemoryRouter><Products /></MemoryRouter>)
   fireEvent.click((await screen.findAllByTitle('Edit'))[0])
   fireEvent.click(screen.getAllByRole('button',{name:'New Product'})[0])
   await act(async()=>resolveEdit(product))
@@ -79,7 +79,7 @@ it('does not replace a create form with a pending edit response',async()=>{
 
 it.each([0,null])('shows zero and unknown product estimates explicitly (%s)',async estimate=>{
  vi.mocked(products.list).mockResolvedValue([{...product,estimated_cogs:estimate}] as any)
- render(<Products/>);await screen.findAllByText('Synthetic free product')
+ render(<MemoryRouter><Products/></MemoryRouter>);await screen.findAllByText('Synthetic free product')
  expect(screen.getByText(estimate===0?'Est. COGS: $0.00':'Est. COGS: Unknown')).toBeInTheDocument()
  const row=screen.getAllByText('Synthetic free product').find(element=>element.closest('tr'))!.closest('tr')!
  expect(row.children[4].textContent).toBe(estimate===0?'$0.00':'Unknown')
@@ -90,7 +90,7 @@ it.each([[12.99,0,'$6.50'],[0,0,'$0.00'],[12.99,null,'Unknown'],[null,null,'Unkn
   {...product,id:1,name:'Synthetic first catalog',price:first,components:[{id:10},{id:11}]},
   {...product,id:2,name:'Synthetic second catalog',sku:null,price:second,components:[{id:12}]},
  ] as any)
- render(<Products/>);await screen.findAllByText('Synthetic first catalog')
+ render(<MemoryRouter><Products/></MemoryRouter>);await screen.findAllByText('Synthetic first catalog')
  const value=(label:string)=>screen.getAllByText(label,{exact:true}).find(element=>element.tagName==='DIV')!.parentElement!.firstElementChild!.textContent
  expect(value('Products')).toBe('2')
  expect(value('Components')).toBe('3')

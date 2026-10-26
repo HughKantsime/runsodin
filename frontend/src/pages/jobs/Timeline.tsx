@@ -1,3 +1,4 @@
+import JobTimeline from '../../components/jobs/JobTimeline'
 import type { ReactNode } from 'react'
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -635,6 +636,7 @@ function ScheduledJobDetail({ block }) {
         <p className="text-[var(--brand-text-secondary)] text-sm">Printer: {block.printer_name}</p>
       </div>
 
+      <JobTimeline jobId={block.job_id} />
       {/* Color swatches */}
       {block.colors?.length > 0 && (
         <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
