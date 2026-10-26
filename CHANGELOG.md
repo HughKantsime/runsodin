@@ -2,6 +2,18 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.19] - 2026-10-26
+
+<!-- summary: Optional read-only filament display from an external mapping service (contributed by rkj) -->
+
+### Added
+
+- Optional, read-only display of filament mappings from an external filament mapping or accounting service, contributed by Roman (rkj, PR #27). When a printer is linked, its slots show the externally managed spool, and ODIN's own AMS sync and hardware slot configuration for that printer are disabled, so the two can't disagree. Telemetry can still clear a slot when the printer reports it empty. Nothing changes for printers that aren't linked. See `docs/filament-ledger-display.md`.
+
+### Changed
+
+- Confirming a slot now checks that the printer belongs to your organization, and unloading a spool also checks access to the printer it is located on.
+
 ## [2.0.18] - 2026-10-25
 
 <!-- summary: Per-print completion summaries, a lasting job timeline, Bed clear and start next, and alert fixes -->
