@@ -19,13 +19,11 @@ def audit(db, action, entity_type, entity_id, details):
 
 def configuration_key(db, printer_id):
     # Use the same equality proof as dispatch; never expose configuration inputs.
-    from modules.printers.dispatch import _get_printer_info
-    from core.dispatch_identity import build_identity
-    from core.auth import SECRET_KEY
-    identity = build_identity(_get_printer_info(printer_id, connection=db), SECRET_KEY.encode())
-    if identity is None:
+    from core.interfaces.printer_binding import require_printer_binding_provider
+    key = require_printer_binding_provider().configuration_key(db, printer_id)
+    if key is None:
         batches.fail('Printer configuration cannot be verified')
-    return identity.configuration_key
+    return key
 
 
 def physical(db, owner, print_job_id, *, lock=False):
@@ -40,17 +38,18 @@ def physical(db, owner, print_job_id, *, lock=False):
         # Recheck membership after locks rather than taking a new parent's lock.
         from core.order_production import prepare_job_write
         from core.dispatch_observation_executor import TransactionView
-        from modules.printers.dispatch_admission import _lock, _Refused
+        from core.interfaces.printer_binding import require_printer_binding_provider, PrinterResourceRefused
         from sqlalchemy.exc import DBAPIError
+        provider = require_printer_binding_provider()
         view = TransactionView(db)
         before = (row['scheduled_job_id'],row['printer_id'],row['economic_birth_nonce'])
         try:
             if before[0] is not None:
                 prepare_job_write(db,[before[0]])
-                _lock(view,'jobs',before[0],'status')
-            _lock(view,'printers',before[1],'is_active')
-            _lock(view,'print_jobs',print_job_id,'status')
-        except _Refused:
+                provider.lock_resource(view,'jobs',before[0],'status')
+            provider.lock_resource(view,'printers',before[1],'is_active')
+            provider.lock_resource(view,'print_jobs',print_job_id,'status')
+        except PrinterResourceRefused:
             batches.fail('Print resources changed. Reload before binding or inspecting')
         except DBAPIError as exc:
             if getattr(exc.orig,'sqlstate',None) == '55P03':

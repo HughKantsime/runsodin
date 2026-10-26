@@ -43,7 +43,7 @@ SUBSCRIBES = [
     "job.failed",
 ]
 
-IMPLEMENTS = ["PrinterStateProvider"]
+IMPLEMENTS = ["PrinterStateProvider", "PrinterBindingProvider"]
 
 REQUIRES = ["NotificationDispatcher", "OrgSettingsProvider", "EducationPolicyProvider", "TimelapseMediaProvider"]
 
@@ -69,6 +69,8 @@ def register(app, registry) -> None:
     app.include_router(camera_relay.router)
 
     registry.register_provider("PrinterStateProvider", _self)
+    from modules.printers.binding import PrinterBindingService
+    registry.register_provider("PrinterBindingProvider", PrinterBindingService())
     # Filament ownership boundary used by inventory writers without importing
     # this module's read-only display adapter.
     from modules.printers import ledger_display

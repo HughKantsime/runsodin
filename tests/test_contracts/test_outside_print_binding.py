@@ -10,6 +10,9 @@ from tests.test_contracts.test_cert_D_jobsB_monitor import lifecycle, scheduled,
 @pytest.fixture
 def outside(batch, monkeypatch):
     from modules.orders import outside_prints
+    from core.registry import registry
+    from modules.printers.binding import PrinterBindingService
+    monkeypatch.setitem(registry._providers, 'PrinterBindingProvider', PrinterBindingService())
     # Configuration equality is mocked at its pure boundary; no credentials read.
     monkeypatch.setattr(outside_prints,'configuration_key',lambda db,pid:'b'*64)
     from core.economic_source_creation import _create_attempt

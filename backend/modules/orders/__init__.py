@@ -22,7 +22,7 @@ SUBSCRIBES = []
 
 IMPLEMENTS = ["OrderFulfillmentProvider"]
 
-REQUIRES = ["AttemptValuationProvider"]
+REQUIRES = ["AttemptValuationProvider", "PrinterBindingProvider"]
 
 DAEMONS = []
 
