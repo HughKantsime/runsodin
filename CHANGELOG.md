@@ -2,6 +2,18 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.20] - 2026-10-26
+
+<!-- summary: Inspect and stock prints started outside ODIN, and stop linking outside prints to held jobs -->
+
+### Added
+
+- Prints started outside ODIN (from the printer or slicer) can be recorded for production. An operator confirms that the print was started outside ODIN and which qualified recipe it is. ODIN records who confirmed it and when. The print can then be inspected, and its stock added, through the normal inspection path. Nothing is sent to Square until you send the addition.
+
+### Fixed
+
+- A print started outside ODIN is no longer linked by name, layer count or time to a held job, or to a job ODIN already dispatched. Before, a held reprint could be marked completed by an unrelated print. Binding such a print restores the job it was wrongly linked to.
+
 ## [2.0.19] - 2026-10-26
 
 <!-- summary: Optional read-only external filament display (contributed by rkj), automatic device-bound activation for new licenses, and test reliability fixes -->
