@@ -7,7 +7,8 @@ _DEFAULT_JOB = object()
 
 
 def claim_terminal(executor, print_job_id, *, deliver_alerts=True,
-                   alert_job_id=_DEFAULT_JOB):
+                   alert_job_id=_DEFAULT_JOB, alert_cancelled=False):
+    # Cancellations alert only where origin/main did (generic job_cancelled).
     from core.dispatch_observation_executor import TransactionView
     db = TransactionView(executor)
     row = db.execute(text("SELECT p.economic_uid,p.economic_birth_nonce,p.scheduled_job_id,p.printer_id,p.status,j.charged_to_org_id FROM print_jobs p LEFT JOIN jobs j ON j.id=p.scheduled_job_id WHERE p.id=:id"), {'id':print_job_id}).first()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant SQL; values are bound
@@ -23,7 +24,7 @@ def claim_terminal(executor, print_job_id, *, deliver_alerts=True,
     if claimed and not deliver_alerts:
         db.execute(text('UPDATE job_summary_outbox SET delivery_state=:state WHERE print_attempt_uid=:uid'),
                    {'uid':uid,'state':json.dumps({'education_suppressed': True})})
-    if claimed and deliver_alerts and job is not None and outcome in ('completed', 'failed', 'cancelled'):
+    if claimed and deliver_alerts and job is not None and (outcome in ('completed', 'failed') or (outcome == 'cancelled' and alert_cancelled)):
         # 034 has no kind CHECK; keep its historical migration unchanged.
         identifier = db.execute(text("INSERT INTO alert_outbox(job_id,alert_kind) VALUES(:job,:kind) RETURNING id"),
             {'job':job,'kind':'terminal:'+str(print_job_id)}).scalar_one()

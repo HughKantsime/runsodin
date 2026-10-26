@@ -69,7 +69,7 @@ def test_missing_identity_terminal_is_durable_without_claim(terminal_environment
         assert c.execute(text("SELECT count(*) FROM alert_outbox WHERE alert_kind LIKE 'terminal:%'")).scalar_one()==0
 
 
-@pytest.mark.parametrize('outcome',['completed','failed'])
+@pytest.mark.parametrize('outcome',['completed','failed','cancelled'])
 @pytest.mark.parametrize('crash_before_send',[True,False])
 def test_terminal_claim_drains_034_once_with_mobile(private_attempt,review_db,monkeypatch,outcome,crash_before_send):
     from core import db as core_db
@@ -83,7 +83,8 @@ def test_terminal_claim_drains_034_once_with_mobile(private_attempt,review_db,mo
     monkeypatch.setattr(alert_outbox,'_deliveries',[])
     monkeypatch.setattr(fanout,'deliver_alert',lambda db,plan:mobile.append(plan))
     review_db.execute(text('UPDATE print_jobs SET status=:status,ended_at=CURRENT_TIMESTAMP WHERE id=:id'),{'status':outcome,'id':identifier})
-    assert claim_terminal(review_db.connection(),identifier)
+    # Generic job_cancelled is the one cancellation path that alerts (as on origin/main).
+    assert claim_terminal(review_db.connection(),identifier,alert_cancelled=outcome=='cancelled')
     review_db.commit()
     outbox_id=review_db.execute(text("SELECT id FROM alert_outbox WHERE alert_kind=:kind"),{'kind':'terminal:'+str(identifier)}).scalar_one()
     review_db.rollback()
@@ -92,12 +93,19 @@ def test_terminal_claim_drains_034_once_with_mobile(private_attempt,review_db,mo
     else:
         from core.base import AlertType,AlertSeverity
         dispatch_terminal_alert(identifier,fallback,alert_type=AlertType.PRINT_COMPLETE if outcome=='completed' else AlertType.PRINT_FAILED,
-            severity=AlertSeverity.INFO if outcome=='completed' else AlertSeverity.CRITICAL,title='Original monitor title',message='Original monitor message',printer_id=None,job_id=None,metadata={'progress_percent':42})
+            severity=AlertSeverity.INFO if outcome=='completed' else AlertSeverity.WARNING if outcome=='cancelled' else AlertSeverity.CRITICAL,title='Original monitor title',message='Original monitor message',printer_id=None,job_id=None,metadata={'progress_percent':42})
         assert external[0].title=='Original monitor title'
+        if outcome == 'cancelled':
+            assert external[0].message == 'Original monitor message'
     fallback.assert_not_called()
     assert len(external)==len(mobile)==1
     assert external[0] is mobile[0]
     assert external[0].alert_type.value==('print_complete' if outcome=='completed' else 'print_failed')
+    if outcome == 'cancelled':
+        assert external[0].severity.value == 'warning'
+        if crash_before_send:
+            assert external[0].title.startswith('Print Cancelled: ')
+            assert external[0].message.startswith('Cancelled on ')
     assert not alert_outbox.dispatch(engine,outbox_id)
     assert len(mobile)==1
     with engine.connect() as c:
@@ -260,7 +268,15 @@ def test_actual_identified_monitor_terminal_uses_durable_mobile(private_attempt,
         monitor._job_ended(outcome,SimpleNamespace(filename='owned.gcode',filament_used_mm=0,error_message=None))
     elif outcome=='cancelled':job_events.job_cancelled(printer_id,identifier)
     else:job_events.job_completed(printer_id,identifier,success=outcome=='completed')
-    assert len(external)==len(mobile)==int(outcome!='cancelled')
+    # Cancellations alert only where origin/main did (generic job_events), never from MQTT or Moonraker.
+    expected = int(outcome != 'cancelled' or source == 'generic')
+    assert len(external)==len(mobile)==expected
+    if outcome == 'cancelled' and expected:
+        from core.base import AlertType, AlertSeverity
+        assert mobile[0].alert_type == AlertType.PRINT_FAILED
+        assert mobile[0].severity == AlertSeverity.WARNING
+        assert mobile[0].title.startswith('Print Cancelled: ')
+        assert mobile[0].message.startswith('Cancelled on ')
     if mobile:assert mobile[0].printer_id==printer_id
     assert any(item['kind']==outcome for item in timeline)
     with engine.connect() as c:

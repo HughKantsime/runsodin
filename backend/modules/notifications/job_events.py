@@ -385,7 +385,7 @@ def job_cancelled(
             alert_job_id = scheduled_job_id if job_applied else None
 
             from core.job_terminal_observations import claim_terminal, terminal_event
-            claim_terminal(conn, print_job_id, alert_job_id=scheduled_job_id if job_applied else None)
+            claim_terminal(conn, print_job_id, alert_job_id=scheduled_job_id if job_applied else None, alert_cancelled=True)
             timeline_item=terminal_event(conn, print_job_id)
             reconcile_job_write(conn, production_orders)
             conn.commit()

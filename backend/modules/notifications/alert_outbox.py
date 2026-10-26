@@ -111,8 +111,12 @@ def dispatch(engine, outbox_id: int) -> bool:
                                            job_id=job["id"], target_user_ids=recipients)
                 db.flush()
             if plan is not None:
-                with dispatch_transaction(engine) as delivery_conn, Session(bind=delivery_conn) as delivery_db:
+                # Legacy delivery owns several independent dispatch transactions
+                # (scope, WebSocket persistence and push cleanup). Do not wrap
+                # those in another transaction on the shared connection.
+                with Session(bind=engine) as delivery_db:
                     _deliver_staged_alert(delivery_db, plan)
+                with dispatch_transaction(engine) as delivery_conn, Session(bind=delivery_conn) as delivery_db:
                     deliver_mobile(delivery_db, plan)
         return True
     except Exception:
@@ -202,15 +206,17 @@ def _stage_terminal(db, row, outbox_id, *, summary=None):
         # Crash before post-commit dispatch: the transaction already saved enough
         # facts to deliver without trusting an in-memory monitor callback.
         complete = outcome == 'completed'
+        cancelled = outcome == 'cancelled'
         payload = dict(alert_type=AlertType.PRINT_COMPLETE if complete else AlertType.PRINT_FAILED,
-                       severity=AlertSeverity.INFO if complete else AlertSeverity.CRITICAL,
-                       title=f"Print {'Complete' if complete else 'Failed'}: {name or 'Unknown'}",
-                       message=f"{'Finished' if complete else 'Failed'} on {printer_name or 'printer'}",
+                       severity=AlertSeverity.INFO if complete else AlertSeverity.WARNING if cancelled else AlertSeverity.CRITICAL,
+                       title=f"Print {'Complete' if complete else 'Cancelled' if cancelled else 'Failed'}: {name or 'Unknown'}",
+                       message=f"{'Finished' if complete else 'Cancelled' if cancelled else 'Failed'} on {printer_name or 'printer'}",
                        printer_id=printer_id, job_id=state.get('alert_job_id',job_id))
     else:
         payload['alert_type'] = AlertType.PRINT_FAILED if payload['alert_type'] == 'print_cancelled' else AlertType(payload['alert_type'])
         payload['severity'] = AlertSeverity(payload['severity'])
     if summary is not None:
         payload['metadata'] = {**(payload.get('metadata') or {}), 'summary': summary}
-        payload['message'] = summary['text']
+        if outcome != 'cancelled':
+            payload['message'] = summary['text']
     return stage_alert(db, **payload)

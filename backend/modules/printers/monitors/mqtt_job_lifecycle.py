@@ -510,7 +510,7 @@ def record_job_ended(
                 log.info(f"[{printer_name}] Created job {linked_job_id} for '{job_name}' ({job_status}, duration={duration_hours}h)")
 
             from core.job_terminal_observations import claim_terminal, terminal_event
-            claim_terminal(conn, current_job_id, deliver_alerts=status != 'cancelled', alert_job_id=linked_job_id if job_applied else None)
+            claim_terminal(conn, current_job_id, alert_job_id=linked_job_id if job_applied else None)
             timeline_item=terminal_event(conn, current_job_id)
             reconcile_job_write(conn, production_orders)
             conn.commit()
