@@ -20,6 +20,7 @@ export type PurchaseEvidence =
 
 export interface Spool {
   id: number;
+  color_name?: string | null
   filament_id: number;
   qr_code: string | null;
   rfid_tag: string | null;
@@ -52,6 +53,7 @@ export interface Spool {
 
 export interface SpoolCreate {
   purchase_evidence?: PurchaseInput;
+  color_name?: string | null
   filament_id: number;
   qr_code?: string;
   rfid_tag?: string;
@@ -74,6 +76,7 @@ export interface SpoolCreate {
 }
 
 export interface SpoolUpdate {
+  color_name?: string | null;
   id: number;
   remaining_weight_g?: number;
   status?: SpoolStatus;

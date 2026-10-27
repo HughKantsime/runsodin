@@ -55,6 +55,7 @@ export interface FilamentSlotUpdate {
 // ---- Printer ----
 
 export interface Printer {
+  maintenance?: import('../api/printerMaintenance').MaintenanceState;
   id: number;
   name: string;
   model: string | null;

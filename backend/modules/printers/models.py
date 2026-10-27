@@ -191,3 +191,13 @@ class NozzleLifecycle(Base):
     notes = Column(Text, nullable=True)
 
     printer = relationship("Printer", passive_deletes=True)
+
+
+# A recycled printer id must never inherit another printer's maintenance state.
+from sqlalchemy import event as _maintenance_event
+
+
+@_maintenance_event.listens_for(Printer, 'after_delete')
+def _delete_maintenance_state(mapper, connection, target):
+    from core.printer_maintenance import delete_maintenance
+    delete_maintenance(connection, target.id)

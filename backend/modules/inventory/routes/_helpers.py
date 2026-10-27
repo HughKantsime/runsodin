@@ -7,7 +7,7 @@ from typing import Optional
 
 import qrcode
 from PIL import Image, ImageDraw, ImageFont
-from pydantic import BaseModel as PydanticBaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel as PydanticBaseModel, ConfigDict, Field, field_validator, model_validator
 
 from core.spool_purchase_validation import PurchaseInput, MAX_REVISION
 from core.filament_ledger import MANUAL_NOTES_MAX
@@ -28,6 +28,25 @@ class SpoolCreate(PydanticBaseModel):
     pa_profile: Optional[str] = Field(default=None, max_length=50)
     low_stock_threshold_g: int = Field(default=50, ge=0, le=MAX_LOW_STOCK_THRESHOLD_G, strict=True)
     filament_id: int
+    color_hex: Optional[str] = None
+    color_name: Optional[str] = Field(default=None, max_length=100)
+
+    @field_validator('color_hex')
+    @classmethod
+    def hex_color(cls, value):
+        from modules.inventory.receiving import ReceiveRolls
+        return ReceiveRolls.hex_color(value.strip() if value is not None else None)
+
+    @field_validator('color_name')
+    @classmethod
+    def named_color(cls, value):
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError('Color name must not be blank')
+        return value
+
     initial_weight_g: float = 1000.0
     spool_weight_g: float = 250.0
     price: Optional[float] = None
@@ -40,6 +59,9 @@ class SpoolCreate(PydanticBaseModel):
 
 
 class SpoolUpdate(PydanticBaseModel):
+    color_name: Optional[str] = Field(default=None, max_length=100)
+    _named_color = field_validator('color_name')(SpoolCreate.named_color.__func__)
+
     purchase_evidence: Optional[PurchaseInput] = None
     expected_purchase_revision: Optional[int] = Field(default=None, strict=True, ge=0, le=MAX_REVISION)
 

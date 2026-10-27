@@ -77,6 +77,8 @@ class Spool(Base):
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
+    color_name = Column(String(100), nullable=True)
+
     # Relationships
     filament = relationship("FilamentLibrary", back_populates="spools")
     printer = relationship("Printer", foreign_keys=[location_printer_id])

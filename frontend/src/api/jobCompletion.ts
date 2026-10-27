@@ -7,6 +7,7 @@ export interface CompletionSummary {
   job_id: number; job_name: string; printer_id: number | null; printer: string;
   actual_print_seconds: number | null; recipe_state: string; product: string[];
   expected_outputs: { product_id: number; product_name: string; kind: string; expected: number }[];
+  maintenance?: Pick<import('./printerMaintenance').MaintenanceState, 'state' | 'note'> | null;
   health: string; health_events: { kind: string; code: string | null }[];
   inspection_available: boolean; inspection_unavailable_reason: string | null;
   square_projection: { product_id: number; quantity: number | null }[]; bed_line: string;

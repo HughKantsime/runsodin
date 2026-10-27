@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { Modal } from '../ui'
 
@@ -11,9 +11,10 @@ interface ConfirmModalProps {
   confirmText?: string
   confirmVariant?: 'danger' | 'success'
   pending?: boolean
+  children?: ReactNode
 }
 
-export default function ConfirmModal({ open, onConfirm, onCancel, title, message, confirmText = 'Confirm', confirmVariant = 'danger', pending = false }: ConfirmModalProps) {
+export default function ConfirmModal({ open, onConfirm, onCancel, title, message, confirmText = 'Confirm', confirmVariant = 'danger', pending = false, children }: ConfirmModalProps) {
   const confirmRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
@@ -31,6 +32,7 @@ export default function ConfirmModal({ open, onConfirm, onCancel, title, message
         <h2 className="text-lg font-semibold text-[var(--brand-text-primary)]">{title}</h2>
       </div>
       <p className="text-sm text-[var(--brand-text-secondary)] mb-6">{message}</p>
+      {children}
       <div className="flex items-center justify-end gap-3">
         <button
           disabled={pending}

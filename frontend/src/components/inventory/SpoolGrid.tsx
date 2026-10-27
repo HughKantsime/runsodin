@@ -28,6 +28,7 @@ export default function SpoolGrid({ spools, printers, sortBy, groupByPrinter, se
     sorted = sorted.filter(s =>
       (s.filament_brand || '').toLowerCase().includes(q) ||
       (s.filament_name || '').toLowerCase().includes(q) ||
+      (s.color_name || '').toLowerCase().includes(q) ||
       (s.filament_material || '').toLowerCase().includes(q)
     )
   }

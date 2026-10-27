@@ -105,6 +105,8 @@ def list_spools(
         spool_dict = {
             "id": s.id,
             "filament_id": s.filament_id,
+            "color_name": s.color_name,
+            "color_hex": s.color_hex,
             "qr_code": s.qr_code,
             "initial_weight_g": s.initial_weight_g,
             "remaining_weight_g": s.remaining_weight_g,
@@ -123,7 +125,7 @@ def list_spools(
             "filament_brand": s.filament.brand if s.filament else None,
             "filament_name": s.filament.name if s.filament else None,
             "filament_material": s.filament.material if s.filament else None,
-            "filament_color_hex": s.color_hex or (s.filament.color_hex if s.filament else None),
+            "filament_color_hex": s.color_hex or (s.filament.color_hex if s.filament and not s.color_name else None),
             "pa_profile": s.pa_profile,
             "low_stock_threshold_g": s.low_stock_threshold_g,
             "spoolman_spool_id": s.spoolman_spool_id,
@@ -206,6 +208,8 @@ def _create_spool_record(spool, current_user, db, *, commit=True):
 
     values = dict(
         filament_id=spool.filament_id,
+        color_name=spool.color_name,
+        color_hex=spool.color_hex,
         qr_code=qr_code,
         initial_weight_g=spool.initial_weight_g,
         remaining_weight_g=spool.initial_weight_g,
@@ -250,7 +254,9 @@ def _create_spool_record(spool, current_user, db, *, commit=True):
         # Not an economic birth field; linked after the factory INSERT in the same transaction.
         db_spool.spoolman_spool_id = spool.spoolman_spool_id
 
-    log_audit(db, "create", "spool", db_spool.id, {"filament_id": spool.filament_id, "qr_code": db_spool.qr_code})
+    log_audit(db, "create", "spool", db_spool.id, {"filament_id": spool.filament_id,
+        "color_name": spool.color_name,
+        "color_hex": spool.color_hex, "qr_code": db_spool.qr_code})
     if commit:
         db.commit()
     return {
@@ -280,6 +286,8 @@ def get_spool(spool_id: int, current_user: dict = Depends(require_role("viewer",
     return {
         "id": spool.id,
         "filament_id": spool.filament_id,
+        "color_name": spool.color_name,
+        "color_hex": spool.color_hex,
         "qr_code": spool.qr_code,
         "initial_weight_g": spool.initial_weight_g,
         "remaining_weight_g": spool.remaining_weight_g,
@@ -304,7 +312,7 @@ def get_spool(spool_id: int, current_user: dict = Depends(require_role("viewer",
         "filament_brand": spool.filament.brand if spool.filament else None,
         "filament_name": spool.filament.name if spool.filament else None,
         "filament_material": spool.filament.material if spool.filament else None,
-        "filament_color_hex": spool.filament.color_hex if spool.filament else None,
+        "filament_color_hex": spool.color_hex or (spool.filament.color_hex if spool.filament and not spool.color_name else None),
         "usage_history": [
             {
                 "id": u.id,

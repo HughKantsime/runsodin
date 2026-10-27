@@ -13,6 +13,8 @@ router = APIRouter()
 # must register before parameterized /spools/{spool_id} in spools_router
 from .stock import router as stock_router
 router.include_router(stock_router)
+from .receive_bulk import router as receive_bulk_router
+router.include_router(receive_bulk_router)
 router.include_router(spool_ops_router)
 router.include_router(spools_router)
 router.include_router(filament_slots_router)

@@ -16,44 +16,22 @@ from .spools import _create_spool_record
 router = APIRouter(prefix='/spools', tags=['Spools'])
 
 
-class ReceiveRolls(BaseModel):
-    model_config = ConfigDict(extra='forbid')
-    filament_id: int = Field(gt=0)
-    quantity: int = Field(ge=1, le=100, strict=True)
-    initial_weight_g: float = Field(default=1000, gt=0, le=100000, allow_inf_nan=False)
-    spool_weight_g: float = Field(default=250, ge=0, le=10000, allow_inf_nan=False)
-    storage_location: str = Field(min_length=1, max_length=100)
-    sealed: bool = True
-    vendor: str | None = Field(default=None, max_length=100)
-
-    @field_validator('storage_location')
-    @classmethod
-    def location(cls, value):
-        if not value.strip():
-            raise ValueError('Storage location is required')
-        return value.strip()
+from modules.inventory.receiving import ReceiveRolls, lock_receiving, validate_references, receive_row
 
 
 @router.post('/receive')
 def receive_rolls(body: ReceiveRolls,
                   current_user=Depends(require_action('spools.edit', scope='write:spools')),
                   db: Session = Depends(get_db)):
-    # One transaction including economic birth evidence and audit for every roll.
-    if db.get(FilamentLibrary, body.filament_id) is None:
-        raise OdinError(ErrorCode.not_found, 'Filament not found', status=404)
-    results = []
     try:
-        for _ in range(body.quantity):
-            row = _create_spool_record(SpoolCreate(**body.model_dump(exclude={'quantity', 'sealed'})), current_user, db, commit=False)
-            if body.sealed:
-                db.add(SystemConfig(key=seal_key(row['id']), value=True))
-            results.append(row)
-        log_audit(db, 'inventory.receive', 'spools', details={'ids': [r['id'] for r in results], 'storage_location': body.storage_location, 'sealed': body.sealed})
+        lock_receiving(db)
+        validate_references(db, [body])
+        result = receive_row(db, current_user, body, _create_spool_record)
         db.commit()
+        return result
     except Exception:
         db.rollback()
         raise
-    return {'spools': results}
 
 
 class ReorderPolicy(BaseModel):
@@ -103,13 +81,15 @@ def reorder_rollup(org_id: int | None = None,
     seals = {r.key for r in db.query(SystemConfig).filter(SystemConfig.key.startswith('inventory.sealed.')).all() if r.value is True}
     groups = {}
     def group(key):
-        return groups.setdefault(key, dict(material=key[0], color=key[1], sealed_rolls=0, sealed_g=0, open_g=0, total_g=0, threshold_g=policies.get(key, 1000)))
+        return groups.setdefault(key, dict(material=key[0], color=key[1], color_name=key[1], sealed_rolls=0, sealed_g=0, open_g=0, total_g=0, threshold_g=policies.get(key, 1000)))
     for key in policies:
         group(key)  # Keep configured groups visible even at zero stock.
     for spool in query.all():
         filament = spool.filament
-        key = stock_identity(filament.material if filament else None, spool.color_hex or (filament.color_hex if filament else None))
+        key = stock_identity(filament.material if filament else None, spool.color_name or spool.color_hex or (filament.color_hex if filament else None) or 'unknown color')
         row = group(key)
+        if spool.color_name:
+            row['color_name'] = spool.color_name
         grams = max(0, spool.remaining_weight_g or 0)
         sealed = seal_key(spool.id) in seals and spool.location_printer_id is None and grams == spool.initial_weight_g
         row['sealed_rolls'] += int(sealed)

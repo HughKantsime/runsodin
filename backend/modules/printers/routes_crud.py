@@ -1,5 +1,6 @@
 """Printer CRUD routes — create, read, update, delete, filament slots, test-connection, bulk-update."""
 from core.base import slot_filament_value
+from core.printer_maintenance import enrich_maintenance
 
 from modules.inventory.services import assign_slot
 from core.rbac import should_filter_org, require_action
@@ -43,7 +44,6 @@ from modules.printers.route_utils import (
 log = logging.getLogger("odin.api")
 router = APIRouter()
 
-
 # Printers CRUD
 
 @router.get("/printers", response_model=List[PrinterResponse], tags=["Printers"])
@@ -73,7 +73,7 @@ def list_printers(
     printers = query.order_by(Printer.display_order, Printer.id).all()
     if tag:
         printers = [p for p in printers if p.tags and tag in p.tags]
-    return enrich_printers(printers)
+    return enrich_printers(enrich_maintenance(db, printers))
 
 
 @router.get("/printers/tags", tags=["Printers"])
@@ -232,7 +232,7 @@ def get_printer(
         raise HTTPException(status_code=404, detail="Printer not found")
     if not check_org_access(current_user, printer.org_id) and not printer.shared:
         raise HTTPException(status_code=404, detail="Printer not found")
-    return enrich_printers([printer])[0]
+    return enrich_printers(enrich_maintenance(db, [printer]))[0]
 
 
 @router.patch("/printers/{printer_id}", response_model=PrinterResponse, tags=["Printers"])

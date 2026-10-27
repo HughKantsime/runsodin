@@ -13,7 +13,7 @@ from tests.test_contracts.test_spool_slot_prevention import graph, review_db, US
 def test_receive_storage_sealed_rollup_and_scan_assignment(graph, monkeypatch):
     from modules.inventory.routes.spool_ops import scan_assign_spool, generate_spool_label
     from modules.inventory.routes._helpers import ScanAssignRequest
-    result = receive_rolls(ReceiveRolls(filament_id=199, quantity=2, storage_location='Shelf A'), USER, graph)
+    result = receive_rolls(ReceiveRolls(color_name="Test color", filament_id=199, quantity=2, storage_location='Shelf A'), USER, graph)
     ids = [row['id'] for row in result['spools']]
     assert len(ids) == len(set(ids)) == 2
     rows = graph.query(Spool).filter(Spool.id.in_(ids)).all()
@@ -41,6 +41,7 @@ def test_rollup_combines_brands_normalizes_color_and_excludes_inactive_foreign(g
     graph.execute(text("INSERT INTO filament_library(id,brand,name,material,color_hex) VALUES(200,'Other','Same color','pla','#123abc')"))
     for sid, org, status, grams in [(200,1,'active',100),(201,2,'active',9000),(202,1,'empty',8000),(203,1,'archived',7000)]:
         graph.execute(text('INSERT INTO spools(id,filament_id,org_id,status,remaining_weight_g) VALUES(:id,200,:org,:status,:grams)'),dict(id=sid,org=org,status=status,grams=grams))
+    graph.execute(text("UPDATE spools SET color_hex='123ABC' WHERE id>=199"))
     graph.commit()
     set_reorder_policy(ReorderPolicy(material='pla', color='#123abc', threshold_g=400), USER, graph)
     rows = reorder_rollup(None, USER, graph)
@@ -57,7 +58,7 @@ def test_rollup_combines_brands_normalizes_color_and_excludes_inactive_foreign(g
 def test_receiving_validates_storage_and_bounds(bad):
     from pydantic import ValidationError
     with pytest.raises(ValidationError):
-        ReceiveRolls(**({'filament_id':199,'quantity':1,'storage_location':'Shelf'} | bad))
+        ReceiveRolls(**({'filament_id':199,'color_name':'Test color','quantity':1,'storage_location':'Shelf'} | bad))
 
 
 def test_receiving_failure_rolls_back_whole_batch(graph, monkeypatch):
@@ -73,7 +74,7 @@ def test_receiving_failure_rolls_back_whole_batch(graph, monkeypatch):
     monkeypatch.setattr(stock, '_create_spool_record', fail)
     before = graph.query(Spool).count()
     with pytest.raises(RuntimeError):
-        receive_rolls(ReceiveRolls(filament_id=199,quantity=2,storage_location='Shelf'),USER,graph)
+        receive_rolls(ReceiveRolls(color_name="Test color", filament_id=199,quantity=2,storage_location='Shelf'),USER,graph)
     assert graph.query(Spool).count() == before
 
 
@@ -134,7 +135,7 @@ def stock_client(token_client, review_db):
     return client, issue
 
 
-@pytest.mark.parametrize('path,method,body', [('/spools/receive','post',{'filament_id':199,'quantity':1,'storage_location':'Shelf'}),('/spools/reorder-policy','put',{'material':'PLA','color':'000000','threshold_g':400})])
+@pytest.mark.parametrize('path,method,body', [('/spools/receive','post',{'filament_id':199,'color_name':'Test color','quantity':1,'storage_location':'Shelf'}),('/spools/reorder-policy','put',{'material':'PLA','color':'000000','threshold_g':400})])
 def test_new_writes_enforce_scopes_roles_and_matrix(stock_client, review_db, path, method, body):
     import json
     client, issue = stock_client

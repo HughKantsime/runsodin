@@ -46,6 +46,7 @@ export default function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, o
           <div className="min-w-0">
             <h3 className="font-medium text-[var(--brand-text-primary)] text-sm md:text-base truncate">
               {spool.filament_brand} {spool.filament_name}
+              <span className="block text-sm">{spool.color_name || "Unknown color"}</span>
             </h3>
             <p className="text-xs md:text-sm text-[var(--brand-text-muted)]">{spool.filament_material}</p>
           </div>

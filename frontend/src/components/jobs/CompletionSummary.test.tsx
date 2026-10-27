@@ -5,6 +5,7 @@ import CompletionSummary from './CompletionSummary'
 import JobTimeline from './JobTimeline'
 import {jobCompletion,CompletionSummary as Summary} from '../../api/jobCompletion'
 vi.mock('../../api/jobCompletion',()=>({jobCompletion:{suggestion:vi.fn(),start:vi.fn(),timeline:vi.fn()}}))
+vi.mock('../../api/printerMaintenance',()=>({printerMaintenance:{get:vi.fn().mockResolvedValue({state:'ok',note:'',set_by:null,set_by_name:null,set_at:null})}}))
 vi.mock('../../permissions',()=>({canDo:()=>true}))
 vi.mock('../orders/ProductionBatches',()=>({default:({inspectJobId}:{inspectJobId:number})=><p>Count form for job {inspectJobId}</p>}))
 const summary:Summary={job_id:2,job_name:'Mini',printer_id:1,printer:'X1C',actual_print_seconds:3600,recipe_state:'matched',product:['Mini'],expected_outputs:[{product_id:1,product_name:'Mini',kind:'main',expected:5}],health:'history incomplete',health_events:[],inspection_available:true,inspection_unavailable_reason:null,square_projection:[{product_id:1,quantity:10}],bed_line:"ODIN has not checked the bed. Use 'Bed clear, start next' to start."}
@@ -54,4 +55,10 @@ it.each(['refused','uncertain'])('%s retries use the appropriate request identit
  fireEvent.click(button);await waitFor(()=>expect(jobCompletion.start).toHaveBeenCalledTimes(2))
  const ids=vi.mocked(jobCompletion.start).mock.calls.map(call=>call[1].request_id)
  if(state==='refused')expect(ids[0]).not.toBe(ids[1]);else expect(ids[0]).toBe(ids[1])
+})
+
+it('includes the maintenance warning note retained in the completion summary',()=>{
+ mount(<CompletionSummary summary={{...summary,maintenance:{state:'warn',note:'Part fan failing'}}}/>);
+ fireEvent.click(screen.getByRole('button',{name:'Completion summary · job 2'}))
+ expect(screen.getByText('Maintenance warn: Part fan failing')).toBeInTheDocument()
 })

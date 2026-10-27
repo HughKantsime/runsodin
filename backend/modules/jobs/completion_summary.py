@@ -185,6 +185,9 @@ def eligible(db, job, printer):
 
 def next_suggestion(db, printer, *, visible=None, at=None):
     from modules.jobs.models import Job
+    from core.printer_maintenance import hold_reason
+    if hold_reason(db, printer.id):
+        return {'job_id': None, 'reason': 'Printer is on maintenance hold.', 'filament': 'verify_needed', 'fingerprint': None}
     at = at or datetime.now(timezone.utc)
     finished = finished_attempt(db, printer.id)
     config = configuration_key(db, printer.id)
@@ -270,7 +273,10 @@ def build_summary(db, attempt_uid):
     printer = db.get(Printer, row['printer_id']) if row['printer_id'] else None
     suggestion = next_suggestion(db, printer, visible=lambda j: (j.charged_to_org_id or 0) == owner) if printer else None
     duration = max(0, (utc(row['ended_at'])-utc(row['started_at'])).total_seconds()) if row['started_at'] and row['ended_at'] else None
-    summary = {'version': 1, 'print_attempt_uid': attempt_uid, 'printer_id': row['printer_id'], 'printer': clean(row['printer_name']),
+    from core.printer_maintenance import read_maintenance
+    maintenance = read_maintenance(db, row['printer_id']) if printer else None
+    maintenance = {k: maintenance[k] for k in ('state', 'note')} if maintenance else None
+    summary = {'maintenance': maintenance, 'version': 1, 'print_attempt_uid': attempt_uid, 'printer_id': row['printer_id'], 'printer': clean(row['printer_name']),
         'job_id': job_id, 'job_name': clean(job['item_name']), 'actual_print_seconds': duration,
         'recipe_state': 'matched' if recipe else 'Recipe ambiguous' if recipes else 'No qualified recipe',
         'recipe_id': recipe['id'] if recipe else None, 'product': [clean(o['product_name']) for o in recipe['outputs'] if o['kind']=='main'] if recipe else [],
@@ -291,6 +297,8 @@ def build_summary(db, attempt_uid):
     action = ('inspection unavailable: '+clean(unavailable,38)) if unavailable else 'Clear, count, bin, record'
     duration_text = f"{round(duration/60)}m" if duration is not None else '?m'
     prefix = f"{summary['printer'][:12]} #{job_id} {duration_text} · {expected[:24]}. Health: {health}. {projection}. {action}. {next_text}. "
+    if maintenance and maintenance['state'] != 'ok':
+        prefix = 'Maintenance ' + maintenance['state'] + ': ' + clean(maintenance['note'], 80) + '. ' + prefix
     suffix = summary['inspection_url']+'. '+BED_LINE
     summary['text'] = prefix[:299-len(suffix)] + suffix
     return summary
