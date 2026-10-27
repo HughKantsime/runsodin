@@ -40,7 +40,7 @@ defusedxml==0.7.1
 pywebpush==2.0.1
 
 # OIDC/SSO
-authlib==1.6.12
+authlib==1.9.1
 
 # MFA / TOTP
 pyotp==2.9.0
@@ -51,7 +51,7 @@ qrcode[pil]==8.0
 bcrypt==4.2.1
 
 # PDF generation (invoices)
-fpdf2==2.8.3
+fpdf2==2.8.8
 
 # Rate limiting
 slowapi==0.1.9

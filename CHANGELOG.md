@@ -15,6 +15,7 @@ All notable changes to O.D.I.N. are documented here.
 ### Security
 
 - Requests through the Tailscale proxy keep each client's own address for IP allowlists, rate limits, login lockout and audit logs. Remote clients are never treated as local.
+- Updated authlib to 1.9.1 and fpdf2 to 2.8.8 for newly published vulnerabilities.
 
 ## [2.0.22] - 2026-10-27
 
