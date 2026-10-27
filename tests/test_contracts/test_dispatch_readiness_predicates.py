@@ -9,6 +9,20 @@ def test_bambu_explicit_idle_with_zero_error(state):
     assert raw_status_is_idle('bambu', {'gcode_state':state,'print_error':0})
 
 
+def test_bambu_failed_with_task_canceled_ack_is_idle():
+    assert raw_status_is_idle('bambu', {'gcode_state':'FAILED','print_error':0x0300400C})
+
+
+@pytest.mark.parametrize('state', ['IDLE','FINISH','RUNNING','PAUSE','PREPARE',None])
+def test_bambu_task_canceled_ack_only_counts_in_failed(state):
+    assert not raw_status_is_idle('bambu', {'gcode_state':state,'print_error':0x0300400C})
+
+
+@pytest.mark.parametrize('error', [0x05FE8053, 0x0300400B, 0x0300400D, 0x0500400C, 50348044.0, '50348044'])
+def test_bambu_failed_with_other_errors_refused(error):
+    assert not raw_status_is_idle('bambu', {'gcode_state':'FAILED','print_error':error})
+
+
 @pytest.mark.parametrize('state', [None,'RUNNING','PAUSE','PREPARE','idle','UNKNOWN'])
 def test_bambu_busy_unknown_or_invalid_state_refused(state):
     assert not raw_status_is_idle('bambu', {'gcode_state':state,'print_error':0})

@@ -117,6 +117,9 @@ def fresh_http_status_is_idle(creds: dict, deadline: float) -> bool:
         return False
 
 
+BAMBU_TASK_CANCELED = 0x0300400C  # 50348044
+
+
 def raw_status_is_idle(protocol: str, payload: object) -> bool:
     if not isinstance(payload, dict):
         return False
@@ -124,7 +127,13 @@ def raw_status_is_idle(protocol: str, payload: object) -> bool:
         # Automatic power preparation requires explicit no-error evidence.
         # Missing print_error is valid partial telemetry but not this gate.
         error = payload.get('print_error')
-        return payload.get('gcode_state') in ('IDLE', 'FINISH', 'FAILED') and type(error) is int and error == 0
+        state = payload.get('gcode_state')
+        if type(error) is not int:
+            return False
+        # A stopped print leaves FAILED with Bambu's "task canceled"
+        # acknowledgement, which clean_print_error does not reset on H2D.
+        return (state in ('IDLE', 'FINISH', 'FAILED') and error == 0
+                or state == 'FAILED' and error == BAMBU_TASK_CANCELED)
     if protocol == 'moonraker':
         result = payload.get('result')
         if not isinstance(result, dict):
