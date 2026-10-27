@@ -42,7 +42,8 @@ from core.rbac import check_org_access
 from core.webhook_utils import safe_post, trusted_post, WebhookSSRFError
 from modules.notifications.models import Alert, AlertPreference, PushSubscription
 
-from modules.notifications.alert_policy import active_resource_duplicate, preferences_for
+from core.alert_preferences import preferences_for
+from modules.notifications.alert_policy import active_resource_duplicate
 
 logger = logging.getLogger("alert_dispatcher")
 

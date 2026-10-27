@@ -14,7 +14,8 @@ from typing import Optional
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from modules.notifications.alert_policy import active_resource_duplicate, preferences_for
+from core.alert_preferences import preferences_for
+from modules.notifications.alert_policy import active_resource_duplicate
 
 # Resolved at use time: never a stale engine bound at import.
 from core.db import live_engine as engine

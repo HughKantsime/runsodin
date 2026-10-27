@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from modules.push.apns import get_provider
 from modules.push.models import PushDevice
 
-from modules.notifications.alert_policy import preferences_for
+from core.alert_preferences import preferences_for
 from modules.push.policy import CATEGORIES, education_scope, safe_copy
 
 log = logging.getLogger("push.fanout")

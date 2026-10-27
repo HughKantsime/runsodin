@@ -12,12 +12,16 @@ from tests.test_contracts.test_education_review_workflow import review_db  # noq
 
 @pytest.fixture
 def alert_db(review_db, monkeypatch):
+    from core.economic_source_creation import _create_spool
     from modules.notifications import alert_dispatch, alert_dispatcher, channels, quiet_hours
     from modules.push import fanout
     db = review_db
     db.execute(text("INSERT INTO filament_library(id,brand,name,material) VALUES(32,'Test','PLA','PLA')"))
-    db.execute(text("INSERT INTO spools(id,filament_id,org_id,remaining_weight_g) VALUES(32,32,1,60)"))
-    db.execute(text("UPDATE filament_slots SET assigned_spool_id=32 WHERE printer_id=9"))
+    spool = _create_spool(db, {'filament_id': 32, 'org_id': 1, 'remaining_weight_g': 60},
+                          owner_org_id=1)
+    db.info['alert_spool_id'] = spool.id
+    db.execute(text("UPDATE filament_slots SET assigned_spool_id=:spool WHERE printer_id=9"),
+               {'spool': spool.id})
     for kind in ('spool_low', 'printer_error', 'print_complete'):
         db.execute(text("INSERT INTO alert_preferences(user_id,alert_type,in_app,browser_push,email,threshold_value) "
                         "VALUES(3,:kind,1,1,1,100)"), {'kind': kind})
@@ -107,7 +111,7 @@ def test_legacy_spool_and_duplicate_preferences(alert_db, monkeypatch, path):
         if path == 'mqtt':
             mqtt_check(alert_db, monkeypatch)
         else:
-            send(alert_db, path, 'spool_low', spool_id=32)
+            send(alert_db, path, 'spool_low', spool_id=alert_db.info['alert_spool_id'])
     dispatch()
     assert alert_db.execute(text('SELECT count(*) FROM alerts')).scalar_one() == 1
     alert_db.execute(text("UPDATE alerts SET alert_type='SPOOL_LOW',severity='WARNING',created_at='2020-01-01'"))
@@ -144,7 +148,8 @@ def test_operational_push_and_fully_deduped_external_silence(alert_db, monkeypat
     elif path == 'mqtt':
         dispatch = lambda: mqtt_check(alert_db, monkeypatch)
     else:
-        dispatch = lambda: send(alert_db, path, kind, spool_id=32 if kind == 'spool_low' else None)
+        dispatch = lambda: send(alert_db, path, kind,
+                                spool_id=alert_db.info['alert_spool_id'] if kind == 'spool_low' else None)
     dispatch()
     assert devices.send_push.call_count == 1
     assert devices.send_push.call_args.kwargs['category'] == category
@@ -235,8 +240,10 @@ def test_pending_spool_alert_dedupes_without_autoflush(alert_db):
     from core.base import AlertType, AlertSeverity
     from modules.notifications.alert_dispatcher import stage_alert
     alert_db.autoflush = False
-    first = stage_alert(alert_db, AlertType.SPOOL_LOW, AlertSeverity.WARNING, 'Low', spool_id=32)
-    second = stage_alert(alert_db, AlertType.SPOOL_LOW, AlertSeverity.WARNING, 'Low again', spool_id=32)
+    first = stage_alert(alert_db, AlertType.SPOOL_LOW, AlertSeverity.WARNING, 'Low',
+                        spool_id=alert_db.info['alert_spool_id'])
+    second = stage_alert(alert_db, AlertType.SPOOL_LOW, AlertSeverity.WARNING, 'Low again',
+                         spool_id=alert_db.info['alert_spool_id'])
     assert first.alerts_created == 1
     assert second.alerts_created == 0 and second.suppress_external
 

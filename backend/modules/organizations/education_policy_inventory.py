@@ -90,12 +90,14 @@ POLICY_INVENTORY = (
     _entry("notifications.error_handling", "printer/job error topics", "submission/job/alert", "notify", "trusted notification worker", ("Education outbox",), "test_education_monitor_policy.py", "guarded"),
     _entry("notifications.alert_dispatch", "dispatch_alert", "Education alert", "external-sink", "none for Education", ("email", "push", "webhook"), "test_education_notification_privacy.py", "batch2_required"),
     _entry("notifications.alert_dispatcher", "alert dispatcher worker", "Education alert", "external-sink", "none for Education", ("email", "push", "webhook"), "test_education_notification_privacy.py", "batch2_required"),
+    _entry("notifications.alert_policy", "active_resource_duplicate/error_identity", "alert/user/printer/spool", "read repeat state", "internal dedupe helper; caller retains recipient scope and Education delivery policy", ("notifications.alert_dispatch", "notifications.alert_dispatcher"), "test_alert_phone_delivery.py", "excluded_internal"),
     # The outbox only replays job alerts through alert_dispatcher.stage_alert/_deliver_staged_alert
     # (same recipient policy and sinks as the dispatcher entry above).
     _entry("notifications.alert_outbox", "alert outbox dispatch and replay", "Education alert", "external-sink", "none for Education", ("email", "push", "webhook"), "test_education_notification_privacy.py", "batch2_required"),
     _entry("notifications.quiet_hours", "digest collector", "Education alert", "external-sink", "none for Education", ("digest",), "test_education_notification_privacy.py", "batch2_required"),
     _entry("notifications.mqtt_republish", "MQTT republisher", "Education event", "external-sink", "none for Education", ("MQTT",), "test_education_notification_privacy.py", "batch2_required"),
     _entry("push.fanout", "push fanout", "Education alert", "external-sink", "none for Education", ("APNS", "web push"), "test_education_notification_privacy.py", "batch2_required"),
+    _entry("push.policy", "education_scope/safe_copy", "Education mode/submission/job/printer/alert text", "suppress external delivery/redact", "trusted push delivery; Education mode and Education-owned jobs/active printers suppress delivery", ("push.fanout",), "test_alert_phone_delivery.py", "guarded"),
     _entry("vision.detection_thread", "vision alert emission", "submission/job/alert", "notify", "trusted vision worker", ("Education outbox",), "test_education_notification_privacy.py", "batch2_required"),
     _entry("archives.archive", "archive creation/read", "model/file/archive", "retention", "resource policy audience", ("archive routes",), "test_education_resource_policy.py", "batch2_required"),
     _entry("archives.routes.tags", "tag routes", "model/file/archive", "read/mutate", "resource policy audience", (), "test_education_resource_policy.py", "batch2_required"),
