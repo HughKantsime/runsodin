@@ -223,3 +223,34 @@ def test_forwarded_loopback_client_never_inherits_loopback(value):
              "headers": [(b"x-forwarded-for", value), (b"x-forwarded-proto", b"https")]}
     asyncio.run(middleware(scope, None, None))
     assert seen["client"][0] == UNKNOWN_PROXY_CLIENT
+
+
+@pytest.mark.parametrize('url', [
+    'https://100.101.102.103', 'https://127.0.0.1', 'https://[::1]',
+    'https://[fd7a:115c:a1e0::1]', 'https://2130706433', 'https://0x7f000001',
+    'https://127.1', 'https://0177.0.0.1', '127.0.0.1,::1',
+    'https://user:password@odin.example.ts.net', 'https://odin.example.ts.net?proxy=::1',
+])
+def test_status_never_exposes_ip_or_invalid_origins(monkeypatch, url):
+    from modules.system import routes_remote_access as route
+    from starlette.requests import Request
+    monkeypatch.setattr(route.settings, 'odin_public_url', url)
+    monkeypatch.setattr(route.settings, 'odin_tailnet_ip', '100.101.102.103')
+    monkeypatch.setattr(route.settings, 'odin_trusted_proxies', '127.0.0.1,::1')
+    request = Request({'type': 'http', 'scheme': 'https', 'server': ('odin.example.ts.net', 443), 'path': '/', 'headers': []})
+    data = route.remote_access_status(request, user={'role': 'admin'})
+    assert data == {
+        'configured': True, 'url': None, 'tailnet': False,
+        'current_origin_verified': False, 'check_url': None,
+        'camera_transport': 'tcp-with-snapshot-fallback',
+    }
+
+
+def test_unconfigured_readiness_fixture_matches_status(monkeypatch):
+    from modules.system import routes_remote_access as route
+    from starlette.requests import Request
+    monkeypatch.setattr(route.settings, 'odin_public_url', '')
+    monkeypatch.setattr(route.settings, 'odin_tailnet_ip', '')
+    fixture = json.loads((ROOT / 'tests/accessibility/fixtures/admin.json').read_text())
+    request = Request({'type': 'http', 'scheme': 'http', 'server': ('testserver', 80), 'path': '/', 'headers': []})
+    assert route.remote_access_status(request, user={'role': 'admin'}) == fixture['GET /api/settings/remote-access']

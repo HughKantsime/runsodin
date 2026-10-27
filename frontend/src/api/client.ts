@@ -31,7 +31,8 @@ function apiError(err: { detail?: unknown; message?: unknown }, fallback: string
   return error
 }
 
-export async function fetchAPI<T = unknown>(endpoint: string, options: RequestInit = {}, responseFormat: 'json' | 'csv' = 'json'): Promise<T> {
+export async function fetchAPI<T = unknown>(endpoint: string, options: RequestInit & { quiet?: boolean } = {}, responseFormat: 'json' | 'csv' = 'json'): Promise<T> {
+  const { quiet = false, ...requestOptions } = options
   const headers = new Headers(options.headers)
   if (!(options.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
@@ -44,7 +45,7 @@ export async function fetchAPI<T = unknown>(endpoint: string, options: RequestIn
     response = await fetch(API_BASE + endpoint, {
       headers,
       credentials: 'include',
-      ...options,
+      ...requestOptions,
     })
   } catch (networkError) {
     throw new Error('Network error. Check your connection and try again.')
@@ -66,7 +67,7 @@ export async function fetchAPI<T = unknown>(endpoint: string, options: RequestIn
   }
   if (!response.ok) {
     const err = await response.json().catch(() => ({}))
-    if (err.detail) console.error('[API] Error detail:', err.detail)
+    if (err.detail && !quiet) console.error('[API] Error detail:', err.detail)
     throw apiError(err, 'Request failed. Please try again.', response.status)
   }
   if (response.status === 204) return null as unknown as T

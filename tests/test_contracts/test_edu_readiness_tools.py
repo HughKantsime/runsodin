@@ -321,3 +321,18 @@ def test_browser_runner_rejects_success_without_junit(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, 'argv', ['runner', '--run-dir', str(tmp_path)])
     monkeypatch.setattr(runner.subprocess, 'run', lambda command, **kwargs: subprocess.CompletedProcess(command, 0))
     assert runner.main() == 1
+
+
+@pytest.mark.parametrize('colored', [False, True])
+def test_command_gate_counts_vitest_tests_with_terminal_colors(tmp_path, monkeypatch, colored):
+    from ops.edu_readiness import run_command_gate as gate
+    vitest = ' Test Files  1 passed (1)\n      Tests  3 passed (3)\n'
+    if colored:
+        vitest = '\x1b[2m Test Files \x1b[22m \x1b[32m1 passed\x1b[39m (1)\n\x1b[2m      Tests \x1b[22m \x1b[32m3 passed\x1b[39m (3)\n'
+    output = '2 passed, 2 warnings in 0.4s\n7 passed in 3s\n5 passed in 2s\n' + vitest
+    monkeypatch.setattr(gate.subprocess, 'run', lambda *a, **k: subprocess.CompletedProcess(a[0], 0, stdout=output))
+    monkeypatch.setattr(sys, 'argv', ['gate', '--run-id', '20261027T180000Z-c2b8d2f', '--run-dir', str(tmp_path), '--gate', 'privacy', '--minimum-assertions', '17', '--', 'synthetic'])
+    assert gate.main() == 0
+    result = json.loads((tmp_path / 'privacy.json').read_text())
+    assert result['status'] == 'pass'
+    assert result['executed_count'] == 17

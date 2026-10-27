@@ -17,6 +17,7 @@ except ImportError:
 
 
 COUNT_RE = re.compile(r"(?<!\d)(\d+)\s+(passed|failed|skipped|xfailed)\b")
+ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
 def main() -> int:
@@ -42,7 +43,7 @@ def main() -> int:
     log_path.write_text(output, encoding="utf-8")
     counts = {"passed": 0, "failed": 0, "skipped": 0, "xfailed": 0}
     for line in output.splitlines():
-        stripped = line.strip()
+        stripped = ANSI_RE.sub("", line).strip()
         # Pytest's terminal summary and Vitest's `Tests` row are the
         # authoritative totals. Ignore Vitest's separate `Test Files` row.
         is_pytest_summary = " passed" in stripped and (

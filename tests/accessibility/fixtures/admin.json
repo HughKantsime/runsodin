@@ -6,6 +6,14 @@
   "GET /api/admin/quotas": [],
   "GET /api/admin/oidc": {"configured": false},
   "GET /api/config": {},
+  "GET /api/settings/remote-access": {
+    "configured": false,
+    "url": null,
+    "tailnet": false,
+    "current_origin_verified": false,
+    "check_url": null,
+    "camera_transport": "snapshot-fallback"
+  },
   "GET /api/config/require-job-approval": {"require_job_approval": true},
   "GET /api/backups": [],
   "GET /api/config/retention": {},

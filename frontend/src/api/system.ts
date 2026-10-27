@@ -89,7 +89,7 @@ export interface LanguageConfig {
 export const config = {
   get: (): Promise<AppConfig> => fetchAPI('/config'),
   update: (data: Partial<AppConfig>): Promise<AppConfig> => fetchAPI('/config', { method: 'PUT', body: JSON.stringify(data) }),
-  getRemoteAccess: (): Promise<RemoteAccess> => fetchAPI('/settings/remote-access'),
+  getRemoteAccess: (signal?: AbortSignal): Promise<RemoteAccess> => fetchAPI('/settings/remote-access', { signal, quiet: true }),
   getNetwork: (): Promise<NetworkConfig> => fetchAPI('/setup/network'),
   saveNetwork: (data: NetworkConfig): Promise<NetworkConfig> => fetchAPI('/setup/network', { method: 'POST', body: JSON.stringify(data) }),
   testSpoolman: (): Promise<unknown> => fetchAPI('/spoolman/test'),
