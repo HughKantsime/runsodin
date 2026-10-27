@@ -14,6 +14,7 @@ import tempfile
 from pathlib import Path
 from sqlalchemy.exc import OperationalError
 from core.dependencies import log_audit
+from modules.models_library.schemas import FileScheduleOptions
 
 from core.quota import charge_job_quota
 from core.db import get_db
@@ -645,9 +646,9 @@ def list_print_files(limit: int = Query(default=20, ge=1, le=100), include_sched
 
 
 @router.get("/print-files/{file_id}")
-def get_print_file(file_id: int, current_user: dict = Depends(require_role("viewer", scope="read:models")), db: Session = Depends(get_db)):
+def get_print_file(file_id: int, printer_id: Optional[int] = None, current_user: dict = Depends(require_role("viewer", scope="read:models")), db: Session = Depends(get_db)):
     from modules.models_library.file_management import read_generic_file
-    return read_generic_file(db, file_id, current_user)
+    return read_generic_file(db, file_id, current_user, printer_id)
 
 
 @router.delete("/print-files/{file_id}")
@@ -657,10 +658,10 @@ def delete_print_file(file_id: int, current_user: dict = Depends(require_action(
 
 
 @router.post("/print-files/{file_id}/schedule")
-def schedule_print_file(file_id: int, printer_id: Optional[int] = None,
+def schedule_print_file(file_id: int, printer_id: Optional[int] = None, options: Optional[FileScheduleOptions] = None,
                         current_user: dict = Depends(require_action("upload.schedule", scope="write:jobs")), db: Session = Depends(get_db)):
     from modules.models_library.file_management import schedule_generic_file
-    return schedule_generic_file(db, file_id, printer_id, current_user)
+    return schedule_generic_file(db, file_id, printer_id, current_user, options.ams_mapping if options else None)
 
 # ──────────────────────────────────────────────
 # Mesh / 3D Viewer

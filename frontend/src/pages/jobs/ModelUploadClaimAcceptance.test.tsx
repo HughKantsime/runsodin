@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import Upload from './Upload'
@@ -97,4 +97,16 @@ test('model library lists sparse plates and opens scheduling on the selected pla
  fireEvent.click(await within(dialog).findByRole('button',{name:/Synthetic printer/}))
  fireEvent.click(within(dialog).getByRole('button',{name:'Create Job'}))
  await waitFor(()=>expect(api.schedule).toHaveBeenCalledWith(41,9,expect.objectContaining({plate_index:2})))
+})
+
+
+test('a printer-bound upload opens mapping confirmation instead of immediately queuing', async () => {
+ class BoundUpload extends UploadRequest { responseText = JSON.stringify({ ...uploadData, target_printer_id: 9 }) }
+ vi.stubGlobal('XMLHttpRequest', BoundUpload)
+ function Location() { const location = useLocation(); return <output aria-label="Current route">{location.pathname}{location.search}</output> }
+ const view = mount(<><Upload /><Location /></>)
+ fireEvent.change(view.container.querySelector('input[type=file]')!, { target: { files: [new File(['synthetic-fixture'], 'bound.3mf')] } })
+ fireEvent.click(await screen.findByRole('button', { name: 'Quick Print' }))
+ expect(screen.getByLabelText('Current route')).toHaveTextContent('/models?schedule=41')
+ expect(api.schedule).not.toHaveBeenCalled()
 })

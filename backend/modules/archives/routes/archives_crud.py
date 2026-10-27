@@ -611,6 +611,10 @@ def reprint_archive(
     )
 
     queue_creator.stage_job(db, new_job, identity)
+    if mapping is not None:
+        from core.ams_mapping import record_mapping
+        db.flush()
+        record_mapping(db, new_job)
     db.commit()
     db.refresh(new_job)
 

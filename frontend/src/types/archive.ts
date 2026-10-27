@@ -63,6 +63,8 @@ export interface ArchiveCompareResult {
   [key: string]: unknown;
 }
 
+export type AmsMapping = { source_slot: number; target_slot: number }[];
+
 export interface ArchiveAmsRequirement { slot: number; color: string; material: string }
 export interface ArchiveAmsSlot { slot: number; color: string; color_hex: string; material: string; spool_id: number | null }
 export interface ArchiveAmsSuggestion { source_slot: number; target_slot: number; confidence: 'exact' | 'material_only' }

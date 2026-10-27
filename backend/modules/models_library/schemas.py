@@ -11,7 +11,12 @@ from core.base import FilamentType
 
 # ============== Model Schemas ==============
 
-class ModelScheduleOptions(BaseModel):
+class FileScheduleOptions(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    ams_mapping: Optional[list[dict]] = None
+
+
+class ModelScheduleOptions(FileScheduleOptions):
     model_config = ConfigDict(extra="forbid")
     quantity: int = Field(default=1, ge=1, strict=True)
     priority: int = Field(default=5, ge=1, le=5, strict=True)

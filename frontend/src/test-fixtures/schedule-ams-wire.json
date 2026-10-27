@@ -1,0 +1,89 @@
+{
+  "job": {
+    "ams_mapping": [
+      3
+    ],
+    "ams_mapping_editable": true,
+    "ams_preview": {
+      "available": [
+        {
+          "color": null,
+          "color_hex": null,
+          "material": "PLA",
+          "slot": 1,
+          "spool_id": null
+        },
+        {
+          "color": "Black",
+          "color_hex": "000000",
+          "material": "PETG",
+          "slot": 3,
+          "spool_id": null
+        },
+        {
+          "color": "White",
+          "color_hex": "ffffff",
+          "material": "PETG",
+          "slot": 4,
+          "spool_id": null
+        }
+      ],
+      "required": [
+        {
+          "color": "#ffffff",
+          "material": "PETG",
+          "slot": 0
+        }
+      ],
+      "suggested_mapping": [
+        {
+          "confidence": "exact",
+          "source_slot": 0,
+          "target_slot": 4
+        }
+      ]
+    },
+    "id": 14,
+    "printer_id": 9,
+    "status": "pending"
+  },
+  "preview": {
+    "available": [
+      {
+        "color": null,
+        "color_hex": null,
+        "material": "PLA",
+        "slot": 1,
+        "spool_id": null
+      },
+      {
+        "color": "Black",
+        "color_hex": "000000",
+        "material": "PETG",
+        "slot": 3,
+        "spool_id": null
+      },
+      {
+        "color": "White",
+        "color_hex": "ffffff",
+        "material": "PETG",
+        "slot": 4,
+        "spool_id": null
+      }
+    ],
+    "required": [
+      {
+        "color": "#ffffff",
+        "material": "PETG",
+        "slot": 0
+      }
+    ],
+    "suggested_mapping": [
+      {
+        "confidence": "exact",
+        "source_slot": 0,
+        "target_slot": 4
+      }
+    ]
+  }
+}

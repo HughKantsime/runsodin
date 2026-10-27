@@ -1,3 +1,4 @@
+import AmsMappingEditor, { useAmsMapping } from '../../components/shared/AmsMappingEditor'
 import type { Model } from '../../api/models'
 import { ModelCard, ColorSlotInput } from '../../components/models/ModelLibraryFields'
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
@@ -23,7 +24,7 @@ import toast from 'react-hot-toast'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import { PageHeader, SearchInput, StatCard, TabBar, Button, EmptyState, Modal } from '../../components/ui'
 
-import { models, filaments, printers, getApprovalSetting } from '../../api'
+import { models, filaments, printers, printFiles, getApprovalSetting } from '../../api'
 import { canDo } from '../../permissions'
 import { useOrg } from '../../contexts/OrgContext'
 
@@ -145,7 +146,7 @@ function ModelModal({ isOpen, onClose, onSubmit, editingModel }) {
   )
 }
 
-function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
+export function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
   const { data: printersData } = useQuery({
     queryKey: ['printers'],
     queryFn: () => printers.list(true),
@@ -195,6 +196,14 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
     return false
   }
   const sortedPrinters = [...activePrinters].sort((a,b) => Number(hasMatch(b)) - Number(hasMatch(a)))
+  const isBambu = activePrinters.find(p => p.id === selectedPrinter)?.api_type === 'bambu'
+  const { data: mappingFile, isLoading: mappingLoading, isError: mappingError } = useQuery({
+    queryKey: ['schedule-ams', payloadOptions?.print_file_id, selectedPrinter],
+    queryFn: () => printFiles.get(payloadOptions!.print_file_id!, selectedPrinter),
+    enabled: isOpen && isBambu && !!payloadOptions?.print_file_id,
+  })
+  const mapping = useAmsMapping(mappingFile?.ams_preview, `${model?.id}:${payloadOptions?.print_file_id}:${selectedPrinter}`)
+
 
   if (!model) return null
 
@@ -341,9 +350,10 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
         </div>
 
       {payloadError && <p role="alert" className="text-red-400 text-sm mb-3">Scheduling options could not be loaded: {payloadError.message}</p>}
+      {isBambu && payloadOptions?.print_file_id && <AmsMappingEditor preview={mappingFile?.ams_preview} loading={mappingLoading} error={mappingError} {...mapping} />}
       <div className="flex justify-end gap-3">
         <button onClick={onClose} disabled={isScheduling} className="px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md text-sm transition-colors">Cancel</button>
-        <button onClick={() => onConfirm(selectedPrinter, { ...scheduleOpts, quantity: Number(scheduleOpts.quantity), due_date: scheduleOpts.due_date ? scheduleOpts.due_date + 'T00:00:00Z' : null, notes: scheduleOpts.notes || null, print_file_id: payloadOptions?.print_file_id, payload_sha256: payloadOptions?.payload_sha256 })} disabled={isScheduling || loadingPayload || loadingPlates || !!payloadError || !!plateError || (!!payloadOptions?.plate_indices?.length && !payloadOptions.plate_indices.includes(scheduleOpts.plate_index)) || !Number.isInteger(Number(scheduleOpts.quantity)) || Number(scheduleOpts.quantity) < 1} className="px-4 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary-hover)] rounded-md text-sm transition-colors">
+        <button onClick={() => onConfirm(selectedPrinter, { ...scheduleOpts, quantity: Number(scheduleOpts.quantity), due_date: scheduleOpts.due_date ? scheduleOpts.due_date + 'T00:00:00Z' : null, notes: scheduleOpts.notes || null, print_file_id: payloadOptions?.print_file_id, payload_sha256: payloadOptions?.payload_sha256, ...(isBambu && mapping.value ? { ams_mapping: mapping.value } : {}) })} disabled={isScheduling || (isBambu && (mappingLoading || mappingError || (mapping.enabled && !mapping.valid))) || loadingPayload || loadingPlates || !!payloadError || !!plateError || (!!payloadOptions?.plate_indices?.length && !payloadOptions.plate_indices.includes(scheduleOpts.plate_index)) || !Number.isInteger(Number(scheduleOpts.quantity)) || Number(scheduleOpts.quantity) < 1} className="px-4 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary-hover)] rounded-md text-sm transition-colors">
           {isScheduling ? 'Scheduling...' : 'Create Job'}
         </button>
       </div>

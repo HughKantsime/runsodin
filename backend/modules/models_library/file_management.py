@@ -33,9 +33,13 @@ def _file_metadata(row):
     return data
 
 
-def read_generic_file(db, file_id, actor):
+def read_generic_file(db, file_id, actor, printer_id=None):
     from core.print_file_binding import target_printer
-    data = _file_metadata(accessible_preview_file(db, file_id, actor))
+    row = accessible_preview_file(db, file_id, actor)
+    data = _file_metadata(row)
+    if printer_id is not None:
+        from core.ams_mapping import preview
+        data["ams_preview"] = preview(db, row.filaments_json, printer_id, actor)
     return {**data, "target_printer_id": target_printer(db, file_id)}
 
 
@@ -117,7 +121,7 @@ def delete_generic_file(db, file_id, actor):
         raise HTTPException(500, 'Unable to delete print file. Refresh before retrying.') from None
 
 
-def schedule_generic_file(db, file_id, printer_id, actor):
+def schedule_generic_file(db, file_id, printer_id, actor, ams_mapping=None):
     from core.interfaces.queue_creation import require_queue_creation_provider
     queue_creator = require_queue_creation_provider()
     try:
@@ -145,6 +149,8 @@ def schedule_generic_file(db, file_id, printer_id, actor):
             target = lock_queue_reference(db, 'printers', printer_id, TARGET_FIELDS)
             if not target or not (check_org_access(actor, target.org_id) or target.shared):
                 raise HTTPException(404, 'Printer not found')
+        from core.ams_mapping import validate_for_printer
+        mapping = validate_for_printer(db, ams_mapping, row.filaments_json, printer_id, actor)
         file_capture = capture(row, FILE_FIELDS)
         parent_capture = capture(parent, ('id', 'org_id'))
         target_capture = capture(target, TARGET_FIELDS)
@@ -159,6 +165,7 @@ def schedule_generic_file(db, file_id, printer_id, actor):
             "item_name": row.project_name or row.original_filename or row.filename,
             "model_id": row.model_id, "print_file_id": row.id,
             "payload_sha256": payload_hash, "plate_index": 0,
+            **({"ams_mapping": mapping} if mapping is not None else {}),
             "duration_hours": row.print_time_seconds / 3600 if row.print_time_seconds is not None else None,
             "colors_required": ','.join(f['color'] for f in filaments if f.get('color')),
             "quantity": 1, "priority": 5, "status": "pending", "printer_id": printer_id,
@@ -167,6 +174,9 @@ def schedule_generic_file(db, file_id, printer_id, actor):
             "charged_to_user_id": actor['id'], "charged_to_org_id": actor.get('group_id'),
         }, actor)
         job_id = job.id
+        if mapping is not None:
+            from core.ams_mapping import record_mapping
+            record_mapping(db, job)
         assert_unchanged(db, 'print_files', file_capture)
         assert_unchanged(db, 'models', parent_capture)
         assert_unchanged(db, 'printers', target_capture)

@@ -1,3 +1,4 @@
+import { JobAmsMappingPanel } from './JobAmsMapping'
 import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle } from 'lucide-react'
@@ -354,6 +355,7 @@ export function EditJobModal({ isOpen, onClose, onSubmit, job, printersData, mod
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Edit Job" size="lg">
+      {isOpen && job.ams_mapping !== undefined && <JobAmsMappingPanel jobId={job.id} />}
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Item Name *</label>

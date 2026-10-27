@@ -19,6 +19,9 @@ export interface ModelSummary {
 }
 
 export interface Job {
+  ams_mapping?: number[] | null;
+  ams_preview?: import("./archive").ArchiveAmsPreview | null;
+  ams_mapping_editable?: boolean;
   id: number;
   item_name: string;
   model_id: number | null;
@@ -84,6 +87,7 @@ export interface JobCreate {
 }
 
 export interface JobUpdate {
+  ams_mapping?: { source_slot: number; target_slot: number }[] | null;
   item_name?: string;
   model_id?: number;
   quantity?: number;
@@ -183,6 +187,7 @@ export interface PrintJobStats {
 // ---- Print Files ----
 
 export interface PrintFile {
+  ams_preview?: import("./archive").ArchiveAmsPreview | null;
   thumbnail_b64: string | null;
   project_name: string;
   print_time_formatted: string;

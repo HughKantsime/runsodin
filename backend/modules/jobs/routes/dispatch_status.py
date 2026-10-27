@@ -88,4 +88,8 @@ def job_timeline(job_id: int,
         if row['kind'] == 'bed_clear_confirmed':
             detail = {k:v for k,v in detail.items() if k == 'attestation'}
         events.append({**dict(row), 'detail':detail})
+    from core.ams_mapping import timeline_events
+    from core.job_timeline import utc
+    events.extend(timeline_events(db, job_id))
+    events.sort(key=lambda item: utc(item['occurred_at']))
     return {'job_id':job_id,'events':events}

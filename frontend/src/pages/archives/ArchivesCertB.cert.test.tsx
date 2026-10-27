@@ -66,11 +66,14 @@ test('reprint panel shows the AMS mapping preview for the chosen printer', () =>
   fireEvent.change(dialog.getByRole('combobox'), { target: { value: '9' } })
   expect(state.previewArgs).toContainEqual([101, '9'])
   const preview = within(dialog.getByTestId('reprint-ams-preview'))
-  expect(preview.getByText('Filament 1: PLA').closest('li')).toHaveTextContent('Slot 2 (Black PLA)')
-  expect(preview.getByText('Filament 2: PLA').closest('li')).toHaveTextContent('Slot 1 (White PLA)')
-  expect(preview.getByText('Filament 3: PETG').closest('li')).toHaveTextContent('No matching slot')
-  // The fixture leaves PETG unmatched, so no (rejected) partial mapping is offered.
-  expect(preview.queryByLabelText('Use this mapping')).toBeNull()
+  expect(preview.getByLabelText('Filament 1 AMS slot').closest('li')).toHaveTextContent('Slot 2 (Black PLA)')
+  expect(preview.getByLabelText('Filament 2 AMS slot').closest('li')).toHaveTextContent('Slot 1 (White PLA)')
+  expect(preview.getByLabelText('Filament 3 AMS slot').closest('li')).toHaveTextContent('No matching slot')
+  // Incomplete suggestions are opt-in and cannot submit a partial mapping.
+  expect(preview.getByLabelText('Use this mapping')).not.toBeChecked()
+  expect(preview.getByLabelText('Filament 1 AMS slot')).toHaveValue('2')
+  expect(preview.getByLabelText('Filament 2 AMS slot')).toHaveValue('1')
+  expect(preview.getByLabelText('Filament 3 AMS slot')).toHaveValue('')
 })
 
 test('a complete suggested mapping is sent with the reprint for a Bambu printer', async () => {

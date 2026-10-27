@@ -1,3 +1,4 @@
+import AmsMappingEditor, { useAmsMapping } from '../../components/shared/AmsMappingEditor'
 import type { ReactNode } from 'react'
 import type { Archive as ArchiveDto } from '../../types'
 import { useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react'
@@ -136,18 +137,14 @@ function ArchiveDetail({ archive, onClose, onDelete, onNotesUpdate, onTagsUpdate
   const [show3DViewer, setShow3DViewer] = useState(false)
 
   const plateCount = archive.plate_count || 1
-  const [applyMapping, setApplyMapping] = useState(true)
   const targetPrinter = (printerList || []).find(p => String(p.id) === String(reprintPrinterId))
   const { data: amsPreview, isLoading: amsLoading, isError: amsError } = useQuery({
     queryKey: ['archive-ams-preview', archive.id, reprintPrinterId],
     queryFn: () => archives.amsPreview(archive.id, parseInt(reprintPrinterId)),
     enabled: showReprint && !!reprintPrinterId,
   })
-  const required = amsPreview?.required || []
-  const suggested = amsPreview?.suggested_mapping || []
-  // Bambu dispatch accepts a mapping only when it covers every source filament.
-  const mappingComplete = required.length > 0 && suggested.length === required.length
-  const canApplyMapping = mappingComplete && targetPrinter?.api_type === 'bambu'
+  const mapping = useAmsMapping(amsPreview, `${archive.id}:${reprintPrinterId}`)
+  const canApplyMapping = targetPrinter?.api_type === 'bambu'
 
   const handleReprint = async () => {
     if (!reprintPrinterId) return toast.error('Select a printer')
@@ -156,8 +153,8 @@ function ArchiveDetail({ archive, onClose, onDelete, onNotesUpdate, onTagsUpdate
       const result = await archives.reprint(archive.id, {
         printer_id: parseInt(reprintPrinterId),
         plate_index: reprintPlate,
-        ...(canApplyMapping && applyMapping
-          ? { ams_mapping: suggested.map(m => ({ source_slot: m.source_slot, target_slot: m.target_slot })) }
+        ...(canApplyMapping && mapping.value
+          ? { ams_mapping: mapping.value }
           : {}),
       })
       toast.success(result.message || 'Reprint job created')
@@ -289,41 +286,9 @@ function ArchiveDetail({ archive, onClose, onDelete, onNotesUpdate, onTagsUpdate
                     <option key={p.id} value={p.id}>{p.nickname || p.name}</option>
                   ))}
                 </select>
-                {reprintPrinterId && (
-                  <div data-testid="reprint-ams-preview" className="space-y-1">
-                    <span className="block text-xs text-[var(--brand-text-muted)]">AMS filament mapping</span>
-                    {amsLoading ? (
-                      <p className="text-xs text-[var(--brand-text-muted)]">Loading filament mapping...</p>
-                    ) : amsError ? (
-                      <p role="alert" className="text-xs text-red-400">Filament mapping preview unavailable</p>
-                    ) : required.length === 0 ? (
-                      <p className="text-xs text-[var(--brand-text-muted)]">The original file lists no filaments.</p>
-                    ) : (
-                      <ul className="space-y-1">
-                        {required.map(req => {
-                          const match = suggested.find(m => m.source_slot === req.slot)
-                          const slot = match && (amsPreview?.available || []).find(a => a.slot === match.target_slot)
-                          return (
-                            <li key={req.slot} className="flex items-center gap-2 text-xs">
-                              <span className="inline-block w-3 h-3 rounded-full border border-[var(--brand-card-border)]" style={{ background: req.color || 'transparent' }} />
-                              <span>Filament {req.slot + 1}: {req.material || 'Unknown'}</span>
-                              <span className="text-[var(--brand-text-muted)]">&rarr;</span>
-                              {slot ? (
-                                <span>Slot {slot.slot} ({[slot.color, slot.material].filter(Boolean).join(' ')}){match.confidence === 'material_only' ? ' - material only' : ''}</span>
-                              ) : (
-                                <span className="text-amber-400">No matching slot</span>
-                              )}
-                            </li>
-                          )
-                        })}
-                      </ul>
-                    )}
-                    {canApplyMapping && (
-                      <label className="flex items-center gap-2 text-xs">
-                        <input type="checkbox" checked={applyMapping} onChange={e => setApplyMapping(e.target.checked)} />
-                        Use this mapping
-                      </label>
-                    )}
+                {reprintPrinterId && canApplyMapping && (
+                  <div data-testid="reprint-ams-preview">
+                    <AmsMappingEditor preview={amsPreview} loading={amsLoading} error={amsError} {...mapping} />
                   </div>
                 )}
                 {plateCount > 1 && (

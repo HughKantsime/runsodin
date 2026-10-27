@@ -32,7 +32,7 @@ from modules.jobs.models import Job
 from modules.printers.models import Printer
 from modules.models_library.models import Model
 from modules.jobs.schemas import (
-    JobCreate, JobUpdate, JobResponse, JobSummary,
+    JobCreate, JobUpdate, JobResponse, JobDetailResponse, JobSummary,
 )
 from core.models import SystemConfig
 
@@ -492,7 +492,7 @@ def create_job(
     return response
 
 
-@router.get("/{job_id}", response_model=JobResponse, tags=["Jobs"])
+@router.get("/{job_id}", response_model=JobDetailResponse, tags=["Jobs"])
 def get_job(
     job_id: int,
     current_user: dict = Depends(require_role("viewer")),
@@ -507,7 +507,8 @@ def get_job(
         raise HTTPException(status_code=404, detail="Job not found")
     if not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
-    return job
+    from modules.jobs.ams_mapping import detail_view
+    return detail_view(db, job, current_user)
 
 
 @router.patch("/{job_id}", response_model=JobResponse, tags=["Jobs"])
@@ -563,6 +564,8 @@ async def update_job(job_id: int, updates: JobUpdate, request: Request, current_
         except Exception:
             db.rollback()
             raise HTTPException(503, 'Job correction temporarily unavailable') from None
+    from modules.jobs.ams_mapping import lock_mapping_edit, checked_changes, record_mapping
+    lock_mapping_edit(db, job_id, updates)
     job = db.query(Job).filter(Job.id == job_id).populate_existing().first()
     if not job or not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
@@ -579,10 +582,13 @@ async def update_job(job_id: int, updates: JobUpdate, request: Request, current_
             and updates.model_id != job.model_id):
         raise HTTPException(409, "Archived payload jobs cannot change their source model")
     assert_generic_model_reference_allowed(db, updates.model_id)
-    changes = _pin_checked_changes(db, current_user, job, updates)
+    changes = checked_changes(db, current_user, job, _pin_checked_changes(db, current_user, job, updates))
+    previous_mapping = job.ams_mapping
     for field, value in changes.items():
         setattr(job, field, value)
 
+    if "ams_mapping" in changes:
+        record_mapping(db, job, previous_mapping)
     reconcile_job_write(db, production_orders)
     db.commit()
     db.refresh(job)

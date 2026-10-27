@@ -10,6 +10,7 @@ export default function JobTimeline({jobId}:{jobId:number}) {
     {data?.events.length===0&&<p>No recorded history.</p>}
     <ol className="space-y-2">{data?.events.map(event=><li key={event.id} className="text-sm break-words">
       <time dateTime={event.occurred_at}>{formatDate(event.occurred_at)}</time> · {event.kind.replace(/_/g,' ')}{event.code?` · ${event.code}`:''}
+      {event.kind === 'ams_mapping_changed' && <span> · {Array.isArray(event.detail.ams_mapping) ? event.detail.ams_mapping.map((slot, index) => `Filament ${index + 1} → Slot ${Number(slot) + 1}`).join(', ') : 'Mapping cleared'}</span>}
     </li>)}</ol>
   </section>
 }

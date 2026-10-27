@@ -225,10 +225,10 @@ function UploadSuccess({ data, onUploadAnother, onViewLibrary, onScheduleNow, on
         </button>
         {data.model_id && (
           <button
-            onClick={() => quickPrintMut.mutate()}
+            onClick={() => data.target_printer_id ? onScheduleNow() : quickPrintMut.mutate()}
             disabled={quickPrintBlocked || quickPrintMut.isPending || quickPrinted}
             className="flex items-center gap-2 px-4 py-2 rounded-md bg-amber-600 hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium transition-colors text-sm"
-            title={quickPrintBlocked ? quickPrintReason : 'Auto-assign to an available printer and queue immediately'}
+            title={quickPrintBlocked ? quickPrintReason : data.target_printer_id ? 'Confirm printer and filament mapping before scheduling' : 'Auto-assign to an available printer and queue immediately'}
             aria-describedby={quickPrintBlocked ? 'quick-print-blocked-reason' : undefined}
           >
             <Zap size={16} />

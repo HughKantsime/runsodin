@@ -73,6 +73,7 @@ class JobCreate(JobBase):
 
 
 class JobUpdate(BaseModel):
+    ams_mapping: Optional[list[dict[str, Any]]] = None
     item_name: Optional[str] = None
     model_id: Optional[int] = None
     quantity: Optional[int] = Field(default=None, ge=1, le=10000)
@@ -203,6 +204,11 @@ class JobResponse(JobBase):
     # Expanded relations (optional) — local summary schemas to avoid cross-module imports
     printer: Optional["_PrinterSummary"] = None
     model: Optional["_ModelSummary"] = None
+
+
+class JobDetailResponse(JobResponse):
+    ams_preview: Optional[dict] = None
+    ams_mapping_editable: bool = False
 
 
 class _PrinterSummary(BaseModel):

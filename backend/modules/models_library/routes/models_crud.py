@@ -255,6 +255,8 @@ def schedule_from_model(
         if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
             raise HTTPException(404, "Printer not found")
     file = _schedule_file(db, model, current_user)
+    from core.ams_mapping import validate_for_printer
+    mapping = validate_for_printer(db, opts.ams_mapping, file.filaments_json if file else None, printer_id, current_user)
     from core.print_file_binding import require_bound_target
     require_bound_target(db, file.id if file else None, printer_id)
     if (opts.print_file_id is None) != (opts.payload_sha256 is None):
@@ -335,6 +337,7 @@ def schedule_from_model(
         "due_date": as_utc_datetime(opts.due_date).replace(tzinfo=None) if opts.due_date else None,
         "notes": opts.notes, "print_file_id": file_id, "payload_sha256": payload_hash, "plate_index": plate_index,
         "item_name": model.name, "model_id": model.id,
+        **({"ams_mapping": mapping} if mapping is not None else {}),
         "duration_hours": duration_hours, "colors_required": ','.join(colors),
         "printer_id": printer_id, "estimated_cost": estimated_cost, "suggested_price": suggested_price,
         # Choosing a printer in the schedule dialog is an explicit choice: pin it.
@@ -345,6 +348,9 @@ def schedule_from_model(
     }
     job = queue_creator.stage_values(db, values, current_user)
     job_id = job.id
+    if mapping is not None:
+        from core.ams_mapping import record_mapping
+        record_mapping(db, job)
     alert_plan = None
     if submission:
         alert_plan = _stage_submission_alert(db, current_user, model, job_id)

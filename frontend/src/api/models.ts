@@ -6,6 +6,7 @@ const API_BASE = '/api'
 // ---- Model types (defined here to avoid circular deps with job types) ----
 
 export interface ModelScheduleOptions {
+  ams_mapping?: import("../types/archive").AmsMapping;
   quantity?: number;
   priority?: number;
   due_date?: string | null;
