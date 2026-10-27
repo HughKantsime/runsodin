@@ -2,15 +2,29 @@
 
 All notable changes to O.D.I.N. are documented here.
 
-## [2.0.23] - 2026-10-27
+## [2.0.24] - 2026-10-27
 
-<!-- summary: Optional secure remote access over Tailscale -->
+<!-- summary: Remote access over Tailscale, nozzle check before printing, AMS mapping on new jobs, color-aware shelf stock, maintenance holds, and recipe fixes -->
 
 ### Added
 
 - Optional remote access over Tailscale. Turn on the `tailscale` profile in the installer's Compose file. ODIN then gets an HTTPS address that only your tailnet devices can reach, so the iOS app and the browser work away from home. Nothing is exposed to the public internet, and LAN access is unchanged. See docs/REMOTE_ACCESS.md.
 - Settings shows remote-access status and the address to use in the iOS app.
 - Cameras work over Tailscale through a TCP connection. If live video can't connect, ODIN shows camera snapshots instead.
+- Bambu dispatch checks the nozzle a file was sliced for (flow type, diameter and hardness, per extruder used) against what the printer reports, and refuses before uploading with a named reason. The printer page shows the installed nozzles.
+- Bed size defaults are correct for each Bambu model, and on H2D each nozzle's reach is checked.
+- Dispatch answers right away with a status link while the upload and start continue, so a slow upload can't tempt a duplicate request. Add `?wait=true` for the old behaviour.
+- An AMS slot mapping can be set when scheduling a print file or editing a pending job, checked with the same rules as reprints.
+- An admin can qualify a recipe from a print started outside ODIN, so the first plate on a new printer can count. Who confirmed it and which print it was are recorded.
+- Tokens with `write:jobs` can cancel pending or held jobs that were never dispatched.
+- Received rolls keep their color name, and many rolls can be received at once from a CSV, previewed before anything is saved. Reorder totals group by color.
+- Printers can be marked for maintenance: "warn" shows a banner, "hold" stops dispatch, Start next and scheduling on that printer.
+
+### Fixed
+
+- Swapping filament in an AMS slot that a print doesn't use no longer stops that printer's prints from matching their recipe.
+- After a stop, a Bambu printer reporting "task canceled" is treated as idle, so the next job can be dispatched without someone at the printer.
+- Dispatch recovery reports a state with guidance instead of "not found".
 
 ### Security
 
