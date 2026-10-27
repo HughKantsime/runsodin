@@ -15,5 +15,8 @@
   "GET /api/settings/education-mode": {"enabled": true},
   "GET /api/alerts/unread-count": {"count": 0},
   "GET /api/printers": [{"id": 1, "name": "EDU Printer", "nickname": "EDU Printer", "type": "moonraker", "status": "offline", "last_seen": null, "filament_slots": []}],
-  "GET /api/stats": {}
+  "GET /api/stats": {},
+  "GET /api/print-jobs": [],
+  "POST /api/products/production/outside-prints/120/bind": {"id": "outside-binding", "print_job_id": 120, "recipe_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "odin_dispatched": false, "owner_attested": true},
+  "POST /api/products/production/outside-prints/120/qualify-and-bind": {"id": "outside-binding", "print_job_id": 120, "recipe_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "odin_dispatched": false, "owner_attested": true}
 }

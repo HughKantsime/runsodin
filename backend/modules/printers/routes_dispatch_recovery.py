@@ -66,9 +66,29 @@ from modules.printers.services import configured_identity
 
 @router.get('/printers/{printer_id}/dispatch-recovery',tags=['Printers'])
 def inspect_dispatch_recovery(printer_id:int=Path(gt=0), current_user:dict=Depends(require_role('viewer',scope='read:printers')), db:Session=Depends(get_db)):
-    evidence = capture(db,printer_id,current_user,lambda conn,pid=printer_id:configured_identity(pid,conn))
+    # Printer visibility and retained-evidence authority are different facts.
+    from sqlalchemy import text
+    from core.rbac import check_org_access
+    printer = db.execute(text('SELECT org_id FROM printers WHERE id=:id'), {'id':printer_id}).first()
+    if printer is None or not check_org_access(current_user, printer.org_id):
+        raise HTTPException(404, {'code':'not_found','message':'Printer not found'})
+    try:
+        evidence = capture(db,printer_id,current_user,lambda conn,pid=printer_id:configured_identity(pid,conn))
+    except HTTPException as error:
+        if error.status_code not in (404,409):
+            raise
+        evidence = None
     if evidence is None:
-        return {'state':'no_retained_claim','release_available':False,'actions':{'hold':False,'reconcile_retain':False,'release':False},'blockers':[],'guidance':'Missing retained evidence is not permission to retry. '+GUIDANCE}
+        # Absent and inaccessible claims must be indistinguishable, including
+        # on the caller's own printer. Global ownership is already visible.
+        guidance = ('Recovery authority is unavailable for a global printer without an organization. '
+                    'Ask an administrator to investigate printer ownership. '
+                    if printer.org_id is None else
+                    'No retained evidence is available to this caller. Ask an administrator to investigate '
+                    'printer and evidence ownership; missing evidence is not permission to retry. ')
+        return {'state':'investigation_required','refresh_required':False,'release_available':False,
+                'actions':{'hold':False,'reconcile_retain':False,'release':False},
+                'blockers':['evidence_authority_unavailable'],'guidance':guidance+GUIDANCE}
     claim,job = evidence['claim'],evidence['job']
     visible = evidence['visible']
     from core.rbac import is_scoped_token, token_scope_granted
@@ -111,7 +131,6 @@ def inspect_dispatch_recovery(printer_id:int=Path(gt=0), current_user:dict=Depen
             blockers.append('configuration_changed')
     if can_write and claim:
         from core.dispatch_recovery import release_evidence_checks
-        from fastapi import HTTPException
         try:
             release_evidence_checks(db,evidence)
         except HTTPException as error:
@@ -126,7 +145,11 @@ def inspect_dispatch_recovery(printer_id:int=Path(gt=0), current_user:dict=Depen
         'education':{'submission_id':evidence['submissions'][0]['id'],'status':evidence['submissions'][0]['status'],
                      'reservation_state':evidence['reservations'][0]['state'] if evidence['reservations'] else None} if edu_visible else None,
         'release_available':available,'actions':{'hold':can_write,'reconcile_retain':can_write,'release':available},
-        'blockers':blockers,'guidance':GUIDANCE}
+        'blockers':blockers,'guidance':GUIDANCE,
+        'refresh_required':failure=='status_unavailable',
+        'refresh':{'method':'GET','endpoint':f'/api/printers/{printer_id}/dispatch-recovery'}}
+    if result['refresh_required']:
+        result['guidance'] = 'Wait for fresh monitor telemetry, then use Refresh evidence or GET '+result['refresh']['endpoint']+'. '+GUIDANCE
     if visible:
         result.update(attempt_handle=evidence['attempt'],snapshot_handle=evidence['snapshot'])
     return result

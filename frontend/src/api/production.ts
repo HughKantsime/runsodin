@@ -1,13 +1,15 @@
 import { fetchAPI } from './client'
 export interface RecipeOutput { product_id:number; product_name?:string; kind:'main'|'flush'; expected:number }
-export interface Recipe { id:string; name:string; materials:string; qualified:boolean; reference_job_id:number; payload?:Record<string,unknown>; outputs:RecipeOutput[] }
+export interface Recipe { id:string; name:string; materials:string; qualified:boolean; reference_job_id:number|null; qualified_from_outside_print?:boolean; outside_print_evidence?:{actor_user_id:number;confirmed_at:string;print_job_id:number;matched_by:'explicit'|'filename';observed_filename:string|null;observed_job_name:string|null}; payload?:Record<string,unknown>; outputs:RecipeOutput[] }
 export interface Inspection { id:string; recipe_id:string|null; job_id?:number; print_job_id?:number; kind?:string; recipe_name:string; occurred_at:string; stock_status:string; outputs:(RecipeOutput & {accepted:number;rejected:number;disposition?:'send'|'in_baseline';send_quantity?:number;baseline_version?:string|null})[] }
 export interface ProductionState { recipes:Recipe[];receipts:Inspection[];additions:{id:string;receipt_id:string;state:string;attempts:number}[];square_writes_enabled:boolean;next_offset:number|null }
 export interface ProductionJob {kind?:undefined;id:number;name:string;payload:{printer_id:number;plate_index:number;payload_sha256:string}}
 export interface OutsideAttestation {started_outside_odin:true;file_revision_confirmed:true;statement?:string}
 export interface OutsideBinding {id:string;print_job_id:number;recipe_id:string;odin_dispatched:false;owner_attested:true}
 export interface OutsideProductionJob {kind:'outside_print';print_job_id:number;name:string;recipe:Recipe;payload:Record<string,unknown>}
+export interface OutsideQualification {printer_id:number;print_file_id?:number;plate_index:number;name:string;materials:string;qualification_confirmed:true;outputs:RecipeOutput[];attestation:OutsideAttestation}
 export const production = {
+  qualifyOutside:(printJobId:number,data:OutsideQualification)=>fetchAPI<OutsideBinding>(`/products/production/outside-prints/${printJobId}/qualify-and-bind`,{method:'POST',body:JSON.stringify(data)}),
   bindOutside:(printJobId:number,data:{recipe_id:string;attestation:OutsideAttestation;attested_by?:'owner_in_app'|'owner_confirmed_to_operator'})=>fetchAPI<OutsideBinding>(`/products/production/outside-prints/${printJobId}/bind`,{method:'POST',body:JSON.stringify(data)}),
   state:(offset=0)=>fetchAPI<ProductionState>(`/products/production?offset=${offset}`),
   jobs:(offset=0,jobId?:number)=>fetchAPI<{jobs:(ProductionJob|OutsideProductionJob)[];next_offset:number|null}>(`/products/production/jobs?offset=${offset}${jobId?`&job_id=${jobId}`:''}`),

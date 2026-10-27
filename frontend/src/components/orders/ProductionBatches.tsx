@@ -1,3 +1,4 @@
+import OutsidePrintBinding from './OutsidePrintBinding'
 import ProductionHistory from './ProductionHistory'
 import { useEffect, useRef, useState } from 'react'
 import { production, ProductionState, ProductionJob, OutsideProductionJob, RecipeOutput } from '../../api/production'
@@ -50,6 +51,7 @@ export default function ProductionBatches({products,inspectJobId}:{products:{id:
         {jobs.length===0&&<p>No eligible completed print jobs yet. Nothing needs to be entered while you are away from the printer.</p>}
         {jobOffset!==null&&<button className={button} disabled={busy} onClick={()=>void run(async()=>{const page=await production.jobs(jobOffset);setJobs(old=>[...old,...page.jobs]);setJobOffset(page.next_offset)})}>Load older completed jobs</button>}
       </div>}
+      {operator&&state&&<OutsidePrintBinding recipes={state.recipes} products={products} admin={admin} onBound={load}/>}
       {admin&&<button className={button} disabled={busy} type="button" aria-expanded={showRecipeEditor} onClick={()=>setShowRecipeEditor(old=>!old)}>Create recipe revision</button>}
       {admin&&showRecipeEditor&&<form className="space-y-3 border-t border-[var(--brand-card-border)] pt-3" onSubmit={e=>{e.preventDefault();void run(async()=>{
         const saved=await production.recipe({reference_job_id:Number(reference),name,materials,qualification_confirmed:qualified,outputs})
@@ -70,7 +72,7 @@ export default function ProductionBatches({products,inspectJobId}:{products:{id:
         <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={qualified} disabled={busy} onChange={e=>setQualified(e.target.checked)}/>I verified this reference print, material/color setup and fixed yield. These outputs are ready for inspection as finished products.</label>
         <button className={button} type="submit" disabled={busy||!reference||!name.trim()||!materials.trim()||outputs.some(o=>!o.product_id||!Number.isInteger(o.expected)||o.expected<1)}>Save recipe revision</button>
       </form>}
-      {state&&<div className="space-y-2"><h3 className="font-medium">Recipe revisions</h3>{state.recipes.length===0&&<p>No recipes yet.</p>}{state.recipes.map(r=><div key={r.id} className="text-sm break-words">{r.name} · {r.qualified?'Qualified':'Draft'} · {r.outputs.map(o=>`${o.expected} ${o.product_name} (${o.kind})`).join(', ')}<p className="text-[var(--brand-muted)]">{r.materials}</p>{admin&&<button className={button} disabled={busy} type="button" onClick={()=>{setName(r.name);setMaterials(r.materials);setReference(String(r.reference_job_id));setOutputs(r.outputs.map(o=>({product_id:o.product_id,kind:o.kind,expected:o.expected})));setQualified(false);setShowRecipeEditor(true)}}>Use as new revision</button>}</div>)}
+      {state&&<div className="space-y-2"><h3 className="font-medium">Recipe revisions</h3>{state.recipes.length===0&&<p>No recipes yet.</p>}{state.recipes.map(r=><div key={r.id} className="text-sm break-words">{r.name} · {r.qualified?'Qualified':'Draft'} · {r.outputs.map(o=>`${o.expected} ${o.product_name} (${o.kind})`).join(', ')}<p className="text-[var(--brand-muted)]">{r.materials}</p>{r.qualified_from_outside_print&&<p>Qualified from owner-attested outside print {r.outside_print_evidence?.print_job_id}.</p>}{admin&&<button className={button} disabled={busy} type="button" onClick={()=>{setName(r.name);setMaterials(r.materials);setReference(r.reference_job_id===null?'':String(r.reference_job_id));setOutputs(r.outputs.map(o=>({product_id:o.product_id,kind:o.kind,expected:o.expected})));setQualified(false);setShowRecipeEditor(true)}}>Use as new revision</button>}</div>)}
         {state.next_offset!==null&&<button className={button} disabled={busy} onClick={()=>void run(async()=>{const page=await production.state(state.next_offset!);setState(old=>old?{...old,recipes:[...old.recipes,...page.recipes],next_offset:page.next_offset}:page)})}>Load more recipes</button>}
       </div>}
       {operator&&<form className="space-y-3 border-t border-[var(--brand-card-border)] pt-3" onSubmit={e=>{e.preventDefault();if(!recipe)return;void run(async()=>{

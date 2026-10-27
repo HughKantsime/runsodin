@@ -50,3 +50,15 @@ class OutsideBindingInput(BaseModel):
     recipe_id: str = Field(pattern=r'^[a-f0-9]{32}$')
     attestation: OutsideAttestation
     attested_by: Literal['owner_in_app', 'owner_confirmed_to_operator'] = 'owner_in_app'
+
+
+class OutsideQualificationInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    printer_id: StrictInt = Field(gt=0)
+    print_file_id: StrictInt | None = Field(default=None, gt=0)
+    plate_index: StrictInt = Field(ge=0)
+    name: str = Field(min_length=1, max_length=160)
+    materials: str = Field(min_length=1, max_length=1000)
+    qualification_confirmed: StrictBool
+    outputs: list[Output] = Field(min_length=1, max_length=8)
+    attestation: OutsideAttestation

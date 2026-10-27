@@ -70,3 +70,12 @@ it('prevents duplicate retain submits', async () => {
   await waitFor(() => expect(printers.recoverDispatch).toHaveBeenCalledTimes(1))
   expect(printers.recoverDispatch).toHaveBeenCalledWith(7, 'reconcile-retain', expect.objectContaining({ education_action: 'none' }))
 })
+
+it('shows investigation guidance without claiming redacted receipts are absent',async()=>{
+ vi.mocked(printers.dispatchRecovery).mockResolvedValue({state:'investigation_required',refresh_required:false,release_available:false,actions:{hold:false,reconcile_retain:false,release:false},guidance:'Ask an administrator to investigate evidence ownership.'})
+ mount()
+ await screen.findByText(/Ask an administrator to investigate evidence ownership/)
+ expect(screen.getByRole('button',{name:'Refresh evidence'})).toBeEnabled()
+ expect(screen.queryByRole('button',{name:'Hold job'})).not.toBeInTheDocument()
+ expect(screen.queryByText('No admission receipt is linked.')).not.toBeInTheDocument()
+})

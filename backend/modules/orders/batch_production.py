@@ -121,6 +121,14 @@ def create_recipe(db, user, data):
     from modules.orders.finishing import lock as lock_finishing
     component_state,_=lock_finishing(db,owner,user)
     evidence = job_evidence(db, owner, data.reference_job_id, lock=True)
+    result = stage_recipe(db, owner, data, evidence, {
+        'reference_job_id': data.reference_job_id, 'reference_claim_token': evidence['claim_token']})
+    db.commit()
+    return result
+
+
+def stage_recipe(db, owner, data, evidence, source):
+    """Validate and stage an immutable revision in the caller's transaction."""
     keys = [(o.product_id,o.kind) for o in data.outputs]
     if len(set(keys)) != len(keys) or not any(o.kind == 'main' for o in data.outputs):
         fail('Use distinct product/output types and at least one main output')
@@ -136,13 +144,12 @@ def create_recipe(db, user, data):
     identifier = uuid.uuid4().hex
     definition = {'version':1, 'name':data.name.strip(), 'materials':data.materials.strip(),
                   'qualified':data.qualification_confirmed, 'created_at':now(),
-                  'reference_job_id':data.reference_job_id, 'reference_claim_token':evidence['claim_token'],
+                  **source,
                   'reference_observation_uid':evidence['observation_uid'],
                   'payload':recipe_payload(evidence), 'outputs':outputs}
     if not definition['name'] or not definition['materials']:
         fail('Enter a recipe name and the material/color requirements')
     db.execute(recipes.insert().values(id=identifier,owner=owner,definition=packed(definition)))
-    db.commit()
     return {'id':identifier, **definition}
 
 

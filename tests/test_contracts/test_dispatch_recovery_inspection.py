@@ -19,6 +19,9 @@ def test_owned_inspection_preserves_fence_and_does_not_infer_completion(recovery
     assert response.status_code==200
     body=response.json()
     assert body['state']=='uncertain' and body['job_id'] is None
+    assert body['refresh_required'] is True
+    assert body['refresh']=={'method':'GET','endpoint':'/api/printers/299/dispatch-recovery'}
+    assert 'Wait for fresh monitor telemetry' in body['guidance']
     assert body['receipt_present'] is False and body['observed_print'] is None
     assert body['release_available'] is False
     assert calls==[]
@@ -36,7 +39,16 @@ def test_owned_inspection_preserves_fence_and_does_not_infer_completion(recovery
 def test_foreign_or_unattributed_evidence_is_hidden(recovery_client,review_db,change):
     client,issue,calls=recovery_client
     review_db.execute(text(change));review_db.commit()
-    assert client.get('/printers/299/dispatch-recovery',headers=issue(['read:printers'])).status_code==404
+    response=client.get('/printers/299/dispatch-recovery',headers=issue(['read:printers']))
+    if change.startswith('UPDATE printer_dispatch_claims'):
+        assert response.status_code==200
+        assert response.json()['state']=='investigation_required'
+        assert response.json()['refresh_required'] is False
+        assert 'refresh' not in response.json()
+        assert not any(response.json()['actions'].values())
+        assert 'job_id' not in response.json()
+    else:
+        assert response.status_code==404
     assert calls==[]
 
 
@@ -45,7 +57,7 @@ def test_absent_claim_is_explicit_not_completed(recovery_client,review_db):
     review_db.execute(text('DELETE FROM printer_dispatch_claims WHERE printer_id=299'));review_db.commit()
     response=client.get('/printers/299/dispatch-recovery',headers=issue(['read:printers']))
     assert response.status_code==200
-    assert response.json()['state']=='no_retained_claim' and not response.json()['release_available']
+    assert response.json()['state']=='investigation_required' and not response.json()['release_available']
     assert not any(response.json()['actions'].values()) and 'attempt_handle' not in response.json()
     assert calls==[]
 
@@ -82,3 +94,53 @@ def test_receipt_with_wrong_observation_identity_does_not_report_completion(reco
     data=client.get('/printers/299/dispatch-recovery',headers=issue(['read:printers'])).json()
     assert data['receipt_present'] is True and data['observed_print'] is None and data['release_available'] is False
     assert calls==[]
+
+
+@pytest.mark.parametrize('role',['admin','operator','viewer'])
+@pytest.mark.parametrize('scopes',[['read:printers'],['read'],['write:jobs']])
+def test_recovery_read_roles_scopes_and_write_floor(recovery_client,review_db,role,scopes):
+    client,issue,calls = recovery_client
+    review_db.execute(text('UPDATE users SET role=:role WHERE id=3'),{'role':role})
+    review_db.execute(text('UPDATE printer_dispatch_claims SET owner_org_id=NULL WHERE printer_id=299'))
+    review_db.commit()
+    headers = issue(scopes)
+    response = client.get('/printers/299/dispatch-recovery',headers=headers)
+    assert response.status_code == (200 if scopes != ['write:jobs'] else 403), response.text
+    if response.status_code == 200:
+        assert response.json()['state'] == 'investigation_required'
+        assert 'administrator' in response.json()['guidance']
+        assert response.json()['refresh_required'] is False
+        assert not any(response.json()['actions'].values())
+        for key in ('attempt_handle','snapshot_handle','job_id','education'):
+            assert key not in response.json()
+    assert client.post('/printers/299/dispatch-recovery/hold',headers=headers,json={}).status_code == 403
+    assert calls == []
+
+
+def test_global_accessible_printer_needs_investigation_not_404(recovery_client,review_db):
+    client,issue,calls = recovery_client
+    review_db.execute(text('UPDATE printers SET org_id=NULL WHERE id=299'));review_db.commit()
+    response = client.get('/printers/299/dispatch-recovery',headers=issue(['read:printers']))
+    assert response.status_code == 200
+    assert response.json()['state'] == 'investigation_required'
+    assert response.json()['refresh_required'] is False
+    assert 'global printer' in response.json()['guidance']
+    assert 'organization' in response.json()['guidance']
+    assert 'refresh' not in response.json()
+    assert response.headers['cache-control'] == 'private, no-store'
+    assert calls == []
+
+
+def test_inaccessible_claim_is_indistinguishable_from_no_claim(recovery_client, review_db):
+    client, issue, calls = recovery_client
+    headers = issue(['read:printers'])
+    review_db.execute(text('UPDATE printer_dispatch_claims SET owner_org_id=2 WHERE printer_id=299'))
+    review_db.commit()
+    hidden = client.get('/printers/299/dispatch-recovery', headers=headers)
+    review_db.execute(text('DELETE FROM printer_dispatch_claims WHERE printer_id=299'))
+    review_db.commit()
+    absent = client.get('/printers/299/dispatch-recovery', headers=headers)
+    assert hidden.status_code == absent.status_code == 200
+    assert hidden.json() == absent.json()
+    assert hidden.json()['refresh_required'] is False
+    assert calls == []
