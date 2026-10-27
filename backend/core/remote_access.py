@@ -14,6 +14,19 @@ PROXY_DNS_CACHE_SECONDS = 5
 PROXY_DNS_TIMEOUT_SECONDS = 2
 
 
+_LABEL_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-")
+
+
+def _valid_hostname(value):
+    """RFC 1123 hostname: 1-253 chars, dot-separated 1-63 char labels, no edge hyphens."""
+    name = value[:-1] if value.endswith(".") else value
+    if not 1 <= len(name) <= 253:
+        return False
+    return all(1 <= len(label) <= 63 and set(label) <= _LABEL_CHARS
+               and not label.startswith("-") and not label.endswith("-")
+               for label in name.split("."))
+
+
 class TrustedProxyAddresses:
     """Explicit IPs plus short-lived DNS answers from the container resolver.
 
@@ -30,10 +43,7 @@ class TrustedProxyAddresses:
             try:
                 self.addresses.add(ipaddress.ip_address(value))
             except ValueError:
-                if not re.fullmatch(
-                    r"(?=.{1,253}\Z)[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?"
-                    r"(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.?", value
-                ):
+                if not _valid_hostname(value):
                     raise ValueError("ODIN_TRUSTED_PROXIES requires IP literals or hostnames")
                 self.hostnames.add(value)
         self._resolved = set()
