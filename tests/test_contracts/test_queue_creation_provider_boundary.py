@@ -195,8 +195,10 @@ register_providers(registry)
 assert registry.get_provider('QueueCreationProvider') is provider
 print('pure registration verified')
 '''
-    env=dict(os.environ,DATABASE_URL='sqlite:///'+str(tmp_path/'unused.sqlite'),DATABASE_PATH=str(tmp_path/'unused.sqlite'),BASE_URL='http://127.0.0.1:9')
-    result=subprocess.run([sys.executable,'-c',script],env=env,capture_output=True,text=True,timeout=20)
+    root=Path(__file__).resolve().parents[2]
+    env=dict(os.environ,DATABASE_URL='sqlite:///'+str(tmp_path/'unused.sqlite'),DATABASE_PATH=str(tmp_path/'unused.sqlite'),BASE_URL='http://127.0.0.1:9',
+             PYTHONPATH=os.pathsep.join((str(root/'backend'),str(root))))
+    result=subprocess.run([sys.executable,'-c',script],cwd=root,env=env,capture_output=True,text=True,timeout=20)
     assert result.returncode==0,result.stderr
     assert result.stdout.strip()=='pure registration verified'
     assert not (tmp_path/'unused.sqlite').exists()

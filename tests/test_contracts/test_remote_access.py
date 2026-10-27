@@ -63,7 +63,7 @@ def test_websocket_proxy_scheme_and_spoof_rejection():
     seen = []
     async def downstream(scope, receive, send):
         seen.append((scope['scheme'], scope['client']))
-    middleware = TrustedProxySchemeMiddleware(downstream)
+    middleware = TrustedProxySchemeMiddleware(downstream, "127.0.0.1,::1")
     for peer, expected in [('127.0.0.1', 'wss'), ('192.0.2.8', 'ws')]:
         scope = {'type': 'websocket', 'scheme': 'ws', 'client': (peer, 9999), 'headers': [(b'x-forwarded-proto', b'https'), (b'x-forwarded-for', b'100.101.102.103')]}
         asyncio.run(middleware(scope, None, None))
@@ -112,7 +112,8 @@ OUT['cookies_and_rbac'] = True
 
 
 def test_real_login_cookies_status_rbac_and_wire(tmp_path):
-    result = run_probe('remote-access', PROBE, tmp_path)
+    result = run_probe('remote-access', PROBE, tmp_path,
+                       extra_env={'ODIN_TRUSTED_PROXIES': '127.0.0.1,::1'})
     assert result['_net_attempts'] == []
     assert result['cookies_and_rbac']
     fixture = ROOT / 'frontend/src/test-fixtures/remote-access.json'
@@ -128,8 +129,8 @@ def test_compose_transport_and_pin():
     assert 'network_mode' not in ts and 'networks' not in ts
     assert 'depends_on' not in ts
     assert ts['labels']['com.centurylinklabs.watchtower.enable'] == 'false'
-    assert 'ODIN_TRUSTED_PROXIES=${ODIN_TRUSTED_PROXIES:-127.0.0.1,::1}' in compose['services']['odin']['environment']
-    assert Settings(_env_file=None).odin_trusted_proxies == '127.0.0.1,::1'
+    assert 'ODIN_TRUSTED_PROXIES=${ODIN_TRUSTED_PROXIES:-}' in compose['services']['odin']['environment']
+    assert Settings(_env_file=None).odin_trusted_proxies == ''
     assert 'ports' not in ts and 'devices' not in ts and 'cap_add' not in ts
     serve = json.loads(compose['configs']['tailscale_serve']['content'])
     assert serve['TCP']['8555'] == {'TCPForward':'odin:8555'}
@@ -199,7 +200,7 @@ def test_operator_production_compose_patch_is_parseable():
     assert odin['container_name'] == 'odin'
     assert odin['ports'] == ['8000:8000', '1984:1984', '8555:8555']
     assert odin['labels']['com.centurylinklabs.watchtower.enable'] == 'true'
-    assert odin['environment']['ODIN_TRUSTED_PROXIES'] == '${ODIN_TRUSTED_PROXIES:-127.0.0.1,::1}'
+    assert odin['environment']['ODIN_TRUSTED_PROXIES'] == '${ODIN_TRUSTED_PROXIES:-}'
     ts = production['services']['tailscale']
     assert 'TS_AUTHKEY' not in ts['environment']
     assert ts['labels']['com.centurylinklabs.watchtower.enable'] == 'false'
@@ -217,7 +218,7 @@ def test_forwarded_loopback_client_never_inherits_loopback(value):
     seen = {}
     async def app(scope, receive, send):
         seen.update(scope)
-    middleware = TrustedProxySchemeMiddleware(app)
+    middleware = TrustedProxySchemeMiddleware(app, '127.0.0.1,::1')
     scope = {"type": "http", "client": ("127.0.0.1", 1), "scheme": "http",
              "headers": [(b"x-forwarded-for", value), (b"x-forwarded-proto", b"https")]}
     asyncio.run(middleware(scope, None, None))

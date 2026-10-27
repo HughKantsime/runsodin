@@ -65,7 +65,7 @@ class Settings(BaseSettings):
     odin_public_url: str = ""
     odin_tailnet_ip: str = ""
     # Explicit socket peer IPs or DNS names (refreshed every five seconds).
-    odin_trusted_proxies: str = "127.0.0.1,::1"
+    odin_trusted_proxies: str = ""  # trust no forwarding proxy unless configured
 
     @field_validator("odin_public_url")
     @classmethod

@@ -80,7 +80,7 @@ iOS camera fallback behavior is outside this repository and has not been verifie
    ```dotenv
    TS_HOSTNAME=odin
    TS_USERSPACE=true
-   ODIN_TRUSTED_PROXIES=127.0.0.1,::1,tailscale
+   ODIN_TRUSTED_PROXIES=tailscale
    TS_AUTHKEY=<owner-supplied-auth-key>
    ODIN_PUBLIC_URL=https://odin.<tailnet>.ts.net
    ODIN_TAILNET_IP=
@@ -137,8 +137,8 @@ as well. Wildcard credentialed CORS is not accepted.
 ## Cookies, URLs and network policies
 
 The app trusts `X-Forwarded-Proto: https` only from explicit socket peers in
-`ODIN_TRUSTED_PROXIES` (defaults `127.0.0.1,::1`). For this profile set
-`127.0.0.1,::1,tailscale`: Serve connects from its Docker bridge address, and ODIN
+`ODIN_TRUSTED_PROXIES` (empty by default: no forwarding proxy is trusted). For this profile set
+`tailscale`: Serve connects from its Docker bridge address, and ODIN
 resolves the `tailscale` service hostname to IPv4/IPv6 addresses. Positive and
 negative DNS results are cached for five seconds per app worker. The next
 forwarded request after expiry triggers re-resolution with a two-second lookup
@@ -263,7 +263,7 @@ settings. Do not replace the production Compose file with the installer template
 +    environment:
 +      ODIN_PUBLIC_URL: ${ODIN_PUBLIC_URL:-}
 +      ODIN_TAILNET_IP: ${ODIN_TAILNET_IP:-}
-+      ODIN_TRUSTED_PROXIES: ${ODIN_TRUSTED_PROXIES:-127.0.0.1,::1}
++      ODIN_TRUSTED_PROXIES: ${ODIN_TRUSTED_PROXIES:-}
 +  tailscale:
 +    image: tailscale/tailscale:v1.90.9
 +    profiles: [tailscale]
@@ -298,7 +298,7 @@ in place. No `TS_AUTHKEY` is added or passed to this production sidecar.
 @@ -0,0 +1,5 @@
 +TS_HOSTNAME=odin
 +TS_USERSPACE=true
-+ODIN_TRUSTED_PROXIES=127.0.0.1,::1,tailscale
++ODIN_TRUSTED_PROXIES=tailscale
 +ODIN_PUBLIC_URL=https://<actual-node>.<actual-tailnet>.ts.net
 +ODIN_TAILNET_IP=<tailscale-ip-v4>
 ```
@@ -415,7 +415,7 @@ contracts also passed. Three dependency deprecation warnings remain.
 Compose 5.1.3 validated the installer, root Compose, and the documented override
 merged with a synthetic production base, each with and without the profile
 (**six configurations**). Checks asserted default-network membership, forward
-targets, loopback-only defaults, explicit profile proxy trust, and Watchtower labels.
+targets, explicit profile proxy trust, and Watchtower labels.
 Validation used an isolated Docker config, sanitized environment and
 `--env-file /dev/null`; no owner secrets or env files were read. The production
 fixture retained its image, container name, ports, LAN/cookie settings and volume.

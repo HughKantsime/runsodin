@@ -33,8 +33,8 @@ services:
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:8000,http://localhost:3000}
       - ODIN_PUBLIC_URL=${ODIN_PUBLIC_URL:-}
       - ODIN_TAILNET_IP=${ODIN_TAILNET_IP:-}
-      # With the tailscale profile, set this to 127.0.0.1,::1,tailscale.
-      - ODIN_TRUSTED_PROXIES=${ODIN_TRUSTED_PROXIES:-127.0.0.1,::1}
+      # Empty trusts no proxy. With the tailscale profile, set this to tailscale.
+      - ODIN_TRUSTED_PROXIES=${ODIN_TRUSTED_PROXIES:-}
       - COOKIE_SECURE=${COOKIE_SECURE:-true}
       - TRUSTED_HOSTS=${TRUSTED_HOSTS:-*}
       # Set to your server's LAN IP for camera streaming (or configure in Settings > Network)

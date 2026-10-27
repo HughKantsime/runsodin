@@ -134,7 +134,7 @@ class TrustedProxySchemeMiddleware:
     Serve preserves Host and appends the real client to X-Forwarded-For.
     Restore that identity before HTTP/WebSocket auth, allowlisting and auditing.
     """
-    def __init__(self, app, trusted="127.0.0.1,::1"):
+    def __init__(self, app, trusted=""):
         self.app = app
         self.trusted = TrustedProxyAddresses(trusted)
         self._warned_invalid_client = False

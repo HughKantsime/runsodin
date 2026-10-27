@@ -14,6 +14,40 @@ from tests.test_contracts.test_cert_G_harness import run_probe
 
 
 @pytest.mark.parametrize("kind", ["http", "websocket"])
+@pytest.mark.parametrize("peer", ["127.0.0.1", "::1", "172.20.0.3"])
+@pytest.mark.parametrize("use_app_settings", [False, True])
+def test_default_trust_ignores_forwarding(monkeypatch, kind, peer, use_app_settings):
+    from core import config
+    from core.app import create_app
+
+    monkeypatch.delenv("ODIN_TRUSTED_PROXIES", raising=False)
+    settings = config.Settings(_env_file=None)
+    assert settings.odin_trusted_proxies == ""
+    seen = []
+    async def downstream(scope, receive, send):
+        seen.append(scope)
+
+    if use_app_settings:
+        monkeypatch.setattr(config, "settings", settings)
+        app = create_app()
+        try:
+            installed = next(m for m in app.user_middleware if m.cls is TrustedProxySchemeMiddleware)
+            middleware = installed.cls(downstream, **installed.kwargs)
+        finally:
+            app.state.branding_assets.close()
+    else:
+        middleware = TrustedProxySchemeMiddleware(downstream)
+    original = {"type": kind, "scheme": "ws" if kind == "websocket" else "http",
+                "client": (peer, 1234), "headers": [
+                    (b"x-forwarded-for", b"100.101.102.103"),
+                    (b"x-forwarded-proto", b"https")]}
+    asyncio.run(middleware(original, None, None))
+    assert seen == [original]
+    assert seen[0]["client"] == (peer, 1234)
+    assert seen[0]["scheme"] == ("ws" if kind == "websocket" else "http")
+
+
+@pytest.mark.parametrize("kind", ["http", "websocket"])
 def test_hostname_proxy_resolution_cache_recreation_and_failure(monkeypatch, kind):
     from core import remote_access
     now = [100.0]
@@ -155,7 +189,7 @@ def test_invalid_forwarding_logs_once_without_header_values(caplog):
     async def downstream(scope, receive, send):
         pass
 
-    middleware = TrustedProxySchemeMiddleware(downstream)
+    middleware = TrustedProxySchemeMiddleware(downstream, "127.0.0.1,::1")
     with caplog.at_level(logging.WARNING, logger="odin.api"):
         for _ in range(3):
             asyncio.run(middleware({"type": "http", "scheme": "http", "client": ("127.0.0.1", 1),
@@ -238,5 +272,26 @@ OUT['identity_policy'] = True
 
 
 def test_forwarded_identity_drives_allowlist_login_audit_and_sessions(tmp_path):
-    result = run_probe('proxy-identity-policy', POLICY_PROBE, tmp_path)
+    result = run_probe('proxy-identity-policy', POLICY_PROBE, tmp_path,
+                       extra_env={'ODIN_TRUSTED_PROXIES': '127.0.0.1,::1'})
     assert result['identity_policy'] and result['_net_attempts'] == []
+
+
+def test_default_loopback_forwarding_cannot_spoof_login_identity(tmp_path):
+    result = run_probe('untrusted-loopback-identity', r'''
+seed_user('direct-admin', 'admin')
+for peer in ['127.0.0.1', '::1']:
+    c = TestClient(app, client=(peer, 1234), headers={
+        'X-Forwarded-Proto': 'https', 'X-Forwarded-For': '192.0.2.99'})
+    limiter.reset()
+    response = c.post('/api/auth/login', data={'username':'direct-admin', 'password':PASSWORD})
+    assert response.status_code == 200, response.text
+    assert '; Secure' not in response.headers['set-cookie']
+    assert c.post('/api/auth/login', data={'username':'nobody', 'password':PASSWORD}).status_code == 401
+for query in ['SELECT DISTINCT ip_address FROM active_sessions ORDER BY ip_address',
+              'SELECT DISTINCT ip FROM login_attempts ORDER BY ip',
+              "SELECT DISTINCT ip_address FROM audit_logs WHERE action IN ('auth.login','login_failed') ORDER BY ip_address"]:
+    assert sql(query) == [['127.0.0.1'], ['::1']]
+OUT['untrusted_identity'] = True
+''', tmp_path, extra_env={'ODIN_TRUSTED_PROXIES': ''})
+    assert result['untrusted_identity'] and result['_net_attempts'] == []

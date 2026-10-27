@@ -377,7 +377,7 @@ section "Image References"
 
 install_image=$(grep '^ODIN_IMAGE=' "$INSTALL_SH" | head -1 | cut -d'"' -f2)
 update_image=$(grep '^ODIN_IMAGE=' "$UPDATE_SH" | head -1 | cut -d'"' -f2)
-compose_image=$(grep 'image:' "$REPO_DIR/install/docker-compose.yml" | awk '{print $2}')
+compose_image=$(grep -m1 'image:' "$REPO_DIR/install/docker-compose.yml" | awk '{print $2}')
 
 if [ "$install_image" = "$update_image" ]; then
     pass "install.sh and update.sh reference same image ($install_image)"
