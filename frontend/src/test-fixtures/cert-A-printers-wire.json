@@ -8,7 +8,7 @@
       "is_active": true,
       "api_type": "bambu",
       "api_host": "192.0.2.31",
-      "camera_url": null,
+      "camera_url": "bambu-chamber://auto",
       "nickname": null,
       "bed_temp": 65.0,
       "bed_target_temp": 65.0,
@@ -54,7 +54,10 @@
           "loaded_at": "2026-10-14T10:24:00",
           "remaining": null,
           "remaining_weight": null,
-          "material_type": "PETG"
+          "material_type": "PETG",
+          "display_name": null,
+          "mapping_status": null,
+          "external_spool_id": null
         },
         {
           "slot_number": 2,
@@ -69,7 +72,10 @@
           "loaded_at": "2026-10-14T10:25:00",
           "remaining": null,
           "remaining_weight": null,
-          "material_type": "PETG"
+          "material_type": "PETG",
+          "display_name": null,
+          "mapping_status": null,
+          "external_spool_id": null
         },
         {
           "slot_number": 3,
@@ -84,7 +90,10 @@
           "loaded_at": "2026-10-14T10:26:00",
           "remaining": null,
           "remaining_weight": null,
-          "material_type": "PETG"
+          "material_type": "PETG",
+          "display_name": null,
+          "mapping_status": null,
+          "external_spool_id": null
         },
         {
           "slot_number": 4,
@@ -99,7 +108,10 @@
           "loaded_at": "2026-10-14T10:27:00",
           "remaining": null,
           "remaining_weight": null,
-          "material_type": "PETG"
+          "material_type": "PETG",
+          "display_name": null,
+          "mapping_status": null,
+          "external_spool_id": null
         },
         {
           "slot_number": 5,
@@ -114,7 +126,10 @@
           "loaded_at": "2026-10-14T10:28:00",
           "remaining": null,
           "remaining_weight": null,
-          "material_type": "PETG"
+          "material_type": "PETG",
+          "display_name": null,
+          "mapping_status": null,
+          "external_spool_id": null
         },
         {
           "slot_number": 6,
@@ -129,7 +144,10 @@
           "loaded_at": "2026-10-14T10:29:00",
           "remaining": null,
           "remaining_weight": null,
-          "material_type": "PLA_SUPPORT"
+          "material_type": "PLA_SUPPORT",
+          "display_name": null,
+          "mapping_status": null,
+          "external_spool_id": null
         },
         {
           "slot_number": 7,
@@ -144,7 +162,10 @@
           "loaded_at": "2026-10-14T10:30:00",
           "remaining": null,
           "remaining_weight": null,
-          "material_type": "PLA"
+          "material_type": "PLA",
+          "display_name": null,
+          "mapping_status": null,
+          "external_spool_id": null
         },
         {
           "slot_number": 8,
@@ -159,15 +180,20 @@
           "loaded_at": "2026-10-14T10:31:00",
           "remaining": null,
           "remaining_weight": null,
-          "material_type": "PLA"
+          "material_type": "PLA",
+          "display_name": null,
+          "mapping_status": null,
+          "external_spool_id": null
         }
       ],
+      "filament_source": null,
+      "filament_source_status": null,
       "loaded_colors": [],
       "shared": false,
       "org_id": 1,
       "has_api_key": true,
       "camera_enabled": false,
-      "camera_source": null
+      "camera_source": "auto"
     },
     {
       "name": "Cert Voron",
@@ -209,6 +235,8 @@
       "created_at": "2026-10-14T10:32:00",
       "updated_at": "2026-10-14T10:33:00",
       "filament_slots": [],
+      "filament_source": null,
+      "filament_source_status": null,
       "loaded_colors": [],
       "shared": false,
       "org_id": 1,
@@ -254,6 +282,8 @@
       "created_at": "2026-10-14T10:34:00",
       "updated_at": "2026-10-14T10:35:00",
       "filament_slots": [],
+      "filament_source": null,
+      "filament_source_status": null,
       "loaded_colors": [],
       "shared": false,
       "org_id": 1,
@@ -299,6 +329,8 @@
       "created_at": "2026-10-14T10:36:00",
       "updated_at": "2026-10-14T10:37:00",
       "filament_slots": [],
+      "filament_source": null,
+      "filament_source_status": null,
       "loaded_colors": [],
       "shared": false,
       "org_id": 1,

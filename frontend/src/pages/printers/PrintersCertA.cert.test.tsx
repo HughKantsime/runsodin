@@ -218,7 +218,7 @@ it('emergency stop is hidden from viewers', async () => {
 
 it('printer settings panel shows smart plug, camera URL, tags and timelapse fields and submits camera/tags/timelapse', () => {
   const onSubmit = vi.fn()
-  render(<PrinterModal isOpen onClose={() => {}} onSubmit={onSubmit} printer={{ ...w.printers[0], camera_url: null }} />)
+  render(<PrinterModal isOpen onClose={() => {}} onSubmit={onSubmit} printer={{ ...w.printers[0], camera_url: null, camera_source: null }} />)
   expect(screen.getByRole('option', { name: 'No smart plug' })).toBeInTheDocument()
   fireEvent.submit(screen.getByRole('button', { name: /save|update/i }).closest('form')!)
   const [data, id] = onSubmit.mock.calls[0]

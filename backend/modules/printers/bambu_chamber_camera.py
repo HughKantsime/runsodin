@@ -51,6 +51,12 @@ def chamber_source(printer):
     return None
 
 
+def drop_unchanged_marker(update_data, printer):
+    """The auto chamber marker from GET sent back unchanged on update: nothing to store."""
+    if update_data.get("camera_url") == SOURCE and chamber_source(printer):
+        del update_data["camera_url"]
+
+
 class InvalidFrame(ValueError):
     pass
 

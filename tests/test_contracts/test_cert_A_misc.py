@@ -119,9 +119,10 @@ def test_camera_url_field_for_p1s_is_encrypted_and_streamed(cert_app, review_db,
     stored = review_db.execute(text("SELECT camera_url,camera_enabled FROM printers WHERE id=301")).one()
     assert "secretpw" not in stored[0] and crypto.decrypt(stored[0]) == url and stored[1] in (1, True)
     assert configs[-1]["streams"]["printer_301"] == url
-    # P1S without a configured URL gets no auto RTSP stream (only X1/H2D expose RTSP).
+    # P1S without a configured URL gets the credential-free chamber marker, never an RTSP URL.
+    from modules.printers.bambu_chamber_camera import SOURCE
     assert route_utils.get_camera_url(type("P", (), {"camera_url": None, "api_type": "bambu", "api_key": crypto.encrypt("a|b"),
-                                                     "api_host": "192.0.2.1", "model": "P1S"})()) is None
+                                                     "api_host": "192.0.2.1", "model": "P1S"})()) == SOURCE
 
 
 def test_credentialed_camera_url_is_returned_masked_and_settings_resave(cert_app, review_db, monkeypatch):
