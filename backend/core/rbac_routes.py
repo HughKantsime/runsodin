@@ -338,7 +338,6 @@ WRITE_EXEMPTIONS: dict[tuple[str, str], str] = {
         ("POST", "/api/auth/mfa/setup"), ("POST", "/api/auth/ws-token"),
         ("POST", "/api/push/live-activity"), ("PUT", "/api/push/preferences"), ("POST", "/api/push/register"),
         ("DELETE", "/api/push/register/{device_id}"), ("POST", "/api/push/subscribe"), ("DELETE", "/api/push/subscribe"),
-        ("POST", "/api/push/test"),
         ("DELETE", "/api/sessions"), ("DELETE", "/api/sessions/{session_id}"),
         ("POST", "/api/tokens"), ("DELETE", "/api/tokens/{token_id}"),
         ("POST", "/api/cameras/{printer_id}/webrtc"),
@@ -351,6 +350,7 @@ WRITE_EXEMPTIONS: dict[tuple[str, str], str] = {
     ]},
     # User, group and organization administration
     **{(m, p): _ADMIN for m, p in [
+        ("POST", "/api/push/test"),
         ("PUT", "/api/admin/quotas/{user_id}"), ("DELETE", "/api/admin/sessions/{session_id}"),
         ("DELETE", "/api/admin/users/{user_id}/mfa"),
         ("PATCH", "/api/groups/{group_id}"),

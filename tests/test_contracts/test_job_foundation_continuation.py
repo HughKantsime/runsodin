@@ -79,7 +79,11 @@ def test_terminal_claim_drains_034_once_with_mobile(private_attempt,review_db,mo
     engine=review_db.get_bind()
     monkeypatch.setattr(core_db,'engine',engine)
     external=[];mobile=[]
-    monkeypatch.setattr(alert_dispatcher,'_deliver_staged_alert',lambda db,plan:external.append(plan))
+    original_delivery = alert_dispatcher._deliver_staged_alert
+    def deliver(db, plan):
+        external.append(plan)
+        original_delivery(db, plan)
+    monkeypatch.setattr(alert_dispatcher, '_deliver_staged_alert', deliver)
     monkeypatch.setattr(alert_outbox,'_deliveries',[])
     monkeypatch.setattr(fanout,'deliver_alert',lambda db,plan:mobile.append(plan))
     review_db.execute(text('UPDATE print_jobs SET status=:status,ended_at=CURRENT_TIMESTAMP WHERE id=:id'),{'status':outcome,'id':identifier})
@@ -258,7 +262,11 @@ def test_actual_identified_monitor_terminal_uses_durable_mobile(private_attempt,
     timeline=[]
     monkeypatch.setattr(job_timeline,'enqueue',timeline.append)
     external=[];mobile=[]
-    monkeypatch.setattr(alert_dispatcher,'_deliver_staged_alert',lambda db,plan:external.append(plan))
+    original_delivery = alert_dispatcher._deliver_staged_alert
+    def deliver(db, plan):
+        external.append(plan)
+        original_delivery(db, plan)
+    monkeypatch.setattr(alert_dispatcher, '_deliver_staged_alert', deliver)
     monkeypatch.setattr(alert_outbox,'_deliveries',[])
     monkeypatch.setattr(fanout,'deliver_alert',lambda db,plan:mobile.append(plan))
     if source=='mqtt':mqtt.record_job_ended(printer_id,'Owned',identifier,job_id,outcome,{}, {},lambda **kw:None)

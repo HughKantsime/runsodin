@@ -3,7 +3,7 @@ modules/push/schemas.py — Pydantic request/response schemas for push module.
 """
 
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Literal
 from pydantic import BaseModel, Field
 
 
@@ -64,3 +64,14 @@ class BiometricRefreshResponse(BaseModel):
     refresh_token: str
     expires_at: datetime
     token_type: str = "bearer"
+
+
+class TestPushDeviceResult(BaseModel):
+    device_id: int
+    status: Literal["sent", "not_configured", "bad_device_token", "topic_mismatch", "auth_error", "other"]
+
+
+class TestPushResponse(BaseModel):
+    sent: int
+    total_devices: int
+    devices: list[TestPushDeviceResult]

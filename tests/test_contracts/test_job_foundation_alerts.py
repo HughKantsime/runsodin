@@ -11,9 +11,9 @@ from tests.test_contracts.test_post027_migration_040 import engine
 
 
 def test_every_monitor_alert_call_uses_enum_members():
-    # Frozen restore bundles are historical code, never live callers.
+    # Frozen bundles and test fixtures are not production monitor callers.
     paths = [p for p in Path('backend').rglob('*.py')
-             if not any(part.startswith('preserved') for part in p.parts)]
+             if 'tests' not in p.parts and not any(part.startswith('preserved') for part in p.parts)]
     checked = set()
     for path in paths:
         tree = ast.parse(path.read_text())
@@ -97,7 +97,8 @@ def test_mobile_callback_is_registered_by_the_durable_drain(engine,monkeypatch):
     called=[]
     monkeypatch.setattr(alert_outbox,'_deliveries',[])
     monkeypatch.setattr(fanout,'deliver_alert',lambda db,plan:called.append(plan))
-    monkeypatch.setattr(alert_dispatcher,'_deliver_staged_alert',lambda db,plan:None)
+    from modules.notifications import channels
+    monkeypatch.setattr(channels, 'send_webhook', lambda *a, **k: None)
     with engine.begin() as c:
         c.execute(text("INSERT INTO users(id,username,password_hash,role,is_active) VALUES(1,'drain','unused','operator',TRUE)"))
         c.execute(text("INSERT INTO jobs(id,item_name,status,submitted_by) VALUES(2,'drain','pending',1)"))

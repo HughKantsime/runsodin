@@ -1,10 +1,4 @@
-# core/app.py — App factory with dynamic module discovery
-#
-# Creates and configures the FastAPI application. Discovers all modules under
-# backend/modules/, resolves load order from REQUIRES/IMPLEMENTS declarations,
-# and calls each module's register(app, registry) function.
-#
-# main.py becomes: from core.app import create_app; app = create_app()
+"""FastAPI factory, module discovery, startup wiring, and middleware."""
 
 import asyncio
 import importlib
@@ -29,11 +23,9 @@ _version_file = pathlib.Path(__file__).parent.parent.parent / "VERSION"
 if _version_file.exists():
     __version__ = _version_file.read_text().strip()
 else:
-    __version__ = "2.0.21"
+    __version__ = "2.0.22"
 
-# Module discovery helpers
 
-# WebSocket manager (unchanged from original main.py)
 
 from core.app_websocket import ConnectionManager, ws_manager, _ws_broadcaster
 from core.app_maintenance import (
@@ -454,6 +446,9 @@ def create_app() -> FastAPI:
 
         # Validate all declared dependencies are satisfied
         registry.validate_dependencies()
+
+        from modules.push.apns import warn_if_unconfigured
+        warn_if_unconfigured(engine)
 
         # Wire event bus subscribers
         _bus = get_event_bus()

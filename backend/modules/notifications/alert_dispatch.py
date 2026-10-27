@@ -13,6 +13,8 @@ import threading
 from typing import Optional
 
 from sqlalchemy import text
+from sqlalchemy.orm import Session
+from modules.notifications.alert_policy import active_resource_duplicate, preferences_for
 
 # Resolved at use time: never a stale engine bound at import.
 from core.db import live_engine as engine
@@ -39,7 +41,7 @@ def dispatch_alert(
     """
     Create alert records and deliver to all notification channels.
 
-    Uses raw SQL to avoid importing SQLAlchemy — safe for monitor daemons.
+    Uses short SQL transactions and shared policies in monitor daemons.
     Handles deduplication, in-app alerts, webhooks, push, and email.
     Respects quiet hours for external channels.
     """
@@ -58,27 +60,29 @@ def dispatch_alert(
             eligible_users, resource_org_id = resolve_alert_scope(
                 conn, printer_id=printer_id, job_id=job_id, spool_id=spool_id)
             # Get all users with preferences for this alert type
-            pref_rows = conn.execute(text("""
-                SELECT DISTINCT ap.user_id, ap.in_app, ap.browser_push, ap.email
-                FROM alert_preferences ap
-                WHERE UPPER(ap.alert_type) = :atype
-            """), {"atype": alert_type.upper()}).mappings().fetchall()
-
+            pref_rows = preferences_for(conn, alert_type)
             had_preferences = bool(pref_rows)
-            pref_rows = [r for r in pref_rows if r['user_id'] in eligible_users]
-            in_app_users = [r['user_id'] for r in pref_rows if r['in_app']]
-            _push_users = [r['user_id'] for r in pref_rows if r['browser_push']]
-            _email_users = [r['user_id'] for r in pref_rows if r['email']]
+            pref_rows = [r for r in pref_rows if r.user_id in eligible_users]
+            # Deduplicate per user before selecting ANY external recipients.
+            candidates = {r.user_id for r in pref_rows} if had_preferences else eligible_users
+            deduped = {uid for uid in candidates if active_resource_duplicate(
+                conn, uid, alert_type, printer_id, spool_id, message)}
+            if candidates and deduped == candidates:
+                return
+            pref_rows = [r for r in pref_rows if r.user_id not in deduped]
+            in_app_users = [r.user_id for r in pref_rows if r.in_app]
+            _push_users = [r.user_id for r in pref_rows if r.browser_push]
+            _email_users = [r.user_id for r in pref_rows if r.email]
 
             # If no preferences exist, alert all users in-app (default on)
             if not had_preferences:
-                in_app_users = sorted(eligible_users)
+                in_app_users = sorted(eligible_users - deduped)
 
             # Check for duplicate (same type, printer, title in last 5 minutes)
             # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
             dup = conn.execute(text(f"""
                 SELECT id FROM alerts
-                WHERE alert_type = :atype
+                WHERE LOWER(alert_type) = :atype
                   AND (printer_id = :pid OR (printer_id IS NULL AND :pid IS NULL))
                   AND (job_id = :jid OR (job_id IS NULL AND :jid IS NULL))
                   AND (spool_id = :sid OR (spool_id IS NULL AND :sid IS NULL))
@@ -87,7 +91,10 @@ def dispatch_alert(
                 LIMIT 1
             """), {"atype": alert_type.lower(), "pid": printer_id, "jid": job_id, "sid": spool_id, "title": title}).fetchone()
 
-            if dup:
+            # Resource-keyed types use active_resource_duplicate above instead.
+            keyed = (alert_type == "spool_low" and spool_id is not None) or (
+                alert_type == "printer_error" and printer_id is not None)
+            if dup and not keyed:
                 return  # Duplicate, skip
 
             # Create in-app alert for each user
@@ -154,6 +161,14 @@ def dispatch_alert(
                 log.error(f"Failed to defer quiet-hours deliveries: {type(e).__name__}")
 
         if not suppress:
+            # Native push shares the committed plan and recipient policy with API alerts.
+            from modules.notifications.alert_dispatcher import StagedAlert
+            from modules.notifications.alert_outbox import deliver_mobile
+            plan = StagedAlert(len(in_app_users), False, AlertType(alert_type), AlertSeverity(severity),
+                               title, message, printer_id, job_id, spool_id, resource_org_id,
+                               False, tuple(_push_users), tuple(_email_users), tuple(in_app_users))
+            with Session(bind=engine) as mobile_db:
+                deliver_mobile(mobile_db, plan)
             # Webhooks (system-wide, not per-user)
             try:
                 from modules.notifications.channels import send_webhook

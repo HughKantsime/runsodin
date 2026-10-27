@@ -116,8 +116,6 @@ def dispatch(engine, outbox_id: int) -> bool:
                 # those in another transaction on the shared connection.
                 with Session(bind=engine) as delivery_db:
                     _deliver_staged_alert(delivery_db, plan)
-                with dispatch_transaction(engine) as delivery_conn, Session(bind=delivery_conn) as delivery_db:
-                    deliver_mobile(delivery_db, plan)
         return True
     except Exception:
         logger.warning("Alert outbox dispatch failed for row %s; it will be replayed", outbox_id)

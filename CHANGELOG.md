@@ -2,6 +2,21 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.22] - 2026-10-27
+
+<!-- summary: Phone push for every operational alert, and no more repeated printer-error and low-spool alerts -->
+
+### Added
+
+- The ODIN iOS app now gets a push for printer and HMS errors, failure detection, first-layer issues, low spool and queue failures, as well as finished and failed prints. The push shows the alert's title and message instead of a generic "Open ODIN" note. Education deployments still send no external push.
+- Admins can send a test push to their own devices. The result for each device says whether it was sent, or why not: APNs not configured, device token rejected, bundle ID mismatch, or Apple authentication failure. See docs/APNS.md for setup.
+
+### Fixed
+
+- The same printer error on the same printer no longer alerts again while an unread copy from the last 6 hours exists. A different error code always alerts.
+- Low-spool alerts no longer repeat every few minutes while an unread alert for that spool exists.
+- Alert preferences and duplicate checks now handle legacy uppercase alert types.
+
 ## [2.0.21] - 2026-10-26
 
 <!-- summary: Built-in cameras for Bambu P1P, P1S, A1 and A1 Mini -->

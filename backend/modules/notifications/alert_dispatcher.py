@@ -33,7 +33,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import Optional, List
 
-from sqlalchemy import text
+from sqlalchemy import text, func
 from sqlalchemy.orm import Session
 
 from core.base import AlertType, AlertSeverity
@@ -41,6 +41,8 @@ from core.models import SystemConfig
 from core.rbac import check_org_access
 from core.webhook_utils import safe_post, trusted_post, WebhookSSRFError
 from modules.notifications.models import Alert, AlertPreference, PushSubscription
+
+from modules.notifications.alert_policy import active_resource_duplicate, preferences_for
 
 logger = logging.getLogger("alert_dispatcher")
 
@@ -70,9 +72,9 @@ DEFAULT_PREFERENCES = [
 def seed_alert_preferences(db: Session, user_id: int, *, commit: bool = True):
     """Create default alert preferences for a new user."""
     for pref in DEFAULT_PREFERENCES:
-        existing = db.query(AlertPreference).filter(
+        existing = db.query(AlertPreference.id).filter(
             AlertPreference.user_id == user_id,
-            AlertPreference.alert_type == pref["alert_type"]
+            func.lower(AlertPreference.alert_type) == pref["alert_type"].value
         ).first()
         if not existing:
             db.add(AlertPreference(user_id=user_id, **pref))
@@ -94,18 +96,19 @@ def lock_queue_alert(db: Session, job_id: int, alert_type: AlertType) -> bool:
     return db.execute(text("SELECT id FROM jobs WHERE id=:id"), {"id": job_id}).first() is not None
 
 
-def _should_deduplicate(db, user_id, alert_type, printer_id, spool_id, job_id, metadata=None):
+def _should_deduplicate(db, user_id, alert_type, printer_id, spool_id, job_id, metadata=None, message=""):
     """
     Check if we should skip creating this alert.
     
     - spool_low: Skip if unread alert exists for same spool
+    - printer_error: Same unread error identity on a printer within 6h
     - maintenance_overdue: Skip if unread alert exists for same printer within 24h
     - print events: Never deduplicate
     """
     if alert_type in (AlertType.QUEUE_SKIPPED, AlertType.QUEUE_FAILED_START) and job_id:
         reason = (metadata or {}).get("reason")
-        existing = db.query(Alert).filter(Alert.user_id == user_id,
-            Alert.alert_type == alert_type, Alert.job_id == job_id,
+        existing = db.query(Alert.metadata_json).filter(Alert.user_id == user_id,
+            func.lower(Alert.alert_type) == alert_type.value, Alert.job_id == job_id,
             Alert.is_read.is_(False), Alert.is_dismissed.is_(False)).all()
         for alert in existing:
             stored = alert.metadata_json or {}
@@ -116,21 +119,14 @@ def _should_deduplicate(db, user_id, alert_type, printer_id, spool_id, job_id, m
                     continue
             if isinstance(stored, dict) and stored.get("reason") == reason:
                 return True
-    if alert_type == AlertType.SPOOL_LOW and spool_id:
-        existing = db.query(Alert).filter(
-            Alert.user_id == user_id,
-            Alert.alert_type == AlertType.SPOOL_LOW,
-            Alert.spool_id == spool_id,
-            Alert.is_read == False,
-            Alert.is_dismissed == False
-        ).first()
-        return existing is not None
-    
+    if alert_type in (AlertType.SPOOL_LOW, AlertType.PRINTER_ERROR):
+        return active_resource_duplicate(db, user_id, alert_type, printer_id, spool_id, message)
+
     if alert_type == AlertType.MAINTENANCE_OVERDUE and printer_id:
         cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
-        existing = db.query(Alert).filter(
+        existing = db.query(Alert.id).filter(
             Alert.user_id == user_id,
-            Alert.alert_type == AlertType.MAINTENANCE_OVERDUE,
+            func.lower(Alert.alert_type) == AlertType.MAINTENANCE_OVERDUE.value,
             Alert.printer_id == printer_id,
             Alert.is_read == False,
             Alert.created_at > cutoff
@@ -404,9 +400,8 @@ def stage_alert(
     # Quiet hours: save alert to DB but suppress external notifications
     _suppress_external = should_suppress_notification(org_id=_printer_org_id, db=db)
 
-    preferences = db.query(AlertPreference).filter(
-        AlertPreference.alert_type == alert_type
-    ).all()
+    db.flush()  # Pending alerts must participate even with SessionLocal(autoflush=False).
+    preferences = preferences_for(db, alert_type)
 
     # Auto-seed preferences without committing the caller transaction.
     seeded_preferences = False
@@ -416,9 +411,7 @@ def stage_alert(
             seed_alert_preferences(db, user_row.id, commit=False)
         db.flush()
         seeded_preferences = True
-        preferences = db.query(AlertPreference).filter(
-            AlertPreference.alert_type == alert_type
-        ).all()
+        preferences = preferences_for(db, alert_type)
 
     preferences = [p for p in preferences if p.user_id in eligible_users]
     # Filter to targeted users if specified
@@ -432,7 +425,7 @@ def stage_alert(
     push_users = []
     email_users = []
     for pref in preferences:
-        if _should_deduplicate(db, pref.user_id, alert_type, printer_id, spool_id, job_id, metadata):
+        if _should_deduplicate(db, pref.user_id, alert_type, printer_id, spool_id, job_id, metadata, message):
             deduplicated += 1
             continue
         if pref.in_app:
@@ -522,6 +515,10 @@ def _deliver_staged_alert(db: Session, plan: StagedAlert):
                 logger.warning("Committed alert event publication failed")
         if plan.suppress_external:
             return
+        # All committed alerts use the same mobile hook, including outbox alerts.
+        from modules.notifications.alert_outbox import deliver_mobile
+        with dispatch_transaction(db.get_bind()) as mobile_connection, Session(bind=mobile_connection) as mobile_db:
+            deliver_mobile(mobile_db, plan)
         for uid in plan.push_users:
             if uid in eligible:
                 # Push may remove expired subscriptions. Keep that cleanup in

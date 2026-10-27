@@ -1,7 +1,5 @@
 """
-modules/push/fanout.py — Event bus subscriber that fans push notifications out to devices.
-
-Subscribes to all relevant ODIN events and delivers APNs pushes to registered devices.
+modules/push/fanout.py — After-commit native push delivery to registered devices.
 Respects per-device quiet hours and per-category opt-out preferences.
 """
 
@@ -12,56 +10,13 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from core.db import SessionLocal
-from core.interfaces.event_bus import Event
 from modules.push.apns import get_provider
 from modules.push.models import PushDevice
 
-log = logging.getLogger("push.fanout")
+from modules.notifications.alert_policy import preferences_for
+from modules.push.policy import CATEGORIES, education_scope, safe_copy
 
-# Maps ODIN event types → APNs notification category + human-readable copy
-_EVENT_MAP = {
-    "job.completed": {
-        "category": "PRINT_COMPLETE",
-        "title": "Print Complete",
-        "body_template": "{job_name} finished on {printer_name}",
-    },
-    "job.failed": {
-        "category": "PRINT_FAILED",
-        "title": "Print Failed",
-        "body_template": "{job_name} failed on {printer_name}",
-    },
-    "vision.detection": {
-        "category": "SPAGHETTI_DETECTED",
-        "title": "Failure Detected",
-        "body_template": "{detection_type} detected on {printer_name} ({confidence}% confidence)",
-    },
-    "vision.first_layer": {
-        "category": "FIRST_LAYER_ISSUE",
-        "title": "First Layer Issue",
-        "body_template": "First layer problem detected on {printer_name}",
-    },
-    "inventory.spool_low": {
-        "category": "SPOOL_LOW",
-        "title": "Spool Running Low",
-        "body_template": "{spool_name} has {remaining_grams}g remaining",
-    },
-    "job.approval_required": {
-        "category": "JOB_APPROVAL_REQUIRED",
-        "title": "Job Awaiting Approval",
-        "body_template": '{username} submitted "{job_name}"',
-    },
-    "printer.hms_code": {
-        "category": "HMS_ERROR",
-        "title": "Printer Error",
-        "body_template": "{printer_name}: {message}",
-    },
-    "printer.disconnected": {
-        "category": "PRINTER_OFFLINE",
-        "title": "Printer Offline",
-        "body_template": "{printer_name} is no longer reachable",
-    },
-}
+log = logging.getLogger("push.fanout")
 
 
 def _get_devices_for_users(db: Session, user_ids: list[int]) -> list[PushDevice]:
@@ -101,11 +56,7 @@ def _deliver_to_devices(devices: list[PushDevice], mapping: dict, data: dict):
     title = mapping["title"]
     category = mapping["category"]
 
-    # Build body from template + event data (best-effort substitution)
-    try:
-        body = mapping["body_template"].format(**{k: str(v) for k, v in data.items()})
-    except KeyError:
-        body = mapping["body_template"]
+    body = mapping["body"]
 
     for device in devices:
         prefs = None
@@ -116,11 +67,11 @@ def _deliver_to_devices(devices: list[PushDevice], mapping: dict, data: dict):
                 pass
 
         if _is_in_quiet_hours(prefs):
-            log.debug(f"Skipping push to device {device.device_id} — quiet hours")
+            log.debug("Skipping push during device quiet hours")
             continue
 
         if not _category_enabled(prefs, category):
-            log.debug(f"Skipping push to device {device.device_id} — category {category} disabled")
+            log.debug("Skipping push for disabled device category")
             continue
 
         sandbox = device.platform == "apns-sandbox"
@@ -134,34 +85,33 @@ def _deliver_to_devices(devices: list[PushDevice], mapping: dict, data: dict):
                   if k in {"printer_id", "job_id", "spool_id", "alert_type", "severity"} and v is not None}},
         )
         if success:
-            log.debug(f"Push delivered to device {device.device_id[:8]}… [{category}]")
+            log.debug("Push delivered")
 
 
 def deliver_alert(db, plan):
-    """Called after the alert outbox commit; scope is rechecked at delivery time."""
-    from sqlalchemy import text
+    """Called for committed alerts; scope and preferences are rechecked at delivery."""
     from core.recipient_policy import resolve_alert_scope
     if plan.suppress_external:
         return
     eligible, org_id = resolve_alert_scope(db, printer_id=plan.printer_id,
         job_id=plan.job_id, spool_id=plan.spool_id)
-    if org_id != plan.org_id:
+    if org_id != plan.org_id or education_scope(db, org_id=org_id,
+            job_id=plan.job_id, printer_id=plan.printer_id):
         return
     atype = plan.alert_type.value
     # Use the in-app recipients selected by stage_alert, then recheck preferences.
-    # This also preserves Education suppression, which produces no such plan.
-    users = {row[0] for row in db.execute(text(
-        "SELECT user_id FROM alert_preferences WHERE UPPER(alert_type)=:atype AND in_app IS TRUE"),
-        {"atype": atype.upper()})}
+    # Education is checked explicitly because operational alerts can have no job.
+    users = {p.user_id for p in preferences_for(db, atype) if p.in_app}
     recipients = eligible & users & set(plan.in_app_users)
     devices = _get_devices_for_users(db, sorted(recipients))
-    mapping = {"title": "ODIN notification", "category": atype.upper(),
-               "body_template": "Open ODIN to view this alert"}
+    mapping = {"title": safe_copy(getattr(plan, "title", "ODIN notification")),
+               "category": CATEGORIES.get(atype, ""),
+               "body": safe_copy(getattr(plan, "message", "Open ODIN to view this alert"))[:180]}
     _deliver_to_devices(devices, mapping, {
         "alert_type": atype, "severity": plan.severity.value,
         "job_id": plan.job_id, "printer_id": plan.printer_id, "spool_id": plan.spool_id})
 
 
 def register_subscribers(drain):
-    """Register on the durable drain, never the process-local event bus."""
+    """Register on the shared after-commit delivery registry, never the event bus."""
     drain.register_delivery(deliver_alert)
