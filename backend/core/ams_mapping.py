@@ -1,6 +1,5 @@
 """Shared explicit AMS validation and read-only filament suggestions."""
 import json
-from core.dependencies import log_audit
 from fastapi import HTTPException
 from sqlalchemy import text
 from core.print_payload import validate_mapping
@@ -43,10 +42,9 @@ def preview(db, filaments_json, printer_id, actor):
     return {'required': required, 'available': available, 'suggested_mapping': suggest_mapping(required, available)}
 
 
-def record_mapping(db, job, previous=None):
-    """The audit is also the durable source of mapping events in the job timeline."""
-    detail = {'ams_mapping': job.ams_mapping, 'previous_ams_mapping': previous}
-    log_audit(db, 'job.ams_mapping_changed', 'job', job.id, detail)
+def mapping_audit_details(job, previous=None):
+    """Details for the caller's atomic mapping audit and durable timeline event."""
+    return {'ams_mapping': job.ams_mapping, 'previous_ams_mapping': previous}
 
 
 def timeline_events(db, job_id):

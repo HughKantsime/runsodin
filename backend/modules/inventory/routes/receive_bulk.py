@@ -3,6 +3,7 @@ import hashlib
 import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from core.dependencies import log_audit
 from core.db import get_db
 from core.models import SystemConfig
 from core.rbac import require_action, get_org_scope
@@ -28,9 +29,12 @@ def receive_bulk(body: BulkReceive,
             db.rollback()
             return result
         validate_references(db, body.rows)
-        rows = [receive_row(db, current_user, row, _create_spool_record) for row in body.rows]
+        staged = [receive_row(db, current_user, row, _create_spool_record) for row in body.rows]
+        rows = [result for result, _ in staged]
         result = {'import_id': body.import_id, 'rows': rows, 'spools': [s for row in rows for s in row['spools']]}
         db.add(SystemConfig(key=key, value={'digest': digest, 'result': result}))
+        for _, audit_details in staged:
+            log_audit(db, 'inventory.receive', 'spools', details=audit_details)
         db.commit()
         return result
     except Exception:

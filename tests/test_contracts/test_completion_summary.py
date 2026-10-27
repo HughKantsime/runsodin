@@ -31,6 +31,7 @@ def queue(review_db, monkeypatch):
         db.execute(text("INSERT INTO jobs(id,item_name,model_id,print_file_id,printer_id,payload_sha256,plate_index,status,quantity,hold,priority,queue_position,created_at,updated_at,colors_required,filament_type) VALUES(:id,'Queue job',201,201,201,:sha,0,'pending',1,FALSE,3,:position,'2026-10-01','2026-10-01','black','PLA')"),{'id':jid,'position':None if jid==201 else jid-201,'sha':'a'*64})
     db.commit()
     monkeypatch.setattr(service,'configuration_key',lambda *a:'c'*64)
+    monkeypatch.setattr(service,'recipe_configuration_key',lambda *a:'d'*64)
     monkeypatch.setattr(service,'finished_attempt',lambda *a:{'economic_uid':'retained-finished-attempt','ended_at':'2026-10-01T00:00:00Z'})
     monkeypatch.setattr(service.assortment,'preview',Mock(side_effect=AssertionError('Live preview forbidden')))
     from modules.printers.models import Printer
@@ -69,8 +70,8 @@ def test_no_fit_and_org_isolation(queue,review_db):
 
 def recipe(db,jid,product=1,count=5,identifier='r1'):
     job=db.execute(text('SELECT * FROM jobs WHERE id=:id'),{'id':jid}).mappings().one()
-    payload={**dict(job),'configuration_key':'c'*64}
-    spec={'qualified':True,'payload':service.batches.recipe_payload(payload),'outputs':[{'product_id':product,'product_name':'Main','kind':'main','expected':count}]}
+    payload={**dict(job),'stable_configuration_key':'d'*64}
+    spec={'version':2,'qualified':True,'payload':service.batches.recipe_payload(payload),'outputs':[{'product_id':product,'product_name':'Main','kind':'main','expected':count}]}
     db.execute(service.batches.recipes.insert().values(id=identifier,owner=0,definition=json.dumps(spec)))
     return spec
 
@@ -322,8 +323,9 @@ def test_summary_expected_flush_projection_ambiguous_and_inspection_reason(priva
     claim_terminal(review_db.connection(),physical);review_db.commit()
     uid,job_id=review_db.execute(text('SELECT economic_uid,scheduled_job_id FROM print_jobs WHERE id=:id'),{'id':physical}).one()
     payload=dict(review_db.execute(text('SELECT * FROM jobs WHERE id=:id'),{'id':job_id}).mappings().one())
-    payload['configuration_key']=review_db.execute(text('SELECT configuration_key FROM dispatch_attempt_receipts WHERE observed_print_job_id=:id'),{'id':physical}).scalar_one()
-    definition={'qualified':True,'payload':service.batches.recipe_payload(payload),'outputs':[
+    review_db.execute(text("UPDATE dispatch_attempt_receipts SET stable_configuration_key=:key,stable_key_source='dispatch' WHERE observed_print_job_id=:id"), {'key':'d'*64,'id':physical})
+    payload['stable_configuration_key']='d'*64
+    definition={'version':2,'qualified':True,'payload':service.batches.recipe_payload(payload),'outputs':[
         {'product_id':101,'product_name':'Mini','kind':'main','expected':5},
         {'product_id':102,'product_name':'Flush','kind':'flush','expected':2}]}
     review_db.execute(service.batches.recipes.insert().values(id='qualified',owner=0,definition=json.dumps(definition)))
@@ -697,3 +699,34 @@ def test_start_next_audit_failure_rolls_back_result(queue, review_db, monkeypatc
     assert record['result']['state'] == 'preparing'
     assert not record['result']['success']
     assert review_db.execute(text("SELECT count(*) FROM audit_logs WHERE action='job.dispatched' AND entity_id=202")).scalar_one() == 0
+
+
+@pytest.mark.parametrize('version', [None, 1])
+def test_legacy_recipe_never_matches_a_stable_key_by_coincidence(queue, review_db, version):
+    spec = recipe(review_db, 202)
+    spec['version'] = version
+    review_db.execute(service.batches.recipes.update().values(definition=json.dumps(spec)))
+    assert not service.matching_recipes(review_db, 0, spec['payload'])
+
+
+def test_missing_recipe_configuration_cannot_match_unknown_evidence(queue, review_db):
+    spec = recipe(review_db, 202)
+    spec['payload']['configuration_key'] = None
+    review_db.execute(service.batches.recipes.update().values(definition=json.dumps(spec)))
+    assert not service.matching_recipes(review_db, 0, spec['payload'])
+
+
+def test_recipe_advice_identity_is_stable_and_read_only(review_db, monkeypatch):
+    from modules.printers import dispatch
+    from tests.test_contracts.test_dispatch_identity_behavior import creds
+    current = creds(active_materials=['PLA'], filament_slots=[[1, 'PLA'], [4, 'PLA']])
+    monkeypatch.setattr(dispatch, '_get_printer_info', lambda *a, **kw: current)
+    stable = service.recipe_configuration_key(review_db, 9)
+    volatile = service.configuration_key(review_db, 9)
+    assert stable and volatile and stable != volatile
+    current.update(active_materials=['PLA', 'PETG'], filament_slots=[[1, 'PLA'], [4, 'PETG']])
+    assert service.recipe_configuration_key(review_db, 9) == stable
+    assert service.configuration_key(review_db, 9) != volatile
+    current['nozzle_diameter'] = .6
+    assert service.recipe_configuration_key(review_db, 9) != stable
+    assert not review_db.new and not review_db.dirty

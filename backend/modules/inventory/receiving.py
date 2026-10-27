@@ -4,7 +4,6 @@ from sqlalchemy import func, text
 from core.errors import ErrorCode, OdinError
 from core.material_identity import canonical_reported_material
 from core.models import SystemConfig
-from core.dependencies import log_audit
 from modules.inventory.models import FilamentLibrary
 from modules.inventory.stock import seal_key
 
@@ -84,6 +83,7 @@ def validate_references(db, rows):
 
 
 def receive_row(db, user, body, create_spool):
+    """Stage one row and return its response and audit details for the committing caller."""
     from modules.inventory.routes._helpers import SpoolCreate
     filament_id = body.filament_id
     if filament_id is None:
@@ -103,7 +103,6 @@ def receive_row(db, user, body, create_spool):
         if body.sealed:
             db.add(SystemConfig(key=seal_key(row['id']), value=True))
         results.append({**row, 'color_name': body.color_name, 'color_hex': body.color_hex})
-    log_audit(db, 'inventory.receive', 'spools', details={
-        'ids': [r['id'] for r in results], 'filament_id': filament_id,
-        'color_name': body.color_name, 'storage_location': body.storage_location, 'sealed': body.sealed})
-    return {'spools': results}
+    details = {'ids': [r['id'] for r in results], 'filament_id': filament_id,
+               'color_name': body.color_name, 'storage_location': body.storage_location, 'sealed': body.sealed}
+    return {'spools': results}, details

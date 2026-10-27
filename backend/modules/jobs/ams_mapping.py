@@ -3,7 +3,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 from core.ams_mapping import validate_for_printer, preview
-from core.ams_mapping import record_mapping
+from core.ams_mapping import mapping_audit_details
 from core.rbac import check_org_access
 from modules.jobs.education_guard import assert_generic_job_mutation_allowed
 from modules.jobs.pinning import job_pin, pin_columns, pinned_printer_id

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import ArchivesPage from './Archives'
 const state=vi.hoisted(()=>({data:undefined as any,loading:false,error:false,compare:undefined as any,refetch:vi.fn()}))
 vi.mock('@tanstack/react-query',()=>({
- useQuery:({queryKey}:any)=>queryKey[0]==='archives'?{data:state.data,isLoading:state.loading,isError:state.error,refetch:state.refetch}:queryKey[0]==='archive-compare'?{data:state.compare,isLoading:false}:{data:[]},
+ useQuery:({queryKey}:any)=>queryKey[0]==='archives'?{data:state.data,isLoading:state.loading,isError:state.error,refetch:state.refetch}:queryKey[0]==='archive-compare'?{data:state.compare,isLoading:false}:queryKey[0]==='archive-ams-preview'?{data:undefined,isLoading:false}:{data:[]},
  useMutation:()=>({mutate:vi.fn(),isPending:false}),useQueryClient:()=>({invalidateQueries:vi.fn()})
 }))
 function mount(){return render(<MemoryRouter><ArchivesPage/></MemoryRouter>)}

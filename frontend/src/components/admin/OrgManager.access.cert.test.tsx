@@ -228,7 +228,15 @@ const WIRE: any = {
       "org_id": null,
       "has_api_key": false,
       "filament_source": null,
-      "filament_source_status": null
+      "filament_source_status": null,
+      "installed_nozzles": null,
+      "maintenance": {
+        "state": "ok",
+        "note": "",
+        "set_by": null,
+        "set_by_name": null,
+        "set_at": null
+      }
     },
     {
       "name": "Shared floor printer",
@@ -332,7 +340,15 @@ const WIRE: any = {
       "org_id": null,
       "has_api_key": false,
       "filament_source": null,
-      "filament_source_status": null
+      "filament_source_status": null,
+      "installed_nozzles": null,
+      "maintenance": {
+        "state": "ok",
+        "note": "",
+        "set_by": null,
+        "set_by_name": null,
+        "set_at": null
+      }
     }
   ],
   "groups_list_with_orgs": [

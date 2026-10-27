@@ -349,8 +349,8 @@ def schedule_from_model(
     job = queue_creator.stage_values(db, values, current_user)
     job_id = job.id
     if mapping is not None:
-        from core.ams_mapping import record_mapping
-        record_mapping(db, job)
+        from core.ams_mapping import mapping_audit_details
+        log_audit(db, 'job.ams_mapping_changed', 'job', job.id, mapping_audit_details(job))
     alert_plan = None
     if submission:
         alert_plan = _stage_submission_alert(db, current_user, model, job_id)

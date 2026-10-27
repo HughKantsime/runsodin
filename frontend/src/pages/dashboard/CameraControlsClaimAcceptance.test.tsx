@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import Overlay from './Overlay'
 import PrinterCard from '../../components/printers/PrinterCard'
 vi.mock('../../permissions',()=>({canDo:()=>false,getCurrentUser:()=>null}))
@@ -78,7 +79,7 @@ test('F02-2.8-06 printer-card copy action writes correct OBS overlay URL',()=>{
  Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText}})
  try{
  const printer:any={id:19,name:'Synthetic OBS printer',nickname:null,model:null,is_active:true,api_type:null,api_host:null,has_api_key:false,camera_url:null,bed_temp:null,bed_target_temp:null,nozzle_temp:null,nozzle_target_temp:null,gcode_state:'IDLE',print_stage:null,lights_on:null,filament_slots:[],tags:[],machine_type:null}
- render(<PrinterCard printer={printer} allFilaments={[]} spools={[]} onDelete={vi.fn()} onToggleActive={vi.fn()} onUpdateSlot={vi.fn()} onEdit={vi.fn()} onSyncAms={vi.fn()}/>)
+ render(<QueryClientProvider client={new QueryClient()}><PrinterCard printer={printer} allFilaments={[]} spools={[]} onDelete={vi.fn()} onToggleActive={vi.fn()} onUpdateSlot={vi.fn()} onEdit={vi.fn()} onSyncAms={vi.fn()}/></QueryClientProvider>)
  fireEvent.click(screen.getByRole('button',{name:'Copy OBS overlay URL'}))
  expect(writeText).toHaveBeenCalledExactlyOnceWith(`${window.location.origin}/overlay/19`)
  }finally{if(descriptor)Object.defineProperty(navigator,'clipboard',descriptor);else delete (navigator as any).clipboard}

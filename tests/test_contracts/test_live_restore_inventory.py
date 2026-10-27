@@ -48,6 +48,7 @@ POST027_RAW_TABLES = {
     # These migrations add ORM columns only, without introducing raw tables.
     "python:041-inventory-color": {},
     "python:042-dispatch-capability": {},
+    "python:043-recipe-configuration": {},
     "python:040-job-foundation": {
         "job_summary_outbox": frozenset("print_attempt_uid attempt_birth job_id printer_id org_id outcome observed_at delivery_state".split()),
         "stock_snapshots": frozenset("owner_scope owner_key variation location quantity calculated_at read_at".split()),

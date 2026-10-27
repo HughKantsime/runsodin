@@ -31,6 +31,8 @@ class FixedClock(datetime):
         return NOON if tz is None else NOON.astimezone(tz)
 from modules.jobs import scheduler as SCHED
 SCHED.datetime = FixedClock
+from modules.jobs import scheduler_planning
+scheduler_planning.datetime = FixedClock
 '''
 
 TIMELINE_PROBE = r'''

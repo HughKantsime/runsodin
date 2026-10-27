@@ -147,14 +147,16 @@ def test_scheduler_preserves_completion_after_candidate_selection(linked_job, mo
     from modules.jobs import scheduler as scheduler_module
     scheduler = Scheduler()
     raced = []
-    original = scheduler_module.prepare_job_write
+    from modules.jobs import scheduler_planning
+    boundary = scheduler_module if operation == "cleanup" else scheduler_planning
+    original = boundary.prepare_job_write
     def complete_selected(session, identifiers, *args, **kwargs):
         if identifier in identifiers and not raced:
             raced.append(True)
             response = client.post(f'/jobs/{identifier}/complete')
             assert response.status_code == 200, response.text
         return original(session, identifiers, *args, **kwargs)
-    monkeypatch.setattr(scheduler_module, 'prepare_job_write', complete_selected)
+    monkeypatch.setattr(boundary, 'prepare_job_write', complete_selected)
     with Session(engine) as session:
         if operation == 'cleanup':
             scheduler._cleanup_stale_schedules(session)
@@ -244,7 +246,9 @@ def test_scheduler_defers_new_production_added_during_parent_capture(linked_job,
     from datetime import datetime, timezone, timedelta
     from modules.jobs import scheduler as scheduler_module
     client, engine, order_id, identifier = linked_job
-    original = scheduler_module.prepare_job_write
+    from modules.jobs import scheduler_planning
+    boundary = scheduler_planning
+    original = boundary.prepare_job_write
     inserted = []
     def schedule_new_order(session, identifiers, *args, **kwargs):
         if not inserted:
@@ -253,7 +257,7 @@ def test_scheduler_defers_new_production_added_during_parent_capture(linked_job,
             new_order = response.json()['id']; inserted.append(new_order)
             assert client.post(f'/orders/{new_order}/schedule').status_code == 200
         return original(session, identifiers, *args, **kwargs)
-    monkeypatch.setattr(scheduler_module, 'prepare_job_write', schedule_new_order)
+    monkeypatch.setattr(boundary, 'prepare_job_write', schedule_new_order)
     with Session(engine) as session:
         result = scheduler_module.Scheduler().run(session,start_date=datetime.now(timezone.utc)+timedelta(days=1))
     with engine.connect() as connection:

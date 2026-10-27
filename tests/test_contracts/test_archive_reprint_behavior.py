@@ -30,6 +30,8 @@ def reprint_client(review_db,tmp_path,monkeypatch):
     monkeypatch.setattr(core_db, "engine", review_db.get_bind())
     monkeypatch.setattr(smart_plug, "engine", review_db.get_bind())
     monkeypatch.setattr(dispatch_acquisition, "bounded_status_is_idle", lambda *args: True)
+    # Readiness is synthetic here; FTPS/MQTT below remain real transports.
+    monkeypatch.setattr(dispatch_acquisition, "bounded_bambu_report", lambda *args: {'gcode_state': 'IDLE'})
     review_db.execute(text("UPDATE printers SET api_host='127.0.0.1',api_key=:key WHERE id=9"),
                       {"key": crypto.encrypt("synthetic-printer|" + secrets.token_urlsafe(24))})
     from core.db import get_db
@@ -339,3 +341,21 @@ def test_repeat_rechecks_tenant_and_rejects_model_swap(change,reprint_client,rev
         table='models' if change=='model' else 'print_files'
         review_db.execute(text(f'UPDATE {table} SET org_id=2 WHERE id=101'));review_db.commit()
         assert client.post(f'/jobs/{identifier}/repeat').status_code==404
+
+
+@pytest.mark.parametrize('plate_number', [1, 2])
+def test_reprint_capability_preflight_readiness_seam(reprint_client, plate_number):
+    """Keep synthetic readiness compatible with the separate report acquisition API."""
+    import zipfile
+    from types import SimpleNamespace
+    from modules.printers.dispatch_capability_gate import create_capability_gate
+    _, _, source = reprint_client
+    if plate_number == 2:
+        with zipfile.ZipFile(source, 'a') as package:
+            package.writestr('Metadata/plate_2.gcode', '; Synthetic second plate')
+    gate = create_capability_gate(job={'id':101,'printer_id':9},
+        creds={'api_type':'bambu'}, staged_path=source, plate_number=plate_number,
+        target_handle=SimpleNamespace(held=lambda: True))
+    assert gate.prepare() is True
+    assert gate() is True
+    assert gate.refusal is None

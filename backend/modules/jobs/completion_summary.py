@@ -21,10 +21,17 @@ def clean(value, limit=160):
 
 
 def matching_recipes(db, owner, payload):
+    """Compare normalized stable payloads without resolving/backfilling legacy recipes.
+
+    Legacy qualification belongs to the inspected write path; advice must not
+    acquire its printer locks or substitute a volatile dispatch identity.
+    """
     result = []
+    if not payload.get('configuration_key'):
+        return result
     for row in db.execute(select(batches.recipes).where(batches.recipes.c.owner == owner)).mappings():
         definition = json.loads(row['definition'])
-        if definition.get('qualified') is True and definition.get('payload') == batches.recipe_payload(payload):
+        if definition.get('version') == 2 and definition.get('qualified') is True and definition.get('payload') == payload:
             result.append({'id': row['id'], **definition})
     return result
 
@@ -61,6 +68,11 @@ def configuration_key(db, printer_id):
     from modules.printers.services import configured_identity
     identity = configured_identity(printer_id, db.connection() if callable(getattr(db, 'connection', None)) else db)
     return identity.configuration_key if identity else None
+
+
+def recipe_configuration_key(db, printer_id):
+    from modules.printers.services import configured_recipe_key
+    return configured_recipe_key(printer_id, db.connection() if callable(getattr(db, 'connection', None)) else db)
 
 
 def material_facts(db, job, printer, finished, at, config):
@@ -191,6 +203,7 @@ def next_suggestion(db, printer, *, visible=None, at=None):
     at = at or datetime.now(timezone.utc)
     finished = finished_attempt(db, printer.id)
     config = configuration_key(db, printer.id)
+    recipe_config = recipe_configuration_key(db, printer.id)
     candidates = db.query(Job).filter(Job.status == 'pending', Job.hold.is_(False)).order_by(
         Job.priority, Job.queue_position.is_(None), Job.queue_position, Job.created_at, Job.id).all()
     from modules.jobs.education_order import education_order
@@ -204,8 +217,8 @@ def next_suggestion(db, printer, *, visible=None, at=None):
             continue
         owner = job.charged_to_org_id or 0
         payload = {k: getattr(job, k) for k in ('model_id', 'print_file_id', 'payload_sha256', 'plate_index')}
-        payload.update(printer_id=printer.id, configuration_key=config)
-        recipes = matching_recipes(db, owner, payload)
+        payload.update(printer_id=printer.id, stable_configuration_key=recipe_config)
+        recipes = matching_recipes(db, owner, batches.recipe_payload(payload))
         shortfall = 0
         stock_inputs = []
         if len(recipes) == 1:
@@ -245,9 +258,9 @@ def build_summary(db, attempt_uid):
     row = db.execute(text('SELECT p.*,s.job_id AS summary_job_id,s.org_id AS summary_org_id,r.name AS printer_name FROM job_summary_outbox s JOIN print_jobs p ON p.economic_uid=s.print_attempt_uid AND p.economic_birth_nonce=s.attempt_birth LEFT JOIN printers r ON r.id=s.printer_id WHERE s.print_attempt_uid=:uid'), {'uid': attempt_uid}).mappings().one()
     job_id, owner = row['summary_job_id'], row['summary_org_id'] or 0
     job = db.execute(text('SELECT * FROM jobs WHERE id=:id'), {'id': job_id}).mappings().one()
-    receipt_config = db.execute(text('SELECT configuration_key FROM dispatch_attempt_receipts WHERE observed_print_job_id=:id'), {'id': row['id']}).scalar_one_or_none()
-    payload = {**dict(job), 'configuration_key': receipt_config}
-    recipes = matching_recipes(db, owner, payload)
+    receipt_config = db.execute(text("SELECT stable_configuration_key FROM dispatch_attempt_receipts WHERE observed_print_job_id=:id AND stable_key_source IN ('dispatch','backfilled_no_printer_audit')"), {'id': row['id']}).scalar_one_or_none()
+    payload = {**dict(job), 'stable_configuration_key': receipt_config}
+    recipes = matching_recipes(db, owner, batches.recipe_payload(payload))
     recipe = recipes[0] if len(recipes) == 1 else None
     inspection_reason = None
     try: batches.job_evidence(db, owner, job_id)

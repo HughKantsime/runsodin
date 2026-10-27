@@ -26,7 +26,8 @@ def receive_rolls(body: ReceiveRolls,
     try:
         lock_receiving(db)
         validate_references(db, [body])
-        result = receive_row(db, current_user, body, _create_spool_record)
+        result, audit_details = receive_row(db, current_user, body, _create_spool_record)
+        log_audit(db, 'inventory.receive', 'spools', details=audit_details)
         db.commit()
         return result
     except Exception:

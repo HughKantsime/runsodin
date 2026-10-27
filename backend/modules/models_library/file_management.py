@@ -175,8 +175,8 @@ def schedule_generic_file(db, file_id, printer_id, actor, ams_mapping=None):
         }, actor)
         job_id = job.id
         if mapping is not None:
-            from core.ams_mapping import record_mapping
-            record_mapping(db, job)
+            from core.ams_mapping import mapping_audit_details
+            log_audit(db, 'job.ams_mapping_changed', 'job', job.id, mapping_audit_details(job))
         assert_unchanged(db, 'print_files', file_capture)
         assert_unchanged(db, 'models', parent_capture)
         assert_unchanged(db, 'printers', target_capture)

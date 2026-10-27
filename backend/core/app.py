@@ -496,9 +496,11 @@ def create_app() -> FastAPI:
         from modules.printers.dispatch_background import startup, drain
         startup()
         try:
-            yield
+            try:
+                yield
+            finally:
+                await asyncio.to_thread(drain, 30)
         finally:
-            await asyncio.to_thread(drain, 30)
             shutdown()
         broadcast_task.cancel()
         cleanup_task.cancel()

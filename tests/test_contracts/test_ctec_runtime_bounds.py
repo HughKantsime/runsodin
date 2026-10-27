@@ -29,7 +29,7 @@ def seed(engine, count, stamp=None):
 
 
 def test_50k_backlog_client_and_live_batches_keep_health_under_one_second(hub, monkeypatch):
-    from fastapi import FastAPI, WebSocket
+    from fastapi import FastAPI, WebSocket, WebSocketDisconnect
     from fastapi.testclient import TestClient
     from core import app_websocket as runtime
     from modules.system import routes_health
@@ -63,16 +63,26 @@ def test_50k_backlog_client_and_live_batches_keep_health_under_one_second(hub, m
         await manager.connect(ws, {'id':1})
         try:
             await ws.receive_text()
+        except WebSocketDisconnect:
+            pass
         finally:
             manager.disconnect(ws)
     with TestClient(app) as client, client.websocket_connect('/ws') as ws:
         # Also exercise live catch-up rather than only the boot watermark.
+        received = []
+        def consume():
+            for _ in range(1024):
+                received.append(ws.receive_json())
+        reader = threading.Thread(target=consume, daemon=True)
+        reader.start()
         seed(engine, 1024)
         for _ in range(35):
             started = time.monotonic()
             assert client.get('/health').status_code == 200
             assert time.monotonic() - started < 1
             time.sleep(0.04)
+        reader.join(timeout=5)
+        assert not reader.is_alive() and len(received) == 1024
         assert batches and all(last >= 50_000 and size <= 128 for last, size in batches)
         assert sum(size for _, size in batches) == 1024
         ws.send_text('close')

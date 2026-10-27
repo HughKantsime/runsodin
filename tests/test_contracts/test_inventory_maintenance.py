@@ -355,3 +355,22 @@ def test_maintenance_precedes_capability_and_claim(review_db, tmp_path, monkeypa
         assert refusal['code'] == 'printer_maintenance_hold'
         with engine.connect() as conn:
             assert conn.execute(text('SELECT COUNT(*) FROM printer_dispatch_claims')).scalar_one() == 0
+
+
+@pytest.mark.parametrize('bulk', [False, True])
+def test_receiving_audit_failure_rolls_back_the_entire_caller_transaction(graph, bulk):
+    from sqlalchemy.exc import DBAPIError
+    before = {table: graph.execute(text('SELECT COUNT(*) FROM '+table)).scalar_one()
+              for table in ('spools', 'filament_library', 'audit_logs', 'system_config')}
+    graph.execute(text("CREATE TRIGGER refuse_receiving_audit BEFORE INSERT ON audit_logs "
+                       "WHEN NEW.action='inventory.receive' BEGIN SELECT RAISE(ABORT, 'audit fixture'); END"))
+    graph.commit()
+    row = ReceiveRolls(**ROW)
+    with pytest.raises(DBAPIError):
+        if bulk:
+            receive_bulk(BulkReceive(import_id='audit-rollback', rows=[row, row]), USER, graph)
+        else:
+            receive_rolls(row, USER, graph)
+    after = {table: graph.execute(text('SELECT COUNT(*) FROM '+table)).scalar_one()
+             for table in before}
+    assert after == before

@@ -124,17 +124,18 @@ it('F12-12.7-03 census: every icon-only button has an accessible name (aria-labe
   expect(summary.icon_only_unnamed).toEqual([])
 })
 
-it('F12-12.7-04 census: dialog-role modal surfaces are 35 shared-Modal call sites + 20 custom dialogs, not 17', () => {
+it('F12-12.7-04 census: dialog-role modal surfaces include the current shared and custom dialogs', () => {
   // Square stock send confirmation adds one shared, focus-trapped Modal; 2.0.13 adds
   // dispatch-recovery confirmation, roll receiving and QR label Modals.
-  expect(summary.shared_modal_call_sites).toBe(38)
+  // 2.0.24 adds the bulk shelf receiving Modal.
+  expect(summary.shared_modal_call_sites).toBe(39)
   expect(summary.shared_modal_alertdialog_call_sites).toBe(3)
   // Super Admin restore adds one named, focus-trapped confirmation dialog.
   // 20 static role="dialog", 1 alertdialog (SystemTab) and DetailDrawer's role that is 'dialog' while open.
   expect(summary.custom_dialog_role_elements).toHaveLength(22)
   const dialogOnly = summary.custom_dialog_role_elements.filter(d => d.endsWith(' dialog')).length
   expect(dialogOnly).toBe(20)
-  expect(summary.shared_modal_call_sites - summary.shared_modal_alertdialog_call_sites + dialogOnly).toBe(55)
+  expect(summary.shared_modal_call_sites - summary.shared_modal_alertdialog_call_sites + dialogOnly).toBe(56)
   expect(summary.shared_modal_call_sites - summary.shared_modal_alertdialog_call_sites + dialogOnly).not.toBe(17)
 })
 
@@ -150,7 +151,8 @@ it('F12-12.7-06 census: scope="col" exists only on a minority of table headers',
   // Merged tree: cert-fix-D's Analytics failure tables add 8 scoped headers (still a minority).
   expect(summary.th_scope_col).toBe(17)
   // 2.0.13 adds one unscoped header (inventory reorder table).
-  expect(summary.th_total).toBe(123)
+  // Bulk receiving adds one mapped header element.
+  expect(summary.th_total).toBe(124)
   expect(summary.th_scope_col * 2).toBeLessThan(summary.th_total)
   expect(summary.th_scope_col_files).toEqual(['components/admin/ChargebackReport.tsx', 'components/jobs/JobTableHeader.tsx',
     'pages/analytics/Analytics.tsx'])
@@ -158,8 +160,8 @@ it('F12-12.7-06 census: scope="col" exists only on a minority of table headers',
 
 it('F12-12.7-07 census: role="progressbar" is on every progress-style bar', () => {
   expect(summary.progressbar_role_elements.map(p => p.split(':')[0]).sort()).toEqual([
-    'components/layout/Sidebar.tsx', 'components/orders/OrderModals.tsx', 'components/printers/PrintProgress.tsx',
+    'components/jobs/TimelineJobDetail.tsx', 'components/layout/Sidebar.tsx', 'components/orders/OrderModals.tsx', 'components/printers/PrintProgress.tsx',
     'components/shared/OnboardingTour.tsx', 'components/ui/ProgressBar.tsx', 'pages/dashboard/Overlay.tsx',
-    'pages/dashboard/TVDashboard.tsx', 'pages/jobs/Timeline.tsx', 'pages/jobs/Upload.tsx',
+    'pages/dashboard/TVDashboard.tsx', 'pages/jobs/Upload.tsx',
   ])
 })

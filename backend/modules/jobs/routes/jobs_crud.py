@@ -564,7 +564,7 @@ async def update_job(job_id: int, updates: JobUpdate, request: Request, current_
         except Exception:
             db.rollback()
             raise HTTPException(503, 'Job correction temporarily unavailable') from None
-    from modules.jobs.ams_mapping import lock_mapping_edit, checked_changes, record_mapping
+    from modules.jobs.ams_mapping import lock_mapping_edit, checked_changes, mapping_audit_details
     lock_mapping_edit(db, job_id, updates)
     job = db.query(Job).filter(Job.id == job_id).populate_existing().first()
     if not job or not check_org_access(current_user, job.charged_to_org_id):
@@ -588,7 +588,7 @@ async def update_job(job_id: int, updates: JobUpdate, request: Request, current_
         setattr(job, field, value)
 
     if "ams_mapping" in changes:
-        record_mapping(db, job, previous_mapping)
+        log_audit(db, 'job.ams_mapping_changed', 'job', job.id, mapping_audit_details(job, previous_mapping))
     reconcile_job_write(db, production_orders)
     db.commit()
     db.refresh(job)

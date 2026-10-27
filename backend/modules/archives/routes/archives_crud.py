@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
 
 from core.db import get_db
-from core.dependencies import get_current_user
+from core.dependencies import get_current_user, log_audit
 from core.rbac import check_org_access, get_org_scope, require_action, require_role, require_superadmin
 
 log = logging.getLogger("odin.api")
@@ -612,9 +612,9 @@ def reprint_archive(
 
     queue_creator.stage_job(db, new_job, identity)
     if mapping is not None:
-        from core.ams_mapping import record_mapping
+        from core.ams_mapping import mapping_audit_details
         db.flush()
-        record_mapping(db, new_job)
+        log_audit(db, 'job.ams_mapping_changed', 'job', new_job.id, mapping_audit_details(new_job))
     db.commit()
     db.refresh(new_job)
 
