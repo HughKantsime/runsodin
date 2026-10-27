@@ -41,3 +41,30 @@ it('retains adapter uncertainty even when the server returned 400',async () => {
   vi.stubGlobal('fetch',vi.fn().mockResolvedValueOnce(Response.json({detail:'Start not confirmed'},{status:400})).mockResolvedValueOnce(Response.json(status)))
   expect(await dispatchWithConfirmation(53)).toEqual({confirmation:'unconfirmed',status})
 })
+
+it('polls a 202 durable handle through upload and start, with exactly one POST', async () => {
+  vi.useFakeTimers()
+  const attempt = 'a'.repeat(32)
+  const fetch = vi.fn().mockResolvedValueOnce(Response.json({accepted:true,success:false,job_id:53,attempt_id:attempt},{status:202}))
+    .mockResolvedValueOnce(Response.json({...status,phase:'preparing'}))
+    .mockResolvedValueOnce(Response.json({...status,phase:'uploading'}))
+    .mockResolvedValueOnce(Response.json({...status,phase:'starting'}))
+    .mockResolvedValueOnce(Response.json({...status,phase:'start_accepted'}))
+  vi.stubGlobal('fetch',fetch)
+  try {
+    const result = dispatchWithConfirmation(53)
+    await vi.runAllTimersAsync()
+    expect((await result).confirmation).toBe('accepted')
+    expect(fetch.mock.calls.filter(call => call[1]?.method === 'POST')).toHaveLength(1)
+    expect(fetch.mock.calls.slice(1).every(call => call[0] === `/api/jobs/53/dispatch-status?attempt_id=${attempt}`)).toBe(true)
+  } finally { vi.useRealTimers() }
+})
+
+it.each(['refused', 'needs_reconciliation'])('preserves nozzle mismatch detail while polling to %s', async phase => {
+  const attempt = 'b'.repeat(32)
+  const message = 'nozzle_mismatch: left nozzle requires Standard; installed High Flow'
+  vi.stubGlobal('fetch', vi.fn()
+    .mockResolvedValueOnce(Response.json({ accepted: true, success: false, job_id: 53, attempt_id: attempt }, { status: 202 }))
+    .mockResolvedValueOnce(Response.json({ ...status, phase, message })))
+  expect(await dispatchWithConfirmation(53)).toEqual({ confirmation: 'unconfirmed', status: { ...status, phase, message } })
+})

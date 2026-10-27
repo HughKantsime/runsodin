@@ -33,3 +33,14 @@ it('does not retry a rejected hardware POST even with global retries enabled', a
   expect(jobs.dispatch).toHaveBeenCalledTimes(1)
   client.clear()
 })
+it.each(['refused', 'needs_reconciliation'] as const)('shows the server nozzle mismatch for %s', async phase => {
+  const message = 'nozzle_mismatch: left nozzle requires Standard; installed High Flow'
+  vi.mocked(jobs.dispatch).mockResolvedValue({confirmation: 'unconfirmed', status: {job_id: 53, phase, message, retry_blocked: true, observation: null}})
+  const client = new QueryClient()
+  const wrapper = ({children}:any) => <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  const {result} = renderHook(() => useJobMutations(), {wrapper})
+  act(() => result.current.dispatchJob.mutate(53))
+  await waitFor(() => expect(toast.error).toHaveBeenCalledWith(message))
+  expect(toast.success).not.toHaveBeenCalled()
+  client.clear()
+})

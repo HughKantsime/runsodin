@@ -16,12 +16,14 @@ class ClaimAcquisition:
     token: str = field(default=None,repr=False)
 
 
-def acquire(engine,printer_id,job_id,physical_key,configuration_key,payload_sha256,owner_org_id=None):
+def acquire(engine,printer_id,job_id,physical_key,configuration_key,payload_sha256,owner_org_id=None, *, token=None):
     if (type(printer_id) is not int or printer_id<=0 or type(job_id) is not int or job_id<=0
             or owner_org_id is not None and (type(owner_org_id) is not int or owner_org_id<=0)
             or any(not isinstance(key,str) or not re.fullmatch('[0-9a-f]{64}',key) for key in (physical_key,configuration_key,payload_sha256))):
         return ClaimAcquisition('refused')
-    token=uuid.uuid4().hex
+    token=token or uuid.uuid4().hex
+    if not isinstance(token, str) or not re.fullmatch("[0-9a-f]{32}", token):
+        return ClaimAcquisition("refused")
     try:
         with engine.begin() as conn:
             # Serialize a new preparation against reassignment/rescheduling.
@@ -62,6 +64,11 @@ def enter_adapter(engine,token):
 
 def release_preparing(engine,token):
     return _change(engine,token,delete(TABLE).where(TABLE.c.state=='preparing'))
+
+
+def release_unstarted(engine, token):
+    """Only for an owned adapter's confirmed gate refusal before START."""
+    return _change(engine, token, delete(TABLE).where(TABLE.c.state == 'adapter_entered'))
 
 
 def record_outcome(engine,token,status):

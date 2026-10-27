@@ -150,7 +150,7 @@ def actual_education_dispatch(review_db, tmp_path, monkeypatch):
     from modules.printers import dispatch
     uploaded = setup_workflow(review_db, tmp_path, monkeypatch, "legacy", 1)
     monkeypatch.setattr(dispatch, "_ws", lambda *args: None)
-    monkeypatch.setattr(dispatch, "_notify_start_outcome", lambda *args: None)
+    monkeypatch.setattr(dispatch, "_notify_start_outcome", lambda *args, **kwargs: None)
     return review_db, uploaded
 
 

@@ -60,7 +60,7 @@ def check_command():
 
 def start_gate(engine, printer_id):
     from modules.printers.dispatch_ams_gate import record_refusal
-    def checked():
+    def checked(*, deadline=None):
         reason = refusal(engine, printer_id)
         return record_refusal(checked, 'printer_maintenance_hold', reason) if reason else True
     checked.refusal = None

@@ -107,6 +107,9 @@ class Printer(Base):
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
+    # Post-027 additions follow existing columns so fresh and upgraded DDL agree.
+    installed_nozzles = Column(JSON, nullable=True)
+
     # Relationships
     filament_slots = relationship("FilamentSlot", back_populates="printer", cascade="all, delete-orphan", order_by="FilamentSlot.slot_number")
     jobs = relationship("Job", back_populates="printer", passive_deletes=True)

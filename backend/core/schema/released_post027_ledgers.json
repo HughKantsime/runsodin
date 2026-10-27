@@ -352,6 +352,19 @@
    "python:038-dispatch-recovery",
    "python:039-measured-filament",
    "python:040-job-foundation"
+  ],
+  "2.0.24": [
+   "python:032-quiet-hours-deferred-deliveries",
+   "python:033-timelapse-capture-tenancy",
+   "python:034-alert-outbox",
+   "python:035-production-acceptance",
+   "python:036-ctec-pilot",
+   "python:037-education-memberships",
+   "python:038-dispatch-recovery",
+   "python:039-measured-filament",
+   "python:040-job-foundation",
+   "python:041-inventory-color",
+   "python:042-dispatch-capability"
   ]
  }
 }

@@ -12,6 +12,10 @@ from modules.printers.dispatch_admission import admit
 ADMISSION_SECONDS=30.0
 
 
+class CapabilityRefused(RuntimeError):
+    pass
+
+
 class TargetOwnershipLost(RuntimeError):
     pass
 
@@ -94,8 +98,15 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
     identity=build_identity(creds,key)
     if identity is None:
         return False,'Dispatch configuration identity could not be verified; no command was sent'
+    if creds['api_type'] == 'bambu':
+        from modules.printers.dispatch_capability_gate import static_refusal
+        refusal = static_refusal(source_path, (job.get('plate_index') or 0) + 1, creds)
+        if refusal:
+            dispatch._notify_start_outcome(job, 'adapter_rejected', gate_refusal=refusal)
+            return False, f'{refusal.code}: {refusal.detail}'
+    from modules.printers.dispatch_background import attempt_token
     claim=dispatch_claims.acquire(engine,job['printer_id'],job['id'],identity.target_key,
-        identity.configuration_key,payload_sha256,creds.get('org_id'))
+        identity.configuration_key,payload_sha256,creds.get('org_id'), token=attempt_token())
     if claim.status!='acquired':
         return False,'An unresolved dispatch claim or database uncertainty blocks dispatch; check diagnostics and reconcile before retrying'
     provider=reservation=None
@@ -104,6 +115,8 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
     result=(False,'Dispatch preparation could not be confirmed; no print command was sent')
     cleanup=[]
     try:
+        from modules.printers.dispatch_background import claimed
+        claimed(engine, claim.token, job)
         with stage_payload(source_path,payload_sha256) as staged:
             options,error=dispatch._validated_print_options(job,creds,staged.path,staged.sha256)
             if error:result=(False,error)
@@ -127,6 +140,14 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                     elif not hmac.compare_digest(hash_regular_payload(source_path),staged.sha256):
                         result=(False,'Print payload changed during preparation; no print command was sent')
                     else:
+                        if creds['api_type'] == 'bambu':
+                            from modules.printers.dispatch_capability_gate import create_capability_gate
+                            preflight = create_capability_gate(job=job, creds=creds,
+                                staged_path=staged.path, plate_number=options.get('plate_num', 1), target_handle=target_handle)
+                            if not preflight.prepare():
+                                dispatch._notify_start_outcome(job, 'adapter_rejected', gate_refusal=preflight.refusal)
+                                result = (False, dispatch._gate_refusal_message(preflight))
+                                raise CapabilityRefused(result[1])
                         # Generic observations need an exact attempt identity,
                         # independent of display names and reused source names.
                         # Education keeps its authoritative reservation token.
@@ -155,6 +176,11 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                                         power_accepted=power.accepted,broker_connection=power.connection,
                                         education_provider=provider,education_reservation=reservation),
                                     staged_path=staged.path,mapping=options['ams_mapping'],target_handle=target_handle)
+                            if creds['api_type'] == 'bambu':
+                                from modules.printers.dispatch_capability_gate import create_capability_gate
+                                before_start = create_capability_gate(job=job, creds=creds,
+                                    staged_path=staged.path, plate_number=options.get('plate_num', 1),
+                                    target_handle=target_handle, previous=before_start)
                             adapter_called=True
                             from modules.printers.maintenance_gate import command_context
                             with command_context(engine, job):
@@ -163,14 +189,22 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                                     **({"before_start":before_start} if before_start is not None else {}))
                             _require_target(target_handle)
                             accepted=type(result[0]) is bool and result[0]
-                            # No post-admission no-START retirement API exists. Even a
-                            # maintenance gate refusal retains the admitted fence for
-                            # explicit reconciliation (release_preparing cannot clear it).
-                            recorded=dispatch_claims.record_outcome(engine,claim.token,'accepted' if accepted else 'uncertain')
+                            # A hold arriving after admission retains inventory-maint's
+                            # conservative fence; initial holds refuse before any claim.
+                            gate_code = getattr(getattr(before_start, 'refusal', None), 'code', None)
+                            clean_refusal = (not accepted and getattr(before_start, 'clean_no_start', False)
+                                and gate_code != 'printer_maintenance_hold')
+                            recorded = (dispatch_claims.release_unstarted(engine, claim.token) if clean_refusal else
+                                dispatch_claims.record_outcome(engine,claim.token,'accepted' if accepted else 'uncertain'))
+                            if recorded and clean_refusal:
+                                from modules.printers.start_next import confirm_no_start
+                                confirm_no_start()
                             if not recorded:
                                 result=(False,'Printer command outcome needs database reconciliation before retrying')
-                            elif not accepted:
+                            elif not accepted and not clean_refusal:
                                 result=(False,result[1]+'; Dispatch claim requires explicit reconciliation before retrying')
+    except CapabilityRefused as exc:
+        result = (False, str(exc))
     except TargetOwnershipLost:
         ownership_lost=True
         if adapter_called:dispatch_claims.record_outcome(engine,claim.token,'uncertain')

@@ -17,7 +17,7 @@ from sqlalchemy.pool import NullPool
 # Values are bounded facts, never arbitrary strings or copies of transport messages.
 DETAILS = {
     'dispatch_uploading': {}, 'dispatch_starting': {}, 'dispatch_dispatched': {},
-    'dispatch_failed': {}, 'gate_refused': {}, 'started': {}, 'paused': {}, 'resumed': {},
+    'dispatch_failed': {}, 'nozzle_unverified': {'geometry_unverified': bool}, 'gate_refused': {'gate': str}, 'started': {}, 'paused': {}, 'resumed': {},
     'runout': {'slot': int}, 'hms': {},
     'completed': {'duration_seconds': (int,float)}, 'failed': {'duration_seconds': (int,float)},
     'cancelled': {'duration_seconds': (int,float)},
@@ -42,6 +42,10 @@ def event(job_id, kind, *, printer_id=None, print_attempt_uid=None, org_id=None,
     detail = {} if detail is None else dict(detail)
     if set(detail) - set(DETAILS[kind]):raise ValueError('Invalid timeline detail field')
     for key,value in detail.items():
+        if kind == 'nozzle_unverified' and key == 'geometry_unverified' and type(value) is bool:
+            continue
+        if kind == 'gate_refused' and key == 'gate' and isinstance(value, str) and _CODE.fullmatch(value):
+            continue
         if isinstance(value,bool) or not isinstance(value,DETAILS[kind][key]) or not 0 <= value <= 31536000:
             raise ValueError('Invalid timeline detail value')
     if code is not None and (kind not in ('hms','gate_refused','runout') or not isinstance(code,str) or not _CODE.fullmatch(code)):

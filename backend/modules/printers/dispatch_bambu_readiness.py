@@ -7,9 +7,9 @@ import threading
 import time
 
 
-def fresh_bambu_status_is_idle(creds: dict, deadline: float) -> bool:
+def fresh_bambu_status_is_idle(creds: dict, deadline: float, *, return_report=False):
     client = None
-    state = {'connected':False,'subscribed':False,'ready':False,'failed':False,'finishing':False,'mid':None}
+    state = {'connected':False,'subscribed':False,'ready':False,'failed':False,'finishing':False,'mid':None,'packet':None}
     lock, done = threading.Lock(), threading.Event()
     try:
         if not isinstance(creds, dict) or isinstance(deadline, bool) or not isinstance(deadline, (int,float)):
@@ -69,10 +69,18 @@ def fresh_bambu_status_is_idle(creds: dict, deadline: float) -> bool:
                 packet = section.model_dump(mode='json', exclude_unset=True)
                 if 'gcode_state' not in packet or 'print_error' not in packet:
                     return
+                if return_report:
+                    from modules.printers.printer_models import bambu_nozzle_count
+                    dual = bambu_nozzle_count(creds.get('machine_type') or creds.get('model')) == 2
+                    nozzle = (packet.get('device') or {}).get('nozzle') or {}
+                    if (dual and not isinstance(nozzle.get('info'), list)) or (not dual and 'nozzle_type' not in packet):
+                        return
                 ready = raw_status_is_idle('bambu',packet)
             except Exception:
                 fail();return
-            with lock:state['ready'] = ready
+            with lock:
+                state['ready'] = ready
+                state['packet'] = packet
             done.set()
         client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,protocol=mqtt.MQTTv311)
         if code:client.username_pw_set('bblp',code)
@@ -90,7 +98,9 @@ def fresh_bambu_status_is_idle(creds: dict, deadline: float) -> bool:
             ready = state['ready'] and state['connected'] and state['subscribed'] and not state['failed'] and time.monotonic() < deadline
             state['finishing'] = True
         client.disconnect();client.loop_stop();client=None
-        with lock:return ready and state['ready'] and not state['failed'] and time.monotonic() < deadline
+        with lock:
+            accepted = ready and state['ready'] and not state['failed'] and time.monotonic() < deadline
+            return state['packet'] if accepted and return_report else accepted
     except Exception:
         return False
     finally:

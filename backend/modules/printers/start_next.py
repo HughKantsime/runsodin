@@ -5,6 +5,7 @@ import hashlib
 import json
 import uuid
 from fastapi import HTTPException
+from modules.printers.dispatch_handle import status_url
 from sqlalchemy import text, bindparam, JSON
 from sqlalchemy.orm import Session
 from core.system_config_values import config_text
@@ -51,7 +52,7 @@ def admission_facts(db, job_id, printer_id):
             'finished_attempt_uid': finished['economic_uid'] if finished else None}
 
 
-def start(db, printer, user, data):
+def start(db, printer, user, data, *, background=False):
     # First operation is the durable idempotency lookup. Replays never consult
     # queue state, fingerprints or mutable printer facts.
     printer_id = printer.id
@@ -112,7 +113,30 @@ def start(db, printer, user, data):
             reconcile_job_write(claim_db, parents)
         record['admission_facts'] = admission_facts(conn, data.suggested_job_id, printer_id)
         save(conn, key, record)
-    marker = _context.set({'key': key, 'record': record, 'user': user})
+    if background:
+        from modules.printers.dispatch_background import stage
+        def operation():
+            with Session(engine) as worker_db:
+                return _finish(worker_db, printer_id, user, data, key, record, guard)
+        def on_staged(handle):
+            with engine.begin() as conn:
+                current = load(conn, key)
+                current['result'] = {**current['result'], **handle}
+                save(conn, key, current)
+        try:
+            handle = stage(printer_id, data.suggested_job_id, operation=operation, on_staged=on_staged)
+        except HTTPException as exc:
+            if exc.status_code == 503:
+                _record_result(db, printer_id, data, key, guard, {
+                    **record['result'], 'success': False, 'state': 'refused', 'message': str(exc.detail)})
+            raise
+        return {**record['result'], **handle}
+    return _finish(db, printer_id, user, data, key, record, guard)
+
+
+def _finish(db, printer_id, user, data, key, record, guard):
+    context = {'key': key, 'record': record, 'user': user}
+    marker = _context.set(context)
     try:
         from modules.printers.dispatch import dispatch_job
         from modules.printers.maintenance_gate import capture_refusal
@@ -127,14 +151,27 @@ def start(db, printer, user, data):
         result = {'success': False, 'message': 'Dispatch outcome requires review before retrying.', 'job_id': data.suggested_job_id, 'request_id': str(data.request_id), 'state': 'uncertain'}
     finally:
         _context.reset(marker)
+    return _record_result(db, printer_id, data, key, guard, result, clean_no_start=context.get('clean_no_start', False))
+
+
+def confirm_no_start():
+    context = _context.get()
+    if context is not None:
+        context['clean_no_start'] = True
+
+
+def _record_result(db, printer_id, data, key, guard, result, *, clean_no_start=False):
+    from core.order_production import prepare_job_write, reconcile_job_write
+    from modules.jobs.models import Job
+    success = result['success']
     try:
         conn = db.connection()
         current = load(conn, key)
-        if not success and current.get('claim_token'):
+        if not success and current.get('claim_token') and not clean_no_start:
             result['state'] = 'uncertain'
         current['result'] = result
         save(conn, key, current)
-        if result['state'] == 'refused' and not current.get('claim_token'):
+        if result['state'] == 'refused':
             if current.get('assigned_by_claim'):
                 with Session(bind=conn) as restore_db:
                     parents = prepare_job_write(restore_db, [data.suggested_job_id], {'printer_id': None})
@@ -173,5 +210,6 @@ def confirm_on_admission(conn, *, token, job):
          'detail': json.dumps({'attestation': record['attestation']}),
          'user': record['actor']['user_id'], 'token': record['actor']['token_id'], 'at': at})
     current['claim_token'] = token
-    current['result'] = {**current['result'], 'success': True, 'state': 'admitted'}
+    current['result'] = {**current['result'], 'success': False, 'accepted': True, 'state': 'admitted',
+                         'attempt_id': token, 'status_url': status_url(job["id"], token)}
     save(conn, key, current)

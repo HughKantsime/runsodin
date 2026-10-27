@@ -142,10 +142,10 @@
   "suggested_price": null,
   "target_filter": "9",
   "target_type": "specific",
-  "updated_at": "2026-10-27T03:55:49"
+  "updated_at": "2026-10-27T20:12:52"
  },
  "fail_printing_response": {
-  "actual_end": "2026-10-27T03:55:49.317766Z",
+  "actual_end": "2026-10-27T20:12:52.331929Z",
   "actual_start": "2026-10-12T06:00:00",
   "ams_mapping": [
    0
@@ -642,7 +642,7 @@
    "suggested_price": null,
    "target_filter": "9",
    "target_type": "specific",
-   "updated_at": "2026-10-27T03:55:49"
+   "updated_at": "2026-10-27T20:12:52"
   },
   {
    "actual_end": null,
@@ -3406,7 +3406,7 @@
   "charged_to_org_id": 1,
   "colors_list": [],
   "colors_required": null,
-  "created_at": "2026-10-27T03:55:49",
+  "created_at": "2026-10-27T20:12:52",
   "due_date": null,
   "duration_hours": 1.0,
   "effective_duration": 1.0,
@@ -3441,7 +3441,7 @@
   "suggested_price": null,
   "target_filter": "10",
   "target_type": "specific",
-  "updated_at": "2026-10-27T03:55:49"
+  "updated_at": "2026-10-27T20:12:52"
  },
  "printers": [
   {
@@ -3455,7 +3455,7 @@
    "camera_enabled": false,
    "camera_source": "auto",
    "camera_url": "bambu-chamber://auto",
-   "created_at": "2026-10-27T03:55:49",
+   "created_at": "2026-10-27T20:12:51",
    "fan_speed": null,
    "filament_slots": [
     {
@@ -3466,7 +3466,7 @@
      "external_spool_id": null,
      "filament_type": "PLA",
      "id": 1,
-     "loaded_at": "2026-10-27T03:55:49",
+     "loaded_at": "2026-10-27T20:12:51",
      "mapping_status": null,
      "material_type": "PLA",
      "printer_id": 9,
@@ -3484,6 +3484,7 @@
    "hms_errors": null,
    "hours_since_maintenance": null,
    "id": 9,
+   "installed_nozzles": null,
    "is_active": true,
    "last_error_at": null,
    "last_error_code": null,
@@ -3492,6 +3493,13 @@
    "lights_on": null,
    "loaded_colors": [],
    "machine_type": "P1S",
+   "maintenance": {
+    "note": "",
+    "set_at": null,
+    "set_by": null,
+    "set_by_name": null,
+    "state": "ok"
+   },
    "model": "Bambu Lab P1S",
    "name": "P1S-09",
    "nickname": null,
@@ -3508,7 +3516,7 @@
    "timelapse_enabled": false,
    "total_print_count": null,
    "total_print_hours": null,
-   "updated_at": "2026-10-27T03:55:49"
+   "updated_at": "2026-10-27T20:12:51"
   },
   {
    "api_host": null,
@@ -3521,7 +3529,7 @@
    "camera_enabled": false,
    "camera_source": null,
    "camera_url": null,
-   "created_at": "2026-10-27T03:55:49",
+   "created_at": "2026-10-27T20:12:51",
    "fan_speed": null,
    "filament_slots": [
     {
@@ -3532,7 +3540,7 @@
      "external_spool_id": null,
      "filament_type": "PLA",
      "id": 2,
-     "loaded_at": "2026-10-27T03:55:49",
+     "loaded_at": "2026-10-27T20:12:51",
      "mapping_status": null,
      "material_type": "PLA",
      "printer_id": 10,
@@ -3550,6 +3558,7 @@
    "hms_errors": null,
    "hours_since_maintenance": null,
    "id": 10,
+   "installed_nozzles": null,
    "is_active": true,
    "last_error_at": null,
    "last_error_code": null,
@@ -3558,6 +3567,13 @@
    "lights_on": null,
    "loaded_colors": [],
    "machine_type": "P1S",
+   "maintenance": {
+    "note": "",
+    "set_at": null,
+    "set_by": null,
+    "set_by_name": null,
+    "state": "ok"
+   },
    "model": "Bambu Lab P1S",
    "name": "P1S-10",
    "nickname": null,
@@ -3574,7 +3590,7 @@
    "timelapse_enabled": false,
    "total_print_count": null,
    "total_print_hours": null,
-   "updated_at": "2026-10-27T03:55:49"
+   "updated_at": "2026-10-27T20:12:51"
   }
  ],
  "recent_terminal": [

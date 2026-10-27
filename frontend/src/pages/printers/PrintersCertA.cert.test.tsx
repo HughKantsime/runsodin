@@ -259,22 +259,22 @@ it('printer card labels four-tray AMS units and AMS HT units separately', async 
   const { default: PrinterCard } = await import('../../components/printers/PrinterCard')
   const slot = (n: number) => ({ id: 1000 + n, slot_number: n, filament_type: 'PLA', color_hex: 'FFFFFF', color: null })
   const props = { allFilaments: [], spools: [], onDelete: vi.fn(), onToggleActive: vi.fn(), onUpdateSlot: vi.fn(), onEdit: vi.fn(), onSyncAms: vi.fn() }
-  render(<PrinterCard printer={{ ...w.printers[0], machine_type: 'H2D', filament_slots: [1, 2, 3, 4, 5, 6, 7, 8, 17].map(slot) }} {...props} />)
+  renderCard(<PrinterCard printer={{ ...w.printers[0], machine_type: 'H2D', filament_slots: [1, 2, 3, 4, 5, 6, 7, 8, 17].map(slot) }} {...props} />)
   expect(screen.getAllByTestId('ams-unit-label').map(e => e.textContent)).toEqual(['AMS Unit 0', 'AMS Unit 1', 'AMS HT 1'])
   cleanup()
-  render(<PrinterCard printer={{ ...w.printers[0], filament_slots: [1, 2, 3, 4].map(slot) }} {...props} />)
+  renderCard(<PrinterCard printer={{ ...w.printers[0], filament_slots: [1, 2, 3, 4].map(slot) }} {...props} />)
   expect(screen.queryAllByTestId('ams-unit-label')).toHaveLength(0)
   cleanup()
   // Non-Bambu printers have no AMS units, whatever their slot numbers.
   const moonraker = w.printers.find((p: any) => p.api_type === 'moonraker')
-  render(<PrinterCard printer={{ ...moonraker, filament_slots: [1, 2, 3, 4, 5, 6, 17].map(slot) }} {...props} />)
+  renderCard(<PrinterCard printer={{ ...moonraker, filament_slots: [1, 2, 3, 4, 5, 6, 17].map(slot) }} {...props} />)
   expect(screen.queryAllByTestId('ams-unit-label')).toHaveLength(0)
   cleanup()
   // A slot number outside AMS numbering disables grouping instead of crashing or mislabelling.
-  render(<PrinterCard printer={{ ...w.printers[0], filament_slots: [0, 1, 5].map(slot) }} {...props} />)
+  renderCard(<PrinterCard printer={{ ...w.printers[0], filament_slots: [0, 1, 5].map(slot) }} {...props} />)
   expect(screen.queryAllByTestId('ams-unit-label')).toHaveLength(0)
   cleanup()
-  render(<PrinterCard printer={{ ...w.printers[0], filament_slots: [1, 5, 25].map(slot) }} {...props} />)
+  renderCard(<PrinterCard printer={{ ...w.printers[0], filament_slots: [1, 5, 25].map(slot) }} {...props} />)
   expect(screen.queryAllByTestId('ams-unit-label')).toHaveLength(0)
 })
 
@@ -282,14 +282,14 @@ it.each([['O1E', 'H2D Pro'], ['O1C2', 'H2C'], ['H2D', 'H2D'], ['Bambu Lab H2D Pr
   'dual-nozzle badge for %s shows the friendly model name %s', async (machine, label) => {
     const { default: PrinterCard } = await import('../../components/printers/PrinterCard')
     const props = { allFilaments: [], spools: [], onDelete: vi.fn(), onToggleActive: vi.fn(), onUpdateSlot: vi.fn(), onEdit: vi.fn(), onSyncAms: vi.fn() }
-    render(<PrinterCard printer={{ ...w.printers[0], model: 'Synthetic', machine_type: machine }} {...props} />)
+    renderCard(<PrinterCard printer={{ ...w.printers[0], model: 'Synthetic', machine_type: machine }} {...props} />)
     expect(screen.getByText(label, { selector: 'span.rounded-full' })).toBeInTheDocument()
   })
 
 it.each(['H2D', 'H2D Pro', 'H2C'])('%s card shows left and right nozzle temperatures', async machine => {
   const { default: PrinterCard } = await import('../../components/printers/PrinterCard')
   const props = { allFilaments: [], spools: [], onDelete: vi.fn(), onToggleActive: vi.fn(), onUpdateSlot: vi.fn(), onEdit: vi.fn(), onSyncAms: vi.fn() }
-  render(<PrinterCard printer={{ ...w.printers[0], machine_type: machine, nozzle_temp: 210, h2d_nozzles: { nozzle_1: { temp: 190, target: 0 } } }} {...props} />)
+  renderCard(<PrinterCard printer={{ ...w.printers[0], machine_type: machine, nozzle_temp: 210, h2d_nozzles: { nozzle_1: { temp: 190, target: 0 } } }} {...props} />)
   expect(screen.getByTitle('Left Nozzle')).toHaveTextContent('L 210°')
   expect(screen.getByTitle('Right Nozzle')).toHaveTextContent('R 190°')
 })
@@ -300,10 +300,15 @@ it('no printer-card control reaches the AMS RFID re-read endpoint (claim says it
   Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn(async () => {}) }, configurable: true })
   vi.stubGlobal('fetch', vi.fn(async (url: string) => { urls.push(String(url)); return { ok: true, status: 200, json: async () => ({}) } }))
   const props = { allFilaments: [], spools: [], onDelete: vi.fn(), onToggleActive: vi.fn(), onUpdateSlot: vi.fn(), onEdit: vi.fn(), onSyncAms: vi.fn() }
-  render(<PrinterCard printer={{ ...w.printers[0], ...{ gcode_state: 'RUNNING', mc_percent: 34 } }} {...props} />)
+  renderCard(<PrinterCard printer={{ ...w.printers[0], ...{ gcode_state: 'RUNNING', mc_percent: 34 } }} {...props} />)
   for (let pass = 0; pass < 2; pass++) {
     for (const button of screen.getAllByRole('button')) { await act(async () => { fireEvent.click(button) }) }
   }
   expect(state.api.fetchAPI.mock.calls.map(([p]) => String(p)).concat(urls).some(u => u.includes('/ams/refresh'))).toBe(false)
   expect(props.onSyncAms).toHaveBeenCalled() // the card's AMS action is the inventory sync, not an RFID re-read
 })
+
+function renderCard(element: React.ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { enabled: false, retry: false } } })
+  return render(<QueryClientProvider client={client}>{element}</QueryClientProvider>)
+}

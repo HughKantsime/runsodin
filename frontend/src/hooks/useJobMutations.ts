@@ -68,7 +68,8 @@ export function useJobMutations() {
     onSuccess: (result, id) => {
       setDispatchFencedIds(previous => new Set(previous).add(id))
       inv()
-      if (result.confirmation === 'accepted' || result.status?.phase === 'start_accepted') toast.success('Start accepted. Waiting for printer progress.')
+      if (['refused', 'needs_reconciliation'].includes(result.status?.phase || '')) toast.error(result.status?.message || 'Dispatch refused. Review the printer before trying again.')
+      else if (result.confirmation === 'accepted' || result.status?.phase === 'start_accepted') toast.success('Start accepted. Waiting for printer progress.')
       else if (result.status?.phase === 'layer_observed') toast('Printer layer progress was observed for this attempt.')
       else toast('Dispatch is unconfirmed. Check the printer and recorded attempt before trying again.', { duration: 10000 })
     },

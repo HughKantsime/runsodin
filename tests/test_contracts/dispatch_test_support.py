@@ -34,8 +34,10 @@ def configure_dispatch(db,tmp_path,monkeypatch,protocol='moonraker'):
     monkeypatch.setattr(smart_plug,'_in_background',tracked)
     monkeypatch.setitem(registry._providers,'EducationPolicyProvider',EducationPolicyService())
     monkeypatch.setattr(dispatch,'_ws',lambda *args:None)
-    monkeypatch.setattr(dispatch,'_notify_start_outcome',lambda *args:None)
+    monkeypatch.setattr(dispatch,'_notify_start_outcome',lambda *args,**kwargs:None)
     monkeypatch.setattr(dispatch_acquisition,'bounded_status_is_idle',lambda *args:True)
+    # Owned fresh report boundary: legacy fixtures have no nozzle metadata.
+    monkeypatch.setattr(dispatch_acquisition,'bounded_bambu_report',lambda *args:{})
     path=tmp_path/('synthetic.3mf' if protocol=='bambu' else 'synthetic.gcode')
     if protocol=='bambu':
         with zipfile.ZipFile(path,'w') as package:package.writestr('Metadata/plate_1.gcode','G90\n')

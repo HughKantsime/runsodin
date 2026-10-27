@@ -1,6 +1,6 @@
 """Read-only dispatch evidence. Never grants retry or hardware authority."""
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from core.db import get_db
@@ -17,17 +17,27 @@ router = APIRouter(prefix='/jobs', tags=['Jobs'])
 @router.get('/{job_id}/dispatch-status')
 def dispatch_status(job_id: int,
                     current_user=Depends(require_role('viewer', scope='read:jobs')),
-                    db: Session = Depends(get_db)):
+                    db: Session = Depends(get_db),
+                    attempt_id: str | None = Query(default=None, pattern="^[0-9a-f]{32}$")):
     job = db.get(Job, job_id)
     if job is None or not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(404, 'Job not found')
     result = {'job_id': job_id, 'phase': 'unconfirmed', 'retry_blocked': True,
               'observation': None}
-    printer = db.get(Printer, job.printer_id) if job.printer_id else None
+    record = None
+    if isinstance(attempt_id, str):
+        from modules.printers.dispatch import read_dispatch_progress
+        record = read_dispatch_progress(db, attempt_id, job_id)
+        if record is None or record['job_id'] != job_id or record['org_id'] != job.charged_to_org_id:
+            raise HTTPException(404, 'Dispatch attempt not found')
+    printer_id = record['printer_id'] if record else job.printer_id
+    printer = db.get(Printer, printer_id) if printer_id else None
     if printer is None:
         return result
     if not check_org_access(current_user, printer.org_id) and not printer.shared:
         raise HTTPException(404, 'Printer not found')
+    if record is not None:
+        return {key: value for key, value in record.items() if key not in ('org_id', 'printer_id')}
     claim = db.get(PrinterDispatchClaim, printer.id)
     if claim is None:
         # Staging may precede the durable claim. Absence proves no safe retry.

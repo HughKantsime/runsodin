@@ -29,12 +29,14 @@ with engine.connect() as c:
     assert result.returncode==0,result.stderr
 
 
-def test_exact_2022_ledger():
+@pytest.mark.parametrize('version', ['2.0.22', '2.0.23'])
+def test_exact_released_040_ledger(version):
     from core.schema import preserved039
     assert preserved040.ledger_ids()==preserved039.ledger_ids()|{'python:040-job-foundation'}
-    released=json.loads(Path('backend/core/schema/released_post027_ledgers.json').read_text())['releases']['2.0.22']
+    released=json.loads(Path('backend/core/schema/released_post027_ledgers.json').read_text())['releases'][version]
     assert set(released)<=preserved040.ledger_ids()
     assert 'python:041-inventory-color' not in preserved040.ledger_ids()
+    assert 'python:042-dispatch-capability' not in preserved040.ledger_ids()
 
 
 @pytest.mark.parametrize('changed',['manifest.json','overlay/core/schema/migrations/040_job_foundation.py'])

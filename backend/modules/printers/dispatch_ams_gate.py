@@ -105,14 +105,14 @@ def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, tar
             return refuse("ams_configuration_changed", "AMS configuration changed")
         return True
 
-    def acquire():
+    def acquire(deadline=None):
         nonlocal snapshot
         if not current():
             return False
         result = read_current_selected_ams(configuration.transport,
             configuration_key=configuration.configuration_key,
             owner_org_id=configuration.owner_org_id, selected_slots=slots,
-            timeout=10.0, operation_id=captured['token'])
+            timeout=max(0.0, min(10.0, deadline - time.monotonic())) if deadline is not None else 10.0, operation_id=captured['token'])
         if result.success is not True:
             return refuse("ams_read_failed", "Fresh AMS read failed")
         if result.cleanup_confirmed is not True:
@@ -156,7 +156,7 @@ def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, tar
             return refuse("target_lock_lost", "Printer target lock is no longer held")
         return True
 
-    def prepare():
+    def prepare(*, deadline=None):
         nonlocal prepared, preparation_ok
         with invocation_lock:
             if prepared or used:
@@ -164,7 +164,7 @@ def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, tar
             # Never reacquire after failure, or renew a proof's receipt time.
             prepared = True
             try:
-                preparation_ok = acquire()
+                preparation_ok = acquire(deadline)
                 return preparation_ok
             except Exception as exc:
                 return refuse("exception:" + type(exc).__name__, "AMS gate raised an exception")

@@ -101,6 +101,7 @@ _ALLOWED_PYTHON_MIGRATIONS = frozenset(
         "core.schema.migrations.039_measured_filament",
         "core.schema.migrations.040_job_foundation",
         "core.schema.migrations.041_inventory_color",
+        "core.schema.migrations.042_dispatch_capability",
         "core.schema.migrations.036_ctec_pilot",
     }
 )

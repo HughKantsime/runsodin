@@ -11,7 +11,9 @@ def test_fresh_and_repeat_boot(tmp_path):
     engine = create_engine('sqlite:///' + str(tmp_path/'color.db'))
     try:
         first = bootstrap_database(engine)
-        assert M.MIGRATION_ID in first['applied']
+        start = first['applied'].index('python:040-job-foundation')
+        assert first['applied'][start:start + 3] == ['python:040-job-foundation', M.MIGRATION_ID, 'python:042-dispatch-capability']
+        assert inspect(engine).get_columns('printers')[-1]['name'] == 'installed_nozzles'
         assert bootstrap_database(engine)['applied'] == []
         with engine.begin() as conn:
             M.validate(conn)

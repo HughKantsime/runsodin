@@ -50,6 +50,12 @@ except ImportError:
 def _ws(job_id: int, status: str, message: str):
     """Push a dispatch progress event to connected WebSocket clients."""
     try:
+        from modules.printers.dispatch_background import progress
+        phases = {'uploading': 'uploading', 'starting': 'starting'}
+        if status in phases:progress(phases[status])
+    except Exception:
+        log.debug('Dispatch progress update failed')
+    try:
         if status in ('uploading','starting','dispatched','failed'):
             from core.job_timeline import enqueue, event
             enqueue(event(job_id, 'dispatch_'+status))
@@ -61,7 +67,6 @@ def _ws(job_id: int, status: str, message: str):
         log.debug(f"WebSocket push failed: {e}")
 
 
-from modules.printers.dispatch_records import _get_printer_info, _get_next_scheduled_job, _load_job
 
 def _dispatch_bambu(job_id: int, stored_path: str, remote_filename: str, creds: dict, *, before_start=None, **print_options) -> tuple[bool, str]:
     """Dispatch to a Bambu printer: implicit FTPS upload + MQTT project_file."""
@@ -239,191 +244,6 @@ def _dispatch_prusalink(job_id: int, stored_path: str, remote_filename: str, cre
 # Public API
 # ──────────────────────────────────────────────
 
-def _reconcile_education_denial(
-    provider,
-    context: dict,
-    job_id: int,
-    expected_revision: int,
-    reason: str,
-) -> None:
-    from core.db import engine
-    from sqlalchemy.orm import Session
-
-    if not provider or not context:
-        return
-    try:
-        with Session(engine) as db:
-            provider.reconcile_dispatch_denial(
-                db,
-                submission_id=int(context["id"]),
-                job_id=job_id,
-                expected_revision=expected_revision,
-                reason=reason,
-            )
-    except Exception as exc:
-        log.error("[dispatch] Education denial reconciliation failed: %s", exc)
-
-
-def _authorize_education_hardware_action(job: dict, creds: dict) -> tuple[bool, str] | None:
-    """Final policy and compatibility check for Education-owned jobs."""
-    if job.get("education_submission_id") is None:
-        from core.db import engine
-        from core.model_preview_access import is_education_owned_file
-        from sqlalchemy import text
-        identifiers = {
-            job.get("resolved_print_file_id"),
-            job.get("model_print_file_id"),
-            job.get("print_file_id"),
-        } - {None}
-        with engine.connect() as conn:
-            for identifier in identifiers:
-                path = conn.execute(
-                    text("SELECT stored_path FROM print_files WHERE id=:id"),
-                    {"id": identifier},
-                ).scalar_one_or_none()
-                if is_education_owned_file(conn, identifier, path):
-                    return False, "Education file requires its approval workflow; no hardware command was sent"
-        if job.get("model_id") is not None:
-            from core.db import engine
-            from core.registry import registry
-            from sqlalchemy.orm import Session
-            provider = registry.get_provider("EducationPolicyProvider")
-            if provider is None:
-                return False, "Education dispatch policy is unavailable; no hardware command was sent"
-            try:
-                with Session(engine) as db:
-                    provider.assert_generic_model_reference_allowed(db, int(job["model_id"]))
-            except Exception:
-                return False, "Education resource requires its submission and approval workflow; no hardware command was sent"
-        return None
-
-    from core.db import engine
-    from core.registry import registry
-    from modules.printers.education_compatibility import evaluate_education_compatibility
-    from sqlalchemy.orm import Session
-
-    provider = registry.get_provider("EducationPolicyProvider")
-    if provider is None:
-        return False, "Education dispatch policy is unavailable; no hardware command was sent"
-
-    expected_revision = job.get("education_lifecycle_revision")
-    if expected_revision is None:
-        return False, "Education lifecycle revision is missing; no hardware command was sent"
-
-    with Session(engine) as db:
-        context = provider.authorize_dispatch(
-            db,
-            job_id=int(job["id"]),
-            printer_id=int(job["printer_id"]),
-            expected_revision=int(expected_revision),
-        )
-
-    if not context or not context.get("authorized"):
-        if context:
-            _reconcile_education_denial(
-                provider,
-                context,
-                int(job["id"]),
-                int(expected_revision),
-                "current approval or entitlement is no longer valid",
-            )
-        return False, "Education approval or printer entitlement changed; job returned to submitted"
-
-    try:
-        file_facts = json.loads(job.get("compatibility_facts_json") or "")
-    except (TypeError, ValueError, json.JSONDecodeError):
-        file_facts = {}
-    result = evaluate_education_compatibility(file_facts, creds)
-    if not result["compatible"]:
-        codes = sorted({reason["code"] for reason in result["reasons"]})
-        _reconcile_education_denial(
-            provider,
-            context,
-            int(job["id"]),
-            int(expected_revision),
-            "compatibility drift: " + ",".join(codes),
-        )
-        return False, (
-            "Education compatibility check failed ("
-            + ", ".join(codes)
-            + "); job returned to submitted"
-        )
-    return True, result["engine_version"]
-
-
-def _reserve_education_hardware_action(job: dict, extension: str):
-    """Commit the Education correlation claim before any adapter call."""
-    if job.get("education_submission_id") is None:
-        return None, None
-
-    from core.db import engine
-    from core.registry import registry
-    from sqlalchemy.orm import Session
-
-    provider = registry.get_provider("EducationPolicyProvider")
-    if provider is None:
-        return None, "Education dispatch policy is unavailable; no hardware command was sent"
-    try:
-        with Session(engine) as db:
-            reservation = provider.reserve_dispatch(
-                db,
-                job_id=int(job["id"]),
-                printer_id=int(job["printer_id"]),
-                expected_revision=int(job["education_lifecycle_revision"]),
-                extension=extension,
-            )
-            if reservation:
-                db.commit()
-    except Exception as exc:
-        log.error("[dispatch] Education reservation failed: %s", exc)
-        return None, "Education dispatch reservation failed; no hardware command was sent"
-    if not reservation:
-        return None, "Education authority changed or this printer already has an active print claim"
-    return (provider, reservation), None
-
-
-def _cancel_education_reservation(provider, reservation: dict) -> bool:
-    from core.db import engine
-    from sqlalchemy.orm import Session
-
-    try:
-        with Session(engine) as db:
-            cancelled = provider.cancel_dispatch_reservation(
-                db,
-                claim_id=reservation["claim_id"],
-                submission_id=int(reservation["submission_id"]),
-                job_id=int(reservation["job_id"]),
-                printer_id=int(reservation["printer_id"]),
-                expected_revision=int(reservation["authority_revision"]),
-            )
-            if cancelled:
-                db.commit()
-            return bool(cancelled)
-    except Exception as exc:
-        log.error("[dispatch] Education reservation cancellation failed: %s", exc)
-        return False
-
-
-def _confirm_education_dispatch(provider, reservation: dict) -> dict:
-    from core.db import engine
-    from sqlalchemy.orm import Session
-
-    try:
-        with Session(engine) as db:
-            result = provider.confirm_dispatch_started(
-                db,
-                claim_id=reservation["claim_id"],
-                submission_id=int(reservation["submission_id"]),
-                job_id=int(reservation["job_id"]),
-                printer_id=int(reservation["printer_id"]),
-                expected_revision=int(reservation["authority_revision"]),
-            )
-            if result.get("transitioned"):
-                db.commit()
-            return result
-    except Exception as exc:
-        log.error("[dispatch] Education physical start confirmation failed: %s", exc)
-        return {"education_owned": True, "authorized": False, "transitioned": False}
 
 def _notify_start_outcome(job: dict, reason: str, *, gate_refusal=None, message=None):
     """Record a safe outcome without changing or repeating physical dispatch."""
@@ -432,8 +252,8 @@ def _notify_start_outcome(job: dict, reason: str, *, gate_refusal=None, message=
         record_code(gate_refusal)
         from core.job_timeline import enqueue, event
         code = str(gate_refusal.code).upper()
-        try:enqueue(event(job['id'], 'gate_refused', printer_id=job.get('printer_id'), code=code))
-        except ValueError:pass
+        try:enqueue(event(job['id'], 'gate_refused', printer_id=job.get('printer_id'), code=code, detail={'gate': code[:64]}))
+        except Exception:pass
     creator = job.get("charged_to_user_id") or job.get("submitted_by")
     if creator is None:
         return
@@ -545,10 +365,12 @@ def dispatch_job(printer_id: int, job_id: int) -> tuple[bool, str]:
     printer_x = creds.get("bed_x_mm")
     printer_y = creds.get("bed_y_mm")
     TOLERANCE_MM = 2.0
-    if all(v is not None for v in (file_x, file_y, printer_x, printer_y)):
+    # Bambu checks selected-plate geometry at its post-upload capability gate;
+    # a slicer's entire printable-area profile is not the object's extent.
+    if api_type != 'bambu' and all(v is not None for v in (file_x, file_y, printer_x, printer_y)):
         if file_x > printer_x + TOLERANCE_MM or file_y > printer_y + TOLERANCE_MM:
             return False, (
-                f"File was sliced for a {file_x:.0f}x{file_y:.0f}mm bed, "
+                f"bed_geometry_mismatch: File was sliced for a {file_x:.0f}x{file_y:.0f}mm bed, "
                 f"but this printer has a {printer_x:.0f}x{printer_y:.0f}mm bed. "
                 "Upload a re-sliced version."
             )
@@ -600,9 +422,18 @@ def _run_admitted_dispatch(job,creds,stored_path,remote_filename,print_options,e
             message = _gate_refusal_message(before_start) + "; explicit reconciliation is required before retrying"
 
     if not success:
+        if before_start is not None:
+            try:
+                before_start.clean_no_start = not uncertain and getattr(before_start, 'refusal', None) is not None
+            except (AttributeError, TypeError):
+                pass
         if education_reservation and not uncertain and not _cancel_education_reservation(
             education_provider, education_reservation
         ):
+            try:
+                before_start.clean_no_start = False
+            except (AttributeError, TypeError):
+                pass
             message += "; Education reservation requires explicit reconciliation"
         _ws(job_id, "failed", message)
         refusal = getattr(before_start, "refusal", None)
@@ -696,3 +527,33 @@ def attempt_dispatch(printer_id: int):
             fallback = _get_next_scheduled_job(printer_id, generic_only=True)
             if fallback:
                 dispatch_job(printer_id, fallback['id'])
+
+from modules.printers.dispatch_loading import (_get_printer_info, _get_next_scheduled_job, _load_job)
+
+from modules.printers.dispatch_education import (_reconcile_education_denial, _authorize_education_hardware_action, _reserve_education_hardware_action, _cancel_education_reservation, _confirm_education_dispatch)
+
+
+def stage_dispatch(printer_id, job_id):
+    """Sanctioned route entry; same dispatch authority, acknowledged at durable claim."""
+    from modules.printers.dispatch_background import stage
+    return stage(printer_id, job_id)
+
+
+def read_dispatch_progress(db, token, job_id):
+    """Read-only attempt details; caller must enforce job and printer visibility."""
+    from modules.printers.dispatch_background import progress_key, result_key, active
+    from modules.printers.start_next import load
+    record = load(db, progress_key(token)) or load(db, result_key(job_id))
+    if not record or record['attempt_id'] != token:
+        return None
+    from sqlalchemy import text
+    claim_state = db.execute(text('SELECT state FROM printer_dispatch_claims WHERE token=:token AND job_id=:job'),
+                             {'token': token, 'job': job_id}).scalar_one_or_none()
+    running = active(token)
+    if claim_state and (claim_state != 'adapter_entered' or not running):
+        record['phase'] = {'preparing': 'preparing' if running else 'needs_reconciliation',
+            'adapter_entered': 'needs_reconciliation', 'accepted': 'start_accepted',
+            'uncertain': 'needs_reconciliation'}[claim_state]
+    elif not claim_state and not running and record['phase'] not in ('start_accepted', 'refused', 'needs_reconciliation'):
+        record['phase'] = 'unconfirmed'
+    return record

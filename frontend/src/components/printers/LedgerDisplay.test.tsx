@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import PrinterCard from './PrinterCard'
@@ -8,7 +9,8 @@ const localSlot={id:1,slot_number:1,color_hex:'123456',material_type:'PLA',color
 const base:any={id:42,name:'Test U1',nickname:null,model:'Test printer',is_active:true,api_type:'moonraker',api_host:null,has_api_key:false,camera_url:null,bed_temp:null,bed_target_temp:null,nozzle_temp:null,nozzle_target_temp:null,gcode_state:null,print_stage:null,lights_on:null,tags:[],machine_type:'U1',filament_slots:[localSlot]}
 function setup(overrides:any={}) {
  const onUpdateSlot=vi.fn(),onScanSpool=vi.fn(),onSyncAms=vi.fn()
- const rendered=render(<PrinterCard printer={{...base,...overrides}} allFilaments={[]} spools={[]} onDelete={vi.fn()} onToggleActive={vi.fn()} onUpdateSlot={onUpdateSlot} onEdit={vi.fn()} onSyncAms={onSyncAms} onScanSpool={onScanSpool}/>)
+ const client = new QueryClient({ defaultOptions: { queries: { enabled: false, retry: false } } })
+ const rendered=render(<QueryClientProvider client={client}><PrinterCard printer={{...base,...overrides}} allFilaments={[]} spools={[]} onDelete={vi.fn()} onToggleActive={vi.fn()} onUpdateSlot={onUpdateSlot} onEdit={vi.fn()} onSyncAms={onSyncAms} onScanSpool={onScanSpool}/></QueryClientProvider>)
  return {...rendered,onUpdateSlot,onScanSpool,onSyncAms}
 }
 it('external mapped slots show Ledger material/color/remaining and never allow local edits',()=>{

@@ -320,3 +320,38 @@ def test_truly_colorless_legacy_stock_remains_visible(graph):
     graph.execute(text('UPDATE filament_library SET color_hex=NULL WHERE id=199'));graph.commit()
     rows=reorder_rollup(None,USER,graph)
     assert len(rows)==1 and rows[0]['color']=='UNKNOWN COLOR' and rows[0]['total_g']==250
+
+
+@pytest.mark.parametrize('state', ['ok', 'warn', 'hold'])
+def test_maintenance_precedes_capability_and_claim(review_db, tmp_path, monkeypatch, state):
+    from core import dispatch_claims
+    from modules.printers import dispatch, dispatch_capability_gate, dispatch_acquisition
+    from modules.printers.maintenance_gate import capture_refusal
+    from tests.test_contracts.dispatch_test_support import configure_dispatch
+    notify = dispatch._notify_start_outcome
+    engine, _ = configure_dispatch(review_db, tmp_path, monkeypatch, 'bambu')
+    monkeypatch.setattr(dispatch, '_notify_start_outcome', notify)
+    set_maintenance(MaintenanceState(state=state, note='Owned merge regression'), 59, review_db, USER)
+    calls = []
+    if state == 'hold':
+        def forbidden(*args, **kwargs):
+            pytest.fail('Maintenance hold must refuse before capability, claim, or upload')
+        monkeypatch.setattr(dispatch_capability_gate, 'static_refusal', forbidden)
+        monkeypatch.setattr(dispatch_acquisition, 'bounded_bambu_report', forbidden)
+        monkeypatch.setattr(dispatch_claims, 'acquire', forbidden)
+        monkeypatch.setattr(dispatch, '_dispatch_bambu', forbidden)
+    else:
+        def adapter(*args, before_start, **kwargs):
+            assert before_start.prepare() is True
+            assert before_start() is True
+            calls.append('START')
+            return True, 'Owned START accepted'
+        monkeypatch.setattr(dispatch, '_dispatch_bambu', adapter)
+    with capture_refusal() as refusal:
+        success, message = dispatch.dispatch_job(59, 53)
+    assert success is (state != 'hold'), message
+    assert calls == ([] if state == 'hold' else ['START'])
+    if state == 'hold':
+        assert refusal['code'] == 'printer_maintenance_hold'
+        with engine.connect() as conn:
+            assert conn.execute(text('SELECT COUNT(*) FROM printer_dispatch_claims')).scalar_one() == 0

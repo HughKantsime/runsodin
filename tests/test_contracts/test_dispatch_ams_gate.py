@@ -165,7 +165,7 @@ def test_actual_dispatch_upload_read_and_single_start_sequence(review_db, tmp_pa
         monkeypatch.setattr(session, 'BambuCommandAdapter', lambda config:SimpleNamespace(
             start=lambda:None, is_connected=lambda:True, start_print=started, stop=lambda:None))
     result = dispatch.dispatch_job(59, 53)
-    assert result[0] is material_matches
+    assert result[0] is material_matches, result
     if not material_matches:
         import json
         assert 'material_mismatch' in result[1]
@@ -178,8 +178,8 @@ def test_actual_dispatch_upload_read_and_single_start_sequence(review_db, tmp_pa
     assert events[:2] == ['upload', 'fresh_read']
     assert events.count('start') == (1 if material_matches else 0)
     with engine.connect() as conn:
-        assert conn.execute(text('SELECT state FROM printer_dispatch_claims')).scalar_one() == (
-            'accepted' if material_matches else 'uncertain')
+        assert conn.execute(text('SELECT state FROM printer_dispatch_claims')).scalar_one_or_none() == (
+            'accepted' if material_matches else None)
         assert conn.execute(text('SELECT status FROM jobs WHERE id=53')).scalar_one() == (
             'printing' if material_matches else 'scheduled')
 

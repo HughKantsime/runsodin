@@ -1,9 +1,28 @@
 {
-  "$include": ["common.json"],
-  "GET /api/printers/1": {"id": 1, "name": "EDU Printer", "nickname": "EDU Printer", "type": "moonraker", "status": "offline", "last_seen": null, "filament_slots": []},
+  "$include": [
+    "common.json"
+  ],
+  "GET /api/printers/1": {
+    "id": 1,
+    "name": "EDU Printer",
+    "nickname": "EDU Printer",
+    "type": "moonraker",
+    "status": "offline",
+    "last_seen": null,
+    "filament_slots": [],
+    "installed_nozzles": []
+  },
   "GET /api/printers/1/telemetry": [],
-  "GET /api/printers/1/dispatch-recovery": {"state": "no_retained_claim", "release_available": false},
-  "GET /api/alerts/summary": {"total": 0, "print_failed": 0, "spool_low": 0, "maintenance_overdue": 0},
+  "GET /api/printers/1/dispatch-recovery": {
+    "state": "no_retained_claim",
+    "release_available": false
+  },
+  "GET /api/alerts/summary": {
+    "total": 0,
+    "print_failed": 0,
+    "spool_low": 0,
+    "maintenance_overdue": 0
+  },
   "GET /api/cameras": [],
   "GET /api/filaments/combined": [],
   "GET /api/maintenance/status": [],
@@ -12,5 +31,11 @@
   "GET /api/print-files": [],
   "GET /api/print-jobs": [],
   "GET /api/jobs": [],
-  "GET /api/spools": []
+  "GET /api/spools": [],
+  "GET /api/jobs/1/dispatch-status": {
+    "job_id": 1,
+    "phase": "start_accepted",
+    "retry_blocked": true,
+    "observation": null
+  }
 }

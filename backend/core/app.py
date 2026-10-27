@@ -493,9 +493,12 @@ def create_app() -> FastAPI:
         # Replays job alerts a crash or a failed dispatch left in the outbox (migration 034).
         from modules.notifications.alert_outbox import run_sweeper
         outbox_task = asyncio.create_task(run_sweeper())
+        from modules.printers.dispatch_background import startup, drain
+        startup()
         try:
             yield
         finally:
+            await asyncio.to_thread(drain, 30)
             shutdown()
         broadcast_task.cancel()
         cleanup_task.cancel()
