@@ -27,7 +27,7 @@ test('schedule shows source and loaded slots, prefills suggestion and sends conf
   expect(api.confirm).not.toHaveBeenCalled()
   fireEvent.change(slot, { target: { value: '3' } })
   fireEvent.click(screen.getByRole('button', { name: 'Create Job' }))
-  expect(api.confirm).toHaveBeenCalledWith(9, expect.objectContaining({ ams_mapping: [{ source_slot: 0, target_slot: 3 }] }))
+  expect(api.confirm).toHaveBeenCalledWith(9, expect.objectContaining({ ams_mapping: [{ source_slot: 1, target_slot: 3 }] }))
 })
 
 test('changing printers discards edited slots; non-Bambu and auto-assign never send a mapping', async () => {

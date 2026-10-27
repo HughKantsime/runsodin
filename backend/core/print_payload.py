@@ -43,39 +43,59 @@ def validate_plate(path: str, plate_index: int, api_type: str, *, plate_numbers=
     return plate_index + 1
 
 
-def validate_mapping(mapping, filaments_json, slots, api_type):
-    """Translate explicit zero-based source / one-based destination slots."""
+def source_filaments(filaments_json):
+    """Read real one-based file filament IDs; array position is not identity."""
     import json
+    try:
+        filaments = json.loads(filaments_json or '[]')
+        if not isinstance(filaments, list) or not 1 <= len(filaments) <= 16:
+            raise ValueError()
+        ids = [f['slot'] for f in filaments]
+        if any(type(slot) is not int or not 1 <= slot <= 16 for slot in ids) or len(set(ids)) != len(ids):
+            raise ValueError()
+    except (TypeError, ValueError, KeyError):
+        raise HTTPException(400, 'Original filament metadata is invalid') from None
+    return filaments
+
+
+def validate_mapping(mapping, filaments_json, slots, api_type):
+    """Map one-based file IDs to a protocol vector indexed by ID minus one.
+
+    Legacy zero-based positions are accepted only as a complete mapping for a
+    file whose positions agree with its IDs. Never mix numbering conventions.
+    """
     from core.material_identity import canonical_reported_material
     if mapping is None:
         return None
-    if api_type != "bambu":
-        raise HTTPException(400, "AMS mapping is supported only for Bambu printers")
-    try:
-        filaments = json.loads(filaments_json or "[]")
-    except (TypeError, ValueError):
-        raise HTTPException(400, "Original filament metadata is invalid") from None
-    if not isinstance(filaments, list) or not filaments or len(filaments) > 16:
-        raise HTTPException(400, "Original filament metadata cannot support AMS mapping")
+    if api_type != 'bambu':
+        raise HTTPException(400, 'AMS mapping is supported only for Bambu printers')
+    filaments = source_filaments(filaments_json)
     if not isinstance(mapping, list) or len(mapping) != len(filaments):
-        raise HTTPException(400, "AMS mapping must cover every source filament")
+        raise HTTPException(400, 'AMS mapping must cover every source filament')
     if not isinstance(slots, dict):
-        raise HTTPException(400, "Selected tray material facts are unavailable")
-    result = [-1] * len(filaments)
+        raise HTTPException(400, 'Selected tray material facts are unavailable')
+    for item in mapping:
+        if not isinstance(item, dict) or set(item) != {'source_slot', 'target_slot'}:
+            raise HTTPException(400, 'Invalid AMS mapping entry')
+        if type(item['source_slot']) is not int or type(item['target_slot']) is not int:
+            raise HTTPException(400, 'Invalid or duplicate AMS slot')
+    sources = {item['source_slot'] for item in mapping}
+    by_id = {f['slot']: f for f in filaments}
+    legacy = (sources == set(range(len(filaments)))
+              and all(f['slot'] == i + 1 for i, f in enumerate(filaments)))
+    if sources != set(by_id) and not legacy:
+        raise HTTPException(400, 'Invalid or duplicate AMS slot')
+    result = [-1] * max(by_id)
     destinations = set()
     for item in mapping:
-        if not isinstance(item, dict) or set(item) != {"source_slot", "target_slot"}:
-            raise HTTPException(400, "Invalid AMS mapping entry")
-        source, target = item["source_slot"], item["target_slot"]
-        if (type(source) is not int or type(target) is not int
-                or not 0 <= source < len(result) or target not in slots
-                or not 1 <= target <= 16 or result[source] != -1 or target in destinations):
-            raise HTTPException(400, "Invalid or duplicate AMS slot")
-        source_material = canonical_reported_material(
-            filaments[source].get("type") if isinstance(filaments[source], dict) else None)
+        source = item['source_slot'] + (1 if legacy else 0)
+        target = item['target_slot']
+        if target not in slots or not 1 <= target <= 16 or result[source - 1] != -1 or target in destinations:
+            raise HTTPException(400, 'Invalid or duplicate AMS slot')
+        source_material = canonical_reported_material(by_id[source].get('type'))
         target_material = canonical_reported_material(slots[target])
         if source_material is None or target_material is None or source_material != target_material:
-            raise HTTPException(400, "Selected tray material does not match the source filament")
-        result[source] = target - 1
+            raise HTTPException(400, 'Selected tray material does not match the source filament')
+        result[source - 1] = target - 1
         destinations.add(target)
     return result

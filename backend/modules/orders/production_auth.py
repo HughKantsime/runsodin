@@ -26,3 +26,12 @@ def require_production_operator():
         return assert_production_operator(user)
 
     return mark_token_scope_checker(checker, PRODUCTION_SCOPE)
+
+
+def require_recipe_qualifier():
+    """Keep session qualification admin-only; explicitly delegate token operators."""
+    async def checker(user=Depends(require_production_operator())):
+        if user.get('_auth_kind') != 'user_api_token' and user.get('role') != 'admin':
+            raise HTTPException(403, 'Administrator session required to qualify recipes')
+        return user
+    return mark_token_scope_checker(checker, PRODUCTION_SCOPE)

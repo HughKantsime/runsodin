@@ -63,7 +63,7 @@ def test_other_tokens_never_reach_inspection_or_stock_transport(batch,monkeypatc
 
 
 @pytest.mark.parametrize('path,method',[
-    ('/products/production/recipes','post'),('/products/square','put'),('/products/square','delete'),
+    ('/products/square','put'),('/products/square','delete'),
     ('/products/101/square','put'),('/products/square/activation','put'),('/products/101/square/baseline','put'),
     ('/products/batches/additions/absent/baseline-review','post'),('/products/production/components','post'),
     ('/products/production/finishing','post'),('/products/production/assortment/101','put'),

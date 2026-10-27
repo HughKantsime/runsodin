@@ -17,7 +17,7 @@ from tests.test_contracts.test_education_review_workflow import review_db  # noq
 def test_ams_preview_for_printer_with_slots_maps_distinct_trays(reprint_client, review_db):
     client, identity, _ = reprint_client
     review_db.execute(text("UPDATE print_files SET filaments_json=:f WHERE id=101"),
-                      {"f": '[{"type":"PLA","color":"#000000"},{"type":"PLA","color":"#FFFFFF"},{"type":"PETG","color":"#FF0000"}]'})
+                      {"f": '[{"slot":1,"type":"PLA","color":"#000000"},{"slot":2,"type":"PLA","color":"#FFFFFF"},{"slot":3,"type":"PETG","color":"#FF0000"}]'})
     review_db.execute(text("INSERT INTO filament_library(id,brand,name,material) VALUES(502,'Synthetic','Black','PLA')"))
     review_db.execute(text("INSERT INTO spools(id,filament_id,remaining_weight_g,initial_weight_g) VALUES(602,502,500,1000)"))
     review_db.execute(text("DELETE FROM filament_slots WHERE printer_id=9"))
@@ -30,8 +30,8 @@ def test_ams_preview_for_printer_with_slots_maps_distinct_trays(reprint_client, 
     body = response.json()
     assert [(s["slot"], s["spool_id"]) for s in body["available"]] == [(1, None), (2, 602), (3, None)]
     assert body["suggested_mapping"] == [
-        {"source_slot": 0, "target_slot": 2, "confidence": "exact"},  # black PLA by hex
-        {"source_slot": 1, "target_slot": 1, "confidence": "exact"},  # white PLA, tray not reused
+        {"source_slot": 1, "target_slot": 2, "confidence": "exact"},  # black PLA by hex
+        {"source_slot": 2, "target_slot": 1, "confidence": "exact"},  # white PLA, tray not reused
     ]  # PETG has no tray
     check_wire("archive_ams_preview", body)
     assert client.get("/archives/101/ams-preview?printer_id=11").status_code == 404  # foreign printer

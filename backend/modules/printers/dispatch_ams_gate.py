@@ -33,8 +33,9 @@ from modules.printers.telemetry.bambu.trusted_ams_acquisition import read_curren
 def preflight_ams_source(job, *, mapping, staged_path, payload_sha256):
     """Read-only source check. No admission, database transaction or device I/O."""
     from modules.printers.services import inspect_ams_payload
-    if (type(mapping) is not list or len(mapping) != 1
-            or type(mapping[0]) is not int or not 0 <= mapping[0] < 16
+    if (type(mapping) is not list or not 1 <= len(mapping) <= 16
+            or any(type(slot) is not int or not -1 <= slot < 16 for slot in mapping)
+            or sum(slot != -1 for slot in mapping) != 1
             or job.get('plate_index') != 0):
         raise ValueError('Explicit AMS dispatch requires supported source and plate')
     stored_mapping = job.get('ams_mapping')
@@ -45,6 +46,9 @@ def preflight_ams_source(job, *, mapping, staged_path, payload_sha256):
         raise ValueError('AMS selection differs from the admitted job')
     facts = inspect_ams_payload(staged_path, expected_sha256=payload_sha256,
                                expected_bytes=os.stat(staged_path).st_size, plate_index=job['plate_index'])
+    source = facts['source_index']
+    if source >= len(mapping) or mapping[source] == -1:
+        raise ValueError('AMS selection does not cover the verified file source')
     return facts
 
 
@@ -62,7 +66,7 @@ def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, tar
     facts = preflight_ams_source(job, mapping=mapping, staged_path=staged_path,
                                  payload_sha256=captured['payload_sha256'])
     expected_mapping = tuple(mapping)
-    slots = (mapping[0] + 1,)
+    slots = (mapping[facts['source_index']] + 1,)
     runtime = read_runtime_identity()
     with engine.connect() as conn:
         configuration = load_ams_configuration(conn, job['printer_id'])

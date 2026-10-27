@@ -63,10 +63,39 @@ The binding is retained as `outside_print_binding:<print_job_id>` in SystemConfi
 
 An administrator signed in with a password session can select **Bind an outside print → Qualify a new recipe from this print**. Choose a recent completed physical print (which also selects its printer), or enter its physical print ID and observed printer. Enter the plate number, material/color setup and fixed main/flush yields. Confirm both that the print started outside ODIN and its exact file revision. ODIN matches the observed filename against tenant-owned print files; if missing or ambiguous, supply the exact print file ID. When filename candidates exist, an explicit ID must be one of them. The file must retain a SHA-256 hash and belong to a generic, tenant-owned library model. Plate numbers in the UI start at 1; API `plate_index` starts at 0.
 
-`POST /api/products/production/outside-prints/{print_job_id}/qualify-and-bind` accepts `printer_id`, optional `print_file_id`, `plate_index`, `name`, `materials`, `outputs`, `qualification_confirmed: true`, and the existing outside-print `attestation`. It uses the `products.recipes` permission with an independent admin and interactive-session requirement. No API token qualifies a recipe. The immutable recipe, `qualified_from_outside_print` flag, confirming user/time/print evidence (including `matched_by: explicit|filename`, observed filename and job name), audit and binding commit together. Running, bound, foreign, Education and ODIN-dispatched prints are refused. An uncorrelated dispatch receipt on the same printer within the observed start/end window also refuses qualification pending investigation. Existing inspection and Square send rules still apply.
+`POST /api/products/production/outside-prints/{print_job_id}/qualify-and-bind` accepts `printer_id`, optional `print_file_id`, `plate_index`, `name`, `materials`, `outputs`, `qualification_confirmed: true`, and the existing outside-print `attestation`. It uses the `products.recipes` permission with an independent admin and interactive-session requirement. API tokens cannot qualify outside-print recipes. The immutable recipe, `qualified_from_outside_print` flag, confirming user/time/print evidence (including `matched_by: explicit|filename`, observed filename and job name), audit and binding commit together. Running, bound, foreign, Education and ODIN-dispatched prints are refused. An uncorrelated dispatch receipt on the same printer within the observed start/end window also refuses qualification pending investigation. Existing inspection and Square send rules still apply.
 
 ### Scoped cancellation and recovery reads
 
 `POST /api/jobs/{job_id}/cancel` accepts `write:jobs` (including broad `write`) alongside the existing admin/agent scope gates and `jobs.cancel` permission. Tokens whose cancellation authority comes only from `write:jobs` or broad `write` may cancel only pending jobs or held scheduled jobs with no dispatch receipt, active claim, sender registration or bound observed print. Education jobs remain excluded. The audit records the user and token ID. This action cancels queued work; it sends no printer command. Password sessions and tokens with `admin` or `agent:write` retain their previous `jobs.cancel` behavior, including cancellation of scheduled unheld jobs. Role permissions still apply, and the endpoint still refuses running or terminal jobs.
 
 `GET /api/printers/{printer_id}/dispatch-recovery` accepts `read:printers` or broad `read`. Existing accessible printers with no visible retained evidence return HTTP 200, `state: investigation_required`, `refresh_required: false`, disabled write actions and ownership-investigation guidance. Absent and inaccessible claims use the same neutral response to avoid disclosing another organization’s claim. Global printers explicitly require investigation of missing organization ownership. Only unavailable telemetry sets `refresh_required: true`, with an explicit GET endpoint to use after fresh monitor updates. Missing/inaccessible printers still return 404. Recovery writes still require admin authority and printer-write scope.
+
+
+### Delegated ODIN-dispatched recipe qualification
+
+`POST /api/products/production/recipes` accepts an admin/operator API token with
+explicit `write:production` and the `products.recipes` action. Password sessions
+remain admin-only. Broad `write`, `admin` and agent scopes alone do not delegate
+this operation. A token must send `qualification_confirmed: true` after the owner
+confirms the physical count. It must choose a completed, single-run ODIN job with
+an exact dispatch receipt, physical observation and stable configuration key;
+a job already used as a recipe reference is refused for token qualification.
+Tenant, Education and retained-evidence checks remain enforced. The immutable
+recipe records `qualified_by_token`, `operator_id` and `api_token_id`; an atomic
+`production.recipe_qualified` audit records the operator and token ID. This does
+not add stock. Inspection and the separately gated stock send remain required.
+Credentials, connectors, baselines, Square settings and outside-print
+qualification still require password sessions.
+
+### Explicit AMS source IDs
+
+Reprint, schedule and job PATCH mappings use the file's one-based filament `slot`
+as `source_slot`, and the printer's one-based tray as `target_slot`. File filament
+4 to tray 4 is `[{"source_slot":4,"target_slot":4}]`, stored as `[-1,-1,-1,3]`.
+Unused vector positions are `-1`. Previews and suggestions use the same file IDs.
+A complete legacy positional mapping is accepted only when every file position
+is `slot - 1`; sparse or reordered files cannot use positional numbering.
+Missing, duplicate or invalid file IDs are refused. Explicit dispatch still
+requires one verified source and plate; conflicting XML, plate JSON, material
+profiles or gcode source commands refuse before any command is sent.

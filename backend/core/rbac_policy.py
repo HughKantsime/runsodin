@@ -80,7 +80,7 @@ RBAC_DEFAULT_ACTION_ACCESS = {
     "products.assortment_preview": ["admin", "operator"],
     "products.square_manage": ["admin"],
     "products.square_send": ["admin", "operator"],
-    "products.recipes": ["admin"],
+    "products.recipes": ["admin", "operator"],
     "products.outside_prints": ["admin", "operator"],
     "products.inspections": ["admin", "operator"],
     "products.create": ["admin", "operator"],

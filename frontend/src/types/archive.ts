@@ -63,6 +63,7 @@ export interface ArchiveCompareResult {
   [key: string]: unknown;
 }
 
+// One-based file filament IDs (filaments_json.slot) and one-based printer trays.
 export type AmsMapping = { source_slot: number; target_slot: number }[];
 
 export interface ArchiveAmsRequirement { slot: number; color: string; material: string }

@@ -123,13 +123,26 @@ def single_print_product(db, owner, product_id, model_id, kind):
 
 
 def create_recipe(db, user, data):
+    from modules.orders.production_auth import assert_production_operator
+    assert_production_operator(user)
+    token = user.get('_auth_kind') == 'user_api_token'
+    if token and data.qualification_confirmed is not True:
+        fail('Confirm the physically counted yield before qualifying a recipe')
     owner = square.tenant(user)
     square.lock_owner(db, owner, user)
     from modules.orders.finishing import lock as lock_finishing
     component_state,_=lock_finishing(db,owner,user)
+    if token and any(json.loads(row).get('reference_job_id') == data.reference_job_id
+                     for row in db.execute(select(recipes.c.definition).where(recipes.c.owner == owner)).scalars()):
+        fail('This job is already a recipe reference. Choose a new completed reference job.')
     evidence = job_evidence(db, owner, data.reference_job_id, lock=True)
     result = stage_recipe(db, owner, data, evidence, {
-        'reference_job_id': data.reference_job_id, 'reference_claim_token': evidence['claim_token']})
+        'reference_job_id': data.reference_job_id, 'reference_claim_token': evidence['claim_token'],
+        **({'qualified_by_token': True, 'operator_id': user['id'], 'api_token_id': user.get('_token_id')} if token else {})})
+    from core.audit import log_audit
+    log_audit(db, 'production.recipe_qualified', 'production_recipe', None,
+        {'recipe_id': result['id'], 'reference_job_id': data.reference_job_id,
+         'operator_id': user['id'], 'api_token_id': user.get('_token_id'), 'auth_kind': user.get('_auth_kind')})
     db.commit()
     return result
 

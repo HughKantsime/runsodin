@@ -32,13 +32,13 @@
         {
           "color": "#ffffff",
           "material": "PETG",
-          "slot": 0
+          "slot": 1
         }
       ],
       "suggested_mapping": [
         {
           "confidence": "exact",
-          "source_slot": 0,
+          "source_slot": 1,
           "target_slot": 4
         }
       ]
@@ -75,13 +75,13 @@
       {
         "color": "#ffffff",
         "material": "PETG",
-        "slot": 0
+        "slot": 1
       }
     ],
     "suggested_mapping": [
       {
         "confidence": "exact",
-        "source_slot": 0,
+        "source_slot": 1,
         "target_slot": 4
       }
     ]

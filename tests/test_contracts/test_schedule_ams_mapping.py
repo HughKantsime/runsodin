@@ -24,7 +24,7 @@ def mapping_client(creators, review_db, tmp_path):
     review_db.execute(text("INSERT INTO models(id,name,org_id,print_file_id) VALUES(501,'Mapping print',1,NULL)"))
     review_db.execute(text("INSERT INTO print_files(id,model_id,filename,original_filename,stored_path,org_id,filaments_json) "
                            "VALUES(501,501,'mapping.3mf','mapping.3mf',:path,1,:filaments)"),
-                      {'path': str(source), 'filaments': json.dumps([{'type': 'PETG', 'color': '#ffffff'}])})
+                      {'path': str(source), 'filaments': json.dumps([{'slot': 1, 'type': 'PETG', 'color': '#ffffff'}])})
     review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type,color,color_hex) VALUES(9,4,'PETG','White','ffffff'),(9,3,'PETG','Black','000000')"))
     review_db.commit()
     return client, auth
@@ -52,7 +52,7 @@ def test_schedule_stores_pins_audits_and_exposes_read_only_suggestion(mapping_cl
     assert detail.status_code == 200, detail.text
     assert detail.json()['ams_mapping'] == [3]
     assert detail.json()['ams_mapping_editable'] is True
-    assert detail.json()['ams_preview']['suggested_mapping'] == [{'source_slot': 0, 'target_slot': 4, 'confidence': 'exact'}]
+    assert detail.json()['ams_preview']['suggested_mapping'] == [{'source_slot': 1, 'target_slot': 4, 'confidence': 'exact'}]
     event = client.get(f'/api/jobs/{job}/timeline', headers=auth()).json()['events'][0]
     assert event['kind'] == 'ams_mapping_changed' and event['detail']['ams_mapping'] == [3]
 

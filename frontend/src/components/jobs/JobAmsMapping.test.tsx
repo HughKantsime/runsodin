@@ -21,7 +21,7 @@ test('actual job detail shows saved mapping and saves an explicit change', async
   fireEvent.change(screen.getByLabelText('Filament 1 AMS slot'), { target: { value: '3' } })
   expect(api.update).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: 'Save AMS mapping' }))
-  await waitFor(() => expect(api.update).toHaveBeenCalledWith(wire.job.id, { ams_mapping: [{ source_slot: 0, target_slot: 3 }] }))
+  await waitFor(() => expect(api.update).toHaveBeenCalledWith(wire.job.id, { ams_mapping: [{ source_slot: 1, target_slot: 3 }] }))
 })
 
 test('clear sends explicit null, failures remain visible', async () => {

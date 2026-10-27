@@ -32,7 +32,7 @@ def call(role, method, path):
 OUT['actions'] = {}
 for key, (method, path, expected) in CASES.items():
     allowed = defaults['action_access'][key]
-    holder = 'operator' if 'operator' in allowed else 'admin'
+    holder = 'operator' if 'operator' in allowed and key != 'products.recipes' else 'admin'
     row = OUT['actions'][key] = {'holder': call(holder, method, path)}
     row['viewer'] = call('viewer', method, path)
     row['operator'] = call('operator', method, path)
@@ -62,7 +62,7 @@ def test_sublab_matrix_and_independent_role_floor(admission, key):
     if key == 'products.square_send':
         assert row['holder']['body']['detail'] == 'Square stock writes require both activation keys', row
     assert row['widened_viewer']['status'] == 403, row
-    if 'operator' not in RBAC_DEFAULT_ACTION_ACCESS[key]:
+    if 'operator' not in RBAC_DEFAULT_ACTION_ACCESS[key] or key == 'products.recipes':
         assert row['operator']['status'] == 403, row
         assert row['widened_operator']['status'] == 403, row
     else:

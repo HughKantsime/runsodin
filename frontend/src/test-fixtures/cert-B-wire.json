@@ -27,28 +27,28 @@
    {
     "color": "#000000",
     "material": "PLA",
-    "slot": 0
+    "slot": 1
    },
    {
     "color": "#FFFFFF",
     "material": "PLA",
-    "slot": 1
+    "slot": 2
    },
    {
     "color": "#FF0000",
     "material": "PETG",
-    "slot": 2
+    "slot": 3
    }
   ],
   "suggested_mapping": [
    {
     "confidence": "exact",
-    "source_slot": 0,
+    "source_slot": 1,
     "target_slot": 2
    },
    {
     "confidence": "exact",
-    "source_slot": 1,
+    "source_slot": 2,
     "target_slot": 1
    }
   ]

@@ -2,7 +2,7 @@
 import json
 from fastapi import HTTPException
 from sqlalchemy import text
-from core.print_payload import validate_mapping
+from core.print_payload import validate_mapping, source_filaments
 from core.rbac import check_org_access
 
 
@@ -31,9 +31,9 @@ def preview(db, filaments_json, printer_id, actor):
         return None
     from modules.archives.ams_mapping import suggest_mapping
     try:
-        filaments = json.loads(filaments_json or '[]')
-        required = [{'slot': i, 'color': f.get('color', ''), 'material': f.get('type', '')}
-                    for i, f in enumerate(filaments)]
+        filaments = source_filaments(filaments_json)
+        required = [{'slot': f['slot'], 'color': f.get('color', ''), 'material': f.get('type', '')}
+                    for f in filaments]
     except (TypeError, ValueError, AttributeError):
         raise HTTPException(400, 'Original filament metadata is invalid') from None
     available = [dict(row) for row in db.execute(text(

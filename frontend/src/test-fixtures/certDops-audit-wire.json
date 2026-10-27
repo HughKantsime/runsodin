@@ -181,7 +181,8 @@
         "operator"
       ],
       "products.recipes": [
-        "admin"
+        "admin",
+        "operator"
       ],
       "products.square_manage": [
         "admin"

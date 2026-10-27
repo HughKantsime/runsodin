@@ -123,7 +123,7 @@ def test_reprint_bad_plate_writes_nothing(reprint_client,review_db,plate):
 def test_reprint_shared_target_and_mapping(reprint_client,review_db):
     client,_,_=reprint_client
     review_db.execute(text("UPDATE printers SET shared=1 WHERE id=11"))
-    review_db.execute(text("UPDATE print_files SET filaments_json='[{\"type\":\"PLA\"}]' WHERE id=101"))
+    review_db.execute(text("UPDATE print_files SET filaments_json='[{\"slot\": 1,\"type\":\"PLA\"}]' WHERE id=101"))
     review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(11,4,'PLA')"));review_db.commit()
     body={'printer_id':11,'ams_mapping':[{'source_slot':0,'target_slot':4}]}
     response=client.post('/archives/101/reprint',json=body)
@@ -181,7 +181,7 @@ def test_reprint_real_transport_selected_plate_and_ams_boundary(path,explicit_am
     monkeypatch.setenv('ENCRYPTION_KEY',Fernet.generate_key().decode())
     review_db.execute(text("UPDATE printers SET api_host='127.0.0.1',api_key=:key WHERE id=9"),
         {'key':crypto.encrypt('synthetic-printer|'+SYNTHETIC_ACCESS_CODE)})
-    review_db.execute(text("UPDATE print_files SET filaments_json='[{\"type\":\"PLA\"}]' WHERE id=101"))
+    review_db.execute(text("UPDATE print_files SET filaments_json='[{\"slot\": 1,\"type\":\"PLA\"}]' WHERE id=101"))
     review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(9,4,'PLA')"))
     review_db.commit()
     with zipfile.ZipFile(source,'a') as package:
@@ -236,7 +236,7 @@ def test_reprint_dispatch_revalidates_before_transport(failure,reprint_client,re
     from core import db as core_db
     from modules.printers import dispatch
     client,_,source=reprint_client
-    review_db.execute(text("UPDATE print_files SET filaments_json='[{\"type\":\"PLA\"}]' WHERE id=101"))
+    review_db.execute(text("UPDATE print_files SET filaments_json='[{\"slot\": 1,\"type\":\"PLA\"}]' WHERE id=101"))
     review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(9,4,'PLA')"));review_db.commit()
     response=client.post('/archives/101/reprint',json={'printer_id':9,
         'ams_mapping':[{'source_slot':0,'target_slot':4}]})
@@ -250,7 +250,7 @@ def test_reprint_dispatch_revalidates_before_transport(failure,reprint_client,re
             {'id':job_id,'hash':None if failure=='missing_hash' else 'invalid'})
     elif failure=='missing_slot': review_db.execute(text('DELETE FROM filament_slots WHERE printer_id=9'))
     elif failure=='wrong_material': review_db.execute(text("UPDATE filament_slots SET filament_type='PETG' WHERE printer_id=9 AND slot_number=4"))
-    else: review_db.execute(text("UPDATE print_files SET filaments_json='[{},{}]' WHERE id=101"))
+    else: review_db.execute(text("UPDATE print_files SET filaments_json='[{\"slot\": 1,\"type\":\"PLA\"},{\"slot\": 2,\"type\":\"PLA\"}]' WHERE id=101"))
     review_db.commit()
     monkeypatch.setattr(core_db,'engine',review_db.get_bind())
     monkeypatch.setattr(dispatch,'_dispatch_bambu',lambda *a,**k:pytest.fail('Denied payload touched transport'))

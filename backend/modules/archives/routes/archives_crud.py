@@ -505,10 +505,11 @@ def ams_preview(
         pf = accessible_preview_file(db, file_id, user)
         if pf.filaments_json:
             try:
-                filaments = json.loads(pf.filaments_json)
-                for i, f in enumerate(filaments):
+                from core.print_payload import source_filaments
+                filaments = source_filaments(pf.filaments_json)
+                for f in filaments:
                     required.append({
-                        "slot": i,
+                        "slot": f["slot"],
                         "color": f.get("color", ""),
                         "material": f.get("type", f.get("material", "")),
                     })

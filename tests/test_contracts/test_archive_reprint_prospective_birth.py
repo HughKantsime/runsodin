@@ -41,7 +41,7 @@ def test_unqualified_single_plate_ams_source_refuses_before_claim_or_transport(r
     from modules.printers import dispatch
     from modules.printers.telemetry import feature_flag
     client,_,_=reprint_client
-    review_db.execute(text("UPDATE print_files SET filaments_json='[{\"type\":\"PLA\"}]' WHERE id=101"))
+    review_db.execute(text("UPDATE print_files SET filaments_json='[{\"slot\": 1,\"type\":\"PLA\"}]' WHERE id=101"))
     review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(9,4,'PLA')"));review_db.commit()
     response=client.post("/archives/101/reprint",json={"printer_id":9,"plate_index":0,"ams_mapping":[{"source_slot":0,"target_slot":4}]})
     assert response.status_code==200,response.text
@@ -81,7 +81,7 @@ def test_ungrouped_archive_reprint_explicit_source_zero_to_tray_one(
         {'key':crypto.encrypt('SYNTHETICPRINTER|' + secrets.token_urlsafe(24))})
     review_db.execute(text('UPDATE models SET org_id=NULL WHERE id=101'))
     review_db.execute(text('UPDATE jobs SET charged_to_org_id=NULL WHERE id=101'))
-    review_db.execute(text("UPDATE print_files SET org_id=NULL,filaments_json='[{\"type\":\"PETG\"}]' WHERE id=101"))
+    review_db.execute(text("UPDATE print_files SET org_id=NULL,filaments_json='[{\"slot\": 1,\"type\":\"PETG\"}]' WHERE id=101"))
     review_db.execute(text('UPDATE print_archives SET org_id=NULL WHERE id=101'))
     review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(109,1,'PETG')"))
     review_db.commit()

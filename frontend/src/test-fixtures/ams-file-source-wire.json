@@ -1,0 +1,40 @@
+{
+  "preview": {
+    "available": [
+      {
+        "color": "",
+        "color_hex": "",
+        "material": "PLA",
+        "slot": 1,
+        "spool_id": null
+      },
+      {
+        "color": "",
+        "color_hex": "FFFFFF",
+        "material": "PETG",
+        "slot": 4,
+        "spool_id": null
+      }
+    ],
+    "required": [
+      {
+        "color": "#FFFFFF",
+        "material": "PETG",
+        "slot": 4
+      }
+    ],
+    "suggested_mapping": [
+      {
+        "confidence": "exact",
+        "source_slot": 4,
+        "target_slot": 4
+      }
+    ]
+  },
+  "stored": [
+    -1,
+    -1,
+    -1,
+    3
+  ]
+}

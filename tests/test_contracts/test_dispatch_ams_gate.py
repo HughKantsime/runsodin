@@ -129,7 +129,7 @@ def test_actual_dispatch_upload_read_and_single_start_sequence(review_db, tmp_pa
     with engine.begin() as conn:
         conn.execute(text("UPDATE jobs SET payload_sha256=:sha,ams_mapping='[0]' WHERE id=53"),
                      {'sha': hashlib.sha256(payload).hexdigest()})
-        conn.execute(text("UPDATE print_files SET filaments_json='[{\"type\":\"PETG\"}]' WHERE id=52"))
+        conn.execute(text("UPDATE print_files SET filaments_json='[{\"slot\": 1,\"type\":\"PETG\"}]' WHERE id=52"))
         conn.execute(text("UPDATE filament_slots SET filament_type='PETG' WHERE printer_id=59"))
     monkeypatch.setattr(gate, 'read_runtime_identity', lambda: RUNTIME)
     monkeypatch.setattr(gate, 'revalidate_runtime_identity', lambda runtime: None)

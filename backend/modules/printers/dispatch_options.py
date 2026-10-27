@@ -30,11 +30,11 @@ def _validated_print_options(job,creds,stored_path,payload_sha256):
                 except ValueError:
                     return None, "Stored AMS mapping is invalid; no command was sent"
             if mapping is not None:
-                # Bambu tray index 0-15 (four-tray units 0-3). AMS HT (tray
+                # Bambu tray index 0-15, with -1 for unused file sources. AMS HT (tray
                 # id 128+) is not a dispatch target; see ams_identity.
                 if (not isinstance(mapping, list) or not mapping or len(mapping) > 16
-                        or any(type(slot) is not int or not 0 <= slot < 16 for slot in mapping)
-                        or len(set(mapping)) != len(mapping)):
+                        or any(type(slot) is not int or not -1 <= slot < 16 for slot in mapping)
+                        or len({slot for slot in mapping if slot != -1}) != sum(slot != -1 for slot in mapping)):
                     return None, "Stored AMS mapping is invalid; no command was sent"
                 from core.db import engine
                 from sqlalchemy import text
@@ -43,9 +43,11 @@ def _validated_print_options(job,creds,stored_path,payload_sha256):
                         text("SELECT slot_number,filament_type FROM filament_slots WHERE printer_id=:id"),
                         {"id": printer_id}).fetchall()}
                 try:
-                    validate_mapping([{"source_slot": i, "target_slot": slot + 1}
-                                      for i, slot in enumerate(mapping)],
+                    validated = validate_mapping([{"source_slot": i + 1, "target_slot": slot + 1}
+                                      for i, slot in enumerate(mapping) if slot != -1],
                                      job.get("filaments_json"), slots, api_type)
+                    if validated != mapping:
+                        return None, "Stored AMS mapping differs from file sources; no command was sent"
                 except HTTPException as exc:
                     return None, str(exc.detail)
                 # Finish the slot transaction before bounded source inspection.

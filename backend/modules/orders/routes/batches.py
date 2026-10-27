@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from core.db import get_db
 from core.rbac import require_role, require_interactive_session
 from modules.orders import batch_production as service
-from modules.orders.production_auth import require_production_operator
+from modules.orders.production_auth import require_production_operator, require_recipe_qualifier
 from modules.orders import square_store
 from modules.orders.batch_schemas import RecipeInput, InspectionInput
 
@@ -66,8 +66,8 @@ def eligible_jobs(offset: int=Query(default=0,ge=0), job_id: int | None=Query(de
     return {'jobs':result+outside,'next_offset':offset+100 if len(candidates)==100 or more else None}
 
 
-@router.post('/recipes',dependencies=[interactive, Depends(require_action('products.recipes', scope='write'))])
-def create_recipe(data:RecipeInput,user=Depends(admin),db:Session=Depends(get_db)):
+@router.post('/recipes',dependencies=[Depends(require_action('products.recipes', scope='write:production'))])
+def create_recipe(data:RecipeInput,user=Depends(require_recipe_qualifier()),db:Session=Depends(get_db)):
     return service.create_recipe(db,user,data)
 
 

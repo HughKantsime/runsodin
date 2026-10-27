@@ -19,7 +19,7 @@ export default function JobAmsMapping({ job }: { job: {
   })
   const editable = canDo('jobs.edit') && job.ams_mapping_editable && ['pending', 'scheduled'].includes(job.status)
   return <section aria-label="Job AMS mapping" className="rounded-md border border-[var(--brand-card-border)] p-4">
-    <p className="text-sm">Saved AMS mapping: {job.ams_mapping?.length ? job.ams_mapping.map((slot, index) => `Filament ${index + 1} → Slot ${slot + 1}`).join(', ') : 'None'}</p>
+    <p className="text-sm">Saved AMS mapping: {job.ams_mapping?.length ? job.ams_mapping.flatMap((slot, index) => slot < 0 ? [] : [`Filament ${index + 1} → Slot ${slot + 1}`]).join(', ') : 'None'}</p>
     {editable && <>
       <AmsMappingEditor preview={job.ams_preview} {...selection} />
       <button type="button" disabled={save.isPending || !selection.value} onClick={() => save.mutate(selection.value!)} className="px-3 py-2 bg-[var(--brand-primary)] rounded text-sm">Save AMS mapping</button>

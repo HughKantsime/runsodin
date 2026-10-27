@@ -1,6 +1,6 @@
 """Bounded interpretation of the single-source Bambu slice with agreeing material facts.
 
-Unwired acceptance helper. Other slicing workflows retain existing behavior.
+Explicit mappings require one independently verified file source.
 Caller owns safe file acquisition; this helper accepts already acquired bytes.
 """
 import io
@@ -59,15 +59,21 @@ def inspect_single_source_ams(payload: bytes, plate_index: int = 0) -> VerifiedS
             if indexes != ['1']:
                 raise ValueError(refusal)
             filaments = plates[0].findall('filament')
-            if len(filaments) != 1 or filaments[0].get('id') != '1':
+            if len(filaments) != 1 or not re.fullmatch(r'[1-9]|1[0-6]', filaments[0].get('id', '')):
                 raise ValueError(refusal)
+            source_index = int(filaments[0].get('id')) - 1
+            if 'Metadata/plate_1.json' in package.namelist():
+                plate = json.loads(read('Metadata/plate_1.json', MAX_XML_BYTES))
+                ids = plate.get('filament_ids')
+                if type(ids) is not list or len(ids) != 1 or type(ids[0]) is not int or ids != [source_index]:
+                    raise ValueError(refusal)
             material = canonical_reported_material(filaments[0].get('type'))
             settings = json.loads(read('Metadata/project_settings.config', MAX_XML_BYTES))
             materials = settings.get('filament_type') if isinstance(settings, dict) else None
             # Saved profiles are not evidence of used sources. The plate XML
-            # and command scan independently require exactly source zero.
+            # and command scan independently require exactly the declared source.
             # Check its corresponding profile without inventing unused trays.
-            if material is None or not isinstance(materials, list) or not 1 <= len(materials) <= 16 or canonical_reported_material(materials[0]) != material:
+            if material is None or not isinstance(materials, list) or not source_index < len(materials) <= 16 or canonical_reported_material(materials[source_index]) != material:
                 raise ValueError(refusal)
             code = io.BytesIO(read('Metadata/plate_1.gcode', MAX_GCODE_BYTES))
             headers = []
@@ -91,7 +97,7 @@ def inspect_single_source_ams(payload: bytes, plate_index: int = 0) -> VerifiedS
                     # comment "change to nozzle space": a template sentinel,
                     # rather than evidence of a numbered AMS source.
                     # Keep this exact: other tools and parameterized forms refuse.
-                    if not re.fullmatch(r'T(?:0|255|1000|1100)', command):
+                    if not re.fullmatch(rf'T(?:{source_index}|255|1000|1100)', command):
                         raise ValueError(refusal)
                 if not re.match(r'^M62[01](?:\s|\.|$)', command):
                     continue
@@ -106,8 +112,8 @@ def inspect_single_source_ams(payload: bytes, plate_index: int = 0) -> VerifiedS
                 switches[int(match.group(1))].add(int(match.group(2)))
             expected_materials = [canonical_reported_material(value) for value in materials]
             if (any(value is None for value in expected_materials) or headers != [expected_materials]
-                    or switches != {620: {0}, 621: {0}}):
+                    or switches != {620: {source_index}, 621: {source_index}}):
                 raise ValueError(refusal)
-        return VerifiedSingleSource(0, 0, material)
+        return VerifiedSingleSource(0, source_index, material)
     except Exception:
         raise ValueError(refusal) from None

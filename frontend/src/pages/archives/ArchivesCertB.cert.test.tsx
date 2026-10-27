@@ -89,6 +89,6 @@ test('a complete suggested mapping is sent with the reprint for a Bambu printer'
     expect(dialog.getByLabelText('Use this mapping')).toBeChecked()
     fireEvent.click(dialog.getAllByRole('button', { name: 'Reprint' }).slice(-1)[0])
     await waitFor(() => expect(state.reprint).toHaveBeenCalled())
-    expect(state.reprint).toHaveBeenCalledWith(101, { printer_id: 9, plate_index: 0, ams_mapping: [{ source_slot: 0, target_slot: 2 }, { source_slot: 1, target_slot: 1 }] })
+    expect(state.reprint).toHaveBeenCalledWith(101, { printer_id: 9, plate_index: 0, ams_mapping: [{ source_slot: 1, target_slot: 2 }, { source_slot: 2, target_slot: 1 }] })
   } finally { (wire as any).archive_ams_preview = original }
 })

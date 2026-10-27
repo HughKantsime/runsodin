@@ -6,7 +6,7 @@ export type { AmsMapping } from '../../types/archive'
 // The context key prevents a selection for one file/printer leaking into another.
 export function useAmsMapping(preview: ArchiveAmsPreview | null | undefined, context: string, stored?: number[] | null) {
   const [choice, setChoice] = useState<{ context: string; mapping: AmsMapping; enabled: boolean } | null>(null)
-  const initial = stored?.map((target, source) => ({ source_slot: source, target_slot: target + 1 }))
+  const initial = stored?.flatMap((target, source) => target < 0 ? [] : [{ source_slot: source + 1, target_slot: target + 1 }])
     ?? preview?.suggested_mapping.map(({ source_slot, target_slot }) => ({ source_slot, target_slot })) ?? []
   const complete = (mapping: AmsMapping) => !!preview?.required.length
     && preview.required.every(req => mapping.some(m => m.source_slot === req.slot && preview.available.some(s => s.slot === m.target_slot)))
@@ -36,9 +36,9 @@ export default function AmsMappingEditor({ preview, loading, error, mapping, ena
           const match = mapping.find(m => m.source_slot === req.slot)
           return <li key={req.slot} className="flex items-center gap-2 text-xs">
             <span className="inline-block w-3 h-3 rounded-full border border-[var(--brand-card-border)]" style={{ background: req.color || 'transparent' }} />
-            <label htmlFor={`ams-source-${req.slot}`}>Filament {req.slot + 1}: {req.material || 'Unknown'} {req.color}</label>
+            <label htmlFor={`ams-source-${req.slot}`}>Filament {req.slot}: {req.material || 'Unknown'} {req.color}</label>
             <span aria-hidden="true">→</span>
-            <select id={`ams-source-${req.slot}`} aria-label={`Filament ${req.slot + 1} AMS slot`}
+            <select id={`ams-source-${req.slot}`} aria-label={`Filament ${req.slot} AMS slot`}
               className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded p-1"
               value={match?.target_slot ?? ''} onChange={e => onChange([
                 ...mapping.filter(m => m.source_slot !== req.slot),

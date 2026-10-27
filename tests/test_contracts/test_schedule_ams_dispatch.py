@@ -9,8 +9,9 @@ from tests.test_contracts.test_education_review_workflow import review_db
 from tests.test_contracts.test_ams_evidence_transactions import RUNTIME
 
 
+@pytest.mark.parametrize('source_id', [1, 4])
 @pytest.mark.parametrize('matches', [True, False])
-def test_scheduled_mapping_runs_post_upload_material_gate(creators, review_db, tmp_path, monkeypatch, matches, caplog):
+def test_scheduled_mapping_runs_post_upload_material_gate(creators, review_db, tmp_path, monkeypatch, matches, caplog, source_id):
     from tests.test_contracts.dispatch_test_support import configure_dispatch
     from tests.support.loopback_devices import allow_loopback_devices
     from modules.models_library.routes.print_files import router
@@ -24,13 +25,20 @@ def test_scheduled_mapping_runs_post_upload_material_gate(creators, review_db, t
     engine, source = configure_dispatch(review_db, tmp_path, monkeypatch, protocol='bambu')
     payload = (Path(__file__).parents[1] / 'fixtures/telemetry/a1-petg-source-sanitized.3mf').read_bytes()
     source.write_bytes(payload)
-    review_db.execute(text("UPDATE print_files SET filaments_json='[{\"type\":\"PETG\"}]' WHERE id=52"))
+    if source_id == 4:
+        from tests.test_contracts.test_ams_file_source_ids import source_file
+        source_file(source)
+        payload = source.read_bytes()
+    review_db.execute(text("UPDATE print_files SET filaments_json='[{\"slot\": 1,\"type\":\"PETG\"}]' WHERE id=52"))
+    import json
+    review_db.execute(text('UPDATE print_files SET filaments_json=:f WHERE id=52'),
+                      {'f':json.dumps([{'slot':source_id,'type':'PETG'}])})
     review_db.execute(text("UPDATE filament_slots SET filament_type='PETG',slot_number=4 WHERE printer_id=59"))
     review_db.commit()
     client, auth, _, _ = creators
     client.app.include_router(router, prefix='/api')
     response = client.post('/api/print-files/52/schedule?printer_id=59', headers=auth(),
-                           json={'ams_mapping': [{'source_slot': 0, 'target_slot': 4}]})
+                           json={'ams_mapping': [{'source_slot': source_id, 'target_slot': 4}]})
     assert response.status_code == 200, response.text
     job = response.json()['job_id']
     # Simulate scheduler placement only; the production dispatch and gate remain real.
@@ -55,7 +63,7 @@ def test_scheduled_mapping_runs_post_upload_material_gate(creators, review_db, t
         return True
     def started(*args, **options):
         events.append('start')
-        assert options['ams_mapping'] == [3]
+        assert options['ams_mapping'] == [-1] * (source_id - 1) + [3]
         return True
     monkeypatch.setattr(bambu, 'BambuPrinter', lambda **kwargs: SimpleNamespace(
         upload_file=uploaded, connect=lambda: True, start_print=started, disconnect=lambda: None))

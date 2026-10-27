@@ -26,7 +26,7 @@ PROBE = r'''
 from fastapi.routing import APIRoute
 def marks(dependant, out):
     for sub in dependant.dependencies:
-        for attr in ("__odin_rbac_action__", "__odin_rbac_page__"):
+        for attr in ("__odin_rbac_action__", "__odin_rbac_page__", "__odin_token_scope__"):
             value = getattr(sub.call, attr, None)
             if value is not None:
                 out.append([attr, value])
@@ -115,3 +115,12 @@ def test_permissions_editor_lists_every_enforced_key():
     actions = re.search(r"const ACTION_GROUPS = \[(.*?)\n\]", source, re.S).group(1)
     assert set(re.findall(r"'([a-z_]+)'", re.sub(r"label: '[^']*'", "", groups))) == set(RBAC_DEFAULT_PAGE_ACCESS)
     assert set(re.findall(r"'([a-z_]+\.[a-z_]+)'", actions)) == set(RBAC_DEFAULT_ACTION_ACCESS)
+
+
+def test_recipe_qualification_declares_production_scope_on_both_aliases(table):
+    for prefix in ('/api', '/api/v1'):
+        marks = table[('POST', prefix + '/products/production/recipes')]
+        scopes = [value for attr, value in marks if attr == '__odin_token_scope__']
+        assert scopes and set(scopes) == {'write:production'}
+        outside = table[('POST', prefix + '/products/production/outside-prints/{print_job_id}/qualify-and-bind')]
+        assert ['__odin_token_scope__', 'write'] in outside

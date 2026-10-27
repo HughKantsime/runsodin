@@ -5,11 +5,12 @@ A password-authenticated admin or operator can create a per-user token with expl
 Permitted writes:
 
 - `POST /api/products/production/outside-prints/{print_job_id}/bind`
+- `POST /api/products/production/recipes` (completed ODIN-dispatched reference, stable configuration evidence, owner-count confirmation)
 - `POST /api/products/production/inspections`
 - `POST /api/products/production/additions/{addition_id}/check`
 - `POST /api/products/batches/additions/{addition_id}/send`
 
-This does not grant credential creation, Square connection changes, stock activation, mapping/baseline changes, recipe qualification, assortment configuration or finishing. Those retain their existing password-session requirements. Configured action access, tenant ownership and the operator role floor still apply. A global API key does not qualify.
+This does not grant credential creation, Square connection changes, stock activation, mapping/baseline changes, outside-print recipe qualification, assortment configuration or finishing. Those retain their existing password-session requirements. Configured action access, tenant ownership and the operator role floor still apply. A global API key does not qualify.
 
 ## Operator procedure
 
