@@ -388,11 +388,12 @@ def reset_job(job_id: int, current_user: dict = Depends(require_action("jobs.edi
     return job
 
 
-@router.post("/{job_id}/dispatch", tags=["Jobs"])
+@router.post("/{job_id}/dispatch", tags=["Jobs"], status_code=202)
 def dispatch_job_to_printer(
     job_id: int,
     current_user: dict = Depends(require_action("jobs.start", scope="write:jobs")),
     db: Session = Depends(get_db),
+    wait: bool = False,
 ):
     """Dispatch a scheduled Bambu job: upload .3mf via FTPS then start print via MQTT.
 
@@ -408,6 +409,12 @@ def dispatch_job_to_printer(
     if not job.printer_id:
         raise HTTPException(status_code=400, detail="Job is not assigned to a printer")
 
+    if not wait:
+        from modules.printers.dispatch import stage_dispatch
+        printer_id = job.printer_id
+        db.rollback()  # Never carry request transactions into the worker.
+        return stage_dispatch(printer_id, job_id)
+
     try:
         from modules.printers.dispatch import dispatch_job
         success, message = dispatch_job(job.printer_id, job_id)
@@ -420,7 +427,8 @@ def dispatch_job_to_printer(
     db.refresh(job)
     log_audit(db, "job.dispatched", "job", job.id, {"printer_id": job.printer_id})
     db.commit()
-    return {"success": True, "message": message, "job_id": job_id, "status": job.status.value}
+    from fastapi.responses import JSONResponse
+    return JSONResponse(status_code=200, content={"success": True, "message": message, "job_id": job_id, "status": job.status.value})
 
 
 # approve_job + reject_job moved to jobs_agent.py in v1.9.0 Phase 2

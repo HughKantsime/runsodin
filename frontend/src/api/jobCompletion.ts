@@ -1,3 +1,4 @@
+import { pollDispatch } from './jobDispatch'
 import { fetchAPI } from './client'
 export interface Suggestion {
   job_id: number | null; reason: string; filament: 'no_change' | 'change_needed' | 'verify_needed';
@@ -14,7 +15,16 @@ export interface CompletionSummary {
 export interface TimelineEvent { id: string; kind: string; code: string | null; occurred_at: string; detail: Record<string, unknown> }
 export const jobCompletion = {
   suggestion: (id: number) => fetchAPI<Suggestion>(`/printers/${id}/next-suggestion`),
-  start: (id: number, data: { suggested_job_id: number; suggestion_fingerprint: string; request_id: string; bed_clear_confirmed: true; attestation: 'owner_in_app' }) =>
-    fetchAPI<{ success: boolean; state: string; message?: string }>(`/printers/${id}/start-next`, { method: 'POST', body: JSON.stringify(data) }),
+  start: async (id: number, data: { suggested_job_id: number; suggestion_fingerprint: string; request_id: string; bed_clear_confirmed: true; attestation: 'owner_in_app' }) =>
+    {
+      const result = await fetchAPI<{ success: boolean; accepted?: boolean; state: string; job_id?: number; attempt_id?: string; message?: string }>(`/printers/${id}/start-next`, { method: 'POST', body: JSON.stringify(data) })
+      if (result.accepted || ['preparing', 'admitted'].includes(result.state)) {
+        const confirmation = await pollDispatch(result.job_id || data.suggested_job_id, result.attempt_id)
+        return { ...result, success: confirmation.confirmation === 'accepted',
+          state: confirmation.confirmation === 'accepted' ? 'dispatched' : 'uncertain',
+          message: confirmation.status?.message || 'Dispatch is unconfirmed. Check the printer before trying again.' }
+      }
+      return result
+    },
   timeline: (id: number) => fetchAPI<{ events: TimelineEvent[] }>(`/jobs/${id}/timeline`),
 }

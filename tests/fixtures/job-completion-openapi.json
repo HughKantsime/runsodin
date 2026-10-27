@@ -70,6 +70,16 @@
               "exclusiveMinimum": 0,
               "title": "Printer Id"
             }
+          },
+          {
+            "name": "wait",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Wait"
+            }
           }
         ],
         "requestBody": {
@@ -83,7 +93,7 @@
           }
         },
         "responses": {
-          "200": {
+          "202": {
             "description": "Successful Response",
             "content": {
               "application/json": {
@@ -259,6 +269,33 @@
             }
           ],
           "title": "Message"
+        },
+        "accepted": {
+          "type": "boolean",
+          "title": "Accepted",
+          "default": false
+        },
+        "attempt_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Attempt Id"
+        },
+        "status_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Status Url"
         }
       },
       "type": "object",

@@ -1050,7 +1050,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 251,
+      "line": 252,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1058,7 +1058,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 491,
+      "line": 492,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1066,7 +1066,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 517,
+      "line": 518,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1074,7 +1074,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 519,
+      "line": 520,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1082,7 +1082,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 529,
+      "line": 530,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1090,7 +1090,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 544,
+      "line": 545,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1098,7 +1098,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 546,
+      "line": 547,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1794,7 +1794,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 165,
+      "line": 168,
       "path": "backend/modules/organizations/education_policy_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Static source-discovery regex contains SQL vocabulary and regex question marks; it executes no database statement",
@@ -2162,87 +2162,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 614,
-      "path": "backend/modules/printers/monitors/mqtt_printer.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
-      "source": "cooldown_row = conn.execute('SELECT lights_toggled_at FROM printers WHERE id=?', (self.printer_id,)).fetchone()"
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 647,
-      "path": "backend/modules/printers/monitors/mqtt_printer.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
-      "source": "f\"UPDATE printers SET last_seen={sql.now()},\""
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 654,
-      "path": "backend/modules/printers/monitors/mqtt_printer.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
-      "source": "conn.execute(\"UPDATE printers SET nozzle_diameter=? WHERE id=?\","
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 660,
-      "path": "backend/modules/printers/monitors/mqtt_printer.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
-      "source": "conn.execute(f'UPDATE printers SET {column}=?,{stamp}=? WHERE id=?',  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- column/stamp names come from the literal nozzle column tuples in _on_"
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 677,
-      "path": "backend/modules/printers/monitors/mqtt_printer.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
-      "source": "\"UPDATE printers SET model = ? WHERE id = ? AND (model IS NULL OR model = '' OR model = 'Unknown')\","
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 689,
-      "path": "backend/modules/printers/monitors/mqtt_printer.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
-      "source": "\"UPDATE printers SET machine_type = ? WHERE id = ? AND (machine_type IS NULL OR machine_type != ?)\","
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 718,
-      "path": "backend/modules/printers/monitors/mqtt_printer.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
-      "source": "\"INSERT INTO printer_telemetry (printer_id, bed_temp, nozzle_temp, bed_target, nozzle_target, fan_speed) VALUES (?, ?, ?, ?, ?, ?)\","
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 735,
-      "path": "backend/modules/printers/monitors/mqtt_printer.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
-      "source": "\"INSERT INTO ams_telemetry (printer_id, ams_unit, humidity, temperature) VALUES (?, ?, ?, ?)\","
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 792,
-      "path": "backend/modules/printers/monitors/mqtt_printer.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
-      "source": "mt_row = h2d_conn.execute('SELECT machine_type FROM printers WHERE id=?', (self.printer_id,)).fetchone()"
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 833,
-      "path": "backend/modules/printers/monitors/mqtt_printer.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
-      "source": "\"INSERT INTO hms_error_history (printer_id, code, message, severity, source) VALUES (?, ?, ?, ?, ?)\","
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 902,
+      "line": 473,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2250,7 +2170,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 967,
+      "line": 538,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2258,7 +2178,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 1016,
+      "line": 587,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -2266,11 +2186,107 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 1060,
+      "line": 631,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
       "source": "\"UPDATE print_jobs SET progress_percent = COALESCE(?, progress_percent), \""
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 181,
+      "path": "backend/modules/printers/monitors/mqtt_status.py",
+      "pattern": "qmark-parameter",
+      "reason": "Extracted monitor writes use the live database compatibility executor for qmark binding and dialect timestamps.",
+      "source": "cooldown_row = conn.execute('SELECT lights_toggled_at FROM printers WHERE id=?', (self.printer_id,)).fetchone()"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 214,
+      "path": "backend/modules/printers/monitors/mqtt_status.py",
+      "pattern": "qmark-parameter",
+      "reason": "Extracted monitor writes use the live database compatibility executor for qmark binding and dialect timestamps.",
+      "source": "f\"UPDATE printers SET last_seen={sql.now()},\""
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 221,
+      "path": "backend/modules/printers/monitors/mqtt_status.py",
+      "pattern": "qmark-parameter",
+      "reason": "Extracted monitor writes use the live database compatibility executor for qmark binding and dialect timestamps.",
+      "source": "conn.execute(\"UPDATE printers SET nozzle_diameter=? WHERE id=?\","
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 227,
+      "path": "backend/modules/printers/monitors/mqtt_status.py",
+      "pattern": "qmark-parameter",
+      "reason": "Extracted monitor writes use the live database compatibility executor for qmark binding and dialect timestamps.",
+      "source": "conn.execute(f'UPDATE printers SET {column}=?,{stamp}=? WHERE id=?',  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- column/stamp names come from the literal nozzle column tuples in _on_"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 247,
+      "path": "backend/modules/printers/monitors/mqtt_status.py",
+      "pattern": "qmark-parameter",
+      "reason": "Extracted monitor writes use the live database compatibility executor for qmark binding and dialect timestamps.",
+      "source": "\"UPDATE printers SET model = ? WHERE id = ? AND (model IS NULL OR model = '' OR model = 'Unknown')\","
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 259,
+      "path": "backend/modules/printers/monitors/mqtt_status.py",
+      "pattern": "qmark-parameter",
+      "reason": "Extracted monitor writes use the live database compatibility executor for qmark binding and dialect timestamps.",
+      "source": "\"UPDATE printers SET machine_type = ? WHERE id = ? AND (machine_type IS NULL OR machine_type != ?)\","
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 288,
+      "path": "backend/modules/printers/monitors/mqtt_status.py",
+      "pattern": "qmark-parameter",
+      "reason": "Extracted monitor writes use the live database compatibility executor for qmark binding and dialect timestamps.",
+      "source": "\"INSERT INTO printer_telemetry (printer_id, bed_temp, nozzle_temp, bed_target, nozzle_target, fan_speed) VALUES (?, ?, ?, ?, ?, ?)\","
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 305,
+      "path": "backend/modules/printers/monitors/mqtt_status.py",
+      "pattern": "qmark-parameter",
+      "reason": "Extracted monitor writes use the live database compatibility executor for qmark binding and dialect timestamps.",
+      "source": "\"INSERT INTO ams_telemetry (printer_id, ams_unit, humidity, temperature) VALUES (?, ?, ?, ?)\","
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 362,
+      "path": "backend/modules/printers/monitors/mqtt_status.py",
+      "pattern": "qmark-parameter",
+      "reason": "Extracted monitor writes use the live database compatibility executor for qmark binding and dialect timestamps.",
+      "source": "mt_row = h2d_conn.execute('SELECT machine_type FROM printers WHERE id=?', (self.printer_id,)).fetchone()"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 403,
+      "path": "backend/modules/printers/monitors/mqtt_status.py",
+      "pattern": "qmark-parameter",
+      "reason": "Extracted monitor writes use the live database compatibility executor for qmark binding and dialect timestamps.",
+      "source": "\"INSERT INTO hms_error_history (printer_id, code, message, severity, source) VALUES (?, ?, ?, ?, ?)\","
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 20,
+      "path": "backend/modules/printers/monitors/nozzle_observations.py",
+      "pattern": "qmark-parameter",
+      "reason": "Monitor observation writes use the live database compatibility executor for qmark binding and JSON storage.",
+      "source": "row = conn.execute('SELECT installed_nozzles,machine_type,model FROM printers WHERE id=?', (monitor.printer_id,)).fetchone()"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 29,
+      "path": "backend/modules/printers/monitors/nozzle_observations.py",
+      "pattern": "qmark-parameter",
+      "reason": "Monitor observation writes use the live database compatibility executor for qmark binding and JSON storage.",
+      "source": "conn.execute('UPDATE printers SET installed_nozzles=? WHERE id=?',"
     },
     {
       "classification": "sqlite-provider-only",

@@ -9,7 +9,8 @@ export default function JobTimeline({jobId}:{jobId:number}) {
     {error&&<p role="alert">Could not load job history.</p>}
     {data?.events.length===0&&<p>No recorded history.</p>}
     <ol className="space-y-2">{data?.events.map(event=><li key={event.id} className="text-sm break-words">
-      <time dateTime={event.occurred_at}>{formatDate(event.occurred_at)}</time> · {event.kind.replace(/_/g,' ')}{event.code?` · ${event.code}`:''}
+      <time dateTime={event.occurred_at}>{formatDate(event.occurred_at)}</time> · {event.kind === 'nozzle_unverified' ? (event.detail.geometry_unverified ? 'Per-nozzle reach was not verified: object assignments were missing.' : 'Nozzle compatibility was not verified: file or printer data was missing.') : event.kind.replace(/_/g,' ')}{event.code?` · ${event.code}`:''}
+      {typeof event.detail.message === 'string' && <p>{event.detail.message}</p>}
     </li>)}</ol>
   </section>
 }

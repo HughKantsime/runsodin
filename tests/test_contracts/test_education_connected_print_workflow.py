@@ -108,6 +108,7 @@ def setup_workflow(db, tmp_path, monkeypatch, path, mqtt_port):
     # Owned firmware peers below exercise actual FTPS and TLS MQTT transport.
     # Fresh-idle acquisition has separate protocol-peer acceptance tests.
     monkeypatch.setattr(dispatch_acquisition, "bounded_status_is_idle", lambda *args: True)
+    monkeypatch.setattr(dispatch_acquisition, "bounded_bambu_report", lambda *args: {})
     db.execute(text("UPDATE printers SET api_host='127.0.0.1',api_key=:key WHERE id=9"),
                {"key": crypto.encrypt("synthetic-printer|" + SYNTHETIC_ACCESS_CODE)})
     db.commit()

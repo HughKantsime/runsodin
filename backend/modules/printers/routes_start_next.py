@@ -43,6 +43,9 @@ class StartResult(BaseModel):
     job_id: int
     request_id: str
     message: str | None = None
+    accepted: bool = False
+    attempt_id: str | None = None
+    status_url: str | None = None
 
 
 def visible_printer(db, printer_id, user):
@@ -59,10 +62,15 @@ def get_next_suggestion(printer_id: int = Path(gt=0), db: Session = Depends(get_
                            visible=lambda job: check_org_access(current_user, job.charged_to_org_id))
 
 
-@router.post('/printers/{printer_id}/start-next', tags=['Printers'], response_model=StartResult)
+@router.post('/printers/{printer_id}/start-next', tags=['Printers'], response_model=StartResult, status_code=202)
 def start_next(data: StartNext, printer_id: int = Path(gt=0), db: Session = Depends(get_db),
-               current_user: dict = Depends(require_action('jobs.start', scope='write:jobs'))):
+               current_user: dict = Depends(require_action('jobs.start', scope='write:jobs')), wait: bool = False):
     prior = load(db, request_key(data.request_id, current_user))
     if prior is not None:
-        return replay(prior, current_user, printer_id)
-    return start(db, visible_printer(db, printer_id, current_user), current_user, data)
+        result = replay(prior, current_user, printer_id)
+    else:
+        result = start(db, visible_printer(db, printer_id, current_user), current_user, data, background=not wait)
+    if wait:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=200, content=result)
+    return result

@@ -1,3 +1,8 @@
+export interface InstalledNozzle {
+  extruder: number; side: string; diameter: number | null; flow: string | null
+  material: string | null; wear: number | null; observed_at: string; present?: boolean | null
+}
+
 // Printer domain types
 
 export type FilamentType =
@@ -78,6 +83,7 @@ export interface Printer {
   nozzle_type: string | null;
   nozzle_diameter: number | null;
   fan_speed: number | null;
+  installed_nozzles?: InstalledNozzle[] | null;
   bed_x_mm: number | null;
   bed_y_mm: number | null;
   last_seen: string | null;

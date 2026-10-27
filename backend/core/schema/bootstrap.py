@@ -290,7 +290,7 @@ def _orm_checksum() -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-CURRENT_ORM_BASELINE = "main_audit_20261012"
+CURRENT_ORM_BASELINE = "dispatch_capability_20261027"
 
 # Post-027 migrations, applied in this order on the current path only. Each must be
 # additive and must never fail because of existing user data (data-dependent
@@ -307,6 +307,7 @@ POST027_MIGRATIONS = (
     ("python:038-dispatch-recovery", "core.schema.migrations.038_dispatch_recovery"),
     ("python:039-measured-filament", "core.schema.migrations.039_measured_filament"),
     ("python:040-job-foundation", "core.schema.migrations.040_job_foundation"),
+    ("python:041-dispatch-capability", "core.schema.migrations.041_dispatch_capability"),
 )
 
 

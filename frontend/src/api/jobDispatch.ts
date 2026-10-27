@@ -2,7 +2,9 @@ import { fetchAPI } from './client'
 
 export interface DispatchStatus {
   job_id: number
-  phase: 'unconfirmed' | 'target_busy' | 'preparing' | 'sending' | 'start_accepted' | 'needs_reconciliation' | 'layer_observed'
+  phase: 'unconfirmed' | 'target_busy' | 'preparing' | 'sending' | 'uploading' | 'starting' | 'refused' | 'start_accepted' | 'needs_reconciliation' | 'layer_observed'
+  attempt_id?: string
+  message?: string
   retry_blocked: boolean
   observation: { current_layer: number | null; total_layers: number | null; progress_percent: number | null; status: string; start_observation_age_seconds: number } | null
 }
@@ -11,11 +13,29 @@ export interface DispatchConfirmation {
   status?: DispatchStatus
 }
 
+/** Poll only GET. A timeout or lost status never authorizes another upload. */
+export async function pollDispatch(id: number, attemptId?: string, options = { intervalMs: 1000, attempts: 120 }): Promise<DispatchConfirmation> {
+  const suffix = attemptId && /^[0-9a-f]{32}$/.test(attemptId) ? `?attempt_id=${attemptId}` : ''
+  let status: DispatchStatus | undefined
+  for (let i = 0; i < options.attempts; i++) {
+    try {
+      const current = await fetchAPI<DispatchStatus>(`/jobs/${id}/dispatch-status${suffix}`)
+      if (current?.job_id !== id || current.retry_blocked !== true) break
+      status = current
+      if (['start_accepted', 'layer_observed'].includes(current.phase)) return { confirmation: 'accepted', status }
+      if (!['preparing', 'sending', 'uploading', 'starting'].includes(current.phase)) break
+    } catch { break }
+    if (i + 1 < options.attempts) await new Promise(resolve => setTimeout(resolve, options.intervalMs))
+  }
+  return { confirmation: 'unconfirmed', ...(status ? { status } : {}) }
+}
+
 /** A lost POST response cannot authorize another POST. Reconcile using GET only. */
 export async function dispatchWithConfirmation(id: number): Promise<DispatchConfirmation> {
   let validationError: unknown
   try {
-    const response = await fetchAPI<{success: boolean; job_id: number}>(`/jobs/${id}/dispatch`, { method: 'POST' })
+    const response = await fetchAPI<{success: boolean; accepted?: boolean; attempt_id?: string; job_id: number}>(`/jobs/${id}/dispatch`, { method: 'POST' })
+    if (response?.accepted === true && response.job_id === id) return pollDispatch(id, response.attempt_id)
     if (response?.success === true && response.job_id === id) return { confirmation: 'accepted' }
   } catch (error) {
     const code = (error as Error & {status?: number}).status

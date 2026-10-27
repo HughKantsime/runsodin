@@ -59,6 +59,7 @@ class Printer(Base):
     hms_errors = Column(Text, nullable=True)
     lights_on = Column(Boolean, nullable=True)
     lights_toggled_at = Column(DateTime, nullable=True)
+    installed_nozzles = Column(JSON, nullable=True)
     nozzle_type = Column(String(20), nullable=True)
     nozzle_diameter = Column(Float, nullable=True)
     fan_speed = Column(Integer, nullable=True)

@@ -168,7 +168,7 @@ def test_dispatch_blocked_by_bed_size_mismatch(hdrs):
         try:
             # 4. Attempt dispatch — should be blocked
             r4 = requests.post(
-                f"{BASE_URL}/api/jobs/{job_id}/dispatch",
+                f"{BASE_URL}/api/jobs/{job_id}/dispatch?wait=true",
                 headers=hdrs,
                 timeout=30,
             )
@@ -280,7 +280,7 @@ def test_dispatch_null_bed_does_not_trigger_bed_guard(hdrs):
         try:
             try:
                 r4 = requests.post(
-                    f"{BASE_URL}/api/jobs/{job_id}/dispatch",
+                    f"{BASE_URL}/api/jobs/{job_id}/dispatch?wait=true",
                     headers=hdrs,
                     timeout=30,
                 )

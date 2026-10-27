@@ -80,6 +80,7 @@ class PrinterBase(BaseModel):
     print_stage: Optional[str] = None
     hms_errors: Optional[str] = None
     lights_on: Optional[bool] = None
+    installed_nozzles: Optional[list[dict]] = None
     nozzle_type: Optional[str] = None
     nozzle_diameter: Optional[float] = None
     fan_speed: Optional[int] = None
@@ -109,6 +110,14 @@ class PrinterCreate(PrinterBase):
     api_key: Optional[str] = None  # Write-only credential
     initial_slots: Optional[List[FilamentSlotCreate]] = None
     shared: bool = False
+
+    @model_validator(mode='after')
+    def default_bambu_bed(self):
+        from modules.printers.printer_models import BAMBU_BEDS, bambu_model_name
+        dims = BAMBU_BEDS.get(bambu_model_name(self.model)) if self.api_type == 'bambu' else None
+        if dims and self.bed_x_mm is None and self.bed_y_mm is None:
+            self.bed_x_mm, self.bed_y_mm = dims
+        return self
 
 
 class PrinterUpdate(BaseModel):

@@ -15,6 +15,9 @@ INVENTORY = ROOT / "ops" / "database_parity" / "sqlite_compatibility_inventory.j
 
 
 CLASSIFICATIONS: dict[str, tuple[str, str]] = {
+    "backend/modules/printers/monitors/mqtt_status.py": ("dialect-neutral", "Extracted monitor writes use the live database compatibility executor for qmark binding and dialect timestamps."),
+    "backend/modules/printers/monitors/nozzle_observations.py": ("dialect-neutral", "Monitor observation writes use the live database compatibility executor for qmark binding and JSON storage."),
+    "backend/core/schema/migrations/041_dispatch_capability.py": ("sqlite-provider-only", "SQLite writer promotion is dialect guarded; additive JSON and bound bed-default correction use portable SQL."),
     "backend/core/schema/migrations/039_measured_filament.py": ("sqlite-provider-only", "SQLite retained-reference PRAGMA and immutable triggers; PostgreSQL uses native constraints and guarded functions."),
     "backend/modules/inventory/slot_assignments.py": (
         "sqlite-provider-only",
@@ -444,6 +447,7 @@ PRESERVED_BUNDLES = (
     BACKEND / "core/schema/preserved037/overlay",
     BACKEND / "core/schema/preserved038/overlay",
     BACKEND / "core/schema/preserved039/overlay",
+    BACKEND / "core/schema/preserved040/overlay",
 )
 
 

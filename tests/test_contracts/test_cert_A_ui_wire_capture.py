@@ -20,12 +20,12 @@ from tests.test_contracts.test_cert_A_protocols import (  # noqa: F401
 FIXTURE = Path(__file__).resolve().parents[2] / "frontend/src/test-fixtures/cert-A-printers-wire.json"
 BASE = "2026-10-14 12:00:00"
 VOLATILE = {"last_seen", "loaded_at", "recorded_at", "occurred_at", "time", "installed_at", "removed_at", "created_at",
-            "updated_at", "lights_toggled_at", "last_error_at", "nozzle_1_temp_observed_at", "nozzle_1_target_observed_at"}
+            "updated_at", "lights_toggled_at", "last_error_at", "nozzle_1_temp_observed_at", "nozzle_1_target_observed_at", "observed_at"}
 
 
 def normalize(value, counter):
     if isinstance(value, dict):
-        return {k: ((BASE.replace(" ", "T") if k == "last_seen" else stamp(counter)) if k in VOLATILE and v
+        return {k: ((BASE.replace(" ", "T") if k in ("last_seen", "observed_at") else stamp(counter)) if k in VOLATILE and v
                     else normalize(v, counter)) for k, v in value.items()}
     if isinstance(value, list):
         return [normalize(v, counter) for v in value]

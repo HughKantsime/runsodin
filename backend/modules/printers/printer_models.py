@@ -67,6 +67,14 @@ BAMBU_PRODUCT_NAMES = {
     "H2C": "H2C",
 }
 
+# Total XY build areas, Bambu specifications (sources in docs/dispatch-capability.md).
+BAMBU_BEDS = {
+    'X1C': (256, 256), 'X1': (256, 256), 'X1E': (256, 256),
+    'P1P': (256, 256), 'P1S': (256, 256), 'P2S': (256, 256),
+    'A1': (256, 256), 'A1 Mini': (180, 180), 'H2D': (350, 320),
+    'H2D Pro': (350, 320), 'H2C': (330, 320), 'H2S': (340, 320),
+}
+
 _BAMBU_FRIENDLY_NAMES = {name.upper(): name for name in BAMBU_PRODUCT_NAMES.values()}
 
 # Nozzle (extruder) count per model: the length of `nozzle_diameter` in the

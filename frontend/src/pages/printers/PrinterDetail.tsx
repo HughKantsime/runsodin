@@ -1,3 +1,4 @@
+import InstalledNozzles from '../../components/printers/InstalledNozzles'
 import DispatchRecoveryPanel from '../../components/printers/DispatchRecoveryPanel'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -159,6 +160,8 @@ export default function PrinterDetail() {
           </p>
         )}
       </Card>
+
+      <InstalledNozzles nozzles={printer.installed_nozzles} />
 
       {/* Telemetry */}
       {telemetry && Array.isArray(telemetry) && telemetry.length > 0 && (

@@ -18,6 +18,17 @@
       "print_stage": "Idle",
       "hms_errors": "[{\"attr\": 83952640, \"code\": 196612}, {\"attr\": 83887616, \"code\": 131232}, {\"attr\": 83952640, \"code\": 196610}, {\"attr\": 83886592, \"code\": 196618}, {\"attr\": 201326848, \"code\": 131095}]",
       "lights_on": false,
+      "installed_nozzles": [
+        {
+          "extruder": 0,
+          "side": "single",
+          "diameter": 0.4,
+          "flow": null,
+          "material": "Hardened steel",
+          "type": "hardened_steel",
+          "observed_at": "2026-10-14T12:00:00"
+        }
+      ],
       "nozzle_type": "hardened_steel",
       "nozzle_diameter": 0.4,
       "fan_speed": 11,
@@ -212,6 +223,7 @@
       "print_stage": "Printing",
       "hms_errors": null,
       "lights_on": null,
+      "installed_nozzles": null,
       "nozzle_type": null,
       "nozzle_diameter": 0.4,
       "fan_speed": 50,
@@ -261,6 +273,7 @@
       "print_stage": "Printing",
       "hms_errors": null,
       "lights_on": null,
+      "installed_nozzles": null,
       "nozzle_type": null,
       "nozzle_diameter": null,
       "fan_speed": 5964,
@@ -308,6 +321,7 @@
       "print_stage": "Printing",
       "hms_errors": null,
       "lights_on": null,
+      "installed_nozzles": null,
       "nozzle_type": null,
       "nozzle_diameter": null,
       "fan_speed": 100,

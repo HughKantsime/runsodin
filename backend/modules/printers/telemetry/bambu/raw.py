@@ -278,7 +278,7 @@ class BambuPrintSection(_StrictBase):
     sdcard: Optional[bool] = None
     home_flag: Optional[int] = None
     hw_switch_state: Optional[int] = None
-    nozzle_diameter: Optional[str] = None
+    nozzle_diameter: Optional[str | float] = None
     nozzle_type: Optional[str] = None
     printer_type: Optional[str] = None              # historically dead-read but occasionally present
 

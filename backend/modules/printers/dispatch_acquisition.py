@@ -35,6 +35,21 @@ def _bambu_worker(sender, creds, deadline):
     finally:sender.close()
 
 
+def _bambu_report_worker(sender, creds, deadline):
+    try:
+        from modules.printers.dispatch_bambu_readiness import fresh_bambu_status_is_idle
+        sender.send(fresh_bambu_status_is_idle(creds, deadline, return_report=True))
+    except Exception:
+        try:sender.send(None)
+        except Exception:pass
+    finally:sender.close()
+
+
+def bounded_bambu_report(creds, deadline):
+    result = bounded_status_is_idle(creds, deadline, _report=True)
+    return result if isinstance(result, dict) else None
+
+
 def _spawn_context():
     return multiprocessing.get_context('spawn')
 
@@ -86,7 +101,7 @@ def bounded_http_status_is_idle(creds: dict, deadline: float) -> bool:
     return bounded_status_is_idle(creds,deadline)
 
 
-def bounded_status_is_idle(creds: dict, deadline: float) -> bool:
+def bounded_status_is_idle(creds: dict, deadline: float, *, _report=False):
     """Refuse late/hanging reads; only reap the process created by this call."""
     receiver = sender = process = None
     accepted = False
@@ -102,9 +117,12 @@ def bounded_status_is_idle(creds: dict, deadline: float) -> bool:
         context = _spawn_context()
         receiver, sender = context.Pipe(duplex=False)
         # Whitelist only acquisition inputs, not the complete printer/job record.
-        keys = ('api_type','ip','serial','access_code') if creds['api_type']=='bambu' else ('api_type','ip','port','scheme','api_key','username','password')
+        keys = ('api_type','ip','serial','access_code','machine_type','model') if creds['api_type']=='bambu' else ('api_type','ip','port','scheme','api_key','username','password')
         inputs = {key:creds[key] for key in keys if key in creds}
         worker = _bambu_worker if creds['api_type'] == 'bambu' else _http_worker
+        if _report:
+            if creds['api_type'] != 'bambu':return False
+            worker = _bambu_report_worker
         process = context.Process(target=worker, args=(sender, inputs, deadline), daemon=True)
         process.start()
         sender.close()
@@ -114,7 +132,9 @@ def bounded_status_is_idle(creds: dict, deadline: float) -> bool:
             remaining = deadline - time.monotonic()
             if remaining > 0:
                 process.join(timeout=remaining)
-                accepted = type(result) is bool and result and process.exitcode == 0 and not process.is_alive() and time.monotonic() < deadline
+                valid = isinstance(result, dict) if _report else type(result) is bool and result
+                if valid and process.exitcode == 0 and not process.is_alive() and time.monotonic() < deadline:
+                    accepted = result
     except Exception:
         accepted = False
     finally:

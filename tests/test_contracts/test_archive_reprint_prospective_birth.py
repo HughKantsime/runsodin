@@ -65,7 +65,7 @@ def test_ungrouped_archive_reprint_explicit_source_zero_to_tray_one(
     from pathlib import Path
     from types import SimpleNamespace
     from core import db as core_db
-    from modules.printers import dispatch, dispatch_ams_gate as gate
+    from modules.printers import dispatch, dispatch_ams_gate as gate, dispatch_acquisition
     from modules.printers.telemetry import feature_flag
     from modules.printers.telemetry.bambu.ams_acquisition_collector import RawAMSSnapshot, RawTrayFact
     from modules.printers.telemetry.bambu.trusted_ams_acquisition import RuntimeBoundAMSResult
@@ -99,6 +99,9 @@ def test_ungrouped_archive_reprint_explicit_source_zero_to_tray_one(
     assert json.loads(row[0]) == [0] and row[1] == hashlib.sha256(payload).hexdigest() and row[2] is None
     review_db.rollback()
     monkeypatch.setattr(core_db, 'engine', review_db.get_bind())
+    # This contract instruments all physical boundaries; absent nozzle facts
+    # exercise the permitted, explicitly unverified capability outcome.
+    monkeypatch.setattr(dispatch_acquisition, 'bounded_bambu_report', lambda *args: {})
     monkeypatch.setattr(feature_flag, 'is_v2_enabled', lambda:path=='v2')
     monkeypatch.setattr(gate, 'read_runtime_identity', lambda:RUNTIME)
     monkeypatch.setattr(gate, 'revalidate_runtime_identity', lambda _:None)
