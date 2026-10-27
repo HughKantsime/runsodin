@@ -18,9 +18,9 @@ def audit(db, action, entity_type, entity_id, details):
 
 
 def configuration_key(db, printer_id):
-    # Use the same equality proof as dispatch; never expose configuration inputs.
+    # Stable recipe equality; dispatch claims retain their full configuration key.
     from core.interfaces.printer_binding import require_printer_binding_provider
-    key = require_printer_binding_provider().configuration_key(db, printer_id)
+    key = require_printer_binding_provider().recipe_configuration_key(db, printer_id)
     if key is None:
         batches.fail('Printer configuration cannot be verified')
     return key
@@ -89,9 +89,12 @@ def evidence(db, owner, print_job_id, *, lock=False):
             or row['filename'] != binding['filename'] or row['job_name'] != binding['job_name']
             or str(row['ended_at']) != binding['ended_at']):
         batches.fail('Outside print evidence changed; review the retained binding')
+    if binding.get('recipe_revision', {}).get('version') != 2:
+        batches.fail('Legacy outside printer configuration cannot be verified. Qualify a new recipe revision.')
     if configuration_key(db,row['printer_id']) != binding['payload']['configuration_key']:
         batches.fail('Outside print printer configuration changed')
-    return {**binding['payload'], 'economic_uid':binding['acceptance_uid'],
+    return {**binding['payload'], 'stable_configuration_key':binding['payload']['configuration_key'],
+            'economic_uid':binding['acceptance_uid'],
             'observation_uid':binding['physical_uid'], 'claim_token':binding['id'],
             'ended_at':row['ended_at'], 'outside_binding':binding}
 
@@ -108,13 +111,17 @@ def bind(db, user, print_job_id, data):
     row = physical(db, owner, print_job_id, lock=True)
     if db.execute(text('SELECT 1 FROM system_config WHERE key=:key'), {'key':PREFIX+str(print_job_id)}).first():
         batches.fail('This outside print is already bound')
-    spec = batches.recipe(db, owner, data.recipe_id)
+    spec = batches.recipe(db, owner, data.recipe_id, resolve_legacy=False)
     if spec['qualified'] is not True:
         batches.fail('Choose a qualified recipe revision')
     from core.interfaces.education_policy import assert_generic_model_reference_allowed
     assert_generic_model_reference_allowed(db, spec['payload']['model_id'])
-    if spec['payload']['printer_id'] != row['printer_id'] or spec['payload']['configuration_key'] != configuration_key(db,row['printer_id']):
-        batches.fail('Recipe printer or configuration does not match this print')
+    if spec['payload']['printer_id'] != row['printer_id']:
+        batches.fail('Recipe printer does not match this print')
+    from modules.orders.recipe_matching import resolve_for_evidence
+    spec = resolve_for_evidence(db, owner, spec, row)
+    if spec['payload']['configuration_key'] != configuration_key(db,row['printer_id']):
+        batches.fail('Recipe printer configuration does not match this print')
     # Birth nonce is always present, including financially unresolved outside prints.
     # Never rewrite their immutable economic ownership history.
     acceptance_uid = row['economic_uid'] or row['economic_birth_nonce']
@@ -234,7 +241,7 @@ def inspect(db, user, data):
     component_state,_=lock_finishing(db,owner,user)
     if data.inspection_confirmed is not True:
         fail('Inspect the physical pieces before accepting this batch')
-    spec = recipe(db, owner, data.recipe_id)
+    spec = recipe(db, owner, data.recipe_id, resolve_legacy=False)
     if spec['qualified'] is not True:
         fail('This recipe is not qualified. Create a qualified revision after verifying its yield.')
     evidence = outside_evidence(db, owner, data.print_job_id, lock=True)
@@ -259,8 +266,9 @@ def inspect(db, user, data):
         if previous['owner'] != owner or previous['request_hash'] != request_hash:
             fail('This physical batch already has a different inspection receipt')
         return receipt_public(previous)
-    if recipe_payload(evidence) != spec['payload']:
-        fail('Job file, plate, model or printer configuration does not match this recipe revision')
+    from modules.orders.recipe_matching import assert_payload_matches, resolve_for_evidence
+    spec = resolve_for_evidence(db, owner, spec, evidence)
+    assert_payload_matches(recipe_payload(evidence), spec['payload'])
     expected = {(o['product_id'],o['kind']):o for o in spec['outputs']}
     supplied = {(o.product_id,o.kind):o for o in data.outputs}
     if len(supplied) != len(data.outputs) or set(expected) != set(supplied):

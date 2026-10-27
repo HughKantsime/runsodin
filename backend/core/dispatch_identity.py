@@ -54,7 +54,7 @@ def ownership_refusal(job,creds):
     return None
 
 
-def build_identity(creds,key):
+def build_identity(creds,key,*,_recipe=False):
     """Return equality keys only; malformed inputs refuse without echoing them."""
     try:
         if not isinstance(creds,dict) or not isinstance(key,bytes) or len(key)<32:
@@ -122,8 +122,22 @@ def build_identity(creds,key):
             normalized_plug['plug_auto_on']=None if auto_on is None else bool(auto_on)
             config['plug_configuration']=normalized_plug
         encode=lambda value:json.dumps(value,sort_keys=True,separators=(',',':'),allow_nan=False).encode()
-        purpose_key=hmac.digest(key,b'ODIN dispatch configuration key v1','sha256')
+        if _recipe:
+            for name in ('active_materials','filament_slots','plug_configuration'):
+                config.pop(name,None)
+        label=b'ODIN recipe configuration' if _recipe else b'ODIN dispatch configuration'
+        purpose_key=hmac.digest(key,label+b' key v1','sha256')
         return DispatchIdentity(hashlib.sha256(encode(target)).hexdigest(),
-            hmac.digest(purpose_key,b'ODIN dispatch configuration v1\x00'+encode(config),'sha256').hex())
+            hmac.digest(purpose_key,label+b' v1\x00'+encode(config),'sha256').hex())
     except Exception:
         return None
+
+
+def stable_configuration_key(creds, key):
+    """Recipe equality excludes transient slots and power controls entirely."""
+    if not isinstance(creds, dict):
+        return None
+    stable = {name: value for name, value in creds.items()
+              if name not in ('active_materials', 'filament_slots', 'plug_configuration')}
+    identity = build_identity(stable, key, _recipe=True)
+    return identity.configuration_key if identity else None

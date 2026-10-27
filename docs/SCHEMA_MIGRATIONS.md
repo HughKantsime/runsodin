@@ -103,3 +103,53 @@ Migration refusals raised while validating a restore (for example a ledger check
 - **Record the ledger before publishing.** `backend/core/schema/released_post027_ledgers.json` records the post-027 ids of every published release. Before publishing, run `python ops/release_control/record_post027_ledger.py` (it reads `VERSION`) and commit the entry into the release candidate. `publish-image.yml` refuses a `VERSION` that has no entry, or whose entry differs from the candidate's `POST027_MIGRATIONS`. The workflow cannot append the entry itself, because it has read-only contents and an immutable candidate SHA. Existing entries are never rewritten.
 - **Freeze a bundle before stranding a release.** `test_post027_release_gate.py` requires every recorded ledger to equal the current `POST027_MIGRATIONS` or to be routed by a preserved bundle. So once a release ships post-027 migrations, the next schema change fails that test until the release's restore-stage sources are frozen as a new `preserved0NN` bundle on the `preserved029` model, and archives whose ledger matches it are routed through that bundle. This adds a new qualified contract with its own tests; it never edits an existing one.
 - **SQLite is not affected.** SQLite databases upgrade in place through `bootstrap_database`, and SQLite backups restore as files and then upgrade on boot.
+
+## Recipe configuration identity (041)
+
+Migration `python:041-recipe-configuration` appends nullable
+`stable_configuration_key VARCHAR(64)` and `stable_key_source VARCHAR(32)` to
+`dispatch_attempt_receipts`. It does not rewrite rows. The current ORM additions
+are in `core/recipe_configuration_schema.py`; the original receipt model source
+and migration012 retain their byte pins. The live migrator validates012 against
+041's exact historical/current receipt shapes so both pre-041 upgrades and
+repeat current boots remain valid. A new ORM baseline records the added columns.
+
+Dispatch records the new purpose-separated HMAC with source `dispatch`. Its inputs
+match the full configuration identity except for `active_materials`,
+`filament_slots`, and `plug_configuration`. Full dispatch identity, claims,
+sender evidence, reconciliation and the AMS material gate keep their old meaning.
+Recipe version 2 uses this stable identity in its existing payload
+`configuration_key` field.
+
+Legacy receipt backfill is lazy and transactional. The printer row is locked
+while checking audit history, loading its current configuration, and updating
+the receipt. Any printer lifecycle/edit audit at or after receipt creation
+refuses backfill, including equal timestamps, missing/malformed audit times and
+delete/recreate history. Earlier audits, other printers and AMS `sync` events
+do not block it. Successful backfill records `backfilled_no_printer_audit`.
+Legacy backfill also compares the job's `print_files.nozzle_diameter` (retained
+slicer metadata) with the locked printer's current nozzle diameter. Known,
+different diameters refuse without saving a key. Unknown file or printer
+nozzle metadata permits backfill and retains source `backfilled_no_printer_audit`.
+
+MQTT nozzle/model/machine-type observations, Anycubic model observations and
+organization assignment now write printer audits in the same transaction, only
+when the stored value changes. They therefore invalidate later legacy backfill.
+Residual risk: before this fix those paths could change identity without audits.
+The nozzle check catches a retained sliced/current mismatch, but missing metadata,
+a change away and back, and old unaudited model/organization/bed/credential changes
+cannot be reconstructed. Both legacy keys still derive from the current printer
+row; matching backfilled keys are not independent proof of historical equality.
+Retain audits and qualify a new revision whenever that history is uncertain.
+
+A legacy recipe resolves through its exact reference job, receipt token, physical
+observation and original full payload. Stored recipe JSON stays unchanged.
+Unprovable history remains NULL and returns a 409 directing the operator to
+qualify a new revision. Legacy outside-only bindings with no dispatch reference
+also require a new revision. New outside qualification and binding use the
+stable identity.
+
+The branch's recorded 2.0.18–2.0.22 ledgers end at040. Their restore sources are
+preserved in the new `preserved040` overlay; prior frozen packages are unchanged.
+The explicitly unreleased 2.0.23 ledger includes041. The release owner must
+reconcile numbering with other branches before publishing.

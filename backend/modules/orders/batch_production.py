@@ -88,18 +88,25 @@ def job_evidence(db, owner, job_id, *, lock=False):
                 fail('Recipe model or printer ownership changed')
         elif not db.execute(select(model.id).where(model.id==identifier,clause)).first():
             fail('Recipe model or printer ownership changed')
-    return {**dict(row), **physical}
+    from core.recipe_configuration import receipt_key
+    stable = receipt_key(db, physical['claim_token'])
+    return {**dict(row), **physical, 'stable_configuration_key':stable}
 
 
 def recipe_payload(evidence):
-    return {key: evidence[key] for key in ('model_id','print_file_id','payload_sha256','plate_index','printer_id','configuration_key')}
+    return {**{key: evidence[key] for key in ('model_id','print_file_id','payload_sha256','plate_index','printer_id')},
+            'configuration_key':evidence['stable_configuration_key']}
 
 
-def recipe(db, owner, recipe_id):
+def recipe(db, owner, recipe_id, *, resolve_legacy=True):
     row = db.execute(select(recipes).where(recipes.c.id == recipe_id, recipes.c.owner == owner)).mappings().one_or_none()
     if row is None:
         raise HTTPException(404, 'Recipe not found')
-    return {'id': row['id'], **json.loads(row['definition'])}
+    spec = {'id': row['id'], **json.loads(row['definition'])}
+    if resolve_legacy and spec.get('version') == 1:
+        from modules.orders.recipe_matching import resolve_legacy_recipe
+        spec = resolve_legacy_recipe(db, owner, spec)
+    return spec
 
 
 def single_print_product(db, owner, product_id, model_id, kind):
@@ -142,7 +149,7 @@ def stage_recipe(db, owner, data, evidence, source):
         from modules.orders.assortment import validate_qualified_outputs
         validate_qualified_outputs(db,owner,data.outputs)
     identifier = uuid.uuid4().hex
-    definition = {'version':1, 'name':data.name.strip(), 'materials':data.materials.strip(),
+    definition = {'version':2, 'name':data.name.strip(), 'materials':data.materials.strip(),
                   'qualified':data.qualification_confirmed, 'created_at':now(),
                   **source,
                   'reference_observation_uid':evidence['observation_uid'],
@@ -164,7 +171,7 @@ def inspect_batch(db, user, data):
     component_state,_=lock_finishing(db,owner,user)
     if data.inspection_confirmed is not True:
         fail('Inspect the physical pieces before accepting this batch')
-    spec = recipe(db, owner, data.recipe_id)
+    spec = recipe(db, owner, data.recipe_id, resolve_legacy=False)
     if spec['qualified'] is not True:
         fail('This recipe is not qualified. Create a qualified revision after verifying its yield.')
     evidence = job_evidence(db, owner, data.job_id, lock=True)
@@ -178,8 +185,9 @@ def inspect_batch(db, user, data):
         if previous['owner'] != owner or previous['request_hash'] != request_hash:
             fail('This physical batch already has a different inspection receipt')
         return receipt_public(previous)
-    if recipe_payload(evidence) != spec['payload']:
-        fail('Job file, plate, model or printer configuration does not match this recipe revision')
+    from modules.orders.recipe_matching import assert_payload_matches, resolve_for_evidence
+    spec = resolve_for_evidence(db, owner, spec, evidence)
+    assert_payload_matches(recipe_payload(evidence), spec['payload'])
     expected = {(o['product_id'],o['kind']):o for o in spec['outputs']}
     supplied = {(o.product_id,o.kind):o for o in data.outputs}
     if len(supplied) != len(data.outputs) or set(expected) != set(supplied):

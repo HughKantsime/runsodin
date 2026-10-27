@@ -237,6 +237,7 @@ def import_all_models() -> None:
     import core.models  # noqa: F401
     import core.dispatch_claim_schema  # noqa: F401
     import core.dispatch_receipt_schema  # noqa: F401
+    import core.recipe_configuration_schema  # noqa: F401
     import core.dispatch_sender_schema  # noqa: F401
     import modules.archives.models  # noqa: F401
     import modules.inventory.models  # noqa: F401
@@ -290,7 +291,7 @@ def _orm_checksum() -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-CURRENT_ORM_BASELINE = "main_audit_20261012"
+CURRENT_ORM_BASELINE = "recipe_configuration_041"
 
 # Post-027 migrations, applied in this order on the current path only. Each must be
 # additive and must never fail because of existing user data (data-dependent
@@ -307,6 +308,7 @@ POST027_MIGRATIONS = (
     ("python:038-dispatch-recovery", "core.schema.migrations.038_dispatch_recovery"),
     ("python:039-measured-filament", "core.schema.migrations.039_measured_filament"),
     ("python:040-job-foundation", "core.schema.migrations.040_job_foundation"),
+    ("python:041-recipe-configuration", "core.schema.migrations.041_recipe_configuration"),
 )
 
 

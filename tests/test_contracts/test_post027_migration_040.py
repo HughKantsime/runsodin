@@ -107,7 +107,9 @@ with e.begin() as c:c.execute(text("INSERT INTO jobs(id,item_name,status) VALUES
     assert result.returncode==0,result.stderr
     e=create_engine('sqlite:///'+str(database))
     try:
-        assert bootstrap_database(e)['applied']==[M.MIGRATION_ID]
+        from core.schema.bootstrap import POST027_MIGRATIONS
+        ids=[migration_id for migration_id,_ in POST027_MIGRATIONS]
+        assert bootstrap_database(e)['applied']==ids[ids.index(M.MIGRATION_ID):]
         with e.connect() as c:assert c.execute(text('SELECT item_name FROM jobs WHERE id=40040')).scalar_one()=='preserved'
     finally:e.dispose()
 

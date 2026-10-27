@@ -6,7 +6,7 @@ import re
 from dataclasses import asdict
 from sqlalchemy import insert,select
 from core.dispatch_claim_schema import PrinterDispatchClaim
-from core.dispatch_receipt_schema import DispatchAttemptReceipt
+from core.recipe_configuration_schema import DispatchAttemptReceipt
 
 
 def _fingerprint(key,purpose,values):
@@ -39,8 +39,13 @@ def store_admission_receipt(conn,*,token,job,creds,key,configuration_key,filenam
         claim.c.configuration_key==configuration_key,claim.c.state=='adapter_entered')).first()
     if owned is None:
         raise ValueError('Dispatch receipt claim identity differs')
+    from core.dispatch_identity import stable_configuration_key
+    stable = stable_configuration_key(creds, key)
+    if stable is None:
+        raise ValueError("Recipe configuration identity unavailable")
     conn.execute(insert(DispatchAttemptReceipt.__table__).values(
         claim_token=token,printer_id=job['printer_id'],job_id=job['id'],configuration_key=configuration_key,
+        stable_configuration_key=stable,stable_key_source='dispatch',
         prepared_power_key=power_fingerprint(key,token,creds['plug_configuration'],broker_connection),
         observed_filename_key=filename_fingerprint(key,token,filename)))
 

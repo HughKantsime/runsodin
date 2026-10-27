@@ -15,6 +15,7 @@ INVENTORY = ROOT / "ops" / "database_parity" / "sqlite_compatibility_inventory.j
 
 
 CLASSIFICATIONS: dict[str, tuple[str, str]] = {
+    "backend/core/schema/migrations/041_recipe_configuration.py": ("sqlite-provider-only", "SQLite writer transaction is guarded by dialect; receipt shape uses dialect-native reflection on SQLite and PostgreSQL."),
     "backend/core/schema/migrations/039_measured_filament.py": ("sqlite-provider-only", "SQLite retained-reference PRAGMA and immutable triggers; PostgreSQL uses native constraints and guarded functions."),
     "backend/modules/inventory/slot_assignments.py": (
         "sqlite-provider-only",
@@ -283,6 +284,10 @@ CLASSIFICATIONS: dict[str, tuple[str, str]] = {
         "dialect-neutral",
         "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
     ),
+    "backend/modules/printers/monitors/mqtt_status.py": (
+        "dialect-neutral",
+        "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",
+    ),
     "backend/modules/printers/monitors/mqtt_printer.py": (
         "dialect-neutral",
         "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -444,6 +449,7 @@ PRESERVED_BUNDLES = (
     BACKEND / "core/schema/preserved037/overlay",
     BACKEND / "core/schema/preserved038/overlay",
     BACKEND / "core/schema/preserved039/overlay",
+    BACKEND / "core/schema/preserved040/overlay",
 )
 
 

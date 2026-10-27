@@ -95,7 +95,7 @@ def qualify_and_bind(db, user, print_job_id, data):
         assert_no_uncorrelated_dispatch(db, row)
         payload = print_file(db, owner, row, data)
         evidence = {**payload,'printer_id':row['printer_id'],
-                    'configuration_key':outside_prints.configuration_key(db,row['printer_id']),
+                    'stable_configuration_key':outside_prints.configuration_key(db,row['printer_id']),
                     'observation_uid':row['economic_birth_nonce']}
         confirmation = {'actor_user_id':user['id'],'confirmed_at':batches.now(),
                         'print_job_id':print_job_id,'attestation':data.attestation.model_dump(),

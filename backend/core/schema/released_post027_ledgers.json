@@ -351,7 +351,8 @@
    "python:037-education-memberships",
    "python:038-dispatch-recovery",
    "python:039-measured-filament",
-   "python:040-job-foundation"
+   "python:040-job-foundation",
+   "python:041-recipe-configuration"
   ]
  }
 }

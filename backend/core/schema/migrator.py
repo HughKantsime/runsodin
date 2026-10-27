@@ -100,6 +100,7 @@ _ALLOWED_PYTHON_MIGRATIONS = frozenset(
         "core.schema.migrations.038_dispatch_recovery",
         "core.schema.migrations.039_measured_filament",
         "core.schema.migrations.040_job_foundation",
+        "core.schema.migrations.041_recipe_configuration",
         "core.schema.migrations.036_ctec_pilot",
     }
 )
@@ -464,7 +465,13 @@ def apply_python_migration(connection: Connection, module_name: str) -> bool:
         raise MigrationError(f"Migration history mismatch: {migration_id}")
     context_token = _ACTIVE_PYTHON_MIGRATION.set(migration_id)
     def validate():
-        if migration_id == 'python:002-education-tenant-integrity':
+        if migration_id == 'python:012-dispatch-receipts':
+            source = source_path.parents[2] / 'dispatch_receipt_schema.py'
+            if _checksum(source) != module.SCHEMA_SOURCE_SHA256:
+                raise MigrationError('Dispatch receipt source contract changed')
+            receipt_revision = importlib.import_module('core.schema.migrations.041_recipe_configuration')
+            receipt_revision.validate_legacy(connection)
+        elif migration_id == 'python:002-education-tenant-integrity':
             from core.schema.education_archive_validation import validate_education_with_archive
             validate_education_with_archive(module, connection)
         else:
@@ -473,7 +480,10 @@ def apply_python_migration(connection: Connection, module_name: str) -> bool:
         if prior:
             validate()
             return False
-        module.apply(connection)
+        if migration_id == 'python:012-dispatch-receipts' and inspect(connection).has_table('dispatch_attempt_receipts'):
+            validate()
+        else:
+            module.apply(connection)
         validate()
     finally:
         _ACTIVE_PYTHON_MIGRATION.reset(context_token)
