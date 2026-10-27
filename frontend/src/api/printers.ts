@@ -24,6 +24,8 @@ import type {
 } from '../types'
 
 export interface DispatchRecoveryInspection {
+  refresh_required?: boolean
+  refresh?: { method: 'GET'; endpoint: string }
   state: string
   release_available: boolean
   attempt_handle?: string

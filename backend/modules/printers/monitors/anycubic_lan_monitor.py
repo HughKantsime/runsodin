@@ -1,5 +1,6 @@
 """Stock Anycubic monitor. Reuses Elegoo's common telemetry/lifecycle sink."""
 from core.base import slot_filament_value
+from core.printer_identity_audit import observe_printer_identity
 import logging
 import signal
 import threading
@@ -53,7 +54,7 @@ class AnycubicLANMonitorThread(ElegooMonitorThread):
                 try:
                     model = MODELS.get(self.client.model_id, self.client.model_id)
                     with engine.begin() as conn:
-                        conn.execute(text('UPDATE printers SET model=:model WHERE id=:pid'), {'model': model, 'pid': self.printer_id})
+                        observe_printer_identity(conn, self.printer_id, 'model', model)
                 except Exception:
                     log.warning('Anycubic model persistence failed')
                 connected_at = time.monotonic()

@@ -1,13 +1,9 @@
-"""Bambu status processing, owned by PrinterMonitor under its connection lock."""
+"""MQTT status ingestion; dependencies resolved from the owning monitor at call time."""
 
-def _on_status(self, status, generation=None):
-    from modules.printers.monitors.mqtt_printer import (
-        time, json, log, get_db, sql, ws_push, mqtt_republish, urlquote,
-        AlertType, AlertSeverity, resolve_stage_label, parse_lights, parse_ams_env,
-        parse_h2d_nozzles, h2d_extruder_temperatures, finite_nozzle_measurement,
-        parse_bambu_speed, parse_h2d_external_spools,
-        AMS_SYNC_MAX_ATTEMPTS, AMS_SYNC_RETRY_BASE_SECONDS, AMS_SYNC_RETRY_MAX_SECONDS,
-    )
+from core.printer_identity_audit import observe_printer_identity
+
+
+def handle_status(self, status, generation, runtime):
     """Handle incoming MQTT status update."""
     import modules.notifications.event_dispatcher as printer_events
     with self._lock:
@@ -22,12 +18,12 @@ def _on_status(self, status, generation=None):
             ('nozzle_temper_1', 'nozzle_1_temp', 'nozzle_1_temp_observed_at'),
             ('nozzle_target_temper_1', 'nozzle_1_target_temp', 'nozzle_1_target_observed_at'),
         ):
-            measured = finite_nozzle_measurement(raw.get(key))
+            measured = runtime.finite_nozzle_measurement(raw.get(key))
             if measured is not None:
                 pending_nozzles[column] = (measured, stamp, datetime.now(timezone.utc))
         # Real H2D firmware reports the second extruder only in
         # device.extruder.info[id=1] (packed current|target<<16).
-        second_extruder = h2d_extruder_temperatures(raw).get(1)
+        second_extruder = runtime.h2d_extruder_temperatures(raw).get(1)
         if second_extruder is not None:
             observed = datetime.now(timezone.utc)
             pending_nozzles['nozzle_1_temp'] = (second_extruder[0], 'nozzle_1_temp_observed_at', observed)
@@ -42,10 +38,10 @@ def _on_status(self, status, generation=None):
         # Merge correlation and lifecycle fields before any HMS processing.
         # A first RUNNING packet may also contain a print-stopping HMS code;
         # the token observation must be claimed/quarantined first.
-        speed_fields = parse_bambu_speed(raw)
+        speed_fields = runtime.parse_bambu_speed(raw)
         for key, value in raw.items():
             if key in ('nozzle_temper_1', 'nozzle_target_temper_1'):
-                value = finite_nozzle_measurement(value)
+                value = runtime.finite_nozzle_measurement(value)
             elif key in ('spd_lvl', 'spd_mag'):
                 value = speed_fields['speed_level' if key == 'spd_lvl' else 'speed_percent']
             if value is not None:
@@ -103,7 +99,7 @@ def _on_status(self, status, generation=None):
                 return True
             # HMS belongs to this packet, never an identity from cached telemetry.
             observed_filename = packet.get('subtask_name') or packet.get('gcode_file')
-            process_key = (observed_filename, json.dumps(incoming_hms, sort_keys=True))
+            process_key = (observed_filename, runtime.json.dumps(incoming_hms, sort_keys=True))
             if process_key == getattr(self, '_last_hms_processed_key', None):
                 return True
             try:
@@ -163,20 +159,20 @@ def _on_status(self, status, generation=None):
             transition(gcode_state)
 
         # Update telemetry + heartbeat (throttled to every 10 seconds)
-        if self._transport_offline or time.time() - getattr(self, '_last_heartbeat', 0) >= 10:
+        if self._transport_offline or runtime.time.time() - getattr(self, '_last_heartbeat', 0) >= 10:
             try:
-                with get_db() as conn:
+                with runtime.get_db() as conn:
                     bed_t = self._state.get('bed_temper')
                     bed_tt = self._state.get('bed_target_temper')
                     noz_t = self._state.get('nozzle_temper')
                     noz_tt = self._state.get('nozzle_target_temper')
                     gstate = self._state.get('gcode_state')
                     stg_cur = self._state.get('stg_cur', -1)
-                    stage = resolve_stage_label(stg_cur, gstate)
+                    stage = runtime.resolve_stage_label(stg_cur, gstate)
                     import json as _json
                     hms_raw = self._state.get('hms', [])
                     hms_j = _json.dumps(hms_raw) if hms_raw else None
-                    lights_on_raw = parse_lights(self._state.get('lights_report', []))
+                    lights_on_raw = runtime.parse_lights(self._state.get('lights_report', []))
                     # Check cooldown — don't overwrite if toggled via API within last 20s
                     cooldown_row = conn.execute('SELECT lights_toggled_at FROM printers WHERE id=?', (self.printer_id,)).fetchone()
                     lights_on = lights_on_raw
@@ -193,7 +189,7 @@ def _on_status(self, status, generation=None):
                             if 0 <= age < 20:
                                 lights_on = None
                         except (ValueError, TypeError, OverflowError):
-                            log.debug("Invalid light toggle timestamp; reconciling observed state")
+                            runtime.log.debug("Invalid light toggle timestamp; reconciling observed state")
                     noz_type = self._state.get('nozzle_type')
                     # Partial packets are not configuration removal, and a
                     # cached diameter must not overwrite a later edit.
@@ -211,15 +207,14 @@ def _on_status(self, status, generation=None):
                                 noz_dia = None
                     fan_speed_val = self._state.get('cooling_fan_speed')
                     conn.execute(
-                        f"UPDATE printers SET last_seen={sql.now()},"
+                        f"UPDATE printers SET last_seen={runtime.sql.now()},"
                         " bed_temp=?,bed_target_temp=?,nozzle_temp=?,nozzle_target_temp=?,"
                         " gcode_state=?,print_stage=?,hms_errors=?,"
                         " nozzle_type=?,fan_speed=COALESCE(?,fan_speed) WHERE id=?",
                         (bed_t, bed_tt, noz_t, noz_tt, gstate, stage,
                          hms_j, noz_type, fan_speed_val, self.printer_id))
                     if noz_dia is not None:
-                        conn.execute("UPDATE printers SET nozzle_diameter=? WHERE id=?",
-                                     (noz_dia, self.printer_id))
+                        observe_printer_identity(conn, self.printer_id, "nozzle_diameter", noz_dia)
                     from modules.printers.monitors.light_state import persist_light_observation
                     persist_light_observation(conn, self.printer_id, lights_on, cooldown_row[0] if cooldown_row else None)
                     for column, (value, stamp, observed_at) in pending_nozzles.items():
@@ -243,30 +238,24 @@ def _on_status(self, status, generation=None):
                     if raw_pt:
                         try:
                             friendly = bambu_model_name(raw_pt) or raw_pt
-                            conn.execute(
-                                "UPDATE printers SET model = ? WHERE id = ? AND (model IS NULL OR model = '' OR model = 'Unknown')",
-                                (friendly, self.printer_id)
-                            )
+                            observe_printer_identity(conn, self.printer_id, 'model', friendly, only_unset=True)
                             conn.commit()
                         except Exception as e:
-                            log.debug(f"[{self.name}] Model auto-detect failed: {e}")
+                            runtime.log.debug(f"[{self.name}] Model auto-detect failed: {e}")
 
                     # Auto-detect machine_type (H2D, X1C, P1S, etc.) — always update
                     if raw_pt:
                         try:
                             detected_type = bambu_model_name(raw_pt) or raw_pt
-                            conn.execute(
-                                "UPDATE printers SET machine_type = ? WHERE id = ? AND (machine_type IS NULL OR machine_type != ?)",
-                                (detected_type, self.printer_id, detected_type)
-                            )
+                            observe_printer_identity(conn, self.printer_id, 'machine_type', detected_type)
                             conn.commit()
                         except Exception as e:
-                            log.debug(f"[{self.name}] machine_type detect failed: {e}")
+                            runtime.log.debug(f"[{self.name}] machine_type detect failed: {e}")
 
                     # Republish telemetry to external broker
-                    if mqtt_republish:
+                    if runtime.mqtt_republish:
                         try:
-                            mqtt_republish.republish_telemetry(self.printer_id, self.name, {
+                            runtime.mqtt_republish.republish_telemetry(self.printer_id, self.name, {
                                 "bed_temp": bed_t, "bed_target": bed_tt,
                                 "nozzle_temp": noz_t, "nozzle_target": noz_tt,
                                 "state": gstate,
@@ -276,47 +265,47 @@ def _on_status(self, status, generation=None):
                                 "total_layers": self._state.get('total_layer_num'),
                             })
                         except Exception as e:
-                            log.debug(f"Failed to push printer state event: {e}")
-                    self._last_heartbeat = time.time()
+                            runtime.log.debug(f"Failed to push printer state event: {e}")
+                    self._last_heartbeat = runtime.time.time()
                     self._transport_offline = False
 
                     # ---- Timeseries Telemetry Capture ----
-                    if gstate in ('RUNNING', 'PREPARE', 'PAUSE') and time.time() - getattr(self, '_last_telemetry_insert', 0) >= 60:
-                        telemetry_capture_at = time.time()
+                    if gstate in ('RUNNING', 'PREPARE', 'PAUSE') and runtime.time.time() - getattr(self, '_last_telemetry_insert', 0) >= 60:
+                        telemetry_capture_at = runtime.time.time()
                         try:
                             conn.execute(
                                 "INSERT INTO printer_telemetry (printer_id, bed_temp, nozzle_temp, bed_target, nozzle_target, fan_speed) VALUES (?, ?, ?, ?, ?, ?)",
                                 (self.printer_id, bed_t, noz_t, bed_tt, noz_tt, fan_speed_val)
                             )
-                            conn.execute(f"DELETE FROM printer_telemetry WHERE recorded_at < {sql.now_offset('-90 days')}")  # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query,python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — sql.* helpers return constant SQL fragments, no user input
+                            conn.execute(f"DELETE FROM printer_telemetry WHERE recorded_at < {runtime.sql.now_offset('-90 days')}")  # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query,python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — sql.* helpers return constant SQL fragments, no user input
                             conn.commit()
                             self._last_telemetry_insert = telemetry_capture_at
                         except Exception as e:
                             conn.rollback()
-                            log.debug(f"[{self.name}] Telemetry insert: {e}")
+                            runtime.log.debug(f"[{self.name}] Telemetry insert: {e}")
 
                     # ---- AMS Environmental Data Capture ----
-                    if time.time() - getattr(self, '_last_ams_env', 0) >= 300:
-                        ams_capture_at = time.time()
+                    if runtime.time.time() - getattr(self, '_last_ams_env', 0) >= 300:
+                        ams_capture_at = runtime.time.time()
                         try:
                             ams_raw_env = self._state.get('ams', {})
-                            for entry in parse_ams_env(ams_raw_env):
+                            for entry in runtime.parse_ams_env(ams_raw_env):
                                 conn.execute(
                                     "INSERT INTO ams_telemetry (printer_id, ams_unit, humidity, temperature) VALUES (?, ?, ?, ?)",
                                     (self.printer_id, entry['unit_idx'], entry['humidity'], entry['temperature'])
                                 )
                             conn.execute(  # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query,python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — sql.* helpers return constant SQL fragments, no user input
-                                f"DELETE FROM ams_telemetry WHERE recorded_at < {sql.now_offset('-90 days')}"
+                                f"DELETE FROM ams_telemetry WHERE recorded_at < {runtime.sql.now_offset('-90 days')}"
                             )
                             conn.commit()
                             self._last_ams_env = ams_capture_at
                         except Exception as e:
                             conn.rollback()
-                            log.debug(f"[{self.name}] AMS env capture: {e}")
+                            runtime.log.debug(f"[{self.name}] AMS env capture: {e}")
 
                     # ---- AMS Filament Slot Auto-Sync ----
                     pending_ams = getattr(self, '_pending_ams_report', None)
-                    now = time.time()
+                    now = runtime.time.time()
                     if (pending_ams is not None
                             and now - getattr(self, '_last_ams_slot_sync', 0) >= 60
                             and now >= getattr(self, '_ams_sync_retry_at', 0.0)):
@@ -339,26 +328,26 @@ def _on_status(self, status, generation=None):
                             failures = getattr(self, '_ams_sync_failures', 0) + 1
                             if self._pending_ams_report is not pending_ams:
                                 pass  # a newer report replaced it; its own retry state applies
-                            elif failures >= AMS_SYNC_MAX_ATTEMPTS:
-                                log.error("AMS inventory synchronization failed %s times; dropping the reported AMS list until its contents change; printer_id=%s reason=%s",
+                            elif failures >= runtime.AMS_SYNC_MAX_ATTEMPTS:
+                                runtime.log.error("AMS inventory synchronization failed %s times; dropping the reported AMS list until its contents change; printer_id=%s reason=%s",
                                           failures, self.printer_id, reason, exc_info=type(exc) is not AMSInventoryError)
                                 dropped = self._pending_ams_digest
                                 self._reset_pending_ams()
                                 self._ams_dropped_digest = dropped
                             else:
-                                delay = min(AMS_SYNC_RETRY_BASE_SECONDS * 2 ** (failures - 1), AMS_SYNC_RETRY_MAX_SECONDS)
+                                delay = min(runtime.AMS_SYNC_RETRY_BASE_SECONDS * 2 ** (failures - 1), runtime.AMS_SYNC_RETRY_MAX_SECONDS)
                                 self._ams_sync_failures = failures
                                 self._ams_sync_retry_at = now + delay
                                 if self._ams_sync_warning_due(reason, now):
-                                    log.warning("AMS inventory synchronization failed (attempt %s/%s); retrying in %ss; printer_id=%s reason=%s",
-                                                failures, AMS_SYNC_MAX_ATTEMPTS, delay, self.printer_id, reason,
+                                    runtime.log.warning("AMS inventory synchronization failed (attempt %s/%s); retrying in %ss; printer_id=%s reason=%s",
+                                                failures, runtime.AMS_SYNC_MAX_ATTEMPTS, delay, self.printer_id, reason,
                                                 exc_info=type(exc) is not AMSInventoryError)
 
                 # ---- Dual-Nozzle (H2D / H2D Pro / H2C) / External Spool Parsing ----
                 h2d_nozzle_data = None
                 external_spools = None
                 try:
-                    with get_db() as h2d_conn:
+                    with runtime.get_db() as h2d_conn:
                         mt_row = h2d_conn.execute('SELECT machine_type FROM printers WHERE id=?', (self.printer_id,)).fetchone()
                         machine_type = mt_row[0] if mt_row else None
                 except Exception:
@@ -366,8 +355,8 @@ def _on_status(self, status, generation=None):
 
                 from modules.printers.printer_models import bambu_nozzle_count
                 if bambu_nozzle_count(machine_type) == 2:
-                    h2d_nozzle_data = parse_h2d_nozzles(self._state)
-                    external_spools = parse_h2d_external_spools(self._state)
+                    h2d_nozzle_data = runtime.parse_h2d_nozzles(self._state)
+                    external_spools = runtime.parse_h2d_external_spools(self._state)
 
                 # Push telemetry to WebSocket clients
                 ws_payload = {
@@ -382,20 +371,20 @@ def _on_status(self, status, generation=None):
                     'current_layer': self._state.get('layer_num'),
                     'total_layers': self._state.get('total_layer_num'),
                     'gcode_file': self._state.get('subtask_name') or self._state.get('gcode_file'),
-                    **parse_bambu_speed(self._state),
+                    **runtime.parse_bambu_speed(self._state),
                 }
                 if h2d_nozzle_data:
                     ws_payload['h2d_nozzles'] = h2d_nozzle_data
                 if external_spools:
                     ws_payload['external_spools'] = external_spools
-                ws_push('printer_telemetry', ws_payload)
+                runtime.ws_push('printer_telemetry', ws_payload)
 
                 # Process HMS errors through universal handler for alerts
                 if hms_raw:
                     import json as _json2
                     hms_key = _json2.dumps(hms_raw)
                     if hms_key != getattr(self, '_last_hms_key', None):
-                        with get_db() as hconn:
+                        with runtime.get_db() as hconn:
                             try:
                                 parsed = printer_events.parse_hms_errors(hms_raw)
                                 for err in parsed:
@@ -403,14 +392,14 @@ def _on_status(self, status, generation=None):
                                         "INSERT INTO hms_error_history (printer_id, code, message, severity, source) VALUES (?, ?, ?, ?, ?)",
                                         (self.printer_id, err.get('code', ''), err.get('message', ''), err.get('severity', 'warning'), 'bambu_hms')
                                     )
-                                hconn.execute(f"DELETE FROM hms_error_history WHERE occurred_at < {sql.now_offset('-90 days')}")  # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query,python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — sql.* helpers return constant SQL fragments, no user input
+                                hconn.execute(f"DELETE FROM hms_error_history WHERE occurred_at < {runtime.sql.now_offset('-90 days')}")  # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query,python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — sql.* helpers return constant SQL fragments, no user input
                                 hconn.commit()
                                 self._last_hms_key = hms_key
                             except Exception as e:
                                 hconn.rollback()
-                                log.debug(f"[{self.name}] HMS history insert: {e}")
+                                runtime.log.debug(f"[{self.name}] HMS history insert: {e}")
             except Exception as e:
-                log.warning(f"Failed to update telemetry for printer {self.printer_id}: {e}")
+                runtime.log.warning(f"Failed to update telemetry for printer {self.printer_id}: {e}")
 
         # Check for camera URL auto-discovery (only X1C/H2D broadcast rtsp_url)
         # Only sync once per connection — MQTT broadcasts this on every message
@@ -419,7 +408,7 @@ def _on_status(self, status, generation=None):
             ipcam = raw.get('ipcam', {})
             rtsp_url = ipcam.get('rtsp_url')
             if rtsp_url:
-                full_url = f"rtsps://bblp:{urlquote(self.access_code, safe='')}@{self.ip}:322/streaming/live/1"
+                full_url = f"rtsps://bblp:{runtime.urlquote(self.access_code, safe='')}@{self.ip}:322/streaming/live/1"
                 printer_events.discover_camera(self.printer_id, full_url)
                 self._camera_discovered = True
 
@@ -437,10 +426,10 @@ def _on_status(self, status, generation=None):
             self._state['_ams_remain'] = ams_remain
 
         # Update progress if we have an active job (throttled to every 5 seconds)
-        if self._current_job_id and time.time() - self._last_progress_update >= 5:
+        if self._current_job_id and runtime.time.time() - self._last_progress_update >= 5:
             self._update_progress()
 
         # Check AMS spool levels (throttled to every 60 seconds)
-        if time.time() - self._last_spool_check >= 60:
+        if runtime.time.time() - self._last_spool_check >= 60:
             self._check_spool_levels()
-            self._last_spool_check = time.time()
+            self._last_spool_check = runtime.time.time()

@@ -48,6 +48,8 @@ POLICY_INVENTORY = (
     _entry("printers.dispatch_background", "stage/claimed/progress/drain", "job/printer/dispatch claim", "stage and observe dispatch", "caller-authorized worker; normal dispatch admission and Education gates retained", ("printers.dispatch",), "test_dispatch_capability_background.py", "guarded"),
     _entry("printers.dispatch_loading", "_load_job/_get_printer_info", "job/file/printer", "read dispatch inputs", "trusted dispatch worker; authority checked again under target lock", ("printers.dispatch",), "test_dispatch_orchestration_behavior.py", "guarded"),
     _entry("printers.dispatch_education", "_authorize_education_hardware_action", "job/file/submission", "authorize/reserve/confirm", "trusted dispatch worker through Education policy provider", ("printers.dispatch",), "test_education_dispatch_policy.py", "guarded"),
+    _entry("orders.outside_qualification", "qualify_and_bind/print_file", "physical print/job/model/file", "qualification and binding", "admin interactive session; exact tenant; Education physical print and model exclusion", ("qualified recipe", "outside binding"), "test_production_ops.py", "guarded"),
+    _entry("jobs.scoped_cancel", "assert_cancel_allowed", "job/physical attempt", "cancel admission", "central Education mutation guard; retained dispatch and observation fences", (), "test_production_ops.py", "guarded"),
     _entry("orders.outside_prints", "bind/evidence/inspect", "physical print/job/recipe/submission", "owner-attested binding and inspection", "production operator; exact printer owner; Education filename, job and recipe model excluded", ("production acceptance", "prepared stock addition"), "test_outside_print_binding.py", "guarded"),
     _entry("jobs.completion_summary", "next_suggestion/build_summary", "job/printer/submission", "read", "job audience; Education scheduler policy and compatibility", ("start-next",), "test_completion_summary.py", "guarded"),
     _entry("printers.start_next", "start/confirm_on_admission", "job/printer/submission", "dispatch", "scoped operator; normal dispatch admission and Education gates", ("dispatch admission",), "test_completion_summary.py", "guarded"),
@@ -189,6 +191,7 @@ _EXPLICIT_SURFACE_PATHS = (
     "modules/archives/routes/tags.py",
     "modules/notifications/channels.py",
     # Job status now flows through jobs.state_machine; these workers remain surfaces.
+    "modules/jobs/scoped_cancel.py",
     "modules/notifications/job_events.py",
     "modules/notifications/error_handling.py",
     "modules/notifications/event_dispatcher.py",

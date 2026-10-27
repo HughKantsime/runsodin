@@ -36,8 +36,8 @@ def batch(shop, monkeypatch):
         from core.auth import SECRET_KEY
         from core.dispatch_receipts import filename_fingerprint
         fp=filename_fingerprint(SECRET_KEY.encode(),claim,'odin-dispatch-'+claim+'.3mf')
-        db.execute(text("""INSERT INTO dispatch_attempt_receipts(claim_token,printer_id,job_id,configuration_key,prepared_power_key,observed_filename_key,observed_print_job_id)
-            VALUES(:claim,301,:id,:key,:key,:fp,:observed)"""),{'id':jid,'observed':observed.id,'claim':claim,'key':'b'*64,'fp':fp})
+        db.execute(text("""INSERT INTO dispatch_attempt_receipts(claim_token,printer_id,job_id,configuration_key,prepared_power_key,observed_filename_key,observed_print_job_id,stable_configuration_key,stable_key_source)
+            VALUES(:claim,301,:id,:key,:key,:fp,:observed,:key,'dispatch')"""),{'id':jid,'observed':observed.id,'claim':claim,'key':'b'*64,'fp':fp})
     db.commit()
     status=mapped(shop)
     return (*shop,status)

@@ -37,6 +37,7 @@ def test_exact_released_040_ledger(version):
     assert set(released)<=preserved040.ledger_ids()
     assert 'python:041-inventory-color' not in preserved040.ledger_ids()
     assert 'python:042-dispatch-capability' not in preserved040.ledger_ids()
+    assert 'python:043-recipe-configuration' not in preserved040.ledger_ids()
 
 
 @pytest.mark.parametrize('changed',['manifest.json','overlay/core/schema/migrations/040_job_foundation.py'])
@@ -71,3 +72,33 @@ def test_restore_classifies_preserved040_stage_errors(tmp_path,monkeypatch,messa
     with pytest.raises(expected,match=message):
         with stage.prepared_archive(archive,'postgresql://localhost/target','postgresql://localhost/maintenance',None,None,tmp_path):
             pytest.fail('Invalid preserved stage must not be yielded')
+
+
+
+def test_child_success_era_is_accepted_by_parent():
+    import ast
+    tree=ast.parse(Path(preserved040.__file__).with_name('runner.py').read_text())
+    eras=[node.value.value for node in ast.walk(tree) if isinstance(node,ast.Assign)
+          and any(isinstance(target,ast.Name) and target.id=='era' for target in node.targets)
+          and isinstance(node.value,ast.Constant)]
+    assert eras
+    for era in eras:
+        assert preserved040._ACK.fullmatch(f'preserved040-validated:{era}\n'.encode())
+
+
+def test_stale_040_work_and_confirmed_child_journal_are_cleaned(tmp_path):
+    import os
+    import time
+    from modules.system import restore_artifacts as artifacts
+    journal=artifacts.journal_dir(tmp_path)
+    child=journal/('.odin-preserved040-'+'a'*20);child.mkdir(mode=0o700)
+    confirmed='odin_validate_'+'b'*20;intended='odin_validate_'+'c'*20
+    (child/confirmed).write_text('');(child/(intended+'.intent')).write_text('')
+    work=tmp_path/('.odin-preserved040-'+'d'*20);work.mkdir()
+    unrelated=tmp_path/'keep-me';unrelated.mkdir()
+    old=time.time()-7*3600
+    for path in (child/confirmed,child/(intended+'.intent'),child,work,unrelated):os.utime(path,(old,old))
+    asked=[]
+    result=artifacts.sweep_stale(tmp_path,'unused',None,drop=lambda names:asked.extend(names) or names)
+    assert asked==[confirmed] and result['databases']==[confirmed]
+    assert not child.exists() and not work.exists() and unrelated.exists()

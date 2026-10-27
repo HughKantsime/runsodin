@@ -443,8 +443,8 @@ class PrinterMonitor:
             printer_id=self.printer_id, job_id=job_id, spool_id=spool_id, metadata=metadata)
 
     def _on_status(self, status, generation=None):
-        from modules.printers.monitors.mqtt_status import _on_status
-        return _on_status(self, status, generation)
+        from modules.printers.monitors.mqtt_status import handle_status
+        return handle_status(self, status, generation, sys.modules[__name__])
 
     def _check_spool_levels(self):
         """Check AMS spool remaining weights and fire spool_low alerts."""

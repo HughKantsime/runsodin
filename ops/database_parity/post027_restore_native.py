@@ -171,6 +171,7 @@ def main():
             c.execute(text("INSERT INTO stock_snapshots(owner_scope,owner_key,variation,location,quantity,calculated_at,read_at) VALUES('global',0,'roundtrip040','main','3',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"))
             c.execute(text("INSERT INTO job_timeline_events(id,job_id,print_attempt_uid,kind,occurred_at) VALUES('roundtrip040',990034,'roundtrip040-attempt','completed',CURRENT_TIMESTAMP)"))
             c.execute(text("INSERT INTO timeline_writer_state(process_id,started_at,clean_shutdown,last_drained_at) VALUES('roundtrip040',CURRENT_TIMESTAMP,1,CURRENT_TIMESTAMP)"))
+            c.execute(text("INSERT INTO dispatch_attempt_receipts(claim_token,printer_id,job_id,configuration_key,prepared_power_key,observed_filename_key,stable_configuration_key,stable_key_source) VALUES(:token,1,990034,:full,:full,:full,:stable,'dispatch')"), {'token':'4'*32,'full':'4'*64,'stable':'1'*64})
         backup, backup_metadata = b.create_postgres_backup(target, maintenance_url=maintenance, **args)
         with engine.begin() as c:
             c.execute(text("UPDATE system_config SET value='\"after-backup\"' WHERE key='historical_marker'"))
@@ -202,6 +203,9 @@ def main():
             assert c.execute(text("SELECT kind FROM job_timeline_events WHERE id='roundtrip040'")).scalar_one()=='completed'
             assert c.execute(text("SELECT clean_shutdown FROM timeline_writer_state WHERE process_id='roundtrip040'")).scalar_one()==1
         print('post027-native-current-backup-restore-roundtrip-040-all-four-rows-pass',flush=True)
+        with engine.connect() as c:
+            assert c.execute(text('SELECT stable_configuration_key,stable_key_source FROM dispatch_attempt_receipts WHERE claim_token=:token'), {'token':'4'*32}).one()==('1'*64,'dispatch')
+        print('post027-native-current-backup-restore-roundtrip-043-recipe-key-pass',flush=True)
 
 
         engine.dispose()

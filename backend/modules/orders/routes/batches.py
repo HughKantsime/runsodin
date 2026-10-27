@@ -135,3 +135,11 @@ from modules.orders.batch_schemas import OutsideBindingInput
 def bind_outside_print(print_job_id:int,data:OutsideBindingInput,user=Depends(require_role('operator',scope='write:production')),db:Session=Depends(get_db)):
     from modules.orders.outside_prints import bind
     return bind(db,user,print_job_id,data)
+
+
+from modules.orders.batch_schemas import OutsideQualificationInput
+
+@router.post('/outside-prints/{print_job_id}/qualify-and-bind',dependencies=[interactive, Depends(require_action('products.recipes',scope='write'))])
+def qualify_outside_print(print_job_id:int,data:OutsideQualificationInput,user=Depends(admin),db:Session=Depends(get_db)):
+    from modules.orders.outside_qualification import qualify_and_bind
+    return qualify_and_bind(db,user,print_job_id,data)

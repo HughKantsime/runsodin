@@ -18,5 +18,8 @@
   "GET /api/stats": {},
   "GET /api/printers/1/maintenance-state": {"state": "ok", "note": "", "set_by": null, "set_by_name": null, "set_at": null},
   "PUT /api/printers/1/maintenance-state": {"state": "warn", "note": "Fixture maintenance", "set_by": 1, "set_by_name": "Admin", "set_at": "2026-10-27T12:00:00Z"},
-  "POST /api/spools/receive/bulk": {"import_id": "fixture-receiving", "rows": [], "spools": []}
+  "POST /api/spools/receive/bulk": {"import_id": "fixture-receiving", "rows": [], "spools": []},
+  "GET /api/print-jobs": [],
+  "POST /api/products/production/outside-prints/120/bind": {"id": "outside-binding", "print_job_id": 120, "recipe_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "odin_dispatched": false, "owner_attested": true},
+  "POST /api/products/production/outside-prints/120/qualify-and-bind": {"id": "outside-binding", "print_job_id": 120, "recipe_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "odin_dispatched": false, "owner_attested": true}
 }

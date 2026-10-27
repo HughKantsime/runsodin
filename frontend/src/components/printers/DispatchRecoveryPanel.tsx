@@ -86,7 +86,8 @@ export default function DispatchRecoveryPanel({ printerId }: { printerId: number
     {query.isError ? <p role="alert">Dispatch evidence is unavailable for this printer. Refresh to try again.</p>
       : query.isPending ? <p role="status">Loading dispatch evidence...</p>
       : !data ? <p>No dispatch evidence was returned.</p>
-      : data.state === 'no_retained_claim' ? <p>No dispatch fence is currently retained. Missing evidence does not confirm a successful print or give permission to retry.</p>
+      : data.state === 'investigation_required' ? <p>{data.guidance || 'Ask an administrator to investigate printer and evidence ownership.'}</p>
+      : data.state === 'refresh_required' ? <p>{data.guidance || 'Wait for fresh monitor telemetry, then refresh evidence.'}</p> : data.state === 'no_retained_claim' ? <p>No dispatch fence is currently retained. Missing evidence does not confirm a successful print or give permission to retry.</p>
       : <div className="space-y-3 text-sm">
         <p role="status">{states[data.state] || 'Dispatch evidence needs investigation'}. Repeat dispatch is blocked.</p>
         <p>Printer {printerId}. Scheduled job: {data.job_id ?? 'unavailable in this scope'}. {data.job ? `Recorded state: ${data.job.status}. ${data.job.held ? 'Held from scheduling.' : 'Not held from scheduling.'}` : 'Job details are unavailable in this scope.'}</p>
@@ -95,6 +96,7 @@ export default function DispatchRecoveryPanel({ printerId }: { printerId: number
         {data.education && <p>Education submission {data.education.submission_id}: {data.education.status}. Reservation: {data.education.reservation_state || 'none recorded'}.</p>}
         <p>Hold stops future admission but cannot stop an admitted command. Idle status, silence and elapsed time do not prove safety.</p>
         <p>ODIN cannot see non-ODIN senders such as Bambu Studio or a print queued on the device. The operator attestation covers these.</p>
+        {data.refresh_required&&<p>{data.guidance}</p>}
         {(data.blockers || []).map(code => <p key={code}>{blockers[code] || 'Evidence changed or a prerequisite is unresolved. Refresh and investigate.'}</p>)}
         {canWrite && data.attempt_handle && <div className="flex flex-wrap gap-2">
           {data.actions?.hold && <Button disabled={mutation.isPending} onClick={() => open('hold')}>Hold job</Button>}

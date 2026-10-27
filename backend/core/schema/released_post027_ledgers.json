@@ -364,7 +364,8 @@
    "python:039-measured-filament",
    "python:040-job-foundation",
    "python:041-inventory-color",
-   "python:042-dispatch-capability"
+   "python:042-dispatch-capability",
+   "python:043-recipe-configuration"
   ]
  }
 }

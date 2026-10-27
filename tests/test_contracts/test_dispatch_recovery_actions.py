@@ -44,6 +44,10 @@ def test_hold_retain_release_and_replay(actions,review_db):
     assert post('hold',initial).json()['detail']['code']=='snapshot_changed'
     retained=post('reconcile-retain')
     assert retained.status_code==200,retained.text
+    # Recovery requires telemetry no older than ten seconds. Token hashing and
+    # parallel CI batches can outlive the setup sample during hold/retain/replay.
+    review_db.execute(text('UPDATE printers SET last_seen=CURRENT_TIMESTAMP WHERE id=299'))
+    review_db.commit()
     snapshot=inspect()
     released=post('release',snapshot)
     assert released.status_code==200,released.text
@@ -324,7 +328,7 @@ def test_close_uncertainty_after_commit_is_sanitized_unknown(actions,monkeypatch
     response=post('release')
     assert response.status_code==503 and response.json()['detail']['code']=='outcome_unknown'
     assert 'Synthetic private driver detail' not in response.text
-    assert inspect()['state']=='no_retained_claim'
+    assert inspect()['state']=='investigation_required'
 
 
 @pytest.mark.parametrize('same_printer,same_target,blocked',[(True,False,True),(False,True,True),(False,False,False)])

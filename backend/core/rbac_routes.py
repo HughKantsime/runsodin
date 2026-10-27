@@ -41,6 +41,7 @@ ACTION_ROUTES: dict[str, list[tuple[str, str]]] = {
     ],
     "products.recipes": [
         ("POST", "/api/products/production/recipes"),
+        ("POST", "/api/products/production/outside-prints/{print_job_id}/qualify-and-bind"),
     ],
     "products.outside_prints": [("POST", "/api/products/production/outside-prints/{print_job_id}/bind")],
     "products.inspections": [

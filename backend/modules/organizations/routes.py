@@ -256,8 +256,13 @@ async def assign_printer_to_org(org_id: int, body: AssignPrinterRequest, current
     """Assign a printer to an organization. Superadmin only."""
     printer_id = body.printer_id
     assert_printer_tenant_change_or_delete_allowed(db, printer_id)
-    db.execute(text("UPDATE printers SET org_id = :oid WHERE id = :pid"),
-               {"oid": org_id, "pid": printer_id})
+    db.execute(text("UPDATE printers SET id=id WHERE id=:pid"), {"pid": printer_id})
+    old = db.execute(text("SELECT org_id FROM printers WHERE id=:pid"), {"pid": printer_id}).first()
+    if old is not None and old[0] != org_id:
+        db.execute(text("UPDATE printers SET org_id = :oid WHERE id = :pid"),
+                   {"oid": org_id, "pid": printer_id})
+        log_audit(db, "printer.org_assigned", "printer", printer_id,
+                  {"field": "org_id", "old": old[0], "new": org_id})
     db.commit()
     return {"status": "ok"}
 

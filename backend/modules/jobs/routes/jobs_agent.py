@@ -25,6 +25,7 @@ import logging
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel as PydanticBaseModel
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.base import AlertSeverity, AlertType, JobStatus
@@ -36,6 +37,7 @@ from core.errors import ErrorCode, OdinError
 from core.middleware.dry_run import dry_run_preview, is_dry_run
 from core.rbac import (
     require_action,
+    HANDLER_SCOPE,
     AGENT_WRITE_SCOPE,
     check_org_access,
     require_any_scope,
@@ -45,6 +47,7 @@ from core.responses import build_next_actions, next_action
 from license_manager import require_feature
 from modules.jobs.models import Job
 from modules.jobs.schemas import JobResponse
+from modules.jobs.scoped_cancel import assert_cancel_allowed
 
 log = logging.getLogger("odin.api")
 logger = log
@@ -73,11 +76,11 @@ def _get_job_or_raise(db: Session, job_id: int, current_user: dict) -> Job:
 def cancel_job(
     job_id: int,
     request: Request,
-    current_user: dict = Depends(require_action("jobs.cancel")),
-    _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
+    current_user: dict = Depends(require_action("jobs.cancel", scope=HANDLER_SCOPE)),
+    _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE, "write:jobs")),
     db: Session = Depends(get_db),
 ):
-    """Cancel a pending or scheduled job. Agent-surface v1.9.0."""
+    """Cancel queued work; write:jobs authority is limited to never-dispatched work."""
     job = _get_job_or_raise(db, job_id, current_user)
     assert_generic_job_mutation_allowed(db, job_id)
     if job.status not in [JobStatus.PENDING, JobStatus.SCHEDULED]:
@@ -88,6 +91,7 @@ def cancel_job(
             retriable=False,
         )
 
+    assert_cancel_allowed(db, job, current_user)
     if is_dry_run(request):
         return dry_run_preview(
             would_execute={
@@ -106,9 +110,12 @@ def cancel_job(
         )
 
     production_orders = prepare_job_write(db, [job_id])
+    # Same job-row exclusion used by dispatch admission; recheck all fences under it.
+    db.execute(text('UPDATE jobs SET id=id WHERE id=:id'), {'id':job_id})
     job = db.query(Job).filter(Job.id == job_id).populate_existing().first()
     if not job or not check_org_access(current_user, job.charged_to_org_id):
         raise OdinError(ErrorCode.job_not_found, f"Job {job_id} not found", status=404)
+    assert_cancel_allowed(db, job, current_user)
     from modules.jobs.state_machine import transition_job
     if not transition_job(db, job_id, JobStatus.CANCELLED, "operator",
                           from_states=(JobStatus.PENDING, JobStatus.SCHEDULED),
@@ -117,7 +124,8 @@ def cancel_job(
         raise OdinError(ErrorCode.invalid_state_transition,
                         'Job state changed before cancellation', status=400, retriable=False)
     db.refresh(job)
-    log_audit(db, "job.cancelled", "job", job.id)
+    log_audit(db, "job.cancelled", "job", job.id, {
+        "actor_user_id": current_user["id"], "actor_token_id": current_user.get("_token_id")})
     reconcile_job_write(db, production_orders)
     db.commit()
     db.refresh(job)

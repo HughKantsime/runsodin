@@ -107,10 +107,10 @@ def _variants(tmp_path, archive, monkeypatch, current, check_released=True):
                 assert identify_contract(archive, 'postgresql://o@pg/odin', None, tmp_path) is PRESERVED036
             elif frozenset(base + prefix) == __import__('core.schema.preserved037', fromlist=['ledger_ids']).ledger_ids():
                 assert identify_contract(archive, 'postgresql://o@pg/odin', None, tmp_path) is PRESERVED037
-            elif frozenset(base + prefix) == __import__('core.schema.preserved040', fromlist=['ledger_ids']).ledger_ids():
-                assert identify_contract(archive, 'postgresql://o@pg/odin', None, tmp_path) is PRESERVED040
             elif frozenset(base + prefix) == __import__('core.schema.preserved039', fromlist=['ledger_ids']).ledger_ids():
                 assert identify_contract(archive, 'postgresql://o@pg/odin', None, tmp_path) is PRESERVED039
+            elif frozenset(base + prefix) == __import__('core.schema.preserved040', fromlist=['ledger_ids']).ledger_ids():
+                assert identify_contract(archive, 'postgresql://o@pg/odin', None, tmp_path) is PRESERVED040
             elif frozenset(base + prefix) == __import__('core.schema.preserved038', fromlist=['ledger_ids']).ledger_ids():
                 assert identify_contract(archive, 'postgresql://o@pg/odin', None, tmp_path) is PRESERVED038
             else:

@@ -15,6 +15,8 @@ def test_admission_receipt_persists_exact_attempt_and_no_raw_configuration(setup
         row=conn.execute(text('SELECT * FROM dispatch_attempt_receipts')).mappings().one()
     assert row['claim_token']==values['token'] and row['printer_id']==59 and row['job_id']==53
     assert row['observed_print_job_id'] is None
+    assert len(row['stable_configuration_key'])==64 and row['stable_key_source']=='dispatch'
+    assert row['stable_configuration_key']!=row['configuration_key']
     assert len(row['configuration_key'])==len(row['prepared_power_key'])==len(row['observed_filename_key'])==64
     assert row['prepared_power_key']!=row['observed_filename_key']
     assert 'printer.example.test' not in str(dict(row))

@@ -108,6 +108,7 @@ def test_migration_changes_only_known_wrong_pair(tmp_path):
     engine = create_engine(f'sqlite:///{tmp_path}/migration.db')
     with engine.begin() as conn:
         conn.execute(text('CREATE TABLE printers(id INTEGER PRIMARY KEY,api_type TEXT,machine_type TEXT,model TEXT,bed_x_mm FLOAT,bed_y_mm FLOAT)'))
+        conn.execute(text('CREATE TABLE audit_logs(action TEXT,entity_type TEXT,entity_id INTEGER,details TEXT)'))
         for index, (model, x, y, protocol) in enumerate([
             ('H2D',320,320,'bambu'), ('O1E',320,320,'bambu'), ('H2D',321,320,'bambu'),
             ('H2D',320,319,'bambu'), ('P1S',320,320,'bambu'), ('H2D',320,320,'moonraker')]):
@@ -115,6 +116,7 @@ def test_migration_changes_only_known_wrong_pair(tmp_path):
         migration.apply(conn)
         assert conn.execute(text('SELECT bed_x_mm FROM printers ORDER BY id')).scalars().all() == [350,350,321,320,320,320]
         migration.apply(conn)  # idempotent
+        assert conn.execute(text('SELECT entity_id FROM audit_logs ORDER BY entity_id')).scalars().all() == [0, 1]
     engine.dispose()
 
 
