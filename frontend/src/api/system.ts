@@ -9,6 +9,11 @@ export interface AppConfig {
   [key: string]: unknown;
 }
 
+export interface RemoteAccess {
+  configured: boolean; url: string | null; tailnet: boolean;
+  current_origin_verified: boolean; check_url: string | null; camera_transport: string;
+}
+
 export interface NetworkConfig {
   [key: string]: unknown;
 }
@@ -84,6 +89,7 @@ export interface LanguageConfig {
 export const config = {
   get: (): Promise<AppConfig> => fetchAPI('/config'),
   update: (data: Partial<AppConfig>): Promise<AppConfig> => fetchAPI('/config', { method: 'PUT', body: JSON.stringify(data) }),
+  getRemoteAccess: (): Promise<RemoteAccess> => fetchAPI('/settings/remote-access'),
   getNetwork: (): Promise<NetworkConfig> => fetchAPI('/setup/network'),
   saveNetwork: (data: NetworkConfig): Promise<NetworkConfig> => fetchAPI('/setup/network', { method: 'POST', body: JSON.stringify(data) }),
   testSpoolman: (): Promise<unknown> => fetchAPI('/spoolman/test'),

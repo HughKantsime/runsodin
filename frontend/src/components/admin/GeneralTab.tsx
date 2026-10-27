@@ -1,3 +1,4 @@
+import RemoteAccessStatus from './RemoteAccessStatus'
 import { getCurrentUser } from '../../permissions'
 import { useTranslation } from '../../contexts/I18nContext'
 import { useState, useEffect } from 'react'
@@ -130,6 +131,7 @@ function NetworkSection() {
       <p className="text-[var(--brand-text-muted)] text-sm mb-4">
         Configure the host IP address for WebRTC camera streaming. This should be the LAN IP of the server running O.D.I.N., reachable from your browser.
       </p>
+      <RemoteAccessStatus />
       <div className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-[var(--brand-text-secondary)] mb-1.5">Host IP Address</label>

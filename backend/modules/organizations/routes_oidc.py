@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
+from core.remote_access import session_cookie_secure
 from fastapi import APIRouter, Depends, HTTPException, Request
 from license_manager import feature_gate
 from sqlalchemy import text
@@ -72,8 +73,9 @@ def _binding_cookie_paths(request: Request) -> list[str]:
 
 
 def _binding_cookie_secure(request: Request) -> bool:
-    """COOKIE_SECURE when it is set (behind a TLS-terminating proxy the app sees http);
-    otherwise the request scheme."""
+    """Verified HTTPS is always Secure; HTTP retains the existing override policy."""
+    if request.url.scheme == "https":
+        return True
     if os.environ.get("COOKIE_SECURE") is not None:
         return bool(_settings.cookie_secure)
     return request.url.scheme == "https"
@@ -530,7 +532,7 @@ async def oidc_exchange_code(body: dict, request: Request, db: Session = Depends
     resp = JSONResponse({"access_token": access_token, "token_type": "bearer"})
     _delete_binding_cookies(resp, request)
     resp.set_cookie(key="session", value=access_token, httponly=True,
-                    secure=_settings.cookie_secure, samesite=_settings.cookie_samesite,
+                    secure=session_cookie_secure(request, _settings), samesite=_settings.cookie_samesite,
                     path="/", max_age=86400)
     return resp
 

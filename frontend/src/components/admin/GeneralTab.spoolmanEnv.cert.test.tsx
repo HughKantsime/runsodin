@@ -7,7 +7,7 @@ import GeneralTab from './GeneralTab'
 const api = vi.hoisted(() => ({ update: vi.fn(async (d: unknown) => d), config: {} as Record<string, unknown> }))
 vi.mock('../../LicenseContext', () => ({ useLicense: () => ({ tier: 'pro', isPro: true, max_printers: null, max_users: null, hasFeature: () => false }) }))
 vi.mock('../../api', async importOriginal => ({ ...await importOriginal(), pricingConfig: { get: async () => ({}) },
-  config: { get: async () => api.config, update: api.update, getNetwork: async () => ({}), testSpoolman: vi.fn() } }))
+  config: { get: async () => api.config, update: api.update, getRemoteAccess: vi.fn().mockResolvedValue({configured:false,url:null,check_url:null}), getNetwork: async () => ({}), testSpoolman: vi.fn() } }))
 afterEach(() => { cleanup(); vi.clearAllMocks() })
 function mount() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })

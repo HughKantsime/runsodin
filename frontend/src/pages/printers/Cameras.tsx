@@ -1,3 +1,4 @@
+import CameraFallback from '../../components/printers/CameraFallback'
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
@@ -35,7 +36,7 @@ function AiIndicator({ printerId }) {
 }
 
 function CameraCard({ camera, onExpand, onPip }) {
-  const { videoRef, status, retry: handleRetry } = useWebRTC(camera.id)
+  const { videoRef, fallback, status, retry: handleRetry } = useWebRTC(camera.id)
 
   const dotColor = status === 'live' ? 'bg-green-500' : status === 'connecting' ? 'bg-yellow-500 animate-pulse' : 'bg-red-500'
 
@@ -43,6 +44,7 @@ function CameraCard({ camera, onExpand, onPip }) {
     <div className="bg-[var(--brand-card-bg)] rounded-md overflow-hidden group" style={{ boxShadow: 'var(--brand-card-shadow)' }}>
       <div className="relative aspect-video bg-black">
         <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-contain" />
+      <CameraFallback cameraId={camera.id} active={!!fallback} />
         {status === 'connecting' && (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="text-[var(--brand-text-muted)] text-sm animate-pulse">Connecting...</div>
@@ -365,7 +367,7 @@ function ControlRoomCamera({ camera, delay = 0 }) {
     return () => clearTimeout(timer)
   }, [delay])
 
-  const { videoRef, status, retry } = useWebRTC(camera.id, {
+  const { videoRef, fallback, status, retry } = useWebRTC(camera.id, {
     maxRetries: 0, // infinite retries for control room
     enabled: ready,
   })
@@ -373,6 +375,7 @@ function ControlRoomCamera({ camera, delay = 0 }) {
   return (
     <>
       <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-contain" />
+      <CameraFallback cameraId={camera.id} active={!!fallback} />
       {(!ready || status === 'connecting') && (
         <div className="absolute inset-0 flex items-center justify-center">
           <div className="text-[var(--brand-text-muted)] text-sm animate-pulse">Connecting...</div>

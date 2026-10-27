@@ -68,5 +68,8 @@ def base_url_health_warning(db):
 
 
 def configured_base_url(db):
+    from core.config import settings
+    if settings.odin_public_url:
+        return settings.odin_public_url
     configured=db.query(SystemConfig).filter(SystemConfig.key=='base_url').first()
     return configured.value if configured and isinstance(configured.value,str) else ''

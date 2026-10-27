@@ -1,3 +1,4 @@
+import CameraFallback from '../../components/printers/CameraFallback'
 import React, { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -10,11 +11,12 @@ import useWebRTC from '../../hooks/useWebRTC'
 const CARDS_PER_PAGE = 12
 
 function TVCameraStream({ cameraId }: { cameraId: number }) {
-  const { videoRef, status } = useWebRTC(cameraId)
+  const { videoRef, fallback, status } = useWebRTC(cameraId)
 
   return (
     <div className="relative w-full h-full bg-black">
       <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-contain" />
+      <CameraFallback cameraId={cameraId} active={!!fallback} />
       {status === 'connecting' && (
         <div className="absolute inset-0 flex items-center justify-center">
           <div className="text-[var(--brand-text-muted)] text-xs animate-pulse">Connecting...</div>

@@ -1,3 +1,4 @@
+import CameraFallback from './CameraFallback'
 import { useLayoutEffect, useRef, useState } from 'react'
 import useWebRTC from '../../hooks/useWebRTC'
 import type { Camera } from '../../types/printer'
@@ -16,7 +17,7 @@ function availableViewport() {
 }
 
 export default function CameraPipPlayer({ camera, onClose, warning }: { camera: Camera; onClose: () => void; warning?: boolean }) {
-  const { videoRef, status, retry } = useWebRTC(camera.id)
+  const { videoRef, fallback, status, retry } = useWebRTC(camera.id)
   const [small, setSmall] = useState(false)
   const [viewport, setViewport] = useState(availableViewport)
   const width = Math.min(small ? 240 : 320, viewport.width)
@@ -50,6 +51,7 @@ export default function CameraPipPlayer({ camera, onClose, warning }: { camera: 
       </div>
     </header>
     <video ref={videoRef} autoPlay playsInline muted aria-label="Camera stream" className="h-full w-full object-contain" />
+      <CameraFallback cameraId={camera.id} active={!!fallback} />
     <div role="status" className="absolute bottom-0 left-0 right-0 bg-black/80 p-1 text-xs">
       {status === 'live' ? 'LIVE' : status === 'connecting' ? 'Connecting' : status === 'disconnected' ? 'Disconnected' : 'Stream unavailable'}
       {(status === 'error' || status === 'disconnected') && <button onClick={retry} className="ml-2 underline">Retry stream</button>}

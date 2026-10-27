@@ -6,7 +6,7 @@ import { MemoryRouter } from 'react-router-dom'
 const api = vi.hoisted(() => ({ get: vi.fn(), update: vi.fn(), mode: 'advanced', pro: true }))
 vi.mock('../../api', () => ({
  pricingConfig: { get: api.get, update: api.update },
- config: { get: vi.fn().mockResolvedValue({}), getNetwork: vi.fn().mockResolvedValue({}), update: vi.fn(), testSpoolman: vi.fn() },
+ config: { get: vi.fn().mockResolvedValue({}), getRemoteAccess: vi.fn().mockResolvedValue({configured:false,url:null,check_url:null}), getNetwork: vi.fn().mockResolvedValue({}), update: vi.fn(), testSpoolman: vi.fn() },
  users: { list: vi.fn().mockResolvedValue([]) }, fetchAPI: vi.fn().mockResolvedValue({}),
  getEducationMode: vi.fn().mockResolvedValue({enabled:false}), setEducationMode: vi.fn(),
  getApprovalSetting: vi.fn().mockResolvedValue({}), setApprovalSetting: vi.fn(),

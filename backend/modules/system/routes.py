@@ -45,3 +45,6 @@ router.include_router(troubleshooting.router)
 # Re-export health_check so core/app.py can call system.health_check()
 # (core/app.py registers a root /health handler that delegates here)
 from modules.system.routes_health import health_check  # noqa: F401, E402
+
+from modules.system import routes_remote_access
+router.include_router(routes_remote_access.router)

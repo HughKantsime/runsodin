@@ -13,7 +13,7 @@ vi.mock('../../api', async () => {
   return {
     downloadBlob: client.downloadBlob,
     pricingConfig: { get: vi.fn().mockResolvedValue({ ui_mode: 'advanced' }) },
-    fetchAPI: vi.fn().mockResolvedValue({}), config: { getNetwork: vi.fn().mockResolvedValue({}) },
+    fetchAPI: vi.fn().mockResolvedValue({}), config: { getRemoteAccess: vi.fn().mockResolvedValue({configured:false,url:null,check_url:null}), getNetwork: vi.fn().mockResolvedValue({}) },
     backups: { list: vi.fn().mockResolvedValue([]) }, gdpr: {}, adminBundle: {},
   }
 })

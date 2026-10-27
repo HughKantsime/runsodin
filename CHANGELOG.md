@@ -2,6 +2,20 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.23] - 2026-10-27
+
+<!-- summary: Optional secure remote access over Tailscale -->
+
+### Added
+
+- Optional remote access over Tailscale. Turn on the `tailscale` profile in the installer's Compose file. ODIN then gets an HTTPS address that only your tailnet devices can reach, so the iOS app and the browser work away from home. Nothing is exposed to the public internet, and LAN access is unchanged. See docs/REMOTE_ACCESS.md.
+- Settings shows remote-access status and the address to use in the iOS app.
+- Cameras work over Tailscale through a TCP connection. If live video can't connect, ODIN shows camera snapshots instead.
+
+### Security
+
+- Requests through the Tailscale proxy keep each client's own address for IP allowlists, rate limits, login lockout and audit logs. Remote clients are never treated as local.
+
 ## [2.0.22] - 2026-10-27
 
 <!-- summary: Phone push for every operational alert, and no more repeated printer-error and low-spool alerts -->

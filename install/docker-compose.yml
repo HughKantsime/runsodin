@@ -30,7 +30,12 @@ services:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-}
       - API_KEY=${API_KEY:-}
       - DATABASE_URL=sqlite:////data/odin.db
-      - CORS_ORIGINS=http://localhost:8000,http://localhost:3000
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:8000,http://localhost:3000}
+      - ODIN_PUBLIC_URL=${ODIN_PUBLIC_URL:-}
+      - ODIN_TAILNET_IP=${ODIN_TAILNET_IP:-}
+      # With the tailscale profile, set this to 127.0.0.1,::1,tailscale.
+      - ODIN_TRUSTED_PROXIES=${ODIN_TRUSTED_PROXIES:-127.0.0.1,::1}
+      - COOKIE_SECURE=${COOKIE_SECURE:-true}
       - TRUSTED_HOSTS=${TRUSTED_HOSTS:-*}
       # Set to your server's LAN IP for camera streaming (or configure in Settings > Network)
       - ODIN_HOST_IP=${ODIN_HOST_IP:-}
@@ -41,3 +46,40 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+
+  # Own namespace on the default network: ODIN updates cannot strand Serve.
+  tailscale:
+    image: tailscale/tailscale:v1.90.9
+    profiles: [tailscale]
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY:-}
+      - TS_AUTH_ONCE=true
+      - TS_HOSTNAME=${TS_HOSTNAME:-odin}
+      - TS_USERSPACE=${TS_USERSPACE:-true}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_SERVE_CONFIG=/config/serve.json
+    volumes:
+      - ${ODIN_DATA_PATH:-./odin-data}/tailscale:/var/lib/tailscale
+    configs:
+      - source: tailscale_serve
+        target: /config/serve.json
+
+# Requires Docker Compose >= 2.23.1 (inline configs). No extra downloaded files.
+configs:
+  tailscale_serve:
+    content: |
+      {
+        "TCP": {
+          "443": {"HTTPS": true},
+          "8555": {"TCPForward": "odin:8555"}
+        },
+        "Web": {
+          "$${TS_CERT_DOMAIN}:443": {
+            "Handlers": {"/": {"Proxy": "http://odin:8000"}}
+          }
+        },
+        "AllowFunnel": {}
+      }

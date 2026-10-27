@@ -15,6 +15,14 @@ export default function useWebRTC(cameraId, { maxRetries = 5, enabled = true } =
   const retryCountRef = useRef(0)
   const disconnectGraceRef = useRef(null)
   const [status, setStatus] = useState('connecting')
+  const [fallback, setFallback] = useState(false)
+  const live = status === 'live'
+  useEffect(() => {
+    setFallback(false)
+    if (!enabled || !cameraId || live) return
+    const timer = setTimeout(() => setFallback(true), 12000)
+    return () => clearTimeout(timer)
+  }, [enabled, cameraId, live])
 
   const clearTimers = useCallback(() => {
     clearTimeout(retryTimerRef.current)
@@ -33,7 +41,10 @@ export default function useWebRTC(cameraId, { maxRetries = 5, enabled = true } =
       pcRef.current.close()
       pcRef.current = null
     }
-    if (videoRef.current) videoRef.current.srcObject = null
+    if (videoRef.current) {
+      videoRef.current.onloadeddata = null
+      videoRef.current.srcObject = null
+    }
   }, [])
 
   const scheduleRetry = useCallback((startFn) => {
@@ -65,9 +76,12 @@ export default function useWebRTC(cameraId, { maxRetries = 5, enabled = true } =
         if (!current() || !videoRef.current) return
         const stream = event.streams[0] || (event.track ? new MediaStream([event.track]) : null)
         if (!stream) return
+        videoRef.current.onloadeddata = () => {
+          if (!current()) return
+          setStatus('live')
+          retryCountRef.current = 0
+        }
         videoRef.current.srcObject = stream
-        setStatus('live')
-        retryCountRef.current = 0
       }
       pc.oniceconnectionstatechange = () => {
         if (!current()) return
@@ -75,7 +89,7 @@ export default function useWebRTC(cameraId, { maxRetries = 5, enabled = true } =
         if (state === 'connected' || state === 'completed') {
           clearTimeout(disconnectGraceRef.current)
           disconnectGraceRef.current = null
-          if (videoRef.current?.srcObject) setStatus('live')
+          if (videoRef.current?.srcObject && videoRef.current.readyState >= 2) setStatus('live')
         } else if (state === 'disconnected') {
           setStatus('disconnected')
           clearTimeout(disconnectGraceRef.current)
@@ -139,5 +153,5 @@ export default function useWebRTC(cameraId, { maxRetries = 5, enabled = true } =
     startWebRTC()
   }, [cameraId, enabled, clearTimers, startWebRTC])
 
-  return { videoRef, status, retry }
+  return { videoRef, status, retry, fallback }
 }

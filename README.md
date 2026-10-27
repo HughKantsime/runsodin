@@ -103,6 +103,8 @@ O.D.I.N. speaks [Model Context Protocol](https://modelcontextprotocol.io) native
 
 ## Documentation
 
+- [Private remote access with Tailscale](docs/REMOTE_ACCESS.md) — HTTPS for web/API, with camera TCP transport and snapshot fallback.
+
 - [Full Documentation](https://docs.runsodin.com) — Installation, configuration, features, API reference, troubleshooting
 - [Install Guide](https://runsodin.com/install) — Setup, configuration, and updating
 - [Features](https://runsodin.com/features) — Full feature catalog

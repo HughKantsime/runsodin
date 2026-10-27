@@ -1,0 +1,8 @@
+{
+  "configured": true,
+  "url": "https://odin.example.ts.net",
+  "tailnet": true,
+  "current_origin_verified": false,
+  "check_url": "https://odin.example.ts.net/health",
+  "camera_transport": "snapshot-fallback"
+}

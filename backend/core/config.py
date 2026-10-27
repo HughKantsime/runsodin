@@ -61,6 +61,24 @@ class Settings(BaseSettings):
     # general self-hosting; EDU deployments should set their exact hostname(s).
     trusted_hosts: str = "*"
 
+    # Optional HTTPS origin; never inferred from an untrusted Host header.
+    odin_public_url: str = ""
+    odin_tailnet_ip: str = ""
+    # Explicit socket peer IPs or DNS names (refreshed every five seconds).
+    odin_trusted_proxies: str = "127.0.0.1,::1"
+
+    @field_validator("odin_public_url")
+    @classmethod
+    def validate_public_url(cls, value):
+        from core.remote_access import validate_public_origin
+        return validate_public_origin(value)
+
+    @field_validator("odin_tailnet_ip")
+    @classmethod
+    def validate_tailnet_ip(cls, value):
+        from core.remote_access import validate_tailnet_ip
+        return validate_tailnet_ip(value)
+
     # Cookie settings for session auth
     # Set COOKIE_SECURE=false for local HTTP dev (default true for production)
     cookie_secure: bool = True

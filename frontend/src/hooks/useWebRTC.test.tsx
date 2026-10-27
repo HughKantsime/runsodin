@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import useWebRTC from './useWebRTC'
 let peers:any[],offers:any[],locals:any[],remotes:any[],fetchMock:any
 const deferred=()=>{let resolve:any,reject:any;const promise=new Promise((a,b)=>{resolve=a;reject=b});return {promise,resolve,reject}}
-function Harness({id=9,enabled=true,maxRetries=5}:any){const {videoRef,status,retry}=useWebRTC(id,{enabled,maxRetries});return <><video ref={videoRef} data-testid="video"/><output>{status}</output><button onClick={retry}>Retry</button></>}
+function Harness({id=9,enabled=true,maxRetries=5}:any){const {videoRef,status,retry,fallback}=useWebRTC(id,{enabled,maxRetries});return <><video ref={videoRef} data-testid="video"/><output>{status}</output><span data-testid="fallback">{String(fallback)}</span><button onClick={retry}>Retry</button></>}
 const flush=async()=>{await act(async()=>{await Promise.resolve();await Promise.resolve()})}
 beforeEach(()=>{
  vi.useFakeTimers();peers=[];offers=[];locals=[];remotes=[]
@@ -19,7 +19,7 @@ test('normal connection exchanges SDP with credentialed camera route',async()=>{
  expect(peers[0].addTransceiver).toHaveBeenCalledWith('video',{direction:'recvonly'})
  expect(peers[0].setRemoteDescription).toHaveBeenCalledWith({type:'answer',sdp:'synthetic-answer'})
  const stream={id:'synthetic-stream'};act(()=>peers[0].ontrack({streams:[stream]}))
- expect(screen.getByTestId('video')).toHaveProperty('srcObject',stream);expect(screen.getByText('live')).toBeInTheDocument()
+ fireEvent.loadedData(screen.getByTestId('video'));expect(screen.getByTestId('video')).toHaveProperty('srcObject',stream);expect(screen.getByText('live')).toBeInTheDocument()
 })
 test('unmount during pending offer never begins signaling or retry',async()=>{
  const pending=deferred();offers.push(pending.promise);const {unmount}=render(<Harness/>);unmount()
@@ -55,7 +55,7 @@ test('obsolete answer body cannot configure a switched peer',async()=>{
 test('obsolete ICE failure cannot close or retry the current camera',async()=>{
  const {rerender}=render(<Harness/>);await flush();const old=peers[0],callback=old.oniceconnectionstatechange
  rerender(<Harness id={10}/>);await flush();old.iceConnectionState='failed';act(()=>callback())
- expect(peers[1].close).not.toHaveBeenCalled();expect(vi.getTimerCount()).toBe(0);expect(screen.getByText('connecting')).toBeInTheDocument()
+ expect(peers[1].close).not.toHaveBeenCalled();expect(vi.getTimerCount()).toBe(1);expect(screen.getByText('connecting')).toBeInTheDocument()
 })
 test('signaling failure closes peers and respects exponential retry cap',async()=>{
  fetchMock.mockResolvedValue({ok:false,status:503});render(<Harness maxRetries={2}/>);await flush()
@@ -63,14 +63,14 @@ test('signaling failure closes peers and respects exponential retry cap',async()
  await act(async()=>vi.advanceTimersByTime(1999));expect(peers).toHaveLength(1)
  await act(async()=>vi.advanceTimersByTime(1));await flush();expect(peers).toHaveLength(2)
  await act(async()=>vi.advanceTimersByTime(3999));expect(peers).toHaveLength(2)
- await act(async()=>vi.advanceTimersByTime(1));await flush();expect(peers).toHaveLength(3);expect(vi.getTimerCount()).toBe(0)
- fireEvent.click(screen.getByRole('button',{name:'Retry'}));await flush();expect(peers).toHaveLength(4);expect(vi.getTimerCount()).toBe(1)
+ await act(async()=>vi.advanceTimersByTime(1));await flush();expect(peers).toHaveLength(3);expect(vi.getTimerCount()).toBe(1)
+ fireEvent.click(screen.getByRole('button',{name:'Retry'}));await flush();expect(peers).toHaveLength(4);expect(vi.getTimerCount()).toBe(2)
 })
 test('transient ICE disconnection recovers in grace period without another peer',async()=>{
  render(<Harness/>);await flush();const peer=peers[0]
  act(()=>peer.ontrack({streams:[{id:'synthetic-stream'}]}));peer.iceConnectionState='disconnected';act(()=>peer.oniceconnectionstatechange())
  expect(screen.getByText('disconnected')).toBeInTheDocument();await act(async()=>vi.advanceTimersByTime(4000))
- peer.iceConnectionState='connected';act(()=>peer.oniceconnectionstatechange());expect(screen.getByText('live')).toBeInTheDocument()
+ Object.defineProperty(screen.getByTestId('video'),'readyState',{value:2,configurable:true});peer.iceConnectionState='connected';act(()=>peer.oniceconnectionstatechange());expect(screen.getByText('live')).toBeInTheDocument()
  await act(async()=>vi.advanceTimersByTime(5000));expect(peers).toHaveLength(1);expect(vi.getTimerCount()).toBe(0)
 })
 test('persistent ICE disconnection closes old peer and retries after grace',async()=>{
@@ -100,5 +100,17 @@ test('StrictMode obsolete setup cannot signal after cleanup',async()=>{
 test('peer constructor failure is visible and retries within the cap',async()=>{
  vi.mocked(RTCPeerConnection).mockImplementationOnce(function(){throw new Error('Synthetic unavailable peer')})
  render(<Harness maxRetries={1}/>);await flush();expect(screen.getByText('error')).toBeInTheDocument();expect(peers).toHaveLength(0)
- await act(async()=>vi.advanceTimersByTime(2000));await flush();expect(peers).toHaveLength(1);expect(vi.getTimerCount()).toBe(0)
+ await act(async()=>vi.advanceTimersByTime(2000));await flush();expect(peers).toHaveLength(1);expect(vi.getTimerCount()).toBe(1)
+})
+
+test('SDP track without decoded video falls back after twelve seconds',async()=>{
+ const {unmount}=render(<Harness/>);await flush()
+ act(()=>peers[0].ontrack({streams:[{id:'no-frames'}]}))
+ expect(screen.getByText('connecting')).toBeInTheDocument()
+ await act(async()=>vi.advanceTimersByTime(12000))
+ expect(screen.getByTestId('fallback')).toHaveTextContent('true')
+ fireEvent.loadedData(screen.getByTestId('video'))
+ expect(screen.getByText('live')).toBeInTheDocument()
+ expect(screen.getByTestId('fallback')).toHaveTextContent('false')
+ unmount();expect(vi.getTimerCount()).toBe(0)
 })

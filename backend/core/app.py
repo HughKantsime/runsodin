@@ -15,16 +15,13 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from sqlalchemy import text
 
-
 log = logging.getLogger("odin.api")
-
 
 _version_file = pathlib.Path(__file__).parent.parent.parent / "VERSION"
 if _version_file.exists():
     __version__ = _version_file.read_text().strip()
 else:
-    __version__ = "2.0.22"
-
+    __version__ = "2.0.23"
 
 
 from core.app_websocket import ConnectionManager, ws_manager, _ws_broadcaster
@@ -46,21 +43,15 @@ def _setup_middleware(app: FastAPI) -> None:
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-    trusted_hosts = [host.strip() for host in settings.trusted_hosts.split(",") if host.strip()]
+    from core.remote_access import trusted_hosts, cors_origins
+    hosts = trusted_hosts(settings)
     app.add_middleware(
         TrustedHostMiddleware,
-        allowed_hosts=trusted_hosts or ["localhost", "127.0.0.1", "testserver"],
+        allowed_hosts=hosts,
     )
 
     # CORS
-    _cors_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
-    if "*" in _cors_origins:
-        log.warning(
-            "CORS origin '*' is incompatible with allow_credentials=True — "
-            "falling back to empty origins list. Set explicit origins in CORS_ORIGINS."
-        )
-        _cors_origins = []
-
+    _cors_origins = cors_origins(settings)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins,
@@ -89,8 +80,8 @@ def _setup_middleware(app: FastAPI) -> None:
 def _ip_allowlist_denial(session_factory, client_ip):
     """None when the IP allowlist admits client_ip; 403 when it refuses; 503 when the check failed.
 
-    Loopback is always admitted (local administration and the bundled
-    reverse proxy). The check fails closed.
+    Loopback is always admitted for internal callers; trusted proxies restore
+    the remote client before this check. The check fails closed.
     """
     try:
         # Cached per worker for a short TTL (core.ip_allowlist_cache); a failed read denies.
@@ -98,6 +89,9 @@ def _ip_allowlist_denial(session_factory, client_ip):
         config = policy(session_factory)
         if not config:
             return None
+        from core.remote_access import UNKNOWN_PROXY_CLIENT
+        if config.get("enabled") and client_ip == UNKNOWN_PROXY_CLIENT:
+            return 403
         import ipaddress
         if not (config and config.get("enabled") and config.get("cidrs")):
             return None
@@ -540,6 +534,8 @@ def create_app() -> FastAPI:
     _register_http_middleware(app)
     from core.middleware.audit_actor import AuditActorMiddleware
     app.add_middleware(AuditActorMiddleware)
+    from core.remote_access import TrustedProxySchemeMiddleware
+    app.add_middleware(TrustedProxySchemeMiddleware, trusted=settings.odin_trusted_proxies)
 
     # Static files for branding assets
     static_dir = os.path.join(os.path.dirname(__file__), "..", "static")

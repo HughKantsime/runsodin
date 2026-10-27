@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import Upload from '../../pages/jobs/Upload'
 import GeneralTab from '../admin/GeneralTab'
 const api=vi.hoisted(()=>({schedule:vi.fn(),approvalGet:vi.fn(),approvalSet:vi.fn(),approval:false,error:vi.fn()}))
-vi.mock('../../api',()=>({models:{schedule:api.schedule},printFiles:{list:vi.fn().mockResolvedValue([])},getApprovalSetting:api.approvalGet,setApprovalSetting:api.approvalSet,getEducationMode:vi.fn().mockResolvedValue({enabled:false}),setEducationMode:vi.fn(),config:{get:vi.fn().mockResolvedValue({}),getNetwork:vi.fn().mockResolvedValue({})},pricingConfig:{get:vi.fn().mockResolvedValue({ui_mode:'advanced'})},fetchAPI:vi.fn().mockResolvedValue({}),users:{list:vi.fn().mockResolvedValue([])}}))
+vi.mock('../../api',()=>({models:{schedule:api.schedule},printFiles:{list:vi.fn().mockResolvedValue([])},getApprovalSetting:api.approvalGet,setApprovalSetting:api.approvalSet,getEducationMode:vi.fn().mockResolvedValue({enabled:false}),setEducationMode:vi.fn(),config:{get:vi.fn().mockResolvedValue({}),getRemoteAccess: vi.fn().mockResolvedValue({configured:false,url:null,check_url:null}), getNetwork:vi.fn().mockResolvedValue({})},pricingConfig:{get:vi.fn().mockResolvedValue({ui_mode:'advanced'})},fetchAPI:vi.fn().mockResolvedValue({}),users:{list:vi.fn().mockResolvedValue([])}}))
 vi.mock('../../permissions',()=>({getCurrentUser:()=>({id:2,role:'admin'})}))
 vi.mock('../../LicenseContext',()=>({useLicense:()=>({isPro:true,hasFeature:(feature:string)=>feature==='job_approval'})}))
 vi.mock('react-hot-toast',()=>({default:{success:vi.fn(),error:api.error}}))

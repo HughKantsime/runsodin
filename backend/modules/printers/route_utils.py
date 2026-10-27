@@ -47,7 +47,6 @@ class TestConnectionRequest(PydanticBaseModel):
     access_code: Optional[str] = None
     api_key: Optional[str] = None
 
-
 # ====================================================================
 # SSRF / URL Validation
 # ====================================================================
@@ -66,7 +65,6 @@ def _check_ssrf_blocklist(host: str) -> None:
     except DeviceDestinationBlocked:
         raise HTTPException(status_code=400, detail="Invalid printer host")
 
-
 def pinned_device_get(client, url: str, **kwargs):
     """GET a device URL through the destination policy, pinned to its validated address.
 
@@ -77,7 +75,6 @@ def pinned_device_get(client, url: str, **kwargs):
     from core.webhook_utils import pinned_device_destination
     with pinned_device_destination(url):
         return client.get(url, trust_env=False, follow_redirects=False, **kwargs)
-
 
 def prusalink_test_get(host: str, credential: Optional[str]):
     """Use the monitor's API-key / username|password convention, pinned to policy."""
@@ -90,249 +87,12 @@ def prusalink_test_get(host: str, credential: Optional[str]):
             "auth": httpx.DigestAuth("maker", "")}
     return pinned_device_get(httpx, f"http://{host}/api/version", timeout=5, **options)
 
-
-# '&' is a query-string separator (cameras take ?user=&password=); the URL is only ever
-# written to go2rtc's YAML as an rtsp(s) source, never to a shell.
-_CAMERA_SHELL_METACHAR_RE = re.compile(r'[;|$`\\]')
-# Discovered (HTTP/ffmpeg) sources also refuse '&': go2rtc ffmpeg sources parse directives.
-_CAMERA_DIRECTIVE_RE = re.compile(r'[;&|$`\\]')
-
-
-def _validate_camera_url(url: str) -> str:
-    """Validate and sanitize a camera URL before writing to go2rtc config.
-
-    - Only rtsp:// or rtsps:// schemes allowed
-    - Strips shell metacharacters (; & | $ ` \\)
-    - Rejects localhost/loopback targets (SSRF prevention)
-
-    Returns the sanitized URL or raises HTTPException 400.
-    """
-    if not url:
-        return url
-
-    import urllib.parse
-    stripped = url.strip()
-    lower = stripped.lower()
-    if not (lower.startswith("rtsp://") or lower.startswith("rtsps://")):
-        raise HTTPException(status_code=400, detail="Camera URL must use rtsp:// or rtsps:// scheme")
-    # Store the scheme lower-case so every later check sees one spelling.
-    scheme_end = stripped.index("://")
-    stripped = stripped[:scheme_end].lower() + stripped[scheme_end:]
-
-    sanitized = _CAMERA_SHELL_METACHAR_RE.sub('', stripped)
-
-    # Userinfo must be unambiguous: urlsplit ends the authority at the first
-    # / ? #, so an unencoded @ / ? # in a password would make the parsed host
-    # (and the masking) disagree with what the user meant.
-    _prefix, userinfo, _rest = split_url_userinfo(sanitized)
-    if userinfo is not None and any(ch in userinfo for ch in "@/?#"):
-        raise HTTPException(status_code=400, detail=(
-            "Camera URL username/password contains @ / ? or #; percent-encode them "
-            "(%40 %2F %3F %23)"))
-    try:
-        parsed = urllib.parse.urlsplit(sanitized)
-        host = parsed.hostname or ""
-        port = parsed.port
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Camera URL is malformed")
-    if not host:
-        raise HTTPException(status_code=400, detail="Camera URL has no host")
-    try:
-        # With the port: ODIN's own service ports on its own addresses are refused.
-        _check_ssrf_blocklist((f"[{host}]" if ":" in host else host) + (f":{port}" if port else ""))
-    except HTTPException:
-        raise HTTPException(status_code=400, detail="Camera URL points to a blocked host")
-
-    return sanitized
-
-
-# Bambu models with an RTSPS camera stream at :322/streaming/live/1 (auto
-# camera URL). Bambu Studio's machine profiles carry no camera data, so a model
-# is listed only with another real source; P2S, H2S, H2C and H2D Pro are NOT
-# listed until verified on hardware (fixes.json records the claim text).
-BAMBU_RTSPS_CAMERA_MODELS = frozenset({'X1C', 'X1 Carbon', 'X1E', 'X1 Carbon Combo', 'H2D'})
-
-
-# ====================================================================
-# Camera / go2rtc helpers
-# ====================================================================
-
-def get_camera_url(printer):
-    """Stored/derived URL, or a credential-free chamber marker resolved only by the relay."""
-    if printer.camera_url:
-        url = printer.camera_url
-        try:
-            url = crypto.decrypt(url)
-        except Exception:
-            log.debug("Failed to decrypt camera URL (using raw)")
-        return url
-    if chamber_source(printer):
-        return CHAMBER_CAMERA_SOURCE
-    if printer.api_type == "bambu" and printer.api_key and printer.api_host:
-        RTSP_MODELS = BAMBU_RTSPS_CAMERA_MODELS
-        model = (printer.model or '').strip()
-        if model not in RTSP_MODELS:
-            return None
-        try:
-            parts = crypto.decrypt(printer.api_key).split("|")
-            if len(parts) == 2:
-                return f"rtsps://bblp:{urlquote(parts[1], safe='')}@{printer.api_host}:322/streaming/live/1"
-        except Exception:
-            log.debug("Failed to decrypt Bambu API key")
-    return None
-
-
-def effective_camera_url(printer):
-    """Stored camera URL (possibly encrypted), else the one generated from the
-    printer's credentials. Contains credentials: responses must mask it."""
-    return printer.camera_url or get_camera_url(printer)
-
-
-_URL_SCHEME_RE = re.compile(r'^([a-z][a-z0-9+.\-]*://)', re.IGNORECASE)
-CAMERA_CREDENTIAL_MASK = '***'
-
-
-_HOST_PORT_RE = re.compile(r'^(\[[0-9A-Fa-f:.%]+\]|[^\s:@\[\]/?#]+)(:[0-9]{0,5})?$')
-
-
-def split_url_userinfo(url: str):
-    """Split a URL into (scheme://, userinfo or None, text after the userinfo '@').
-
-    Only the authority (up to the first / ? #, as urlsplit defines it) can
-    carry userinfo, so an '@' in the path or query is never treated as a
-    credential. The one exception is a legacy stored value whose unencoded
-    / ? # in a password makes the authority not a valid host[:port] (e.g.
-    "u:se/cret@host"): then everything up to the last '@' is treated as the
-    credential, so masking never leaks part of it.
-    """
-    match = _URL_SCHEME_RE.match(url or '')
-    if not match:
-        return None, None, url
-    rest = url[match.end():]
-    end = min([i for i in (rest.find('/'), rest.find('?'), rest.find('#')) if i >= 0] or [len(rest)])
-    authority = rest[:end]
-    at = authority.rfind('@')
-    if at >= 0:
-        return match.group(1), rest[:at], rest[at + 1:]
-    if '@' in rest and not _HOST_PORT_RE.match(authority):
-        last = rest.rfind('@')
-        return match.group(1), rest[:last], rest[last + 1:]
-    return match.group(1), None, rest
-
-
-# Query parameters some cameras take credentials in (?user=..&password=..).
-_CREDENTIAL_QUERY_RE = re.compile(r'([?&](?:user|username|usr|login|password|pass|passwd|pwd|token|auth|key|secret|api_key|apikey|access_code|sig)=)([^&#]*)', re.IGNORECASE)
-# Vendors that put the credential in the path. UniFi Protect: rtsp://host:7447/<token>,
-# rtsps://host:7441/<token>[?enableSrtp]. Other path-token schemes are not recognised
-# and are stored as entered (documented limitation: use userinfo or query credentials).
-_PATH_TOKEN_RE = re.compile(r'^(rtsps?://[^/?#]+:(?:7441|7447)/)([A-Za-z0-9]{8,})(?=$|[?#])', re.IGNORECASE)
-_DEFAULT_PORTS = {'rtsp': 554, 'rtsps': 322, 'rtspx': 322, 'http': 80, 'https': 443}
-
-
-def camera_url_has_credentials(url) -> bool:
-    """Userinfo, a credential query parameter or a path token: the URL must be stored encrypted."""
-    if not isinstance(url, str):
-        return False
-    return (split_url_userinfo(url.strip())[1] is not None
-            or any(m.group(2) for m in _CREDENTIAL_QUERY_RE.finditer(url))
-            or bool(_PATH_TOKEN_RE.match(url.strip())))
-
-
-def sanitize_camera_url(url: str) -> str:
-    """Mask URL credentials (userinfo and credential query values) for API responses."""
-    if not url:
-        return url
-    prefix, userinfo, rest = split_url_userinfo(url.strip())
-    masked = url.strip() if userinfo is None else prefix + CAMERA_CREDENTIAL_MASK + '@' + rest
-    masked = _PATH_TOKEN_RE.sub(lambda m: m.group(1) + CAMERA_CREDENTIAL_MASK, masked, count=1)
-    return _CREDENTIAL_QUERY_RE.sub(lambda m: m.group(1) + (CAMERA_CREDENTIAL_MASK if m.group(2) else ''), masked)
-
-
-def masked_camera_url(stored):
-    """Response form of a stored camera URL: decrypted, credentials masked.
-
-    Never returns ciphertext; an undecryptable stored value returns None.
-    """
-    if not stored:
-        return stored
-    plain = crypto.decrypt(stored) if crypto.is_encrypted(stored) else stored
-    if not plain or crypto.is_encrypted(plain):
-        return None
-    return sanitize_camera_url(plain)
-
-
-def _url_endpoint(url):
-    """(scheme, host, port) with the scheme's default port filled in."""
-    import urllib.parse
-    try:
-        parsed = urllib.parse.urlsplit(url)
-        scheme = parsed.scheme.lower()
-        return (scheme, (parsed.hostname or '').lower(), parsed.port or _DEFAULT_PORTS.get(scheme))
-    except ValueError:
-        return None
-
-
-def camera_url_is_masked(url) -> bool:
-    if not isinstance(url, str):
-        return False
-    return split_url_userinfo(url.strip())[1] == CAMERA_CREDENTIAL_MASK or any(
-        m.group(2) == CAMERA_CREDENTIAL_MASK for m in _CREDENTIAL_QUERY_RE.finditer(url)) or bool(
-        re.match(r'^rtsps?://[^/?#]+:(?:7441|7447)/\*\*\*(?=$|[?#])', url.strip(), re.IGNORECASE))
-
-
-def resolve_masked_camera_url(incoming, stored):
-    """Restore credentials when a client sends back a masked camera URL.
-
-    Returns the plaintext URL to save, or None when the client sent back
-    exactly the masked form of the stored URL (nothing changed). Stored
-    credentials (userinfo and credential query values) are carried over only to
-    the same scheme, host and port (default ports are equivalent; a path or
-    other parameter change is allowed); pointing a masked URL at another
-    endpoint, or masking a value with no stored counterpart, is a 400 that
-    requires the full credentialed URL.
-    """
-    if not camera_url_is_masked(incoming):
-        return incoming
-    incoming = incoming.strip()
-    plain = crypto.decrypt(stored) if stored and crypto.is_encrypted(stored) else stored
-    if not plain or crypto.is_encrypted(plain):
-        raise HTTPException(status_code=400, detail="Camera URL credentials are masked; enter the full URL")
-    plain = plain.strip()
-    if incoming == sanitize_camera_url(plain):
-        return None
-    prefix, userinfo, rest = split_url_userinfo(incoming)
-    stored_prefix, stored_userinfo, stored_rest = split_url_userinfo(plain)
-    if prefix is None or stored_prefix is None:
-        raise HTTPException(status_code=400, detail="Camera URL credentials are masked; enter the full URL")
-    # Compare endpoints with the userinfo removed, so a legacy password with
-    # an unencoded / ? # cannot shift the parsed host (default ports are equivalent).
-    target = _url_endpoint(prefix + rest)
-    if target is None or target != _url_endpoint(stored_prefix + stored_rest):
-        raise HTTPException(status_code=400,
-                            detail="Camera URL endpoint changed; enter the full URL including credentials")
-    resolved = incoming
-    if userinfo == CAMERA_CREDENTIAL_MASK:
-        if stored_userinfo is None:
-            raise HTTPException(status_code=400, detail="Camera URL credentials are masked; enter the full URL")
-        resolved = prefix.lower() + stored_userinfo + '@' + rest
-    path_masked = re.match(r'^(rtsps?://[^/?#]+:(?:7441|7447)/)\*\*\*(?=$|[?#])', resolved, re.IGNORECASE)
-    if path_masked:
-        stored_path = _PATH_TOKEN_RE.match(plain)
-        if not stored_path:
-            raise HTTPException(status_code=400, detail="Camera URL credentials are masked; enter the full URL")
-        resolved = path_masked.group(1) + stored_path.group(2) + resolved[path_masked.end():]
-    stored_values = {m.group(1)[1:].lower(): m.group(2) for m in _CREDENTIAL_QUERY_RE.finditer(plain)}
-
-    def restore(m):
-        if m.group(2) != CAMERA_CREDENTIAL_MASK:
-            return m.group(0)
-        value = stored_values.get(m.group(1)[1:].lower())
-        if not value:
-            raise HTTPException(status_code=400, detail="Camera URL credentials are masked; enter the full URL")
-        return m.group(1) + value
-    resolved = _CREDENTIAL_QUERY_RE.sub(restore, resolved)
-    return None if resolved == plain else resolved
-
+from modules.printers.camera_urls import (
+    _url_endpoint, _validate_camera_url, get_camera_url, effective_camera_url, split_url_userinfo,
+    camera_url_has_credentials, sanitize_camera_url, masked_camera_url,
+    camera_url_is_masked, resolve_masked_camera_url, CAMERA_CREDENTIAL_MASK,
+    BAMBU_RTSPS_CAMERA_MODELS, _CAMERA_DIRECTIVE_RE, _CAMERA_SHELL_METACHAR_RE,
+)
 
 def _get_lan_ip():
     """Auto-detect LAN IP for WebRTC ICE candidates."""
@@ -346,9 +106,7 @@ def _get_lan_ip():
     except Exception:
         return None
 
-
 GO2RTC_RTSP_SCHEMES = ("rtsp", "rtsps")
-
 
 def go2rtc_stream_source(url, printer_id=None):
     """go2rtc source for a camera URL, or None when it must not be streamed.
@@ -409,14 +167,11 @@ def go2rtc_stream_source(url, printer_id=None):
         source = source.split("?enableSrtp")[0].split("&enableSrtp")[0]
     return source
 
-
 def mjpeg_stream_name(printer_id: int) -> str:
     """go2rtc stream that serves a printer camera as MJPEG."""
     return f"printer_{printer_id}_mjpeg"
 
-
 GO2RTC_RTSP_LISTEN = "127.0.0.1:8554"
-
 
 def go2rtc_rtsp_credentials():
     """Per-boot go2rtc RTSP credentials, derived from the camera relay's per-boot secret
@@ -427,12 +182,10 @@ def go2rtc_rtsp_credentials():
     password = hmac.new(relay_secret().encode(), b"go2rtc-rtsp", hashlib.sha256).hexdigest()
     return "odin", password
 
-
 def go2rtc_rtsp_url(stream_name: str) -> str:
     """ODIN's own authenticated loopback URL for a go2rtc stream."""
     user, password = go2rtc_rtsp_credentials()
     return f"rtsp://{user}:{password}@{GO2RTC_RTSP_LISTEN}/{stream_name}"
-
 
 def go2rtc_config_for(printers, lan_ip) -> dict:
     """The one go2rtc config builder. ``printers`` are active, camera-enabled rows
@@ -470,6 +223,8 @@ def go2rtc_config_for(printers, lan_ip) -> dict:
     webrtc_config = {"listen": "0.0.0.0:8555"}
     if lan_ip:
         webrtc_config["candidates"] = [f"{lan_ip}:8555"]
+    from core.remote_access import add_tailnet_candidate
+    add_tailnet_candidate(webrtc_config)
     return {
         # Loopback beside the API (single container); the compose network when go2rtc is
         # its own service (ODIN_GO2RTC_API_URL), never published. Off loopback go2rtc
@@ -481,7 +236,6 @@ def go2rtc_config_for(printers, lan_ip) -> dict:
         "webrtc": webrtc_config,
         "streams": streams,
     }
-
 
 def _build_go2rtc_config(db: Session) -> dict:
     """Build go2rtc config dict from current printer state."""
@@ -496,12 +250,10 @@ def _build_go2rtc_config(db: Session) -> dict:
     db.commit()
     return config
 
-
 _go2rtc_retry_lock = threading.Lock()
 _go2rtc_retry_timers = {}
 _go2rtc_pending_configs = {}
 _go2rtc_retry_workers = {}
-
 
 def _go2rtc_read_state(path):
     import json
@@ -512,11 +264,9 @@ def _go2rtc_read_state(path):
     except (FileNotFoundError, ValueError):
         return {}
 
-
 def _go2rtc_revision(state):
     value = state.get('intent_revision', 0)
     return value if type(value) is int and value >= 0 else 0
-
 
 def _go2rtc_atomic_write(path: str, content: str):
     """Replace sensitive configuration/state without exposing a partial file."""
@@ -531,7 +281,6 @@ def _go2rtc_atomic_write(path: str, content: str):
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
-
 
 def _go2rtc_schedule_retry(path: str, lock_path: str, delay: float):
     """Coalesce local work; every worker reads latest disk state under flock."""
@@ -554,7 +303,6 @@ def _go2rtc_schedule_retry(path: str, lock_path: str, delay: float):
         timer.daemon = True
         _go2rtc_retry_timers[path] = timer
         timer.start()
-
 
 def _go2rtc_restart_with_lock(config: Optional[dict], *, force: bool = False, _path=None, _lock_path=None):
     """Persist desired configuration and eventually restart the latest version.
@@ -647,7 +395,6 @@ def _go2rtc_restart_with_lock(config: Optional[dict], *, force: bool = False, _p
             fcntl.flock(lockfd, fcntl.LOCK_UN)
             lockfd.close()
 
-
 def _go2rtc_reload() -> bool:
     """Make go2rtc load the config file: supervisord beside the API, otherwise go2rtc's
     own POST /api/restart (reloads in place) with the credentials it is running with."""
@@ -674,7 +421,6 @@ def _go2rtc_reload() -> bool:
     log.warning('go2rtc refused every ODIN credential; restart the go2rtc service to load the current configuration')
     return False
 
-
 def write_go2rtc_config_before_start(config: dict, *, _path=None) -> None:
     """Container start, before supervisord: write the config. In the single container it
     is recorded as applied, so go2rtc boots with this boot's credentials and relay tokens
@@ -694,7 +440,6 @@ def write_go2rtc_config_before_start(config: dict, *, _path=None) -> None:
     state['applied'] = hashlib.sha256(yaml.safe_dump(config, sort_keys=True).encode()).hexdigest()
     _go2rtc_atomic_write(path + '.sync-state.json', json.dumps(state))
 
-
 def sync_go2rtc_config(db: Session, *, force: bool = False):
     """Regenerate go2rtc config from printer camera URLs.
 
@@ -706,7 +451,6 @@ def sync_go2rtc_config(db: Session, *, force: bool = False):
     with _go2rtc_thread_lock:
         _go2rtc_restart_with_lock(config, force=force)
 
-
 def sync_go2rtc_config_standalone():
     """Regenerate go2rtc config (callable without a DB session)."""
     from core.db import SessionLocal
@@ -715,7 +459,6 @@ def sync_go2rtc_config_standalone():
         sync_go2rtc_config(db)
     finally:
         db.close()
-
 
 def sync_go2rtc_config_raw():
     """Regenerate go2rtc config using raw SQL (safe to call from monitors)."""
@@ -746,13 +489,11 @@ def sync_go2rtc_config_raw():
         return
     _go2rtc_restart_with_lock(config)
 
-
 # ====================================================================
 # Printer command helpers
 # ====================================================================
 
 _ALLOWED_COMMANDS = frozenset({"pause_print", "resume_print", "stop_print", "cancel_print"})
-
 
 def _call_adapter_method(adapter, action: str, *args):
     """Dispatch an allowed command to an adapter via explicit allowlist."""
@@ -763,7 +504,6 @@ def _call_adapter_method(adapter, action: str, *args):
         raise ValueError(f"Adapter {type(adapter).__name__} does not support '{action}'")
     return method(*args)
 
-
 def _bambu_command(printer, action: str) -> bool:
     """Send a command to a Bambu printer via a short-lived MQTT connection."""
     from modules.printers.telemetry.feature_flag import is_v2_enabled
@@ -771,7 +511,6 @@ def _bambu_command(printer, action: str) -> bool:
     if is_v2_enabled():
         return _bambu_command_v2(printer, action)
     return _bambu_command_legacy(printer, action)
-
 
 def _bambu_command_v2(printer, action: str) -> bool:
     from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
@@ -797,7 +536,6 @@ def _bambu_command_v2(printer, action: str) -> bool:
         log.error(f"Bambu V2 {action} failed for printer {printer.id}: {e}")
         return False
 
-
 def _bambu_command_legacy(printer, action: str) -> bool:
     from modules.printers.adapters.bambu import BambuPrinter
     import time as _time
@@ -816,7 +554,6 @@ def _bambu_command_legacy(printer, action: str) -> bool:
     except Exception as e:
         log.error(f"Bambu {action} failed for printer {printer.id}: {e}")
     return False
-
 
 def _prusalink_command(printer, action: str) -> bool:
     """Send a command to a PrusaLink printer."""
@@ -837,7 +574,6 @@ def _prusalink_command(printer, action: str) -> bool:
         log.error(f"PrusaLink {action} failed for printer {printer.id}: {e}")
     return False
 
-
 def _elegoo_command(printer, action: str) -> bool:
     """Send a command to an Elegoo printer."""
     from modules.printers.adapters.elegoo import ElegooPrinter
@@ -851,7 +587,6 @@ def _elegoo_command(printer, action: str) -> bool:
     except Exception as e:
         log.error(f"Elegoo {action} failed for printer {printer.id}: {e}")
     return False
-
 
 def _send_printer_command(printer, action: str) -> bool:
     """Route a command to the correct adapter based on printer type."""
@@ -870,7 +605,6 @@ def _send_printer_command(printer, action: str) -> bool:
         return _elegoo_command(printer, action)
     else:
         return _bambu_command(printer, action)
-
 
 def _bambu_command_direct(printer, method_name: str, *args, **kwargs) -> bool:
     """Call a BambuPrinter method directly (for commands not in the generic allowlist)."""
@@ -919,7 +653,6 @@ def _bambu_command_direct(printer, method_name: str, *args, **kwargs) -> bool:
     except Exception as e:
         log.error(f"Bambu {method_name} failed for printer {printer.id}: {e}")
     return False
-
 
 def test_anycubic_lan_connection(host):
     """Safe, credential-free response for the authenticated/setup connection probe."""

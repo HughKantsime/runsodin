@@ -1,3 +1,4 @@
+import CameraFallback from '../../components/printers/CameraFallback'
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -32,7 +33,7 @@ function AiIndicator({ printerId }) {
 }
 
 function WebRTCPlayer({ cameraId, className }) {
-  const { videoRef, status, retry: handleRetry } = useWebRTC(cameraId)
+  const { videoRef, fallback, status, retry: handleRetry } = useWebRTC(cameraId)
 
   const handleSnapshot = () => {
     const video = videoRef.current
@@ -51,6 +52,7 @@ function WebRTCPlayer({ cameraId, className }) {
   return (
     <div className={`relative bg-black group ${className || ''}`}>
       <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-contain" />
+      <CameraFallback cameraId={cameraId} active={!!fallback} />
       {status === 'connecting' && (
         <div className="absolute inset-0 flex items-center justify-center">
           <div className="text-[var(--brand-text-muted)] text-sm animate-pulse">Connecting...</div>

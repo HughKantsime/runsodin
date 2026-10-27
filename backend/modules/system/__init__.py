@@ -10,6 +10,7 @@ ROUTES = [
     "system.routes_setup",
     "system.routes_backup",
     "system.routes_settings",
+    "system.routes_remote_access",
     "system.routes_maintenance",
     "system.routes_admin",
     "system.diagnostics",

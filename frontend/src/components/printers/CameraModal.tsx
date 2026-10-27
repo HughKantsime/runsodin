@@ -1,3 +1,4 @@
+import CameraFallback from './CameraFallback'
 import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { X, Maximize2, Minimize2, Monitor, Thermometer, RefreshCw, Video } from 'lucide-react'
@@ -29,7 +30,7 @@ interface CameraModalProps {
 type ViewSize = 'small' | 'large' | 'fullscreen'
 
 export default function CameraModal({ printer, onClose }: CameraModalProps) {
-  const { videoRef, status, retry: startWebRTC } = useWebRTC(printer?.id, { enabled: !!printer })
+  const { videoRef, fallback, status, retry: startWebRTC } = useWebRTC(printer?.id, { enabled: !!printer })
   const [size, setSize] = useState<ViewSize>('small')
 
   // Fetch fresh telemetry so the prop doesn't go stale
@@ -80,6 +81,7 @@ export default function CameraModal({ printer, onClose }: CameraModalProps) {
           aria-label={`Live camera feed for ${p.name}`}
           className="w-full h-full object-contain"
         />
+      <CameraFallback cameraId={printer.id} active={!!fallback} />
         {status === 'connecting' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
             <Video size={32} className="text-[var(--brand-text-muted)] animate-pulse" />

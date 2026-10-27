@@ -2,6 +2,7 @@
 import base64,io,math,re,time
 from datetime import datetime,timezone
 import jwt,pyotp,qrcode
+from core.remote_access import session_cookie_secure
 from fastapi import APIRouter,Depends,HTTPException,Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
@@ -136,7 +137,7 @@ def confirm(body:dict,request:Request,db:Session=Depends(get_db)):
     if record_session(db,user.id,token,request.client.host if request.client else 'unknown',request.headers.get('user-agent',''),payload['jti']) is not True:
         return JSONResponse(status_code=503,content={'detail':'MFA is enrolled, but sign-in could not be confirmed. Restart sign-in.','restart_sign_in':True})
     response=JSONResponse({'access_token':token,'token_type':'bearer'})
-    response.set_cookie('session',token,httponly=True,secure=settings.cookie_secure,samesite=settings.cookie_samesite,path='/',max_age=86400)
+    response.set_cookie('session',token,httponly=True,secure=session_cookie_secure(request, settings),samesite=settings.cookie_samesite,path='/',max_age=86400)
     return response
 
 

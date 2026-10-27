@@ -77,6 +77,10 @@
 
 ## 2. Camera System
 
+Optional [Tailscale remote access](docs/REMOTE_ACCESS.md) provides private HTTPS, a
+WebRTC TCP path and authenticated snapshot fallback; Settings shows the remote URL
+and browser reachability check. Cellular and native-device validation is owner-run.
+
 ### 2.1 Camera Feeds
 - WebRTC streaming via go2rtc (RTSP cameras relayed to WebRTC; HTTP/MJPEG cameras transcoded to H.264)
 - Camera grid page with all active feeds

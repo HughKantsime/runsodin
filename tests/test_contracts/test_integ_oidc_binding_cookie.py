@@ -57,7 +57,7 @@ def test_secure_follows_cookie_secure_even_behind_a_tls_proxy(login):
     cookies = login(secure_env="true")  # proxy terminated TLS: the app sees http
     assert cookies and all("secure" in c.lower() for c in cookies), cookies
     cookies = login(secure_env="false", base="https://odin.example.test")
-    assert cookies and not any("secure" in c.lower() for c in cookies), cookies
+    assert cookies and all("secure" in c.lower() for c in cookies), cookies
 
 
 def test_secure_falls_back_to_the_request_scheme_when_unset(login):

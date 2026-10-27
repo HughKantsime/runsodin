@@ -4,6 +4,7 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 
+from core.remote_access import session_cookie_secure
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import Literal, Optional
@@ -80,7 +81,7 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
     resp = JSONResponse({"access_token": access_token, "token_type": "bearer"})
     resp.set_cookie(
         key="session", value=access_token, httponly=True,
-        secure=_settings.cookie_secure, samesite=_settings.cookie_samesite,
+        secure=session_cookie_secure(request, _settings), samesite=_settings.cookie_samesite,
         path="/", max_age=86400,
     )
     return resp
@@ -208,7 +209,7 @@ async def mfa_verify(request: Request, body: dict, db: Session = Depends(get_db)
     from fastapi.responses import JSONResponse
     resp = JSONResponse({"access_token": access_token, "token_type": "bearer"})
     resp.set_cookie(key="session", value=access_token, httponly=True,
-                    secure=_settings.cookie_secure, samesite=_settings.cookie_samesite,
+                    secure=session_cookie_secure(request, _settings), samesite=_settings.cookie_samesite,
                     path="/", max_age=86400)
     return resp
 
