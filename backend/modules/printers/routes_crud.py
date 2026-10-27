@@ -258,6 +258,11 @@ def update_printer(
         from core.webhook_utils import normalize_device_host
         update_data['api_host'] = normalize_device_host(update_data['api_host'])
 
+    from modules.printers.bambu_chamber_camera import SOURCE as CHAMBER_CAMERA_SOURCE, chamber_source
+    if ('camera_url' in update_data and update_data['camera_url'] == CHAMBER_CAMERA_SOURCE
+            and chamber_source(printer)):
+        # The auto chamber marker from GET sent back unchanged: nothing to store.
+        del update_data['camera_url']
     if 'camera_url' in update_data:
         from modules.printers.route_utils import resolve_masked_camera_url
         # GET returns the effective URL masked (stored, or generated from the

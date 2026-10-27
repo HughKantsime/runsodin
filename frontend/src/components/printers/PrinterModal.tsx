@@ -167,7 +167,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
         api_host: printer.api_host || '',
         serial: serial,
         access_code: access_code,
-        camera_url: printer.camera_url || '',
+        camera_url: printer.camera_source === 'auto' ? '' : printer.camera_url || '',
         plug_type: printer.plug_type || '',
         plug_host: printer.plug_host || '',
         plug_topic: printer.plug_topic || '',
@@ -265,6 +265,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
     setSubmitError(null)
     const cameraUrl = formData.camera_url || ''
     const unchangedMaskedCamera = cameraUrl.includes('***@') && cameraUrl === printer?.camera_url
+    const unchangedAutoCamera = printer?.camera_source === 'auto' && !cameraUrl
     if (cameraUrl.includes('***@') && !unchangedMaskedCamera) {
       setSubmitError('Enter a complete replacement camera URL or clear the field.')
       return
@@ -282,7 +283,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
       bed_y_mm: formData.bed_y_mm !== '' && !isNaN(parseFloat(formData.bed_y_mm)) ? parseFloat(formData.bed_y_mm) : null,
     }
 
-    if (!unchangedMaskedCamera) submitData.camera_url = cameraUrl || null
+    if (!unchangedMaskedCamera && !unchangedAutoCamera) submitData.camera_url = cameraUrl || null
     // Saved separately through PUT/DELETE /printers/{id}/plug by the caller.
     const plug = plugConfigToSave(formData, plugBaseline)
     if (plug !== undefined) submitData.plug = plug
@@ -528,7 +529,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
           <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Camera URL (optional)</label>
           <input type="text" value={formData.camera_url} onChange={(e) => setFormData(prev => ({ ...prev, camera_url: e.target.value }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder="e.g. http://192.168.1.50:8080/?action=stream" />
           {formData.api_type === 'bambu' && /^(P1S|P1P|A1)/i.test(formData.model) ? (
-            <p className="text-xs text-[var(--brand-text-muted)] mt-1">P1S/A1 built-in cameras require LAN Live View which isn't available on these models. Use an external camera (USB webcam + MJPEG streamer, or IP camera) for Vigil AI.</p>
+            <p className="text-xs text-[var(--brand-text-muted)] mt-1">Leave blank to auto-detect the built-in camera on P1P, P1S, A1 and A1 Mini. These cameras run at about 1 frame every 2 seconds. ODIN uses one of the printer's two camera connections.</p>
           ) : formData.api_type === 'bambu' && /^(X1|H2D)/i.test(formData.model) ? (
             <p className="text-xs text-[var(--brand-text-muted)] mt-1">Leave blank to auto-detect built-in camera.</p>
           ) : (

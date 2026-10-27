@@ -1810,6 +1810,14 @@
     },
     {
       "classification": "dialect-neutral",
+      "line": 231,
+      "path": "backend/modules/printers/camera_relay.py",
+      "pattern": "qmark-parameter",
+      "reason": "Single read-only qmark lookup through the shared get_db DBAPI adapter, which binds qmark SQL on both providers; IS TRUE boolean predicates are valid on SQLite and PostgreSQL",
+      "source": "\"SELECT camera_url, api_type, model, api_host, api_key FROM printers \""
+    },
+    {
+      "classification": "dialect-neutral",
       "line": 44,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",

@@ -145,7 +145,7 @@ class PrinterResponse(PrinterBase):
     # NULL is reported as disabled: go2rtc and /cameras only stream TRUE.
     camera_enabled: bool = True
     # camera_url is the camera actually streamed: the configured URL, or the one
-    # generated from the printer's credentials (Bambu X1C/X1E/H2D RTSPS). Always masked.
+    # generated from credentials (Bambu RTSPS or a credential-free chamber marker). Always masked.
     camera_source: Optional[str] = None  # 'configured' | 'auto' | None
 
     @model_validator(mode='before')

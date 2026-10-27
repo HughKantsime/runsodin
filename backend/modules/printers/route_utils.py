@@ -20,6 +20,9 @@ from sqlalchemy.orm import Session
 from typing import Optional
 
 import core.crypto as crypto
+from modules.printers.bambu_chamber_camera import (
+    BAMBU_CHAMBER_CAMERA_MODELS, SOURCE as CHAMBER_CAMERA_SOURCE, chamber_source,
+)
 
 log = logging.getLogger("odin.api")
 
@@ -155,14 +158,16 @@ BAMBU_RTSPS_CAMERA_MODELS = frozenset({'X1C', 'X1 Carbon', 'X1E', 'X1 Carbon Com
 # ====================================================================
 
 def get_camera_url(printer):
-    """Get camera URL for a printer - from DB field or auto-generated from credentials."""
+    """Stored/derived URL, or a credential-free chamber marker resolved only by the relay."""
     if printer.camera_url:
         url = printer.camera_url
         try:
             url = crypto.decrypt(url)
-        except Exception as e:
-            log.debug(f"Failed to decrypt camera URL (using raw): {e}")
+        except Exception:
+            log.debug("Failed to decrypt camera URL (using raw)")
         return url
+    if chamber_source(printer):
+        return CHAMBER_CAMERA_SOURCE
     if printer.api_type == "bambu" and printer.api_key and printer.api_host:
         RTSP_MODELS = BAMBU_RTSPS_CAMERA_MODELS
         model = (printer.model or '').strip()
@@ -172,8 +177,8 @@ def get_camera_url(printer):
             parts = crypto.decrypt(printer.api_key).split("|")
             if len(parts) == 2:
                 return f"rtsps://bblp:{urlquote(parts[1], safe='')}@{printer.api_host}:322/streaming/live/1"
-        except Exception as e:
-            log.debug(f"Failed to decrypt Bambu API key: {e}")
+        except Exception:
+            log.debug("Failed to decrypt Bambu API key")
     return None
 
 
@@ -357,12 +362,18 @@ def go2rtc_stream_source(url, printer_id=None):
       and follows redirects itself. The source is therefore ffmpeg reading
       ODIN's loopback relay (modules.printers.camera_relay), which fetches the
       camera pinned, without redirects or proxies. Needs printer_id.
+    - Chamber marker: the same relay, with policy checked on every upstream connection.
     - UniFi Protect rtsps :7441 becomes rtspx without enableSrtp, as before.
     """
     import urllib.parse
     from core.webhook_utils import DeviceDestinationBlocked, device_connect_ip
     if not isinstance(url, str) or not url.strip():
         return None
+    if url == CHAMBER_CAMERA_SOURCE:
+        if printer_id is None:
+            return None
+        from modules.printers.camera_relay import relay_url
+        return f"ffmpeg:{relay_url(printer_id)}#video=h264"
     prefix, userinfo, rest = split_url_userinfo(url.strip())
     if prefix is not None and prefix[:-3].lower() in ("http", "https"):
         if printer_id is None:

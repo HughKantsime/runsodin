@@ -551,7 +551,7 @@ def test_api_and_thread_share_the_capture_interval_bound(vision_http):
 # ------------------------------------------- cert-B gap: auto-configured Bambu RTSP cameras
 
 def test_auto_configured_bambu_camera_without_stored_url_is_monitored(daemon, camera_printers, monkeypatch):
-    """X1C/H2D cameras are derived from the access code (no stored camera_url) and must be watched."""
+    """RTSPS and chamber cameras derived from credentials must both be watched."""
     from cryptography.fernet import Fernet
     from core import crypto
     monkeypatch.setenv('ENCRYPTION_KEY', Fernet.generate_key().decode())
@@ -565,7 +565,7 @@ def test_auto_configured_bambu_camera_without_stored_url_is_monitored(daemon, ca
         "(24,'X1C camera off','X1C',1,'bambu','192.0.2.24',:k,0,NULL,'RUNNING')"), {'k': key})
     camera_printers.commit()
     instance._scan_printers()
-    assert set(instance._threads) == {9, 10, 21, 22}
+    assert set(instance._threads) == {9, 10, 21, 22, 23}
     assert _wait(lambda: 'http://127.0.0.1:1984/api/frame.jpeg?src=printer_21' in calls)
 
 
@@ -665,11 +665,11 @@ def test_vision_printer_list_includes_auto_cameras_with_the_monitor_rule(vision_
     camera_printers.commit()
     listed = client.get('/api/vision/printers').json()
     assert listed == [{'printer_id': 9, 'camera_source': 'configured'}, {'printer_id': 10, 'camera_source': 'configured'},
-                      {'printer_id': 21, 'camera_source': 'auto'}]
+                      {'printer_id': 21, 'camera_source': 'auto'}, {'printer_id': 23, 'camera_source': 'auto'}]
     rows = camera_printers.execute(text('SELECT id,camera_url,api_type,api_key,api_host,model FROM printers WHERE id IN (21,23)')).mappings().all()
-    assert {r['id']: VisionMonitorDaemon._has_effective_camera(r) for r in rows} == {21: True, 23: False}
+    assert {r['id']: VisionMonitorDaemon._has_effective_camera(r) for r in rows} == {21: True, 23: True}
     assert client.patch('/api/printers/21/vision', json={'spaghetti_threshold': 0.8}).status_code == 200
     principal.update(group_id=2)
-    assert [p['printer_id'] for p in client.get('/api/vision/printers').json()] == [21]  # org-less printers stay visible; org 1 printers do not
+    assert [p['printer_id'] for p in client.get('/api/vision/printers').json()] == [21, 23]  # org-less printers stay visible; org 1 printers do not
     principal.update(role='operator', group_id=None)
     assert client.get('/api/vision/printers').status_code == 403

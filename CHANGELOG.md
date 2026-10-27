@@ -2,6 +2,14 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.21] - 2026-10-26
+
+<!-- summary: Built-in cameras for Bambu P1P, P1S, A1 and A1 Mini -->
+
+### Added
+
+- Built-in Bambu P1P, P1S, A1 and A1 Mini cameras are auto-detected when no camera URL is configured. ODIN shares one camera connection across viewers, at about one frame every two seconds, leaving the printer's second connection available for Bambu Handy or Studio.
+
 ## [2.0.20] - 2026-10-26
 
 <!-- summary: Inspect and stock prints started outside ODIN, and stop linking outside prints to held jobs -->

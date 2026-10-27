@@ -67,6 +67,9 @@ Open `http://your-server-ip:8000` and follow the setup wizard.
 ![Dark-mode O.D.I.N. printer utilization report with live fleet metrics, job counts, success rate, charts, and per-printer breakdown](docs/screenshots/dashboard.png)
 
 ### Camera Streaming
+
+Bambu P1P, P1S, A1 and A1 Mini built-in cameras are auto-detected when printer credentials are configured and the camera is enabled. Leave Camera URL blank, or set a URL to use an external camera instead. These built-in cameras deliver about one frame every two seconds. ODIN shares one of the printer's two camera connections across all viewers, leaving the other available for Bambu Handy or Studio.
+
 ![Dark-mode O.D.I.N. camera page showing a live A1 camera feed with Control Room and TV Mode controls](docs/screenshots/cameras.png)
 
 ## Comparison

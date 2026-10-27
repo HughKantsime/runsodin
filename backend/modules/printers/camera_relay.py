@@ -1,4 +1,4 @@
-"""Internal pinned relay for HTTP/MJPEG printer cameras (go2rtc -> ffmpeg -> ODIN).
+"""Internal pinned relay for HTTP/MJPEG and Bambu chamber cameras.
 
 go2rtc hands HTTP camera sources to ffmpeg, which resolves names itself and
 follows redirects. Instead of the camera URL, the go2rtc config names this
@@ -7,7 +7,7 @@ relay; ffmpeg therefore only ever talks to ODIN, and ODIN fetches the camera:
 - through the LAN device destination policy (core.webhook_utils.device_request):
   host resolved and validated, connection pinned to the validated address,
   no redirects, no environment proxies;
-- only the printer's stored HTTP(S) camera URL, re-read per request;
+- stored HTTP(S) URL or eligible built-in chamber camera, re-read per request;
 - bytes are streamed back; the relay never emits a redirect.
 
 Access: loopback peers, or the configured relay peers (ODIN_CAMERA_RELAY_PEERS: the
@@ -222,6 +222,22 @@ def _stored_http_camera_url(printer_id: int):
     return url
 
 
+def _stored_chamber_camera(printer_id: int):
+    from types import SimpleNamespace
+    from core.db_utils import get_db
+    from modules.printers.bambu_chamber_camera import chamber_source
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT camera_url, api_type, model, api_host, api_key FROM printers "
+            "WHERE id = ? AND is_active IS TRUE AND camera_enabled IS TRUE",
+            (printer_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return chamber_source(SimpleNamespace(**dict(zip(
+        ("camera_url", "api_type", "model", "api_host", "api_key"), row))))
+
+
 _SNIFF_BYTES = 64 * 1024
 
 
@@ -256,7 +272,13 @@ def camera_source(printer_id: int, token: str, request: Request):
         raise HTTPException(status_code=404)
     url = _stored_http_camera_url(printer_id)
     if url is None:
-        raise HTTPException(status_code=404)
+        source = _stored_chamber_camera(printer_id)
+        if source is None:
+            raise HTTPException(status_code=404)
+        from modules.printers.bambu_chamber_camera import BOUNDARY, ChamberCameraResponse, chamber_hub
+        return ChamberCameraResponse(chamber_hub.multipart(printer_id, source),
+                                     media_type=f"multipart/x-mixed-replace; boundary={BOUNDARY}",
+                                     headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
     import requests
     from core.webhook_utils import DeviceDestinationBlocked, device_request
     try:

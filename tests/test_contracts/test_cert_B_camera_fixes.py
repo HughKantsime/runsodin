@@ -27,7 +27,7 @@ def printers_client(reprint_client, review_db):
     from modules.printers import routes_crud
     review_db.execute(text("INSERT INTO printers(id,name,model,api_type,api_host,api_key,is_active,camera_enabled,org_id,slot_count,shared,timelapse_enabled,tags,created_at,updated_at) "
                            "VALUES(21,'X1C auto','X1C','bambu','192.0.2.21',:key,1,1,1,4,0,0,'[]',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP),"
-                           "(22,'P1S no camera','P1S','bambu','192.0.2.22',:key,1,1,1,4,0,0,'[]',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP),"
+                           "(22,'P1S auto','P1S','bambu','192.0.2.22',:key,1,1,1,4,0,0,'[]',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP),"
                            "(23,'RTSP off','Voron','moonraker','192.0.2.23',NULL,1,NULL,1,1,0,0,'[]',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"),
                       {"key": crypto.encrypt("01P00SYNTH0001|" + secrets.token_hex(4))})
     review_db.execute(text("UPDATE printers SET camera_url='rtsp://192.0.2.23:8554/cam' WHERE id=23"))
@@ -42,7 +42,7 @@ def test_printers_report_camera_enabled_and_effective_camera(printers_client):
     auto = rows[21]
     assert auto["camera_source"] == "auto" and auto["camera_enabled"] is True
     assert auto["camera_url"] == "rtsps://***@192.0.2.21:322/streaming/live/1"  # access code masked
-    assert rows[22]["camera_url"] is None and rows[22]["camera_source"] is None  # P1S: no RTSP camera
+    assert rows[22]["camera_url"] == "bambu-chamber://auto" and rows[22]["camera_source"] == "auto"
     # NULL camera_enabled streams nowhere (go2rtc selects TRUE), so it reads as disabled.
     assert rows[23]["camera_enabled"] is False and rows[23]["camera_source"] == "configured"
 
@@ -193,7 +193,8 @@ def test_go2rtc_config_has_on_demand_mjpeg_variant_per_camera(printers_client, r
     assert streams["printer_23"] == f"ffmpeg:{relay_url(23)}#video=h264"
     assert streams["printer_23_mjpeg"] == relay_url(23)  # MJPEG webcam passed through the relay as is
     assert "192.0.2.24" not in str(streams)
-    assert "printer_22" not in streams and "printer_22_mjpeg" not in streams
+    assert streams["printer_22"] == f"ffmpeg:{relay_url(22)}#video=h264"
+    assert streams["printer_22_mjpeg"] == relay_url(22)
 
 
 def test_raw_and_orm_go2rtc_config_builders_are_identical(printers_client, review_db, monkeypatch):

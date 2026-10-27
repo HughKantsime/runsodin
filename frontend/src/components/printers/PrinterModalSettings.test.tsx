@@ -66,3 +66,17 @@ it('accepts Anycubic LAN with IP only and omits credentials left from another pr
  expect(submit.mock.calls[0][0]).toMatchObject({ api_type: 'anycubic_lan', api_host: '192.0.2.49' })
  expect(submit.mock.calls[0][0]).not.toHaveProperty('api_key')
 })
+it.each(['P1P', 'P1S', 'A1', 'A1 Mini'])('preserves the auto camera when saving %s', model => {
+ const submit = modal({ model, camera_source: 'auto', camera_url: 'bambu-chamber://auto' })
+ expect(screen.getByPlaceholderText('e.g. http://192.168.1.50:8080/?action=stream')).toHaveValue('')
+ expect(screen.getByText(/1 frame every 2 seconds/)).toHaveTextContent("one of the printer's two camera connections")
+ fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+ expect(submit).toHaveBeenCalledOnce()
+ expect(submit.mock.calls[0][0]).not.toHaveProperty('camera_url')
+})
+it('allows an external camera to override the automatic chamber camera', () => {
+ const submit = modal({ camera_source: 'auto', camera_url: 'bambu-chamber://auto' })
+ fireEvent.change(screen.getByPlaceholderText('e.g. http://192.168.1.50:8080/?action=stream'), { target: { value: 'rtsp://192.0.2.2/live' } })
+ fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+ expect(submit.mock.calls[0][0].camera_url).toBe('rtsp://192.0.2.2/live')
+})

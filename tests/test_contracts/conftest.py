@@ -226,6 +226,7 @@ def _job_status_runtime_census(request):
 
 _TESTS_DIR = str(Path(__file__).resolve().parents[1]) + os.sep
 _BACKEND_DIR = str(_BACKEND) + os.sep
+_BACKEND_TESTS_DIR = str(_BACKEND / "tests") + os.sep
 
 
 def _test_defined(value):
@@ -238,7 +239,7 @@ def _test_defined(value):
         if candidate is None or not hasattr(candidate, "__code__"):
             continue
         module = sys.modules.get(getattr(candidate, "__module__", None) or "")
-        if (getattr(module, "__file__", None) or "").startswith(_TESTS_DIR):
+        if (getattr(module, "__file__", None) or "").startswith((_TESTS_DIR, _BACKEND_TESTS_DIR)):
             return True
     return False
 
@@ -283,7 +284,7 @@ def _leaked_test_doubles():
     leaks = []
     for name, module in list(sys.modules.items()):
         filename = getattr(module, "__file__", None) or ""
-        if not filename.startswith(_BACKEND_DIR):
+        if not filename.startswith(_BACKEND_DIR) or filename.startswith(_BACKEND_TESTS_DIR):
             continue
         namespace = vars(module)
         for attr, value in list(namespace.items()):
