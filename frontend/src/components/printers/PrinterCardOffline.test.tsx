@@ -1,4 +1,5 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { cleanup, render as rtlRender, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import PrinterCard from './PrinterCard'
 import { ActiveJobPanel } from './PrinterPanels'
@@ -68,3 +69,9 @@ it('does not expose active printer speed controls when printer editing is denied
  expect(screen.queryByTitle('Silent')).not.toBeInTheDocument()
  expect(screen.queryByRole('slider', { name: 'Print speed mode' })).not.toBeInTheDocument()
 })
+
+function render(ui: Parameters<typeof rtlRender>[0]) {
+ const client = new QueryClient({defaultOptions:{queries:{retry:false}}})
+ return rtlRender(ui, {wrapper:({children})=><QueryClientProvider client={client}>{children}</QueryClientProvider>})
+}
+vi.mock('../../api/printerMaintenance',()=>({printerMaintenance:{get:vi.fn().mockResolvedValue({state:'ok',note:'',set_by:null,set_by_name:null,set_at:null})}}))

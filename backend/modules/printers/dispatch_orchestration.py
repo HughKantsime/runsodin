@@ -25,6 +25,11 @@ def dispatch_prepared(job,creds,source_path,remote_filename,payload_sha256,educa
     from core.auth import SECRET_KEY
     from core.db import engine
     from modules.printers import dispatch
+    from modules.printers.maintenance_gate import refusal, report
+    reason = refusal(engine, job['printer_id'])
+    if reason:
+        report(job, reason)
+        return False, reason
     key=SECRET_KEY.encode() if isinstance(SECRET_KEY,str) else None
     identity=build_identity(creds,key)
     if identity is None:
@@ -131,12 +136,17 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                         admission=admit(engine,token=claim.token,job=job,creds=creds,key=key,
                             payload_sha256=staged.sha256,transport_filename=transport_filename,power_accepted=power.accepted,broker_connection=power.connection,
                             education_provider=provider,education_reservation=reservation)
-                        if not admission.admitted:result=(False,admission.reason)
+                        if not admission.admitted:
+                            if admission.reason.startswith('printer_maintenance_hold:'):
+                                from modules.printers.maintenance_gate import report
+                                report(job, admission.reason)
+                            result=(False,admission.reason)
                         elif time.monotonic()>=deadline:
                             result=(False,'Dispatch admission completed after the preparation deadline; reconciliation is required before retrying')
                         else:
                             _require_target(target_handle)
-                            before_start = None
+                            from modules.printers.maintenance_gate import start_gate
+                            before_start = start_gate(engine, job['printer_id']) if creds['api_type'] == 'bambu' else None
                             if options.get('ams_mapping') is not None:
                                 from modules.printers.dispatch_ams_gate import create_ams_start_gate
                                 before_start = create_ams_start_gate(engine,
@@ -146,11 +156,16 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                                         education_provider=provider,education_reservation=reservation),
                                     staged_path=staged.path,mapping=options['ams_mapping'],target_handle=target_handle)
                             adapter_called=True
-                            result=dispatch._run_admitted_dispatch(job,creds,staged.path,
-                                transport_filename,options,provider,reservation,
-                                **({"before_start":before_start} if before_start is not None else {}))
+                            from modules.printers.maintenance_gate import command_context
+                            with command_context(engine, job):
+                                result=dispatch._run_admitted_dispatch(job,creds,staged.path,
+                                    transport_filename,options,provider,reservation,
+                                    **({"before_start":before_start} if before_start is not None else {}))
                             _require_target(target_handle)
                             accepted=type(result[0]) is bool and result[0]
+                            # No post-admission no-START retirement API exists. Even a
+                            # maintenance gate refusal retains the admitted fence for
+                            # explicit reconciliation (release_preparing cannot clear it).
                             recorded=dispatch_claims.record_outcome(engine,claim.token,'accepted' if accepted else 'uncertain')
                             if not recorded:
                                 result=(False,'Printer command outcome needs database reconciliation before retrying')

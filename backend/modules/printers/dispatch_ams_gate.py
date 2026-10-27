@@ -94,6 +94,8 @@ def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, tar
             return False
         admission = recheck_admitted(engine, **captured)
         if not admission.admitted:
+            if str(getattr(admission, 'reason', '')).startswith('printer_maintenance_hold:'):
+                return refuse('printer_maintenance_hold', admission.reason)
             return refuse("admission_changed", f"Dispatch admission is no longer valid: {getattr(admission, 'reason', 'Admission recheck refused')}")
         with engine.connect() as conn:
             present = load_ams_configuration(conn, job['printer_id'])

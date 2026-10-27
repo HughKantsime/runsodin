@@ -1,3 +1,4 @@
+import MaintenanceBanner from '../../components/printers/MaintenanceBanner'
 import DispatchRecoveryPanel from '../../components/printers/DispatchRecoveryPanel'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -129,6 +130,7 @@ export default function PrinterDetail() {
         />
       </div>
 
+      <MaintenanceBanner printerId={Number(id)} editable />
       <DispatchRecoveryPanel printerId={Number(id)} />
 
       {/* Current Job */}

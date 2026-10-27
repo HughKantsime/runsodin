@@ -1,3 +1,4 @@
+import MaintenanceBanner from './MaintenanceBanner'
 import { useState, useEffect, useRef, type DragEvent } from 'react'
 import { Trash2, Power, PowerOff, Palette, Settings, GripVertical, AlertTriangle, Lightbulb, Activity, CircleDot, Video, QrCode, Thermometer, Plug, ExternalLink } from 'lucide-react'
 import clsx from 'clsx'
@@ -198,6 +199,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
             <GripVertical size={16} />
           </div>
           <div className="min-w-0">
+            <MaintenanceBanner printerId={printer.id} maintenance={printer.maintenance ?? null} />
             <h3 className="font-display font-semibold text-base md:text-lg truncate">{printer.nickname || printer.name}</h3>
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-xs md:text-sm text-[var(--brand-text-muted)] truncate">{printer.model || 'Unknown model'}</span>

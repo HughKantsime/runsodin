@@ -14,6 +14,7 @@ from core.base import FilamentType, SpoolStatus
 
 class SpoolBase(BaseModel):
     filament_id: int
+    color_name: Optional[str] = Field(default=None, max_length=100)
     qr_code: Optional[str] = None
     rfid_tag: Optional[str] = None
     color_hex: Optional[str] = None

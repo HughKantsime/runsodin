@@ -1,3 +1,4 @@
+import MaintenanceBanner from '../../components/printers/MaintenanceBanner'
 import { useState, useCallback, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -439,7 +440,9 @@ export default function Jobs() {
         message={confirmAction?.message || ''}
         confirmText={confirmAction?.confirmText || 'Confirm'}
         confirmVariant={confirmAction?.confirmVariant || 'danger'}
-      />
+      >
+        {confirmAction?.action === 'dispatch' && jobsData?.find(j => j.id === confirmAction.jobId)?.printer_id && <MaintenanceBanner printerId={jobsData.find(j => j.id === confirmAction.jobId).printer_id} />}
+      </ConfirmModal>
     </div>
   )
 }

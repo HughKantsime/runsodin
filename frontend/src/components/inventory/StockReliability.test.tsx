@@ -30,10 +30,11 @@ describe('inventory stock', () => {
     fireEvent.click(screen.getByText('Receive rolls'))
     await screen.findByText('Test Black (PLA)')
     fireEvent.change(screen.getByLabelText('Receiving filament'), { target: { value: '199' } })
+    fireEvent.change(screen.getByLabelText('Color name'), { target: { value: 'Black' } })
     fireEvent.change(screen.getByLabelText('Storage location'), { target: { value: 'Shelf A' } })
     fireEvent.click(screen.getByText('Receive into storage'))
     expect(await screen.findByText('Open printable labels 1')).toHaveAttribute('href', '/api/spools/labels/batch?spool_ids=201')
-    expect(spools.receive).toHaveBeenCalledWith({ filament_id: 199, quantity: 1, initial_weight_g: 1000, storage_location: 'Shelf A', sealed: true }, expect.anything())
+    expect(spools.receive).toHaveBeenCalledWith({ filament_id: 199, color_name: 'Black', color_hex: undefined, quantity: 1, initial_weight_g: 1000, storage_location: 'Shelf A', sealed: true }, expect.anything())
   })
   it('does not offer writes while viewing another org', async () => {
     mount(2)

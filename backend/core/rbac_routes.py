@@ -178,6 +178,7 @@ ACTION_ROUTES: dict[str, list[tuple[str, str]]] = {
     ],
     "spools.edit": [
         ("POST", "/api/spools/receive"),
+        ("POST", "/api/spools/receive/bulk"),
         ("PUT", "/api/spools/reorder-policy"),
         ("POST", "/api/spools"),
         ("POST", "/api/spools/bulk-update"),
@@ -296,6 +297,7 @@ _EDU = "Education workflow: governed by cost-center grants (Education principals
 _ADMIN = "user and organization administration: admin role, no matrix key"
 
 WRITE_EXEMPTIONS: dict[tuple[str, str], str] = {
+    ("PUT", "/api/printers/{printer_id}/maintenance-state"): "Safety hold administration is fixed admin-only, with write:printers scope and owner check; not delegable via the permissions matrix.",
     ("POST", "/api/inventory/conflicts/resolve"): "admin role; audited explicit inventory conflict resolution is stricter than spools.edit",
     # Platform administration (superadmin)
     **{(m, p): _SUPERADMIN for m, p in [

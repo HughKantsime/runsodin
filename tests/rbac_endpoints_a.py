@@ -35,6 +35,9 @@ ENDPOINTS = [
      {"api_type": "bambu", "api_host": "192.168.99.99"}, "Test connection"),
     ("GET", "/api/printers/{printer_id}/next-suggestion", _api_read(), None, "Recomputed next job"),
     ("POST", "/api/printers/{printer_id}/start-next", _op_write(), {"suggested_job_id": 1, "suggestion_fingerprint": "0" * 64, "request_id": "00000000-0000-4000-8000-000000000001", "bed_clear_confirmed": True}, "Owner-confirmed start next"),
+    ("GET", "/api/printers/{printer_id}/maintenance-state", _api_read(), None, "Read maintenance state"),
+    ("PUT", "/api/printers/{printer_id}/maintenance-state", _admin_only(), {"state":"ok"}, "Set maintenance state"),
+    ("POST", "/api/spools/receive/bulk", _op_write(), {"import_id":"rbac-test", "rows":[]}, "Bulk receiving"),
     ("GET",  "/api/printers/{printer_id}", _api_read(), None, "Get printer"),
     ("PATCH", "/api/printers/{printer_id}", _op_write(), {"nickname": "rbac-test"}, "Update printer"),
     # DELETE printers: from grep line 458 → require_role("operator"). Operator CAN delete.

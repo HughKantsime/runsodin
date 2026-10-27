@@ -43,6 +43,7 @@ class StartResult(BaseModel):
     job_id: int
     request_id: str
     message: str | None = None
+    code: str | None = None
 
 
 def visible_printer(db, printer_id, user):

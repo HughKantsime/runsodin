@@ -15,5 +15,8 @@
   "GET /api/settings/education-mode": {"enabled": true},
   "GET /api/alerts/unread-count": {"count": 0},
   "GET /api/printers": [{"id": 1, "name": "EDU Printer", "nickname": "EDU Printer", "type": "moonraker", "status": "offline", "last_seen": null, "filament_slots": []}],
-  "GET /api/stats": {}
+  "GET /api/stats": {},
+  "GET /api/printers/1/maintenance-state": {"state": "ok", "note": "", "set_by": null, "set_by_name": null, "set_at": null},
+  "PUT /api/printers/1/maintenance-state": {"state": "warn", "note": "Fixture maintenance", "set_by": 1, "set_by_name": "Admin", "set_at": "2026-10-27T12:00:00Z"},
+  "POST /api/spools/receive/bulk": {"import_id": "fixture-receiving", "rows": [], "spools": []}
 }

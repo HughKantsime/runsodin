@@ -1,3 +1,4 @@
+import MaintenanceBanner from '../printers/MaintenanceBanner'
 import { useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { CompletionSummary as Summary, jobCompletion } from '../../api/jobCompletion'
@@ -27,6 +28,7 @@ export default function CompletionSummary({summary}:{summary:Summary}) {
       <p>{summary.printer} · {summary.job_name} · {summary.actual_print_seconds===null?'Print time unknown':`${Math.round(summary.actual_print_seconds/60)} min`}</p>
       <p>{summary.recipe_state==='matched'?summary.product.join(', '):summary.recipe_state}</p>
       <ul>{summary.expected_outputs.map(o=><li key={`${o.product_id}-${o.kind}`}>{o.expected} {o.product_name} ({o.kind})</li>)}</ul>
+      {summary.maintenance && summary.maintenance.state !== 'ok' && <p role="status">Maintenance {summary.maintenance.state}: {summary.maintenance.note}</p>}
       <p>Health: {summary.health}</p>
       <ul>{summary.health_events.map((e,i)=><li key={i}>{e.kind}{e.code?` · ${e.code}`:''}</li>)}</ul>
       <p>Clear the plate, count, bin, and record the inspection.</p>
@@ -38,6 +40,7 @@ export default function CompletionSummary({summary}:{summary:Summary}) {
       <p>{summary.bed_line}</p>
       {next&&<p>Next: {next.job_id?`job ${next.job_id} · `:''}{next.reason} · {next.filament.replace(/_/g,' ')}</p>}
       {next?.load?.map((v,i)=><p key={i}>Load {v.material} {v.color} in slot {v.slot}</p>)}
+      {summary.printer_id && <MaintenanceBanner printerId={summary.printer_id} />}
       {canDo('jobs.start')&&next?.job_id&&<div className="space-y-2">
         <label className="flex gap-2"><input type="checkbox" checked={!!confirmed&&confirmed===next.fingerprint} disabled={busy} onChange={e=>setConfirmed(e.target.checked?next.fingerprint:null)}/>I checked the printer and cleared the bed.</label>
         <button type="button" disabled={!confirmed||confirmed!==next.fingerprint||busy||!next.fingerprint} onClick={()=>void start()}>Bed clear, start next</button>

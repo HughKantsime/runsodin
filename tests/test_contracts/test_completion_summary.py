@@ -39,7 +39,6 @@ def queue(review_db, monkeypatch):
 
 def advice(db,printer,**kw):return service.next_suggestion(db,printer,**kw)
 
-
 def test_scheduler_nulls_and_final_id(queue,review_db):
     assert advice(review_db,queue)['job_id']==202
     review_db.execute(text('UPDATE jobs SET queue_position=1 WHERE id IN (202,203)'));review_db.commit()
@@ -61,7 +60,6 @@ def test_candidate_predicates(queue,review_db,mutation):
     review_db.execute(text(mutation));review_db.commit()
     visible=lambda j:j.charged_to_org_id is None
     assert advice(review_db,queue,visible=visible)['job_id']==203
-
 
 def test_no_fit_and_org_isolation(queue,review_db):
     assert advice(review_db,queue,visible=lambda j:False)['reason']=='No queued job fits this printer.'
@@ -147,10 +145,16 @@ def test_start_requires_confirmation_and_changed_fingerprint(queue,review_db,mon
 def test_request_replay_before_recompute_and_actor_isolation(queue,review_db,monkeypatch):
     data=request(advice(review_db,queue));user={'id':1,'role':'admin'}
     from modules.printers import dispatch
-    send=Mock(return_value=(False,'Existing gate refused'))
+    def refuse(*args):
+        from modules.printers.maintenance_gate import record_code
+        from modules.printers.dispatch_ams_gate import GateRefusal
+        record_code(GateRefusal('printer_maintenance_hold','Part fan failed'))
+        return False,'Maintenance refusal with independently formatted text'
+    send=Mock(side_effect=refuse)
     monkeypatch.setattr(dispatch,'dispatch_job',send)
     first=start_next.start(review_db,queue,user,data)
     assert first['state']=='refused' and send.call_count==1
+    assert first['code']=='printer_maintenance_hold'
     monkeypatch.setattr(start_next,'next_suggestion',Mock(side_effect=AssertionError('No recompute on replay')))
     assert start_next.start(review_db,queue,user,data)==first
     assert send.call_count==1
@@ -200,7 +204,13 @@ def test_summary_health_recipe_states_and_short_text(private_attempt,review_db,m
     review_db.commit()
     uid=review_db.execute(text('SELECT economic_uid FROM print_jobs WHERE id=:id'),{'id':physical}).scalar_one()
     monkeypatch.setattr(service,'next_suggestion',lambda *a,**kw:{'job_id':None,'reason':'No queued job fits this printer.'})
+    from core.models import SystemConfig
+    from core.printer_maintenance import maintenance_key
+    printer_id = review_db.execute(text('SELECT printer_id FROM print_jobs WHERE id=:id'), {'id':physical}).scalar_one()
+    review_db.add(SystemConfig(key=maintenance_key(printer_id), value={'state':'warn','note':'Part fan failing','set_by':3,'set_by_name':'Shane','set_at':'2026-10-27T12:00:00Z'})); review_db.flush()
     result=service.build_summary(review_db,uid)
+    assert result['maintenance'] == {'state':'warn','note':'Part fan failing'}
+    assert 'Part fan failing' in result['text']
     from pathlib import Path
     fixture=json.loads(Path('frontend/src/test-fixtures/job-completion-wire.json').read_text())
     assert set(fixture['summary_fields'])<=set(result)

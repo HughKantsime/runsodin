@@ -1,4 +1,6 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { printerMaintenance } from '../../api/printerMaintenance'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { cleanup, fireEvent, render as rtlRender, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import PrinterCard from './PrinterCard'
 const api = vi.hoisted(() => ({ ams: vi.fn(), telemetry: vi.fn(), nozzle: vi.fn(), hms: vi.fn() }))
@@ -35,4 +37,16 @@ it('switches panel without retaining the previous panel or opening a sibling car
  expect(await first.findByRole('heading', { name: 'HMS Error History' })).toBeInTheDocument()
  expect(first.queryByRole('heading', { name: 'Nozzle Lifecycle' })).not.toBeInTheDocument()
  expect(second.queryByRole('heading', { name: 'HMS Error History' })).not.toBeInTheDocument()
+})
+
+function render(ui: Parameters<typeof rtlRender>[0]) {
+ const client = new QueryClient({defaultOptions:{queries:{retry:false}}})
+ return rtlRender(ui, {wrapper:({children})=><QueryClientProvider client={client}>{children}</QueryClientProvider>})
+}
+vi.mock('../../api/printerMaintenance',()=>({printerMaintenance:{get:vi.fn().mockResolvedValue({state:'ok',note:'',set_by:null,set_by_name:null,set_at:null})}}))
+
+it('shows maintenance warning on the actual printer card', async () => {
+ render(<PrinterCard printer={{...base,maintenance:{state:'warn',note:'Part fan replacement ordered',set_by:3,set_by_name:'Shane',set_at:null}}} {...props} />)
+ expect(await screen.findByText('Part fan replacement ordered')).toBeInTheDocument()
+ expect(printerMaintenance.get).not.toHaveBeenCalled()
 })

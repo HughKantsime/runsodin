@@ -1,5 +1,6 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 // Cert B: the copy-overlay-URL button carries a camera token for printers with a camera (F02-2.8-02/06).
-import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
+import { render as rtlRender, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import PrinterCard from './PrinterCard'
 
@@ -36,3 +37,9 @@ test('printer without an enabled camera: copies the plain status overlay URL, no
   expect(state.create).not.toHaveBeenCalled()
   expect(writes[0]).toBe(`${window.location.origin}/overlay/7`)
 })
+
+function render(ui: Parameters<typeof rtlRender>[0]) {
+ const client = new QueryClient({defaultOptions:{queries:{retry:false}}})
+ return rtlRender(ui, {wrapper:({children})=><QueryClientProvider client={client}>{children}</QueryClientProvider>})
+}
+vi.mock('../../api/printerMaintenance',()=>({printerMaintenance:{get:vi.fn().mockResolvedValue({state:'ok',note:'',set_by:null,set_by_name:null,set_at:null})}}))

@@ -259,6 +259,17 @@
             }
           ],
           "title": "Message"
+        },
+        "code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Code"
         }
       },
       "type": "object",

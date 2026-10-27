@@ -3,7 +3,7 @@ modules/printers/schemas.py — Pydantic schemas for the printers domain.
 """
 
 from datetime import datetime
-from typing import Optional, List
+from typing import Literal, Optional, List
 from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 
 from core.base import FilamentType
@@ -128,7 +128,16 @@ class PrinterUpdate(BaseModel):
     bed_y_mm: Optional[float] = None
 
 
+class PrinterMaintenance(BaseModel):
+    state: Literal['ok', 'warn', 'hold'] = 'ok'
+    note: str = ''
+    set_by: Optional[int] = None
+    set_by_name: Optional[str] = None
+    set_at: Optional[str] = None
+
+
 class PrinterResponse(PrinterBase):
+    maintenance: PrinterMaintenance = Field(default_factory=PrinterMaintenance)
     model_config = ConfigDict(from_attributes=True)
 
     id: int

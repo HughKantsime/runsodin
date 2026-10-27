@@ -1,0 +1,65 @@
+"""Validate archived payload options before transport."""
+import json
+import hmac
+
+def _validated_print_options(job,creds,stored_path,payload_sha256):
+    printer_id=job['printer_id']
+    if job.get("upload_target_printer_id") not in (None, printer_id):
+        return None, "Print file is bound to another printer; no command was sent"
+    api_type=creds['api_type']
+    print_options = {}
+    if job.get("print_file_id") is not None:
+        # Revalidate exact payload immediately before any transport operation.
+        from core.print_payload import validate_plate, validate_mapping
+        from fastapi import HTTPException
+        expected = str(job.get("payload_sha256") or "").lower()
+        if len(expected) != 64 or any(c not in "0123456789abcdef" for c in expected):
+            return None, "Archived payload hash is missing or invalid; no command was sent"
+        if not hmac.compare_digest(expected,payload_sha256):
+            return None, "Archived payload changed; no command was sent"
+        try:
+            plate = validate_plate(stored_path, job.get("plate_index"), api_type)
+        except HTTPException as exc:
+            return None, str(exc.detail)
+        if api_type == "bambu":
+            print_options["plate_num"] = plate
+            mapping = job.get("ams_mapping")
+            if isinstance(mapping, str):
+                try:
+                    mapping = json.loads(mapping)
+                except ValueError:
+                    return None, "Stored AMS mapping is invalid; no command was sent"
+            if mapping is not None:
+                # Bambu tray index 0-15 (four-tray units 0-3). AMS HT (tray
+                # id 128+) is not a dispatch target; see ams_identity.
+                if (not isinstance(mapping, list) or not mapping or len(mapping) > 16
+                        or any(type(slot) is not int or not 0 <= slot < 16 for slot in mapping)
+                        or len(set(mapping)) != len(mapping)):
+                    return None, "Stored AMS mapping is invalid; no command was sent"
+                from core.db import engine
+                from sqlalchemy import text
+                with engine.connect() as conn:
+                    slots = {row[0]: row[1] for row in conn.execute(
+                        text("SELECT slot_number,filament_type FROM filament_slots WHERE printer_id=:id"),
+                        {"id": printer_id}).fetchall()}
+                try:
+                    validate_mapping([{"source_slot": i, "target_slot": slot + 1}
+                                      for i, slot in enumerate(mapping)],
+                                     job.get("filaments_json"), slots, api_type)
+                except HTTPException as exc:
+                    return None, str(exc.detail)
+                # Finish the slot transaction before bounded source inspection.
+                # Predictably unsupported source shapes must not commit admission.
+                from modules.printers.dispatch_ams_gate import preflight_ams_source
+                try:
+                    preflight_ams_source(job, mapping=mapping, staged_path=stored_path,
+                                         payload_sha256=payload_sha256)
+                except (ValueError, OSError):
+                    return None, "Explicit AMS source or plate is unsupported; no command was sent"
+                print_options["ams_mapping"] = mapping
+        elif job.get("ams_mapping") is not None:
+            return None, "AMS mapping requires a Bambu printer; no command was sent"
+
+    return print_options,None
+
+

@@ -59,6 +59,11 @@ def start(db, printer, user, data):
     prior = load(db, key)
     if prior is not None:
         return replay(prior, user, printer_id)
+    from core.printer_maintenance import hold_reason
+    reason = hold_reason(db, printer_id)
+    if reason:
+        return {'success': False, 'state': 'refused', 'job_id': data.suggested_job_id,
+                'request_id': str(data.request_id), 'code': 'printer_maintenance_hold', 'message': reason}
     if data.bed_clear_confirmed is not True:
         raise HTTPException(422, 'Confirm the bed is clear before starting')
     visible = lambda job: check_org_access(user, job.charged_to_org_id)
@@ -110,9 +115,13 @@ def start(db, printer, user, data):
     marker = _context.set({'key': key, 'record': record, 'user': user})
     try:
         from modules.printers.dispatch import dispatch_job
-        success, message = dispatch_job(printer_id, data.suggested_job_id)
+        from modules.printers.maintenance_gate import capture_refusal
+        with capture_refusal() as refusal:
+            success, message = dispatch_job(printer_id, data.suggested_job_id)
         result = {'success': success, 'message': message, 'job_id': data.suggested_job_id,
                   'request_id': str(data.request_id), 'state': 'dispatched' if success else 'refused'}
+        if not success and refusal.get('code'):
+            result['code'] = refusal['code']
     except Exception:
         success = False
         result = {'success': False, 'message': 'Dispatch outcome requires review before retrying.', 'job_id': data.suggested_job_id, 'request_id': str(data.request_id), 'state': 'uncertain'}

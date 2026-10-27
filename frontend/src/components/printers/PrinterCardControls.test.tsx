@@ -1,4 +1,5 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { act, cleanup, fireEvent, render as rtlRender, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import PrinterCard from './PrinterCard'
 
@@ -150,3 +151,9 @@ it.each(['principal','printer'])('does not reuse a selected draft after %s chang
  expect(screen.getByRole('slider')).toHaveValue('2')
  expect(state.speed).not.toHaveBeenCalled()
 })
+
+function render(ui: Parameters<typeof rtlRender>[0]) {
+ const client = new QueryClient({defaultOptions:{queries:{retry:false}}})
+ return rtlRender(ui, {wrapper:({children})=><QueryClientProvider client={client}>{children}</QueryClientProvider>})
+}
+vi.mock('../../api/printerMaintenance',()=>({printerMaintenance:{get:vi.fn().mockResolvedValue({state:'ok',note:'',set_by:null,set_by_name:null,set_at:null})}}))

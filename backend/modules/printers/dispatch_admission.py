@@ -77,6 +77,10 @@ def _check_attempt(engine,*,token,job,creds,key,payload_sha256,transport_filenam
                 prepare_job_write(conn,[job['id']])
                 _lock(conn,'jobs',job['id'],'status')
             _lock(conn,'printers',job['printer_id'],'is_active')
+            from core.printer_maintenance import hold_reason
+            maintenance = hold_reason(conn, job['printer_id'])
+            if maintenance:
+                raise _Refused(maintenance)
             _lock(conn,'models',job['model_id'],'name')
             _lock(conn,'print_files',job['resolved_print_file_id'],'stored_path')
             primary=job.get('model_print_file_id')
