@@ -1,8 +1,10 @@
 """Caller-owned, organization-bound AMS inventory updates for raw daemon DBs."""
 import json
-from datetime import datetime, timezone
+from core.filament_ledger import record_ams_measurement
+from core.print_attempts import qmark_runner
 import uuid
-from modules.inventory import rfid_identity as rfid
+from core.interfaces.rfid_identity import rfid_identity
+
 from core.base import slot_filament_value
 from core.material_identity import canonical_reported_material
 from modules.printers.telemetry.validators import coerce_int_or_raise
@@ -42,6 +44,7 @@ def _rows(conn, table, ids, columns, lock=False):
 
 
 def _graph(conn, printer_id, tags, uuids=(), trays=()):
+    rfid = rfid_identity()
     slots = conn.execute('SELECT id,assigned_spool_id,printer_id,slot_number FROM filament_slots WHERE printer_id=? ORDER BY id', (printer_id,)).fetchall()
     matches = []
     if tags:
@@ -92,6 +95,7 @@ def sync_ams_inventory(conn, printer_id, units):
     adopted. Arbitrary writers inserting new associations remain a separate
     concurrency acceptance requirement.
     """
+    rfid = rfid_identity()
     from modules.printers.telemetry.bambu.ams_identity import ams_trays_by_slot, is_rfid_tag
     identified = ams_trays_by_slot(units, strict=True)
     identified = [(number, {**tray, 'tag_uid': rfid.identity(tray.get('tag_uid')),
@@ -219,12 +223,9 @@ def sync_ams_inventory(conn, printer_id, units):
             initial = row[3]
             percent = remaining_percent(tray.get('remain'))
             weight = rfid.measured_weight(printer_model[0], printer_model[1], percent, initial)
-            if weight is None:
-                conn.execute('UPDATE spools SET location_printer_id=?,location_slot=? WHERE id=?', (printer_id, number, spool_id))
-            else:
-                conn.execute('''UPDATE spools SET location_printer_id=?,location_slot=?,remaining_weight_g=?,
-                    remaining_measured_g=?,remaining_measured_at=?,remaining_measured_printer_id=? WHERE id=?''',
-                    (printer_id, number, weight, weight, datetime.now(timezone.utc).replace(tzinfo=None), printer_id, spool_id))
+            conn.execute('UPDATE spools SET location_printer_id=?,location_slot=? WHERE id=?', (printer_id, number, spool_id))
+            if weight is not None:
+                record_ams_measurement(qmark_runner(conn), spool_id, weight, printer_id)
     if not material_incomplete:
         _clear_unplugged_ht(conn, printer_id, reported_slots)
     return len(trays)

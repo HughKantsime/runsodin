@@ -423,6 +423,43 @@ def record_weighed_spool(run, spool_id, net_weight_g) -> Optional[dict]:
     return {"spool_id": int(spool_id), "old_weight_g": before, "remaining_g": value}
 
 
+def create_rfid_spool(run, *, filament_id, qr_code, tag, tray_uuid, color_hex, color_name, org_id):
+    """Open an RFID balance as unknown until a measuring printer reports it."""
+    return run("""INSERT INTO spools(filament_id,qr_code,rfid_tag,tray_uuid,color_hex,color_name,
+        initial_weight_g,remaining_weight_g,spool_weight_g,low_stock_threshold_g,org_id,status)
+        VALUES(:filament,:qr,:tag,:uuid,:hex,:color,1000,NULL,250,50,:org,'active') RETURNING id""",
+        dict(filament=filament_id, qr=qr_code, tag=tag, uuid=tray_uuid,
+             hex=color_hex, color=color_name, org=org_id)).fetchone()[0]
+
+
+def record_ams_measurement(run, spool_id, weight, printer_id):
+    """Replace remaining and its measured basis, never invent per-job usage.
+
+    The caller has validated the measuring printer and locked the spool graph.
+    This shares its transaction and does not acquire a different lock order.
+    """
+    value = float(weight)
+    if not math.isfinite(value) or value < 0:
+        raise ValueError("Measured remaining must be finite and nonnegative")
+    run("""UPDATE spools SET remaining_weight_g=:weight,remaining_measured_g=:weight,
+        remaining_measured_at=:at,remaining_measured_printer_id=:printer,updated_at=CURRENT_TIMESTAMP WHERE id=:id""",
+        dict(weight=value, at=_now(), printer=printer_id, id=spool_id))
+
+
+def transfer_rfid_balance(run, source_id, target_id):
+    """Carry a measured opened roll's balance onto its locked sealed record.
+
+    The merge caller verifies that the source has no usage/history references.
+    An unmeasured source must leave the target's existing balance untouched.
+    """
+    row = run("""SELECT remaining_weight_g,remaining_measured_g,remaining_measured_at,
+        remaining_measured_printer_id FROM spools WHERE id=:id""", {"id": source_id}).fetchone()
+    if row is not None and row[2] is not None:
+        run("""UPDATE spools SET remaining_weight_g=:weight,remaining_measured_g=:measured,
+            remaining_measured_at=:at,remaining_measured_printer_id=:printer,updated_at=CURRENT_TIMESTAMP WHERE id=:id""",
+            dict(weight=row[0], measured=row[1], at=row[2], printer=row[3], id=target_id))
+
+
 def flag_reconciliation(run, job_id, print_job_id, *, reason: str, source: str) -> None:
     """Durably record that a print's filament needs reconciliation (first flag wins).
 

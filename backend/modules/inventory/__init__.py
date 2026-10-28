@@ -24,7 +24,7 @@ PUBLISHES = [
 
 SUBSCRIBES = []
 
-IMPLEMENTS = []
+IMPLEMENTS = ["RfidIdentityProvider"]
 
 REQUIRES = []
 
@@ -33,7 +33,10 @@ DAEMONS = []
 
 def register(app, registry) -> None:
     """Register the inventory module routes."""
-    from modules.inventory import routes
+    from modules.inventory import routes, rfid_identity
+    from core.interfaces.rfid_identity import INTERFACE_NAME
+
+    registry.register_provider(INTERFACE_NAME, rfid_identity)
 
     app.include_router(routes.router, prefix="/api")
     app.include_router(routes.router, prefix="/api/v1")

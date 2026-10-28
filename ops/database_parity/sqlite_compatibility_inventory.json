@@ -1458,7 +1458,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 117,
+      "line": 115,
       "path": "backend/modules/inventory/rfid_identity.py",
       "pattern": "qmark-parameter",
       "reason": "Monitor identity helpers use literal portable SQL through the shared qmark DBAPI adapter; HTTP uses ORM queries.",
@@ -1466,7 +1466,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 124,
+      "line": 122,
       "path": "backend/modules/inventory/rfid_identity.py",
       "pattern": "qmark-parameter",
       "reason": "Monitor identity helpers use literal portable SQL through the shared qmark DBAPI adapter; HTTP uses ORM queries.",
@@ -1474,19 +1474,11 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 126,
+      "line": 124,
       "path": "backend/modules/inventory/rfid_identity.py",
       "pattern": "qmark-parameter",
       "reason": "Monitor identity helpers use literal portable SQL through the shared qmark DBAPI adapter; HTTP uses ORM queries.",
       "source": "library = conn.execute(\"INSERT INTO filament_library(brand,name,material,color_hex) VALUES('Bambu Lab',?,?,?) RETURNING id\", (line, material, (tray.get('tray_color') or '')[:6] or None)).fetchone()"
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 127,
-      "path": "backend/modules/inventory/rfid_identity.py",
-      "pattern": "qmark-parameter",
-      "reason": "Monitor identity helpers use literal portable SQL through the shared qmark DBAPI adapter; HTTP uses ORM queries.",
-      "source": "return conn.execute('''INSERT INTO spools(filament_id,qr_code,rfid_tag,tray_uuid,color_hex,color_name,"
     },
     {
       "classification": "sqlite-provider-only",
@@ -1866,7 +1858,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 45,
+      "line": 48,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1874,7 +1866,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 51,
+      "line": 54,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1882,7 +1874,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 53,
+      "line": 56,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1890,7 +1882,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 56,
+      "line": 59,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1898,7 +1890,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 66,
+      "line": 69,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1906,7 +1898,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 116,
+      "line": 120,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1914,7 +1906,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 129,
+      "line": 133,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1922,7 +1914,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 137,
+      "line": 141,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1930,7 +1922,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 153,
+      "line": 157,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1938,7 +1930,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 155,
+      "line": 159,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1946,7 +1938,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 171,
+      "line": 175,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1954,7 +1946,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 190,
+      "line": 194,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1962,7 +1954,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 194,
+      "line": 198,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1970,7 +1962,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 199,
+      "line": 203,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1978,7 +1970,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 202,
+      "line": 206,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1986,7 +1978,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 204,
+      "line": 208,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1994,7 +1986,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 206,
+      "line": 210,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -2002,7 +1994,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 207,
+      "line": 211,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -2010,7 +2002,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 211,
+      "line": 215,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -2018,7 +2010,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 214,
+      "line": 218,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -2026,7 +2018,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 216,
+      "line": 220,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -2034,7 +2026,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 217,
+      "line": 221,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -2042,7 +2034,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 223,
+      "line": 226,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -2050,15 +2042,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 225,
-      "path": "backend/modules/printers/monitors/ams_inventory.py",
-      "pattern": "qmark-parameter",
-      "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
-      "source": "conn.execute('''UPDATE spools SET location_printer_id=?,location_slot=?,remaining_weight_g=?,"
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 245,
+      "line": 246,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -2066,7 +2050,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 250,
+      "line": 251,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -2074,7 +2058,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 253,
+      "line": 254,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",

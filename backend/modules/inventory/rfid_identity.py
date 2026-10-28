@@ -2,9 +2,9 @@
 import json
 import uuid
 import math
-from datetime import datetime, timezone
-from sqlalchemy.orm import Session
-from core.audit import log_audit
+from core.log_redaction import redact_structure
+from core.filament_ledger import create_rfid_spool, record_ams_measurement
+from core.print_attempts import qmark_runner, sqlalchemy_runner
 from core.material_identity import canonical_reported_material
 from core.models import SystemConfig
 from modules.inventory.models import Spool, FilamentLibrary
@@ -110,12 +110,10 @@ def audit_details(spool_id, tray, printer_id, slot, candidates=(), possible=()):
 
 
 def raw_audit(conn, action, details):
-    # Use the same audit redaction/staging as HTTP. The monitor has no human
-    # actor. Persist the staged entry on the caller's DBAPI transaction only.
-    with Session() as staging:
-        entry = log_audit(staging, action, 'spool', details['spool_id'], details)
-        conn.execute('INSERT INTO audit_logs(action,entity_type,entity_id,details) VALUES(?,?,?,?)',
-                     (entry.action, entry.entity_type, entry.entity_id, json.dumps(entry.details)))
+    # Raw monitor audits share the business transaction, like inventory repairs.
+    # No detached ORM session or independent commit; the monitor commits both.
+    conn.execute('INSERT INTO audit_logs(action,entity_type,entity_id,details) VALUES(?,?,?,?)',
+                 (action, 'spool', details['spool_id'], json.dumps(redact_structure(details))))
 
 
 def create_raw_spool(conn, org, tray):
@@ -124,11 +122,10 @@ def create_raw_spool(conn, org, tray):
     library = conn.execute("SELECT id FROM filament_library WHERE brand='Bambu Lab' AND name=? AND material=? ORDER BY id LIMIT 1", (line, material)).fetchone()
     if library is None:
         library = conn.execute("INSERT INTO filament_library(brand,name,material,color_hex) VALUES('Bambu Lab',?,?,?) RETURNING id", (line, material, (tray.get('tray_color') or '')[:6] or None)).fetchone()
-    return conn.execute('''INSERT INTO spools(filament_id,qr_code,rfid_tag,tray_uuid,color_hex,color_name,
-        initial_weight_g,remaining_weight_g,spool_weight_g,org_id,status)
-        VALUES(?,?,?,?,?,?,1000,NULL,250,?,'active') RETURNING id''',
-        (library[0], 'SPL-' + uuid.uuid4().hex[:8].upper(), identity(tray.get('tag_uid')),
-         identity(tray.get('tray_uuid')), (tray.get('tray_color') or '')[:6] or None, color_name(tray), org)).fetchone()[0]
+    return create_rfid_spool(qmark_runner(conn), filament_id=library[0],
+        qr_code='SPL-' + uuid.uuid4().hex[:8].upper(), tag=identity(tray.get('tag_uid')),
+        tray_uuid=identity(tray.get('tray_uuid')), color_hex=(tray.get('tray_color') or '')[:6] or None,
+        color_name=color_name(tray), org_id=org)
 
 
 class LockedMatches(dict):
@@ -163,10 +160,10 @@ def measured_weight(model, machine_type, percent, initial):
     return None
 
 
-def accept_measurement(spool, printer, percent):
+def accept_measurement(db, spool, printer, percent):
     weight = measured_weight(printer.model, printer.machine_type, percent, spool.initial_weight_g)
     if weight is not None:
-        spool.remaining_weight_g = weight
-        spool.remaining_measured_g = weight
-        spool.remaining_measured_at = datetime.now(timezone.utc).replace(tzinfo=None)
-        spool.remaining_measured_printer_id = printer.id
+        db.flush()
+        record_ams_measurement(sqlalchemy_runner(db), spool.id, weight, printer.id)
+        db.expire(spool, ['remaining_weight_g', 'remaining_measured_g',
+                          'remaining_measured_at', 'remaining_measured_printer_id'])

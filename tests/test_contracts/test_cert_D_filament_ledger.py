@@ -454,15 +454,6 @@ ALLOWED = {
         ("backend/modules/inventory/routes/spools.py", "update_spool", "setattr"):
             (1, "operator edit of spool fields, including an absolute weight correction",
              _exact("setattr(spool, field, value)")),
-        ("backend/modules/printers/routes_ams.py", "sync_ams_state", "orm attribute"):
-            (1, "AMS RFID measured weight (absolute)", _exact("rfid_match.remaining_weight_g = measured_weight")),
-        ("backend/modules/printers/routes_ams.py", "sync_ams_state", "Spool(column=...)"):
-            (1, "a spool created from an AMS tray at its measured weight",
-             lambda sites: all("remaining_weight_g=" in site.detail
-                               and "measured_remaining(ams_slot.remaining_percent)" in site.detail for site in sites)),
-        ("backend/modules/printers/monitors/ams_inventory.py", "sync_ams_inventory", "sql update"):
-            (1, "AMS telemetry measured weight (absolute)",
-             _exact("UPDATE spools SET location_printer_id=?,location_slot=?,remaining_weight_g=? WHERE id=?")),
     },
     "spool_usage": {
         **SHARED_DYNAMIC,
@@ -486,8 +477,8 @@ def test_census_no_filament_stock_writer_outside_the_ledger(target):
     assert any(w.path == LEDGER for w in writes)  # the ledger itself is seen
 
 
-def test_census_pins_counts_a_second_site_in_an_allowed_function_fails():
-    """An extra weight write planted inside an allowed function changes its pinned count."""
+def test_census_refuses_a_weight_write_reintroduced_in_the_monitor():
+    """AMS no longer has a stock-writer exception; any direct write is refused."""
     path = "backend/modules/printers/monitors/ams_inventory.py"
     sources = job_census.backend_sources(("backend/scripts/seed_",))
     sources[path] = sources[path].replace(
@@ -495,7 +486,8 @@ def test_census_pins_counts_a_second_site_in_an_allowed_function_fails():
         "    conn.execute('UPDATE spools SET remaining_weight_g=0 WHERE id=?', (1,))\n    return len(trays)")
     writes, _, _ = job_census.scan(sources, job_census.SPOOLS)
     key = (path, "sync_ams_inventory", "sql update")
-    assert job_census.counts(writes)[key] == ALLOWED["spools"][key][0] + 1
+    assert job_census.counts(writes)[key] == 1
+    assert key not in ALLOWED["spools"]
 
 
 def _filament_writes(source):

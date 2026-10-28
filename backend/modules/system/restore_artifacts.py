@@ -20,7 +20,7 @@ STALE_SECONDS = 6 * 3600
 _NAME = re.compile(r"odin_validate_[0-9a-f]{20}")
 # Disposable working files and the preserved029 child work directories.
 _STALE_FILE = re.compile(r"\.odin-(?:canonical-schema|restore-list|trusted025|upgraded027|upgraded029)-[A-Za-z0-9_]+(?:\.dump)?")
-_STALE_DIR = re.compile(r"\.odin-preserved(?:029|034|040)-[0-9a-f]{20}")
+_STALE_DIR = re.compile(r"\.odin-preserved(?:029|034|040|043)-[0-9a-f]{20}")
 _QUARANTINED = re.compile(r"failed_restore_\d{8}_\d{6}_\d{6}\.(?:dump|json)")
 QUARANTINE_RETENTION_DAYS = 30
 

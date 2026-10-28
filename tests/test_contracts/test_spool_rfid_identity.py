@@ -273,13 +273,17 @@ def test_failed_audit_rolls_back_binding_and_seal(inventory, sync, monkeypatch):
     from modules.inventory import rfid_identity
     from modules.printers import routes_ams
     seed(inventory)
-    original = rfid_identity.log_audit
+    original = routes_ams.log_audit
     def fail(db, action, *args, **kwargs):
         result = original(db, action, *args, **kwargs)
         if action.startswith('inventory.rfid_'):
             raise RuntimeError('fixture audit failure')
         return result
-    monkeypatch.setattr(rfid_identity, 'log_audit', fail)
+    original_raw = rfid_identity.raw_audit
+    def fail_raw(conn, action, details):
+        original_raw(conn, action, details)
+        raise RuntimeError('fixture audit failure')
+    monkeypatch.setattr(rfid_identity, 'raw_audit', fail_raw)
     monkeypatch.setattr(routes_ams, 'log_audit', fail)
     with pytest.raises(RuntimeError, match='fixture audit failure'):
         sync()
@@ -378,6 +382,7 @@ def test_nonmeasuring_printers_preserve_basis_and_job_grams(inventory, sync, mod
 def test_nonmeasuring_creation_has_no_measurement(inventory, sync):
     sync(report(remain=80), printer=2)
     assert rows(inventory, 'SELECT remaining_weight_g,remaining_measured_g,remaining_measured_at,remaining_measured_printer_id FROM spools') == [(None,None,None,None)]
+    assert rows(inventory, 'SELECT low_stock_threshold_g FROM spools') == [(50,)]
 
 
 def test_known_first_sight_is_identified_not_bound(inventory, sync):
@@ -549,3 +554,14 @@ def test_merge_http_roles_permissions_and_scope(inventory, sync, monkeypatch, ro
     assert result.status_code == expected, result.text
     if expected == 403:
         assert rows(inventory, 'SELECT id FROM spools WHERE tray_uuid IS NOT NULL') == [(source,)]
+
+
+def test_identity_policy_uses_registered_provider(monkeypatch):
+    from core.interfaces.rfid_identity import INTERFACE_NAME, rfid_identity
+    from core.registry import registry
+    from modules.inventory import rfid_identity as implementation
+    monkeypatch.setattr(registry, '_providers', {})
+    assert rfid_identity() is implementation  # Standalone monitor composition.
+    provider = object()
+    registry.register_provider(INTERFACE_NAME, provider)
+    assert rfid_identity() is provider

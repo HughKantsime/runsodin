@@ -150,9 +150,12 @@ def _merge(db, user, source_id, target_id):
         raise HTTPException(409, 'Source spool assignment is inconsistent')
     fields = ('tray_uuid', 'rfid_tag', 'color_hex', 'location_printer_id', 'location_slot',
               'storage_location')
-    if source.remaining_measured_at is not None:
-        fields += ('remaining_weight_g', 'remaining_measured_at',
-                   'remaining_measured_g', 'remaining_measured_printer_id')
+    from core.filament_ledger import transfer_rfid_balance
+    from core.print_attempts import sqlalchemy_runner
+    db.flush()
+    transfer_rfid_balance(sqlalchemy_runner(db), source_id, target_id)
+    db.expire(target, ['remaining_weight_g', 'remaining_measured_at',
+                       'remaining_measured_g', 'remaining_measured_printer_id'])
     values = {key: getattr(source, key) for key in fields}
     source.tray_uuid = source.rfid_tag = None
     source.location_printer_id = source.location_slot = source.storage_location = None

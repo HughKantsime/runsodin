@@ -90,7 +90,15 @@ def test_raw_departure_evidence_is_audited_and_never_guesses(graph, material, ta
         assert row[0] == (None if departed else 9)
         assert row[1] == status
         assert conn.execute('SELECT COUNT(*) FROM inventory_repairs WHERE spool_id=199').fetchone()[0] == int(departed)
-        assert conn.execute('SELECT assigned_spool_id FROM filament_slots WHERE printer_id=9 AND slot_number=1').fetchone()[0] == (None if departed else 199)
+        assigned = conn.execute('SELECT assigned_spool_id FROM filament_slots WHERE printer_id=9 AND slot_number=1').fetchone()[0]
+        if material and tag == 'new-rfid':
+            # Spec: unknown replacement RFID creates and assigns a new roll.
+            assert assigned is not None and assigned != 199
+            assert conn.execute('SELECT rfid_tag FROM spools WHERE id=?', (assigned,)).fetchone() == (tag,)
+            assert conn.execute("SELECT COUNT(*) FROM audit_logs WHERE entity_id=? AND action='inventory.rfid_created'", (assigned,)).fetchone()[0] == 1
+        else:
+            assert assigned == (None if departed else 199)
+        assert conn.execute('SELECT remaining_weight_g FROM spools WHERE id=199').fetchone()[0] == grams
     finally:
         conn.close()
 

@@ -2,7 +2,8 @@
 from core.base import slot_filament_value
 
 from modules.inventory.services import assign_slot, lock_slot_graph
-from modules.inventory import rfid_identity as rfid
+from core.interfaces.rfid_identity import rfid_identity
+
 from datetime import datetime, timezone
 from typing import List, Optional
 import logging
@@ -12,7 +13,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.orm import Session
-from sqlalchemy import null, text, or_
+from sqlalchemy import text, or_
 from sqlalchemy.exc import OperationalError, IntegrityError
 
 from core.spoolman_settings import get_spoolman_url
@@ -26,7 +27,7 @@ from modules.printers.models import Printer, FilamentSlot
 from modules.inventory.models import Spool, FilamentLibrary
 from modules.printers.schemas import FilamentSlotResponse
 from modules.printers.ledger_display import ensure_local_filaments
-from core.base import FilamentType, SpoolStatus
+from core.base import FilamentType
 
 # Bambu Lab Integration
 try:
@@ -86,6 +87,7 @@ class ManualSlotAssignment(PydanticBaseModel):
 # ====================================================================
 
 def _ams_mutation_graph(db, printer_id, tags, uuids=(), trays=()):
+    rfid = rfid_identity()
     slots = db.query(FilamentSlot).filter(FilamentSlot.printer_id == printer_id).populate_existing().all()
     matches = db.query(Spool).filter(or_(Spool.rfid_tag.in_(tags), Spool.tray_uuid.in_(uuids))).populate_existing().all() if tags or uuids else []
     org = db.query(Printer.org_id).filter(Printer.id == printer_id).scalar()
@@ -120,6 +122,7 @@ def _lock_ams_mutation(db, printer_id, current_user, tags, acquired_connection, 
     takes a writer boundary before fresh reads. Linkage changes abort the
     complete mutation phase before writes; locks never span network acquisition.
     """
+    rfid = rfid_identity()
     try:
         lock_slot_graph(db)
         if db.bind.dialect.name == "sqlite":
@@ -165,6 +168,7 @@ def _lock_ams_mutation(db, printer_id, current_user, tags, acquired_connection, 
 @router.post("/printers/{printer_id}/sync-ams", tags=["Printers"])
 def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action("printers.edit", scope="write:printers")), db: Session = Depends(get_db)):
     """Sync AMS filament state from printer."""
+    rfid = rfid_identity()
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer or not check_org_access(current_user, printer.org_id):
         raise HTTPException(status_code=404, detail="Printer not found")
@@ -545,7 +549,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
                 rfid_match.location_printer_id = printer_id
                 rfid_match.location_slot = ams_slot.slot_number
                 rfid_match.storage_location = None
-                rfid.accept_measurement(rfid_match, printer, ams_slot.remaining_percent)
+                rfid.accept_measurement(db, rfid_match, printer, ams_slot.remaining_percent)
                 updated_slots.append({
                     "slot": ams_slot.slot_number, "type": ftype.value, "color": color_name,
                     "color_hex": color_hex, "spool_id": rfid_match.id,
@@ -584,29 +588,20 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
                         db.flush()
                         library_entry = new_lib
 
-                new_spool = Spool(
-                    filament_id=library_entry.id,
-                    qr_code=f"SPL-{uuid.uuid4().hex[:8].upper()}",
-                    rfid_tag=tray["tag_uid"],
-                    tray_uuid=tray["tray_uuid"],
-                    color_name=rfid.color_name(tray),
-                    color_hex=color_hex,
-                    initial_weight_g=1000.0,
-                    remaining_weight_g=null(),
-                    org_id=printer.org_id,
-                    status=SpoolStatus.ACTIVE,
-                    location_printer_id=printer_id,
-                    location_slot=ams_slot.slot_number,
-                )
-                rfid.accept_measurement(new_spool, printer, ams_slot.remaining_percent)
-                db.add(new_spool)
+                from core.filament_ledger import create_rfid_spool
+                from core.print_attempts import sqlalchemy_runner
                 try:
-                    db.flush()
+                    new_id = create_rfid_spool(sqlalchemy_runner(db),
+                        filament_id=library_entry.id, qr_code=f"SPL-{uuid.uuid4().hex[:8].upper()}",
+                        tag=tray["tag_uid"], tray_uuid=tray["tray_uuid"],
+                        color_name=rfid.color_name(tray), color_hex=color_hex, org_id=printer.org_id)
                 except IntegrityError as exc:
                     db.rollback()
                     if getattr(exc.orig, "sqlstate", None) == "23505" or getattr(exc.orig, "sqlite_errorcode", None) == 2067:
                         raise HTTPException(409, "Spool association changed; retry synchronization") from None
                     raise
+                new_spool = db.get(Spool, new_id)
+                rfid.accept_measurement(db, new_spool, printer, ams_slot.remaining_percent)
                 log_audit(db, "inventory.rfid_created", "spool", new_spool.id,
                           rfid.audit_details(new_spool.id, tray, printer_id, ams_slot.slot_number, possible=possible))
                 color_name = f"{library_entry.brand} {library_entry.name}".strip()

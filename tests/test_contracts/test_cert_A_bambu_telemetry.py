@@ -464,7 +464,9 @@ def test_spool_moved_out_of_unplugged_ht_keeps_its_new_location(wire_monitor, re
     assert location() == (301, 17)
     moved = copy.deepcopy(report)
     units = [u for u in moved["print"]["ams"]["ams"] if u["id"] != "128"]
+    ht_tray = next(t for u in report["print"]["ams"]["ams"] if u["id"] == "128" for t in u["tray"])
     units[0]["tray"][0]["tag_uid"] = ht_tag  # same spool now loaded in AMS 1 slot 1
+    units[0]["tray"][0]["tray_uuid"] = ht_tray.get("tray_uuid")
     moved["print"]["ams"]["ams"] = units
     clock[0] += 61
     sock.deliver(moved)
