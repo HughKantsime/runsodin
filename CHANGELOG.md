@@ -2,6 +2,18 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.28] - 2026-10-28
+
+<!-- summary: H2D prints start from ODIN with the right AMS tray, and operator tokens can qualify outside prints -->
+
+### Added
+
+- An operator token with `write:production` can qualify and bind a print started outside ODIN. It needs the same yield confirmation and attestation as an admin session, and the binding records that the owner confirmed through the operator. Password sessions still need an admin.
+
+### Fixed
+
+- H2D prints dispatched from ODIN now load the right AMS tray. ODIN reads the H2D's dual-nozzle G-code, so an explicit AMS mapping is accepted instead of refused. A job without a mapping sends the one the file calls for instead of none, which used to pause the H2D on an AMS load.
+
 ## [2.0.27] - 2026-10-28
 
 <!-- summary: Bambu RFID spools are recognized automatically, sealed rolls bind on first load, and remaining weight follows the printer that measured it -->
