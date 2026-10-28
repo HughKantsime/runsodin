@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Bell, Mail, Save, CheckCircle, AlertTriangle, RefreshCw, XCircle, Wrench, FileText, XOctagon, Thermometer, ListPlus, SkipForward } from 'lucide-react'
 import usePushNotifications from '../../hooks/usePushNotifications'
-import { alertPreferences, smtpConfig, pushKeys } from '../../api'
+import { alertPreferences, smtpConfig, pushKeys, pushTest, describePushTestDevice } from '../../api'
 import { getCurrentUser } from '../../permissions'
 import toast from 'react-hot-toast'
 import { useLicense } from '../../LicenseContext'
@@ -179,8 +179,43 @@ export default function NotificationsTab() {
     }
   }
 
+  const isAdmin = currentUser?.role === 'admin'
+  const [phoneTesting, setPhoneTesting] = useState(false)
+  const [phoneTestLines, setPhoneTestLines] = useState<string[] | null>(null)
+  const sendPhoneTest = async () => {
+    setPhoneTesting(true)
+    setPhoneTestLines(null)
+    try {
+      const result = await pushTest.send()
+      setPhoneTestLines(result.devices.length
+        ? result.devices.map(describePushTestDevice)
+        : ['No phones are registered to your account. Install the ODIN app, sign in and allow notifications.'])
+    } catch (err: any) {
+      setPhoneTestLines(['Test failed: ' + (err?.message || 'Unknown error')])
+    } finally {
+      setPhoneTesting(false)
+    }
+  }
+
   return (
     <div className="max-w-4xl">
+      {/* Phone (ODIN app) test notification: not gated on browser push support, so it works from iOS Safari */}
+      {isAdmin && (
+        <div className="mb-6 p-4 bg-[var(--brand-card-bg)] rounded-md">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h4 className="font-medium">Phone Notifications</h4>
+              <p className="text-sm text-[var(--brand-text-secondary)] mt-1">Send a test notification to each phone signed in to the ODIN app as you. Quiet hours are ignored.</p>
+            </div>
+            <Button variant="secondary" loading={phoneTesting} onClick={sendPhoneTest}>Send test notification</Button>
+          </div>
+          {phoneTestLines && (
+            <ul className="mt-3 space-y-1 text-sm" role="status">
+              {phoneTestLines.map((line, i) => <li key={i}>{line}</li>)}
+            </ul>
+          )}
+        </div>
+      )}
       {/* Push Notification Status */}
       {pushSupported && (
         <div className="mb-6 p-4 bg-[var(--brand-card-bg)] rounded-md">

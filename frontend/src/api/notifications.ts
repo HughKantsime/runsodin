@@ -57,3 +57,29 @@ export const pushKeys = {
   rotate: (): Promise<{ status: string; public_key: string; subscriptions_invalidated: number }> =>
     fetchAPI('/push/vapid-key/rotate', { method: 'POST' }),
 };
+
+export type PushTestStatus = 'sent' | 'not_configured' | 'bad_device_token' | 'topic_mismatch' | 'auth_error' | 'other' | 'education_scope'
+export interface PushTestDevice { device_id: number; status: PushTestStatus; reason: string | null; apns_id: string | null; token_fingerprint: string }
+export interface PushTestResult { sent: number; total_devices: number; devices: PushTestDevice[] }
+
+export const pushTest = {
+  /** Admin: send one test notification to each phone registered to the signed-in user (ignores quiet hours). */
+  send: (): Promise<PushTestResult> => fetchAPI('/push/test', { method: 'POST' }),
+};
+
+const PUSH_TEST_COPY: Record<PushTestStatus, string> = {
+  sent: 'Sent. Check the phone.',
+  not_configured: 'Not sent: phone push is unavailable or not set up on this server.',
+  bad_device_token: 'Not sent: Apple no longer accepts this phone. Open the ODIN app on it to register again.',
+  topic_mismatch: "Not sent: the app's bundle ID does not match the server's Apple push setting.",
+  auth_error: "Not sent: Apple rejected the server's push key.",
+  education_scope: 'Not sent: push is turned off for education accounts.',
+  other: 'Not sent: the test could not be sent because of an unexpected error.',
+}
+
+/** Plain-words line for one device's test result. */
+export function describePushTestDevice(device: PushTestDevice): string {
+  const phone = device.token_fingerprint ? `Phone ending ${device.token_fingerprint}` : `Phone ${device.device_id}`
+  const reason = device.status !== 'sent' && device.reason ? ` (${device.reason})` : ''
+  return `${phone}: ${PUSH_TEST_COPY[device.status] ?? PUSH_TEST_COPY.other}${reason}`
+}
