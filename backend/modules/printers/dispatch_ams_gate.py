@@ -1,4 +1,4 @@
-"""Fresh post-upload check for one already-admitted, explicitly mapped attempt."""
+"""Fresh post-upload check for one already-admitted, mapped attempt."""
 from core.material_identity import canonical_reported_material
 import copy
 import math
@@ -30,7 +30,7 @@ from modules.printers.telemetry.bambu.ams_configuration import load_ams_configur
 from modules.printers.telemetry.bambu.trusted_ams_acquisition import read_current_selected_ams
 
 
-def preflight_ams_source(job, *, mapping, staged_path, payload_sha256):
+def preflight_ams_source(job, *, mapping, staged_path, payload_sha256, derived=False):
     """Read-only source check. No admission, database transaction or device I/O."""
     from modules.printers.services import inspect_ams_payload
     if (type(mapping) is not list or not 1 <= len(mapping) <= 16
@@ -41,7 +41,10 @@ def preflight_ams_source(job, *, mapping, staged_path, payload_sha256):
     stored_mapping = job.get('ams_mapping')
     if isinstance(stored_mapping, str):
         stored_mapping = json.loads(stored_mapping)
-    if (type(stored_mapping) is not list or stored_mapping != mapping
+    if derived:
+        if stored_mapping is not None:
+            raise ValueError('AMS selection differs from the admitted job')
+    elif (type(stored_mapping) is not list or stored_mapping != mapping
             or any(type(slot) is not int for slot in stored_mapping)):
         raise ValueError('AMS selection differs from the admitted job')
     facts = inspect_ams_payload(staged_path, expected_sha256=payload_sha256,
@@ -49,6 +52,8 @@ def preflight_ams_source(job, *, mapping, staged_path, payload_sha256):
     source = facts['source_index']
     if source >= len(mapping) or mapping[source] == -1:
         raise ValueError('AMS selection does not cover the verified file source')
+    if derived and mapping != [-1] * source + [source]:
+        raise ValueError('Derived AMS selection must match the verified file source')
     return facts
 
 
@@ -63,8 +68,14 @@ def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, tar
         if field in captured:
             captured[field] = copy.deepcopy(captured[field])
     job = captured['job']
+    derived = job.get('ams_mapping') is None
+    if derived:
+        from modules.printers.printer_models import bambu_nozzle_count
+        creds = captured['creds']
+        if creds.get('api_type') != 'bambu' or bambu_nozzle_count(creds.get('machine_type') or creds.get('model')) != 2:
+            raise ValueError('Derived AMS selection requires a dual-nozzle Bambu printer')
     facts = preflight_ams_source(job, mapping=mapping, staged_path=staged_path,
-                                 payload_sha256=captured['payload_sha256'])
+                                 payload_sha256=captured['payload_sha256'], derived=derived)
     expected_mapping = tuple(mapping)
     slots = (mapping[facts['source_index']] + 1,)
     runtime = read_runtime_identity()

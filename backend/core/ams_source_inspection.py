@@ -13,8 +13,23 @@ from core.material_identity import canonical_reported_material
 
 MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
 MAX_XML_BYTES = 1024 * 1024
-MAX_GCODE_BYTES = 64 * 1024 * 1024
+MAX_GCODE_BYTES = 96 * 1024 * 1024  # H2D evidence has 75,041,281 uncompressed bytes.
 MAX_GCODE_LINE_BYTES = 128 * 1024
+
+# Nozzle/flush/cutter command shapes from the genuine H2D slice. Feeds,
+# temperatures and lengths vary with material and profile, so they are any
+# number; selectors are 0/1 and the filament index (I) must be the source.
+_NUMBER = r'-?[0-9]+(?:\.[0-9]+)?'
+_H2D_NON_SOURCE = (
+    rf'M620\.10\s+A[01]\s+F{_NUMBER}\s+H{_NUMBER}\s+T{_NUMBER}\s+P{_NUMBER}\s+S[01]',
+    r'M620\.11\s+P[01]\s+I{source}\s+B-1\s+E' + _NUMBER,
+    r'M620\.11\s+K[01]\s+I{source}\s+B-1\s+R' + _NUMBER,
+    rf'M620\.11\s+S[01]\s+L[01]\s+I{{source}}\s+B-1\s+R{_NUMBER}\s+D{_NUMBER}\s+E{_NUMBER}\s+F{_NUMBER}',
+    rf'M620\.17\s+T([01])\s+S{_NUMBER}\s+L\1',
+    r'M620\s+D-1',
+    r'M620\.6\s+I{source}\s+H-1\s+W[01]',
+    r'M620\s+Q1',
+)
 
 
 @dataclass(frozen=True)
@@ -101,17 +116,26 @@ def inspect_single_source_ams(payload: bytes, plate_index: int = 0) -> VerifiedS
                     # Stock X1 calibration uses T1100, then T1000 with the
                     # comment "change to nozzle space": a template sentinel,
                     # rather than evidence of a numbered AMS source.
-                    # Keep this exact: other tools and parameterized forms refuse.
-                    if not re.fullmatch(rf'T(?:{source_index}|255|1000|1100)', command):
+                    # H2D uses T1001 in its start template, T65535 to pull
+                    # filament back to AMS, and T65279 in its end template.
+                    # These are non-source sentinels, never numbered trays.
+                    if not re.fullmatch(rf'T(?:{source_index}(?:\s+H-1)?|255|1000|1001|1100|65535|65279)', command):
                         raise ValueError(refusal)
                 if not re.match(r'^M62[01](?:\s|\.|$)', command):
                     continue
                 # Known non-source remap/tangle commands in this genuine slice.
                 if re.fullmatch(r'M620\s+M|M620\.3\s+W[01]|M620\.1\s+E\s+F[0-9]+(?:\.[0-9]+)?\s+T[0-9]+(?:\.[0-9]+)?', command):
                     continue
+                if any(re.fullmatch(pattern.replace('{source}', str(source_index)), command) for pattern in _H2D_NON_SOURCE):
+                    continue
                 if re.fullmatch(r'M62[01]\s+S255A?', command):
                     continue
+                # H2D end-template sentinels pair with T65535/T65279 above.
+                if re.fullmatch(r'M62[01]\s+S(?:65535|65279)', command):
+                    continue
                 match = re.fullmatch(r'M(620|621)\s+S(0|[1-9][0-9]*)A', command)
+                if match is None:
+                    match = re.fullmatch(r'M(620)\s+S(0|[1-9][0-9]*)A\s+H-1', command)
                 if match is None:
                     raise ValueError(refusal)
                 switches[int(match.group(1))].add(int(match.group(2)))

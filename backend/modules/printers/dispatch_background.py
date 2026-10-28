@@ -68,7 +68,7 @@ def claimed(engine, token, job):
     context['staged'].set()
 
 
-def progress(phase, *, message=None):
+def progress(phase, *, message=None, ams_mapping_derived=False):
     context = _context.get()
     if not context or not context.get('token'):
         return
@@ -79,6 +79,8 @@ def progress(phase, *, message=None):
         if record is None:
             raise RuntimeError('Dispatch progress is missing')
         record['phase'] = phase
+        if ams_mapping_derived:
+            record['ams_mapping_derived'] = True
         if message is not None:
             record['message'] = message[:500]
         if phase in ('start_accepted', 'refused', 'needs_reconciliation'):

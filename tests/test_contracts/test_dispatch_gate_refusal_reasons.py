@@ -24,7 +24,7 @@ def gate_case(monkeypatch):
     monkeypatch.setattr(gate, 'recheck_admitted', lambda *a, **k: NS(admitted=state.admitted))
     monkeypatch.setattr(gate, 'read_current_selected_ams', lambda *a, **k: result)
     checked = gate.create_ams_start_gate(NS(connect=lambda: nullcontext(None)),
-        admission_inputs={'job': {'printer_id': 9}, 'creds': {'org_id': 1, 'access_code': 'private-access-code',
+        admission_inputs={'job': {'printer_id': 9, 'ams_mapping': [0]}, 'creds': {'org_id': 1, 'access_code': 'private-access-code',
         'serial': 'private-serial'}, 'payload_sha256': '', 'token': 'private-token'},
         staged_path='', mapping=state.mapping, target_handle=NS(held=lambda: state.held))
     return checked, state, result, snapshot

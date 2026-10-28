@@ -161,3 +161,95 @@ def test_non_lf_separator_cannot_hide_source_command_in_comment(separator, hidde
 
 def test_normal_crlf_source_remains_supported():
     assert inspect_single_source_ams(archive(code='; filament_type = PETG\r\nM620 S0A\r\nM621 S0A\r\n')).source_index == 0
+
+
+H2D = Path(__file__).parents[1] / 'fixtures/telemetry/h2d-petg-source-sanitized.3mf'
+
+
+def h2d_archive(*, command=None, replacements=None):
+    result = io.BytesIO()
+    with zipfile.ZipFile(H2D) as original, zipfile.ZipFile(result, 'w') as package:
+        for name in original.namelist():
+            content = original.read(name)
+            if name == 'Metadata/plate_1.gcode' and command is not None:
+                content += (command + '\n').encode()
+            if replacements and name in replacements:
+                old, new = replacements[name]
+                content = content.replace(old.encode(), new.encode())
+            package.writestr(name, content)
+    return result.getvalue()
+
+
+def test_genuine_h2d_petg_source_is_one():
+    result = inspect_single_source_ams(H2D.read_bytes())
+    assert (result.plate_index, result.source_index, result.material) == (0, 1, 'PETG')
+
+
+def h2d_changed_commands():
+    """Shape changes: an extra or omitted parameter on every retained command."""
+    with zipfile.ZipFile(H2D) as package:
+        commands = package.read('Metadata/plate_1.gcode').decode().splitlines()
+    for command in dict.fromkeys(commands):
+        if command.startswith(';') or command == 'M620 M':
+            continue
+        yield command + ' X0'
+        parts = command.split()
+        if len(parts) == 1:
+            yield 'T1002' if command in ('T1000', 'T1001') else 'T' + str(int(command[1:]) + 1)
+        for index in range(1, len(parts)):
+            omitted = ' '.join(parts[:index] + parts[index + 1:])
+            if omitted not in ('M620 S1A', 'T1'):
+                yield omitted
+
+
+@pytest.mark.parametrize('command', list(dict.fromkeys(h2d_changed_commands())) + [
+    # Selectors and the filament index stay exact; I must be the verified source.
+    'M620.10 A2 F498.898 H0.4 T270 P245 S1', 'M620.10 A0 F498.898 H0.4 T270 P245 S2',
+    'M620.11 P0 I0 B-1 E0', 'M620.11 P2 I1 B-1 E0', 'M620.11 K0 I2 B-1 R0', 'M620.11 K0 I1 B0 R0',
+    'M620.11 S1 L0 I0 B-1 R10 D8 E-10 F623.623', 'M620.11 S1 L2 I1 B-1 R10 D8 E-10 F623.623',
+    'M620.6 I0 H-1 W1', 'M620.6 I1 H0 W1', 'M620.6 I1 H-1 W2', 'M620 D0', 'M620 Q2', 'M620.17 T2 S245 L2'])
+def test_h2d_allowlist_refuses_changed_shape_selector_or_source(command):
+    with pytest.raises(ValueError, match='^Unverifiable source mapping$'):
+        inspect_single_source_ams(h2d_archive(command=command))
+
+
+@pytest.mark.parametrize('command', [
+    # Another material or profile changes feeds, temperatures and lengths only.
+    'M620.10 A1 F300 H0.6 T220 P210 S0', 'M620.11 P1 I1 B-1 E-5.5', 'M620.11 K1 I1 B-1 R2',
+    'M620.11 S0 L1 I1 B-1 R5 D3 E-8 F400', 'M620.17 T1 S220 L1'])
+def test_h2d_profile_values_do_not_refuse(command):
+    result = inspect_single_source_ams(h2d_archive(command=command))
+    assert (result.source_index, result.material) == (1, 'PETG')
+
+
+@pytest.mark.parametrize('command', ['T0 H-1', 'M620 S0A H-1', 'M621 S0A',
+    'T1 H0', 'M621 S1A H-1', 'M620.17 T0 S245 L1', 'M620.17 T1 S245 L0',
+    'M620 S65535A', 'M621 S65279A', 'T65535 H-1', 'T65279 H-1'])
+def test_h2d_source_conflicts_and_parameterized_sentinels_refuse(command):
+    with pytest.raises(ValueError):
+        inspect_single_source_ams(h2d_archive(command=command))
+
+
+@pytest.mark.parametrize('member,old,new', [
+    ('Metadata/slice_info.config', 'id="2"', 'id="1"'),
+    ('Metadata/slice_info.config', 'type="PETG"', 'type="PLA"'),
+    ('Metadata/plate_1.json', '"filament_ids": [1]', '"filament_ids": [0]'),
+    ('Metadata/project_settings.config', '"PETG", "PETG"', '"PETG", "PLA"'),
+    ('Metadata/plate_1.gcode', '; filament_type = PETG;PETG', '; filament_type = PETG;PLA'),
+])
+def test_h2d_metadata_conflicts_refuse(member, old, new):
+    with pytest.raises(ValueError):
+        inspect_single_source_ams(h2d_archive(replacements={member: (old, new)}))
+
+
+def test_h2d_gcode_size_from_production_fits_bounded_inspection():
+    result = io.BytesIO()
+    with zipfile.ZipFile(H2D) as original, zipfile.ZipFile(result, 'w', compression=zipfile.ZIP_DEFLATED) as package:
+        for name in original.namelist():
+            with package.open(name, 'w') as member:
+                member.write(original.read(name))
+                if name == 'Metadata/plate_1.gcode':
+                    # Exceed both the old 64 MiB cap and the 75,041,281-byte evidence.
+                    for _ in range(1150):
+                        member.write(b';' + b'x' * 65534 + b'\n')
+    assert inspect_single_source_ams(result.getvalue()).source_index == 1
