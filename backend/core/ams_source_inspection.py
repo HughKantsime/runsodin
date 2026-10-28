@@ -18,14 +18,18 @@ MAX_GCODE_LINE_BYTES = 128 * 1024
 
 # Nozzle/flush/cutter command shapes from the genuine H2D slice. Feeds,
 # temperatures and lengths vary with material and profile, so they are any
-# number; selectors are 0/1 and the filament index (I) must be the source.
+# number; selectors are 0/1 and filament indices (I, M620.17 L) must be the source.
 _NUMBER = r'-?[0-9]+(?:\.[0-9]+)?'
 _H2D_NON_SOURCE = (
     rf'M620\.10\s+A[01]\s+F{_NUMBER}\s+H{_NUMBER}\s+T{_NUMBER}\s+P{_NUMBER}\s+S[01]',
     r'M620\.11\s+P[01]\s+I{source}\s+B-1\s+E' + _NUMBER,
-    r'M620\.11\s+K[01]\s+I{source}\s+B-1\s+R' + _NUMBER,
-    rf'M620\.11\s+S[01]\s+L[01]\s+I{{source}}\s+B-1\s+R{_NUMBER}\s+D{_NUMBER}\s+E{_NUMBER}\s+F{_NUMBER}',
-    rf'M620\.17\s+T([01])\s+S{_NUMBER}\s+L\1',
+    # Long retraction appends a feed when enabled.
+    rf'M620\.11\s+K[01]\s+I{{source}}\s+B-1\s+R{_NUMBER}(?:\s+F{_NUMBER})?',
+    # Flexible filaments (TPU) omit the retraction/distance pair.
+    rf'M620\.11\s+S[01]\s+L[01]\s+I{{source}}\s+B-1(?:\s+R{_NUMBER}\s+D{_NUMBER})?\s+E{_NUMBER}\s+F{_NUMBER}',
+    # T is the nozzle; L is that nozzle's filament index, or the template's
+    # fallback 0 for a nozzle with no filament on a single-source plate.
+    rf'M620\.17\s+T[01]\s+S{_NUMBER}\s+L(?:{{source}}|0)',
     r'M620\s+D-1',
     r'M620\.6\s+I{source}\s+H-1\s+W[01]',
     r'M620\s+Q1',

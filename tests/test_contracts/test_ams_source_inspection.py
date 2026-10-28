@@ -207,7 +207,8 @@ def h2d_changed_commands():
     'M620.10 A2 F498.898 H0.4 T270 P245 S1', 'M620.10 A0 F498.898 H0.4 T270 P245 S2',
     'M620.11 P0 I0 B-1 E0', 'M620.11 P2 I1 B-1 E0', 'M620.11 K0 I2 B-1 R0', 'M620.11 K0 I1 B0 R0',
     'M620.11 S1 L0 I0 B-1 R10 D8 E-10 F623.623', 'M620.11 S1 L2 I1 B-1 R10 D8 E-10 F623.623',
-    'M620.6 I0 H-1 W1', 'M620.6 I1 H0 W1', 'M620.6 I1 H-1 W2', 'M620 D0', 'M620 Q2', 'M620.17 T2 S245 L2'])
+    'M620.6 I0 H-1 W1', 'M620.6 I1 H0 W1', 'M620.6 I1 H-1 W2', 'M620 D0', 'M620 Q2', 'M620.17 T2 S245 L1',
+    'M620.17 T0 S245 L2', 'M620.11 K0 I1 B-1 R0 F', 'M620.11 S0 L0 I1 B-1 R10 E-10 F623.623'])
 def test_h2d_allowlist_refuses_changed_shape_selector_or_source(command):
     with pytest.raises(ValueError, match='^Unverifiable source mapping$'):
         inspect_single_source_ams(h2d_archive(command=command))
@@ -216,14 +217,18 @@ def test_h2d_allowlist_refuses_changed_shape_selector_or_source(command):
 @pytest.mark.parametrize('command', [
     # Another material or profile changes feeds, temperatures and lengths only.
     'M620.10 A1 F300 H0.6 T220 P210 S0', 'M620.11 P1 I1 B-1 E-5.5', 'M620.11 K1 I1 B-1 R2',
-    'M620.11 S0 L1 I1 B-1 R5 D3 E-8 F400', 'M620.17 T1 S220 L1'])
+    'M620.11 S0 L1 I1 B-1 R5 D3 E-8 F400', 'M620.17 T1 S220 L1',
+    # Bambu template branches: long retraction with feed, TPU without R/D,
+    # and either nozzle with the source or the empty-nozzle fallback.
+    'M620.11 K1 I1 B-1 R2 F623.623', 'M620.11 S0 L0 I1 B-1 E-10 F623.623',
+    'M620.17 T0 S245 L1', 'M620.17 T1 S245 L0'])
 def test_h2d_profile_values_do_not_refuse(command):
     result = inspect_single_source_ams(h2d_archive(command=command))
     assert (result.source_index, result.material) == (1, 'PETG')
 
 
 @pytest.mark.parametrize('command', ['T0 H-1', 'M620 S0A H-1', 'M621 S0A',
-    'T1 H0', 'M621 S1A H-1', 'M620.17 T0 S245 L1', 'M620.17 T1 S245 L0',
+    'T1 H0', 'M621 S1A H-1', 'M620.17 T0 S245 L2', 'M620.17 T1 S245 L3',
     'M620 S65535A', 'M621 S65279A', 'T65535 H-1', 'T65279 H-1'])
 def test_h2d_source_conflicts_and_parameterized_sentinels_refuse(command):
     with pytest.raises(ValueError):
