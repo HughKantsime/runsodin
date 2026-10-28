@@ -291,7 +291,7 @@ def _orm_checksum() -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-CURRENT_ORM_BASELINE = "release_2_0_24_merged_043_20261027"
+CURRENT_ORM_BASELINE = "spool_identity_044_20261027"
 
 # Post-027 migrations, applied in this order on the current path only. Each must be
 # additive and must never fail because of existing user data (data-dependent
@@ -311,6 +311,7 @@ POST027_MIGRATIONS = (
     ("python:041-inventory-color", "core.schema.migrations.041_inventory_color"),
     ("python:042-dispatch-capability", "core.schema.migrations.042_dispatch_capability"),
     ("python:043-recipe-configuration", "core.schema.migrations.043_recipe_configuration"),
+    ("python:044-spool-tray-uuid", "core.schema.migrations.044_spool_tray_uuid"),
 )
 
 

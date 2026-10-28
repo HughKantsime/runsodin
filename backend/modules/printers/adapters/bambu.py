@@ -85,6 +85,8 @@ class AMSSlot:
     color_hex: str = ""
     remaining_percent: Optional[int] = None
     rfid_tag: str = ""  # Bambu RFID tag_uid
+    tray_uuid: str = ""
+    tray_id_name: str = ""
     sub_brand: str = ""  # e.g., "PLA Galaxy", "PETG HF"
     empty: bool = True
 
@@ -599,6 +601,8 @@ class BambuPrinter:
                 remaining_percent=remaining,
                 empty=tray.get("tray_type", "") == "",
                 rfid_tag=tray.get("tag_uid", ""),
+                tray_uuid=tray.get("tray_uuid") or "",
+                tray_id_name=tray.get("tray_id_name") or "",
                 sub_brand=tray.get("tray_sub_brands", "")
             )
             self._status.ams_slots.append(slot)

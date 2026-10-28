@@ -12,7 +12,7 @@ def sync_client(own_ams_operator, review_db, monkeypatch):
     from modules.printers.telemetry.bambu.raw import BambuPrintSection
     client, headers, _ = own_ams_operator
     client.app.include_router(routes_ams.router)
-    review_db.execute(text("UPDATE printers SET api_host='127.0.0.1',api_key='synthetic-noncredential' WHERE id=199"))
+    review_db.execute(text("UPDATE printers SET model='X1C',machine_type='X1C',api_host='127.0.0.1',api_key='synthetic-noncredential' WHERE id=199"))
     review_db.execute(text("UPDATE spools SET rfid_tag='synthetic-own-tag',initial_weight_g=1000 WHERE id=199"));review_db.commit()
     calls=[]
     section=BambuPrintSection.model_validate({'ams':{'ams':[{'id':'0','tray':[{'id':'0','tray_type':'PLA','tray_color':'123ABCFF','remain':0,'tag_uid':'synthetic-own-tag'}]}]}})

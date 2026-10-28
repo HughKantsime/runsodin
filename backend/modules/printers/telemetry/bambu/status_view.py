@@ -46,6 +46,8 @@ class AMSSlotCompat:
     color_hex: str = ""
     remaining_percent: Optional[int] = None
     rfid_tag: str = ""
+    tray_uuid: str = ""
+    tray_id_name: str = ""
     sub_brand: str = ""
     empty: bool = True
 
@@ -199,6 +201,8 @@ def ams_slots_from_section(section) -> list[AMSSlotCompat]:
             color_hex=color_hex,
             remaining_percent=int(raw_tray.get("remain")) if raw_tray.get("remain") is not None else None,
             rfid_tag=raw_tray.get("tag_uid") or "",
+            tray_uuid=raw_tray.get("tray_uuid") or "",
+            tray_id_name=raw_tray.get("tray_id_name") or "",
             sub_brand=raw_tray.get("tray_sub_brands") or "",
             empty=(not raw_tray.get("tray_type")),
         ))

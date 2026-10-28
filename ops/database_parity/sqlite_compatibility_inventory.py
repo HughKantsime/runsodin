@@ -15,6 +15,8 @@ INVENTORY = ROOT / "ops" / "database_parity" / "sqlite_compatibility_inventory.j
 
 
 CLASSIFICATIONS: dict[str, tuple[str, str]] = {
+    "backend/modules/inventory/rfid_identity.py": (
+        "dialect-neutral", "Monitor identity helpers use literal portable SQL through the shared qmark DBAPI adapter; HTTP uses ORM queries."),
     "backend/modules/printers/monitors/nozzle_observations.py": ("dialect-neutral", "Monitor observation writes use the live database compatibility executor for qmark binding and JSON storage."),
     "backend/core/schema/migrations/042_dispatch_capability.py": ("sqlite-provider-only", "SQLite writer promotion is dialect guarded; additive JSON and bound bed-default correction use portable SQL."),
     "backend/core/schema/migrations/043_recipe_configuration.py": ("sqlite-provider-only", "SQLite writer transaction is guarded by dialect; receipt shape uses dialect-native reflection on SQLite and PostgreSQL."),

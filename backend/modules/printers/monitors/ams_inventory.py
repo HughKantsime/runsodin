@@ -1,7 +1,8 @@
 """Caller-owned, organization-bound AMS inventory updates for raw daemon DBs."""
-import math
 import json
+from datetime import datetime, timezone
 import uuid
+from modules.inventory import rfid_identity as rfid
 from core.base import slot_filament_value
 from core.material_identity import canonical_reported_material
 from modules.printers.telemetry.validators import coerce_int_or_raise
@@ -40,14 +41,20 @@ def _rows(conn, table, ids, columns, lock=False):
     return conn.execute(f'SELECT {columns} FROM {table} WHERE id IN ({placeholders}) ORDER BY id{suffix}', tuple(sorted(ids))).fetchall()  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- table/columns checked against the _ROW_SELECTIONS allowlist; placeholders are generated ?; values are bound
 
 
-def _graph(conn, printer_id, tags):
+def _graph(conn, printer_id, tags, uuids=(), trays=()):
     slots = conn.execute('SELECT id,assigned_spool_id,printer_id,slot_number FROM filament_slots WHERE printer_id=? ORDER BY id', (printer_id,)).fetchall()
     matches = []
     if tags:
         placeholders = ','.join('?' for _ in tags)
-        matches = conn.execute(f'SELECT id,rfid_tag FROM spools WHERE rfid_tag IN ({placeholders})', tuple(tags)).fetchall()  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- only '?' placeholders generated from the bound value count; values are bound
+        matches = conn.execute(f'SELECT id,rfid_tag,tray_uuid FROM spools WHERE rfid_tag IN ({placeholders})', tuple(tags)).fetchall()  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- only '?' placeholders generated from the bound value count; values are bound
+    for tray_uuid in uuids:
+        matches.extend(conn.execute('SELECT id,rfid_tag,tray_uuid FROM spools WHERE tray_uuid=?', (tray_uuid,)).fetchall())
+    matches = list({row[0]: row for row in matches}.values())
+    org_row = conn.execute('SELECT org_id FROM printers WHERE id=?', (printer_id,)).fetchone()
+    candidates = rfid.raw_candidate_rows(conn, org_row[0]) if trays and org_row else []
     ids = {row[1] for row in slots if row[1] is not None} | {row[0] for row in matches}
     ids.update(row[0] for row in conn.execute('SELECT id FROM spools WHERE location_printer_id=?', (printer_id,)).fetchall())
+    ids.update(row[0] for row in candidates)
     spools = _rows(conn, 'spools', ids, _SPOOL_COLUMNS)
     if ids:
         placeholders = ','.join('?' for _ in ids)
@@ -74,7 +81,8 @@ def _graph(conn, printer_id, tags):
             raise AMSInventoryError('cross-printer', printer_id, slots=[r[0] for r in linked], spools=(spool_id,))
     return ({row[0]: (row[1],row[2],row[3]) for row in slots},
             {row[0]: (None, None) if row[0] in repairs else (row[2],row[5]) for row in spools},
-            {row[1]: row[0] for row in matches}, repairs)
+            {**{row[1]: row[0] for row in matches if row[1]},
+             **{'uuid:' + row[2]: row[0] for row in matches if row[2]}}, repairs, candidates)
 
 
 def sync_ams_inventory(conn, printer_id, units):
@@ -86,9 +94,8 @@ def sync_ams_inventory(conn, printer_id, units):
     """
     from modules.printers.telemetry.bambu.ams_identity import ams_trays_by_slot, is_rfid_tag
     identified = ams_trays_by_slot(units, strict=True)
-    # The all-zero tag_uid of a non-RFID spool is not an identity.
-    identified = [(number, tray if is_rfid_tag(tray.get('tag_uid')) else {k: v for k, v in tray.items() if k != 'tag_uid'})
-                  for number, tray in identified]
+    identified = [(number, {**tray, 'tag_uid': rfid.identity(tray.get('tag_uid')),
+                            'tray_uuid': rfid.identity(tray.get('tray_uuid'))}) for number, tray in identified]
     def material_reported(tray):
         value = tray.get('tray_type')
         return value == '' or canonical_reported_material(value) is not None
@@ -115,15 +122,19 @@ def sync_ams_inventory(conn, printer_id, units):
     if len(reported_tags) != len(set(reported_tags)):
         raise AMSInventoryError('ambiguous', printer_id, numbers=[number for number, _ in identified])
     tags = sorted(set(reported_tags))
+    uuids = [tray['tray_uuid'] for tray in trays if tray['tray_uuid'] and tray.get('tray_type')]
+    if len(uuids) != len(set(uuids)):
+        raise AMSInventoryError('ambiguous', printer_id, numbers=[number for number, _ in identified])
     if not getattr(conn, '_postgres', False):
         conn.execute('UPDATE printers SET name=name WHERE id=?', (printer_id,))
-    before = _graph(conn, printer_id, tags)
+    before = _graph(conn, printer_id, tags, uuids, trays)
     printer_ids = {v[0] for v in before[3].values() if v[0] is not None} | {printer_id} | {value[0] for value in before[1].values() if value[0] is not None} | {value[1] for value in before[0].values()}
     printers = {row[0]: row[1] for row in _rows(conn, 'printers', printer_ids, 'id,org_id', lock=True)}
     _rows(conn, 'filament_slots', set(before[0]), 'id', lock=True)
     spools = {row[0]: row for row in _rows(conn, 'spools', set(before[1]), _SPOOL_COLUMNS, lock=True)}
-    if _graph(conn, printer_id, tags) != before or set(printers) != printer_ids:
+    if _graph(conn, printer_id, tags, uuids, trays) != before or set(printers) != printer_ids:
         raise AMSInventoryError('changed', printer_id, slots=before[0], spools=before[1])
+    printer_model = conn.execute('SELECT model,machine_type FROM printers WHERE id=?', (printer_id,)).fetchone()
     org = printers[printer_id]
     if any(value is not None and value != org for value in printers.values()):
         raise AMSInventoryError('unavailable', printer_id, slots=before[0], spools=before[1])
@@ -144,8 +155,28 @@ def sync_ams_inventory(conn, printer_id, units):
         conn.execute('UPDATE spools SET location_printer_id=NULL,location_slot=NULL WHERE id=?', (spool_id,))
     # Clear the original association graph before writing any final targets.
     # A sequential clear/write loop loses assignments during valid permutations.
-    destinations = {number: before[2].get(tray.get('tag_uid'))
+    destinations = {number: rfid.match_id(before[2], tray)
                     for number, tray in identified if tray.get('tray_type')}
+    known_ids = [value for value in destinations.values() if value is not None]
+    if len(known_ids) != len(set(known_ids)):
+        raise AMSInventoryError('ambiguous', printer_id, spools=known_ids)
+    used_candidates = set()
+    for number, tray in identified:
+        if not tray.get('tray_type') or destinations.get(number) is not None or not (tray['tag_uid'] or tray['tray_uuid']):
+            continue
+        candidates, possible = rfid.choose_candidates(before[4], tray, used_candidates)
+        if candidates:
+            spool_id = candidates[0]
+            used_candidates.add(spool_id)
+            conn.execute('UPDATE spools SET tray_uuid=?,rfid_tag=?,color_hex=? WHERE id=?',
+                         (tray['tray_uuid'], tray['tag_uid'], (tray.get('tray_color') or '')[:6] or None, spool_id))
+            action = 'inventory.rfid_bound'
+        else:
+            spool_id = rfid.create_raw_spool(conn, org, tray)
+            spools[spool_id] = _rows(conn, 'spools', {spool_id}, _SPOOL_COLUMNS)[0]
+            action = 'inventory.rfid_created'
+        destinations[number] = spool_id
+        rfid.raw_audit(conn, action, rfid.audit_details(spool_id, tray, printer_id, number, candidates, possible))
     from core.interfaces.inventory_moves import inventory_moves
     moves = inventory_moves()
     moves.observed_departures(conn, printer_id,
@@ -175,27 +206,25 @@ def sync_ams_inventory(conn, printer_id, units):
             conn.execute('INSERT INTO filament_slots(printer_id,slot_number,filament_type,color_hex,loaded_at) VALUES(?,?,?,?,CURRENT_TIMESTAMP)', (printer_id, number, filament_type, color))
             identifier = conn.execute('SELECT id FROM filament_slots WHERE printer_id=? AND slot_number=?', (printer_id, number)).fetchone()[0]
         # Mutation authority is the validated locked snapshot, never a new lookup.
-        spool_id = before[2].get(tray.get('tag_uid')) if material else None
+        spool_id = destinations.get(number) if material else None
         if spool_id is not None:
+            if not conn.execute("SELECT id FROM audit_logs WHERE entity_type='spool' AND entity_id=? AND action IN ('inventory.rfid_bound','inventory.rfid_created','inventory.rfid_identified','inventory.rfid_merged') LIMIT 1", (spool_id,)).fetchone():
+                rfid.raw_audit(conn, 'inventory.rfid_identified', rfid.audit_details(spool_id, tray, printer_id, number))
+            if tray['tray_uuid']:
+                conn.execute('UPDATE spools SET tray_uuid=? WHERE id=? AND tray_uuid IS NULL', (tray['tray_uuid'], spool_id))
             moves.break_seal(conn, spool_id)
             conn.execute('UPDATE spools SET storage_location=NULL WHERE id=?', (spool_id,))
             conn.execute('UPDATE filament_slots SET assigned_spool_id=?,spool_confirmed=? WHERE id=?', (spool_id, True, identifier))
             row = spools[spool_id]
             initial = row[3]
             percent = remaining_percent(tray.get('remain'))
-            weight = None
-            if percent is not None and isinstance(initial, (int, float)) and not isinstance(initial, bool):
-                try:
-                    if math.isfinite(initial) and initial >= 0:
-                        computed = initial * (percent / 100)
-                        if math.isfinite(computed):
-                            weight = computed
-                except OverflowError:
-                    pass
+            weight = rfid.measured_weight(printer_model[0], printer_model[1], percent, initial)
             if weight is None:
                 conn.execute('UPDATE spools SET location_printer_id=?,location_slot=? WHERE id=?', (printer_id, number, spool_id))
             else:
-                conn.execute('UPDATE spools SET location_printer_id=?,location_slot=?,remaining_weight_g=? WHERE id=?', (printer_id, number, weight, spool_id))
+                conn.execute('''UPDATE spools SET location_printer_id=?,location_slot=?,remaining_weight_g=?,
+                    remaining_measured_g=?,remaining_measured_at=?,remaining_measured_printer_id=? WHERE id=?''',
+                    (printer_id, number, weight, weight, datetime.now(timezone.utc).replace(tzinfo=None), printer_id, spool_id))
     if not material_incomplete:
         _clear_unplugged_ht(conn, printer_id, reported_slots)
     return len(trays)

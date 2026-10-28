@@ -178,6 +178,7 @@ ACTION_ROUTES: dict[str, list[tuple[str, str]]] = {
         ("DELETE", "/api/models/{model_id}/variants/{variant_id}"),
     ],
     "spools.edit": [
+        ("POST", "/api/spools/rfid-onboarding/{spool_id}/merge"),
         ("POST", "/api/spools/receive"),
         ("POST", "/api/spools/receive/bulk"),
         ("PUT", "/api/spools/reorder-policy"),

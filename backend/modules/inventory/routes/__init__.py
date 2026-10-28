@@ -13,6 +13,8 @@ router = APIRouter()
 # must register before parameterized /spools/{spool_id} in spools_router
 from .stock import router as stock_router
 router.include_router(stock_router)
+from .rfid_onboarding import router as rfid_onboarding_router
+router.include_router(rfid_onboarding_router)
 from .receive_bulk import router as receive_bulk_router
 router.include_router(receive_bulk_router)
 router.include_router(spool_ops_router)

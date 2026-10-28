@@ -103,6 +103,7 @@ _ALLOWED_PYTHON_MIGRATIONS = frozenset(
         "core.schema.migrations.041_inventory_color",
         "core.schema.migrations.042_dispatch_capability",
         "core.schema.migrations.043_recipe_configuration",
+        "core.schema.migrations.044_spool_tray_uuid",
         "core.schema.migrations.036_ctec_pilot",
     }
 )

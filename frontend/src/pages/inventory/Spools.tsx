@@ -14,6 +14,7 @@ import SpoolGrid from '../../components/inventory/SpoolGrid'
 import { CreateSpoolModal, LoadSpoolModal, UseSpoolModal, DryingModal } from '../../components/inventory/SpoolModals'
 import { purchaseAudience, type PurchasePrincipal } from '../../components/inventory/PurchaseEvidenceModal'
 import { EditSpoolModal } from '../../components/inventory/SpoolEditModals'
+import RfidOnboarding from '../../components/inventory/RfidOnboarding'
 import StockReliability from '../../components/inventory/StockReliability'
 import InventoryConflicts from '../../components/inventory/InventoryConflicts'
 import SpoolmanLinkConflicts from '../../components/inventory/SpoolmanLinkConflicts'
@@ -221,6 +222,7 @@ export default function Spools() {
           tabs={[
             { value: 'spools', label: 'Spools' },
             { value: 'library', label: 'Filament Library', icon: Beaker },
+            { value: 'rfid', label: 'Opened Bambu rolls', icon: Package },
           ]}
           active={view}
           onChange={setView}
@@ -234,6 +236,7 @@ export default function Spools() {
 
       {/* Filament Library View */}
       {view === 'library' && <FilamentLibraryView />}
+      {view === 'rfid' && <RfidOnboarding />}
 
       {/* Spools View */}
       {view === 'spools' && (

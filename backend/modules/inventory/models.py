@@ -78,6 +78,11 @@ class Spool(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     color_name = Column(String(100), nullable=True)
+    tray_uuid = Column(String(32), unique=True, index=True, nullable=True)
+
+    remaining_measured_at = Column(DateTime, nullable=True)
+    remaining_measured_g = Column(Float, nullable=True)
+    remaining_measured_printer_id = Column(Integer, nullable=True)
 
     # Relationships
     filament = relationship("FilamentLibrary", back_populates="spools")
