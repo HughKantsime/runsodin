@@ -2,6 +2,20 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.27] - 2026-10-28
+
+<!-- summary: Bambu RFID spools are recognized automatically, sealed rolls bind on first load, and remaining weight follows the printer that measured it -->
+
+### Added
+
+- A Bambu RFID spool loaded into an AMS is matched to its sealed shelf record by product, material and color, with no QR scan. The roll is marked opened, and the lowest-numbered match is used when several rolls are identical. With no match, ODIN creates the spool as before.
+- Spools follow their RFID from printer to printer, keyed on the spool's tray UUID, so both of a spool's tags resolve to the same record.
+- An onboarding checklist on the Spools page shows each RFID roll ODIN has seen and whether it was bound or created. A created spool that duplicates a sealed roll can be merged in one tap.
+
+### Changed
+
+- Remaining weight trusts the AMS reading only on printers that weigh the spool (X1 series and H2D). On P1S and A1, remaining is the last measured value minus the slicer grams of jobs completed since. Job usage and cost always use slicer grams.
+
 ## [2.0.26] - 2026-10-28
 
 <!-- summary: X1 Carbon printers accept X1C files again -->
