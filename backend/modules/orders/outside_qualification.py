@@ -71,7 +71,13 @@ def assert_no_uncorrelated_dispatch(db, row):
 
 
 def qualify_and_bind(db, user, print_job_id, data):
-    if user.get('role') != 'admin' or not is_interactive_session(user):
+    # Shane, 2026-10-28: a write:production operator token may qualify outside
+    # prints, as for ODIN-dispatched references. Sessions stay admin and interactive.
+    from modules.orders.production_auth import assert_production_operator
+    token = user.get('_auth_kind') == 'user_api_token'
+    if token:
+        assert_production_operator(user)
+    elif user.get('role') != 'admin' or not is_interactive_session(user):
         raise HTTPException(403, 'Recipe qualification requires an admin password session')
     if not data.qualification_confirmed:
         batches.fail('Confirm the material setup and fixed yield before qualifying')
@@ -98,6 +104,7 @@ def qualify_and_bind(db, user, print_job_id, data):
                     'stable_configuration_key':outside_prints.configuration_key(db,row['printer_id']),
                     'observation_uid':row['economic_birth_nonce']}
         confirmation = {'actor_user_id':user['id'],'confirmed_at':batches.now(),
+                        'auth_kind':user.get('_auth_kind'),'actor_token_id':user.get('_token_id'),
                         'print_job_id':print_job_id,'attestation':data.attestation.model_dump(),
                         'matched_by':'explicit' if data.print_file_id is not None else 'filename',
                         'observed_filename':row['filename'],'observed_job_name':row['job_name']}
@@ -106,10 +113,11 @@ def qualify_and_bind(db, user, print_job_id, data):
             'qualified_from_outside_print':True,'outside_print_evidence':confirmation})
         outside_prints.audit(db,'production.recipe_qualified_from_outside_print','print_job',
                             print_job_id,{**confirmation,'recipe_id':recipe['id']})
-        # Qualification requires the owner's interactive admin session above,
-        # so this records a direct in-app attestation, not a relayed token claim.
+        # An interactive admin session is the owner attesting in the app; a token
+        # relays the owner's confirmation through the operator.
         return outside_prints.bind(db, user, print_job_id, OutsideBindingInput(
-            recipe_id=recipe['id'],attestation=data.attestation,attested_by='owner_in_app'))
+            recipe_id=recipe['id'],attestation=data.attestation,
+            attested_by='owner_confirmed_to_operator' if token else 'owner_in_app'))
     except Exception:
         db.rollback()
         raise

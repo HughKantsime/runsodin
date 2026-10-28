@@ -67,11 +67,13 @@ def test_token_cannot_bypass_qualification_refusals(batch, change, status):
     assert db.execute(text('SELECT COUNT(*) FROM production_recipes')).scalar_one() == (1 if change=='reference' else 0)
 
 
-def test_password_operator_stays_denied_and_outside_qualification_stays_session_only(batch):
+def test_password_operator_stays_denied_and_token_reaches_outside_qualification(batch):
     batch[1]['role']='operator'
     assert batch[0].post('/products/production/recipes',json=request()).status_code==403
-    authenticate(batch,role='admin')
     assert batch[0].post('/products/production/outside-prints/1/qualify-and-bind',json={}).status_code==403
+    authenticate(batch,role='operator')
+    # Authorized; the empty body is then refused by validation, not permission.
+    assert batch[0].post('/products/production/outside-prints/1/qualify-and-bind',json={}).status_code==422
 
 
 def test_recipe_audit_failure_rolls_back(batch):

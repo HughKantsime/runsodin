@@ -123,7 +123,7 @@ def test_recipe_qualification_declares_production_scope_on_both_aliases(table):
         scopes = [value for attr, value in marks if attr == '__odin_token_scope__']
         assert scopes and set(scopes) == {'write:production'}
         outside = table[('POST', prefix + '/products/production/outside-prints/{print_job_id}/qualify-and-bind')]
-        assert ['__odin_token_scope__', 'write'] in outside
+        assert ['__odin_token_scope__', 'write:production'] in outside
 
 
 def test_rfid_onboarding_is_in_live_matrix_and_declares_scopes_on_both_aliases(table):

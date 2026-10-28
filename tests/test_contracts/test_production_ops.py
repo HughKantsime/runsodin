@@ -57,6 +57,22 @@ def test_outside_qualification_evidence_audit_and_normal_inspection(qualificatio
     assert response.json()['stock_status'] == 'prepared'
 
 
+@pytest.mark.parametrize('role', ['operator', 'admin'])
+def test_production_token_qualifies_outside_print_as_relayed_attestation(qualification, role):
+    # Shane, 2026-10-28: the write:production token may qualify and bind outside prints.
+    batch,pid,_ = qualification
+    batch[1].update(role=role,_auth_kind='user_api_token',_token_scopes=['write:production'],_token_id=77)
+    response = qualify(qualification)
+    assert response.status_code == 200, response.text
+    evidence = response.json()['recipe_revision']['outside_print_evidence']
+    assert evidence['auth_kind'] == 'user_api_token' and evidence['actor_token_id'] == 77
+    binding = json.loads(batch[3].execute(text("SELECT value FROM system_config WHERE key LIKE 'outside_print_binding:%'")).scalar_one())
+    binding = json.loads(binding) if isinstance(binding, str) else binding
+    assert binding['attested_by'] == 'owner_confirmed_to_operator' and binding['actor_token_id'] == 77
+    audit = json.loads(batch[3].execute(text("SELECT details FROM audit_logs WHERE action='production.recipe_qualified_from_outside_print'")).scalar_one())
+    assert audit['auth_kind'] == 'user_api_token' and audit['actor_token_id'] == 77
+
+
 @pytest.mark.parametrize('reason',['running','dispatch','linked_receipt','owner','printer','token','operator','attestation','qualification','plate','foreign_file','education','education_model','missing_hash'])
 def test_outside_qualification_refusals_are_atomic(qualification,reason):
     batch,pid,data = qualification
@@ -66,7 +82,7 @@ def test_outside_qualification_refusals_are_atomic(qualification,reason):
     elif reason == 'linked_receipt': db.execute(text('UPDATE print_jobs SET scheduled_job_id=302 WHERE id=:id'),{'id':pid})
     elif reason == 'owner': batch[1]['group_id'] = 2
     elif reason == 'printer': data['printer_id'] = 999
-    elif reason == 'token': batch[1].update(_auth_kind='user_api_token',_token_scopes=['admin','write:production'],_token_id=77)
+    elif reason == 'token': batch[1].update(_auth_kind='user_api_token',_token_scopes=['admin','write'],_token_id=77)
     elif reason == 'operator': batch[1]['role'] = 'operator'
     elif reason == 'attestation': data['attestation']['started_outside_odin'] = False
     elif reason == 'qualification': data['qualification_confirmed'] = False
