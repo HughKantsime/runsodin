@@ -124,3 +124,20 @@ def test_recipe_qualification_declares_production_scope_on_both_aliases(table):
         assert scopes and set(scopes) == {'write:production'}
         outside = table[('POST', prefix + '/products/production/outside-prints/{print_job_id}/qualify-and-bind')]
         assert ['__odin_token_scope__', 'write'] in outside
+
+
+def test_rfid_onboarding_is_in_live_matrix_and_declares_scopes_on_both_aliases(table):
+    from rbac_endpoints_a import ENDPOINTS
+
+    endpoints = {(method, path): (roles, body) for method, path, roles, body, _ in ENDPOINTS}
+    read_path = '/api/spools/rfid-onboarding'
+    merge_path = read_path + '/{spool_id}/merge'
+    assert endpoints[('GET', read_path)][0]['viewer'] == 200
+    assert endpoints[('POST', merge_path)][0]['viewer'] == 403
+    assert endpoints[('POST', merge_path)][0]['operator'] == 200
+    for prefix in ('/api', '/api/v1'):
+        read = table[('GET', prefix + '/spools/rfid-onboarding')]
+        merge = table[('POST', prefix + '/spools/rfid-onboarding/{spool_id}/merge')]
+        assert ['__odin_token_scope__', 'read:spools'] in read
+        assert ['__odin_token_scope__', 'write:spools'] in merge
+        assert ['__odin_rbac_action__', ['spools.edit', None]] in merge

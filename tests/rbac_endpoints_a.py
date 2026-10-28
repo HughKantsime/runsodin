@@ -155,6 +155,9 @@ ENDPOINTS = [
     # =========================================================================
     # 11. Spools
     # =========================================================================
+    ("GET", "/api/spools/rfid-onboarding", _api_read(), None, "Organization-scoped RFID checklist"),
+    ("POST", "/api/spools/rfid-onboarding/{spool_id}/merge", _op_write(),
+     {"sealed_spool_id": 2147483647}, "Merge unused RFID roll — spools.edit; absent target avoids changing stock"),
     ("GET",  "/api/spools/export", _api_read(), None, "Export spools CSV"),
     ("GET",  "/api/spools/low-stock", _api_read(), None, "Low stock spools"),
     ("GET",  "/api/spools", _api_read(), None, "List spools"),

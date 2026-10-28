@@ -44,6 +44,7 @@ def _entry(
 
 
 POLICY_INVENTORY = (
+    _entry("inventory.routes.rfid_onboarding", "rfid_onboarding/merge_rfid_roll/reference_reason", "spool/printer/slot/usage/alert/print snapshot", "read checklist/merge unused RFID roll", "scoped viewer reads; operator with spools.edit and write:spools merges same-org stock under assignment locks; any usage, alert or print reference vetoes merge", ("RFID onboarding checklist", "spool assignments"), "test_spool_rfid_identity.py", "guarded"),
     _entry("jobs.ams_mapping", "lock_mapping_edit/checked_changes/detail_view", "job/file/printer/submission", "read or edit AMS mapping", "scoped job caller; generic-job mutation guard, accessible source and printer, serialized pre-dispatch edits", ("jobs.routes.jobs_crud",), "test_schedule_ams_mapping.py", "guarded"),
     _entry("printers.dispatch_background", "stage/claimed/progress/drain", "job/printer/dispatch claim", "stage and observe dispatch", "caller-authorized worker; normal dispatch admission and Education gates retained", ("printers.dispatch",), "test_dispatch_capability_background.py", "guarded"),
     _entry("printers.dispatch_loading", "_load_job/_get_printer_info", "job/file/printer", "read dispatch inputs", "trusted dispatch worker; authority checked again under target lock", ("printers.dispatch",), "test_dispatch_orchestration_behavior.py", "guarded"),

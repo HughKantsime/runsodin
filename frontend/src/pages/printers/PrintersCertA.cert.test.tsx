@@ -100,6 +100,15 @@ it('printing status filter keeps the actively printing Bambu printer', async () 
   fireEvent.change(screen.getByLabelText('Filter printers by status'), { target: { value: 'printing' } })
   expect(names()).toContain('Cert Bambu')
 })
+
+it('RFID-confirmed slots leave only the non-RFID roll needing manual spool assignment', async () => {
+  // 2.0.27 monitor ingestion creates/binds real inventory records in the capture.
+  // Keep this consumer assertion coupled to that wire, without masking its fields.
+  expect(w.printers[0].filament_slots.map((slot: any) => slot.assigned_spool_id)).toEqual([1, 2, null, 3, 4, 5, 6, 7])
+  expect(w.printers[0].filament_slots.filter((slot: any) => slot.spool_confirmed)).toHaveLength(7)
+  await page()
+  expect(within(card(301)).getByTitle('Slots need spool assignment')).toHaveTextContent(/^1$/)
+})
 it('printing status filter includes Moonraker/PrusaLink/Elegoo printers that are printing', async () => {
   await page()
   fireEvent.change(screen.getByLabelText('Filter printers by status'), { target: { value: 'printing' } })

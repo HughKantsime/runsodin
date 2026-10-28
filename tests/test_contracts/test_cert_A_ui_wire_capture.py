@@ -4,6 +4,10 @@ Producers: legacy Bambu monitor fed captured A1/H2D MQTT frames, Moonraker /
 PrusaLink / Elegoo monitors fed protocol-accurate transport payloads, then
 the real printer routers. Wall-clock timestamps are normalized to a fixed
 base so the fixture is reproducible; every other value is as produced.
+
+2.0.27 intentionally creates/binds and confirms RFID spools during monitor
+ingestion. The consumer fixture retains those assigned_spool_id/spool_confirmed
+values; PrintersCertA certifies the remaining manual-assignment warning.
 """
 import json
 from pathlib import Path
