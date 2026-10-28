@@ -67,11 +67,11 @@ def _deliver_to_devices(devices: list[PushDevice], mapping: dict, data: dict):
                 pass
 
         if _is_in_quiet_hours(prefs):
-            log.info("Push skip reason=quiet_hours category=%s alert_type=%s token_fingerprint=%s", category, data.get("alert_type"), token_fingerprint(device.token))
+            log.info("Push skip reason=quiet_hours category=%s alert_type=%s device_ref=%s", category, data.get("alert_type"), token_fingerprint(device.token))
             continue
 
         if not _category_enabled(prefs, category):
-            log.info("Push skip reason=category_off category=%s alert_type=%s token_fingerprint=%s", category, data.get("alert_type"), token_fingerprint(device.token))
+            log.info("Push skip reason=category_off category=%s alert_type=%s device_ref=%s", category, data.get("alert_type"), token_fingerprint(device.token))
             continue
 
         sandbox = device.platform == "apns-sandbox"
@@ -85,7 +85,7 @@ def _deliver_to_devices(devices: list[PushDevice], mapping: dict, data: dict):
                   if k in {"printer_id", "job_id", "spool_id", "alert_type", "severity"} and v is not None}},
         )
         if result.status == "not_configured":
-            log.info("Push skip reason=not_configured category=%s alert_type=%s token_fingerprint=%s", category, data.get("alert_type"), token_fingerprint(device.token))
+            log.info("Push skip reason=not_configured category=%s alert_type=%s device_ref=%s", category, data.get("alert_type"), token_fingerprint(device.token))
 
 
 def deliver_alert(db, plan):

@@ -76,7 +76,7 @@ def diagnostics(result, token):
 
 def log_result(result, token, category, alert_type):
     fields = diagnostics(result, token)
-    log.info('Push attempt category=%s alert_type=%s status=%s apns-id=%s reason=%s token_fingerprint=%s',
+    log.info('Push attempt category=%s alert_type=%s status=%s apns-id=%s reason=%s device_ref=%s',
              category if re.fullmatch(r'[A-Z_]{1,40}', category or '') else 'unknown',
              alert_type if re.fullmatch(r'[a-z_]{1,40}', alert_type or '') else 'unknown',
              fields['status'], fields['apns_id'], fields['reason'], fields['token_fingerprint'])

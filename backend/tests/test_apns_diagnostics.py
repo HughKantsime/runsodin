@@ -203,7 +203,7 @@ def test_apns_info_proof_with_allowlisted_id_reason_and_fingerprint(monkeypatch,
         result = provider.send_push_result(token, 'Test', 'Body', 'PRINT_PAUSED', data={'alert_type': 'print_paused'})
     assert result.apns_id == identifier and result.reason == 'BadDeviceToken'
     for value in ('category=PRINT_PAUSED', 'alert_type=print_paused', 'status=bad_device_token',
-                  'reason=BadDeviceToken', identifier, 'token_fingerprint=123abc'):
+                  'reason=BadDeviceToken', identifier, 'device_ref=123abc'):
         assert value in caplog.text
     assert token not in caplog.text and token[:12] not in caplog.text
     provider.close()
