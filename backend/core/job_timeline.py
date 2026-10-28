@@ -160,10 +160,13 @@ class TimelineWriter:
     def _run(self):
         while True:
             self.wake.wait(.2);self.wake.clear()
+            # A stop arriving after _drain's state commit must cause another
+            # drain before exiting, so clean_shutdown is durably recorded.
+            stopping=self.stop.is_set()
             succeeded=self._drain()
             if self.stop.is_set():
                 with self.lock:empty=not self.queue
-                if (succeeded and empty) or time.monotonic()>=self.close_deadline:
+                if (stopping and succeeded and empty) or time.monotonic()>=self.close_deadline:
                     break
                 self.wake.set()
         self.engine.dispose()

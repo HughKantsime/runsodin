@@ -63,6 +63,71 @@ def test_writer_contention_does_not_block_dispatch_or_telemetry(engine):
         assert not history_complete(c,1,writer.started-timedelta(seconds=1),now())
 
 
+def test_stop_after_drain_commits_clean_shutdown(engine,monkeypatch):
+    """A stop arriving after the state commit needs one final shutdown drain."""
+    seed(engine)
+    monkeypatch.setattr('core.job_timeline.threading.Thread.start',lambda self:None)
+    writer=TimelineWriter(engine.url)
+    writer.enqueue(event(1,'paused',printer_id=1))
+    drain=writer._drain
+    def stop_after_commit():
+        result=drain()
+        if not writer.stop.is_set():
+            writer.close_deadline=time.monotonic()+.8
+            writer.stop.set()
+        return result
+    monkeypatch.setattr(writer,'_drain',stop_after_commit)
+    try:
+        writer._run()
+        with engine.connect() as c:
+            assert c.execute(text('SELECT clean_shutdown FROM timeline_writer_state')).scalar_one()==1
+            assert c.execute(text('SELECT count(*) FROM job_timeline_events')).scalar_one()==1
+    finally:writer.engine.dispose()
+
+
+def test_attention_writer_contention_does_not_block_producers(engine,monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    from core import db as core_db,job_timeline
+    from modules.notifications import job_faults,alert_dispatcher
+    from modules.printers import dispatch
+    seed(engine)
+    entered=threading.Event();finished=threading.Event()
+    claim=job_faults._pause_claim
+    def blocked_claim(db,item):
+        entered.set()
+        try:return claim(db,item)
+        finally:finished.set()
+    monkeypatch.setattr(job_faults,'_pause_claim',blocked_claim)
+    monkeypatch.setattr(core_db,'current_engine',lambda:engine)
+    monkeypatch.setattr(alert_dispatcher,'stage_alert',lambda *a,**kw:None)
+    sent=[]
+    monkeypatch.setattr(dispatch,'_ws_push',lambda *args:sent.append(args))
+    writer=TimelineWriter(engine.url,busy_timeout_ms=50)
+    monkeypatch.setattr(job_timeline,'_writer',writer)
+    with ThreadPoolExecutor(max_workers=1) as worker:
+        monkeypatch.setattr(job_faults,'_worker',worker)
+        try:
+            with engine.connect() as lock:
+                lock.exec_driver_sql('BEGIN IMMEDIATE')
+                job_timeline.for_printer(1,'paused')
+                assert entered.wait(1)
+                results=[]
+                def produce():
+                    for kind in ('paused','runout','started','resumed','completed','cancelled','failed'):
+                        results.append(job_timeline.for_printer(1,kind))
+                    job_timeline.close_pause_episode(1)
+                    dispatch._ws(1,'uploading','progress')
+                producer=threading.Thread(target=produce)
+                producer.start();producer.join(timeout=.25)
+                assert not producer.is_alive()
+                assert results==[True]*7 and len(sent)==1
+                assert not finished.is_set(), 'Attention bookkeeping must still be waiting for SQLite'
+                lock.rollback()
+            assert finished.wait(2)
+        finally:writer.close()
+
+
 def test_timeline_only_allows_actor_erasure_printer_null_and_job_cascade(engine):
     seed(engine)
     with engine.begin() as c:

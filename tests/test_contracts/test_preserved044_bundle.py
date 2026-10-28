@@ -40,12 +40,12 @@ with engine.connect() as c:
 
 @pytest.mark.parametrize('version', ['2.0.27', '2.0.28'])
 def test_exact_released_044_ledgers_and_restore_routing(tmp_path, monkeypatch, version):
-    from core.schema import preserved043
+    from core.schema import preserved029, preserved043
     from modules.system import pre026_restore_stage as stage, postgres_backup_service as backup
     ids = preserved044.ledger_ids()
     assert ids == preserved043.ledger_ids() | {'python:044-spool-tray-uuid'}
     releases = json.loads(Path('backend/core/schema/released_post027_ledgers.json').read_text())['releases']
-    assert set(releases[version]) <= ids
+    assert ids == preserved029.ledger_ids() | set(releases[version])
     assert 'python:045-pause-cancel-alerts' not in ids
     archive = tmp_path/'owned.dump'; archive.write_bytes(b'x'*100)
     monkeypatch.setattr(backup, '_run_pg_tool', lambda *a: '')
