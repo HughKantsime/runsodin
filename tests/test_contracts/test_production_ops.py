@@ -73,7 +73,7 @@ def test_production_token_qualifies_outside_print_as_relayed_attestation(qualifi
     assert audit['auth_kind'] == 'user_api_token' and audit['actor_token_id'] == 77
 
 
-@pytest.mark.parametrize('reason',['running','dispatch','linked_receipt','owner','printer','token','operator','attestation','qualification','plate','foreign_file','education','education_model','missing_hash'])
+@pytest.mark.parametrize('reason',['running','dispatch','linked_receipt','owner','printer','token','viewer_token','foreign_token','noninteractive','operator','attestation','qualification','plate','foreign_file','education','education_model','missing_hash'])
 def test_outside_qualification_refusals_are_atomic(qualification,reason):
     batch,pid,data = qualification
     db = batch[3]
@@ -83,6 +83,9 @@ def test_outside_qualification_refusals_are_atomic(qualification,reason):
     elif reason == 'owner': batch[1]['group_id'] = 2
     elif reason == 'printer': data['printer_id'] = 999
     elif reason == 'token': batch[1].update(_auth_kind='user_api_token',_token_scopes=['admin','write'],_token_id=77)
+    elif reason == 'viewer_token': batch[1].update(role='viewer',_auth_kind='user_api_token',_token_scopes=['write:production'],_token_id=77)
+    elif reason == 'foreign_token': batch[1].update(group_id=2,_auth_kind='user_api_token',_token_scopes=['write:production'],_token_id=77)
+    elif reason == 'noninteractive': batch[1]['_auth_kind'] = 'legacy_global_api_key'
     elif reason == 'operator': batch[1]['role'] = 'operator'
     elif reason == 'attestation': data['attestation']['started_outside_odin'] = False
     elif reason == 'qualification': data['qualification_confirmed'] = False
