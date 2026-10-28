@@ -2,6 +2,26 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.29] - 2026-10-28
+
+<!-- summary: Pauses and printer cancellations push to your phone, alerts read in plain language, and every push attempt is logged -->
+
+### Added
+
+- A paused print is now an alert of its own. It is critical, pushes under a new Print Paused category that is on by default, says whether the printer paused before printing, and includes the reason when the printer reports one. Repeated telemetry during one pause does not alert again.
+- A print cancelled on the printer, including a Bambu cancel the printer reports as a failure, produces a Print Cancelled alert that pushes. Cancelling a queued job that never started does not alert.
+- Every push attempt is logged with its APNs result, request ID and reason, and every skipped push is logged with why it was skipped. Only the last six characters of a device token are logged.
+- The admin test push (`POST /api/push/test`) returns each device's APNs result, request ID, reason and token fingerprint.
+
+### Changed
+
+- Alert titles name the printer, the job and what happened, for example "H2D: latch paused before printing". The body says what to do, and a raw HMS or print error code moves to a details line. Dispatch transport names (`odin-dispatch-…`) are never shown as the job name.
+- HMS codes are decoded with corrected module names: 07 is the AMS (not the camera) and 03 is motion/toolhead. The 07007000 AMS feed/load and 03000D00 motion/toolhead families have plain explanations.
+
+### Fixed
+
+- Timeline-driven alerts no longer deliver the mobile notification twice.
+
 ## [2.0.28] - 2026-10-28
 
 <!-- summary: H2D prints start from ODIN with the right AMS tray, and operator tokens can qualify outside prints -->
