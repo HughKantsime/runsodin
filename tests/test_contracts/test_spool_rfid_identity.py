@@ -24,12 +24,12 @@ def postgres_server(tmp_path_factory):
         pytest.skip('Docker unavailable for disposable PostgreSQL')
     name = 'odin-spoolid-test-' + uuid.uuid4().hex[:10]
     started = docker('run', '--pull=never', '-d', '--name', name, '-e', 'POSTGRES_HOST_AUTH_METHOD=trust',
-                     '-p', '127.0.0.1::5432', '--tmpfs', '/var/lib/postgresql/data', 'postgres:16-alpine')
+                     '-p', '127.0.0.1::5432', '--tmpfs', '/var/lib/postgresql/data', 'postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea')
     if started.returncode:
-        pytest.skip('Local postgres:16-alpine image unavailable; no registry credentials used')
+        pytest.skip('Pinned local PostgreSQL image unavailable; no registry credentials used')
     try:
         for _ in range(100):
-            if docker('exec', name, 'pg_isready', '-U', 'postgres').returncode == 0:
+            if docker('exec', name, 'pg_isready', '-U', 'postgres', '-h', '127.0.0.1').returncode == 0:
                 break
             time.sleep(.1)
         port = docker('port', name, '5432/tcp').stdout.strip().rsplit(':', 1)[-1]
@@ -54,7 +54,9 @@ def identity_engine(request, tmp_path, monkeypatch):
     yield engine
     engine.dispose()
     if request.param == 'postgresql':
-        docker('exec', container, 'dropdb', '-U', 'postgres', database)
+        # Forced so a lingering connection cannot keep ~200 schemas on the tmpfs.
+        dropped = docker('exec', container, 'dropdb', '--force', '-U', 'postgres', database)
+        assert dropped.returncode == 0, dropped.stderr
 
 
 @pytest.fixture
