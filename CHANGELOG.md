@@ -2,6 +2,14 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.30] - 2026-10-28
+
+<!-- summary: Send a test notification to your phone from Settings -->
+
+### Added
+
+- Settings > Notifications has a "Send test notification" button for admins. It sends one test notification to each phone signed in to the ODIN app as you, ignores quiet hours, and says in plain words whether each phone was sent the test or why not. It works from any browser, including iOS Safari.
+
 ## [2.0.29] - 2026-10-28
 
 <!-- summary: Pauses and printer cancellations push to your phone, alerts read in plain language, and every push attempt is logged -->
