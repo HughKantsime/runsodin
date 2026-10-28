@@ -40,6 +40,9 @@ class TestBambuModels:
         assert normalize_model_name("bambu", "Bambu Lab A1") == "A1"
         assert normalize_model_name("bambu", "Bambu Lab H2D") == "H2D"
         assert normalize_model_name("bambu", "Bambu Lab X1 Carbon") == "X1C"
+        assert normalize_model_name("bambu", "Bambu Lab X1-Carbon") == "X1C"
+        assert normalize_model_name("bambu", "bambu lab  x1_carbon") == "X1C"
+        assert normalize_model_name("bambu", "Bambu Lab A1-mini") == "A1 Mini"
         assert normalize_model_name("bambu", "Bambu Lab A1 mini") == "A1 Mini"
 
     def test_unsourced_codes_are_not_guessed(self):

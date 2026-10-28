@@ -339,3 +339,14 @@ def test_refusal_timeline_records_bounded_structured_fields(monkeypatch):
     assert json.loads(notes[0]['detail']) == {'gate': 'NOZZLE_MISMATCH'}
     with pytest.raises(ValueError, match='detail field'):
         job_timeline.event(89, 'gate_refused', detail={'message': 'Free text is not a timeline field'})
+
+
+@pytest.mark.parametrize('reported', ['Bambu Lab X1-Carbon', 'Bambu Lab X1 Carbon', 'X1C', 'BL-P001'])
+def test_x1_carbon_spellings_pass_model_guard(tmp_path, reported):
+    # Prod 2.0.25: MQTT stored "Bambu Lab X1-Carbon" and the guard refused an X1C file.
+    from modules.printers.dispatch_capability_gate import static_refusal
+    path = tmp_path / 'x1c.3mf'
+    evidence_payload(path, 10, model='Bambu Lab X1 Carbon', plate={'bbox_all': [20, 20, 120, 120]})
+    assert static_refusal(path, 1, {'machine_type': reported, 'model': 'X1C'}) is None
+    refusal = static_refusal(path, 1, {'machine_type': 'Bambu Lab P1S', 'model': 'P1S'})
+    assert refusal.code == 'printer_model_mismatch'

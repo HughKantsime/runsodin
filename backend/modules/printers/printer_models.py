@@ -103,7 +103,10 @@ def bambu_model_name(raw_value: Optional[str]) -> Optional[str]:
     for code, name in BAMBU_MODEL_IDS.items():
         if code.upper() == upper:
             return name
-    product = upper[len("BAMBU LAB "):].strip() if upper.startswith("BAMBU LAB ") else upper
+    # Firmware spells the same product "X1 Carbon" or "X1-Carbon"; compare
+    # with hyphens, underscores and repeated spaces folded to one space.
+    folded = " ".join(upper.replace("-", " ").replace("_", " ").split())
+    product = folded[len("BAMBU LAB "):].strip() if folded.startswith("BAMBU LAB ") else folded
     if product in BAMBU_PRODUCT_NAMES:
         return BAMBU_PRODUCT_NAMES[product]
     return _BAMBU_FRIENDLY_NAMES.get(upper, value)
