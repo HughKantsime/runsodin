@@ -33,6 +33,12 @@ def postgres_server(tmp_path_factory):
                 break
             time.sleep(.1)
         port = docker('port', name, '5432/tcp').stdout.strip().rsplit(':', 1)[-1]
+        # Bootstrap once; each test clones the template (a full bootstrap per
+        # test made this module outlast the contract batch timeout).
+        assert docker('exec', name, 'createdb', '-U', 'postgres', 'spool_template').returncode == 0
+        template = create_engine('postgresql+psycopg://postgres@127.0.0.1:' + port + '/spool_template', connect_args={'passfile': '/dev/null'})
+        bootstrap_database(template)
+        template.dispose()
         yield docker, name, port
     finally:
         docker('rm', '-f', name)
@@ -42,15 +48,15 @@ def postgres_server(tmp_path_factory):
 def identity_engine(request, tmp_path, monkeypatch):
     if request.param == 'sqlite':
         engine = create_engine('sqlite:///' + str(tmp_path/'identity.db'))
+        bootstrap_database(engine)
     else:
         docker, container, port = request.getfixturevalue('postgres_server')
         database = 'spool_' + uuid.uuid4().hex
-        assert docker('exec', container, 'createdb', '-U', 'postgres', database).returncode == 0
+        assert docker('exec', container, 'createdb', '-U', 'postgres', '-T', 'spool_template', database).returncode == 0
         for key in ('PGPASSWORD', 'PGSERVICE', 'PGSERVICEFILE', 'DATABASE_PASSWORD_FILE'):
             monkeypatch.delenv(key, raising=False)
         monkeypatch.setenv('PGPASSFILE', '/dev/null')
         engine = create_engine('postgresql+psycopg://postgres@127.0.0.1:' + port + '/' + database)
-    bootstrap_database(engine)
     yield engine
     engine.dispose()
     if request.param == 'postgresql':
