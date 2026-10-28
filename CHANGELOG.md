@@ -2,6 +2,14 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.26] - 2026-10-28
+
+<!-- summary: X1 Carbon printers accept X1C files again -->
+
+### Fixed
+
+- X1 Carbon printers that report their model as "Bambu Lab X1-Carbon" no longer refuse X1C files with a printer model mismatch. Model names now match with or without hyphens.
+
 ## [2.0.25] - 2026-10-27
 
 <!-- summary: Operator tokens can qualify recipes from ODIN-dispatched jobs, and AMS mapping works for files that use a later filament -->
