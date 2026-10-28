@@ -96,6 +96,8 @@ def humanize(db, alert_type, title, message, printer_id, job_id, metadata=None):
     if not reason and kind in {'printer_error', 'print_failed'}:
         reason = re.sub(r'\[[^\]]+\]', '', message or '').strip()
         reason = re.sub(r'\bodin-dispatch-[\w-]+(?:\.[\w.]+)?', name, reason, flags=re.IGNORECASE)
+    if reason and reason[-1] not in '.!?':
+        reason += '.'
     message = ' '.join(part for part in (reason, action) if part)
     if code:
         source = meta.get('source', 'hms' if '_' in str(code) else 'print_error')

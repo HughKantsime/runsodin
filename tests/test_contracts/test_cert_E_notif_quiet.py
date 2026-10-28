@@ -154,7 +154,7 @@ def test_window_end_digest_per_user_email_and_push_respect_preferences(
     with notif_env.get_bind().connect() as conn:
         messages = dict(conn.execute(text('SELECT alert_type,message FROM alerts WHERE user_id=1')).all())
     assert messages == {
-        'print_failed': 'x Check the printer and filament before retrying.',
+        'print_failed': 'x. Check the printer and filament before retrying.',
         'print_complete': 'Check the print and clear the bed when it is safe.',
     }
     move_quiet_clock(monkeypatch, base + timedelta(minutes=35))
@@ -272,7 +272,7 @@ def test_email_only_user_receives_digest_of_suppressed_alert(
     with notif_env.get_bind().connect() as conn:
         assert conn.execute(text("SELECT message FROM quiet_hours_deferred_deliveries "
                                  "WHERE user_id=1 AND channel='email'")).scalar_one() == (
-            'Details Check the printer and filament before retrying.')
+            'Details. Check the printer and filament before retrying.')
     move_quiet_clock(monkeypatch, base + timedelta(minutes=35))
     run_digest(notif_env)
     # Migration 032 is registered, so the bootstrapped database records the suppressed

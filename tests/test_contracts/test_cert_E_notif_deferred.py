@@ -68,7 +68,7 @@ def test_email_only_user_receives_digest_of_suppressed_alert(org_api, admin_api,
         assert conn.execute(text("SELECT COUNT(*) FROM alerts WHERE user_id=1")).scalar_one() == 0  # no in-app row
         assert conn.execute(text("SELECT message FROM quiet_hours_deferred_deliveries "
                                  "WHERE user_id=1 AND channel='email'")).scalar_one() == (
-            "Details Check the printer and filament before retrying.")
+            "Details. Check the printer and filament before retrying.")
     assert _rows(deferral_table) == [{"user_id": 1, "org_id": 1, "scope_key": "org:1", "channel": "email",
                                       "alert_type": "print_failed", "state": "pending", "outcome_reason": None}]
     move_quiet_clock(monkeypatch, base + timedelta(minutes=35))
