@@ -20,7 +20,7 @@ def review_db(submission_db):
 
 
 @pytest.fixture
-def mapped_case(token_client,review_db,monkeypatch,tmp_path):
+def mapped_case(token_client,review_db,monkeypatch,tmp_path,request):
     import io,zipfile
     import core.runtime_identity as identity
     from modules.organizations import education_access,routes_education_reviews,education_ams_read_service
@@ -34,6 +34,14 @@ def mapped_case(token_client,review_db,monkeypatch,tmp_path):
         for item in original.infolist():
             data=original.read(item.filename)
             if item.filename=='Metadata/slice_info.config':data=data.replace(b'<plate>',b'<plate><metadata key="index" value="1"/>')
+            if item.filename=='Metadata/plate_1.json':
+                plate=json.loads(data)
+                filament_ids=getattr(request,'param',[0])
+                if filament_ids is None:plate.pop('filament_ids',None)
+                elif filament_ids=='null':plate['filament_ids']=None
+                elif filament_ids=='non-object':plate=[0]
+                else:plate['filament_ids']=filament_ids
+                data=json.dumps(plate).encode()
             if item.filename=='Metadata/plate_1.gcode':data=b'; filament_type = PLA\nM620 M\nM620 S0A\nM621 S0A\nT0\n'
             target.writestr(item.filename,data)
     payload=output.getvalue();path=tmp_path/'slice.3mf';path.write_bytes(payload)
@@ -61,7 +69,7 @@ def mapped_case(token_client,review_db,monkeypatch,tmp_path):
     client,issue=token_client;client.app.include_router(routes_education_reviews.router)
     headers=issue(['write:education'])
     response=client.post(f"/education/submissions/{uploaded['id']}/ams-read",headers=headers,json={'revision':1,'printer_id':9,'selected_slots':[1]})
-    assert response.status_code==200
+    assert response.status_code==200,response.text
     body={'revision':1,'printer_id':9,'command_id':str(uuid.uuid4()),'ams_generation_id':response.json()['generation_id'],
           'plate_index':0,'ams_mapping':[{'source_slot':0,'target_slot':1}]}
     return client,headers,body,digest,path,uploaded
@@ -70,7 +78,7 @@ def mapped_case(token_client,review_db,monkeypatch,tmp_path):
 def test_explicit_teacher_ams_selection_survives_approval(mapped_case,review_db):
     client,headers,body,digest,_,uploaded=mapped_case
     response=client.post(f"/education/submissions/{uploaded['id']}/approve",headers=headers,json=body)
-    assert response.status_code==200
+    assert response.status_code==200,response.text
     result=response.json()
     assert result['ams_mapping']==[0] and result['print_file_id']==uploaded['print_file_id'] and result['payload_sha256']==digest and result['plate_index']==0
     row=review_db.execute(text('SELECT ams_mapping,print_file_id,payload_sha256,plate_index FROM jobs WHERE id=:id'),{'id':uploaded['job_id']}).mappings().one()
@@ -78,6 +86,27 @@ def test_explicit_teacher_ams_selection_survives_approval(mapped_case,review_db)
     assert client.post(f"/education/submissions/{uploaded['id']}/approve",headers=headers,json=body).json()==result
     changed={**body,'ams_mapping':[{'source_slot':0,'target_slot':2}]}
     assert client.post(f"/education/submissions/{uploaded['id']}/approve",headers=headers,json=changed).status_code==409
+
+
+@pytest.mark.parametrize('mapped_case',[None],indirect=True,ids=['missing-source'])
+def test_plate_without_filament_ids_relies_on_xml_and_commands(mapped_case,review_db):
+    client,headers,body,_,_,uploaded=mapped_case
+    response=client.post(f"/education/submissions/{uploaded['id']}/approve",headers=headers,json=body)
+    assert response.status_code==200,response.text
+    assert response.json()['ams_mapping']==[0]
+
+
+@pytest.mark.parametrize('mapped_case',[[1],[True],'null','non-object'],indirect=True,
+                         ids=['conflicting-source','invalid-source','explicit-null','non-object-plate'])
+def test_unverified_plate_source_refuses_without_approval(mapped_case,review_db):
+    client,headers,body,_,_,uploaded=mapped_case
+    response=client.post(f"/education/submissions/{uploaded['id']}/approve",headers=headers,json=body)
+    assert response.status_code==409,response.text
+    row=review_db.execute(text('SELECT status,ams_mapping FROM jobs WHERE id=:id'),
+                         {'id':uploaded['job_id']}).one()
+    assert row.status=='submitted' and row.ams_mapping is None
+    assert review_db.execute(text('SELECT lifecycle_revision FROM education_submissions WHERE id=:id'),
+                             {'id':uploaded['id']}).scalar_one()==1
 
 
 @pytest.mark.parametrize('change',['file_bytes','configuration','superseded'])

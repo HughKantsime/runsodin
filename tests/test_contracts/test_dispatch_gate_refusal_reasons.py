@@ -15,7 +15,7 @@ def gate_case(monkeypatch):
                   idle_without_error=True, received_monotonic=time.monotonic(),
                   trays=[NS(slot_number=1, material_state='reported', material='PETG', mechanically_ready=None)])
     result = NS(success=True, cleanup_confirmed=True, runtime_incarnation='runtime', clock_domain='clock', snapshot=snapshot)
-    monkeypatch.setattr(gate, 'preflight_ams_source', lambda *a, **k: {'material': 'PETG'})
+    monkeypatch.setattr(gate, 'preflight_ams_source', lambda *a, **k: {'material': 'PETG', 'source_index': 0})
     monkeypatch.setattr(gate, 'read_runtime_identity', lambda: NS(incarnation='runtime', clock_domain='clock'))
     def revalidate(*a):
         if not state.runtime: raise ValueError('private-access-code private-serial private-token private-fingerprint')

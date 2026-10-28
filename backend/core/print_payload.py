@@ -44,12 +44,18 @@ def validate_plate(path: str, plate_index: int, api_type: str, *, plate_numbers=
 
 
 def source_filaments(filaments_json):
-    """Read real one-based file filament IDs; array position is not identity."""
+    """Read file IDs, assigning positional IDs only to wholly legacy metadata."""
     import json
     try:
         filaments = json.loads(filaments_json or '[]')
         if not isinstance(filaments, list) or not 1 <= len(filaments) <= 16:
             raise ValueError()
+        if any(not isinstance(f, dict) for f in filaments):
+            raise ValueError()
+        # Older installs stored no IDs. Never fill gaps in explicitly identified
+        # metadata: mixed lists are ambiguous and must still fail closed.
+        if all('slot' not in f for f in filaments):
+            filaments = [{**f, 'slot': i + 1} for i, f in enumerate(filaments)]
         ids = [f['slot'] for f in filaments]
         if any(type(slot) is not int or not 1 <= slot <= 16 for slot in ids) or len(set(ids)) != len(ids):
             raise ValueError()

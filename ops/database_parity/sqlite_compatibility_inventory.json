@@ -250,7 +250,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 88,
+      "line": 93,
       "path": "backend/core/ams_source_inspection.py",
       "pattern": "qmark-parameter",
       "reason": "G-code header regular expression contains a qmark-like fragment; this bounded archive parser has no database operations or SQL.",

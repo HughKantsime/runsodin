@@ -5,7 +5,7 @@ import zipfile
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import text
-from core.print_payload import validate_mapping
+from core.print_payload import source_filaments, validate_mapping
 from modules.printers.dispatch_ams_gate import preflight_ams_source
 from tests.test_contracts.test_archive_reprint_behavior import reprint_client
 from tests.test_contracts.test_schedule_ams_mapping import mapping_client, schedule
@@ -54,6 +54,34 @@ def test_wrong_source_or_multiple_mapped_sources_refuse(tmp_path, vector):
     [{'slot':True,'type':'PETG'}],[{'slot':17,'type':'PETG'}],[{'slot':4,'type':'PETG'}]*2])
 def test_missing_or_invalid_ids_refuse(filaments):
     with pytest.raises(HTTPException): validate_mapping(MAPPING,json.dumps(filaments),{4:'PETG'},'bambu')
+
+
+@pytest.mark.parametrize('count',[1,2,16])
+def test_wholly_legacy_metadata_uses_position_plus_one(count):
+    legacy=[{'type':'PETG','color':'#FFFFFF'} for _ in range(count)]
+    encoded=json.dumps(legacy)
+    assert source_filaments(encoded)==[{**f,'slot':i+1} for i,f in enumerate(legacy)]
+    slots={i+1:'PETG' for i in range(count)}
+    for offset in (0,1):
+        mapping=[{'source_slot':i+offset,'target_slot':i+1} for i in range(count)]
+        assert validate_mapping(mapping,encoded,slots,'bambu')==list(range(count))
+    with pytest.raises(HTTPException) as error:
+        validate_mapping(mapping,encoded,{**slots,1:'PLA'},'bambu')
+    assert error.value.status_code==400
+
+
+@pytest.mark.parametrize('filaments',[
+    [{'type':'PETG'},{'slot':2,'type':'PETG'}],
+    [{'slot':1,'type':'PETG'},{'type':'PETG'}],
+    [{'slot':None,'type':'PETG'}], [{'slot':'1','type':'PETG'}],
+    [{'slot':True,'type':'PETG'}], [{'slot':1.0,'type':'PETG'}],
+    [{'slot':0,'type':'PETG'}], [{'slot':17,'type':'PETG'}],
+    [{'slot':1,'type':'PETG'}]*2, [], [{'type':'PETG'}]*17,
+    [None], ['PETG'], [[]], [1], [True], [{'type':'PETG'},None], {}, None,
+])
+def test_mixed_or_invalid_metadata_still_returns_400(filaments):
+    with pytest.raises(HTTPException) as error:source_filaments(json.dumps(filaments))
+    assert error.value.status_code==400
 
 
 def test_legacy_positions_only_when_the_entire_file_agrees():

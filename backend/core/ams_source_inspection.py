@@ -64,9 +64,14 @@ def inspect_single_source_ams(payload: bytes, plate_index: int = 0) -> VerifiedS
             source_index = int(filaments[0].get('id')) - 1
             if 'Metadata/plate_1.json' in package.namelist():
                 plate = json.loads(read('Metadata/plate_1.json', MAX_XML_BYTES))
-                ids = plate.get('filament_ids')
-                if type(ids) is not list or len(ids) != 1 or type(ids[0]) is not int or ids != [source_index]:
+                # Older slicers omit filament_ids; the plate XML and command
+                # scan still verify the source. A present value must agree.
+                if not isinstance(plate, dict):
                     raise ValueError(refusal)
+                if 'filament_ids' in plate:
+                    ids = plate['filament_ids']
+                    if type(ids) is not list or len(ids) != 1 or type(ids[0]) is not int or ids != [source_index]:
+                        raise ValueError(refusal)
             material = canonical_reported_material(filaments[0].get('type'))
             settings = json.loads(read('Metadata/project_settings.config', MAX_XML_BYTES))
             materials = settings.get('filament_type') if isinstance(settings, dict) else None
