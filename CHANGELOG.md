@@ -2,6 +2,18 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.25] - 2026-10-27
+
+<!-- summary: Operator tokens can qualify recipes from ODIN-dispatched jobs, and AMS mapping works for files that use a later filament -->
+
+### Added
+
+- An operator token with `write:production` can qualify a recipe from a completed job that ODIN dispatched. It must confirm the counted yield, a job can be a reference only once, and the operator and token are recorded. Password sessions still need an admin, and prints started outside ODIN still need an admin session.
+
+### Fixed
+
+- AMS mapping now uses the file's own filament numbers. A single-filament file that uses a later filament, such as filament 4, can be mapped on reprint or schedule and passes the check before printing. Older saved mappings that no longer line up are refused before anything is sent.
+
 ## [2.0.24] - 2026-10-27
 
 <!-- summary: Remote access over Tailscale, nozzle check before printing, AMS mapping on new jobs, color-aware shelf stock, maintenance holds, and recipe fixes -->
