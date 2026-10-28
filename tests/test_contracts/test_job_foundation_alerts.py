@@ -83,12 +83,12 @@ def test_mobile_recipient_isolation_preferences_and_allowlist(engine, monkeypatc
         plan=SimpleNamespace(alert_type=AlertType.PRINT_COMPLETE,severity=AlertSeverity.INFO,org_id=1,
             printer_id=1,job_id=None,spool_id=None,in_app_users=(11,22),suppress_external=False)
         fanout.deliver_alert(db,plan)
-        assert provider.send_push.call_count==1
-        assert provider.send_push.call_args.kwargs['device_token']=='test-device-one'
-        assert set(provider.send_push.call_args.kwargs['data'])<= {'odin_event','alert_type','severity','job_id','printer_id','spool_id'}
+        assert provider.send_push_result.call_count==1
+        assert provider.send_push_result.call_args.kwargs['device_token']=='test-device-one'
+        assert set(provider.send_push_result.call_args.kwargs['data'])<= {'odin_event','alert_type','severity','job_id','printer_id','spool_id'}
         db.execute(text('UPDATE alert_preferences SET in_app=FALSE WHERE user_id=11'));db.commit()
         provider.reset_mock();fanout.deliver_alert(db,plan)
-        provider.send_push.assert_not_called()
+        provider.send_push_result.assert_not_called()
 
 
 def test_mobile_callback_is_registered_by_the_durable_drain(engine,monkeypatch):
@@ -139,4 +139,4 @@ def test_legacy_cancellation_callback_uses_supported_storage_enum(engine,monkeyp
         conn.execute(text("INSERT INTO users(id,username,password_hash,role,is_active) VALUES(88,'cancel-owner','unused','admin',TRUE)"))
     alert_dispatch.dispatch_alert('print_cancelled',AlertSeverity.WARNING,'Print Cancelled: synthetic')
     with engine.connect() as conn:
-        assert conn.execute(text("SELECT alert_type,title FROM alerts WHERE user_id=88")).one()==('print_failed','Print Cancelled: synthetic')
+        assert conn.execute(text("SELECT alert_type,title FROM alerts WHERE user_id=88")).one()==('print_cancelled','Printer: synthetic was cancelled')

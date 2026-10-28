@@ -394,7 +394,7 @@ def job_cancelled(
 
         from core.job_terminal_observations import dispatch_terminal_alert
         dispatch_terminal_alert(print_job_id, dispatch_alert, attempt_uid=timeline_item['attempt'] if timeline_item else None, legacy_cancelled=True,
-            alert_type=AlertType.PRINT_FAILED, severity=AlertSeverity.WARNING,
+            alert_type=AlertType.PRINT_CANCELLED, severity=AlertSeverity.WARNING,
             title=f"Print Cancelled: {job_name}", message=f"Cancelled on {printer_name}",
             printer_id=printer_id, job_id=alert_job_id)
         log.info(f"Job cancelled on printer {printer_id}: {job_name}")
@@ -546,10 +546,10 @@ def _resolve_education_print_job(printer_id: int, filename=None) -> int | None:
         return None
 
 
-def on_print_paused(printer_id: int):
+def on_print_paused(printer_id: int, filename: str = None, reason: str = None):
     """Called by PrusaLink/Elegoo monitors when a print is paused."""
     from core.job_timeline import for_printer
-    for_printer(printer_id, "paused")
+    for_printer(printer_id, "paused", context={"filename": filename, "pause_reason": reason or ""})
     log.info(f"Print paused on printer {printer_id}")
 
 

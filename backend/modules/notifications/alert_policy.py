@@ -17,12 +17,12 @@ def active_resource_duplicate(db, user_id, alert_type, printer_id, spool_id, mes
     params = {'user': user_id, 'kind': kind}
     if kind == 'spool_low' and spool_id is not None:
         return db.execute(text(
-            "SELECT 1 FROM alerts WHERE user_id=:user AND LOWER(alert_type)=:kind "
+            "SELECT 1 FROM alerts WHERE user_id=:user AND LOWER(CAST(alert_type AS TEXT))=:kind "
             "AND is_read IS FALSE AND is_dismissed IS FALSE AND spool_id=:spool LIMIT 1"),
             {**params, 'spool': spool_id}).first() is not None
     if kind == 'printer_error' and printer_id is not None:
         rows = db.execute(text(
-            "SELECT message FROM alerts WHERE user_id=:user AND LOWER(alert_type)=:kind "
+            "SELECT message FROM alerts WHERE user_id=:user AND LOWER(CAST(alert_type AS TEXT))=:kind "
             "AND is_read IS FALSE AND is_dismissed IS FALSE "
             "AND printer_id=:printer AND created_at>:cutoff"),
             {**params, 'printer': printer_id,

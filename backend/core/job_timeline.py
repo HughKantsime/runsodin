@@ -48,7 +48,7 @@ def event(job_id, kind, *, printer_id=None, print_attempt_uid=None, org_id=None,
             continue
         if isinstance(value,bool) or not isinstance(value,DETAILS[kind][key]) or not 0 <= value <= 31536000:
             raise ValueError('Invalid timeline detail value')
-    if code is not None and (kind not in ('hms','gate_refused','runout') or not isinstance(code,str) or not _CODE.fullmatch(code)):
+    if code is not None and (kind not in ('hms','gate_refused','runout','paused') or not isinstance(code,str) or not _CODE.fullmatch(code)):
         raise ValueError('Invalid timeline code')
     return dict(id=uuid.uuid4().hex,job=job_id,kind=kind,printer=printer_id,attempt=print_attempt_uid,
                 org=org_id,code=code,detail=json.dumps(detail,sort_keys=True),occurred=utc(occurred_at) if occurred_at is not None else now())
@@ -122,7 +122,7 @@ class TimelineWriter:
                     # Derive ownership from current authoritative job data. A deleted
                     # job drops its queued history rather than resurrecting it.
                     c.execute(text("INSERT INTO job_timeline_events(id,job_id,print_attempt_uid,printer_id,org_id,kind,code,detail,occurred_at) SELECT :id,j.id,:attempt,:printer,j.charged_to_org_id,:kind,:code,:detail,:occurred FROM jobs j WHERE j.id=:job ON CONFLICT(id) DO NOTHING"),item)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant SQL; values are bound
-                    if item['kind'] in ('paused','runout','failed') and item.get('attempt'):
+                    if item['kind'] in ('paused','runout','failed','started','resumed','completed','cancelled') and item.get('attempt'):
                         from sqlalchemy.orm import Session
                         from modules.notifications.job_faults import stage
                         try:
@@ -142,10 +142,8 @@ class TimelineWriter:
                 try:
                     from sqlalchemy.orm import Session
                     from modules.notifications.alert_dispatcher import _deliver_staged_alert
-                    from modules.notifications.alert_outbox import deliver_mobile
                     with Session(bind=self.engine) as delivery_db:
                         _deliver_staged_alert(delivery_db,plan)
-                        deliver_mobile(delivery_db,plan)
                 except Exception:
                     pass
             return True
@@ -241,16 +239,24 @@ def enqueue(item):
         return False
 
 
-def for_printer(printer_id, kind, *, code=None, detail=None):
+def for_printer(printer_id, kind, *, code=None, detail=None, context=None):
     """Resolve the physical identity in the writer, never on a telemetry caller."""
     # Producers with known job identity use event() directly. Printer-only
     # resolution is queued for the dedicated writer too.
     item=event(1,kind,printer_id=printer_id,code=code,detail=detail)
-    if kind in ('paused','runout'):
+    if context:
+        item['context'] = context
+    if kind in ('paused','runout','resumed','started','completed','cancelled','failed'):
         from modules.notifications.job_faults import notify
-        notify(printer_id,kind,code)
+        notify(printer_id,kind,code,occurred=item['occurred'],context=context)
     item['resolve_printer']=printer_id
     return enqueue(item)
+
+
+def close_pause_episode(printer_id):
+    """Observed non-paused telemetry closes attention state even without history."""
+    from modules.notifications.job_faults import notify
+    notify(printer_id, 'resumed', occurred=now())
 
 
 def for_attempt(print_job_id, kind):

@@ -38,6 +38,8 @@ def test_provider_reason_class_and_no_credential_logging(monkeypatch, caplog, st
     with caplog.at_level(logging.DEBUG):
         result = provider.send_push_result(token, 'Test', 'Body', 'TEST')
     assert result.status == expected
+    assert "category=TEST" in caplog.text
+    assert "status=" + expected in caplog.text
     assert requests[0].headers['apns-topic'] == 'com.jlls.odin'
     assert json.loads(requests[0].content)['aps']['alert'] == {'title': 'Test', 'body': 'Body'}
     assert token not in caplog.text and key not in caplog.text
@@ -91,12 +93,13 @@ def test_admin_push_wire_results_own_devices_only(push_client, caplog, prefix, r
     assert response.status_code == 200
     payload = response.json()
     assert payload == {'sent': int(result == 'sent'), 'total_devices': 1,
-                       'devices': [{'device_id': payload['devices'][0]['device_id'], 'status': result}]}
+                       'devices': [{'device_id': payload['devices'][0]['device_id'], 'status': result,
+                                    'apns_id': None, 'reason': None, 'token_fingerprint': ''}]}
     assert isinstance(payload['devices'][0]['device_id'], int)
     provider.send_push_result.assert_called_once()
     assert provider.send_push_result.call_args.kwargs['device_token'] == 'synthetic-private-token-3'
     assert 'synthetic-private' not in response.text + caplog.text
-    assert all(set(item) == {'device_id', 'status'} for item in payload['devices'])
+    assert all(set(item) == {'device_id', 'status', 'apns_id', 'reason', 'token_fingerprint'} for item in payload['devices'])
 
 
 @pytest.mark.parametrize('role,expected', [('viewer', 403), ('operator', 403), (None, 401)])
@@ -143,6 +146,7 @@ def test_safe_copy_and_all_category_mappings():
     from modules.push.policy import CATEGORIES, safe_copy
     assert CATEGORIES == {
         'print_complete': 'PRINT_COMPLETE', 'print_failed': 'PRINT_FAILED',
+        'print_paused': 'PRINT_PAUSED', 'print_cancelled': 'PRINT_CANCELLED',
         'printer_error': 'HMS_ERROR', 'spaghetti_detected': 'SPAGHETTI_DETECTED',
         'detachment_detected': 'SPAGHETTI_DETECTED', 'first_layer_issue': 'FIRST_LAYER_ISSUE',
         'spool_low': 'SPOOL_LOW', 'job_submitted': 'JOB_APPROVAL_REQUIRED',
@@ -184,3 +188,80 @@ def test_transport_debug_logs_do_not_expose_http2_headers(caplog):
         logging.getLogger('httpx').info('HTTP Request: POST https://api.push.apple.com/3/device/synthetic-path-private?more=synthetic-query-private "HTTP/2 400"')
     for value in ('synthetic-jwt-private', 'synthetic-path-private', 'synthetic-query-private'):
         assert value not in caplog.text
+
+
+def test_apns_info_proof_with_allowlisted_id_reason_and_fingerprint(monkeypatch, caplog):
+    provider = APNsProvider()
+    token = 'a'*58 + '123abc'
+    identifier = 'f1b4cd68-c604-4a09-901d-75ce896ec134'
+    monkeypatch.setattr(provider, '_is_configured', lambda: True)
+    monkeypatch.setattr(provider, '_get_config', lambda: {'bundle_id': 'synthetic'})
+    monkeypatch.setattr(provider, '_get_jwt', lambda: 'synthetic')
+    provider._client = httpx.Client(transport=httpx.MockTransport(lambda request:
+        httpx.Response(400, headers={'apns-id': identifier}, json={'reason': 'BadDeviceToken'})), base_url=provider.host)
+    with caplog.at_level(logging.INFO):
+        result = provider.send_push_result(token, 'Test', 'Body', 'PRINT_PAUSED', data={'alert_type': 'print_paused'})
+    assert result.apns_id == identifier and result.reason == 'BadDeviceToken'
+    for value in ('category=PRINT_PAUSED', 'alert_type=print_paused', 'status=bad_device_token',
+                  'reason=BadDeviceToken', identifier, 'token_fingerprint=123abc'):
+        assert value in caplog.text
+    assert token not in caplog.text and token[:12] not in caplog.text
+    provider.close()
+
+
+def test_untrusted_provider_metadata_is_removed(push_client, review_db):
+    from sqlalchemy import text
+    client, _, provider = push_client
+    token = 'b'*58 + 'abcdef'
+    review_db.execute(text('UPDATE push_devices SET token=:token WHERE user_id=3'), {'token': token})
+    review_db.commit()
+    provider.send_push_result.return_value = PushResult('sent', 'hostile-id-secret', 'hostile-reason-secret')
+    result = client.post('/api/push/test').json()['devices'][0]
+    assert result['apns_id'] is None and result['reason'] is None
+    assert result['token_fingerprint'] == 'abcdef'
+    assert token not in json.dumps(result)
+
+
+def test_admin_test_push_education_suppression(push_client, review_db, caplog):
+    from sqlalchemy import text
+    client, _, provider = push_client
+    review_db.execute(text("INSERT INTO system_config(key,value) VALUES('education_mode','true')"))
+    review_db.commit()
+    with caplog.at_level(logging.INFO):
+        result = client.post('/api/push/test').json()
+    assert result['sent'] == 0
+    assert result['devices'][0]['status'] == 'education_scope'
+    assert 'reason=education_scope' in caplog.text
+    provider.send_push_result.assert_not_called()
+
+
+def test_itar_blocks_before_any_configuration_or_network_read(monkeypatch, caplog):
+    from core import itar
+    monkeypatch.setattr(itar, 'is_itar_mode', lambda: True)
+    provider = APNsProvider()
+    configured = Mock(side_effect=AssertionError('Must not read configuration'))
+    monkeypatch.setattr(provider, '_get_config', configured)
+    with caplog.at_level(logging.INFO):
+        result = provider.send_push_result('a'*64, 'Test', 'Body', 'TEST')
+    assert result.status == 'not_configured'
+    assert 'status=not_configured' in caplog.text
+    configured.assert_not_called()
+
+
+def test_get_preferences_merges_new_categories_without_overriding_opt_out(push_client, review_db):
+    from sqlalchemy import text
+    client, _, _ = push_client
+    review_db.execute(text('UPDATE push_devices SET preferences_json=:prefs WHERE user_id=3'),
+                      {'prefs': json.dumps({'categories': {'PRINT_FAILED': False, 'PRINT_PAUSED': False}})})
+    review_db.commit()
+    result = client.get('/api/push/preferences', params={'device_id': 'device-3'}).json()
+    assert result['categories']['PRINT_FAILED'] is False
+    assert result['categories']['PRINT_PAUSED'] is False
+    assert result['categories']['PRINT_CANCELLED'] is True
+
+
+def test_rbac_matrix_includes_native_diagnostic():
+    from tests.rbac_endpoints_b import ENDPOINTS
+    rows = [row for row in ENDPOINTS if row[:2] == ('POST', '/api/push/test')]
+    assert len(rows) == 1
+    assert rows[0][2]['viewer'] == 403 and rows[0][2]['operator'] == 403

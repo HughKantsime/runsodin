@@ -15,7 +15,7 @@ let calls: Call[] = []
 let afterRead = false
 let afterDismiss = false
 const exchanges = fixture.exchanges as Record<string, any>
-const TITLES = ['Print Failed: Synthetic hinge', 'Maintenance Due: P1S-10', 'Print Complete: Synthetic bracket']
+const TITLES = ['P1S-09: Synthetic hinge failed', 'Maintenance Due: P1S-10', 'P1S-09: Synthetic bracket finished']
 
 function installWire() {
   calls = []; afterRead = false; afterDismiss = false
@@ -48,7 +48,7 @@ test('CertENotif: produced alerts render newest first with server-resolved print
   show()
   await screen.findByText(TITLES[0])
   expect(calls).toContainEqual({ method: 'GET', path: '/alerts?limit=25' })
-  const order = screen.getAllByText(/^(Print Failed|Maintenance Due|Print Complete):/).map(n => n.textContent)
+  const order = screen.getAllByText(/^(P1S-09|Maintenance Due):/).map(n => n.textContent)
   expect(order).toEqual(TITLES)
   expect(screen.getAllByText('P1S-09')).toHaveLength(2)
   expect(screen.getByText('3 unread')).toBeInTheDocument()

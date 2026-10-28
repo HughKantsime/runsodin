@@ -151,13 +151,20 @@ def test_window_end_digest_per_user_email_and_push_respect_preferences(
         else:
             alert_dispatch.dispatch_alert(kind, 'info', title, 'x', printer_id=9)
     assert smtp_peer.messages == [] and receiver.requests == []  # suppressed in real time
+    with notif_env.get_bind().connect() as conn:
+        messages = dict(conn.execute(text('SELECT alert_type,message FROM alerts WHERE user_id=1')).all())
+    assert messages == {
+        'print_failed': 'x Check the printer and filament before retrying.',
+        'print_complete': 'Check the print and clear the bed when it is safe.',
+    }
     move_quiet_clock(monkeypatch, base + timedelta(minutes=35))
     run_digest(notif_env)
     message, = smtp_peer.wait(1)
     assert message['To'] == 'student@example.test'
     assert str(message['Subject']).startswith('O.D.I.N. Quiet Hours Digest — 2 alerts (window ended ')
     html = message.get_body(preferencelist=('html',)).get_content()
-    assert 'Synthetic quiet failure' in html and 'Synthetic quiet complete' in html
+    assert html.count('P1S-09: print failed') == 1
+    assert html.count('P1S-09: print finished') == 1
     request, = receiver.wait(1)
     verify_vapid_jwt(request['headers']['authorization'], vapid['public_key'], f'http://127.0.0.1:{receiver.port}')
     payload = json.loads(http_ece.decrypt(request['body'], private_key=browser['private'],
@@ -206,7 +213,7 @@ def test_org_digest_webhook_combined_payload_with_plaintext_url(org_api, notif_e
     assert body['event'] == 'quiet_hours_digest' and body['org'] == 'school'
     # One combined dispatch; the alert appears once although two users hold an in-app row for it (review M2).
     assert body['alert_count'] == 1 and body['truncated'] is False
-    assert {a['title'] for a in body['alerts']} == {'Synthetic failure on 9'}
+    assert [a['title'] for a in body['alerts']] == ['P1S-09: print failed']
     assert len(receiver.requests) == 1
     with notif_env.get_bind().connect() as conn:
         assert conn.execute(text('SELECT delivery_status FROM quiet_hours_org_digest_sends')).scalar_one() == 'sent'
@@ -222,7 +229,7 @@ def test_org_digest_webhook_uses_discord_payload_for_discord_org(org_api, notif_
     body = json.loads(receiver.wait(1)[0]['body'])
     assert 'embeds' in body or 'content' in body
     embed, = body['embeds']
-    assert '1 alert' in embed['title'] and 'Synthetic failure on 9' in embed['description']
+    assert '1 alert' in embed['title'] and embed['description'].count('P1S-09: print failed') == 1
     with notif_env.get_bind().connect() as conn:
         assert conn.execute(text('SELECT delivery_status FROM quiet_hours_org_digest_sends')).scalar_one() == 'sent'
 
@@ -238,7 +245,7 @@ def test_org_digest_webhook_uses_slack_payload_for_slack_org(org_api, notif_env,
     request, = receiver.wait(1)
     body = json.loads(request['body'])
     assert request['path'] == '/slack' and body['blocks'][0]['type'] == 'header'
-    assert 'Synthetic failure on 9' in body['blocks'][1]['text']['text']
+    assert body['blocks'][1]['text']['text'].count('P1S-09: print failed') == 1
 
 
 def test_org_digest_webhook_http_error_recorded_as_failed(org_api, notif_env, receiver, synthetic_dns, monkeypatch):
@@ -262,13 +269,18 @@ def test_email_only_user_receives_digest_of_suppressed_alert(
     configure_smtp(admin_api, smtp_peer)
     prefs(notif_env, 1, 'print_failed', in_app=False, email=True)
     dispatch_printer(path, 9, notif_env)
+    with notif_env.get_bind().connect() as conn:
+        assert conn.execute(text("SELECT message FROM quiet_hours_deferred_deliveries "
+                                 "WHERE user_id=1 AND channel='email'")).scalar_one() == (
+            'Details Check the printer and filament before retrying.')
     move_quiet_clock(monkeypatch, base + timedelta(minutes=35))
     run_digest(notif_env)
     # Migration 032 is registered, so the bootstrapped database records the suppressed
     # delivery and the digest sends it after the window.
     message, = smtp_peer.wait(1, timeout=5)
     assert message['To'] == 'student@example.test'
-    assert 'Synthetic failure on 9' in message.get_body(preferencelist=('html',)).get_content()
+    html = message.get_body(preferencelist=('html',)).get_content()
+    assert html.count('P1S-09: print failed') == 1
 
 
 def test_system_scope_global_webhooks_receive_typed_digest(admin_api, notif_env, receiver, synthetic_dns, monkeypatch):

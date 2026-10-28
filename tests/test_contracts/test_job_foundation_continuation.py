@@ -98,18 +98,18 @@ def test_terminal_claim_drains_034_once_with_mobile(private_attempt,review_db,mo
         from core.base import AlertType,AlertSeverity
         dispatch_terminal_alert(identifier,fallback,alert_type=AlertType.PRINT_COMPLETE if outcome=='completed' else AlertType.PRINT_FAILED,
             severity=AlertSeverity.INFO if outcome=='completed' else AlertSeverity.WARNING if outcome=='cancelled' else AlertSeverity.CRITICAL,title='Original monitor title',message='Original monitor message',printer_id=None,job_id=None,metadata={'progress_percent':42})
-        assert external[0].title=='Original monitor title'
-        if outcome == 'cancelled':
-            assert external[0].message == 'Original monitor message'
+        assert external[0].title != 'Original monitor title'
+        assert external[0].message
+        assert 'odin-dispatch-' not in external[0].title
     fallback.assert_not_called()
     assert len(external)==len(mobile)==1
     assert external[0] is mobile[0]
-    assert external[0].alert_type.value==('print_complete' if outcome=='completed' else 'print_failed')
+    assert external[0].alert_type.value==('print_complete' if outcome=='completed' else 'print_cancelled' if outcome=='cancelled' else 'print_failed')
     if outcome == 'cancelled':
         assert external[0].severity.value == 'warning'
         if crash_before_send:
-            assert external[0].title.startswith('Print Cancelled: ')
-            assert external[0].message.startswith('Cancelled on ')
+            assert external[0].title.endswith('was cancelled')
+            assert external[0].message.startswith('Clear the bed')
     assert not alert_outbox.dispatch(engine,outbox_id)
     assert len(mobile)==1
     with engine.connect() as c:
@@ -276,18 +276,13 @@ def test_actual_identified_monitor_terminal_uses_durable_mobile(private_attempt,
         monitor._job_ended(outcome,SimpleNamespace(filename='owned.gcode',filament_used_mm=0,error_message=None))
     elif outcome=='cancelled':job_events.job_cancelled(printer_id,identifier)
     else:job_events.job_completed(printer_id,identifier,success=outcome=='completed')
-    # Cancellations alert only where origin/main did: generic job_events ('Print Cancelled')
-    # and Moonraker (its non-completed branch sends 'Print Failed'); never Bambu MQTT.
-    expected = int(outcome != 'cancelled' or source != 'mqtt')
-    assert len(external)==len(mobile)==expected
-    if outcome == 'cancelled' and source == 'moonraker':
-        assert mobile[0].title.startswith('Print Failed: ')
-    elif outcome == 'cancelled' and expected:
+    assert len(external) == len(mobile) == 1
+    if outcome == 'cancelled':
         from core.base import AlertType, AlertSeverity
-        assert mobile[0].alert_type == AlertType.PRINT_FAILED
+        assert mobile[0].alert_type == AlertType.PRINT_CANCELLED
         assert mobile[0].severity == AlertSeverity.WARNING
-        assert mobile[0].title.startswith('Print Cancelled: ')
-        assert mobile[0].message.startswith('Cancelled on ')
+        assert mobile[0].title.endswith('was cancelled')
+        assert mobile[0].message.startswith('Clear the bed')
     if mobile:assert mobile[0].printer_id==printer_id
     assert any(item['kind']==outcome for item in timeline)
     with engine.connect() as c:

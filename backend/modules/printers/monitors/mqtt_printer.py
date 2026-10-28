@@ -498,11 +498,6 @@ class PrinterMonitor:
         log.info(f"[{self.name}] State: {old_state} -> {new_state}")
 
         from core.job_timeline import for_printer
-        if new_state == 'PAUSE' and old_state == 'RUNNING':
-            for_printer(self.printer_id, 'paused')
-            if self._state.get('stg_cur') == 6:for_printer(self.printer_id, 'runout')
-        elif new_state == 'RUNNING' and old_state == 'PAUSE':
-            for_printer(self.printer_id, 'resumed')
         # Entering RUNNING or PAUSE without a tracked job = new job
         if new_state in ('RUNNING', 'PAUSE') and not self._current_job_id:
             if old_state in (None, 'IDLE', 'FINISH', 'FAILED', 'PREPARE', 'PAUSE'):
@@ -514,7 +509,10 @@ class PrinterMonitor:
 
         # RUNNING/PAUSE -> FAILED = Job failed
         elif new_state == 'FAILED' and old_state in ('RUNNING', 'PAUSE'):
-            self._job_ended('failed')
+            # Bambu also reports an explicit user cancellation as FAILED.
+            error = self._state.get('print_error')
+            cancelled = error in (0x0300400C, 0x0500400E, str(0x0300400C), str(0x0500400E))
+            self._job_ended('cancelled' if cancelled else 'failed')
 
         # RUNNING/PAUSE -> IDLE = Job cancelled
         elif new_state == 'IDLE' and old_state in ('RUNNING', 'PAUSE'):
@@ -523,6 +521,25 @@ class PrinterMonitor:
         # FINISH/FAILED -> IDLE = printer fully settled, attempt next queued job
         elif new_state == 'IDLE' and old_state in ('FINISH', 'FAILED'):
             Thread(target=self._try_dispatch, daemon=True).start()
+
+        if new_state == 'PAUSE' and old_state != 'PAUSE':
+            from modules.notifications.event_dispatcher import parse_hms_errors
+            errors = parse_hms_errors(self._state.get('hms') or [])
+            worst = max(errors, key=lambda e: {'critical': 3, 'error': 2, 'warning': 1}.get(e['severity'], 0)) if errors else None
+            code = self._state.get('print_error') or (worst['code'] if worst else None)
+            for_printer(self.printer_id, 'paused', code=str(code).upper() if code else None,
+                        context={'before_printing': not self._state.get('layer_num', 0),
+                                 'hms_codes': [error['code'] for error in errors],
+                                 'print_error': self._state.get('print_error'),
+                                 'filename': self._state.get('gcode_file') or self._state.get('subtask_name')})
+            if self._state.get('stg_cur') == 6:
+                for_printer(self.printer_id, 'runout')
+        elif new_state != 'PAUSE':
+            if old_state == 'PAUSE' and new_state == 'RUNNING':
+                for_printer(self.printer_id, 'resumed')
+            else:
+                from core.job_timeline import close_pause_episode
+                close_pause_episode(self.printer_id)
 
     def _job_started(self):
         """Thin wrapper: delegate to mqtt_job_lifecycle.record_job_started()."""

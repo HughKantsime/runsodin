@@ -29,6 +29,8 @@ class PushPreferences(BaseModel):
     categories: Dict[str, bool] = Field(default_factory=lambda: {
         "PRINT_COMPLETE": True,
         "PRINT_FAILED": True,
+        "PRINT_PAUSED": True,
+        "PRINT_CANCELLED": True,
         "SPAGHETTI_DETECTED": True,
         "FIRST_LAYER_ISSUE": True,
         "SPOOL_LOW": True,
@@ -68,7 +70,10 @@ class BiometricRefreshResponse(BaseModel):
 
 class TestPushDeviceResult(BaseModel):
     device_id: int
-    status: Literal["sent", "not_configured", "bad_device_token", "topic_mismatch", "auth_error", "other"]
+    apns_id: Optional[str] = None
+    reason: Optional[str] = None
+    token_fingerprint: str
+    status: Literal["sent", "not_configured", "bad_device_token", "topic_mismatch", "auth_error", "other", "education_scope"]
 
 
 class TestPushResponse(BaseModel):

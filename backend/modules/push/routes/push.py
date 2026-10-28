@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from core.db import get_db
 from core.dependencies import get_current_user
 from core.rbac import require_interactive_session, require_role
-from modules.push.apns import get_provider
+from modules.push.apns import get_provider, PushResult, diagnostics, log_result
 from modules.push.models import PushDevice
 from modules.push.schemas import (
     DeviceRegisterRequest,
@@ -123,7 +123,8 @@ async def get_preferences(
     if device.preferences_json:
         try:
             stored = json.loads(device.preferences_json)
-            return {**defaults.model_dump(), **stored}
+            return {**defaults.model_dump(), **stored,
+                    "categories": {**defaults.categories, **stored.get("categories", {})}}
         except Exception:
             pass
     return defaults.model_dump()
@@ -203,19 +204,29 @@ async def send_test_push(
 ):
     """Send one diagnostic notification per caller-owned device, ignoring quiet hours."""
     devices = db.query(PushDevice).filter(PushDevice.user_id == current_user["id"]).all()
+    from modules.push.policy import education_scope
+    try:
+        suppressed = education_scope(db, org_id=current_user.get("group_id"))
+    except Exception:
+        suppressed = True
+    if suppressed:
+        log.info("Push skip reason=education_scope category=TEST alert_type=test")
+    if not devices:
+        log.info("Push skip reason=no_devices category=TEST alert_type=test")
     results = []
     for device in devices:
         try:
-            provider = get_provider(sandbox=device.platform == "apns-sandbox")
-            result = provider.send_push_result(
-                device_token=device.token, title="ODIN Test Notification",
-                body="Push notifications are working correctly.", category="TEST")
-            status = result.status if result.status in {
-                "sent", "not_configured", "bad_device_token", "topic_mismatch", "auth_error", "other"
-            } else "other"
+            if suppressed:
+                result = PushResult("education_scope")
+            else:
+                provider = get_provider(sandbox=device.platform == "apns-sandbox")
+                result = provider.send_push_result(
+                    device_token=device.token, title="ODIN Test Notification",
+                    body="Push notifications are working correctly.", category="TEST")
         except Exception:
-            status = "other"
-        # The database ID is safe even if a hostile client used a token as device_id.
-        results.append({"device_id": device.id, "status": status})
+            result = PushResult("other")
+            log_result(result, device.token, "TEST", "test")
+        # Never return client-supplied device IDs or arbitrary provider text.
+        results.append({"device_id": device.id, **diagnostics(result, device.token)})
     return {"sent": sum(r["status"] == "sent" for r in results),
             "total_devices": len(devices), "devices": results}

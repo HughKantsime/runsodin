@@ -24,6 +24,7 @@ import time
 from typing import Optional
 from dataclasses import dataclass
 import re
+import uuid
 
 import httpx
 import jwt as pyjwt
@@ -41,10 +42,44 @@ _TOKEN_REFRESH_MARGIN = 10 * 60  # regenerate when < 10 min remaining
 @dataclass(frozen=True)
 class PushResult:
     status: str
+    apns_id: Optional[str] = None
+    reason: Optional[str] = None
 
     @property
     def sent(self):
         return self.status == "sent"
+
+
+# Only Apple's documented reason identifiers and UUID request IDs may leave
+# the provider. Response bodies and exception text are never diagnostics.
+REASONS = frozenset("BadCollapseId BadDeviceToken BadExpirationDate BadMessageId BadPriority BadTopic DeviceTokenNotForTopic DuplicateHeaders IdleTimeout MissingDeviceToken MissingTopic PayloadEmpty TopicDisallowed BadCertificate BadCertificateEnvironment ExpiredProviderToken Forbidden InvalidProviderToken MissingProviderToken BadPath MethodNotAllowed Unregistered ExpiredToken PayloadTooLarge TooManyProviderTokenUpdates TooManyRequests InternalServerError ServiceUnavailable Shutdown".split())
+STATUSES = frozenset({'sent', 'not_configured', 'bad_device_token', 'topic_mismatch', 'auth_error', 'other', 'education_scope'})
+
+
+def token_fingerprint(token):
+    return token[-6:].lower() if isinstance(token, str) and re.fullmatch(r'[0-9a-fA-F]{12,}', token) else ''
+
+
+def safe_apns_id(value):
+    try:
+        return str(uuid.UUID(value)) if isinstance(value, str) else None
+    except ValueError:
+        return None
+
+
+def diagnostics(result, token):
+    return {'status': result.status if result.status in STATUSES else 'other',
+            'apns_id': safe_apns_id(result.apns_id),
+            'reason': result.reason if result.reason in REASONS else None,
+            'token_fingerprint': token_fingerprint(token)}
+
+
+def log_result(result, token, category, alert_type):
+    fields = diagnostics(result, token)
+    log.info('Push attempt category=%s alert_type=%s status=%s apns-id=%s reason=%s token_fingerprint=%s',
+             category if re.fullmatch(r'[A-Z_]{1,40}', category or '') else 'unknown',
+             alert_type if re.fullmatch(r'[a-z_]{1,40}', alert_type or '') else 'unknown',
+             fields['status'], fields['apns_id'], fields['reason'], fields['token_fingerprint'])
 
 
 def failure_class(status, reason):
@@ -160,9 +195,11 @@ class APNsProvider:
                          badge: Optional[int] = None, data: Optional[dict] = None,
                          priority: int = 10) -> PushResult:
         """Return only an allowlisted outcome; never expose provider text or credentials."""
+        result = PushResult("other")
         try:
             if not self._is_configured():
-                return PushResult("not_configured")
+                result = PushResult("not_configured")
+                return result
             cfg = self._get_config()
             aps = {"alert": {"title": title, "body": body}, "sound": "default"}
             if category:
@@ -170,10 +207,13 @@ class APNsProvider:
             if badge is not None:
                 aps["badge"] = badge
             payload = {**(data or {}), "aps": aps}
-            return self._send_result(device_token, payload, cfg["bundle_id"], priority=priority)
+            result = self._send_result(device_token, payload, cfg["bundle_id"], priority=priority)
+            return result
         except Exception:
             log.warning("APNs delivery failed: other")
-            return PushResult("other")
+            return result
+        finally:
+            log_result(result, device_token, category, (data or {}).get("alert_type", "test" if category == "TEST" else "unknown"))
 
     def send_background_push(
         self,
@@ -186,6 +226,7 @@ class APNsProvider:
         No visible notification — iOS delivers directly to the Live Activity.
         """
         if not self._is_configured():
+            log_result(PushResult("not_configured"), device_token, "LIVE_ACTIVITY", "live_activity")
             return False
 
         cfg = self._get_config()
@@ -205,6 +246,7 @@ class APNsProvider:
     def send_live_activity_end(self, device_token: str, content_state: dict) -> bool:
         """Signal the Live Activity to end (dismissal-date in the future = user can dismiss)."""
         if not self._is_configured():
+            log_result(PushResult("not_configured"), device_token, "LIVE_ACTIVITY", "live_activity")
             return False
 
         cfg = self._get_config()
@@ -219,7 +261,10 @@ class APNsProvider:
         return self._send(device_token, payload, cfg["bundle_id"], priority=10, push_type="liveactivity")
 
     def _send(self, device_token, payload, bundle_id, priority=10, push_type="alert") -> bool:
-        return self._send_result(device_token, payload, bundle_id, priority, push_type).sent
+        result = self._send_result(device_token, payload, bundle_id, priority, push_type)
+        log_result(result, device_token, "LIVE_ACTIVITY" if push_type == "liveactivity" else "UNKNOWN",
+                   "live_activity" if push_type == "liveactivity" else "unknown")
+        return result.sent
 
     def _send_result(self, device_token, payload, bundle_id, priority=10, push_type="alert") -> PushResult:
         try:
@@ -231,12 +276,14 @@ class APNsProvider:
             resp = self._client_instance().post(
                 f"/3/device/{device_token}", content=json.dumps(payload), headers=headers)
             if resp.status_code == 200:
-                return PushResult("sent")
+                return PushResult("sent", safe_apns_id(resp.headers.get("apns-id")))
             try:
                 reason = resp.json().get("reason", "")
             except (ValueError, AttributeError):
                 reason = ""
-            result = PushResult(failure_class(resp.status_code, reason))
+            result = PushResult(failure_class(resp.status_code, reason),
+                                safe_apns_id(resp.headers.get("apns-id")),
+                                reason if isinstance(reason, str) and reason in REASONS else None)
         except Exception:
             # Exceptions may embed the URL, token, signing key, or Authorization header.
             result = PushResult("other")

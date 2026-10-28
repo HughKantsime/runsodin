@@ -516,7 +516,7 @@ def record_job_ended(
                 log.info(f"[{printer_name}] Created job {linked_job_id} for '{job_name}' ({job_status}, duration={duration_hours}h)")
 
             from core.job_terminal_observations import claim_terminal, terminal_event
-            claim_terminal(conn, current_job_id, alert_job_id=linked_job_id if job_applied else None)
+            claim_terminal(conn, current_job_id, alert_job_id=linked_job_id if job_applied else None, alert_cancelled=True)
             timeline_item=terminal_event(conn, current_job_id)
             reconcile_job_write(conn, production_orders)
             conn.commit()
@@ -562,6 +562,12 @@ def record_job_ended(
                         printer_events.increment_care_counters(printer_id, duration_sec / 3600.0, 1)
             except Exception as ce:
                 log.warning(f"[{printer_name}] Failed to update care counters: {ce}")
+
+        elif status == 'cancelled':
+            dispatch_terminal_alert(current_job_id, _dispatch_alert_b, attempt_uid=timeline_item['attempt'] if timeline_item else None,
+                alert_type=AlertType.PRINT_CANCELLED, severity=AlertSeverity.WARNING,
+                title=f"Print Cancelled: {job_name}", message="Clear the bed before retrying.",
+                printer_id=printer_id, job_id=alert_job_id)
 
         elif status == 'failed':
             progress = state.get('mc_percent', 0)

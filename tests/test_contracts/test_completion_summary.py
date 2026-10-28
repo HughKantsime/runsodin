@@ -371,7 +371,9 @@ def test_fault_lane_survives_dropped_timeline(monkeypatch):
     notify=Mock();monkeypatch.setattr(job_faults,'notify',notify)
     monkeypatch.setattr(job_timeline,'_writer',None)
     assert job_timeline.for_printer(201,'paused') is False
-    notify.assert_called_once_with(201,'paused',None)
+    notify.assert_called_once()
+    assert notify.call_args.args == (201, 'paused', None)
+    assert notify.call_args.kwargs['occurred'] is not None
 
 
 def test_missing_finished_identity_cannot_authorize_start(queue,review_db,monkeypatch):
@@ -603,7 +605,7 @@ def test_runout_falls_back_only_without_resolvable_attempt(private_attempt,revie
         assert stage.call_args.kwargs['metadata']['fault']['kind']=='runout'
     else:
         assert stage.call_args.kwargs.get('job_id') is None
-        assert stage.call_args.args[3].startswith('Filament Runout:')
+        assert stage.call_args.args[4] == 'Filament runout'
 
 
 def test_pending_education_advice_never_skips_scheduled_queue_head(actual_education_dispatch,tmp_path):

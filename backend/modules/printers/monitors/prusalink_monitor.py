@@ -163,6 +163,9 @@ class PrusaLinkMonitorThread(threading.Thread):
 
         # Only fire events on transitions
         if current_state != self._last_state:
+            if odin_state != "PAUSE":
+                from core.job_timeline import close_pause_episode
+                close_pause_episode(self.printer_id)
             if odin_state == "RUNNING" and self._last_state in ('PAUSED','ATTENTION'):
                 from core.job_timeline import for_printer
                 for_printer(self.printer_id, 'resumed')
@@ -218,7 +221,7 @@ class PrusaLinkMonitorThread(threading.Thread):
                 except Exception as e:
                     log.debug(f"Failed to record PrusaLink error: {e}")
             elif odin_state == "PAUSE":
-                printer_events.on_print_paused(self.printer_id)
+                printer_events.on_print_paused(self.printer_id, current_file)
 
             self._last_state = current_state
 

@@ -205,16 +205,19 @@ def _stage_terminal(db, row, outbox_id, *, summary=None):
         # facts to deliver without trusting an in-memory monitor callback.
         complete = outcome == 'completed'
         cancelled = outcome == 'cancelled'
-        payload = dict(alert_type=AlertType.PRINT_COMPLETE if complete else AlertType.PRINT_FAILED,
+        payload = dict(alert_type=AlertType.PRINT_COMPLETE if complete else AlertType.PRINT_CANCELLED if cancelled else AlertType.PRINT_FAILED,
                        severity=AlertSeverity.INFO if complete else AlertSeverity.WARNING if cancelled else AlertSeverity.CRITICAL,
                        title=f"Print {'Complete' if complete else 'Cancelled' if cancelled else 'Failed'}: {name or 'Unknown'}",
                        message=f"{'Finished' if complete else 'Cancelled' if cancelled else 'Failed'} on {printer_name or 'printer'}",
                        printer_id=printer_id, job_id=state.get('alert_job_id',job_id))
     else:
-        payload['alert_type'] = AlertType.PRINT_FAILED if payload['alert_type'] == 'print_cancelled' else AlertType(payload['alert_type'])
+        payload['alert_type'] = AlertType.PRINT_CANCELLED if outcome == 'cancelled' else AlertType(payload['alert_type'])
         payload['severity'] = AlertSeverity(payload['severity'])
+    if outcome == 'cancelled':
+        payload['severity'] = AlertSeverity.WARNING
     if summary is not None:
         payload['metadata'] = {**(payload.get('metadata') or {}), 'summary': summary}
         if outcome != 'cancelled':
             payload['message'] = summary['text']
+    payload['metadata'] = {**(payload.get('metadata') or {}), 'job_name': name}
     return stage_alert(db, **payload)

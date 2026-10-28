@@ -180,6 +180,9 @@ class ElegooMonitorThread(threading.Thread):
         active = ("PRINTING", "HEATING", "HOMING", "LEVELING", "PAUSED")
         # Only fire events on transitions
         if current_state != self._last_state:
+            if odin_state != "PAUSE":
+                from core.job_timeline import close_pause_episode
+                close_pause_episode(self.printer_id)
             from core.job_timeline import for_printer
             if self._last_state == 'PAUSED' and odin_state == 'RUNNING':for_printer(self.printer_id, 'resumed')
             if odin_state == "RUNNING" and self._last_state not in active:
@@ -213,7 +216,7 @@ class ElegooMonitorThread(threading.Thread):
                     "Print stopped unexpectedly",
                 )
             elif current_state == "PAUSED" and self._last_state != "PAUSED":
-                printer_events.on_print_paused(self.printer_id)
+                printer_events.on_print_paused(self.printer_id, status.filename)
 
             self._last_state = current_state
 

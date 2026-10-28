@@ -29,6 +29,7 @@ ENDPOINTS = [
      {"enabled": False}, "Set job approval — INVESTIGATE body schema"),
     ("GET", "/api/config/mqtt-republish", _admin_only(), None, "MQTT republish config — admin after patch"),
     ("PUT", "/api/config/mqtt-republish", _admin_only(), {}, "Update MQTT republish"),
+    ("POST", "/api/push/test", _admin_only(), None, "Test native push — caller devices only"),
     ("POST", "/api/config/mqtt-republish/test", _admin_only(), None, "Test MQTT republish — admin after patch"),
     ("GET", "/api/config/quiet-hours", _admin_only(), None, "Quiet hours — admin after patch"),
     ("PUT", "/api/config/quiet-hours", _admin_only(), {}, "Update quiet hours"),

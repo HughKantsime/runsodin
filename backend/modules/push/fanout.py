@@ -10,7 +10,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from modules.push.apns import get_provider
+from modules.push.apns import get_provider, token_fingerprint
 from modules.push.models import PushDevice
 
 from core.alert_preferences import preferences_for
@@ -67,16 +67,16 @@ def _deliver_to_devices(devices: list[PushDevice], mapping: dict, data: dict):
                 pass
 
         if _is_in_quiet_hours(prefs):
-            log.debug("Skipping push during device quiet hours")
+            log.info("Push skip reason=quiet_hours category=%s alert_type=%s token_fingerprint=%s", category, data.get("alert_type"), token_fingerprint(device.token))
             continue
 
         if not _category_enabled(prefs, category):
-            log.debug("Skipping push for disabled device category")
+            log.info("Push skip reason=category_off category=%s alert_type=%s token_fingerprint=%s", category, data.get("alert_type"), token_fingerprint(device.token))
             continue
 
         sandbox = device.platform == "apns-sandbox"
         provider = get_provider(sandbox=sandbox)
-        success = provider.send_push(
+        result = provider.send_push_result(
             device_token=device.token,
             title=title,
             body=body,
@@ -84,26 +84,41 @@ def _deliver_to_devices(devices: list[PushDevice], mapping: dict, data: dict):
             data={"odin_event": category, **{k: str(v) for k, v in data.items()
                   if k in {"printer_id", "job_id", "spool_id", "alert_type", "severity"} and v is not None}},
         )
-        if success:
-            log.debug("Push delivered")
+        if result.status == "not_configured":
+            log.info("Push skip reason=not_configured category=%s alert_type=%s token_fingerprint=%s", category, data.get("alert_type"), token_fingerprint(device.token))
 
 
 def deliver_alert(db, plan):
     """Called for committed alerts; scope and preferences are rechecked at delivery."""
     from core.recipient_policy import resolve_alert_scope
+    atype = plan.alert_type.value
+    category = CATEGORIES.get(atype, "")
     if plan.suppress_external:
+        log.info("Push skip reason=quiet_hours_or_deduplicated category=%s alert_type=%s", category, atype)
         return
     eligible, org_id = resolve_alert_scope(db, printer_id=plan.printer_id,
         job_id=plan.job_id, spool_id=plan.spool_id)
-    if org_id != plan.org_id or education_scope(db, org_id=org_id,
-            job_id=plan.job_id, printer_id=plan.printer_id):
+    if org_id != plan.org_id:
+        log.info("Push skip reason=org_mismatch category=%s alert_type=%s", category, atype)
         return
-    atype = plan.alert_type.value
+    try:
+        suppressed = education_scope(db, org_id=org_id, job_id=plan.job_id, printer_id=plan.printer_id)
+    except Exception:
+        suppressed = True
+    if suppressed:
+        log.info("Push skip reason=education_scope category=%s alert_type=%s", category, atype)
+        return
     # Use the in-app recipients selected by stage_alert, then recheck preferences.
     # Education is checked explicitly because operational alerts can have no job.
     users = {p.user_id for p in preferences_for(db, atype) if p.in_app}
     recipients = eligible & users & set(plan.in_app_users)
+    if (set(plan.in_app_users) & eligible) - users or not plan.in_app_users:
+        log.info("Push skip reason=preference_off category=%s alert_type=%s", category, atype)
+    if set(plan.in_app_users) - eligible:
+        log.info("Push skip reason=org_mismatch_or_inactive category=%s alert_type=%s", category, atype)
     devices = _get_devices_for_users(db, sorted(recipients))
+    if not devices:
+        log.info("Push skip reason=no_devices category=%s alert_type=%s", category, atype)
     mapping = {"title": safe_copy(getattr(plan, "title", "ODIN notification")),
                "category": CATEGORIES.get(atype, ""),
                "body": safe_copy(getattr(plan, "message", "Open ODIN to view this alert"))[:180]}

@@ -66,6 +66,9 @@ def test_email_only_user_receives_digest_of_suppressed_alert(org_api, admin_api,
     assert smtp_peer.messages == []  # suppressed in real time
     with notif_env.get_bind().connect() as conn:
         assert conn.execute(text("SELECT COUNT(*) FROM alerts WHERE user_id=1")).scalar_one() == 0  # no in-app row
+        assert conn.execute(text("SELECT message FROM quiet_hours_deferred_deliveries "
+                                 "WHERE user_id=1 AND channel='email'")).scalar_one() == (
+            "Details Check the printer and filament before retrying.")
     assert _rows(deferral_table) == [{"user_id": 1, "org_id": 1, "scope_key": "org:1", "channel": "email",
                                       "alert_type": "print_failed", "state": "pending", "outcome_reason": None}]
     move_quiet_clock(monkeypatch, base + timedelta(minutes=35))
@@ -73,7 +76,7 @@ def test_email_only_user_receives_digest_of_suppressed_alert(org_api, admin_api,
     message, = smtp_peer.wait(1)
     assert message["To"] == "student@example.test"
     html = message.get_body(preferencelist=("html",)).get_content()
-    assert "Synthetic failure on 9" in html
+    assert html.count("P1S-09: print failed") == 1
     assert _rows(deferral_table)[0]["state"] == "sent"
     run_digest(notif_env)  # same window: idempotent
     assert len(smtp_peer.messages) == 1
@@ -210,13 +213,13 @@ def test_webhook_digest_lists_each_alert_once_including_alerts_without_in_app_ro
     alert_dispatch.dispatch_alert("print_failed", "critical", "Shared failure", "x", printer_id=9)
     alert_dispatch.dispatch_alert("print_complete", "info", "Nobody in-app", "x", printer_id=9)
     with notif_env.get_bind().connect() as conn:
-        assert conn.execute(text("SELECT COUNT(*) FROM alerts WHERE title='Nobody in-app'")).scalar_one() == 0
+        assert conn.execute(text("SELECT COUNT(*) FROM alerts WHERE alert_type='print_complete'")).scalar_one() == 0
     move_quiet_clock(monkeypatch, base + timedelta(minutes=35))
     run_digest(notif_env)
     request, = receiver.wait(1)
     body = json.loads(request["body"])
     assert body["alert_count"] == 2
-    assert sorted(a["title"] for a in body["alerts"]) == ["Nobody in-app", "Shared failure"]
+    assert sorted(a["title"] for a in body["alerts"]) == ["P1S-09: print failed", "P1S-09: print finished"]
     assert {r["state"] for r in _rows(deferral_table, channels=("webhook",))} == {"sent"}
     run_digest(notif_env)
     assert len(receiver.requests) == 1

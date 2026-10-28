@@ -151,9 +151,9 @@ def test_operational_push_and_fully_deduped_external_silence(alert_db, monkeypat
         dispatch = lambda: send(alert_db, path, kind,
                                 spool_id=alert_db.info['alert_spool_id'] if kind == 'spool_low' else None)
     dispatch()
-    assert devices.send_push.call_count == 1
-    assert devices.send_push.call_args.kwargs['category'] == category
-    assert devices.send_push.call_args.kwargs['device_token'] == 'synthetic-device-token-3'
+    assert devices.send_push_result.call_count == 1
+    assert devices.send_push_result.call_args.kwargs['category'] == category
+    assert devices.send_push_result.call_args.kwargs['device_token'] == 'synthetic-device-token-3'
     sinks = [getattr(module, name) for module, names in (
         (alert_dispatcher, ('_deliver_email', '_deliver_browser_push', '_send_org_webhook')),
         (channels, ('send_webhook', 'send_email', 'send_push_notification')))
@@ -161,16 +161,16 @@ def test_operational_push_and_fully_deduped_external_silence(alert_db, monkeypat
     for sink in sinks:
         sink.reset_mock()
     dispatch()
-    assert devices.send_push.call_count == 1
+    assert devices.send_push_result.call_count == 1
     for sink in sinks:
         sink.assert_not_called()
 
 
 def test_push_copy_truncation_and_allowlisted_payload(alert_db, devices):
-    message = '[hms:123] ' + 'detail ' * 50
+    message = 'detail ' * 50
     send(alert_db, 'orm', message=message)
-    payload = devices.send_push.call_args.kwargs
-    assert payload['title'] == 'Error on Test printer'
+    payload = devices.send_push_result.call_args.kwargs
+    assert payload['title'].endswith(': print needs attention')
     assert payload['body'] == message[:180]
     assert set(payload['data']) == {'odin_event', 'alert_type', 'severity', 'printer_id'}
 
@@ -184,7 +184,7 @@ def test_device_preferences(alert_db, devices, prefs):
     alert_db.execute(text('UPDATE push_devices SET preferences_json=:prefs'), {'prefs': json.dumps(prefs)})
     alert_db.commit()
     send(alert_db, 'orm')
-    devices.send_push.assert_not_called()
+    devices.send_push_result.assert_not_called()
 
 
 def test_canonical_preference_opt_out_wins_over_legacy(alert_db, devices):
@@ -192,27 +192,27 @@ def test_canonical_preference_opt_out_wins_over_legacy(alert_db, devices):
     alert_db.execute(text("UPDATE alert_preferences SET in_app=FALSE WHERE alert_type='printer_error'"))
     alert_db.commit()
     send(alert_db, 'orm')
-    devices.send_push.assert_not_called()
+    devices.send_push_result.assert_not_called()
 
 
 @pytest.mark.parametrize('path', ['orm', 'daemon'])
 def test_education_suppressed(alert_db, devices, path):
     send(alert_db, path, job_id=13)
-    devices.send_push.assert_not_called()
+    devices.send_push_result.assert_not_called()
 
 
 def test_education_mode_suppresses_resource_only_alert(alert_db, devices):
     alert_db.execute(text("INSERT INTO system_config(key,value) VALUES('education_mode','true')"))
     alert_db.commit()
     send(alert_db, 'orm')
-    devices.send_push.assert_not_called()
+    devices.send_push_result.assert_not_called()
 
 
 def test_no_push_before_commit_or_after_rollback(alert_db, devices):
     from core.base import AlertType, AlertSeverity
     from modules.notifications.alert_dispatcher import stage_alert
     stage_alert(alert_db, AlertType.PRINTER_ERROR, AlertSeverity.WARNING, 'Staged', printer_id=9)
-    devices.send_push.assert_not_called()
+    devices.send_push_result.assert_not_called()
     alert_db.rollback()
     assert alert_db.execute(text('SELECT count(*) FROM alerts')).scalar_one() == 0
 
@@ -231,9 +231,9 @@ def test_terminal_outbox_delivers_once(alert_db, devices, monkeypatch):
         alert_dispatcher.stage_alert(db, AlertType.PRINT_COMPLETE, AlertSeverity.INFO,
                                      'Print Complete', 'Finished', printer_id=9, job_id=99))
     assert alert_outbox.dispatch(alert_db.get_bind(), identifier)
-    assert devices.send_push.call_count == 1
+    assert devices.send_push_result.call_count == 1
     assert not alert_outbox.dispatch(alert_db.get_bind(), identifier)
-    assert devices.send_push.call_count == 1
+    assert devices.send_push_result.call_count == 1
 
 
 def test_pending_spool_alert_dedupes_without_autoflush(alert_db):
@@ -252,8 +252,8 @@ def test_unknown_category_allowed_by_default(alert_db, devices):
     alert_db.execute(text("INSERT INTO alert_preferences(user_id,alert_type,in_app) VALUES(3,'bed_cooled',1)"))
     alert_db.commit()
     send(alert_db, 'orm', kind='bed_cooled')
-    assert devices.send_push.call_count == 1
-    assert devices.send_push.call_args.kwargs['category'] == ''
+    assert devices.send_push_result.call_count == 1
+    assert devices.send_push_result.call_args.kwargs['category'] == ''
 
 
 @pytest.mark.parametrize('path', ['orm', 'daemon'])
@@ -261,8 +261,8 @@ def test_uppercase_only_preference_delivers(alert_db, devices, path):
     alert_db.execute(text("UPDATE alert_preferences SET alert_type='PRINTER_ERROR' WHERE alert_type='printer_error'"))
     alert_db.commit()
     send(alert_db, path)
-    assert devices.send_push.call_count == 1
-    assert devices.send_push.call_args.kwargs['category'] == 'HMS_ERROR'
+    assert devices.send_push_result.call_count == 1
+    assert devices.send_push_result.call_args.kwargs['category'] == 'HMS_ERROR'
 
 
 @pytest.mark.parametrize('path', ['orm', 'daemon'])
@@ -273,7 +273,7 @@ def test_dedupe_is_per_user_and_printer(alert_db, devices, path):
     send(alert_db, path)
     assert set(alert_db.execute(text('SELECT user_id FROM alerts')).scalars()) == {1, 3}
     assert alert_db.execute(text('SELECT count(*) FROM alerts')).scalar_one() == 2
-    assert devices.send_push.call_count == 1  # user 3 was deduped; user 1 has no device
+    assert devices.send_push_result.call_count == 1  # user 3 was deduped; user 1 has no device
     from modules.notifications.alert_policy import active_resource_duplicate
     assert not active_resource_duplicate(alert_db, 3, 'printer_error', 10, None, '[bambu_hms:123] original')
 
@@ -293,4 +293,4 @@ def test_push_rechecks_eligibility_after_commit(alert_db, devices, change):
         alert_db.execute(text("UPDATE alert_preferences SET in_app=FALSE WHERE alert_type='printer_error'"))
     alert_db.commit()
     deliver_staged_alert(alert_db, plan)
-    devices.send_push.assert_not_called()
+    devices.send_push_result.assert_not_called()

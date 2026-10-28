@@ -106,7 +106,8 @@ POLICY_INVENTORY = (
     _entry("notifications.quiet_hours", "digest collector", "Education alert", "external-sink", "none for Education", ("digest",), "test_education_notification_privacy.py", "batch2_required"),
     _entry("notifications.mqtt_republish", "MQTT republisher", "Education event", "external-sink", "none for Education", ("MQTT",), "test_education_notification_privacy.py", "batch2_required"),
     _entry("push.fanout", "push fanout", "Education alert", "external-sink", "none for Education", ("APNS", "web push"), "test_education_notification_privacy.py", "batch2_required"),
-    _entry("push.policy", "education_scope/safe_copy", "Education mode/submission/job/printer/alert text", "suppress external delivery/redact", "trusted push delivery; Education mode and Education-owned jobs/active printers suppress delivery", ("push.fanout",), "test_alert_phone_delivery.py", "guarded"),
+    _entry("core.recipient_policy", "resolve_alert_scope/education_notification_scope", "Education mode/submission/job/printer/spool", "scope recipients/suppress external delivery", "trusted notification delivery; Education mode and Education-owned jobs/active printers suppress delivery", ("push.fanout", "notifications.job_faults"), "test_alert_phone_delivery.py", "guarded"),
+    _entry("notifications.alert_copy", "humanize/job_names/human_name", "job/file/printer/active print", "read human alert context", "internal copy helper; caller retains recipient scope and Education delivery policy", ("notifications.alert_dispatch", "notifications.alert_dispatcher", "notifications.routes.alerts"), "test_pause_alerts.py", "excluded_internal"),
     _entry("vision.detection_thread", "vision alert emission", "submission/job/alert", "notify", "trusted vision worker", ("Education outbox",), "test_education_notification_privacy.py", "batch2_required"),
     _entry("archives.archive", "archive creation/read", "model/file/archive", "retention", "resource policy audience", ("archive routes",), "test_education_resource_policy.py", "batch2_required"),
     _entry("archives.routes.tags", "tag routes", "model/file/archive", "read/mutate", "resource policy audience", (), "test_education_resource_policy.py", "batch2_required"),
@@ -178,6 +179,7 @@ _SENSITIVE_SQL = re.compile(
 )
 _EXPLICIT_SURFACE_PATHS = (
     "core/app.py",
+    "core/recipient_policy.py",
     "modules/organizations/routes_education.py",
     "modules/organizations/routes_education_submissions.py",
     "modules/organizations/routes_education_reviews.py",

@@ -149,7 +149,8 @@ async def list_alerts(
         if alert.printer:
             data.printer_name = alert.printer.nickname or alert.printer.name
         if alert.job:
-            data.job_name = alert.job.item_name
+            from modules.notifications.alert_copy import human_name, job_names
+            data.job_name = human_name(*job_names(db, alert.job_id))
         if alert.spool and alert.spool.filament:
             data.spool_name = f"{alert.spool.filament.brand} {alert.spool.filament.name}"
         results.append(data)
@@ -378,6 +379,14 @@ async def get_alert_preferences(
             AlertPreference.user_id == current_user["id"]
         ).all()
 
+    existing_types = {pref.alert_type for pref in prefs}
+    for default_id, alert_type in ((-1, AlertType.PRINT_PAUSED), (-2, AlertType.PRINT_CANCELLED)):
+        if alert_type not in existing_types:
+            # Negative IDs identify response-only defaults; PUT upserts by alert type.
+            prefs.append(AlertPreferenceResponse(
+                id=default_id, user_id=current_user["id"], alert_type=alert_type,
+                in_app=True, browser_push=True, email=False, threshold_value=None,
+            ))
     return prefs
 
 

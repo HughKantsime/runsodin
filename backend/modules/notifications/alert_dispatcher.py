@@ -33,7 +33,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import Optional, List
 
-from sqlalchemy import text, func
+from sqlalchemy import text, func, cast, String
 from sqlalchemy.orm import Session
 
 from core.base import AlertType, AlertSeverity
@@ -54,6 +54,8 @@ logger = logging.getLogger("alert_dispatcher")
 
 DEFAULT_PREFERENCES = [
     {"alert_type": AlertType.PRINT_COMPLETE, "in_app": True, "browser_push": False, "email": False, "threshold_value": None},
+    {"alert_type": AlertType.PRINT_PAUSED, "in_app": True, "browser_push": True, "email": False, "threshold_value": None},
+    {"alert_type": AlertType.PRINT_CANCELLED, "in_app": True, "browser_push": True, "email": False, "threshold_value": None},
     {"alert_type": AlertType.PRINT_FAILED, "in_app": True, "browser_push": True, "email": False, "threshold_value": None},
     {"alert_type": AlertType.SPOOL_LOW, "in_app": True, "browser_push": False, "email": False, "threshold_value": 100.0},
     {"alert_type": AlertType.MAINTENANCE_OVERDUE, "in_app": True, "browser_push": False, "email": False, "threshold_value": None},
@@ -75,7 +77,7 @@ def seed_alert_preferences(db: Session, user_id: int, *, commit: bool = True):
     for pref in DEFAULT_PREFERENCES:
         existing = db.query(AlertPreference.id).filter(
             AlertPreference.user_id == user_id,
-            func.lower(AlertPreference.alert_type) == pref["alert_type"].value
+            func.lower(cast(AlertPreference.alert_type, String)) == pref["alert_type"].value
         ).first()
         if not existing:
             db.add(AlertPreference(user_id=user_id, **pref))
@@ -109,7 +111,7 @@ def _should_deduplicate(db, user_id, alert_type, printer_id, spool_id, job_id, m
     if alert_type in (AlertType.QUEUE_SKIPPED, AlertType.QUEUE_FAILED_START) and job_id:
         reason = (metadata or {}).get("reason")
         existing = db.query(Alert.metadata_json).filter(Alert.user_id == user_id,
-            func.lower(Alert.alert_type) == alert_type.value, Alert.job_id == job_id,
+            func.lower(cast(Alert.alert_type, String)) == alert_type.value, Alert.job_id == job_id,
             Alert.is_read.is_(False), Alert.is_dismissed.is_(False)).all()
         for alert in existing:
             stored = alert.metadata_json or {}
@@ -127,7 +129,7 @@ def _should_deduplicate(db, user_id, alert_type, printer_id, spool_id, job_id, m
         cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
         existing = db.query(Alert.id).filter(
             Alert.user_id == user_id,
-            func.lower(Alert.alert_type) == AlertType.MAINTENANCE_OVERDUE.value,
+            func.lower(cast(Alert.alert_type, String)) == AlertType.MAINTENANCE_OVERDUE.value,
             Alert.printer_id == printer_id,
             Alert.is_read == False,
             Alert.created_at > cutoff
@@ -398,10 +400,15 @@ def stage_alert(
         logger.warning("Alert resource scope could not be resolved; staging refused")
         raise
 
+    from modules.notifications.alert_copy import humanize
+    title, message, metadata = humanize(db, alert_type, title, message, printer_id, job_id, metadata)
+
     # Quiet hours: save alert to DB but suppress external notifications
     _suppress_external = should_suppress_notification(org_id=_printer_org_id, db=db)
 
     db.flush()  # Pending alerts must participate even with SessionLocal(autoflush=False).
+    from core.alert_preferences import seed_attention_preferences
+    seed_attention_preferences(db)
     preferences = preferences_for(db, alert_type)
 
     # Auto-seed preferences without committing the caller transaction.
@@ -500,6 +507,7 @@ def _deliver_staged_alert(db: Session, plan: StagedAlert):
             eligible, org_id = resolve_alert_scope(scope_connection, printer_id=plan.printer_id,
                 job_id=plan.job_id, spool_id=plan.spool_id)
         if org_id != plan.org_id:
+            logger.info("Push skip reason=org_mismatch alert_type=%s", plan.alert_type.value)
             return
         recipients = sorted(set(plan.in_app_users) & eligible)
         if recipients:
@@ -515,6 +523,7 @@ def _deliver_staged_alert(db: Session, plan: StagedAlert):
             except Exception:
                 logger.warning("Committed alert event publication failed")
         if plan.suppress_external:
+            logger.info("Push skip reason=quiet_hours_or_deduplicated alert_type=%s", plan.alert_type.value)
             return
         # All committed alerts use the same mobile hook, including outbox alerts.
         from modules.notifications.alert_outbox import deliver_mobile

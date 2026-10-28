@@ -46,9 +46,7 @@ def dispatch_alert(
     Handles deduplication, in-app alerts, webhooks, push, and email.
     Respects quiet hours for external channels.
     """
-    # Historical daemon cancellation callbacks keep their existing name; storage
-    # and preference resolution use the supported failure category on both DBs.
-    alert_type = AlertType.PRINT_FAILED.value if alert_type == 'print_cancelled' else AlertType(alert_type).value
+    alert_type = AlertType(alert_type).value
     severity = AlertSeverity({"success": "info", "error": "critical"}.get(severity, severity)).value
 
     # Track per-user channel preferences for external delivery after commit
@@ -60,6 +58,10 @@ def dispatch_alert(
             from modules.notifications.recipient_policy import resolve_alert_scope
             eligible_users, resource_org_id = resolve_alert_scope(
                 conn, printer_id=printer_id, job_id=job_id, spool_id=spool_id)
+            from core.alert_preferences import seed_attention_preferences
+            from modules.notifications.alert_copy import humanize
+            seed_attention_preferences(conn)
+            title, message, metadata = humanize(conn, alert_type, title, message, printer_id, job_id, metadata)
             # Get all users with preferences for this alert type
             pref_rows = preferences_for(conn, alert_type)
             had_preferences = bool(pref_rows)
@@ -83,7 +85,7 @@ def dispatch_alert(
             # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
             dup = conn.execute(text(f"""
                 SELECT id FROM alerts
-                WHERE LOWER(alert_type) = :atype
+                WHERE LOWER(CAST(alert_type AS TEXT)) = :atype
                   AND (printer_id = :pid OR (printer_id IS NULL AND :pid IS NULL))
                   AND (job_id = :jid OR (job_id IS NULL AND :jid IS NULL))
                   AND (spool_id = :sid OR (spool_id IS NULL AND :sid IS NULL))
@@ -139,6 +141,7 @@ def dispatch_alert(
             suppress = False
 
         if suppress:
+            log.info("Push skip reason=quiet_hours alert_type=%s", alert_type)
             # Quiet hours: record what was suppressed so the digest of the scope
             # that caused it delivers it once: external channels of recipients
             # without an in-app row, and one webhook row per alert.

@@ -344,6 +344,9 @@ class MoonrakerMonitor:
 
         # Detect state change
         if internal_state != self._prev_state:
+            if internal_state != "PAUSE":
+                from core.job_timeline import close_pause_episode
+                close_pause_episode(self.printer_id)
             log.info(f"[{self.name}] State: {self._prev_state} -> {internal_state}")
 
             # Job started
@@ -351,9 +354,10 @@ class MoonrakerMonitor:
                 self._job_started(status)
 
             # Job paused
-            elif internal_state == "PAUSE" and self._prev_state == "RUNNING":
+            elif internal_state == "PAUSE":
                 from core.job_timeline import for_printer
-                for_printer(self.printer_id, "paused")
+                for_printer(self.printer_id, "paused", context={"filename": status.filename,
+                            "pause_reason": getattr(status, "error_message", None) or ""})
                 log.info(f"[{self.name}] Print paused")
 
             # Job resumed
@@ -623,7 +627,7 @@ class MoonrakerMonitor:
             else:
                 dispatch_terminal_alert(self._current_job_db_id, printer_events.dispatch_alert,
                     attempt_uid=timeline_item['attempt'] if timeline_item else None,
-                    alert_type=AlertType.PRINT_FAILED,
+                    alert_type=AlertType.PRINT_CANCELLED if end_status == "cancelled" else AlertType.PRINT_FAILED,
                     severity=AlertSeverity.CRITICAL,
                     job_id=row[0] if row else None,
                     title=f"Print Failed: {job_name}",

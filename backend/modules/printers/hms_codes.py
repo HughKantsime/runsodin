@@ -21,11 +21,11 @@ code breakdown:
 DEVICES = {
     0x01: 'Motion Controller',
     0x02: 'Mainboard',
-    0x03: 'AMS',
+    0x03: 'Motion/Toolhead',
     0x04: 'AMS Hub',
     0x05: 'AMS Hub',
     0x06: 'Filament System',
-    0x07: 'Camera/XCam',
+    0x07: 'AMS',
     0x08: 'MC Module',
     0x09: 'Toolhead Board',
     0x0A: 'Toolhead',
@@ -781,6 +781,12 @@ PRINT_ERROR_CODES = {
 }
 
 
+MODULE_FAMILIES = {
+    '07007000': "AMS couldn't feed or load filament. Check the spool and filament path.",
+    '03000D00': "Motion/toolhead needs attention. Check the toolhead and build plate.",
+}
+
+
 def lookup_hms_code(code: str) -> str:
     """
     Look up human-readable message for an HMS error code.
@@ -792,6 +798,11 @@ def lookup_hms_code(code: str) -> str:
     # 1. Exact match — HMS codes
     if code in KNOWN_CODES:
         return KNOWN_CODES[code]
+
+    # Correct full module families before the legacy byte-level heuristic.
+    family = code.split('_', 1)[0]
+    if family in MODULE_FAMILIES and '_' in code:
+        return MODULE_FAMILIES[family]
 
     # 2. Exact match — print error codes (shorter format)
     if code in PRINT_ERROR_CODES:
@@ -830,7 +841,7 @@ def lookup_hms_code(code: str) -> str:
         parts = [device_name]
 
         # Add unit number if relevant
-        if device_id in (0x03, 0x05) and module > 0:
+        if device_id in (0x05, 0x07) and module > 0:
             parts[0] = f'AMS{module}'
         elif module > 0:
             parts[0] = f'{device_name} (unit {module})'
@@ -838,7 +849,7 @@ def lookup_hms_code(code: str) -> str:
         parts.append(error_desc)
 
         # Add slot info if code_low looks like a slot number (1-4)
-        if 1 <= code_low <= 4 and device_id in (0x03, 0x05):
+        if 1 <= code_low <= 4 and device_id in (0x05, 0x07):
             parts.append(f'(slot {code_low})')
 
         msg = ': '.join(parts[:2])

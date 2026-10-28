@@ -3,6 +3,8 @@
 export type AlertType =
   | 'print_complete'
   | 'print_failed'
+  | 'print_paused'
+  | 'print_cancelled'
   | 'printer_error'
   | 'spool_low'
   | 'maintenance_overdue'

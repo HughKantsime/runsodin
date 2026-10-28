@@ -14,6 +14,8 @@ from core.base import AlertType, AlertSeverity
 class AlertTypeEnum(str, Enum):
     PRINT_COMPLETE = "print_complete"
     PRINT_FAILED = "print_failed"
+    PRINT_PAUSED = "print_paused"
+    PRINT_CANCELLED = "print_cancelled"
     PRINTER_ERROR = "printer_error"
     SPOOL_LOW = "spool_low"
     MAINTENANCE_OVERDUE = "maintenance_overdue"

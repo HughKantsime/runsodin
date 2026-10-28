@@ -133,3 +133,16 @@ test('CertENotif: SMTP card shows the stored configuration and saves without res
   expect(put.body).toEqual({ enabled: true, host: 'mail.cert-e.test', port: 2525, username: 'odin', from_address: 'odin@example.test',
     base_url: window.location.origin })
 })
+
+test('pause and cancellation preferences are visible, default on, and preserve a saved opt-out', async () => {
+  wire({ 'GET /alert-preferences': [{ alert_type: 'print_paused', in_app: false, browser_push: false, email: false }],
+         'GET /smtp-config': adminFixture.smtp_config, 'PUT /alert-preferences': { status: 'ok' } })
+  render(<NotificationsTab />)
+  await screen.findByText('Print Paused')
+  expect(screen.getByText('Print Cancelled')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Save Preferences' }))
+  await waitFor(() => expect(calls.find(c => c.path === '/alert-preferences' && c.method === 'PUT')).toBeTruthy())
+  const saved = calls.find(c => c.path === '/alert-preferences' && c.method === 'PUT')!.body.preferences
+  expect(saved).toContainEqual(expect.objectContaining({ alert_type: 'print_paused', in_app: false, browser_push: false }))
+  expect(saved).toContainEqual(expect.objectContaining({ alert_type: 'print_cancelled', in_app: true, browser_push: true }))
+})

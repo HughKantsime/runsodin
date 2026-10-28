@@ -312,6 +312,7 @@ POST027_MIGRATIONS = (
     ("python:042-dispatch-capability", "core.schema.migrations.042_dispatch_capability"),
     ("python:043-recipe-configuration", "core.schema.migrations.043_recipe_configuration"),
     ("python:044-spool-tray-uuid", "core.schema.migrations.044_spool_tray_uuid"),
+    ("python:045-pause-cancel-alerts", "core.schema.migrations.045_pause_cancel_alerts"),
 )
 
 

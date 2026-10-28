@@ -33,7 +33,7 @@ with engine.connect() as c:
     from core.schema import bootstrap_database
     engine = create_engine('sqlite:///' + str(tmp_path/'frozen.db'))
     try:
-        assert bootstrap_database(engine)['applied'] == ['python:044-spool-tray-uuid']
+        assert bootstrap_database(engine)['applied'] == ['python:044-spool-tray-uuid', 'python:045-pause-cancel-alerts']
         assert 'tray_uuid' in {c['name'] for c in inspect(engine).get_columns('spools')}
         assert bootstrap_database(engine)['applied'] == []
     finally:
