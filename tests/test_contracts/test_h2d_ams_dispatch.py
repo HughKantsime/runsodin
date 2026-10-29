@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import pytest
 from sqlalchemy import text
-from tests.test_contracts.test_education_review_workflow import review_db
+from tests.test_contracts.test_education_review_workflow import review_db as review_db
 from tests.test_contracts.dispatch_test_support import configure_dispatch
 from tests.test_contracts.test_ams_evidence_transactions import RUNTIME
 from tests.test_contracts.test_dispatch_capability import REPORT
@@ -15,7 +15,7 @@ from tests.test_contracts.test_ams_source_inspection import H2D, h2d_archive
 
 def setup_h2d(review_db, tmp_path, monkeypatch, *, mapping=None):
     from modules.printers import dispatch_acquisition
-    engine, path = configure_dispatch(review_db, tmp_path, monkeypatch, protocol='bambu')
+    engine, path = configure_dispatch(review_db, tmp_path, monkeypatch, protocol='bambu', slot_count=4)
     path.write_bytes(H2D.read_bytes())
     with engine.begin() as conn:
         conn.execute(text("UPDATE printers SET machine_type='O1D',model='H2D',bed_x_mm=350,bed_y_mm=320 WHERE id=59"))
@@ -30,7 +30,7 @@ def setup_h2d(review_db, tmp_path, monkeypatch, *, mapping=None):
 
 @pytest.mark.parametrize('explicit', [False, True])
 @pytest.mark.parametrize('protocol', ['legacy', 'v2'])
-@pytest.mark.parametrize('change', ['none', 'material', 'nozzle', 'job'])
+@pytest.mark.parametrize('change', ['none', 'material', 'nozzle', 'job', 'ams_configuration'])
 def test_h2d_dispatch_uploads_then_checks_exact_mapping(review_db, tmp_path, monkeypatch, explicit, protocol, change):
     from modules.printers import dispatch, dispatch_ams_gate as gate, dispatch_acquisition, dispatch_background as background
     from modules.printers.telemetry import feature_flag
@@ -59,6 +59,9 @@ def test_h2d_dispatch_uploads_then_checks_exact_mapping(review_db, tmp_path, mon
         if change == 'nozzle':
             monkeypatch.setattr(dispatch_acquisition, 'bounded_bambu_report', lambda *a:
                 {'device': {'nozzle': {'info': [{'id': 1, 'type': 'HS01', 'diameter': .4}]}}})
+        if change == 'ams_configuration':
+            with engine.begin() as conn:
+                conn.execute(text('UPDATE printers SET slot_count=1 WHERE id=59'))
         if change == 'job':
             with engine.begin() as conn:
                 conn.execute(text("UPDATE jobs SET ams_mapping='[-1,0]' WHERE id=53"))
@@ -93,6 +96,8 @@ def test_h2d_dispatch_uploads_then_checks_exact_mapping(review_db, tmp_path, mon
     assert events.count('start') == int(change == 'none')
     if change in ('none', 'material'):
         assert events[:2] == ['upload', 'fresh_read']
+    if change == 'ams_configuration':
+        assert 'admission_changed' in result[1]
     if change == 'nozzle':
         assert 'nozzle_mismatch' in result[1]
     with engine.connect() as conn:
@@ -103,7 +108,7 @@ def test_h2d_dispatch_uploads_then_checks_exact_mapping(review_db, tmp_path, mon
 
 
 @pytest.mark.parametrize('failure', ['source', 'material', 'slot', 'file_sources', 'plate', 'inspection_unavailable', 'preflight_unavailable'])
-def test_unverifiable_default_retains_unmapped_options(review_db, tmp_path, monkeypatch, failure):
+def test_unverifiable_ams_default_refuses_before_transport(review_db, tmp_path, monkeypatch, failure):
     from modules.printers import dispatch
     engine, path = setup_h2d(review_db, tmp_path, monkeypatch)
     if failure in ('inspection_unavailable', 'preflight_unavailable'):
@@ -121,8 +126,10 @@ def test_unverifiable_default_retains_unmapped_options(review_db, tmp_path, monk
         path.write_bytes(h2d_archive(command='T0 H-1'))
     with engine.begin() as conn:
         conn.execute(text('UPDATE jobs SET payload_sha256=:hash WHERE id=53'), {'hash': hashlib.sha256(path.read_bytes()).hexdigest()})
-        if failure == 'material':conn.execute(text("UPDATE filament_slots SET filament_type='PLA' WHERE printer_id=59"))
-        if failure == 'slot':conn.execute(text('DELETE FROM filament_slots WHERE printer_id=59'))
+        if failure == 'material':
+            conn.execute(text("UPDATE filament_slots SET filament_type='PLA' WHERE printer_id=59"))
+        if failure == 'slot':
+            conn.execute(text('DELETE FROM filament_slots WHERE printer_id=59'))
         if failure == 'file_sources':
             conn.execute(text('UPDATE print_files SET filaments_json=:filaments WHERE id=52'),
                 {'filaments': json.dumps([{'slot': 1, 'type': 'PETG'}])})
@@ -135,26 +142,22 @@ def test_unverifiable_default_retains_unmapped_options(review_db, tmp_path, monk
     if failure == 'plate':
         assert error is not None
     else:
-        assert (options, error) == ({'plate_num': 1}, None)
-        calls = []
-        def transport(*a, **kw):
-            assert 'ams_mapping' not in kw
-            calls.append('upload/start')
-            return True, 'Print started'
-        monkeypatch.setattr(dispatch, '_dispatch_bambu', transport)
-        assert dispatch.dispatch_job(59, 53)[0]
-        assert calls == ['upload/start']
+        assert options is None
+        assert 'ams_mapping_required' in error
+        monkeypatch.setattr(dispatch, '_dispatch_bambu', lambda *a, **kw: pytest.fail('transport reached'))
+        ok, message = dispatch.dispatch_job(59, 53)
+        assert not ok and 'ams_mapping_required' in message
 
 
 @pytest.mark.parametrize('model', ['X1C', 'A1', 'P1S', None])
-def test_single_nozzle_default_does_not_derive_even_verified_source(review_db, tmp_path, monkeypatch, model):
+def test_all_bambu_models_derive_verified_source(review_db, tmp_path, monkeypatch, model):
     from modules.printers import dispatch
     engine, path = setup_h2d(review_db, tmp_path, monkeypatch)
     creds = dispatch._get_printer_info(59)
     creds.update(machine_type=model, model=model)
     options, error = dispatch._validated_print_options(dispatch._load_job(53), creds, path,
         hashlib.sha256(path.read_bytes()).hexdigest())
-    assert (options, error) == ({'plate_num': 1}, None)
+    assert (options, error) == ({'plate_num': 1, 'ams_mapping': [-1, 1]}, None)
 
 
 @pytest.mark.parametrize('mapping', [[1], [-1, 0], [-1, 1, -1]])
@@ -163,35 +166,3 @@ def test_derived_preflight_cannot_select_another_tray_or_vector(mapping):
     with pytest.raises(ValueError):
         preflight_ams_source({'ams_mapping': None, 'plate_index': 0}, mapping=mapping,
             staged_path=H2D, payload_sha256=hashlib.sha256(H2D.read_bytes()).hexdigest(), derived=True)
-
-
-@pytest.mark.parametrize('model', ['X1C', 'A1', 'P1S'])
-def test_single_nozzle_dispatch_still_sends_no_mapping(review_db, tmp_path, monkeypatch, model):
-    import zipfile
-    from modules.printers import dispatch
-    from core.ams_source_inspection import inspect_single_source_ams
-    engine, path = configure_dispatch(review_db, tmp_path, monkeypatch, protocol='bambu')
-    source = H2D.with_name('a1-petg-source-sanitized.3mf')
-    with zipfile.ZipFile(source) as original, zipfile.ZipFile(path, 'w') as package:
-        for name in original.namelist():
-            content = original.read(name)
-            if name == 'Metadata/project_settings.config':
-                settings = json.loads(content)
-                settings['printer_model'] = model
-                content = json.dumps(settings).encode()
-            package.writestr(name, content)
-    assert inspect_single_source_ams(path.read_bytes()).source_index == 0
-    with engine.begin() as conn:
-        conn.execute(text('UPDATE printers SET machine_type=:model,model=:model WHERE id=59'), {'model': model})
-        conn.execute(text('UPDATE jobs SET payload_sha256=:hash WHERE id=53'), {'hash': hashlib.sha256(path.read_bytes()).hexdigest()})
-        conn.execute(text('UPDATE print_files SET filaments_json=:filaments WHERE id=52'),
-            {'filaments': json.dumps([{'slot': 1, 'type': 'PETG'}])})
-        conn.execute(text("UPDATE filament_slots SET filament_type='PETG' WHERE printer_id=59"))
-    calls = []
-    def transport(*args, **kwargs):
-        assert 'ams_mapping' not in kwargs
-        calls.append('upload/start')
-        return True, 'Print started'
-    monkeypatch.setattr(dispatch, '_dispatch_bambu', transport)
-    assert dispatch.dispatch_job(59, 53)[0]
-    assert calls == ['upload/start']

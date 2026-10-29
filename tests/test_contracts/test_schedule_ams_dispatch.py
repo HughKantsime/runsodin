@@ -4,8 +4,8 @@ from pathlib import Path
 from types import SimpleNamespace
 import pytest
 from sqlalchemy import text
-from tests.test_contracts.test_economic_creator_wiring import creators
-from tests.test_contracts.test_education_review_workflow import review_db
+from tests.test_contracts.test_economic_creator_wiring import creators as creators
+from tests.test_contracts.test_education_review_workflow import review_db as review_db
 from tests.test_contracts.test_ams_evidence_transactions import RUNTIME
 
 
@@ -22,7 +22,7 @@ def test_scheduled_mapping_runs_post_upload_material_gate(creators, review_db, t
     from modules.printers.telemetry.bambu.ams_evidence import RawTrayFact
     from modules.printers.telemetry.bambu.trusted_ams_acquisition import RuntimeBoundAMSResult
     allow_loopback_devices(monkeypatch)
-    engine, source = configure_dispatch(review_db, tmp_path, monkeypatch, protocol='bambu')
+    engine, source = configure_dispatch(review_db, tmp_path, monkeypatch, protocol='bambu', slot_count=4)
     payload = (Path(__file__).parents[1] / 'fixtures/telemetry/a1-petg-source-sanitized.3mf').read_bytes()
     source.write_bytes(payload)
     if source_id == 4:
@@ -34,6 +34,8 @@ def test_scheduled_mapping_runs_post_upload_material_gate(creators, review_db, t
     review_db.execute(text('UPDATE print_files SET filaments_json=:f WHERE id=52'),
                       {'f':json.dumps([{'slot':source_id,'type':'PETG'}])})
     review_db.execute(text("UPDATE filament_slots SET filament_type='PETG',slot_number=4 WHERE printer_id=59"))
+    # The generic dispatch fixture owns active jobs; this test schedules a fresh retry.
+    review_db.execute(text("UPDATE jobs SET status='failed' WHERE id IN (53,54)"))
     review_db.commit()
     client, auth, _, _ = creators
     client.app.include_router(router, prefix='/api')
@@ -42,7 +44,8 @@ def test_scheduled_mapping_runs_post_upload_material_gate(creators, review_db, t
     assert response.status_code == 200, response.text
     job = response.json()['job_id']
     # Simulate scheduler placement only; the production dispatch and gate remain real.
-    review_db.execute(text("UPDATE jobs SET status='scheduled' WHERE id=:id"), {'id': job}); review_db.commit()
+    review_db.execute(text("UPDATE jobs SET status='scheduled' WHERE id=:id"), {'id': job})
+    review_db.commit()
     monkeypatch.setattr(feature_flag, 'is_v2_enabled', lambda: False)
     monkeypatch.setattr(gate, 'read_runtime_identity', lambda: RUNTIME)
     monkeypatch.setattr(gate, 'revalidate_runtime_identity', lambda runtime: None)

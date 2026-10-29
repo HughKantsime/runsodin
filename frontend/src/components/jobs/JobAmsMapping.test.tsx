@@ -51,3 +51,10 @@ test('pending queue edit dialog loads and edits its mapping before scheduler pla
   fireEvent.click(screen.getByRole('button', { name: 'Clear AMS mapping' }))
   await waitFor(() => expect(api.update).toHaveBeenCalledWith(wire.job.id, { ams_mapping: null }))
 })
+
+
+test('missing mapping explains verified defaults and explicit confirmation', () => {
+  mount(<JobAmsMapping job={{ ...wire.job, ams_mapping: null }} />)
+  expect(screen.getByText(/Without a saved mapping/)).toHaveTextContent('exact matches, need your confirmation')
+  expect(api.update).not.toHaveBeenCalled()
+})

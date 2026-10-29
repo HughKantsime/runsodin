@@ -19,7 +19,7 @@ def _get_printer_info(printer_id: int, *, connection=None) -> Optional[dict]:
             row = conn.execute(
                 text(
                     "SELECT api_type, api_host, api_key, bed_x_mm, bed_y_mm, "
-                    "nozzle_diameter, machine_type, model, name, org_id, is_active, shared, "
+                    "nozzle_diameter, machine_type, model, name, org_id, is_active, shared, slot_count, "
                     "plug_type,plug_host,plug_entity_id,plug_auth_token,plug_auto_on "
                     "FROM printers WHERE id = :id"
                 ),
@@ -33,7 +33,7 @@ def _get_printer_info(printer_id: int, *, connection=None) -> Optional[dict]:
                 ),
                 {"id": printer_id},
             ).fetchall()
-    except Exception as e:
+    except Exception:
         log.error("[dispatch] Printer configuration could not be loaded")
         return None
 
@@ -47,9 +47,12 @@ def _get_printer_info(printer_id: int, *, connection=None) -> Optional[dict]:
     flags={}
     for name in ('is_active','shared'):
         value=r[name]
-        if value is None:flags[name]=False
-        elif type(value) is bool:flags[name]=value
-        elif type(value) is int and value in (0,1):flags[name]=bool(value)
+        if value is None:
+            flags[name]=False
+        elif type(value) is bool:
+            flags[name]=value
+        elif type(value) is int and value in (0,1):
+            flags[name]=bool(value)
         else:
             log.warning('Printer permission flags could not be verified')
             return None
@@ -79,6 +82,7 @@ def _get_printer_info(printer_id: int, *, connection=None) -> Optional[dict]:
         "org_id": r["org_id"],
         "is_active": flags["is_active"],
         "shared": flags["shared"],
+        "slot_count": r["slot_count"],
         "active_materials": [slot[0] for slot in slot_rows],
         "filament_slots": [[slot[1],slot[0]] for slot in slot_rows],
     }
@@ -98,7 +102,7 @@ def _get_printer_info(printer_id: int, *, connection=None) -> Optional[dict]:
                 return None
             info["serial"] = parts[0]
             info["access_code"] = parts[1]
-        except Exception as e:
+        except Exception:
             log.error("[dispatch] Printer credentials could not be decoded")
             return None
 
@@ -211,6 +215,6 @@ def _load_job(job_id: int, *, connection=None) -> Optional[dict]:
                 job["upload_target_printer_id"] = target_printer(conn, job["resolved_print_file_id"])
                 return job
         return None
-    except Exception as e:
+    except Exception:
         log.error("[dispatch] Job configuration could not be loaded")
         return None

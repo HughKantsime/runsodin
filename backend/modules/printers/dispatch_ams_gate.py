@@ -7,6 +7,10 @@ import os
 import time
 from threading import Lock
 from dataclasses import dataclass
+from core.runtime_identity import read_runtime_identity, revalidate_runtime_identity
+from modules.printers.dispatch_admission import recheck_admitted
+from modules.printers.telemetry.bambu.ams_configuration import load_ams_configuration
+from modules.printers.telemetry.bambu.trusted_ams_acquisition import read_current_selected_ams
 
 
 @dataclass(frozen=True)
@@ -24,19 +28,16 @@ def record_refusal(gate, code, detail):
         pass
     return False
 
-from core.runtime_identity import read_runtime_identity, revalidate_runtime_identity
-from modules.printers.dispatch_admission import recheck_admitted
-from modules.printers.telemetry.bambu.ams_configuration import load_ams_configuration
-from modules.printers.telemetry.bambu.trusted_ams_acquisition import read_current_selected_ams
-
 
 def preflight_ams_source(job, *, mapping, staged_path, payload_sha256, derived=False):
     """Read-only source check. No admission, database transaction or device I/O."""
     from modules.printers.services import inspect_ams_payload
+    from modules.printers.dispatch_options import _ams_plate_index
+    plate_index = _ams_plate_index(job)
     if (type(mapping) is not list or not 1 <= len(mapping) <= 16
             or any(type(slot) is not int or not -1 <= slot < 16 for slot in mapping)
             or sum(slot != -1 for slot in mapping) != 1
-            or job.get('plate_index') != 0):
+            or plate_index != 0):
         raise ValueError('Explicit AMS dispatch requires supported source and plate')
     stored_mapping = job.get('ams_mapping')
     if isinstance(stored_mapping, str):
@@ -48,7 +49,7 @@ def preflight_ams_source(job, *, mapping, staged_path, payload_sha256, derived=F
             or any(type(slot) is not int for slot in stored_mapping)):
         raise ValueError('AMS selection differs from the admitted job')
     facts = inspect_ams_payload(staged_path, expected_sha256=payload_sha256,
-                               expected_bytes=os.stat(staged_path).st_size, plate_index=job['plate_index'])
+                               expected_bytes=os.stat(staged_path).st_size, plate_index=plate_index)
     source = facts['source_index']
     if source >= len(mapping) or mapping[source] == -1:
         raise ValueError('AMS selection does not cover the verified file source')
@@ -70,10 +71,9 @@ def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, tar
     job = captured['job']
     derived = job.get('ams_mapping') is None
     if derived:
-        from modules.printers.printer_models import bambu_nozzle_count
-        creds = captured['creds']
-        if creds.get('api_type') != 'bambu' or bambu_nozzle_count(creds.get('machine_type') or creds.get('model')) != 2:
-            raise ValueError('Derived AMS selection requires a dual-nozzle Bambu printer')
+        from modules.printers.dispatch_options import _requires_ams_mapping
+        if not _requires_ams_mapping(captured['creds']):
+            raise ValueError('Derived AMS selection requires a Bambu printer with AMS')
     facts = preflight_ams_source(job, mapping=mapping, staged_path=staged_path,
                                  payload_sha256=captured['payload_sha256'], derived=derived)
     expected_mapping = tuple(mapping)

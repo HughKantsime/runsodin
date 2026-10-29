@@ -29,16 +29,18 @@ def preview(db, filaments_json, printer_id, actor):
     printer = accessible_printer(db, printer_id, actor)
     if printer.api_type != 'bambu':
         return None
-    from modules.archives.ams_mapping import suggest_mapping
-    try:
-        filaments = source_filaments(filaments_json)
-        required = [{'slot': f['slot'], 'color': f.get('color', ''), 'material': f.get('type', '')}
-                    for f in filaments]
-    except (TypeError, ValueError, AttributeError):
-        raise HTTPException(400, 'Original filament metadata is invalid') from None
     available = [dict(row) for row in db.execute(text(
         'SELECT slot_number AS slot,color,color_hex,filament_type AS material,assigned_spool_id AS spool_id '
         'FROM filament_slots WHERE printer_id=:id ORDER BY slot_number'), {'id': printer_id}).mappings()]
+    return preview_for_slots(filaments_json, available)
+
+
+def preview_for_slots(filaments_json, available):
+    """Same read-only suggestions for authorized API callers and dispatch."""
+    from modules.archives.ams_mapping import suggest_mapping
+    filaments = source_filaments(filaments_json)
+    required = [{'slot': f['slot'], 'color': f.get('color', ''), 'material': f.get('type', '')}
+                for f in filaments]
     return {'required': required, 'available': available, 'suggested_mapping': suggest_mapping(required, available)}
 
 

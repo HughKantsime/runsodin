@@ -95,10 +95,12 @@ def _check_attempt(engine,*,token,job,creds,key,payload_sha256,transport_filenam
             if current_job!=job:
                 raise _Refused('Job, file, options or ownership changed before dispatch')
             current_identity=build_identity(current_creds,key)
-            if current_identity is None or current_identity!=identity or current_creds.get('is_active') is not True:
+            if (current_identity is None or current_identity!=identity or current_creds.get('is_active') is not True
+                    or current_creds.get('slot_count') != creds.get('slot_count')):
                 raise _Refused('Printer configuration, capability or ownership changed')
             ownership_error=ownership_refusal(current_job,current_creds)
-            if ownership_error:raise _Refused(ownership_error)
+            if ownership_error:
+                raise _Refused(ownership_error)
             if job['status'] not in ('pending','scheduled') or job.get('hold') not in (None,False,0):
                 raise _Refused('Job is held or no longer ready for dispatch')
             active=conn.execute(text("SELECT 1 FROM jobs WHERE printer_id=:id AND status IN ('printing','paused') LIMIT 1"),{'id':job['printer_id']}).first()
@@ -107,10 +109,12 @@ def _check_attempt(engine,*,token,job,creds,key,payload_sha256,transport_filenam
             if active or physical or str(state or '').upper() in ('RUNNING','PRINTING','PAUSE','PAUSED','BUSY'):
                 raise _Refused('Printer has an active physical or queued print')
             policy=education_provider or registry.get_provider('EducationPolicyProvider')
-            if policy is None:raise _Refused('Education dispatch policy is unavailable')
+            if policy is None:
+                raise _Refused('Education dispatch policy is unavailable')
             if job.get('education_submission_id') is not None:
                 context=policy.authorize_dispatch(conn,job_id=job['id'],printer_id=job['printer_id'],expected_revision=job['education_lifecycle_revision'])
-                if not context or not context.get('authorized'):raise _Refused('Education approval or entitlement changed')
+                if not context or not context.get('authorized'):
+                    raise _Refused('Education approval or entitlement changed')
                 from modules.printers.education_compatibility import evaluate_education_compatibility
                 import json
                 facts=json.loads(job.get('compatibility_facts_json') or '{}')
@@ -160,7 +164,8 @@ def _check_attempt(engine,*,token,job,creds,key,payload_sha256,transport_filenam
                     raise _Refused('Original admitted receipt changed or printing was already observed')
             else:
                 result=conn.execute(update(table).where(*predicates).values(state='adapter_entered',updated_at=func.now()))
-                if result.rowcount!=1:raise _Refused('Dispatch claim changed; reconciliation may be required')
+                if result.rowcount!=1:
+                    raise _Refused('Dispatch claim changed; reconciliation may be required')
             if education_reservation is not None and transport_filename!=education_reservation['remote_filename']:
                 raise _Refused('Education reservation filename differs')
             from core.dispatch_receipts import store_admission_receipt

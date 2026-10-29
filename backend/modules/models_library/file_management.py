@@ -7,7 +7,6 @@ import logging
 from fastapi import HTTPException
 from sqlalchemy import text
 from core.dependencies import log_audit
-from core.db_compat import execute_insert_returning_id
 from core.model_preview_access import accessible_preview_file, is_education_owned_file, delete_generic_file_if_unchanged
 from core.rbac import check_org_access
 from core.registry import registry
@@ -43,11 +42,23 @@ def read_generic_file(db, file_id, actor, printer_id=None):
     return {**data, "target_printer_id": target_printer(db, file_id)}
 
 
+# Check the legacy pointer AND every payload reference, under the file writer
+# fence when scheduling. Unknown/NULL statuses remain blocking.
+_ACTIVE_FILE_JOBS = """EXISTS (SELECT 1 FROM jobs j
+    WHERE (j.print_file_id=print_files.id OR j.id=print_files.job_id)
+    AND (j.status IS NULL OR j.status NOT IN ('completed','failed','cancelled')))"""
+
+
+def _file_has_active_jobs(db, file_id):
+    return bool(db.execute(text('SELECT 1 FROM print_files WHERE id=:id AND ' + _ACTIVE_FILE_JOBS),
+                           {'id': file_id}).first())
+
+
 def list_generic_files(db, actor, limit, include_scheduled):
     files, offset = [], 0
     while len(files) < limit:
-        predicate = '' if include_scheduled else ' WHERE job_id IS NULL'
-        candidates = db.execute(text('SELECT id FROM print_files' + predicate + ' ORDER BY uploaded_at DESC,id DESC LIMIT 100 OFFSET :offset'), {'offset': offset}).fetchall()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: predicate selected from the closed set {'', ' WHERE job_id IS NULL'}; values are bound
+        predicate = '' if include_scheduled else ' WHERE NOT ' + _ACTIVE_FILE_JOBS
+        candidates = db.execute(text('SELECT id FROM print_files' + predicate + ' ORDER BY uploaded_at DESC,id DESC LIMIT 100 OFFSET :offset'), {'offset': offset}).fetchall()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: predicate selected from the closed set {'', ' WHERE NOT ' + _ACTIVE_FILE_JOBS}; values are bound
         if not candidates:
             break
         offset += len(candidates)
@@ -59,7 +70,7 @@ def list_generic_files(db, actor, limit, include_scheduled):
                     raise
                 continue
             # Recheck the snapshot after the candidate query, not just its earlier filter.
-            if not include_scheduled and row.job_id is not None:
+            if not include_scheduled and _file_has_active_jobs(db, row.id):
                 continue
             data = _file_metadata(row)
             from core.print_file_binding import target_printer
@@ -142,7 +153,7 @@ def schedule_generic_file(db, file_id, printer_id, actor, ams_mapping=None):
             lock_queue_reference(db, 'models', row.model_id, ('id', 'org_id'))
         parent = _generic_parent(db, row, actor)
         assert_generic_model_reference_allowed(db, row.model_id)
-        if row.job_id is not None:
+        if _file_has_active_jobs(db, row.id):
             raise HTTPException(409, 'File already scheduled')
         target = None
         if printer_id is not None:
@@ -185,7 +196,7 @@ def schedule_generic_file(db, file_id, printer_id, actor, ams_mapping=None):
         assert_payload_unchanged(row.stored_path, payload_hash)
         capture_predicate, capture_parameters = file_snapshot_predicate(file_capture)
         linked = db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- columns checked against the FILE_FIELDS allowlist in file_snapshot_predicate; values are bound
-            f'''UPDATE print_files SET job_id=:job WHERE id=:id AND job_id IS NULL
+            f'''UPDATE print_files SET job_id=:job WHERE id=:id
             AND {capture_predicate}
             AND (org_id=:org OR (org_id IS NULL AND CAST(:org AS INTEGER) IS NULL))
             AND (model_id=:model OR (model_id IS NULL AND CAST(:model AS INTEGER) IS NULL))
