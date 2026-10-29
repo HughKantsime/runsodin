@@ -65,7 +65,8 @@ def test_batched_names_and_file_model_fallback(named_graph):
     try:
         assert display_names(named_graph,'job',[8001]*100)[8001]=='original'
     finally:event.remove(named_graph.get_bind(),'before_cursor_execute',capture)
-    assert len(statements)==1
+    # One name query per page, plus at most one audited-rename lookup per entity kind: never per row.
+    assert sum('FROM jobs' in statement for statement in statements)==1 and len(statements)<=3
 
 
 def test_activity_includes_outside_failed_and_unlinked_prints(token_client,review_db):
@@ -139,16 +140,21 @@ def test_job_keeps_operator_name_but_not_derived_names():
     assert job_name('part.gcode', original_filename=None)=='part'
 
 
-def test_model_rename_carries_generated_job_names_and_keeps_operator_names(token_client,named_graph):
+def test_model_rename_reaches_generated_job_names_through_every_link(token_client,named_graph):
     from modules.models_library.routes import models_crud
     client,_=token_client;client.app.include_router(models_crud.router)
-    named_graph.execute(text("INSERT INTO jobs(id,item_name,model_id,print_file_id,charged_to_org_id,status) VALUES(8002,'Squirtle',8001,8001,1,'completed'),(8003,'Order 12 squirtles',8001,8001,1,'pending'),(8004,'Squirtle',8001,8001,2,'pending')"))
+    # 8002 direct, 8003 operator-named, 8004 linked only through its print file's model.
+    named_graph.execute(text("INSERT INTO jobs(id,item_name,model_id,print_file_id,charged_to_org_id,status) VALUES(8002,'Squirtle',8001,8001,1,'completed'),(8003,'Order 12 squirtles',8001,8001,1,'pending'),(8004,'Squirtle',NULL,8001,1,'pending')"))
     named_graph.commit()
     assert client.patch('/models/8001',headers=interactive_headers(),json={'name':'Squirtle revised'}).status_code==200
-    assert display_names(named_graph,'job',[8002,8003,8004])=={8002:'Squirtle revised',8003:'Order 12 squirtles',8004:'Squirtle'}
+    assert display_names(named_graph,'job',[8002,8003,8004])=={8002:'Squirtle revised',8003:'Order 12 squirtles',8004:'Squirtle revised'}
+    assert client.patch('/models/8001',headers=interactive_headers(),json={'name':'Squirtle v3'}).status_code==200
+    assert display_names(named_graph,'job',[8002,8004])=={8002:'Squirtle v3',8004:'Squirtle v3'}
+    # Read time only: matching identity in jobs.item_name is never rewritten.
+    assert named_graph.execute(text('SELECT item_name FROM jobs WHERE id=8002')).scalar_one()=='Squirtle'
 
 
-def test_file_rename_carries_generated_job_names(token_client,named_graph):
+def test_file_rename_reaches_generated_job_names(token_client,named_graph):
     from modules.models_library.routes import print_files
     client,_=token_client;client.app.include_router(print_files.router)
     named_graph.execute(text('UPDATE print_files SET model_id=NULL WHERE id=8001'))
@@ -156,3 +162,4 @@ def test_file_rename_carries_generated_job_names(token_client,named_graph):
     named_graph.commit()
     assert client.patch('/print-files/8001/name',headers=interactive_headers(),json={'original_filename':'Human latch.gcode'}).status_code==200
     assert display_names(named_graph,'job',[8001])[8001]=='Human latch'
+    assert named_graph.execute(text('SELECT item_name FROM jobs WHERE id=8001')).scalar_one()=='original'

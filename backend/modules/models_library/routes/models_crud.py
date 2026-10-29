@@ -126,10 +126,7 @@ def update_model(model_id: int, updates: ModelUpdate, current_user: dict = Depen
     update_data = updates.model_dump(exclude_unset=True)
     if 'name' in update_data and update_data['name'] != model.name:
         from core.dependencies import log_audit
-        from core.display_names import rename_generated_job_names, human_name
-        jobs = rename_generated_job_names(db, (model.name, human_name(model_name=model.name)), update_data['name'],
-                                          org_id=model.org_id, model_id=model.id)
-        log_audit(db, 'model.renamed', 'model', model.id, {'before': model.name, 'after': update_data['name'], 'jobs_renamed': jobs})
+        log_audit(db, 'model.renamed', 'model', model.id, {'before': model.name, 'after': update_data['name']})
 
     for field, value in update_data.items():
         setattr(model, field, value)

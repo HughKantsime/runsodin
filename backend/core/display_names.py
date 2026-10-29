@@ -21,10 +21,12 @@ def human_name(stored=None, *, model_name=None, original_filename=None):
     return 'Unnamed print'
 
 
-def job_name(stored, *, model_name=None, original_filename=None, project_name=None):
-    """An operator's job name wins; a name derived from the transport, the 3MF title or the filename does not."""
+def job_name(stored, *, model_name=None, original_filename=None, project_name=None, previous_names=()):
+    """An operator's job name wins. A name derived from the transport, the 3MF title, the filename, or the
+    model/file's current or any audited earlier name does not, so a rename reaches every generated job name."""
     value = (stored or '').strip()
-    derived = {name for name in (project_name, original_filename, filename_stem(original_filename)) if name}
+    derived = {name for name in (project_name, original_filename, filename_stem(original_filename),
+                                 model_name, _strip_extension(model_name), *previous_names) if name}
     if value and not _TRANSPORT.search(value) and value not in derived and _strip_extension(value) == value:
         return value
     return human_name(stored, model_name=model_name, original_filename=original_filename)
@@ -35,7 +37,8 @@ _QUERIES = {
         m.org_id AS model_org,f.original_filename,f.org_id AS file_org
         FROM print_files f LEFT JOIN models m ON m.id=f.model_id WHERE f.id IN :ids""",
     'job': """SELECT j.id, j.item_name AS raw_name, m.name AS model_name,
-        m.org_id AS model_org, f.original_filename, f.org_id AS file_org, f.project_name
+        m.org_id AS model_org, f.original_filename, f.org_id AS file_org, f.project_name,
+        m.id AS model_id, f.id AS file_id
         FROM jobs j LEFT JOIN models jm ON jm.id=j.model_id
         LEFT JOIN print_files f ON f.id=COALESCE(j.print_file_id,jm.print_file_id,
             (SELECT MIN(pf.id) FROM print_files pf WHERE pf.job_id=j.id HAVING COUNT(*)=1))
@@ -62,6 +65,30 @@ _QUERIES = {
 }
 
 
+def _previous_names(db, rows):
+    """Earlier model/file names from the audited rename endpoints, batched for one page of jobs."""
+    import json
+    wanted = {('model', row['model_id']) for row in rows if row['model_id'] is not None} | {
+        ('print_file', row['file_id']) for row in rows if row['file_id'] is not None}
+    names = {}
+    for entity, action in (('model', 'model.renamed'), ('print_file', 'print_file.renamed')):
+        entity_ids = sorted(entity_id for kind, entity_id in wanted if kind == entity)
+        if not entity_ids:
+            continue
+        query = text("SELECT entity_id, details FROM audit_logs WHERE action=:action AND entity_type=:entity "
+                     "AND entity_id IN :ids").bindparams(bindparam('ids', expanding=True))
+        for row in db.execute(query, {'action': action, 'entity': entity, 'ids': entity_ids}).mappings():
+            try:
+                details = json.loads(row['details']) if isinstance(row['details'], str) else row['details']
+                before = details.get('before') if isinstance(details, dict) else None
+            except (TypeError, ValueError):
+                continue
+            if isinstance(before, str) and before.strip():
+                names.setdefault((entity, row['entity_id']), set()).update(
+                    {before.strip(), _strip_extension(before), filename_stem(before)})
+    return names
+
+
 def display_names(db, kind, ids, user=None):
     """One bounded batch query, with the same tenant visibility as source names."""
     from core.rbac import check_org_access
@@ -69,12 +96,17 @@ def display_names(db, kind, ids, user=None):
     result = {}
     for offset in range(0, len(ids), 400):
         query = text(_QUERIES[kind]).bindparams(bindparam('ids', expanding=True))
-        for row in db.execute(query, {'ids': ids[offset:offset+400]}).mappings():
+        rows = db.execute(query, {'ids': ids[offset:offset+400]}).mappings().all()
+        previous = _previous_names(db, rows) if kind == 'job' else {}
+        for row in rows:
             model = row['model_name'] if user is None or check_org_access(user, row['model_org']) else None
             filename = row['original_filename'] if user is None or check_org_access(user, row['file_org']) else None
             if kind == 'job':
+                earlier = (previous.get(('model', row['model_id']), set()) if model is not None else set()) | (
+                    previous.get(('print_file', row['file_id']), set()) if filename is not None else set())
                 result[row['id']] = job_name(row['raw_name'], model_name=model, original_filename=filename,
-                                             project_name=row['project_name'] if filename is not None else None)
+                                             project_name=row['project_name'] if filename is not None else None,
+                                             previous_names=earlier)
             else:
                 result[row['id']] = human_name(row['raw_name'], model_name=model, original_filename=filename)
     return result
@@ -117,19 +149,3 @@ def observed_item_name(executor, print_job_id):
         return human_name()
     model = row['model_name'] if row['model_org'] in (None, row['file_org']) else None
     return human_name(model_name=model, original_filename=row['original_filename'] or row['raw_name'])
-
-
-def rename_generated_job_names(db, old_names, new_name, *, org_id, model_id=None, print_file_id=None):
-    """A rename carries jobs whose item_name is still the generated name; an operator's own name stays."""
-    olds = sorted({name for name in old_names if name} - {new_name})
-    if not olds or not new_name:
-        return []
-    owner = 'jobs.model_id=:owner' if model_id is not None else 'jobs.print_file_id=:owner AND jobs.model_id IS NULL'
-    query = text(f"SELECT id, charged_to_org_id FROM jobs WHERE {owner} AND item_name IN :olds").bindparams(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment chosen from two literals; values are bound
-        bindparam('olds', expanding=True))
-    ids = [row.id for row in db.execute(query, {'owner': model_id if model_id is not None else print_file_id, 'olds': olds})
-           if row.charged_to_org_id == org_id]
-    if ids:
-        db.execute(text('UPDATE jobs SET item_name=:name WHERE id IN :ids').bindparams(bindparam('ids', expanding=True)),
-                   {'name': new_name, 'ids': ids})
-    return ids
