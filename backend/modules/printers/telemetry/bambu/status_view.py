@@ -50,6 +50,8 @@ class AMSSlotCompat:
     tray_id_name: str = ""
     sub_brand: str = ""
     empty: bool = True
+    exists: Optional[bool] = None
+    preset: str = ""
 
 
 class BambuV2StatusView:
@@ -191,19 +193,23 @@ def ams_slots_from_section(section) -> list[AMSSlotCompat]:
         return []
 
     slots: list[AMSSlotCompat] = []
-    from modules.printers.telemetry.bambu.ams_identity import ams_trays_by_slot
+    from modules.printers.telemetry.bambu.ams_identity import ams_trays_by_slot, tray_exists, is_rfid_tag
     for slot_number, raw_tray in ams_trays_by_slot([unit.model_dump() for unit in section.ams.ams]):
         color_hex = (raw_tray.get("tray_color") or "")[:6] if raw_tray.get("tray_color") else ""
+        from modules.printers.monitors.ams_inventory import remaining_percent
+        remaining = remaining_percent(raw_tray.get('remain')) if is_rfid_tag(raw_tray.get('tag_uid')) or is_rfid_tag(raw_tray.get('tray_uuid')) else None
         slots.append(AMSSlotCompat(
             slot_number=slot_number,
             filament_type=raw_tray.get("tray_type") or "",
             color=raw_tray.get("tray_color") or "",
             color_hex=color_hex,
-            remaining_percent=int(raw_tray.get("remain")) if raw_tray.get("remain") is not None else None,
+            remaining_percent=remaining,
             rfid_tag=raw_tray.get("tag_uid") or "",
             tray_uuid=raw_tray.get("tray_uuid") or "",
             tray_id_name=raw_tray.get("tray_id_name") or "",
             sub_brand=raw_tray.get("tray_sub_brands") or "",
-            empty=(not raw_tray.get("tray_type")),
+            exists=tray_exists(section.ams.tray_exist_bits, slot_number),
+            preset=raw_tray.get("tray_info_idx") or "",
+            empty=(not raw_tray.get("tray_type") or tray_exists(section.ams.tray_exist_bits, slot_number) is False),
         ))
     return slots

@@ -46,6 +46,8 @@ def test_absent_external_spools_are_not_fabricated(payload):
 
 @pytest.mark.parametrize('tray,expected', [({'id':'0','tray_type':'PLA'},None),({'id':'0','tray_type':'PLA','remain':None},None),({'id':'0','tray_type':'PLA','remain':0},0)])
 def test_both_ams_projections_distinguish_unknown_from_measured_zero(tray, expected):
+    # spool-tray-identity spec §1: measured percentages require a real identity.
+    tray = {'tag_uid':'synthetic-tag', **tray}
     from modules.printers.adapters.bambu import BambuPrinter
     section=BambuPrintSection.model_validate({'ams':{'ams':[{'id':'0','tray':[tray]}]}})
     assert ams_slots_from_section(section)[0].remaining_percent is expected
@@ -58,7 +60,7 @@ def test_both_ams_projections_distinguish_unknown_from_measured_zero(tray, expec
 def test_legacy_malformed_remaining_is_unknown_without_truncation_or_crash(value):
     from modules.printers.adapters.bambu import BambuPrinter
     legacy=BambuPrinter('127.0.0.1','synthetic-serial','')
-    legacy._parse_ams({'ams':[{'id':'0','tray':[{'id':'0','tray_type':'PLA','remain':value}]}]})
+    legacy._parse_ams({'ams':[{'id':'0','tray':[{'id':'0','tray_type':'PLA','tag_uid':'synthetic-tag','remain':value}]}]})
     assert legacy._status.ams_slots[0].remaining_percent is None
 
 
@@ -66,14 +68,15 @@ def test_legacy_malformed_remaining_is_unknown_without_truncation_or_crash(value
 def test_typed_decoder_does_not_turn_boolean_into_measured_percentage(value):
     from pydantic import ValidationError
     with pytest.raises(ValidationError):
-        BambuPrintSection.model_validate({'ams':{'ams':[{'id':'0','tray':[{'id':'0','tray_type':'PLA','remain':value}]}]}})
+        BambuPrintSection.model_validate({'ams':{'ams':[{'id':'0','tray':[{'id':'0','tray_type':'PLA','tag_uid':'synthetic-tag','remain':value}]}]}})
 
 
-@pytest.mark.parametrize('value,expected', [(0,0),('0',0),('70',70),(-1,-1),(None,None)])
+@pytest.mark.parametrize('value,expected', [(0,0),('0',0),('70',70),(-1,None),(None,None)])
 def test_legacy_remaining_valid_integer_compatibility(value, expected):
+    # Spec §1 replaces the legacy -1 sentinel with unknown (None).
     from modules.printers.adapters.bambu import BambuPrinter
     legacy=BambuPrinter('127.0.0.1','synthetic-serial','')
-    legacy._parse_ams({'ams':[{'id':'0','tray':[{'id':'0','tray_type':'PLA','remain':value}]}]})
+    legacy._parse_ams({'ams':[{'id':'0','tray':[{'id':'0','tray_type':'PLA','tag_uid':'synthetic-tag','remain':value}]}]})
     assert legacy._status.ams_slots[0].remaining_percent==expected
 
 
@@ -113,3 +116,16 @@ def test_legacy_missing_unit_or_tray_identity_never_uses_array_position():
     legacy=BambuPrinter('127.0.0.1','synthetic-serial','')
     legacy._parse_ams({'ams':[{'tray':[{'id':'0','tray_type':'PLA'}]},{'id':'0','tray':[{'tray_type':'PETG'}]}]})
     assert legacy._status.ams_slots==[]
+
+
+@pytest.mark.parametrize('identity', [{}, {'tag_uid':'00000000'}, {'tray_uuid':'00000000'}])
+@pytest.mark.parametrize('remaining', [0, 70, -1])
+def test_tagless_remaining_is_unknown_in_both_projections(identity, remaining):
+    from modules.printers.adapters.bambu import BambuPrinter
+    tray = {'id':'0','tray_type':'PLA','remain':remaining, **identity}
+    units = [{'id':'0','tray':[tray]}]
+    section = BambuPrintSection.model_validate({'ams':{'ams':units}})
+    assert ams_slots_from_section(section)[0].remaining_percent is None
+    legacy = BambuPrinter('127.0.0.1','synthetic-serial','')
+    legacy._parse_ams({'ams':units})
+    assert legacy._status.ams_slots[0].remaining_percent is None

@@ -670,6 +670,8 @@ class PrinterMonitor:
             state=self._state,
             start_spool_weights=getattr(self, '_start_spool_weights', {}),
             dispatch_alert_fn=self._dispatch_alert,
+            tray_evidence_incomplete=(getattr(self, '_tray_attempt_id', None) == self._current_job_id
+                                      and bool(getattr(self, '_pending_attempt_trays', ()))),
         )
         self._current_job_id = None
         self._linked_job_id = None

@@ -5,6 +5,7 @@ import { printers } from '../../api'
 import { canDo } from '../../permissions'
 import { getShortName } from '../../utils/shared'
 import { SpoolRing } from '../ui'
+import TrayIdentityConfirm from './TrayIdentityConfirm'
 
 // TODO: type these properly when the filament/spool API types are finalized
 interface FilamentSlotLike {
@@ -123,18 +124,22 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
         className="bg-[var(--brand-input-bg)] rounded-md p-2 cursor-pointer hover:brightness-110 transition-all min-w-0 text-center flex flex-col items-center gap-1"
         onPointerDown={event => event.stopPropagation()}
         onDragStart={event => { event.preventDefault(); event.stopPropagation() }}
-        onClick={(event) => { event.stopPropagation(); if (typeof canDo === 'function' ? canDo('printers.slots') : true) setIsEditing(true) }}
+        onClick={(event) => { event.stopPropagation(); if (!slot.spool_change_pending && (typeof canDo === 'function' ? canDo('printers.slots') : true)) setIsEditing(true) }}
       >
         <SpoolRing
           color={colorHex ? `#${colorHex}` : '#888'}
           material=""
-          level={slot.remaining != null ? slot.remaining : 100}
+          level={slot.remaining}
           empty={!colorHex && !slot.material_type && !slot.type}
           size={20}
         />
-        <span className="text-xs text-[var(--brand-text-muted)] truncate block">{getShortName(slot)}</span>
+        <span className="text-xs text-[var(--brand-text-muted)] truncate block">{slot.preset && !slot.assigned_spool_id ? slot.preset : getShortName(slot)}</span>
+        {slot.remaining == null && <span className="text-xs text-[var(--brand-text-muted)]">Remaining unknown</span>}
       </div>
-
+      {slot.spool_change_pending && slot.observed_state && <TrayIdentityConfirm
+        printerId={printerId} slot={slot.slot_number} observedState={slot.observed_state}
+        boundSpool={slot.assigned_spool_id} spools={spools || []} filaments={allFilaments || []}
+        onConfirmed={() => onSave({})} />}
       {isEditing && createPortal(
         <div onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()} onPointerUp={e => e.stopPropagation()} onPointerMove={e => e.stopPropagation()} onDragEnd={e => e.stopPropagation()} onDrop={e => e.stopPropagation()} onDragStart={e => { e.preventDefault(); e.stopPropagation() }} onDrag={e => e.stopPropagation()} className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" role="dialog" aria-modal="true" aria-label={`Select filament for slot ${slot.slot_number}`}>
           <div

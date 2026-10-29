@@ -64,3 +64,23 @@ def ams_trays_by_slot(units, *, strict=False):
     if strict and (invalid or duplicate):
         raise ValueError('AMS physical identity unavailable')
     return [(number, tray) for number, tray in entries if number not in duplicate]
+
+
+def tray_exists(bits, slot_number):
+    try:
+        return bool(int(bits, 16) & (1 << (slot_number - 1))) if isinstance(bits, str) else None
+    except ValueError:
+        return None
+
+
+def inventory_report(units, bits=None, previous=()):
+    """Keep a removal seen between heartbeat writes, including bit-only reports."""
+    import copy
+    result = copy.deepcopy(units)
+    prior = dict(ams_trays_by_slot(list(previous)))
+    for number, tray in ams_trays_by_slot(result):
+        exists = tray_exists(bits, number)
+        old = prior.get(number, {})
+        tray['_exists'] = exists if exists is not None else old.get('_exists')
+        tray['_removed'] = bool(old.get('_removed') or old.get('_exists') is False)
+    return result

@@ -28,16 +28,27 @@ with engine.connect() as c:
 '''
     result=subprocess.run([sys.executable,'-I','-c',code,str(runner),str(tmp_path/'frozen.db')],capture_output=True,text=True,timeout=90)
     assert result.returncode==0,result.stderr
-    # A staged historical database must upgrade through the live additive path.
-    from sqlalchemy import create_engine, inspect
-    from core.schema import bootstrap_database
-    engine = create_engine('sqlite:///' + str(tmp_path/'frozen.db'))
-    try:
-        assert bootstrap_database(engine)['applied'] == ['python:044-spool-tray-uuid', 'python:045-pause-cancel-alerts']
-        assert 'tray_uuid' in {c['name'] for c in inspect(engine).get_columns('spools')}
-        assert bootstrap_database(engine)['applied'] == []
-    finally:
-        engine.dispose()
+    # Keep this historical upgrade on the released 045 ledger. Migration 046
+    # belongs to the live release; test_post027_migration_046 covers that hop.
+    from core.schema import preserved045
+    upgrade = r"""
+import runpy,sys
+runpy.run_path(sys.argv[1],run_name='frozen045')['prepare_sources']()
+from sqlalchemy import create_engine,inspect
+from core.schema import bootstrap_database
+engine=create_engine('sqlite:///'+sys.argv[2])
+try:
+ assert bootstrap_database(engine)['applied'] == ['python:044-spool-tray-uuid', 'python:045-pause-cancel-alerts']
+ assert 'tray_uuid' in {c['name'] for c in inspect(engine).get_columns('spools')}
+ assert bootstrap_database(engine)['applied'] == []
+finally:
+ engine.dispose()
+"""
+    result = subprocess.run([sys.executable, '-I', '-c', upgrade,
+                             str(Path(preserved045.__file__).with_name('runner.py')),
+                             str(tmp_path/'frozen.db')], capture_output=True, text=True, timeout=90)
+    assert result.returncode == 0, result.stderr
+
 
 
 @pytest.mark.parametrize('version', ['2.0.24', '2.0.25', '2.0.26'])

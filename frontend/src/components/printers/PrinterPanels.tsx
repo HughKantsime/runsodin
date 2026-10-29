@@ -86,8 +86,10 @@ export function FilamentSlotsPanel({ printer }: { printer: PrinterLike }) {
       <div className="space-y-2">
         {slots.map((slot: any, idx: number) => (
           <div key={idx} className="flex items-center gap-3">
-            <SpoolRing color={slot.color_hex ? `#${slot.color_hex}` : slot.color} material={slot.material_type || slot.type} level={slot.remaining ?? 100} empty={!slot.color} size={20} />
+            <SpoolRing color={slot.color_hex ? `#${slot.color_hex}` : slot.color} material={slot.material_type || slot.type} level={slot.remaining ?? null} empty={!slot.color} size={20} />
             <span className="text-sm text-[var(--brand-text-secondary)] flex-1 truncate">{getShortName(slot)}</span>
+            {slot.remaining == null && <span className="text-xs text-[var(--brand-text-muted)]">Remaining unknown</span>}
+            {slot.spool_change_pending && <a href="/printers" className="text-xs text-amber-400">Spool may have changed? Confirm on Printers</a>}
             {slot.remaining_weight != null && (
               <span className={`text-xs ${slot.remaining_weight < 100 ? 'text-amber-400' : 'text-[var(--brand-text-muted)]'}`}>
                 {Math.round(slot.remaining_weight)}g

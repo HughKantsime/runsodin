@@ -53,8 +53,10 @@ def color_name(tray):
 
 def slot_tray(slot):
     return {'tag_uid': identity(slot.rfid_tag), 'tray_uuid': identity(getattr(slot, 'tray_uuid', None)),
-            'tray_id_name': getattr(slot, 'tray_id_name', ''), 'tray_type': slot.filament_type,
-            'tray_sub_brands': slot.sub_brand, 'tray_color': slot.color_hex, 'remain': slot.remaining_percent}
+            'tray_id_name': getattr(slot, 'tray_id_name', ''), 'tray_type': '' if slot.empty else slot.filament_type,
+            'tray_sub_brands': slot.sub_brand, 'tray_color': slot.color_hex, 'remain': slot.remaining_percent,
+            '_exists': getattr(slot, 'exists', None), '_reported_type': slot.filament_type,
+            'tray_info_idx': getattr(slot, 'preset', '')}
 
 
 def match_id(matches, tray):

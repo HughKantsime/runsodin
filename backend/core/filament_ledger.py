@@ -323,24 +323,24 @@ def _lock_spools(run, spool_ids) -> set:
             if getattr(run("UPDATE spools SET id = id WHERE id = :id", {"id": spool_id}), "rowcount", 0) == 1}
 
 
-def _deduct(run, spool_id, grams, *, job_id, print_job_id, notes):
-    """Read and decrement one (already locked) spool; insert its usage row. None when its balance is unknown."""
+def _deduct(run, spool_id, grams, *, job_id, print_job_id, notes, allow_unknown_balance=False):
+    """Read and decrement one locked spool. Confirmed usage may retain an unknown balance."""
     row = run("SELECT remaining_weight_g, spoolman_spool_id FROM spools WHERE id = :id", {"id": spool_id}).fetchone()
     before = row[0] if row else None
-    if before is None or not math.isfinite(float(before)):
+    if row is None or (before is None and not allow_unknown_balance) or (before is not None and not math.isfinite(float(before))):
         return None
-    before = float(before)
+    before = float(before) if before is not None else None
     run("UPDATE spools SET remaining_weight_g = CASE WHEN remaining_weight_g > :g THEN remaining_weight_g - :g "
         "ELSE 0 END WHERE id = :id AND remaining_weight_g IS NOT NULL", {"g": grams, "id": spool_id})
     run("INSERT INTO spool_usage (spool_id, job_id, print_job_id, weight_used_g, used_at, notes) "
         "VALUES (:spool, :job, :pj, :g, :at, :notes)",
         {"spool": spool_id, "job": job_id, "pj": print_job_id, "g": grams, "at": _now(), "notes": notes})
-    return {"spool_id": spool_id, "grams": grams, "remaining_g": max(0.0, before - grams),
-            "shortfall_g": max(0.0, grams - before), "spoolman_spool_id": row[1]}
+    return {"spool_id": spool_id, "grams": grams, "remaining_g": max(0.0, before - grams) if before is not None else None,
+            "shortfall_g": max(0.0, grams - before) if before is not None else 0, "spoolman_spool_id": row[1]}
 
 
 def record_job_filament(run, job_id, *, source: str, grams_by_spool: Mapping, print_job_id=None,
-                        notes: str = "") -> LedgerResult:
+                        notes: str = "", allow_unknown_balance=False) -> LedgerResult:
     """Deduct once per physical print (``print_job_id``) or per job attempt, claiming atomically."""
     if source not in SOURCES:
         raise ValueError(f"Unknown filament ledger source {source!r}")
@@ -381,7 +381,7 @@ def record_job_filament(run, job_id, *, source: str, grams_by_spool: Mapping, pr
         claimed.append(job_key)
     label = (f"{AUTO_PREFIX}{source}: {notes}" if notes else f"{AUTO_PREFIX}{source}")[:NOTES_MAX]
     deductions = [entry for entry in (
-        _deduct(run, spool_id, grams, job_id=job_id, print_job_id=print_job_id, notes=label)
+        _deduct(run, spool_id, grams, job_id=job_id, print_job_id=print_job_id, notes=label, allow_unknown_balance=allow_unknown_balance)
         for spool_id, grams in items) if entry is not None]
     if not deductions:
         for key in claimed:

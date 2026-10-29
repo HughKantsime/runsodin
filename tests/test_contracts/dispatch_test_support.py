@@ -43,8 +43,10 @@ def configure_dispatch(db,tmp_path,monkeypatch,protocol='moonraker'):
         with zipfile.ZipFile(path,'w') as package:package.writestr('Metadata/plate_1.gcode','G90\n')
     else:path.write_bytes(b'G90\n')
     credential=crypto.encrypt('SYNTHETICPRINTER|'+secrets.token_hex(16)) if protocol=='bambu' else ''
+    # Single-extruder fixtures must declare their physical slot count; spec
+    # item 3 no longer infers a used tray from one assigned or located spool.
     with engine.begin() as conn:
-        conn.execute(text("INSERT INTO printers(id,name,is_active,api_type,api_host,api_key,org_id,bed_x_mm,bed_y_mm,nozzle_diameter,gcode_state) VALUES(59,'Owned dispatch test',TRUE,:protocol,'127.0.0.1',:key,1,256,256,.4,'IDLE')"),{'protocol':protocol,'key':credential})
+        conn.execute(text("INSERT INTO printers(id,name,is_active,api_type,api_host,api_key,org_id,slot_count,bed_x_mm,bed_y_mm,nozzle_diameter,gcode_state) VALUES(59,'Owned dispatch test',TRUE,:protocol,'127.0.0.1',:key,1,:slots,256,256,.4,'IDLE')"),{'protocol':protocol,'key':credential,'slots':4 if protocol=='bambu' else 1})
         conn.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(59,1,'PLA')"))
         conn.execute(text("INSERT INTO models(id,name,org_id) VALUES(51,'Owned dispatch test',1)"))
         conn.execute(text("INSERT INTO print_files(id,model_id,filename,original_filename,stored_path,org_id) VALUES(52,51,:filename,:filename,:path,1)"),{'filename':path.name,'path':str(path)})

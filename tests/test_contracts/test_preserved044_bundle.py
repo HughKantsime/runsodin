@@ -32,7 +32,7 @@ with engine.connect() as c:
     from core.schema import bootstrap_database
     engine = create_engine('sqlite:///' + str(tmp_path/'frozen.db'))
     try:
-        assert bootstrap_database(engine)['applied'] == ['python:045-pause-cancel-alerts']
+        assert bootstrap_database(engine)['applied'] == ['python:045-pause-cancel-alerts', 'python:046-tray-identity']
         assert bootstrap_database(engine)['applied'] == []
     finally:
         engine.dispose()
