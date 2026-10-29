@@ -11,7 +11,9 @@ from .conftest import BASE_URL, PERSONAS
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "release_gate" / "candidate-calibration-cube.3mf"
 # A real sliced Bambu A1 package (plate 1 G-code), shared with the cert-B live evidence.
 SLICED_FIXTURE = Path(__file__).parents[1] / "fixtures" / "certification" / "cert-B" / "a1-acceptance-coupon.gcode.3mf"
-SLICED_PROJECT = "a1-acceptance-coupon.gcode"
+# 2.0.33: uploads are named after the filename stem, never the 3MF metadata title.
+SLICED_PROJECT = "a1-acceptance-coupon"
+UNSLICED_NAME = "candidate-calibration-cube"
 
 
 def _goto(page: Page, path: str) -> None:
@@ -143,7 +145,7 @@ def test_real_3mf_upload_reaches_model_library(role_page_factory):
     _goto(page, "/upload")
     page.locator("#file-upload").set_input_files(str(FIXTURE))
     expect(page.get_by_text("Added to Model Library", exact=True)).to_be_visible(timeout=30_000)
-    expect(page.get_by_role("heading", name="ODIN Candidate Upload Cube", exact=True)).to_be_visible()
+    expect(page.get_by_role("heading", name=UNSLICED_NAME, exact=True)).to_be_visible()
     expect(page.get_by_text("This file is not sliced. Print time and filament usage are estimates.", exact=True)).to_be_visible()
     expect(page.get_by_role("button", name="Quick Print", exact=True)).to_be_disabled()
     expect(page.get_by_text("This 3MF has no sliced plate (Metadata/plate_1.gcode).", exact=False)).to_be_visible()
@@ -159,7 +161,7 @@ def test_real_3mf_upload_reaches_model_library(role_page_factory):
     row = page.get_by_role("row").filter(has_text=SLICED_PROJECT)
     expect(row).to_be_visible(timeout=20_000)
     expect(row).to_contain_text("pending")
-    expect(page.get_by_role("row").filter(has_text="ODIN Candidate Upload Cube")).to_have_count(0)
+    expect(page.get_by_role("row").filter(has_text=UNSLICED_NAME)).to_have_count(0)
 
 
 def test_seeded_vision_detection_state(role_page_factory):
@@ -631,7 +633,7 @@ def test_compiled_generic_upload_persists_variant_and_previews_real_payload(role
     response=uploaded.value
     assert response.status==200
     body=response.json();file_id=body['id'];model_id=body['model_id']
-    expect(page.get_by_role('heading',name=body['project_name'],exact=True)).to_be_visible()
+    expect(page.get_by_role('heading',name=body['display_name'],exact=True)).to_be_visible()
     model=admin.get(f'{BASE_URL}/api/models/{model_id}',timeout=10)
     assert model.status_code==200
     preview=admin.get(f'{BASE_URL}/api/files/{file_id}/preview-model',timeout=10)
