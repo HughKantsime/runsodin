@@ -138,6 +138,7 @@ POLICY_INVENTORY = (
             "models_library.routes._models_helpers",
             "models_library.routes.models_crud",
             "models_library.routes.pricing",
+            "models_library.routes.print_file_names",
             "models_library.routes.print_files",
             "models_library.services",
             "notifications.routes.alerts",
