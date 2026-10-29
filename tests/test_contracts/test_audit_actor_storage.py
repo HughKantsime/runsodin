@@ -3,7 +3,10 @@ import pytest
 from sqlalchemy import create_engine,event,text
 from sqlalchemy.orm import Session
 from core.models import AuditLog
+from core.schema.bootstrap import import_all_models
 import importlib
+# Instantiating AuditLog configures every mapper; a batch that starts here must not leave Job's Model relationship unresolved.
+import_all_models()
 _migration=importlib.import_module('core.schema.migrations.024_audit_actor')
 apply,validate=_migration.apply,_migration.validate
 from core.schema.migrator import MigrationError

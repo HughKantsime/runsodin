@@ -50,7 +50,7 @@ _ACTIVE_FILE_JOBS = """EXISTS (SELECT 1 FROM jobs j
 
 
 def _file_has_active_jobs(db, file_id):
-    return bool(db.execute(text('SELECT 1 FROM print_files WHERE id=:id AND ' + _ACTIVE_FILE_JOBS),
+    return bool(db.execute(text('SELECT 1 FROM print_files WHERE id=:id AND ' + _ACTIVE_FILE_JOBS),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment: _ACTIVE_FILE_JOBS is a module literal; values are bound
                            {'id': file_id}).first())
 
 
