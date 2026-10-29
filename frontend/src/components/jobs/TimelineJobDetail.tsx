@@ -49,7 +49,7 @@ function ScheduledJobDetail({ block }) {
       {/* Status + name */}
       <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-[var(--brand-text-primary)] font-medium">{displayName(job) || displayName(block)}</span>
+          <span className="text-[var(--brand-text-primary)] font-medium">{displayName(job.display_name || job.item_name ? job : block)}</span>
           <span className={clsx('px-2 py-0.5 rounded text-xs font-medium capitalize', statusColors[job.status] || 'bg-[var(--brand-card-border)]')}>{job.status}</span>
         </div>
         <p className="text-[var(--brand-text-secondary)] text-sm">Printer: {block.printer_name}</p>
@@ -176,7 +176,7 @@ function MqttJobDetail({ block }) {
       {/* Name + status */}
       <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-[var(--brand-text-primary)] font-medium">{displayName(pj)}</span>
+          <span className="text-[var(--brand-text-primary)] font-medium">{displayName(pj.display_name || pj.filename || pj.job_name ? pj : block)}</span>
           <span className={clsx('px-2 py-0.5 rounded text-xs font-medium capitalize', statusColors[pj.status] || 'bg-[var(--brand-card-border)]')}>{pj.status}</span>
         </div>
         <p className="text-[var(--brand-text-secondary)] text-sm">Printer: {block.printer_name}</p>

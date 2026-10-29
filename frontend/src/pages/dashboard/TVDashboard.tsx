@@ -44,7 +44,9 @@ function TVPrinterCard({ printer }: { printer: any }) {
   const hasCamera = printer.camera_url && printer.camera_enabled !== false
   const progress = printer.mc_percent || 0
   const remaining = printer.mc_remaining_time
-  const jobName = displayName({ display_name: printer.current_print_display_name, filename: printer.gcode_file })
+  // displayName never returns empty; show a job line only when the printer reports one.
+  const jobName = printer.current_print_display_name || printer.gcode_file
+    ? displayName({ display_name: printer.current_print_display_name, filename: printer.gcode_file }) : null
 
   const formatTime = (minutes) => {
     if (!minutes) return ''
