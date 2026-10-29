@@ -359,6 +359,17 @@ def resolve_user_api_token(api_key: str, db: Session) -> Optional[dict]:
     return principal
 
 
+def resolve_legacy_api_key(api_key: str, db: Session) -> Optional[dict]:
+    """Resolve the configured legacy key to its current active administrator."""
+    configured_key = os.getenv("API_KEY", "")
+    if not api_key or not configured_key or not hmac.compare_digest(api_key, configured_key):
+        return None
+    admin = db.execute(
+        text("SELECT * FROM users WHERE role = 'admin' AND is_active IS TRUE ORDER BY id LIMIT 1")
+    ).fetchone()
+    return _principal(admin, "legacy_global_api_key")
+
+
 async def get_current_user(
     request: Request,
     token: str = Depends(oauth2_scheme),
@@ -455,16 +466,11 @@ async def get_current_user(
     api_key = request.headers.get("X-API-Key")
     if api_key and api_key != "undefined":
         # 2a: Global API key (legacy, constant-time comparison)
-        configured_key = os.getenv("API_KEY", "")
-        if configured_key and hmac.compare_digest(api_key, configured_key):
-            admin = db.execute(
-                text("SELECT * FROM users WHERE role = 'admin' AND is_active IS TRUE ORDER BY id LIMIT 1")
-            ).fetchone()
-            principal = _principal(admin, "legacy_global_api_key")
-            if principal:
-                bind_verified_actor(db, principal)
-                mark_noninteractive_principal()
-                return principal
+        principal = resolve_legacy_api_key(api_key, db)
+        if principal:
+            bind_verified_actor(db, principal)
+            mark_noninteractive_principal()
+            return principal
 
         # 2b: Per-user scoped tokens (odin_xxx format)
         principal = resolve_user_api_token(api_key, db)

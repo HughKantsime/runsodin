@@ -10,7 +10,7 @@ export interface AppConfig {
 }
 
 export interface RemoteAccess {
-  configured: boolean; url: string | null; tailnet: boolean;
+  configured: boolean; url: string | null; tailnet: boolean; tailnet_ice_configured: boolean;
   current_origin_verified: boolean; check_url: string | null; camera_transport: string;
 }
 

@@ -83,3 +83,17 @@ test('cancels settings loading on unmount', () => {
   unmount()
   expect(signal.aborted).toBe(true)
 })
+
+test.each([true, false])('tailnet URL guidance and ICE configuration %s', async configured => {
+  getRemoteAccess.mockResolvedValue({ ...wire, tailnet: true, tailnet_ice_configured: configured })
+  render(<RemoteAccessStatus />)
+  await screen.findByText('Use this URL in the ODIN app, not a LAN hostname or IP.')
+  expect(Boolean(screen.queryByText(/Live WebRTC video over Tailscale needs ODIN_TAILNET_IP/))).toBe(!configured)
+})
+test('does not suggest tailnet configuration for a non-tailnet URL', async () => {
+  getRemoteAccess.mockResolvedValue({ ...wire, url: 'https://odin.example.com', tailnet: false, tailnet_ice_configured: false })
+  render(<RemoteAccessStatus />)
+  await screen.findByRole('link')
+  expect(screen.queryByText(/not a LAN hostname/)).toBeNull()
+  expect(screen.queryByText(/needs ODIN_TAILNET_IP/)).toBeNull()
+})

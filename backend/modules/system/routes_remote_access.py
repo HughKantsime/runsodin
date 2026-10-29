@@ -33,5 +33,6 @@ def remote_access_status(request: Request, user: dict = Depends(require_role("ad
         "tailnet": bool(url and urlsplit(url).hostname.endswith(".ts.net")),
         "current_origin_verified": bool(url and str(request.base_url).rstrip("/") == url),
         "check_url": f"{url}/health" if url else None,
+        "tailnet_ice_configured": bool(settings.odin_tailnet_ip),
         "camera_transport": "tcp-with-snapshot-fallback" if settings.odin_tailnet_ip else "snapshot-fallback",
     }

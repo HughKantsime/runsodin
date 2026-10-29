@@ -100,7 +100,7 @@ for prefix in ['/api','/api/v1']:
     r = admin.get(prefix+'/settings/remote-access')
     assert r.status_code == 200, r.text
     OUT['wire'] = r.json()
-assert set(OUT['wire']) == {'configured','url','tailnet','current_origin_verified','check_url','camera_transport'}
+assert set(OUT['wire']) == {'configured','url','tailnet','current_origin_verified','check_url','camera_transport','tailnet_ice_configured'}
 assert OUT['wire']['url'] == 'https://odin.example.ts.net'
 assert configured_base_url(None) == settings.odin_public_url
 request = Request({'type':'http','scheme':'https','server':('odin.example.ts.net',443),'path':'/','headers':[(b'host',b'odin.example.ts.net')]})
@@ -117,6 +117,9 @@ def test_real_login_cookies_status_rbac_and_wire(tmp_path):
     assert result['_net_attempts'] == []
     assert result['cookies_and_rbac']
     fixture = ROOT / 'frontend/src/test-fixtures/remote-access.json'
+    import os
+    if os.environ.get('CAPTURE') == '1':
+        fixture.write_text(json.dumps(result['wire'], indent=2) + '\n')
     assert result['wire'] == json.loads(fixture.read_text())
 
 
@@ -242,7 +245,7 @@ def test_status_never_exposes_ip_or_invalid_origins(monkeypatch, url):
     assert data == {
         'configured': True, 'url': None, 'tailnet': False,
         'current_origin_verified': False, 'check_url': None,
-        'camera_transport': 'tcp-with-snapshot-fallback',
+        'camera_transport': 'tcp-with-snapshot-fallback', 'tailnet_ice_configured': True,
     }
 
 
@@ -251,6 +254,40 @@ def test_unconfigured_readiness_fixture_matches_status(monkeypatch):
     from starlette.requests import Request
     monkeypatch.setattr(route.settings, 'odin_public_url', '')
     monkeypatch.setattr(route.settings, 'odin_tailnet_ip', '')
-    fixture = json.loads((ROOT / 'tests/accessibility/fixtures/admin.json').read_text())
+    fixture_path = ROOT / 'tests/accessibility/fixtures/admin.json'
+    fixture = json.loads(fixture_path.read_text())
     request = Request({'type': 'http', 'scheme': 'http', 'server': ('testserver', 80), 'path': '/', 'headers': []})
-    assert route.remote_access_status(request, user={'role': 'admin'}) == fixture['GET /api/settings/remote-access']
+    result = route.remote_access_status(request, user={'role': 'admin'})
+    import os
+    if os.environ.get('CAPTURE') == '1':
+        fixture['GET /api/settings/remote-access'] = result
+        fixture_path.write_text(json.dumps(fixture, indent=2) + '\n')
+    assert result == fixture['GET /api/settings/remote-access']
+
+
+def test_shipped_tailnet_profile_never_routes_lan_or_dns():
+    import re
+    import yaml
+    compose = yaml.safe_load((ROOT / 'install/docker-compose.yml').read_text())
+    sidecar = compose['services']['tailscale']
+    rendered = json.dumps(sidecar).lower()
+    for forbidden in ('ts_routes', 'ts_extra_args', '--advertise-routes', '--accept-dns', '--exit-node', '--advertise-exit-node'):
+        assert forbidden not in rendered
+    # Pin all installer shell text, including prompts/help and generated commands.
+    for installer in (ROOT / 'install').rglob('*.sh'):
+        source = installer.read_text().lower()
+        assert not re.search(r'advertis[\w-]*[^\n]{0,60}(?:lan|subnet|route)', source)
+        assert '--accept-dns' not in source and '--exit-node' not in source
+
+
+@pytest.mark.parametrize('candidate,expected', [('', False), ('100.101.102.103', True)])
+def test_status_returns_only_candidate_presence(monkeypatch, candidate, expected):
+    from modules.system import routes_remote_access as route
+    monkeypatch.setattr(route.settings, 'odin_public_url', URL)
+    monkeypatch.setattr(route.settings, 'odin_tailnet_ip', candidate)
+    request = Request({'type': 'http', 'scheme': 'https', 'server': ('odin.example.ts.net', 443), 'path': '/', 'headers': []})
+    result = route.remote_access_status(request, user={'role': 'admin'})
+    assert result['tailnet'] is True
+    assert result['tailnet_ice_configured'] is expected
+    if candidate:
+        assert candidate not in json.dumps(result)

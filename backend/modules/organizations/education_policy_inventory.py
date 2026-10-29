@@ -44,6 +44,8 @@ def _entry(
 
 
 POLICY_INVENTORY = (
+    _entry("printers.routes_camera_snapshot", "camera_snapshot/camera_mjpeg/_mjpeg_check", "printer/camera", "read", "viewer with read:printers; active enabled camera and organization/shared fence; MJPEG rechecks active user, role and camera every 30 seconds", ("camera fallback",), "test_camera_mjpeg.py", "guarded"),
+    _entry("printers.mjpeg_relay", "open_mjpeg/claim_stream", "printer/camera", "relay", "internal transport; caller supplies admission and periodic authority checks", ("camera fallback", "OBS overlay"), "test_camera_mjpeg.py", "excluded_internal"),
     _entry("inventory.routes.rfid_onboarding", "rfid_onboarding/merge_rfid_roll/reference_reason", "spool/printer/slot/usage/alert/print snapshot", "read checklist/merge unused RFID roll", "scoped viewer reads; operator with spools.edit and write:spools merges same-org stock under assignment locks; any usage, alert or print reference vetoes merge", ("RFID onboarding checklist", "spool assignments"), "test_spool_rfid_identity.py", "guarded"),
     _entry("jobs.ams_mapping", "lock_mapping_edit/checked_changes/detail_view", "job/file/printer/submission", "read or edit AMS mapping", "scoped job caller; generic-job mutation guard, accessible source and printer, serialized pre-dispatch edits", ("jobs.routes.jobs_crud",), "test_schedule_ams_mapping.py", "guarded"),
     _entry("printers.dispatch_background", "stage/claimed/progress/drain", "job/printer/dispatch claim", "stage and observe dispatch", "caller-authorized worker; normal dispatch admission and Education gates retained", ("printers.dispatch",), "test_dispatch_capability_background.py", "guarded"),
@@ -179,6 +181,8 @@ _SENSITIVE_SQL = re.compile(
     re.IGNORECASE,
 )
 _EXPLICIT_SURFACE_PATHS = (
+    "modules/printers/routes_camera_snapshot.py",
+    "modules/printers/mjpeg_relay.py",
     "core/app.py",
     "core/recipient_policy.py",
     "modules/organizations/routes_education.py",

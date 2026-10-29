@@ -440,7 +440,7 @@ OVERLAY_MAX_STREAMS_PER_PRINTER = 8        # small global ceiling per printer (p
 # These caps are kept per API worker process (in memory): with N uvicorn workers a
 # printer can serve up to N x the ceiling (and a token N x its cap). Accepted: the
 # caps bound one worker's resources, and each stream still holds one go2rtc reader.
-_overlay_streams = []  # open stream entries (dicts), oldest first
+from modules.printers.mjpeg_relay import STREAMS as _overlay_streams
 
 
 def overlay_stream_count() -> int:
@@ -459,141 +459,32 @@ def _overlay_check(bind, token, printer_id) -> dict:
 
 
 def _overlay_claim(viewer, printer_id):
-    """Admit a stream or raise 429. Privileged viewers evict the oldest unprivileged one."""
-    import asyncio
-    same_token = [e for e in _overlay_streams if e["token_id"] == viewer["token_id"]]
-    same_user = [e for e in _overlay_streams if e["printer_id"] == printer_id and e["user_id"] == viewer["user_id"]]
-    on_printer = [e for e in _overlay_streams if e["printer_id"] == printer_id]
-    if len(same_token) >= OVERLAY_MAX_STREAMS_PER_TOKEN or len(same_user) >= OVERLAY_MAX_STREAMS_PER_USER_PRINTER:
-        raise HTTPException(status_code=429, detail="Too many open overlay camera streams")
-    if len(on_printer) >= OVERLAY_MAX_STREAMS_PER_PRINTER:
-        victims = [e for e in on_printer if not e["privileged"]] if viewer["privileged"] else []
-        if not victims:
-            raise HTTPException(status_code=429, detail="Too many open overlay camera streams")
-        victim = victims[0]  # oldest
-        victim["evicted"].set()
-        _overlay_release(victim)
-    entry = {**viewer, "printer_id": printer_id, "evicted": asyncio.Event()}
-    _overlay_streams.append(entry)
-    return entry
+    from modules.printers.mjpeg_relay import claim_stream
+    return claim_stream(_overlay_streams, viewer, printer_id,
+                        per_token=OVERLAY_MAX_STREAMS_PER_TOKEN,
+                        per_user=OVERLAY_MAX_STREAMS_PER_USER_PRINTER,
+                        per_printer=OVERLAY_MAX_STREAMS_PER_PRINTER,
+                        label="overlay camera")
 
 
 def _overlay_release(entry):
-    if entry in _overlay_streams:
-        _overlay_streams.remove(entry)
+    from modules.printers.mjpeg_relay import release_stream
+    release_stream(_overlay_streams, entry)
 
 
 @router.get("/overlay/{printer_id}/camera", tags=["Overlay"])
 async def overlay_camera_stream(printer_id: int, token: Optional[str] = Query(None), db: Session = Depends(get_db)):
-    """MJPEG camera stream for the OBS overlay <img> (multipart/x-mixed-replace).
-
-    Authorization (bcrypt token check, DB) and go2rtc config sync run in worker
-    threads, never on the event loop. The stream re-validates every
-    OVERLAY_REVALIDATE_SECONDS and ends when the token is revoked or expired, the
-    user deactivated, the camera disabled or printer access lost, or when a viewer
-    with rights on the printer needs the slot.
-    """
-    import asyncio
-    import weakref
-    from fastapi.concurrency import run_in_threadpool
-    from modules.printers.route_utils import mjpeg_stream_name
-    import time as _time
+    """Camera-only OBS token relay; recheck authority without holding a session."""
+    from modules.printers.mjpeg_relay import open_mjpeg
     bind = db.get_bind()
-    db.close()  # never hold a request session for the life of a stream
-    viewer = await run_in_threadpool(_overlay_check, bind, token, printer_id)
-    entry = _overlay_claim(viewer, printer_id)
-    stream_name = mjpeg_stream_name(printer_id)
-    client = upstream = None
-    try:
-        # Same rule as the WebRTC route: sync only when go2rtc answers and lacks the
-        # stream; an unreachable go2rtc is reported, never "fixed" by a restart.
-        try:
-            async with httpx.AsyncClient(**go2rtc_client_kwargs()) as probe:
-                listed = await probe.get(f"{go2rtc_api_url()}/api/streams", timeout=2.0)
-            known = listed.json() if listed.status_code == 200 else None
-        except (httpx.HTTPError, ValueError):
-            raise HTTPException(status_code=502, detail="go2rtc is not reachable")
-        if isinstance(known, dict) and stream_name not in known:
-            def _sync():
-                with Session(bind=bind) as session:
-                    sync_go2rtc_config(session)
-            await run_in_threadpool(_sync)
-        client = httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=30.0), **go2rtc_client_kwargs())
-        try:
-            upstream = await client.send(client.build_request("GET", f"{go2rtc_api_url()}/api/stream.mjpeg", params={"src": stream_name}), stream=True)
-        except httpx.HTTPError:
-            raise HTTPException(status_code=502, detail="go2rtc is not reachable")
-        content_type = upstream.headers.get("content-type", "")
-        if upstream.status_code != 200 or not content_type.startswith("multipart/"):
-            raise HTTPException(status_code=502, detail="Camera stream unavailable")
-    except BaseException:
-        _overlay_release(entry)
-        if upstream is not None:
-            await upstream.aclose()
-        if client is not None:
-            await client.aclose()
-        raise
+    db.close()
 
-    closed = []
+    def sync():
+        with Session(bind=bind) as session:
+            sync_go2rtc_config(session)
 
-    async def close_once():
-        if closed:
-            return
-        closed.append(True)
-        _overlay_release(entry)
-        await upstream.aclose()
-        await client.aclose()
-
-    async def relay():
-        # Each upstream read races the eviction event and the revalidation clock:
-        # an evicted or withdrawn stream ends at once, even while the camera is
-        # stalled between frames.
-        next_check = _time.monotonic() + OVERLAY_REVALIDATE_SECONDS
-        chunks = upstream.aiter_raw().__aiter__()
-        evicted = asyncio.ensure_future(entry["evicted"].wait())
-        pending = None
-        try:
-            while True:
-                if pending is None:
-                    pending = asyncio.ensure_future(chunks.__anext__())
-                timeout = max(0.0, next_check - _time.monotonic())
-                await asyncio.wait({pending, evicted}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
-                if evicted.done():
-                    log.info("Overlay camera stream for printer %s ended: slot given to a printer operator", printer_id)
-                    return
-                if _time.monotonic() >= next_check:
-                    try:
-                        current = await run_in_threadpool(_overlay_check, bind, token, printer_id)
-                    except HTTPException:
-                        log.info("Overlay camera stream for printer %s ended: authorization withdrawn", printer_id)
-                        return
-                    # Rights on the printer can change: a demoted viewer becomes evictable.
-                    entry["privileged"] = current["privileged"]
-                    next_check = _time.monotonic() + OVERLAY_REVALIDATE_SECONDS
-                if pending.done():
-                    try:
-                        chunk = pending.result()
-                    except StopAsyncIteration:
-                        return
-                    pending = None
-                    yield chunk
-        except httpx.HTTPError:
-            return
-        finally:
-            for task in (pending, evicted):
-                if task is not None and not task.done():
-                    task.cancel()
-            await close_once()
-
-    body = relay()
-    loop = asyncio.get_running_loop()
-
-    def never_iterated():
-        # The body was dropped without running (client gone before the body):
-        # free the slot and close the upstream response and client on the loop.
-        _overlay_release(entry)
-        if not closed and not loop.is_closed():
-            loop.call_soon_threadsafe(lambda: loop.create_task(close_once()))
-    weakref.finalize(body, never_iterated)
-    return StreamingResponse(body, media_type=content_type,
-                             headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+    return await open_mjpeg(
+        printer_id, check=lambda: _overlay_check(bind, token, printer_id),
+        sync=sync, claim=_overlay_claim, release=_overlay_release,
+        revalidate_seconds=OVERLAY_REVALIDATE_SECONDS,
+    )

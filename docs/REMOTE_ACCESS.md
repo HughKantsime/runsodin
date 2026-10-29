@@ -60,8 +60,9 @@ candidate is retained. Do not replace `ODIN_HOST_IP` with the tailnet address.
 This supports a userspace TCP media path in configuration. A real joined tailnet,
 cellular client and camera were not available for end-to-end verification. Browser
 ICE-TCP and camera codec compatibility remain live acceptance checks. If no video
-frame arrives within 12 seconds, the web UI shows authenticated snapshots refreshed
-every five seconds, with an explanation. It resumes video if frames start arriving.
+frame arrives within 12 seconds, the web UI tries an authenticated MJPEG stream.
+If MJPEG fails or produces no frame within five seconds, it shows snapshots refreshed
+every five seconds, with an explanation. It resumes WebRTC if frames start arriving.
 This fallback also covers missing tailnet candidates and blocked media ports. Native
 iOS camera fallback behavior is outside this repository and has not been verified.
 
@@ -133,6 +134,24 @@ explicit `TRUSTED_HOSTS` list, include the ts.net hostname if you do not use
 `ODIN_PUBLIC_URL`; preserve LAN hosts and localhost for health checks. When checking
 a remote URL from another origin, add that browser's exact origin to `CORS_ORIGINS`
 as well. Wildcard credentialed CORS is not accepted.
+
+## DNS and subnet routes
+
+Don't make the ODIN sidecar your tailnet's DNS route or advertise LAN routes from
+it. The shipped profile does neither. With **Override local DNS** on, every lookup
+on a remote device depends on that DNS path; an ODIN sidecar outage must not take
+home DNS down with it. If you want home DNS over Tailscale, use a dedicated
+always-on subnet router.
+
+Use the MagicDNS name (`https://<node>.<tailnet>.ts.net`) in the ODIN app and browser,
+not a LAN hostname or IP. Set `ODIN_TAILNET_IP` for live WebRTC over the tailnet;
+otherwise cameras use the authenticated MJPEG stream, then snapshots if needed.
+See Setup above for the ICE-TCP port and Serve configuration.
+
+The MJPEG relay permits three streams per user per printer and eight per printer,
+shared with OBS overlays, per API worker. OBS additionally permits three streams
+per token. A printer operator can reclaim the oldest unprivileged stream when the
+printer limit is reached. Authority is rechecked every 30 seconds.
 
 ## Cookies, URLs and network policies
 

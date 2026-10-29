@@ -1,10 +1,24 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import CameraFallback from './CameraFallback'
-afterEach(() => vi.useRealTimers())
-test('fallback uses same-origin snapshots, refreshes, and stops when disabled', () => {
+afterEach(() => { cleanup(); vi.useRealTimers() })
+test('tries same-origin MJPEG first and keeps a loaded stream', () => {
   vi.useFakeTimers()
-  const { rerender, unmount } = render(<CameraFallback cameraId={9} active />)
+  const { unmount } = render(<CameraFallback cameraId={9} active />)
+  expect(screen.getByRole('img')).toHaveAttribute('src', '/api/cameras/9/mjpeg')
+  expect(screen.getByRole('status')).toHaveTextContent('Connecting')
+  fireEvent.load(screen.getByRole('img'))
+  expect(screen.getByRole('status')).toHaveTextContent('Live video (MJPEG) over this connection')
+  act(() => vi.advanceTimersByTime(20000))
+  expect(screen.getByRole('img')).toHaveAttribute('src', '/api/cameras/9/mjpeg')
+  expect(vi.getTimerCount()).toBe(0)
+  unmount()
+})
+test.each(['error', 'timeout'])('falls back on MJPEG %s, refreshes snapshots, and stops when disabled', failure => {
+  vi.useFakeTimers()
+  const { rerender } = render(<CameraFallback cameraId={9} active />)
+  if (failure === 'error') fireEvent.error(screen.getByRole('img'))
+  else act(() => vi.advanceTimersByTime(5000))
   const first = screen.getByRole('img').getAttribute('src')
   expect(first).toMatch(/^\/api\/cameras\/9\/snapshot\?t=/)
   expect(screen.getByRole('status')).toHaveTextContent('Showing snapshots every 5 seconds')
@@ -17,5 +31,35 @@ test('fallback uses same-origin snapshots, refreshes, and stops when disabled', 
   rerender(<CameraFallback cameraId={9} active={false} />)
   expect(screen.queryByRole('img')).toBeNull()
   expect(vi.getTimerCount()).toBe(0)
+  rerender(<CameraFallback cameraId={9} active />)
+  expect(screen.getByRole('img')).toHaveAttribute('src', '/api/cameras/9/mjpeg')
+})
+test('camera changes and unmount clear the previous transport and timer', () => {
+  vi.useFakeTimers()
+  const { rerender, unmount } = render(<CameraFallback cameraId={9} active />)
+  fireEvent.error(screen.getByRole('img'))
+  rerender(<CameraFallback cameraId={10} active />)
+  expect(screen.getByRole('img')).toHaveAttribute('src', '/api/cameras/10/mjpeg')
+  expect(screen.getByRole('status')).toHaveTextContent('Connecting')
+  expect(vi.getTimerCount()).toBe(1)
   unmount()
+  expect(vi.getTimerCount()).toBe(0)
+})
+test('a stream error after its first frame still falls back', () => {
+  render(<CameraFallback cameraId={9} active />)
+  fireEvent.load(screen.getByRole('img'))
+  fireEvent.error(screen.getByRole('img'))
+  expect(screen.getByRole('img')).toHaveAttribute('alt', 'Camera snapshot')
+})
+
+test('a decoded MJPEG frame satisfies the timeout even without a load event', () => {
+  vi.useFakeTimers()
+  render(<CameraFallback cameraId={9} active />)
+  Object.defineProperties(screen.getByRole('img'), {
+    naturalWidth: { value: 640 }, naturalHeight: { value: 480 },
+  })
+  act(() => vi.advanceTimersByTime(5000))
+  expect(screen.getByRole('img')).toHaveAttribute('src', '/api/cameras/9/mjpeg')
+  expect(screen.getByRole('status')).toHaveTextContent('Live video (MJPEG) over this connection')
+  expect(vi.getTimerCount()).toBe(0)
 })

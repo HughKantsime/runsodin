@@ -4,5 +4,6 @@
   "tailnet": true,
   "current_origin_verified": false,
   "check_url": "https://odin.example.ts.net/health",
+  "tailnet_ice_configured": false,
   "camera_transport": "snapshot-fallback"
 }

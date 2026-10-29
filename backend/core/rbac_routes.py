@@ -280,6 +280,8 @@ PAGE_SHARED: dict[str, str] = {
     "printers": "GET /api/printers also feeds every page that picks a printer",
     "models": "GET /api/models also feeds Upload, scheduling and orders",
     "spools": "GET /api/spools also feeds printer slot assignment",
+    # GET /api/cameras/{printer_id}/snapshot and /mjpeg share viewer + read:printers
+    # checks. Like /stream, neither is an ACTION_ROUTES permission-matrix action.
     "cameras": "camera endpoints also feed printer cards and the TV dashboard",
     "calculator": "GET /api/pricing-config and model cost also feed models and orders",
     "upload": "the page only writes (upload.upload / upload.schedule / upload.delete)",

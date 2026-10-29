@@ -12,6 +12,7 @@
     "tailnet": false,
     "current_origin_verified": false,
     "check_url": null,
+    "tailnet_ice_configured": false,
     "camera_transport": "snapshot-fallback"
   },
   "GET /api/config/require-job-approval": {"require_job_approval": true},
