@@ -2,6 +2,28 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.31] - 2026-10-28
+
+<!-- summary: Trays forget a swapped-out spool, remaining shows unknown when the printer can't tell, and filament is charged only to the spool a print actually used -->
+
+### Added
+
+- A tag-less AMS tray whose color, material type, sub-brand or preset changes on its own is marked "Spool may have changed?". It keeps its spool, shows remaining as unknown, and holds any filament it prints as unattributed until someone taps **Same spool** or **New spool** on the printer card. New spool can pick or create the spool. A slot is not asked again until what the printer reports changes. The flag never blocks dispatch.
+- Printer and slot responses include `spool_change_pending`, `observed_state`, `preset` and `brand`, and `POST /api/printers/{id}/slots/{slot}/confirm-identity` records the decision, audited and idempotent per observed state. The iOS app will use the same call.
+- Archives show filament that could not be charged to a spool, with the reason.
+
+### Changed
+
+- A tray unbinds its spool when the RFID tag changes or disappears, when it is emptied and reloaded, or when material and color change together. A color flicker on the same RFID spool keeps the binding.
+- Remaining is unknown, not carried over from a previous spool, when the printer reports -1 or the tray has no tag.
+- A tag-less tray with no spool shows its slicer preset, such as "preset: Bambu PETG HF", never as the spool's brand. Brand comes only from an RFID tag or an assigned spool.
+- Filament is charged only to the spool bound to the tray the print used: the job's AMS mapping or, for a single-material print without a mapping, exactly one AMS tray observed during the print. With no such evidence, or no spool on that tray, the filament is recorded as unattributed instead of being charged to another tray's spool.
+
+### Fixed
+
+- A print from one AMS tray could be charged to the only spool ODIN had located on another tray.
+- A tray kept a previous spool's name and remaining after a non-RFID roll was loaded.
+
 ## [2.0.30] - 2026-10-28
 
 <!-- summary: Send a test notification to your phone from Settings -->
