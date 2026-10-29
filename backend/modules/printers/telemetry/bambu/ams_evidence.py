@@ -4,7 +4,9 @@ from typing import Literal
 
 from core.material_identity import canonical_reported_material
 
-from modules.printers.telemetry.bambu.ams_identity import ams_trays_by_slot, ams_slot_number
+from modules.printers.telemetry.bambu.ams_identity import (
+    AMS_HT_FIRST_SLOT, AMS_HT_UNIT_COUNT, ams_trays_by_slot, ams_slot_number,
+)
 
 @dataclass(frozen=True)
 class RawTrayFact:
@@ -31,7 +33,7 @@ def parse_raw_ams_facts(print_packet) -> tuple[RawTrayFact, ...]:
     root = print_packet['ams']
     if not isinstance(root, dict) or not isinstance(root.get('ams'), list):
         raise ValueError('AMS packet shape unavailable')
-    if len(root['ams']) > 4:
+    if len(root['ams']) > 4 + AMS_HT_UNIT_COUNT:
         raise ValueError('AMS packet identity unavailable')
     if any(not isinstance(unit, dict) or not isinstance(unit.get('tray'), list)
            or len(unit['tray']) > 4 for unit in root['ams']):
@@ -39,9 +41,9 @@ def parse_raw_ams_facts(print_packet) -> tuple[RawTrayFact, ...]:
     unit_ids = []
     for unit in root['ams']:
         identity = ams_slot_number(unit.get('id'), 0)
-        # Acquisition evidence models four-tray units 0-3 only (unit/tray
-        # derived from the slot number); AMS HT units are not accepted here.
-        if identity is None or identity > 16 or identity in unit_ids:
+        # Four-tray units 0-3 and AMS HT units 128-135 are both known hardware;
+        # an H2D reports its AMS HT in every AMS packet. Unknown ids refuse.
+        if identity is None or identity in unit_ids:
             raise ValueError('AMS packet identity unavailable')
         unit_ids.append(identity)
     try:
@@ -50,6 +52,10 @@ def parse_raw_ams_facts(print_packet) -> tuple[RawTrayFact, ...]:
         raise ValueError('AMS packet identity unavailable') from None
     result = []
     for slot, tray in entries:
+        if slot >= AMS_HT_FIRST_SLOT:
+            # AMS HT stays inventory-only: no acquisition fact, so dispatch can
+            # never select it (mapping is capped to slots 1-16).
+            continue
         value = tray.get('tray_type')
         material = canonical_reported_material(value)
         if 'tray_type' not in tray:

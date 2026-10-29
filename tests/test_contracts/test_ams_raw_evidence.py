@@ -51,3 +51,34 @@ def test_input_does_not_get_modified_or_retained():
     facts=parse_raw_ams_facts(raw)
     raw['ams']['ams'][0]['tray'][0]['tray_type']='PLA'
     assert facts[0].material == 'PETG'
+
+
+def h2d_packet():
+    """Captured H2D shape: two four-tray AMS units plus an AMS HT (unit 128)."""
+    return {'ams': {'ams': [
+        {'id': '0', 'tray': [{'id': str(t), 'tray_type': m} for t, m in enumerate(('PLA', 'PETG', 'PLA', 'PLA'))]},
+        {'id': '1', 'tray': [{'id': str(t), 'tray_type': 'PLA'} for t in range(4)]},
+        {'id': '128', 'tray': [{'id': '0', 'tray_type': 'PLA-S'}]},
+    ]}}
+
+
+def test_h2d_packet_with_ams_ht_yields_four_tray_facts_only():
+    facts = parse_raw_ams_facts(h2d_packet())
+    assert [f.slot_number for f in facts] == list(range(1, 9))
+    assert (facts[0].slot_number, facts[0].material, facts[0].material_state) == (1, 'PLA', 'reported')
+
+
+@pytest.mark.parametrize('unit', ['4', '127', '136'])
+def test_unknown_unit_ids_still_refuse(unit):
+    raw = h2d_packet(); raw['ams']['ams'][2]['id'] = unit
+    with pytest.raises(ValueError, match='^AMS packet identity unavailable$'):
+        parse_raw_ams_facts(raw)
+
+
+def test_ams_ht_with_a_second_tray_or_duplicate_unit_refuses():
+    raw = h2d_packet(); raw['ams']['ams'][2]['tray'].append({'id': '1', 'tray_type': 'PLA'})
+    with pytest.raises(ValueError, match='^AMS packet identity unavailable$'):
+        parse_raw_ams_facts(raw)
+    raw = h2d_packet(); raw['ams']['ams'].append({'id': '128', 'tray': [{'id': '0'}]})
+    with pytest.raises(ValueError, match='^AMS packet identity unavailable$'):
+        parse_raw_ams_facts(raw)

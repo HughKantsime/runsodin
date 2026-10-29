@@ -207,3 +207,16 @@ def test_trusted_diagnostic_read_preserves_addressed_unreported_slot(tray):
     fact=snap(c).trays[0]
     assert fact.slot_number==1 and fact.material is None
     assert fact.material_state in ('unknown','explicit_empty')
+
+
+def test_h2d_report_with_ams_ht_acquires_the_selected_tray(owned):
+    # Prod H2D (2026-10-29): units 0 and 1 plus AMS HT 128 in every AMS packet.
+    # Before the fix the HT unit retired the collector, so dispatch refused ams_read_failed.
+    c,_=owned;ready(c)
+    packet={'gcode_state':'IDLE','print_error':0,'ams':{'ams':[
+        {'id':'0','tray':[{'id':'0','tray_type':'PLA'},{'id':'1','tray_type':'PETG'}]},
+        {'id':'1','tray':[{'id':'0','tray_type':'PLA'}]},
+        {'id':'128','tray':[{'id':'0','tray_type':'PLA-S'}]}]}}
+    assert report(c,packet)
+    assert not c.retired
+    assert [t.slot_number for t in snap(c).trays]==[1] and snap(c).trays[0].material=='PLA'
