@@ -1,5 +1,6 @@
 """Audience-aware generic file metadata and atomic queue lifecycle."""
 
+from core.display_names import human_name, display_names, name_payloads
 from core.quota import charge_job_quota
 from core.errors import OdinError
 import json
@@ -36,6 +37,7 @@ def read_generic_file(db, file_id, actor, printer_id=None):
     from core.print_file_binding import target_printer
     row = accessible_preview_file(db, file_id, actor)
     data = _file_metadata(row)
+    data["display_name"] = display_names(db, "print_file", [file_id], actor)[file_id]
     if printer_id is not None:
         from core.ams_mapping import preview
         data["ams_preview"] = preview(db, row.filaments_json, printer_id, actor)
@@ -85,13 +87,13 @@ def list_generic_files(db, actor, limit, include_scheduled):
             files.append(data)
             if len(files) == limit:
                 break
-    return files
+    return name_payloads(db, "print_file", files, actor)
 
 
 def _generic_parent(db, row, actor):
     if row.model_id is None:
         return None
-    parent = db.execute(text('SELECT id,org_id FROM models WHERE id=:id'), {'id': row.model_id}).first()
+    parent = db.execute(text('SELECT id,org_id,name FROM models WHERE id=:id'), {'id': row.model_id}).first()
     if not parent or not check_org_access(actor, parent.org_id):
         raise HTTPException(404, 'Print file not found')
     return parent
@@ -173,7 +175,7 @@ def schedule_generic_file(db, file_id, printer_id, actor, ams_mapping=None):
         charge_job_quota(db, actor)
 
         job = queue_creator.stage_values(db, {
-            "item_name": row.project_name or row.original_filename or row.filename,
+            "item_name": human_name(row.filename, model_name=parent.name if parent else None, original_filename=row.original_filename),
             "model_id": row.model_id, "print_file_id": row.id,
             "payload_sha256": payload_hash, "plate_index": 0,
             **({"ams_mapping": mapping} if mapping is not None else {}),

@@ -19,6 +19,7 @@ export interface ModelSummary {
 }
 
 export interface Job {
+  display_name?: string | null;
   ams_mapping?: number[] | null;
   ams_preview?: import("./archive").ArchiveAmsPreview | null;
   ams_mapping_editable?: boolean;
@@ -110,6 +111,7 @@ export interface JobUpdate {
 }
 
 export interface JobSummary {
+  display_name?: string | null;
   id: number;
   item_name: string;
   status: JobStatus;
@@ -138,6 +140,7 @@ export interface ScheduleResult {
 // ---- Timeline ----
 
 export interface TimelineSlot {
+  display_name?: string | null;
   start: string;
   end: string;
   printer_id: number;
@@ -161,6 +164,7 @@ export interface TimelineResponse {
 // ---- Print Jobs (MQTT tracked) ----
 
 export interface PrintJob {
+  display_name?: string | null;
   progress_percent: number | null;
   error_code: string | null;
   id: number;
@@ -187,6 +191,7 @@ export interface PrintJobStats {
 // ---- Print Files ----
 
 export interface PrintFile {
+  display_name?: string | null;
   ams_preview?: import("./archive").ArchiveAmsPreview | null;
   thumbnail_b64: string | null;
   project_name: string;
@@ -239,6 +244,7 @@ export interface ApprovalSetting {
 }
 
 export interface RecentTerminalJob {
+  display_name?: string | null;
   id: number;
   item_name: string;
   status: 'completed' | 'failed';

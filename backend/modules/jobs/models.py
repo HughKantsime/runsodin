@@ -28,6 +28,18 @@ class Job(Base):
     """
     __tablename__ = "jobs"
 
+    @property
+    def display_name(self):
+        from core.display_names import display_names, human_name
+        from sqlalchemy.orm import object_session
+        if hasattr(self, '_read_display_name'):
+            return self._read_display_name
+        db = object_session(self)
+        if db is not None and self.id is not None:
+            return display_names(db, 'job', [self.id]).get(self.id, human_name(self.item_name))
+        return human_name(self.item_name)
+
+
     id = Column(Integer, primary_key=True)
 
     # What to print

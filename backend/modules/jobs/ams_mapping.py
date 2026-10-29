@@ -72,6 +72,8 @@ def source_file(db, job, actor):
 
 def detail_view(db, job, actor):
     from modules.jobs.schemas import JobResponse
+    from core.display_names import name_jobs
+    name_jobs(db, [job], actor)
     result = JobResponse.model_validate(job).model_dump()
     result.update(ams_preview=None, ams_mapping_editable=False)
     if job.print_file_id is None:

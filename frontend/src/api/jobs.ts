@@ -64,6 +64,7 @@ export const printJobs = {
 }
 
 export const printFiles = {
+  rename: (id: number, original_filename: string): Promise<{id: number; original_filename: string; display_name: string}> => fetchAPI(`/print-files/${id}/name`, {method: 'PATCH', body: JSON.stringify({original_filename})}),
   upload: async (file: File): Promise<PrintFile> => {
     const formData = new FormData()
     formData.append('file', file)

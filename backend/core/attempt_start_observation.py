@@ -20,7 +20,7 @@ class ObservedStart:
 
 
 def observe_start(executor,*,printer_id,filename,job_name,physical_values,source,
-                  protocol=None,prepare_operational=False,allow_physical_resume=False):
+                  protocol=None,prepare_operational=False,allow_physical_resume=False,observed_elapsed=None):
     """Prepare/create/capture/finalize in caller's existing outer transaction.
 
     Operational matching parents can be preheld before printer/attempt locks.
@@ -46,17 +46,24 @@ def observe_start(executor,*,printer_id,filename,job_name,physical_values,source
         if plan.branch in ('resume','legacy_resume'):
             identifier=finalize_start(executor,scope,plan)
             return ObservedStart(identifier,plan.job_id,False,education_sensitive,reserved,candidates,parents)
-        if allow_physical_resume and not reserved and not education_sensitive:
-            # Preserve preexisting unreserved monitor tracking only, without any
-            # birth, snapshot, identity or valuation repair. Education rows never
-            # enter this fallback even when their current name is noncanonical.
-            row=view.execute(text("SELECT p.id,p.scheduled_job_id FROM print_jobs p WHERE p.printer_id=:id AND p.status='running' AND NOT EXISTS(SELECT 1 FROM education_submissions s WHERE s.job_id=p.scheduled_job_id) ORDER BY p.id DESC LIMIT 1"),{'id':printer_id}).first()
-            if row is not None:
-                from modules.printers.dispatch_admission import _lock
-                _lock(view,'print_jobs',row[0],'status')
-                current=view.execute(text("SELECT status,scheduled_job_id FROM print_jobs WHERE id=:id"),{'id':row[0]}).first()
-                if current is not None and current[0]=='running' and current[1]==row[1]:
-                    return ObservedStart(row[0],None,False,False,False,candidates,parents)
+        if allow_physical_resume:
+            from core.physical_print import same_physical_print, CLOSED_UNKNOWN
+            from modules.printers.dispatch_admission import _lock
+            rows=view.execute(text("SELECT id,scheduled_job_id,filename,job_name,started_at FROM print_jobs WHERE printer_id=:id AND status='running' ORDER BY id DESC"),{'id':printer_id}).mappings().all()
+            plausible=[row for row in rows if not reserved and not education_sensitive
+                and same_physical_print(row,filename,observed_elapsed)
+                and not view.execute(text('SELECT 1 FROM education_submissions WHERE job_id=:id'),{'id':row['scheduled_job_id']}).first()]
+            resume_id=plausible[0]['id'] if len(plausible)==1 else None
+            for row in rows:
+                if row['id'] != resume_id and view.execute(text('SELECT 1 FROM education_submissions WHERE job_id=:id'),{'id':row['scheduled_job_id']}).first():
+                    continue  # Education owns its rows' terminal state; never close them here.
+                _lock(view,'print_jobs',row['id'],'status')
+                if row['id'] != resume_id:
+                    # Physical bookkeeping only: no scheduled-job transition,
+                    # accounting, archive or alert for an unknown historical end.
+                    view.execute(text("UPDATE print_jobs SET status='cancelled',ended_at=NULL,error_code=:reason WHERE id=:id AND status='running'"),{'id':row['id'],'reason':CLOSED_UNKNOWN})
+            if resume_id is not None:
+                return ObservedStart(resume_id,None,False,False,False,candidates,parents)
         identifier=create_start(executor,scope,plan,physical_values)
         if not capture_attempt_spools(executor,identifier,printer_id,source=source,start_scope=scope,start_plan=plan):
             raise RuntimeError('Fresh observed-start snapshot refused')

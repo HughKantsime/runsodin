@@ -195,21 +195,15 @@ class MoonrakerMonitor:
                 log.warning("Offline state persistence failed; retry on next observation")
 
     def _recover_after_reconnect(self):
-        """Restore job tracking state after a reconnect."""
-        try:
-            with engine.connect() as conn:
-                rows = conn.execute(
-                    text("SELECT id, job_name FROM print_jobs "
-                    "WHERE printer_id = :pid AND status = 'running' ORDER BY id DESC LIMIT 2"),
-                    {"pid": self.printer_id}).fetchall()
-                row=rows[0] if len(rows)==1 else None
-                if row:
-                    self._current_job_db_id = row[0]
-                    self._last_filename = row[1] or ""
-                    if self._prev_state is None:self._prev_state="RUNNING"
-                    log.info(f"[{self.name}] Recovered job tracking: {row[0]} ({row[1]})")
-        except Exception as e:
-            log.warning(f"[{self.name}] Job recovery after reconnect failed: {e}")
+        """Let the first live observation validate identity and elapsed time.
+
+        Never recover a row from database status alone. The start observer can
+        resume a plausible row, or close stale rows without terminal effects.
+        """
+        with self._status_lock:
+            self._current_job_db_id = None
+            self._last_filename = ""
+            self._prev_state = None
 
     # ==================== Status Processing ====================
     
@@ -217,9 +211,18 @@ class MoonrakerMonitor:
         with self._status_lock:
             if self._retired:
                 return
-            self._process_status_locked(status)
+            tracked = self._current_job_db_id
+            filename = self._last_filename
+            terminal = self._prev_state in ('RUNNING', 'PAUSE') and status.internal_state in ('IDLE', 'FAILED')
+        # Network I/O (adapter timeout 5s) holds neither status lock nor DB transaction.
+        from modules.printers.monitors.moonraker_history import terminal_history
+        history = terminal_history(self.printer, filename, time.time()) if terminal and tracked else None
+        with self._status_lock:
+            if self._retired or self._current_job_db_id != tracked:
+                return
+            self._process_status_locked(status, history=history)
 
-    def _process_status_locked(self, status):
+    def _process_status_locked(self, status, *, history=None):
         """Process a status update — detect state changes, track jobs."""
         import modules.notifications.event_dispatcher as printer_events
         now = time.time()
@@ -355,6 +358,8 @@ class MoonrakerMonitor:
 
             # Job paused
             elif internal_state == "PAUSE":
+                if not self._current_job_db_id:
+                    self._job_started(status)
                 from core.job_timeline import for_printer
                 for_printer(self.printer_id, "paused", context={"filename": status.filename,
                             "pause_reason": getattr(status, "error_message", None) or ""})
@@ -380,7 +385,7 @@ class MoonrakerMonitor:
                 education_suppressed = self._job_ended(
                     end_status,
                     status,
-                    education_terminal_status=education_terminal_status,
+                    education_terminal_status=education_terminal_status, history=history,
                 )
                 if not education_suppressed:
                     threading.Thread(target=self._try_dispatch, daemon=True).start()
@@ -428,7 +433,7 @@ class MoonrakerMonitor:
                         'job_id':f'mk_{int(time.time())}',
                         'started_at':datetime.now(timezone.utc).isoformat(),
                         'total_layers':total_layers,'bed_temp_target':bed_target,
-                        'nozzle_temp_target':nozzle_target},source='moonraker-first-start',allow_physical_resume=True)
+                        'nozzle_temp_target':nozzle_target},source='moonraker-first-start',allow_physical_resume=True,observed_elapsed=getattr(status,'print_duration',None))
                 self._current_job_db_id=observed.id
                 self._last_filename=filename
                 education_sensitive=observed.education_sensitive
@@ -453,7 +458,7 @@ class MoonrakerMonitor:
     
     @retry_production_linkage
     def _job_ended(
-        self, end_status: str, status, *, education_terminal_status: str | None = None
+        self, end_status: str, status, *, education_terminal_status: str | None = None, history=None
     ) -> bool:
         """Record a print job ending."""
         import modules.notifications.event_dispatcher as printer_events
@@ -461,12 +466,14 @@ class MoonrakerMonitor:
             log.warning(f"[{self.name}] Job ended but no current job tracked")
             return False
         
+        if history:
+            end_status = education_terminal_status = history['status']
         ended_observation_id=self._current_job_db_id
         committed_completion = False
         completion_job_id = None
         try:
             with engine.begin() as conn:
-                now_utc = datetime.now(timezone.utc).isoformat()
+                now_utc = history['ended_at'] if history else datetime.now(timezone.utc).isoformat()
 
                 # Calculate duration
                 duration_seconds = None
@@ -480,6 +487,12 @@ class MoonrakerMonitor:
                         duration_seconds = int((ended - started).total_seconds())
                     except Exception as e:
                         log.debug(f"Failed to parse duration: {e}")
+
+                if history:
+                    duration_seconds = history['duration']
+                    if pj_row and pj_row[0] and as_utc_datetime(pj_row[0]) < as_utc_datetime(history['started_at']):
+                        conn.execute(text('UPDATE print_jobs SET started_at=:start WHERE id=:id'),
+                                     {'start':history['started_at'], 'id':self._current_job_db_id})
 
                 from core.registry import registry
 

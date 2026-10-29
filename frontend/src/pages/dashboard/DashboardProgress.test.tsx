@@ -21,3 +21,8 @@ it('does not show stale active progress while printer is offline', () => {
  expect(screen.queryByText('37%')).not.toBeInTheDocument()
  expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
 })
+it('shows the human print name instead of the stored transport filename', () => {
+ render(<PrinterCard printer={printer} activeJob={{ display_name: 'Squirtle', job_name: 'odin-dispatch-deadbeef', progress_percent: 10, remaining_minutes: 5 }} {...props} />)
+ expect(screen.getByText('Squirtle')).toBeInTheDocument()
+ expect(screen.queryByText(/odin-dispatch/)).not.toBeInTheDocument()
+})

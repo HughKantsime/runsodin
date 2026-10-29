@@ -1,3 +1,4 @@
+import { displayName } from '../../utils/displayName'
 import { useState, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
@@ -187,7 +188,7 @@ export default function PrintLog() {
                 {items.map(item => (
                   <tr key={item.id} className="border-t border-[var(--brand-card-border)] hover:bg-[var(--brand-input-bg)]/50 transition-colors">
                     <td className="py-2 px-3 text-[var(--brand-text-muted)] text-xs whitespace-nowrap font-mono">{formatDate(item.completed_at)}</td>
-                    <td className="py-2 px-3 font-medium truncate max-w-[200px]">{item.print_name}</td>
+                    <td className="py-2 px-3 font-medium truncate max-w-[200px]">{displayName(item)}</td>
                     <td className="py-2 px-3 text-[var(--brand-text-muted)] hidden md:table-cell">{item.printer_display}</td>
                     <td className="py-2 px-3 text-[var(--brand-text-muted)] hidden lg:table-cell">{item.user_name || '--'}</td>
                     <td className="py-2 px-3">

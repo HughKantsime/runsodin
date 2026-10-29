@@ -1,3 +1,4 @@
+import { displayName } from '../../utils/displayName'
 import { useState, useEffect } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { printActivity } from '../../utils/shared'
@@ -126,7 +127,7 @@ export default function Overlay() {
         {isPrinting && (
           <div className={`rounded-md p-3 ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
             {data.job_name && (
-              <p data-testid="overlay-job-name" className="text-sm font-medium truncate mb-2">{data.job_name}</p>
+              <p data-testid="overlay-job-name" className="text-sm font-medium truncate mb-2">{displayName(data)}</p>
             )}
 
             {/* Progress bar */}

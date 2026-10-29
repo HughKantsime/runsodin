@@ -163,6 +163,7 @@ class PrinterMaintenance(BaseModel):
 
 
 class PrinterResponse(PrinterBase):
+    current_print_display_name: Optional[str] = None
     maintenance: PrinterMaintenance = Field(default_factory=PrinterMaintenance)
     model_config = ConfigDict(from_attributes=True)
 

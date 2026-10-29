@@ -200,7 +200,8 @@ def get_project(
         ),
         {"pid": project_id, **archive_params},
     ).fetchall()
-    d["archives"] = [dict(a._mapping) for a in archives]
+    from core.display_names import name_payloads
+    d["archives"] = name_payloads(db, "archive", [dict(a._mapping) for a in archives], user)
     d["archive_count"] = len(archives)
     return d
 

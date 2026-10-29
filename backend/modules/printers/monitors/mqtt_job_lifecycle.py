@@ -505,6 +505,8 @@ def record_job_ended(
             else:
                 job_applied = True
                 # Create a jobs record for metrics tracking
+                from core.display_names import observed_item_name
+                item_name = observed_item_name(conn, current_job_id)
                 actual_start = pj_row[0] if pj_row else now_utc
                 # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- values are bound and the only interpolated fragment is sql.returning_id()
                 cur.execute(f"""
@@ -512,7 +514,7 @@ def record_job_ended(
                                      duration_hours, quantity, hold, is_locked, quantity_on_bed)
                     VALUES (?, ?, ?, ?, ?, ?, 1, FALSE, FALSE, 1)
                     {sql.returning_id()}
-                """, (job_name, printer_id, job_status, actual_start, now_utc, duration_hours))
+                """, (item_name, printer_id, job_status, actual_start, now_utc, duration_hours))
                 if sql.is_postgres:
                     linked_job_id = cur.fetchone()[0]
                 else:

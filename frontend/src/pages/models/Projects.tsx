@@ -1,3 +1,4 @@
+import { displayName } from '../../utils/displayName'
 import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { projects } from '../../api'
@@ -190,7 +191,7 @@ function ProjectDetail({ project, onClose, onDelete }) {
                   {archives.map(a => (
                     <div key={a.id} className="flex items-center gap-2 px-2 py-1.5 bg-[var(--brand-input-bg)]/50 rounded text-xs">
                       <Archive size={12} className="text-[var(--brand-muted)] shrink-0" />
-                      <span className="truncate flex-1">{a.print_name || `Archive #${a.id}`}</span>
+                      <span className="truncate flex-1">{displayName(a)}</span>
                       <span className="text-[var(--brand-muted)]">{a.printer_nickname || a.printer_name || '--'}</span>
                     </div>
                   ))}

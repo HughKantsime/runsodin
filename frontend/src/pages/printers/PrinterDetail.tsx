@@ -1,3 +1,4 @@
+import { displayName } from '../../utils/displayName'
 import MaintenanceBanner from '../../components/printers/MaintenanceBanner'
 import InstalledNozzles from '../../components/printers/InstalledNozzles'
 import DispatchRecoveryPanel from '../../components/printers/DispatchRecoveryPanel'
@@ -83,7 +84,7 @@ export default function PrinterDetail() {
 
   const online = isOnline(printer)
   const progress = printer.progress ?? printer.print_progress ?? 0
-  const currentJobName = printer.current_job || printer.job_name || null
+  const currentJobName = displayName({ display_name: printer.current_print_display_name, job_name: printer.current_job || printer.job_name })
   const nozzleTemp = printer.nozzle_temp ?? printer.temperatures?.nozzle ?? null
   const bedTemp = printer.bed_temp ?? printer.temperatures?.bed ?? null
   const etaMinutes = printer.remaining_time ?? printer.eta_minutes ?? null

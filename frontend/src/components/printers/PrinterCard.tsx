@@ -394,6 +394,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
       </div>
       {isOnline(printer) && isActivePrintState(printer.gcode_state) && (
         <div className="px-3 md:px-4 py-2 border-t border-[var(--brand-border)]">
+          <p className="text-sm font-medium truncate mb-1">{printer.current_print_display_name || 'Unnamed print'}</p>
           <PrintProgress percent={printer.mc_percent} remainingMinutes={printer.mc_remaining_time} />
         </div>
       )}

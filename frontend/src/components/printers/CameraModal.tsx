@@ -1,3 +1,4 @@
+import { displayName } from '../../utils/displayName'
 import CameraFallback from './CameraFallback'
 import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
@@ -16,6 +17,7 @@ interface PrinterLike {
   nozzle_temp: number | null
   bed_temp: number | null
   mc_percent?: number
+  current_print_display_name?: string
   gcode_file?: string
   layer_num?: number
   total_layer_num?: number
@@ -157,7 +159,7 @@ export default function CameraModal({ printer, onClose }: CameraModalProps) {
       {/* Large mode: compact info bar — only visible when printing */}
       {size === 'large' && isPrinting && (
         <div className="flex items-center gap-4 px-3 py-2 border-t border-[var(--brand-card-border)] text-xs text-[var(--brand-text-secondary)] overflow-x-auto">
-          <span className="text-[var(--brand-text-secondary)] font-medium truncate max-w-[200px]">{p.gcode_file || 'Printing'}</span>
+          <span className="text-[var(--brand-text-secondary)] font-medium truncate max-w-[200px]">{displayName({ display_name: p.current_print_display_name, filename: p.gcode_file })}</span>
           <span className="text-[var(--status-completed)] font-bold">{p.mc_percent || 0}%</span>
           {nozTemp != null && (
             <span className="flex items-center gap-1 whitespace-nowrap">

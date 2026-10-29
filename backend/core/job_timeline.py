@@ -109,7 +109,7 @@ class TimelineWriter:
                         if 'resolve_attempt' in item:
                             row=c.execute(text('SELECT scheduled_job_id,economic_uid,printer_id FROM print_jobs WHERE id=:id AND started_at<=:occurred'),{'id':item['resolve_attempt'],'occurred':item['occurred']}).first()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant SQL; values are bound
                         else:
-                            rows=c.execute(text("SELECT scheduled_job_id,economic_uid,printer_id FROM print_jobs WHERE printer_id=:id AND started_at<=:occurred AND (ended_at IS NULL OR ended_at>=:occurred) ORDER BY id DESC LIMIT 2"),{'id':item['resolve_printer'],'occurred':item['occurred']}).all()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant SQL; values are bound
+                            rows=c.execute(text("SELECT scheduled_job_id,economic_uid,printer_id FROM print_jobs WHERE printer_id=:id AND started_at<=:occurred AND ((ended_at IS NULL AND status='running') OR ended_at>=:occurred) ORDER BY id DESC LIMIT 2"),{'id':item['resolve_printer'],'occurred':item['occurred']}).all()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant SQL; values are bound
                             row=rows[0] if len(rows)==1 else None
                         if row is None or row[0] is None:continue
                         item.update(job=row[0],attempt=row[1],printer=row[2])

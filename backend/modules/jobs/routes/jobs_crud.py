@@ -326,9 +326,11 @@ def list_jobs(
 
     # Priority first; drag-and-drop queue_position orders jobs within a
     # priority (unplaced jobs last on SQLite and PostgreSQL alike); then age.
-    return query.order_by(
+    rows = query.order_by(
         Job.priority, Job.queue_position.is_(None), Job.queue_position, Job.created_at, Job.id
     ).offset(offset).limit(limit).all()
+    from core.display_names import name_jobs
+    return name_jobs(db, rows, current_user)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, tags=["Jobs"])

@@ -9,6 +9,7 @@ import logging
 
 from core.spoolman_settings import get_spoolman_url
 from core.db_compat import sql
+from core.physical_print import CLOSED_UNKNOWN
 # Resolved at call time: never a stale get_db bound at import.
 from core.db_live import live_get_db as get_db
 
@@ -30,8 +31,8 @@ def create_print_archive(print_job_id: int, printer_id: int, success: bool,
         with get_db() as conn:
             cur = conn.cursor()
             try:
-                cur.execute("UPDATE print_jobs SET id=id WHERE id=? AND printer_id=? AND status IN ('completed','failed','cancelled')",
-                            (print_job_id, printer_id))
+                cur.execute("UPDATE print_jobs SET id=id WHERE id=? AND printer_id=? AND status IN ('completed','failed','cancelled') AND NOT (ended_at IS NULL AND COALESCE(error_code,'')=?)",
+                            (print_job_id, printer_id, CLOSED_UNKNOWN))
                 if cur.rowcount != 1:
                     conn.rollback()
                     return None
@@ -349,8 +350,9 @@ def recover_missing_archives(limit: int = 100, *, after_attempt_id: int = 0):
         cur = conn.cursor()
         cur.execute("SELECT pj.id,pj.printer_id,pj.status FROM print_jobs pj "
                     "WHERE pj.id>? AND pj.status IN ('completed','failed','cancelled') "
+                    "AND NOT (pj.ended_at IS NULL AND COALESCE(pj.error_code,'')=?) "
                     "AND NOT EXISTS(SELECT 1 FROM print_archives a WHERE a.print_job_id=pj.id) "
-                    "ORDER BY pj.id LIMIT ?", (after_attempt_id, limit))
+                    "ORDER BY pj.id LIMIT ?", (after_attempt_id, CLOSED_UNKNOWN, limit))
         pending = cur.fetchall()
     recovered = 0
     for attempt_id, printer_id, status in pending:
@@ -358,6 +360,7 @@ def recover_missing_archives(limit: int = 100, *, after_attempt_id: int = 0):
             recovered += 1
     with get_db() as conn:
         remaining = conn.execute("SELECT COUNT(*) FROM print_jobs pj WHERE pj.status IN ('completed','failed','cancelled') "
-            "AND NOT EXISTS(SELECT 1 FROM print_archives a WHERE a.print_job_id=pj.id)").fetchone()[0]
+            "AND NOT (pj.ended_at IS NULL AND COALESCE(pj.error_code,'')=?) "
+            "AND NOT EXISTS(SELECT 1 FROM print_archives a WHERE a.print_job_id=pj.id)", (CLOSED_UNKNOWN,)).fetchone()[0]
     return {'attempted': len(pending), 'recovered': recovered, 'pending_count': remaining,
             'next_after_id': pending[-1][0] if pending else None}

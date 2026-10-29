@@ -1,3 +1,4 @@
+import { displayName } from '../../utils/displayName'
 import AmsMappingEditor, { useAmsMapping } from '../../components/shared/AmsMappingEditor'
 import type { ReactNode } from 'react'
 import type { Archive as ArchiveDto } from '../../types'
@@ -103,8 +104,8 @@ function CompareModal({ a, b, onClose }) {
             <thead>
               <tr className="text-[var(--brand-text-muted)] text-xs border-b border-[var(--brand-card-border)]">
                 <th className="py-2 px-3 text-left">Field</th>
-                <th className="py-2 px-3 text-left truncate max-w-[200px]">{data.a.print_name}</th>
-                <th className="py-2 px-3 text-left truncate max-w-[200px]">{data.b.print_name}</th>
+                <th className="py-2 px-3 text-left truncate max-w-[200px]">{displayName(data.a)}</th>
+                <th className="py-2 px-3 text-left truncate max-w-[200px]">{displayName(data.b)}</th>
               </tr>
             </thead>
             <tbody>
@@ -184,7 +185,7 @@ function ArchiveDetail({ archive, onClose, onDelete, onNotesUpdate, onTagsUpdate
 
   return (
     <>
-      <Modal isOpen={true} onClose={onClose} title={archive.print_name} size="lg">
+      <Modal isOpen={true} onClose={onClose} title={displayName(archive)} size="lg">
         {/* Thumbnail */}
         {archive.thumbnail_b64 && (
           <div className="mb-4 rounded-md overflow-hidden bg-black flex items-center justify-center" style={{ maxHeight: '200px' }}>
@@ -355,7 +356,7 @@ function ArchiveDetail({ archive, onClose, onDelete, onNotesUpdate, onTagsUpdate
         <Suspense fallback={<div className="flex items-center justify-center p-8 text-[var(--brand-text-muted)]">Loading 3D viewer...</div>}>
           <ModelViewer
             fileId={archive.print_file_id}
-            modelName={archive.print_name}
+            modelName={displayName(archive)}
             onClose={() => setShow3DViewer(false)}
           />
         </Suspense>
@@ -576,7 +577,7 @@ export default function ArchivesPage() {
                       )}
                     </td>
                     <td className="py-2 px-3">
-                      <div className="font-medium truncate max-w-[200px]">{item.print_name}</div>
+                      <div className="font-medium truncate max-w-[200px]">{displayName(item)}</div>
                       {item.tags && item.tags.length > 0 && (
                         <TagChips tags={item.tags} onTagClick={t => { setFilterTag(t); setPage(1) }} />
                       )}

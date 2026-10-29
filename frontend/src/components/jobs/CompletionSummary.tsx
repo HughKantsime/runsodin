@@ -1,3 +1,4 @@
+import { displayName } from '../../utils/displayName'
 import MaintenanceBanner from '../printers/MaintenanceBanner'
 import { useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
@@ -25,7 +26,7 @@ export default function CompletionSummary({summary}:{summary:Summary}) {
   return <section className="mt-3 space-y-3 text-sm">
     <button type="button" aria-expanded={expanded} onClick={()=>setExpanded(v=>!v)}>Completion summary · job {summary.job_id}</button>
     {expanded&&<div className="space-y-3 break-words">
-      <p>{summary.printer} · {summary.job_name} · {summary.actual_print_seconds===null?'Print time unknown':`${Math.round(summary.actual_print_seconds/60)} min`}</p>
+      <p>{summary.printer} · {displayName(summary)} · {summary.actual_print_seconds===null?'Print time unknown':`${Math.round(summary.actual_print_seconds/60)} min`}</p>
       <p>{summary.recipe_state==='matched'?summary.product.join(', '):summary.recipe_state}</p>
       <ul>{summary.expected_outputs.map(o=><li key={`${o.product_id}-${o.kind}`}>{o.expected} {o.product_name} ({o.kind})</li>)}</ul>
       {summary.maintenance && summary.maintenance.state !== 'ok' && <p role="status">Maintenance {summary.maintenance.state}: {summary.maintenance.note}</p>}

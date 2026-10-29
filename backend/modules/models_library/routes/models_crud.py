@@ -124,6 +124,9 @@ def update_model(model_id: int, updates: ModelUpdate, current_user: dict = Depen
         raise HTTPException(status_code=404, detail="Model not found")
 
     update_data = updates.model_dump(exclude_unset=True)
+    if 'name' in update_data and update_data['name'] != model.name:
+        from core.dependencies import log_audit
+        log_audit(db, 'model.renamed', 'model', model.id, {'before': model.name, 'after': update_data['name']})
 
     for field, value in update_data.items():
         setattr(model, field, value)

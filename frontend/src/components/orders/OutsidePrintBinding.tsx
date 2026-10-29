@@ -1,3 +1,4 @@
+import { displayName } from '../../utils/displayName'
 import { useState } from 'react'
 import { printJobs } from '../../api/jobs'
 import type { PrintJob } from '../../types'
@@ -37,7 +38,7 @@ export default function OutsidePrintBinding({recipes,products,admin,onBound}:{
     }}>
       <p>Choose the completed observed print, or enter its physical print ID. Scheduled job and archive IDs are different. Eligibility is checked when binding.</p>
       <button type="button" className={button} disabled={busy} onClick={async()=>{setBusy(true);setError('');try{setRecent(await printJobs.list({status:'completed',limit:100}))}catch(e){setError(e instanceof Error?e.message:'Could not load observed prints.')}finally{setBusy(false)}}}>Load recent completed prints</button>
-      {recent&&<label>Recent completed print<select className={input} disabled={busy} value={recent.some(p=>String(p.id)===printId)?printId:''} onChange={e=>{const selected=recent.find(p=>String(p.id)===e.target.value);if(selected){setPrintId(String(selected.id));setPrinterId(String(selected.printer_id));resetConfirmations()}}}><option value="">Choose observed print</option>{recent.map(p=><option value={p.id} key={p.id}>{String(p.job_name||p.filename||p.file_name||'Unnamed print')} · print {p.id} · {String(p.printer_name||`printer ${p.printer_id}`)}</option>)}</select></label>}
+      {recent&&<label>Recent completed print<select className={input} disabled={busy} value={recent.some(p=>String(p.id)===printId)?printId:''} onChange={e=>{const selected=recent.find(p=>String(p.id)===e.target.value);if(selected){setPrintId(String(selected.id));setPrinterId(String(selected.printer_id));resetConfirmations()}}}><option value="">Choose observed print</option>{recent.map(p=><option value={p.id} key={p.id}>{displayName(p)} · print {p.id} · {String(p.printer_name||`printer ${p.printer_id}`)}</option>)}</select></label>}
       {recent?.length===0&&<p>No recent completed prints found. Older physical print IDs can still be entered below.</p>}
       {error&&<p role="alert">{error}</p>}{notice&&<p role="status">{notice}</p>}
       <label>Outside print ID<input className={input} type="number" min="1" step="1" required disabled={busy} value={printId} onChange={e=>{setPrintId(e.target.value);resetConfirmations()}}/></label>

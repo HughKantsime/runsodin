@@ -1,3 +1,4 @@
+import { displayName } from '../../utils/displayName'
 import BlockDetail from '../../components/jobs/TimelineJobDetail'
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -199,7 +200,7 @@ function MobileTimelineList({ slots, printersData, onSelectBlock }) {
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-[var(--brand-text-primary)] truncate">
-                    {item.item_name || 'Untitled Job'}
+                    {displayName(item)}
                   </p>
                   <p className="text-xs text-[var(--brand-text-secondary)] mt-0.5 truncate">
                     {item._printerName}
@@ -562,7 +563,7 @@ export default function Timeline() {
                             <div className="flex items-center gap-1">
                               {canDrag && <GripVertical size={12} className="text-white/50" />}
                               <span className="text-xs font-medium truncate text-white/90">
-                                {block.is_setup ? 'Setup' : block.item_name}
+                                {block.is_setup ? 'Setup' : displayName(block)}
                               </span>
                             </div>
                           </div>
@@ -592,7 +593,7 @@ export default function Timeline() {
       <DetailDrawer
         open={!!selectedBlock}
         onClose={() => setSelectedBlock(null)}
-        title={selectedBlock?.item_name || selectedBlock?.printer_name || 'Job Details'}
+        title={selectedBlock ? displayName(selectedBlock) : 'Job Details'}
       >
         {selectedBlock && <BlockDetail block={selectedBlock} />}
       </DetailDrawer>

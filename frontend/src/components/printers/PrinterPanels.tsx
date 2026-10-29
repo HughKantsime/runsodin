@@ -1,3 +1,4 @@
+import { displayName } from '../../utils/displayName'
 import { Thermometer, Wind, Activity } from 'lucide-react'
 import { getShortName, isOnline, isActivePrintState, fanSpeedDisplay } from '../../utils/shared'
 import { SpoolRing } from '../ui'
@@ -16,6 +17,7 @@ interface PrinterLike {
   gcode_state: string | null
   mc_percent?: number
   mc_remaining_time?: number
+  current_print_display_name?: string
   gcode_file?: string
   layer_num?: number
   total_layer_num?: number
@@ -106,7 +108,7 @@ export function ActiveJobPanel({ printer }: { printer: PrinterLike }) {
   const isPrinting = isOnline(printer) && isActivePrintState(printer.gcode_state)
   if (!isPrinting) return null
 
-  const jobName = printer.gcode_file || 'Printing'
+  const jobName = displayName({ display_name: printer.current_print_display_name, filename: printer.gcode_file })
   const currentLayer = printer.layer_num
   const totalLayers = printer.total_layer_num
 

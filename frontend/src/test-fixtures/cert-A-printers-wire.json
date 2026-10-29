@@ -47,6 +47,7 @@
       ],
       "timelapse_enabled": false,
       "machine_type": "A1",
+      "current_print_display_name": "Unifi_G3_Instant_Camera_LCD_Mount_for_BL_P1S_P1P",
       "maintenance": {
         "state": "ok",
         "note": "",
@@ -281,6 +282,7 @@
       ],
       "timelapse_enabled": false,
       "machine_type": null,
+      "current_print_display_name": "benchy",
       "maintenance": {
         "state": "ok",
         "note": "",
@@ -336,6 +338,7 @@
       "tags": [],
       "timelapse_enabled": false,
       "machine_type": null,
+      "current_print_display_name": "Unknown",
       "maintenance": {
         "state": "ok",
         "note": "",
@@ -391,6 +394,7 @@
       "tags": [],
       "timelapse_enabled": false,
       "machine_type": null,
+      "current_print_display_name": "cube",
       "maintenance": {
         "state": "ok",
         "note": "",

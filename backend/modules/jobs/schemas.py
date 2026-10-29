@@ -119,6 +119,7 @@ class _PinView:
 
 
 class JobResponse(JobBase):
+    display_name: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
     # Legacy NULLs are unknown read values, never fabricated production facts.
@@ -234,6 +235,7 @@ JobResponse.model_rebuild()
 
 class JobSummary(BaseModel):
     """Lighter job response for timeline views."""
+    display_name: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
     @field_validator('priority', mode='before')
@@ -302,6 +304,7 @@ class ScheduleResult(BaseModel):
 
 class TimelineSlot(BaseModel):
     """A single time slot on the timeline."""
+    display_name: Optional[str] = None
     start: datetime
     end: datetime
     printer_id: int

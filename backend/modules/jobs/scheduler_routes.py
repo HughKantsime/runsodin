@@ -13,6 +13,7 @@ from typing import Optional
 from datetime import datetime, timedelta, timezone
 import logging
 
+from core.display_names import name_jobs, display_names
 from core.db import get_db
 from core.dependencies import get_current_user
 from core.rbac import require_role, get_org_scope, check_org_access
@@ -63,13 +64,14 @@ def run_scheduler_endpoint(
     scheduled_jobs = jq.order_by(Job.scheduled_start).all()
 
     job_summaries = []
-    for job in scheduled_jobs:
+    for job in name_jobs(db, scheduled_jobs, current_user):
         printer_name = None
         if job.printer:
             printer_name = job.printer.name
         job_summaries.append(JobSummary(
             id=job.id,
             item_name=job.item_name,
+            display_name=job.display_name,
             status=job.status,
             priority=job.priority,
             printer_id=job.printer_id,
@@ -153,7 +155,7 @@ def get_timeline(
 
     # Build timeline slots
     slots = []
-    for job in jobs:
+    for job in name_jobs(db, jobs, current_user):
         if job.printer_id is None:
             continue
 
@@ -168,6 +170,7 @@ def get_timeline(
             printer_name=printer.name,
             job_id=job.id,
             item_name=job.item_name,
+            display_name=job.display_name,
             status=job.status,
             is_setup=False,
             colors=job.colors_list
@@ -186,11 +189,12 @@ def get_timeline(
         FROM print_jobs pj
         JOIN printers p ON p.id = pj.printer_id
         WHERE pj.started_at < :end_date
-        AND (pj.ended_at > :start_date OR pj.ended_at IS NULL)
+        AND (pj.ended_at > :start_date OR (pj.ended_at IS NULL AND pj.status = 'running'))
         {mqtt_org_filter}
     """)
     mqtt_jobs = db.execute(mqtt_jobs_query, mqtt_params).fetchall()
 
+    physical_names = display_names(db, 'print_job', [row._mapping['id'] for row in mqtt_jobs], current_user)
     for mj in mqtt_jobs:
         row = dict(mj._mapping)
         printer = next((p for p in printers if p.id == row["printer_id"]), None)
@@ -215,6 +219,7 @@ def get_timeline(
             job_id=None,
             mqtt_job_id=row["id"],
             item_name=row["job_name"] or "MQTT Print",
+            display_name=physical_names[row["id"]],
             status=job_status,
             is_setup=False,
             colors=[]

@@ -110,7 +110,8 @@ def _normalize_model_name(name: str) -> str:
     patterns = [
         r'\s*[\(\[\-_]\s*(X1C?|X1E|H2D|P1[SP]|A1(\s*Mini)?|Kobra\s*S1)\s*[\)\]]?\s*$',
     ]
-    result = name
+    from core.display_names import filename_stem
+    result = filename_stem(name)
     for p in patterns:
         result = re.sub(p, '', result, flags=re.IGNORECASE)
     return result.strip()

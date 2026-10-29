@@ -61,13 +61,14 @@ def reprint_client(review_db,tmp_path,monkeypatch):
 
 def test_reprint_creates_persisted_dispatchable_original_model(reprint_client,review_db):
     client,identity,source=reprint_client
+    review_db.execute(text("UPDATE print_archives SET print_name='odin-dispatch-deadbeef' WHERE id=101"));review_db.commit()
     response=client.post('/archives/101/reprint',json={'printer_id':9})
     assert response.status_code==200,response.text
     identifier=response.json()['job_id']
     with Session(review_db.get_bind()) as fresh:
-        row=fresh.execute(text('SELECT model_id,printer_id,charged_to_org_id,submitted_by,status FROM jobs WHERE id=:id'),{'id':identifier}).one_or_none()
+        row=fresh.execute(text('SELECT model_id,printer_id,charged_to_org_id,submitted_by,status,item_name FROM jobs WHERE id=:id'),{'id':identifier}).one_or_none()
         assert row is not None
-        assert tuple(row)==(101,9,1,3,'pending')
+        assert tuple(row)==(101,9,1,3,'pending','Original model')
         linked=fresh.execute(text('SELECT pf.stored_path FROM jobs j JOIN print_files pf ON pf.model_id=j.model_id WHERE j.id=:id'),{'id':identifier}).scalar_one()
         assert linked==str(source)
 

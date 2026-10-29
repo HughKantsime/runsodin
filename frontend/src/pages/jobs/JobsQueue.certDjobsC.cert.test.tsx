@@ -241,7 +241,7 @@ it('F04-4.2-02 notes-only edit sends no pinned_printer_id', async () => {
 })
 
 it('F04-4.2-02 a deleted pin is shown in the edit modal and kept on save', async () => {
-  current = [...wire.jobs_before, { ...wire.pinned_blocked_job, id: 9990, item_name: 'CertC deleted pin', pinned_printer_id: null, pinned_printer_issue: 'pinned_printer_deleted', target_filter: 'deleted:10' }]
+  current = [...wire.jobs_before, { ...wire.pinned_blocked_job, id: 9990, item_name: 'CertC deleted pin', display_name: 'CertC deleted pin', pinned_printer_id: null, pinned_printer_issue: 'pinned_printer_deleted', target_filter: 'deleted:10' }]
   await mount()
   expect(within(row('CertC deleted pin')).getByRole('status')).toHaveTextContent('Pinned printer was deleted — choose another printer')
   fireEvent.click(within(row('CertC deleted pin')).getByRole('button', { name: 'Edit job' }))

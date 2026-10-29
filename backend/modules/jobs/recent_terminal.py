@@ -21,6 +21,7 @@ MAX_THUMBNAIL_BYTES=262144
 class RecentTerminalJob(BaseModel):
     id:int
     item_name:str
+    display_name:str|None=None
     status:str
     actual_end:str|None
     duration_seconds:float|None
@@ -152,7 +153,8 @@ def project_recent(db,user,org_id=None):
         result.append(dict(id=row['id'],item_name=row['item_name'],status=row['status'],actual_end=end.isoformat().replace('+00:00','Z') if end else None,
             duration_seconds=duration,printer_name=printer,model_name=model['name'] if model else None,fail_reason=row['fail_reason'],
             thumbnail_data=thumbnail_data(file.thumbnail_b64) if file else None))
-    return result
+    from core.display_names import name_payloads
+    return name_payloads(db, 'job', result, user)
 
 
 router=APIRouter(prefix='/jobs',tags=['Jobs'])

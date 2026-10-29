@@ -1,3 +1,4 @@
+import { displayName } from '../../utils/displayName'
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Upload as UploadIcon, FileUp, Clock, Scale, Layers, Check, Printer, Trash2, ArrowRight, Calendar, CheckSquare, Square, Zap } from 'lucide-react'
@@ -110,7 +111,7 @@ function UploadSuccess({ data, onUploadAnother, onViewLibrary, onScheduleNow, on
         {/* Thumbnail */}
         <div className="w-full md:w-64 h-48 md:h-64 bg-[var(--brand-content-bg)] shrink-0">
           {data.thumbnail_b64 ? (
-            <img src={`data:image/png;base64,${data.thumbnail_b64}`} alt={data.project_name} className="w-full h-full object-contain" />
+            <img src={`data:image/png;base64,${data.thumbnail_b64}`} alt={displayName(data)} className="w-full h-full object-contain" />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-[var(--brand-text-muted)]">No preview</div>
           )}
@@ -132,7 +133,7 @@ function UploadSuccess({ data, onUploadAnother, onViewLibrary, onScheduleNow, on
                 )}
           </div>
 
-          <h2 className="text-xl md:text-2xl font-display font-bold mb-4">{data.project_name}</h2>
+          <h2 className="text-xl md:text-2xl font-display font-bold mb-4">{displayName(data)}</h2>
 
           <div className="grid grid-cols-2 gap-3 md:gap-4 mb-4">
             <div className="flex items-center gap-2 md:gap-3">
@@ -269,10 +270,10 @@ function RecentUploads() {
           <div key={f.id} className="bg-[var(--brand-card-bg)] rounded-md p-3 md:p-4 flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 md:gap-4 min-w-0">
               {f.thumbnail_b64 && (
-                <img src={`data:image/png;base64,${f.thumbnail_b64}`} alt={f.project_name} className="w-10 h-10 md:w-12 md:h-12 rounded-md object-contain bg-[var(--brand-content-bg)] shrink-0" />
+                <img src={`data:image/png;base64,${f.thumbnail_b64}`} alt={displayName(f)} className="w-10 h-10 md:w-12 md:h-12 rounded-md object-contain bg-[var(--brand-content-bg)] shrink-0" />
               )}
               <div className="min-w-0">
-                <p className="font-medium text-sm truncate">{f.project_name}</p>
+                <p className="font-medium text-sm truncate">{displayName(f)}</p>
                 <p className="text-xs text-[var(--brand-text-muted)]">{f.print_time_formatted} • {f.total_weight_grams}g</p>
               </div>
             </div>

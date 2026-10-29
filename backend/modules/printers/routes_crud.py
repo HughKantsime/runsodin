@@ -17,6 +17,7 @@ from sqlalchemy import text, or_, bindparam
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
 
+from core.display_names import name_printers, human_name
 from core.db import get_db
 from core.dependencies import get_current_user, log_audit
 from core.rbac import (
@@ -73,7 +74,7 @@ def list_printers(
     printers = query.order_by(Printer.display_order, Printer.id).all()
     if tag:
         printers = [p for p in printers if p.tags and tag in p.tags]
-    return enrich_printers(enrich_maintenance(db, printers))
+    return enrich_printers(enrich_maintenance(db, name_printers(db, printers, current_user)))
 
 
 @router.get("/printers/tags", tags=["Printers"])
@@ -232,7 +233,7 @@ def get_printer(
         raise HTTPException(status_code=404, detail="Printer not found")
     if not check_org_access(current_user, printer.org_id) and not printer.shared:
         raise HTTPException(status_code=404, detail="Printer not found")
-    return enrich_printers(enrich_maintenance(db, [printer]))[0]
+    return enrich_printers(enrich_maintenance(db, name_printers(db, [printer], current_user)))[0]
 
 
 @router.patch("/printers/{printer_id}", response_model=PrinterResponse, tags=["Printers"])
@@ -466,6 +467,8 @@ def get_overlay_data(printer_id: int, db: Session = Depends(get_db)):
         "bed_temp": printer.bed_temp,
         "bed_target_temp": printer.bed_target_temp,
         "job_name": job_row[0] if job_row else None,
+        # Public overlay: sanitize raw identity without disclosing private model/file metadata.
+        "display_name": human_name(job_row[0]) if job_row else None,
         "camera_url": camera_url,
     }
 

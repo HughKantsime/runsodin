@@ -22,6 +22,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
 
+from core.display_names import name_payloads, human_name
 from core.db import get_db
 from core.dependencies import get_current_user, log_audit
 from core.rbac import check_org_access, get_org_scope, require_action, require_role, require_superadmin
@@ -193,7 +194,7 @@ def list_archives(
     ).fetchall()
 
     return {
-        "items": [_archive_row_to_dict(r) for r in rows],
+        "items": name_payloads(db, 'archive', [_archive_row_to_dict(r) for r in rows], user),
         "total": total,
         "page": page,
         "per_page": per_page,
@@ -231,8 +232,8 @@ def compare_archives(
     _check_archive_org_access(db, dict(row_a._mapping)["id"], user)
     _check_archive_org_access(db, dict(row_b._mapping)["id"], user)
 
-    da = _archive_row_to_dict(row_a)
-    db_dict = _archive_row_to_dict(row_b)
+    da = name_payloads(db, 'archive', [_archive_row_to_dict(row_a)], user)[0]
+    db_dict = name_payloads(db, 'archive', [_archive_row_to_dict(row_b)], user)[0]
 
     # Build diff — fields that differ between a and b
     compare_fields = [
@@ -310,7 +311,7 @@ def archive_log(
         d["tags"] = [t.strip() for t in raw_tags.split(",") if t.strip()] if raw_tags else []
         items.append(d)
 
-    return {"items": items, "total": total, "page": page, "per_page": per_page}
+    return {"items": name_payloads(db, 'archive', items, user), "total": total, "page": page, "per_page": per_page}
 
 
 @router.get("/archives/log/export", tags=["Archives"])
@@ -402,7 +403,7 @@ def get_archive(
     if not row:
         raise HTTPException(status_code=404, detail="Archive not found")
     _check_archive_org_access(db, dict(row._mapping)["id"], user)
-    return _archive_row_to_dict(row)
+    return name_payloads(db, 'archive', [_archive_row_to_dict(row)], user)[0]
 
 
 @router.patch("/archives/{archive_id}", tags=["Archives"])
@@ -604,7 +605,7 @@ def reprint_archive(
     mapping = validate_mapping(body.ams_mapping, file["filaments_json"], slots, printer.api_type)
     identity = user if isinstance(user, dict) else vars(user)
     new_job = Job(
-        item_name=f"Reprint: {ad.get('print_name') or 'Unknown'}",
+        item_name=human_name(model_name=model.name, original_filename=file['original_filename']),
         model_id=model.id, print_file_id=file["id"], payload_sha256=payload_hash, plate_index=body.plate_index,
         ams_mapping=mapping, printer_id=printer.id, priority=5, status="pending",
         submitted_by=identity.get("id"), charged_to_user_id=identity.get("id"),

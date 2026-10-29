@@ -136,7 +136,8 @@ def get_print_jobs(
             job['duration_minutes'] = None
         jobs.append(job)
 
-    return jobs
+    from core.display_names import name_payloads
+    return name_payloads(db, 'print_job', jobs, current_user)
 
 
 @router.get("/print-jobs/stats", tags=["Print Jobs"])
@@ -199,7 +200,8 @@ def get_unlinked_print_jobs(printer_id: int = None, db: Session = Depends(get_db
     sql += " ORDER BY pj.started_at DESC LIMIT 20"
 
     result = db.execute(text(sql), params).fetchall()
-    return [dict(row._mapping) for row in result]
+    from core.display_names import name_payloads
+    return name_payloads(db, 'print_job', [dict(row._mapping) for row in result], current_user)
 
 
 # ──────────────────────────────────────────────

@@ -1,3 +1,4 @@
+import { displayName } from '../../utils/displayName'
 import { useTranslation } from '../../contexts/I18nContext'
 import useCameraList from '../../hooks/useCameraList'
 import { useState, useRef, useEffect, useCallback } from 'react'
@@ -76,7 +77,7 @@ export function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onCl
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2 min-w-0">
                 <Activity size={14} className="text-[var(--brand-primary)] animate-pulse shrink-0" />
-                <span className="text-sm font-medium truncate">{activeJob.job_name || 'Printing'}</span>
+                <span className="text-sm font-medium truncate">{displayName(activeJob)}</span>
               </div>
             </div>
             <PrintProgress percent={activeJob.progress_percent} remainingMinutes={activeJob.remaining_minutes} />
@@ -164,7 +165,7 @@ function JobQueueItem({ job, onStart, onComplete, onCancel }) {
     <div className={clsx('bg-[var(--brand-card-bg)] rounded-md p-3 md:p-4 border-l-4 border border-[var(--brand-card-border)]', statusColors[job.status])}>
       <div className="flex items-center justify-between">
         <div className="min-w-0 mr-2">
-          <h4 className="font-medium truncate">{job.item_name}</h4>
+          <h4 className="font-medium truncate">{displayName(job)}</h4>
           <p className="text-sm text-[var(--brand-text-muted)] truncate">{job.printer?.name || 'Unassigned'} • {formatHours(job.duration_hours)}</p>
         </div>
         <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
@@ -206,7 +207,7 @@ function MqttPrintItem({ job }) {
         <div className="min-w-0 mr-2">
           <h4 className="font-medium flex items-center gap-2 truncate">
             <Activity size={14} className="text-[var(--brand-primary)] animate-pulse shrink-0" />
-            <span className="truncate">{job.job_name || 'Unknown'}</span>
+            <span className="truncate">{displayName(job)}</span>
           </h4>
           <p className="text-sm text-[var(--brand-text-muted)] truncate">{job.printer_name} • Started {formatTime(job.started_at)}</p>
         </div>
@@ -230,7 +231,7 @@ function PrintHistoryItem({ job }) {
     <div className={clsx('bg-[var(--brand-card-bg)] rounded-md p-3 md:p-4 border-l-4 border border-[var(--brand-card-border)]', statusColors[job.status] || 'border-l-[var(--brand-card-border)]')}>
       <div className="flex items-center justify-between">
         <div className="min-w-0 mr-2">
-          <h4 className="font-medium truncate">{job.job_name || 'Unknown'}</h4>
+          <h4 className="font-medium truncate">{displayName(job)}</h4>
           <p className="text-sm text-[var(--brand-text-muted)] truncate">{job.printer_name} • {formatTime(job.started_at)}</p>
         </div>
         <div className="text-right shrink-0">

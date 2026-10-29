@@ -1,5 +1,6 @@
 """O.D.I.N. — Print File Upload and Management."""
 
+from pydantic import BaseModel, Field, field_validator
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, UploadFile, File, Form
 from starlette.responses import JSONResponse
 from core.rate_limit import limiter
@@ -17,6 +18,7 @@ from core.dependencies import log_audit
 from modules.models_library.schemas import FileScheduleOptions
 
 from core.quota import charge_job_quota
+from core.display_names import filename_stem, display_names
 from core.db import get_db
 from core.db_compat import execute_insert_returning_id
 from core.errors import ErrorCode, OdinError
@@ -228,8 +230,8 @@ async def upload_3mf(
             })
 
             # Check for existing model with same name (multi-variant support)
-            normalized_name = _normalize_model_name(metadata.project_name)
-            existing_model = None if target_printer_id is not None else _own_upload_model(db, normalized_name, metadata.project_name, current_user.get("group_id"))
+            normalized_name = _normalize_model_name(filename_stem(file.filename))
+            existing_model = None if target_printer_id is not None else _own_upload_model(db, normalized_name, filename_stem(file.filename), current_user.get("group_id"))
 
             color_req = {}
             for f_item in metadata.filaments:
@@ -313,6 +315,7 @@ async def upload_3mf(
 
             return {
                 "id": file_id,
+                "display_name": display_names(db, "print_file", [file_id], current_user)[file_id],
                 "filename": file.filename,
                 "project_name": metadata.project_name,
                 "print_time_seconds": metadata.print_time_seconds,
@@ -345,7 +348,7 @@ async def upload_3mf(
         else:
             # --- .gcode / .bgcode path: minimal record, no 3mf parsing ---
             import shutil
-            project_name = os.path.splitext(fname)[0]
+            project_name = filename_stem(file.filename)
             normalized_name = _normalize_model_name(project_name)
             current_user = await _fresh_upload_actor(db, current_user)
             duplicate_info = _visible_upload_duplicate(db, file_hash, current_user)
@@ -415,6 +418,7 @@ async def upload_3mf(
 
             return {
                 "id": file_id,
+                "display_name": display_names(db, "print_file", [file_id], current_user)[file_id],
                 "filename": file.filename,
                 "project_name": project_name,
                 "print_time_seconds": 0,
@@ -577,7 +581,7 @@ async def submit_studio_print(
             charge_job_quota(db, current_user)
 
             job = queue_creator.stage_values(db, {
-                "item_name": uploaded.get("project_name") or filename,
+                "item_name": display_names(db, "print_file", [row.id], current_user)[row.id],
                 "model_id": row.model_id, "print_file_id": row.id,
                 "payload_sha256": payload_hash, "plate_index": 0, "duration_hours": duration_hours,
                 "colors_required": ",".join(colors), "quantity": 1, "priority": 5,
@@ -689,3 +693,35 @@ async def get_model_mesh(model_id: int, current_user: dict = Depends(require_rol
     if not model or not model.print_file_id or not check_org_access(current_user, model.org_id):
         raise preview_not_found()
     return await get_print_file_mesh(model.print_file_id, current_user, db)
+
+
+
+class PrintFileRename(BaseModel):
+    original_filename: str = Field(min_length=1, max_length=255)
+
+    @field_validator('original_filename')
+    @classmethod
+    def plain_filename(cls, value):
+        if not value.strip() or '/' in value or '\\' in value or any(ord(c) < 32 for c in value):
+            raise ValueError('Use a plain filename')
+        return value.strip()
+
+
+@router.patch('/print-files/{file_id}/name')
+def rename_print_file(file_id: int, body: PrintFileRename,
+                      actor=Depends(require_action('models.edit', scope='write:models')),
+                      db: Session=Depends(get_db)):
+    from core.model_preview_access import accessible_preview_file
+    from modules.models_library.file_management import _assert_generic_payload
+    row = accessible_preview_file(db, file_id, actor)
+    _assert_generic_payload(db, row)
+    if row.model_id is not None:
+        raise HTTPException(409, 'Rename the model for this print file')
+    db.execute(text('UPDATE print_files SET original_filename=:name WHERE id=:id'),
+               {'name':body.original_filename, 'id':file_id})
+    log_audit(db, 'print_file.renamed', 'print_file', file_id,
+              {'before':row.original_filename, 'after':body.original_filename})
+    db.commit()
+    from core.display_names import human_name
+    return {'id':file_id, 'original_filename':body.original_filename,
+            'display_name':human_name(original_filename=body.original_filename)}

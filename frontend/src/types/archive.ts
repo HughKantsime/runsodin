@@ -3,6 +3,7 @@
 import type { PaginatedResponse } from './common';
 
 export interface Archive {
+  display_name?: string | null;
   print_name: string;
   printer_display: string;
   printer_nickname: string | null;

@@ -35,7 +35,8 @@
       "charged_to_org_id": 1,
       "colors_list": [],
       "colors_required": null,
-      "created_at": "2026-10-25T18:30:11",
+      "created_at": "2026-10-29T15:53:05",
+      "display_name": "Owned ordinary batch",
       "due_date": null,
       "duration_hours": null,
       "effective_duration": 1.0,
@@ -70,7 +71,7 @@
       "suggested_price": null,
       "target_filter": null,
       "target_type": null,
-      "updated_at": "2026-10-25T18:30:11"
+      "updated_at": "2026-10-29T15:53:05"
     },
     {
       "actual_end": null,
@@ -81,7 +82,8 @@
       "charged_to_org_id": 1,
       "colors_list": [],
       "colors_required": null,
-      "created_at": "2026-10-25T18:30:11",
+      "created_at": "2026-10-29T15:53:05",
+      "display_name": "Owned ordinary batch",
       "due_date": null,
       "duration_hours": null,
       "effective_duration": 1.0,
@@ -116,7 +118,7 @@
       "suggested_price": null,
       "target_filter": null,
       "target_type": null,
-      "updated_at": "2026-10-25T18:30:11"
+      "updated_at": "2026-10-29T15:53:05"
     }
   ],
   "reschedule": {

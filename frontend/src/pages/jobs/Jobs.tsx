@@ -1,3 +1,4 @@
+import { displayName } from '../../utils/displayName'
 import MaintenanceBanner from '../../components/printers/MaintenanceBanner'
 import { useState, useCallback, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
@@ -244,12 +245,12 @@ export default function Jobs() {
 
   // Then filter by search and sort
   const filteredJobs = typeFilteredJobs
-    .filter(job => !searchQuery || job.item_name.toLowerCase().includes(searchQuery.toLowerCase()))
+    .filter(job => !searchQuery || displayName(job).toLowerCase().includes(searchQuery.toLowerCase()))
     .sort((a, b) => {
       const dir = sortDirection === 'asc' ? 1 : -1
       switch (sortField) {
         case 'status': return dir * ((statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99))
-        case 'item_name': return dir * (a.item_name || '').localeCompare(b.item_name || '')
+        case 'item_name': return dir * displayName(a).localeCompare(displayName(b))
         case 'queue': return dir * queueCompare(a, b)
         case 'priority': return dir * ((a.priority ?? 99) - (b.priority ?? 99))
         case 'printer': return dir * ((a.printer?.name || '').localeCompare(b.printer?.name || ''))

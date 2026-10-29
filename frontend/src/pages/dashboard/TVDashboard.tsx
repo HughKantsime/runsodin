@@ -1,3 +1,4 @@
+import { displayName } from '../../utils/displayName'
 import CameraFallback from '../../components/printers/CameraFallback'
 import React, { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -43,7 +44,7 @@ function TVPrinterCard({ printer }: { printer: any }) {
   const hasCamera = printer.camera_url && printer.camera_enabled !== false
   const progress = printer.mc_percent || 0
   const remaining = printer.mc_remaining_time
-  const jobName = printer.gcode_file
+  const jobName = displayName({ display_name: printer.current_print_display_name, filename: printer.gcode_file })
 
   const formatTime = (minutes) => {
     if (!minutes) return ''

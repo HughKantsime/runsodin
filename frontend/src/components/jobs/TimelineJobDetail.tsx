@@ -1,3 +1,4 @@
+import { displayName } from '../../utils/displayName'
 import type { ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Clock, Star, Layers, Thermometer, AlertTriangle } from 'lucide-react'
@@ -48,7 +49,7 @@ function ScheduledJobDetail({ block }) {
       {/* Status + name */}
       <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-[var(--brand-text-primary)] font-medium">{job.item_name || block.item_name}</span>
+          <span className="text-[var(--brand-text-primary)] font-medium">{displayName(job) || displayName(block)}</span>
           <span className={clsx('px-2 py-0.5 rounded text-xs font-medium capitalize', statusColors[job.status] || 'bg-[var(--brand-card-border)]')}>{job.status}</span>
         </div>
         <p className="text-[var(--brand-text-secondary)] text-sm">Printer: {block.printer_name}</p>
@@ -175,7 +176,7 @@ function MqttJobDetail({ block }) {
       {/* Name + status */}
       <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-[var(--brand-text-primary)] font-medium">{pj.filename || pj.job_name || block.item_name}</span>
+          <span className="text-[var(--brand-text-primary)] font-medium">{displayName(pj)}</span>
           <span className={clsx('px-2 py-0.5 rounded text-xs font-medium capitalize', statusColors[pj.status] || 'bg-[var(--brand-card-border)]')}>{pj.status}</span>
         </div>
         <p className="text-[var(--brand-text-secondary)] text-sm">Printer: {block.printer_name}</p>
