@@ -10,6 +10,112 @@ from decimal import Decimal, InvalidOperation
 from core.db_utils import _postgres_placeholders
 
 
+def _json_value(value):
+    """DBAPI JSON columns are decoded by PostgreSQL, but text on SQLite."""
+    return json.loads(value) if isinstance(value, (str, bytes, bytearray)) else value
+
+
+def valid_ams_tray(value):
+    """Bambu's 254/255 sentinels, booleans and fractional values are not trays."""
+    if isinstance(value, str) and len(value) <= 2 and value.isascii() and value.isdecimal():
+        value = int(value)
+    return value if type(value) is int and 0 <= value < 16 else None
+
+
+def _observed_trays_key(job_id, print_job_id):
+    from core.filament_ledger import print_marker
+    return print_marker(job_id, print_job_id) + ':observed_trays'
+
+
+def record_attempt_tray(connection, print_job_id, printer_id, tray_now):
+    """Union fresh telemetry into this running attempt; caller owns commit.
+
+    Repeated/invalid values do no writes. Lock parents before the print row,
+    just like terminal accounting, then reread to prevent lost PG updates.
+    """
+    tray = valid_ams_tray(tray_now)
+    if tray is None:
+        return False
+
+    def read():
+        row = execute(connection, "SELECT scheduled_job_id FROM print_jobs "
+                      "WHERE id=? AND printer_id=? AND status='running' AND spool_snapshot IS NOT NULL",
+                      (print_job_id, printer_id)).fetchone()
+        if row is None:
+            return None, []
+        key = _observed_trays_key(row[0], print_job_id)
+        stored = execute(connection, 'SELECT value FROM system_config WHERE key=?', (key,)).fetchone()
+        return key, _json_value(stored[0]) if stored else []
+
+    key, trays = read()
+    if key is None or tray in trays:
+        return False
+    from core.order_production import prepare_print_job_write
+    prepare_print_job_write(connection, print_job_id)
+    key, trays = read()
+    if key is None or tray in trays:
+        return False
+    execute(connection, 'INSERT INTO system_config(key,value) VALUES(?,?) '
+            'ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+            (key, json.dumps(sorted([*trays, tray]))))
+    return True
+
+
+def mark_attempt_tray_evidence_incomplete(connection, print_job_id, printer_id):
+    """Freeze missing evidence in the caller's locked terminal transaction.
+
+    This marker survives monitor restarts and archive reconciliation. Never
+    clear it after completion: later packets cannot repair an ended attempt.
+    """
+    from core.filament_ledger import print_marker
+    row = execute(connection, 'SELECT scheduled_job_id FROM print_jobs WHERE id=? AND printer_id=?',
+                  (print_job_id, printer_id)).fetchone()
+    if row is not None:
+        key = print_marker(row[0], print_job_id) + ':tray_evidence_incomplete'
+        execute(connection, 'INSERT INTO system_config(key,value) VALUES(?,?) '
+                'ON CONFLICT(key) DO NOTHING', (key, json.dumps(True)))
+
+
+def resolve_attempt_material_plan(connection, snapshot, print_job_id):
+    """Resolve only a frozen single-material Bambu plan awaiting tray evidence.
+
+    Never reread file metadata or bindings. The ordinary accounting path still
+    applies pending/confirmation, owner, balance and ledger checks.
+    """
+    plan = snapshot.get('material_plan')
+    if (not isinstance(plan, dict) or plan.get('state') != 'unresolved'
+            or plan.get('reason') != 'missing_material_mapping'
+            or not isinstance(plan.get('observed_tray_fallback'), dict)):
+        return plan
+    from core.filament_ledger import print_marker
+    incomplete = execute(connection, 'SELECT value FROM system_config WHERE key=?',
+                         (print_marker(plan.get('scheduled_job_id'), print_job_id) + ':tray_evidence_incomplete',)).fetchone()
+    if incomplete:
+        return dict(plan, reason='tray_evidence_incomplete')
+    stored = execute(connection, 'SELECT value FROM system_config WHERE key=?',
+                     (_observed_trays_key(plan.get('scheduled_job_id'), print_job_id),)).fetchone()
+    trays = _json_value(stored[0]) if stored else []
+    if not trays:
+        return plan
+    if len(trays) != 1:
+        return dict(plan, reason='multiple_trays_observed')
+    tray = valid_ams_tray(trays[0])
+    if tray is None:
+        return plan
+    matches = [slot for slot in snapshot.get('slots', []) if slot.get('slot_number') == tray + 1]
+    if len(matches) > 1:
+        return dict(plan, reason='ambiguous_start_spool')
+    slot = matches[0] if matches else {'slot_number': tray + 1, 'spool_id': None, 'spool_org_id': None}
+    if slot.get('spool_id') is not None and slot.get('spool_existed') is not True:
+        return dict(plan, reason='missing_spool')
+    if slot.get('spool_org_id') is not None and slot['spool_org_id'] != plan.get('org_id'):
+        return dict(plan, reason='foreign_spool')
+    allocation = {key: slot.get(key) for key in
+                  ('slot_number', 'spool_id', 'spool_org_id', 'identity_state', 'observation_state')}
+    allocation.update(plan['observed_tray_fallback'], source_slot=0)
+    return dict(plan, state='complete', reason=None, allocations=[allocation])
+
+
 def execute(connection, statement, parameters=()):
     """Use one bound SQL implementation for daemon DBAPI and SQLAlchemy callers."""
     if hasattr(connection, 'exec_driver_sql'):
@@ -67,6 +173,14 @@ def _purchase_inputs(price, net_weight):
     return result
 
 
+def _snapshot_slot(row):
+    from core.tray_identity import decode
+    state = decode(row[4])
+    return {'slot_number': row[0], 'spool_id': row[1], 'spool_org_id': row[2],
+            'spool_existed': row[3] is not None, 'observation_state': state.get('id'),
+            'identity_state': state.get('hold_id', state.get('id')) if state.get('pending') else None}
+
+
 def capture_attempt_spools(connection, print_job_id: int, printer_id: int, *, source: str, start_scope=None, start_plan=None) -> bool:
     """Capture only a newly created running attempt; never commit or overwrite.
 
@@ -95,7 +209,7 @@ def capture_attempt_spools(connection, print_job_id: int, printer_id: int, *, so
             raise SourceCreationError('Fresh capture printer disappeared')
         return False
     slots = execute(connection,
-        'SELECT fs.slot_number,fs.assigned_spool_id,s.org_id,s.id '
+        'SELECT fs.slot_number,fs.assigned_spool_id,s.org_id,s.id,fs.tray_observation '
         'FROM filament_slots fs LEFT JOIN spools s ON s.id=fs.assigned_spool_id '
         'WHERE fs.printer_id=? ORDER BY fs.slot_number,fs.id' + (' LIMIT 17' if prospective else ''), (printer_id,)).fetchall()
     located = execute(connection,
@@ -108,8 +222,7 @@ def capture_attempt_spools(connection, print_job_id: int, printer_id: int, *, so
         'source': source,
         'content_owner': capture_content_owner(connection, scheduled),
         'material_plan': _material_plan(connection, print_job_id, printer_id, printer[0], slots, located, bounded=prospective),
-        'slots': [{'slot_number': row[0], 'spool_id': row[1], 'spool_org_id': row[2], 'spool_existed': row[3] is not None}
-                  for row in slots],
+        'slots': [_snapshot_slot(row) for row in slots],
         'located_spools': [{'spool_id': row[0], 'spool_org_id': row[1]} for row in located],
     }
     if prospective:
@@ -178,13 +291,13 @@ def _material_plan(connection, print_job_id, printer_id, printer_org_id, slots, 
         if materials is not None and (not isinstance(materials, list) or len(materials) > 16
                                       or any(not isinstance(x, dict) for x in materials)):
             return unresolved('invalid_material_metadata')
+    plan['estimated_total'] = total
     org = plan['org_id']
     assigned = [row for row in slots if row[1] is not None]
     identities = {row[1] for row in assigned}
     located_ids = {row[0] for row in located}
     if identities and located_ids and not located_ids <= identities:
         return unresolved('contradictory_start_identity')
-    candidates = assigned if assigned else [(None, row[0], row[1], row[0]) for row in located]
     if mapping is not None:
         if not isinstance(mapping, list) or not mapping or any(type(x) is not int or not 0 <= x < 16 for x in mapping) or len(set(mapping)) != len(mapping):
             return unresolved('invalid_mapping')
@@ -192,37 +305,60 @@ def _material_plan(connection, print_job_id, printer_id, printer_org_id, slots, 
             return unresolved('incomplete_mapping')
         selected = []
         for target in mapping:
-            matches = [row for row in assigned if row[0] == target + 1]
+            matches = [row for row in slots if row[0] == target + 1]
             if len(matches) != 1:
-                return unresolved('missing_mapped_spool')
+                matches = [(target + 1, None, None, None, None)]
             selected.append(matches[0])
     else:
         if materials and len(materials) > 1:
             return unresolved('missing_material_mapping')
-        unique = {row[1]: row for row in candidates}
-        if len(unique) != 1:
+        printer = execute(connection, 'SELECT api_type,slot_count FROM printers WHERE id=?', (printer_id,)).fetchone()
+        # A start-time AMS value may be cached from a different print.
+        # Only fresh attempt observations can resolve an unmapped Bambu plan.
+        target = None
+        if printer and printer[0] != 'bambu' and printer[1] == 1:
+            target = 1
+        if target is None:
+            if printer and printer[0] == 'bambu' and plan['print_file_id'] is not None:
+                grams = materials[0].get('used_grams') if materials else None
+                grams = total if grams is None else grams
+                if any(value is not None and not _finite_quantity(value) for value in (grams, total)):
+                    return unresolved('invalid_material_quantity')
+                if grams is not None and total is not None and not math.isclose(grams, total, rel_tol=1e-6, abs_tol=0.1):
+                    return unresolved('conflicting_material_quantities')
+                plan['observed_tray_fallback'] = {
+                    'estimated_grams': grams,
+                    'quantity_provenance': 'sliced_estimate' if grams is not None else 'unknown'}
+            return unresolved('missing_material_mapping')
+        matches = [row for row in slots if row[0] == target]
+        if len(matches) > 1:
             return unresolved('ambiguous_start_spool')
-        selected = [next(iter(unique.values()))]
+        selected = matches or [(target, None, None, None, None)]
     allocations = []
     for index, row in enumerate(selected):
+        # Unbound trays are valid unattributed sources; a dangling assignment
+        # must not become valid because a spool appears after the first read.
+        if row[1] is not None and row[3] is None:
+            return unresolved('missing_spool')
         if row[2] is not None and row[2] != org:
             return unresolved('foreign_spool')
-        if row[3] is None:
-            return unresolved('missing_spool')
+
         current = execute(connection, 'SELECT id,org_id,price,initial_weight_g FROM spools WHERE id=?', (row[1],)).fetchone()
-        if current is None:
+        if row[1] is not None and current is None:
             return unresolved('missing_spool')
-        if current[0] != row[1] or current[1] != row[2]:
+        if current is not None and (current[0] != row[1] or current[1] != row[2]):
             return unresolved('spool_identity_changed')
         grams = materials[index].get('used_grams') if materials else None
         if grams is None and len(selected) == 1:
             grams = total
         if grams is not None and (not _finite_quantity(grams)):
             return unresolved('invalid_material_quantity')
-        allocations.append({'spool_id': row[1], 'spool_org_id': row[2],
+        from core.tray_identity import decode
+        state = decode(row[4]) if len(row) > 4 else {}
+        allocations.append({'observation_state': state.get('id'), 'identity_state': state.get('hold_id', state.get('id')) if state.get('pending') else None, 'spool_id': row[1], 'spool_org_id': row[2],
                             'source_slot': index, 'slot_number': row[0],
                             'estimated_grams': grams,
-                            'purchase_inputs': _purchase_inputs(current[2], current[3]),
+                            'purchase_inputs': _purchase_inputs(current[2], current[3]) if current else None,
                             'quantity_provenance': 'sliced_estimate' if grams is not None else 'unknown'})
     if total is not None:
         if not _finite_quantity(total):
@@ -252,9 +388,13 @@ def account_archive(connection, *, archive_id, print_job_id, printer_id, snapsho
         snapshot = json.loads(snapshot_json) if isinstance(snapshot_json, str) else snapshot_json
         if not isinstance(snapshot, dict) or type(snapshot.get('version')) is not int or snapshot.get('version') != 1 or type(snapshot.get('printer_id')) is not int or snapshot.get('printer_id') != printer_id:
             return unresolved('missing_or_invalid_start_snapshot')
-        plan = snapshot.get('material_plan')
+        plan = resolve_attempt_material_plan(connection, snapshot, print_job_id)
         if not isinstance(plan, dict) or plan.get('state') != 'complete':
-            return unresolved(plan.get('reason') if isinstance(plan, dict) else 'missing_material_plan')
+            reason = plan.get('reason') if isinstance(plan, dict) else 'missing_material_plan'
+            grams = measured_grams if measured_grams is not None else (plan or {}).get('estimated_total')
+            execute(connection, 'UPDATE print_archives SET consumption_json=? WHERE id=?',
+                    (json.dumps([dict(spool_id=None, grams_used=grams, reason=reason)]), archive_id))
+            return unresolved(reason)
         if plan.get('scheduled_job_id') != scheduled_job_id:
             return unresolved('attempt_linkage_changed')
         allocations = plan.get('allocations')
@@ -264,6 +404,43 @@ def account_archive(connection, *, archive_id, print_job_id, printer_id, snapsho
             return unresolved('invalid_measured_quantity')
         if not success and len(allocations) != 1:
             return unresolved('non_successful_material_distribution_unknown')
+        allocations = [dict(item) for item in allocations]
+        pending = []
+        from core.tray_identity import decode
+        held_row = execute(connection, 'SELECT consumption_json FROM print_archives WHERE id=?', (archive_id,)).fetchone()
+        held = json.loads(held_row[0] or '[]') if held_row else []
+        for item in allocations:
+            identity = item.get('identity_state')
+            retained = next((h.get('identity_state') for h in held if h.get('slot_number') == item.get('slot_number') and h.get('identity_state')), None)
+            if retained:
+                identity = retained
+            if not identity:
+                current = execute(connection, 'SELECT tray_observation FROM filament_slots WHERE printer_id=? AND slot_number=?',
+                                  (printer_id, item.get('slot_number'))).fetchone()
+                state = decode(current[0]) if current else {}
+                if state.get('pending'):
+                    identity = state.get('hold_id', state.get('id'))
+                elif state.get('confirmation_id') and item.get('observation_state') and item['observation_state'] != state.get('id'):
+                    identity = state['confirmation_id']
+            item['identity_state'] = identity
+            if identity:
+                confirmed = execute(connection, 'SELECT c.spool_id,s.org_id FROM tray_confirmations c JOIN spools s ON s.id=c.spool_id '
+                                    'JOIN filament_slots fs ON fs.id=c.slot_id WHERE c.state_id=? AND fs.printer_id=? AND fs.slot_number=?',
+                                    (identity, printer_id, item.get('slot_number'))).fetchone()
+                if confirmed:
+                    item['captured_spool_id'] = item['spool_id']
+                    item['captured_spool_org_id'] = item.get('spool_org_id')
+                    item['spool_id'], item['spool_org_id'] = confirmed
+                else:
+                    pending.append(identity)
+            elif item.get('spool_id') is None:
+                pending.append(None)
+        if pending:
+            entries = [dict(spool_id=None, slot_number=item.get('slot_number'), identity_state=item.get('identity_state'),
+                            grams_used=measured_grams if len(allocations) == 1 and measured_grams is not None else item.get('estimated_grams'),
+                            reason='spool_change_pending' if item.get('identity_state') else 'no_bound_spool') for item in allocations]
+            execute(connection, 'UPDATE print_archives SET consumption_json=? WHERE id=?', (json.dumps(entries), archive_id))
+            return 'unresolved', 'spool_change_pending' if any(pending) else 'no_bound_spool', entries
         consumption = {}
         for item in allocations:
             if not isinstance(item, dict) or type(item.get('spool_id')) is not int or item['spool_id'] <= 0:
@@ -275,9 +452,9 @@ def account_archive(connection, *, archive_id, print_job_id, printer_id, snapsho
             else:
                 original = [row for row in snapshot.get('slots', [])
                             if isinstance(row, dict) and row.get('slot_number') == slot]
-                if len(original) != 1 or original[0].get('spool_existed') is not True:
+                if len(original) != 1 or (original[0].get('spool_existed') is not True and not ('captured_spool_id' in item and item['captured_spool_id'] is None)):
                     return unresolved('contradictory_start_identity')
-            if len(original) != 1 or original[0].get('spool_id') != item['spool_id'] or original[0].get('spool_org_id') != item.get('spool_org_id'):
+            if len(original) != 1 or original[0].get('spool_id') != item.get('captured_spool_id', item['spool_id']) or original[0].get('spool_org_id') != item.get('captured_spool_org_id', item.get('spool_org_id')):
                 return unresolved('contradictory_start_identity')
             grams = item.get('estimated_grams')
             provenance = 'sliced_estimate'
@@ -321,6 +498,7 @@ def account_archive(connection, *, archive_id, print_job_id, printer_id, snapsho
     if prior == filament_ledger.JOB_USAGE:
         return unresolved('job_usage_unattributed')
     rows = {}
+    confirmed_ids = {item["spool_id"] for item in allocations if "captured_spool_id" in item}
     for spool_id in sorted(consumption):
         # Portable SQLite writer / PostgreSQL row lock, then read fresh owner
         # and balance while holding every spool lock until caller commits.
@@ -333,12 +511,13 @@ def account_archive(connection, *, archive_id, print_job_id, printer_id, snapsho
         item = consumption[spool_id]
         if row[0] != item['spool_org_id'] or (row[0] is not None and row[0] != plan.get('org_id')):
             return unresolved('spool_owner_changed')
-        if row[1] is None or type(row[1]) not in (int, float) or not math.isfinite(row[1]) or row[1] < 0:
+        if (row[1] is None and spool_id not in confirmed_ids) or (row[1] is not None and (type(row[1]) not in (int, float) or not math.isfinite(row[1]) or row[1] < 0)):
             return unresolved('unknown_spool_balance')
         rows[spool_id] = row
     outcome = filament_ledger.record_job_filament(
         ledger_run, scheduled_job_id, source='archive', print_job_id=print_job_id,
-        grams_by_spool={spool_id: consumption[spool_id]['grams_used'] for spool_id in consumption})
+        grams_by_spool={spool_id: consumption[spool_id]['grams_used'] for spool_id in consumption},
+        allow_unknown_balance=bool(confirmed_ids))
     if outcome.state == 'already_deducted':
         if outcome.reason == filament_ledger.JOB_USAGE:
             return unresolved('job_usage_unattributed')
@@ -360,7 +539,7 @@ def account_archive(connection, *, archive_id, print_job_id, printer_id, snapsho
         has_shortfall = has_shortfall or entry['shortfall_g'] > 0
         result.append({'spool_id': spool_id, 'grams_used': grams,
                        'quantity_provenance': consumption[spool_id]['quantity_provenance'],
-                       'inventory_shortfall_g': entry['shortfall_g']})
+                       'inventory_shortfall_g': entry['shortfall_g'], 'remaining_unknown': entry['remaining_g'] is None})
     result.sort(key=lambda item: item['spool_id'])
     execute(connection, 'UPDATE print_archives SET consumption_json=? WHERE id=?',
             (json.dumps(result, allow_nan=False), archive_id))

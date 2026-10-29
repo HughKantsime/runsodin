@@ -1058,7 +1058,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 256,
+      "line": 257,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1066,7 +1066,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 505,
+      "line": 506,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1074,7 +1074,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 531,
+      "line": 532,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1082,7 +1082,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 533,
+      "line": 534,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1090,7 +1090,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 543,
+      "line": 544,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1098,7 +1098,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 558,
+      "line": 559,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1106,7 +1106,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 560,
+      "line": 561,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -1266,7 +1266,63 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 85,
+      "line": 41,
+      "path": "backend/modules/archives/attempt_accounting.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+      "source": "row = execute(connection, \"SELECT scheduled_job_id FROM print_jobs \""
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 47,
+      "path": "backend/modules/archives/attempt_accounting.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+      "source": "stored = execute(connection, 'SELECT value FROM system_config WHERE key=?', (key,)).fetchone()"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 58,
+      "path": "backend/modules/archives/attempt_accounting.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+      "source": "execute(connection, 'INSERT INTO system_config(key,value) VALUES(?,?) '"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 71,
+      "path": "backend/modules/archives/attempt_accounting.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+      "source": "row = execute(connection, 'SELECT scheduled_job_id FROM print_jobs WHERE id=? AND printer_id=?',"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 75,
+      "path": "backend/modules/archives/attempt_accounting.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+      "source": "execute(connection, 'INSERT INTO system_config(key,value) VALUES(?,?) '"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 91,
+      "path": "backend/modules/archives/attempt_accounting.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+      "source": "incomplete = execute(connection, 'SELECT value FROM system_config WHERE key=?',"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 95,
+      "path": "backend/modules/archives/attempt_accounting.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+      "source": "stored = execute(connection, 'SELECT value FROM system_config WHERE key=?',"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 199,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1274,7 +1330,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 92,
+      "line": 206,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1282,15 +1338,15 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 98,
+      "line": 212,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
-      "source": "'SELECT fs.slot_number,fs.assigned_spool_id,s.org_id,s.id '"
+      "source": "'SELECT fs.slot_number,fs.assigned_spool_id,s.org_id,s.id,fs.tray_observation '"
     },
     {
       "classification": "dialect-neutral",
-      "line": 102,
+      "line": 216,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1298,7 +1354,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 105,
+      "line": 219,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1306,7 +1362,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 119,
+      "line": 232,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1314,7 +1370,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 140,
+      "line": 253,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1322,7 +1378,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 148,
+      "line": 261,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1330,7 +1386,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 164,
+      "line": 277,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1338,7 +1394,15 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 212,
+      "line": 315,
+      "path": "backend/modules/archives/attempt_accounting.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+      "source": "printer = execute(connection, 'SELECT api_type,slot_count FROM printers WHERE id=?', (printer_id,)).fetchone()"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 346,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1346,7 +1410,47 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 327,
+      "line": 395,
+      "path": "backend/modules/archives/attempt_accounting.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+      "source": "execute(connection, 'UPDATE print_archives SET consumption_json=? WHERE id=?',"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 410,
+      "path": "backend/modules/archives/attempt_accounting.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+      "source": "held_row = execute(connection, 'SELECT consumption_json FROM print_archives WHERE id=?', (archive_id,)).fetchone()"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 418,
+      "path": "backend/modules/archives/attempt_accounting.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+      "source": "current = execute(connection, 'SELECT tray_observation FROM filament_slots WHERE printer_id=? AND slot_number=?',"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 427,
+      "path": "backend/modules/archives/attempt_accounting.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+      "source": "confirmed = execute(connection, 'SELECT c.spool_id,s.org_id FROM tray_confirmations c JOIN spools s ON s.id=c.spool_id '"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 442,
+      "path": "backend/modules/archives/attempt_accounting.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+      "source": "execute(connection, 'UPDATE print_archives SET consumption_json=? WHERE id=?', (json.dumps(entries), archive_id))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 505,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1354,7 +1458,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 331,
+      "line": 509,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1362,7 +1466,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 358,
+      "line": 537,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1370,7 +1474,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 365,
+      "line": 544,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1450,7 +1554,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 77,
+      "line": 79,
       "path": "backend/modules/inventory/rfid_identity.py",
       "pattern": "qmark-parameter",
       "reason": "Monitor identity helpers use literal portable SQL through the shared qmark DBAPI adapter; HTTP uses ORM queries.",
@@ -1458,7 +1562,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 115,
+      "line": 117,
       "path": "backend/modules/inventory/rfid_identity.py",
       "pattern": "qmark-parameter",
       "reason": "Monitor identity helpers use literal portable SQL through the shared qmark DBAPI adapter; HTTP uses ORM queries.",
@@ -1466,7 +1570,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 122,
+      "line": 124,
       "path": "backend/modules/inventory/rfid_identity.py",
       "pattern": "qmark-parameter",
       "reason": "Monitor identity helpers use literal portable SQL through the shared qmark DBAPI adapter; HTTP uses ORM queries.",
@@ -1474,7 +1578,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 124,
+      "line": 126,
       "path": "backend/modules/inventory/rfid_identity.py",
       "pattern": "qmark-parameter",
       "reason": "Monitor identity helpers use literal portable SQL through the shared qmark DBAPI adapter; HTTP uses ORM queries.",
@@ -1482,7 +1586,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 219,
+      "line": 230,
       "path": "backend/modules/inventory/slot_assignments.py",
       "pattern": "qmark-parameter",
       "reason": "SQLite BEGIN IMMEDIATE establishes the assignment writer boundary; PostgreSQL uses sorted NOWAIT row locks and a graph recheck.",
@@ -1490,23 +1594,31 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 225,
+      "line": 238,
       "path": "backend/modules/inventory/slot_assignments.py",
       "pattern": "qmark-parameter",
       "reason": "SQLite BEGIN IMMEDIATE establishes the assignment writer boundary; PostgreSQL uses sorted NOWAIT row locks and a graph recheck.",
-      "source": "slot = conn.execute('SELECT id,assigned_spool_id FROM filament_slots WHERE printer_id=? AND slot_number=?', (printer_id, number)).fetchone()"
+      "source": "slot = conn.execute('SELECT id,assigned_spool_id,tray_observation FROM filament_slots WHERE printer_id=? AND slot_number=?', (printer_id, number)).fetchone()"
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 228,
+      "line": 241,
       "path": "backend/modules/inventory/slot_assignments.py",
       "pattern": "qmark-parameter",
       "reason": "SQLite BEGIN IMMEDIATE establishes the assignment writer boundary; PostgreSQL uses sorted NOWAIT row locks and a graph recheck.",
-      "source": "spool = conn.execute('SELECT rfid_tag,remaining_weight_g,status FROM spools WHERE id=?', (slot[1],)).fetchone()"
+      "source": "spool = conn.execute('SELECT rfid_tag,remaining_weight_g,status,tray_uuid FROM spools WHERE id=?', (slot[1],)).fetchone() if slot[1] is not None else None"
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 234,
+      "line": 250,
+      "path": "backend/modules/inventory/slot_assignments.py",
+      "pattern": "qmark-parameter",
+      "reason": "SQLite BEGIN IMMEDIATE establishes the assignment writer boundary; PostgreSQL uses sorted NOWAIT row locks and a graph recheck.",
+      "source": "conn.execute('UPDATE filament_slots SET spoolman_spool_id=NULL,color=NULL WHERE id=?', (slot[0],))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 254,
       "path": "backend/modules/inventory/slot_assignments.py",
       "pattern": "qmark-parameter",
       "reason": "SQLite BEGIN IMMEDIATE establishes the assignment writer boundary; PostgreSQL uses sorted NOWAIT row locks and a graph recheck.",
@@ -1514,7 +1626,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 235,
+      "line": 255,
       "path": "backend/modules/inventory/slot_assignments.py",
       "pattern": "qmark-parameter",
       "reason": "SQLite BEGIN IMMEDIATE establishes the assignment writer boundary; PostgreSQL uses sorted NOWAIT row locks and a graph recheck.",
@@ -1522,7 +1634,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 239,
+      "line": 259,
       "path": "backend/modules/inventory/slot_assignments.py",
       "pattern": "qmark-parameter",
       "reason": "SQLite BEGIN IMMEDIATE establishes the assignment writer boundary; PostgreSQL uses sorted NOWAIT row locks and a graph recheck.",
@@ -1530,7 +1642,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 242,
+      "line": 262,
       "path": "backend/modules/inventory/slot_assignments.py",
       "pattern": "qmark-parameter",
       "reason": "SQLite BEGIN IMMEDIATE establishes the assignment writer boundary; PostgreSQL uses sorted NOWAIT row locks and a graph recheck.",
@@ -1618,7 +1730,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 262,
+      "line": 269,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1626,7 +1738,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 338,
+      "line": 346,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1634,7 +1746,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 362,
+      "line": 370,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1642,7 +1754,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 368,
+      "line": 376,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1898,7 +2010,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 120,
+      "line": 125,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1906,7 +2018,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 133,
+      "line": 138,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1914,7 +2026,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 141,
+      "line": 146,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1922,7 +2034,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 157,
+      "line": 162,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1930,7 +2042,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 159,
+      "line": 164,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1938,7 +2050,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 175,
+      "line": 180,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1946,7 +2058,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 194,
+      "line": 200,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1954,7 +2066,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 198,
+      "line": 204,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1962,7 +2074,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 203,
+      "line": 209,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1970,7 +2082,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 206,
+      "line": 212,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1978,7 +2090,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 208,
+      "line": 214,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1986,7 +2098,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 210,
+      "line": 216,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -1994,7 +2106,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 211,
+      "line": 217,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -2002,7 +2114,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 215,
+      "line": 221,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -2010,7 +2122,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 218,
+      "line": 224,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -2018,7 +2130,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 220,
+      "line": 226,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -2026,7 +2138,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 221,
+      "line": 227,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -2034,7 +2146,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 226,
+      "line": 232,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -2042,7 +2154,15 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 246,
+      "line": 237,
+      "path": "backend/modules/printers/monitors/ams_inventory.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
+      "source": "identifier = conn.execute('SELECT id FROM filament_slots WHERE printer_id=? AND slot_number=?', (printer_id, number)).fetchone()[0]"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 256,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -2050,7 +2170,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 251,
+      "line": 261,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -2058,7 +2178,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 254,
+      "line": 264,
       "path": "backend/modules/printers/monitors/ams_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned shared DBAPI adapter binds qmark SQL on both providers; guarded SQLite writer boundary and PostgreSQL NOWAIT locks have owned persistence tests",
@@ -2138,7 +2258,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 379,
+      "line": 380,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -2146,7 +2266,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 389,
+      "line": 390,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -2154,7 +2274,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 447,
+      "line": 451,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -2162,7 +2282,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 470,
+      "line": 478,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -2170,7 +2290,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 502,
+      "line": 510,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -2178,7 +2298,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 511,
+      "line": 519,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "lastrowid",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -2186,7 +2306,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 512,
+      "line": 520,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -2194,7 +2314,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 556,
+      "line": 564,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -2274,7 +2394,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 177,
+      "line": 214,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",
@@ -2282,7 +2402,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 210,
+      "line": 247,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",
@@ -2290,7 +2410,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 222,
+      "line": 259,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",
@@ -2298,7 +2418,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 277,
+      "line": 314,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",
@@ -2306,7 +2426,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 294,
+      "line": 331,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",
@@ -2314,7 +2434,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 351,
+      "line": 388,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",
@@ -2322,7 +2442,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 392,
+      "line": 429,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",

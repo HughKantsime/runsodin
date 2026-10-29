@@ -404,88 +404,6 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
         if tray['tag_uid']:
             authorize_spool(db.query(Spool).filter(Spool.rfid_tag == tray['tag_uid']).first())
 
-    local_library = db.query(FilamentLibrary).all()
-
-    spoolman_spools = []
-    spoolman_url = get_spoolman_url(db)
-    if spoolman_url:
-        try:
-            from core.spoolman_client import fetch_spools
-            spoolman_spools = fetch_spools(5)  # validated, pinned, projected (O1)
-        except Exception as e:
-            log.debug(f"Failed to fetch spoolman spools: {e}")
-
-    def find_library_match(hex_code, filament_type):
-        if not hex_code:
-            return None
-        hex_lower = hex_code.lower()
-        for f in local_library:
-            if f.color_hex and f.color_hex.lower() == hex_lower:
-                if f.material and f.material.upper() == filament_type.upper():
-                    return f
-        for f in local_library:
-            if f.color_hex and f.color_hex.lower() == hex_lower:
-                return f
-        return None
-
-    def find_spoolman_match(hex_code, filament_type):
-        if not hex_code or not spoolman_spools:
-            return None
-        hex_lower = hex_code.lower()
-        for spool in spoolman_spools:
-            filament = spool.get("filament") or {}
-            spool_hex = (filament.get("color_hex") or "").lower()
-            spool_material = (filament.get("material") or "").upper()
-            if spool_hex and hex_lower:
-                if spool_hex == hex_lower:
-                    if spool_material == filament_type.upper():
-                        return spool
-                    return spool
-        return None
-
-    def get_color_name(hex_code):
-        if not hex_code:
-            return None
-        hex_lower = hex_code.lower()
-        color_map = {
-            "000000": "Black", "ffffff": "White", "f5f5f5": "Off White",
-            "ff0000": "Red", "00ff00": "Green", "0000ff": "Blue",
-            "ffff00": "Yellow", "ff00ff": "Magenta", "00ffff": "Cyan",
-            "ffa500": "Orange", "800080": "Purple", "ffc0cb": "Pink",
-            "808080": "Gray", "c0c0c0": "Silver",
-        }
-        if hex_lower in color_map:
-            return color_map[hex_lower]
-        try:
-            r = int(hex_lower[0:2], 16)
-            g = int(hex_lower[2:4], 16)
-            b = int(hex_lower[4:6], 16)
-            if abs(r - g) < 25 and abs(g - b) < 25 and abs(r - b) < 25:
-                avg = (r + g + b) // 3
-                if avg < 40: return "Black"
-                elif avg < 100: return "Dark Gray"
-                elif avg < 160: return "Gray"
-                elif avg < 220: return "Light Gray"
-                else: return "White"
-            max_val = max(r, g, b)
-            if r == max_val and r > g + 30 and r > b + 30:
-                if g > 150: return "Orange" if g < 200 else "Yellow"
-                elif b > 100: return "Pink"
-                return "Red"
-            elif g == max_val and g > b:
-                if r > 80 and g > 80 and b < g and r < g: return "Olive Green"
-                elif b > 150: return "Teal"
-                return "Green"
-            elif b == max_val and b > r + 30 and b > g + 30:
-                if r > 100: return "Purple"
-                return "Blue"
-            elif r > 200 and g > 200 and b < 100: return "Yellow"
-            elif r > 200 and g < 150 and b > 200: return "Magenta"
-            elif r < 100 and g > 200 and b > 200: return "Cyan"
-            return f"#{hex_code.upper()}"
-        except Exception:
-            return f"#{hex_code.upper()}"
-
     printer, locked_rfid = _lock_ams_mutation(
         db, printer_id, current_user, tags, acquired_connection, uuids, trays)
     sealed_rows = locked_rfid.candidates
@@ -494,9 +412,12 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
     if len(known_ids) != len(set(known_ids)):
         raise HTTPException(409, "AMS identities are ambiguous; retry synchronization")
     from core.interfaces.inventory_moves import inventory_moves
-    inventory_moves().observe_slots(db, printer_id,
+    from core.tray_identity import advance, observe, preset_label
+    from core.print_attempts import sqlalchemy_runner
+    states = inventory_moves().observe_slots(db, printer_id,
         [(s.slot_number, s.empty, t['tag_uid']) for s, t in zip(bambu_status.ams_slots, trays)],
-        set(known_ids), current_user)
+        set(known_ids), current_user,
+        trays={s.slot_number: t for s, t in zip(bambu_status.ams_slots, trays)})
     updated_slots = []
     used_candidates = set()
     for ams_slot, tray in zip(bambu_status.ams_slots, trays):
@@ -512,6 +433,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
             db.add(db_slot)
             db.flush()
 
+        state = states.setdefault(ams_slot.slot_number, advance({}, tray)[0])
         color_hex = ams_slot.color_hex[:6] if ams_slot.color_hex else None
         ftype = FilamentType(slot_filament_value(ams_slot.filament_type))
 
@@ -555,7 +477,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
                     "color_hex": color_hex, "spool_id": rfid_match.id,
                     "rfid": tray["tag_uid"], "tray_uuid": rfid_match.tray_uuid,
                     "matched": "rfid_bound" if bound else "rfid",
-                    "remaining_percent": ams_slot.remaining_percent,
+                    "remaining_percent": state["remaining"],
                 })
                 continue
 
@@ -619,27 +541,17 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
                 })
                 continue
 
-            library_match = find_library_match(color_hex, ams_slot.filament_type)
-            if library_match:
-                color_name = f"{library_match.brand} {library_match.name}".strip()
-                db_slot.filament_type = FilamentType(slot_filament_value(ftype))
-                db_slot.color = color_name
-                db_slot.color_hex = color_hex
-                db_slot.loaded_at = datetime.now(timezone.utc)
-                updated_slots.append({
-                    "slot": ams_slot.slot_number, "type": ftype.value, "color": color_name,
-                    "color_hex": color_hex, "matched": "library",
-                })
-                continue
-
-            color_name = get_color_name(color_hex)
+            from core.tray_identity import decode, preset_label
+            spool = db_slot.assigned_spool
+            color_name = f"{spool.filament.brand} {spool.filament.name}".strip() if spool and spool.filament else preset_label(state)
             db_slot.filament_type = FilamentType(slot_filament_value(ftype))
             db_slot.color = color_name
             db_slot.color_hex = color_hex
             db_slot.loaded_at = datetime.now(timezone.utc)
             updated_slots.append({
                 "slot": ams_slot.slot_number, "type": ftype.value, "color": color_name,
-                "color_hex": color_hex, "matched": "color_analysis",
+                "color_hex": color_hex, "matched": "spool" if spool else "preset",
+                "remaining_percent": None,
             })
         else:
             db_slot.color = None
@@ -648,6 +560,13 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
                 "slot": ams_slot.slot_number, "type": db_slot.filament_type.value,
                 "color": None, "empty": True,
             })
+
+    # Decisions were made against the original graph; save them after destinations.
+    db.flush()
+    for number, state in states.items():
+        db_slot = db.query(FilamentSlot).filter_by(printer_id=printer_id, slot_number=number).one()
+        observe(sqlalchemy_runner(db), db_slot.id, state)
+        db.refresh(db_slot)
 
     mismatches = []
     for db_slot in db.query(FilamentSlot).filter(FilamentSlot.printer_id == printer_id).all():
@@ -668,7 +587,8 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
                             mismatch_reason.append(f"Color: spool={spool_hex}, slot={slot_hex}")
                     except Exception as e:
                         log.debug(f"Failed to compute color distance: {e}")
-                if mismatch and not spool.rfid_tag:
+                from core.tray_identity import decode
+                if mismatch and not spool.rfid_tag and not decode(db_slot.tray_observation).get('confirmation_id'):
                     db_slot.spool_confirmed = False
                     mismatches.append({
                         "slot_number": db_slot.slot_number,

@@ -115,7 +115,7 @@ RAW_REQUIRED_TABLES = frozenset(
 # a newer migration helper before selecting its closed source contract.
 POWER_OPERATION_COLUMNS = tuple("operation_nonce request_nonce owner_nonce printer_id target_key config_key destination_key purpose physical_job_id scheduled_job_id observation_key actor_user_id auth_kind authority_key state revision created_at changed_at command_started_at release_pending_at completed_at outcome cleanup_reason".split())
 
-RAW_REQUIRED_TABLES = RAW_REQUIRED_TABLES | frozenset({'education_memberships', 'dispatch_recovery_history', 'terminal_filament_measurements', 'filament_cost_events'})
+RAW_REQUIRED_TABLES = RAW_REQUIRED_TABLES | frozenset({'education_memberships', 'dispatch_recovery_history', 'terminal_filament_measurements', 'filament_cost_events', 'tray_confirmations'})
 
 RAW_REQUIRED_COLUMNS = {
     "job_summary_outbox": frozenset("print_attempt_uid attempt_birth job_id printer_id org_id outcome observed_at delivery_state".split()),
@@ -227,6 +227,7 @@ for _source_table in ('spools', 'print_jobs'):
 RAW_REQUIRED_COLUMNS['dispatch_recovery_history'] = frozenset('id created_at audit_id actor_id actor_identity owner_org_id charged_org_id printer_id job_id attempt_handle snapshot_handle decision reason_category facts'.split())
 RAW_REQUIRED_COLUMNS['terminal_filament_measurements'] = frozenset('observation_id attempt_uid attempt_birth owner_scope owner_key order_uid item_uid allocation_key outcome measurement_basis measured_grams reported_value reconciliation_reason snapshot_json created_at'.split())
 RAW_REQUIRED_COLUMNS['filament_cost_events'] = frozenset('event_id observation_id revision expected_revision audit_reason spool_uid purchase_evidence_nonce currency amount_decimal reason calculation_version created_at'.split())
+RAW_REQUIRED_COLUMNS['tray_confirmations'] = frozenset('state_id slot_id decision spool_id previous_spool_id'.split())
 RAW_REQUIRED_COLUMNS['education_memberships'] = frozenset({'user_id','org_id','retained_at','ended_at'})
 RAW_REQUIRED_COLUMNS['orders'] |= frozenset({'economic_global_origin_nonce'})
 RAW_REQUIRED_COLUMNS['spools'] |= frozenset({'purchase_evidence_nonce','purchase_revision'})
@@ -291,7 +292,7 @@ def _orm_checksum() -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-CURRENT_ORM_BASELINE = "spool_identity_044_20261027"
+CURRENT_ORM_BASELINE = "tray_identity_046_20261028"
 
 # Post-027 migrations, applied in this order on the current path only. Each must be
 # additive and must never fail because of existing user data (data-dependent
@@ -313,6 +314,7 @@ POST027_MIGRATIONS = (
     ("python:043-recipe-configuration", "core.schema.migrations.043_recipe_configuration"),
     ("python:044-spool-tray-uuid", "core.schema.migrations.044_spool_tray_uuid"),
     ("python:045-pause-cancel-alerts", "core.schema.migrations.045_pause_cancel_alerts"),
+    ("python:046-tray-identity", "core.schema.migrations.046_tray_identity"),
 )
 
 

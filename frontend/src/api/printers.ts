@@ -66,6 +66,7 @@ export const printers = {
   clearErrors: (printerId: number): Promise<void> => fetchAPI(`/printers/${printerId}/clear-errors`, { method: 'POST' }),
   skipObjects: (printerId: number, objectIds: number[]): Promise<void> => fetchAPI(`/printers/${printerId}/skip-objects`, { method: 'POST', body: JSON.stringify({ object_ids: objectIds }) }),
   setSpeed: (printerId: number, speed: number): Promise<{ lights_on?: boolean; success?: boolean }> => fetchAPI(`/printers/${printerId}/speed`, { method: 'POST', body: JSON.stringify({ speed }) }),
+  confirmTrayIdentity: (printerId: number, slot: number, data: { observed_state: string; decision: 'same' | 'new'; spool_id?: number }): Promise<{ spool_id: number; replayed: boolean }> => fetchAPI(`/printers/${printerId}/slots/${slot}/confirm-identity`, { method: 'POST', body: JSON.stringify(data) }),
   assignSlotSpool: (printerId: number, slotNumber: number, spoolId: number): Promise<void> => fetchAPI(`/printers/${printerId}/slots/${slotNumber}/assign?spool_id=${spoolId}`, { method: 'POST' }),
   getCameras: (): Promise<Camera[]> => fetchAPI('/cameras'),
 }

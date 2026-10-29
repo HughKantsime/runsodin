@@ -57,7 +57,7 @@ def test_real_order_owned_first_start_callback_freezes_exact_unit_evidence(creat
     from core import event_bus
     monkeypatch.setattr(event_bus,'get_event_bus',lambda:SimpleNamespace(publish=committed))
     monkeypatch.setattr(moonraker_monitor,'engine',engine)
-    if path=='mqtt':identifier,linked,_=mqtt_job_lifecycle.record_job_started(59,'Owned',{'subtask_name':names[0],'gcode_file':'Metadata/plate_1.gcode'},lambda **kw:None,lambda:None);assert linked==job
+    if path=='mqtt':identifier,linked,_=mqtt_job_lifecycle.record_job_started(59,'Owned',{'subtask_name':names[0],'gcode_file':'Metadata/plate_1.gcode','ams':{'tray_now':0}},lambda **kw:None,lambda:None);assert linked==job
     elif path=='generic-events':identifier=job_events.job_started(59,names[0])
     else:
         monitor=moonraker_monitor.MoonrakerMonitor.__new__(moonraker_monitor.MoonrakerMonitor)
@@ -68,14 +68,23 @@ def test_real_order_owned_first_start_callback_freezes_exact_unit_evidence(creat
     with engine.connect() as c:
         row=c.execute(text('SELECT p.economic_uid,p.scheduled_job_id,l.state,l.owner_scope,l.owner_key,p.spool_snapshot FROM print_jobs p JOIN cost_source_lifetimes l ON l.birth_nonce=p.economic_birth_nonce WHERE p.id=:id'),{'id':identifier}).one()
         assert row[0] and tuple(row[1:5])==(job,'known',scope_name,org or 0)
-        value=json.loads(row[5])['unit_valuation'];assert value['state']=='known' and value['target']['owner_scope']==scope_name
-        assert value['sources'][0]['price_decimal']=='12.99' and value['sources'][0]['net_weight_g_decimal']=='750.25'
+        captured=json.loads(row[5]);value=captured['unit_valuation']
+        assert value['target']['owner_scope']==scope_name
+        if protocol=='bambu':
+            # Cached start tray cannot resolve an unmapped Bambu source.
+            assert captured['material_plan']['reason']=='missing_material_mapping'
+            assert 'observed_tray_fallback' in captured['material_plan']
+            assert value['state']=='unknown' and value['reason']=='unresolved_material_mapping'
+            assert value['sources']==[]
+        else:
+            assert value['state']=='known'
+            assert value['sources'][0]['price_decimal']=='12.99' and value['sources'][0]['net_weight_g_decimal']=='750.25'
         assert c.execute(text('SELECT observed_print_job_id FROM dispatch_attempt_receipts WHERE job_id=:id'),{'id':job}).scalar_one()==identifier
 
     if path=='mqtt':
         assert len(events)==1
         before_snapshot=row[5]
-        replay,linked,_=mqtt_job_lifecycle.record_job_started(59,'Owned',{'subtask_name':names[0],'gcode_file':'Metadata/plate_1.gcode'},lambda **kw:None,lambda:None)
+        replay,linked,_=mqtt_job_lifecycle.record_job_started(59,'Owned',{'subtask_name':names[0],'gcode_file':'Metadata/plate_1.gcode','ams':{'tray_now':0}},lambda **kw:None,lambda:None)
         assert replay==identifier and linked==job
         assert len(events)==1, 'Same physical observation must not republish JOB_STARTED'
         with engine.connect() as c:

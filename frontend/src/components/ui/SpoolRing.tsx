@@ -3,7 +3,7 @@ import clsx from 'clsx'
 interface SpoolRingProps {
   color?: string
   material?: string
-  level?: number
+  level?: number | null
   empty?: boolean
   size?: number
   className?: string
@@ -13,9 +13,9 @@ export default function SpoolRing({ color = '#888', material = '', level = 100, 
   const strokeWidth = 3
   const radius = (size - strokeWidth) / 2
   const circumference = 2 * Math.PI * radius
-  const clampedLevel = Math.min(100, Math.max(0, level))
+  const clampedLevel = Math.min(100, Math.max(0, level ?? 100))
   const offset = circumference - (clampedLevel / 100) * circumference
-  const isLow = clampedLevel < 15 && !empty
+  const isLow = level != null && clampedLevel < 15 && !empty
 
   if (empty) {
     return (
@@ -39,7 +39,7 @@ export default function SpoolRing({ color = '#888', material = '', level = 100, 
 
   return (
     <div className={clsx('inline-flex items-center gap-1.5', className)}>
-      <svg width={size} height={size} className="shrink-0" style={{ transform: 'rotate(-90deg)' }}>
+      <svg width={size} height={size} className="shrink-0" aria-label={level == null ? 'Remaining unknown' : `${clampedLevel}% remaining`} style={{ transform: 'rotate(-90deg)' }}>
         {/* Background track */}
         <circle
           cx={size / 2}
@@ -57,7 +57,7 @@ export default function SpoolRing({ color = '#888', material = '', level = 100, 
           fill="none"
           stroke={color}
           strokeWidth={strokeWidth}
-          strokeDasharray={circumference}
+          strokeDasharray={level == null ? '3 3' : circumference}
           strokeDashoffset={offset}
           strokeLinecap="round"
           style={{ transition: 'stroke-dashoffset 0.5s ease' }}

@@ -34,16 +34,16 @@ test('CertENotif: bell shows the server unread count and opening lists recent al
   const bell = await screen.findByRole('button', { name: 'Notifications, 3 unread' })
   expect(within(bell).getByText('3')).toBeInTheDocument()
   fireEvent.click(bell)
-  await screen.findByText('Print Failed: Synthetic hinge')
+  await screen.findByText('P1S-09: Synthetic hinge failed')
   expect(calls).toContainEqual({ method: 'GET', path: '/alerts?limit=10' })
   expect(screen.getByText('Maintenance Due: P1S-10')).toBeInTheDocument()
-  expect(screen.getByText('Print Complete: Synthetic bracket')).toBeInTheDocument()
+  expect(screen.getByText('P1S-09: Synthetic bracket finished')).toBeInTheDocument()
 })
 
 test('CertENotif: clicking an unread bell entry marks it read and decrements to the server count', async () => {
   render(<MemoryRouter><AlertBell /></MemoryRouter>)
   fireEvent.click(await screen.findByRole('button', { name: 'Notifications, 3 unread' }))
-  fireEvent.click(await screen.findByText('Print Failed: Synthetic hinge'))
+  fireEvent.click(await screen.findByText('P1S-09: Synthetic hinge failed'))
   await waitFor(() => expect(calls).toContainEqual({ method: 'PATCH', path: `/alerts/${fixture.ids.print_failed}/read` }))
   const expected = fixture.unread_counts[1].unread_count
   await screen.findByRole('button', { name: `Notifications, ${expected} unread` })

@@ -101,13 +101,24 @@ it('printing status filter keeps the actively printing Bambu printer', async () 
   expect(names()).toContain('Cert Bambu')
 })
 
-it('RFID-confirmed slots leave only the non-RFID roll needing manual spool assignment', async () => {
-  // 2.0.27 monitor ingestion creates/binds real inventory records in the capture.
-  // Keep this consumer assertion coupled to that wire, without masking its fields.
-  expect(w.printers[0].filament_slots.map((slot: any) => slot.assigned_spool_id)).toEqual([1, 2, null, 3, 4, 5, 6, 7])
-  expect(w.printers[0].filament_slots.filter((slot: any) => slot.spool_confirmed)).toHaveLength(7)
+it('RFID swaps clear stale bindings and leave three tag-less trays needing assignment', async () => {
+  // spool-tray-identity spec items 1, 2 and 2a: captured RFID-to-no-tag swaps
+  // clear stale identities; the current preset is not a spool brand.
+  expect(w.printers[0].filament_slots.map((slot: any) => slot.assigned_spool_id)).toEqual([null, null, null, 3, 4, 5, 6, 7])
+  expect(w.printers[0].filament_slots.filter((slot: any) => slot.spool_confirmed)).toHaveLength(5)
+  for (const slot of w.printers[0].filament_slots.slice(0, 3)) {
+    expect(slot.color).toBe('preset: Bambu PETG')
+    expect(slot.preset).toBe(slot.color)
+    expect(slot.brand).toBeNull()
+    expect(slot.remaining).toBeNull()
+    expect(slot.remaining_weight).toBeNull()
+    expect(slot.observed_state).toMatch(/^[0-9a-f]{32}$/)
+    expect(slot.spool_change_pending).toBe(false)
+  }
   await page()
-  expect(within(card(301)).getByTitle('Slots need spool assignment')).toHaveTextContent(/^1$/)
+  expect(within(card(301)).getByTitle('Slots need spool assignment')).toHaveTextContent(/^3$/)
+  expect(within(card(301)).getAllByText('preset: Bambu PETG')).toHaveLength(3)
+  expect(within(card(301)).getAllByText('Remaining unknown')).toHaveLength(3)
 })
 it('printing status filter includes Moonraker/PrusaLink/Elegoo printers that are printing', async () => {
   await page()

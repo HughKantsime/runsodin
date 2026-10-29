@@ -165,11 +165,13 @@ def slot_integrity_report(db):
 
 
 class TelemetryInventoryMoves:
+    lock_slot_graph = staticmethod(lock_slot_graph)
+
     """Raw DB counterpart of assign_slot for the locked AMS graph.
 
     Call only after the monitor validates and locks every affected printer,
-    slot and spool. Explicit empty or a different real RFID is departure
-    evidence. Missing tags and material/color changes are never identity.
+    slot and spool. Explicit empty, changed RFID (including tag loss), and
+    strong tag-less changes depart through this single effects authority.
     """
     def observe_empty_slots(self, connection, printer_id, numbers):
         from sqlalchemy.orm import Session
@@ -185,20 +187,28 @@ class TelemetryInventoryMoves:
             db.flush()
             db.commit()
 
-    def observe_slots(self, db, printer_id, observations, incoming_ids, current_user):
+    def observe_slots(self, db, printer_id, observations, incoming_ids, current_user, *, trays=None):
         from core.dependencies import log_audit
         from core.base import SpoolStatus
         from modules.inventory.stock import break_seal
+        from core.tray_identity import decode, departure
+        states = {}
         for number, empty, tag in observations:
             slot = db.query(FilamentSlot).filter_by(printer_id=printer_id, slot_number=number).first()
             if not slot:
                 continue
             lock_slot_graph(db, slot.id)
             db.refresh(slot)
-            if slot.assigned_spool_id is None:
+            spool = db.query(Spool).filter_by(id=slot.assigned_spool_id).populate_existing().first() if slot.assigned_spool_id is not None else None
+            tray = trays[number] if trays is not None else {'tray_type': '' if empty else 'loaded', 'tag_uid': tag}
+            state, reason = departure(decode(slot.tray_observation) if trays is not None else {}, tray,
+                                      spool.rfid_tag if spool else None, spool.tray_uuid if spool else None)
+            states[number] = state
+            if not reason:
                 continue
-            spool = db.query(Spool).filter_by(id=slot.assigned_spool_id).populate_existing().first()
-            if not spool or (not empty and (not tag or tag == spool.rfid_tag)):
+            slot.spoolman_spool_id = None
+            slot.color = None
+            if not spool:
                 continue
             # Hardware departure evidence is internal reconciliation, even when
             # a synthetic org-scoped user supplies the access checks above.
@@ -212,23 +222,33 @@ class TelemetryInventoryMoves:
                     spool.status = SpoolStatus.EMPTY
             break_seal(db, spool.id)
             log_audit(db, 'telemetry.retire' if retired else 'telemetry.relocate', 'spool', spool.id,
-                      {'printer_id': printer_id, 'slot': number, 'reason': 'empty' if empty else 'rfid_changed', 'moving': moving})
+                      {'printer_id': printer_id, 'slot': number, 'reason': reason, 'moving': moving})
+        return states
 
     def break_seal(self, conn, spool_id):
         from modules.inventory.stock import seal_key
         conn.execute('DELETE FROM system_config WHERE key=?', (seal_key(spool_id),))
 
-    def observed_departures(self, conn, printer_id, observations, incoming_ids):
+    def observed_departures(self, conn, printer_id, observations, incoming_ids, *, trays=None):
         import json
         import uuid
+        from core.tray_identity import decode, departure
+        states = {}
         for number, material, tag in observations:
-            slot = conn.execute('SELECT id,assigned_spool_id FROM filament_slots WHERE printer_id=? AND slot_number=?', (printer_id, number)).fetchone()
-            if not slot or slot[1] is None:
+            slot = conn.execute('SELECT id,assigned_spool_id,tray_observation FROM filament_slots WHERE printer_id=? AND slot_number=?', (printer_id, number)).fetchone()
+            if not slot:
                 continue
-            spool = conn.execute('SELECT rfid_tag,remaining_weight_g,status FROM spools WHERE id=?', (slot[1],)).fetchone()
-            if not spool:
+            spool = conn.execute('SELECT rfid_tag,remaining_weight_g,status,tray_uuid FROM spools WHERE id=?', (slot[1],)).fetchone() if slot[1] is not None else None
+            if slot[1] is not None and not spool:
                 raise ValueError('Locked spool disappeared')
-            if material != '' and (not tag or tag == spool[0]):
+            tray = trays[number] if trays is not None else {'tray_type': material, 'tag_uid': tag}
+            state, reason = departure(decode(slot[2]) if trays is not None else {}, tray,
+                                      spool[0] if spool else None, spool[3] if spool else None)
+            states[number] = state
+            if not reason:
+                continue
+            conn.execute('UPDATE filament_slots SET spoolman_spool_id=NULL,color=NULL WHERE id=?', (slot[0],))
+            if not spool:
                 continue
             # Clear both directions before the monitor writes final destinations.
             conn.execute('UPDATE filament_slots SET assigned_spool_id=NULL,spool_confirmed=? WHERE id=?', (False, slot[0]))
@@ -241,5 +261,6 @@ class TelemetryInventoryMoves:
             self.break_seal(conn, slot[1])
             conn.execute('INSERT INTO inventory_repairs(event_id,spool_id,action,before_json,after_json) VALUES(?,?,?,?,?)',
                          (str(uuid.uuid4()), slot[1], 'telemetry.retire' if empty else 'telemetry.relocate',
-                          json.dumps({'printer_id': printer_id, 'slot': number, 'reason': 'empty' if material == '' else 'rfid_changed'}),
+                          json.dumps({'printer_id': printer_id, 'slot': number, 'reason': reason}),
                           json.dumps({'location': None, 'status': 'empty' if empty else spool[2], 'moving': relocating})))
+        return states

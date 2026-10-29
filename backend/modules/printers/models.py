@@ -155,13 +155,20 @@ class FilamentSlot(Base):
     # Metadata
     loaded_at = Column(DateTime, server_default=func.now())
 
+    tray_observation = Column(Text)
+
     # Relationships
     printer = relationship("Printer", back_populates="filament_slots")
     assigned_spool = relationship("Spool", foreign_keys=[assigned_spool_id])
 
     @property
     def remaining(self) -> Optional[float]:
-        """Percentage of filament remaining (0-100), derived from assigned spool."""
+        """Current Bambu measurement, or the assigned balance for other printers."""
+        from core.tray_identity import decode
+        if self.tray_observation:
+            return decode(self.tray_observation).get('remaining')
+        if self.printer and self.printer.api_type == 'bambu':
+            return None
         if self.assigned_spool and self.assigned_spool.initial_weight_g and self.assigned_spool.initial_weight_g > 0:
             if self.assigned_spool.remaining_weight_g is not None:
                 return round((self.assigned_spool.remaining_weight_g / self.assigned_spool.initial_weight_g) * 100, 1)

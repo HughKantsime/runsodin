@@ -172,6 +172,10 @@ def main():
             c.execute(text("INSERT INTO job_timeline_events(id,job_id,print_attempt_uid,kind,occurred_at) VALUES('roundtrip040',990034,'roundtrip040-attempt','completed',CURRENT_TIMESTAMP)"))
             c.execute(text("INSERT INTO timeline_writer_state(process_id,started_at,clean_shutdown,last_drained_at) VALUES('roundtrip040',CURRENT_TIMESTAMP,1,CURRENT_TIMESTAMP)"))
             c.execute(text("INSERT INTO dispatch_attempt_receipts(claim_token,printer_id,job_id,configuration_key,prepared_power_key,observed_filename_key,stable_configuration_key,stable_key_source) VALUES(:token,1,990034,:full,:full,:full,:stable,'dispatch')"), {'token':'4'*32,'full':'4'*64,'stable':'1'*64})
+            c.execute(text("INSERT INTO filament_library(id,brand,name) VALUES(990046,'Fixture','Roundtrip')"))
+            c.execute(text("INSERT INTO spools(id,filament_id) VALUES(990046,990046)"))
+            c.execute(text("INSERT INTO filament_slots(id,printer_id,slot_number,tray_observation) VALUES(990046,1,990046,:state)"), {'state':'{"id":"roundtrip046"}'})
+            c.execute(text("INSERT INTO tray_confirmations(state_id,slot_id,decision,spool_id) VALUES(:state,990046,'same',990046)"), {'state':'6'*32})
         backup, backup_metadata = b.create_postgres_backup(target, maintenance_url=maintenance, **args)
         with engine.begin() as c:
             c.execute(text("UPDATE system_config SET value='\"after-backup\"' WHERE key='historical_marker'"))
@@ -190,6 +194,9 @@ def main():
             assert c.execute(text("SELECT id,title FROM " + DEFERRED)).all() == [('roundtrip032', 'kept')]
             assert c.execute(text("SELECT operation_id,captured_single_tenant FROM " + TENANCY)).all() == [('roundtrip033', True)]
             assert c.execute(text("SELECT job_id,alert_kind,attempts FROM " + OUTBOX)).all() == [(990034, 'queue_added', 0)]
+            assert c.execute(text("SELECT tray_observation FROM filament_slots WHERE id=990046")).scalar_one() == '{"id":"roundtrip046"}'
+            assert c.execute(text("SELECT decision,spool_id FROM tray_confirmations WHERE slot_id=990046")).one() == ('same',990046)
+        print('post027-native-current-backup-restore-roundtrip-046-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-data-and-032-row-pass', flush=True)
         print('post027-native-current-backup-restore-roundtrip-033-capture-tenancy-row-pass', flush=True)
         with engine.connect() as c:
