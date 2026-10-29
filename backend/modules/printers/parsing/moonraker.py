@@ -36,6 +36,7 @@ def parse_status(
         "bed_temp": bed.get("temperature", 0.0), "bed_target": bed.get("target", 0.0),
         "nozzle_temp": extruder.get("temperature", 0.0), "nozzle_target": extruder.get("target", 0.0),
         "filename": stats.get("filename", ""), "print_duration": stats.get("print_duration", 0.0),
+        "total_duration": stats.get("total_duration"),
         "filament_used_mm": stats.get("filament_used", 0.0),
         "current_layer": layer.get("current_layer", 0), "total_layers": layer.get("total_layer", 0),
         "progress_percent": round(virtual_sd.get("progress", 0.0) * 100, 1) if virtual_sd else 0.0,

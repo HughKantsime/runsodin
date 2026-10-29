@@ -82,7 +82,7 @@ def test_actual_start_paths_capture_in_same_commit(capture_case,monkeypatch,path
   instance=moonraker_monitor.MoonrakerMonitor.__new__(moonraker_monitor.MoonrakerMonitor)
   instance.printer_id=9;instance.name='Synthetic';instance._current_job_db_id=None
   monkeypatch.setattr(instance,'_try_auto_link',lambda *args:None)
-  instance._job_started(SimpleNamespace(filename='Synthetic',total_layers=0,bed_target=0,nozzle_target=0))
+  instance._job_started(SimpleNamespace(filename='Synthetic capture',total_layers=0,bed_target=0,nozzle_target=0))
   identifier=instance._current_job_db_id
  assert identifier is not None
  with capture_case.connect() as conn:
@@ -98,7 +98,7 @@ def test_moonraker_resume_leaves_missing_historical_snapshot_missing(capture_cas
  monkeypatch.setattr(moonraker_monitor,'engine',capture_case)
  instance=moonraker_monitor.MoonrakerMonitor.__new__(moonraker_monitor.MoonrakerMonitor)
  instance.printer_id=9;instance.name='Synthetic';instance._current_job_db_id=None
- instance._job_started(SimpleNamespace(filename='Synthetic',total_layers=0,bed_target=0,nozzle_target=0))
+ instance._job_started(SimpleNamespace(filename='Synthetic capture',total_layers=0,bed_target=0,nozzle_target=0))
  assert instance._current_job_db_id==7299
  with capture_case.connect() as conn:assert conn.execute(text('SELECT spool_snapshot FROM print_jobs WHERE id=7299')).scalar_one() is None
 

@@ -86,8 +86,8 @@ def test_activity_includes_outside_failed_and_unlinked_prints(token_client,revie
 
 
 def test_file_rename_audited_and_viewer_refused(token_client,named_graph):
-    from modules.models_library.routes import print_files
-    client,issue=token_client;client.app.include_router(print_files.router)
+    from modules.models_library.routes import print_file_names
+    client,issue=token_client;client.app.include_router(print_file_names.router)
     named_graph.execute(text('UPDATE print_files SET model_id=NULL WHERE id=8001'))
     named_graph.execute(text('UPDATE jobs SET model_id=NULL WHERE id=8001'))
     named_graph.commit()
@@ -155,8 +155,8 @@ def test_model_rename_reaches_generated_job_names_through_every_link(token_clien
 
 
 def test_file_rename_reaches_generated_job_names(token_client,named_graph):
-    from modules.models_library.routes import print_files
-    client,_=token_client;client.app.include_router(print_files.router)
+    from modules.models_library.routes import print_file_names
+    client,_=token_client;client.app.include_router(print_file_names.router)
     named_graph.execute(text('UPDATE print_files SET model_id=NULL WHERE id=8001'))
     named_graph.execute(text("UPDATE jobs SET model_id=NULL,item_name='original' WHERE id=8001"))
     named_graph.commit()

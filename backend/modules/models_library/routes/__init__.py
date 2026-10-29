@@ -4,6 +4,7 @@ from fastapi import APIRouter
 from .pricing import router as pricing_router
 from .models_crud import router as models_crud_router
 from .print_files import router as print_files_router
+from .print_file_names import router as print_file_names_router
 from modules.models_library.services import calculate_job_cost  # noqa: F401 — re-exported for backwards compat
 
 router = APIRouter()
@@ -11,6 +12,7 @@ router = APIRouter()
 # register before models_crud's parameterized /{model_id} endpoints where path
 # ordering could matter within the same prefix scope.
 router.include_router(print_files_router)
+router.include_router(print_file_names_router)
 router.include_router(models_crud_router)
 router.include_router(pricing_router)
 from modules.models_library.education_retention import router as retention_router

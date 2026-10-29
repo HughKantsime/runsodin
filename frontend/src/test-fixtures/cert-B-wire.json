@@ -58,6 +58,7 @@
   "bed_temp": null,
   "camera_url": "/api/overlay/9/camera",
   "current_layer": null,
+  "display_name": null,
   "gcode_state": null,
   "job_name": null,
   "model": "Bambu Lab P1S",

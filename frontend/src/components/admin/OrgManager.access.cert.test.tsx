@@ -236,7 +236,8 @@ const WIRE: any = {
         "set_by": null,
         "set_by_name": null,
         "set_at": null
-      }
+      },
+      "current_print_display_name": null
     },
     {
       "name": "Shared floor printer",
@@ -348,7 +349,8 @@ const WIRE: any = {
         "set_by": null,
         "set_by_name": null,
         "set_at": null
-      }
+      },
+      "current_print_display_name": null
     }
   ],
   "groups_list_with_orgs": [

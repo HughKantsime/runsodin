@@ -433,7 +433,7 @@ class MoonrakerMonitor:
                         'job_id':f'mk_{int(time.time())}',
                         'started_at':datetime.now(timezone.utc).isoformat(),
                         'total_layers':total_layers,'bed_temp_target':bed_target,
-                        'nozzle_temp_target':nozzle_target},source='moonraker-first-start',allow_physical_resume=True,observed_elapsed=getattr(status,'print_duration',None))
+                        'nozzle_temp_target':nozzle_target},source='moonraker-first-start',allow_physical_resume=True,observed_elapsed=getattr(status,'total_duration',None))
                 self._current_job_db_id=observed.id
                 self._last_filename=filename
                 education_sensitive=observed.education_sensitive

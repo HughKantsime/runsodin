@@ -2,6 +2,7 @@
   "scope": "Owned real POST /print-files/upload response for the cert C 3-plate 3MF",
   "upload": {
     "id": 12,
+    "display_name": "Cert bracket",
     "filename": "Cert bracket.3mf",
     "project_name": "Cert bracket",
     "print_time_seconds": 5430,

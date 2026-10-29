@@ -148,3 +148,11 @@ def test_closed_unknown_rows_have_no_open_end_in_overlap_queries():
     # Only a running row may stand for "still printing"; a closed-unknown row (ended_at NULL) must not match.
     assert "(ended_at IS NULL AND status='running')" in inspect.getsource(job_timeline)
     assert "(pj.ended_at IS NULL AND pj.status = 'running')" in inspect.getsource(scheduler_routes)
+
+
+def test_long_paused_print_resumes_on_wall_clock_time(review_db):
+    # print_duration stops during pauses; total_duration (wall time on this print) does not.
+    started=(datetime.now(timezone.utc)-timedelta(hours=2)).isoformat()
+    identifier=review_db.execute(text("INSERT INTO print_jobs(printer_id,filename,job_name,status,started_at) VALUES(9,'part.gcode','part.gcode','running',:start) RETURNING id"),{'start':started}).scalar_one()
+    result=observe(review_db,'part.gcode',2*3600+30)
+    assert not result.fresh and result.id==identifier

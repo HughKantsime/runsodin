@@ -1,9 +1,8 @@
 """Printer CRUD routes — create, read, update, delete, filament slots, test-connection, bulk-update."""
-from core.base import slot_filament_value
+from core.base import FilamentType, slot_filament_value
 from core.printer_maintenance import enrich_maintenance
 
 from modules.inventory.services import assign_slot
-from core.rbac import should_filter_org, require_action
 
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -21,13 +20,8 @@ from core.display_names import name_printers, human_name
 from core.db import get_db
 from core.dependencies import get_current_user, log_audit
 from core.rbac import (
-    AGENT_READ_SCOPE,
-    AGENT_WRITE_SCOPE,
-    _get_org_filter,
-    check_org_access,
-    get_org_scope,
-    require_any_scope,
-    require_role,
+    AGENT_READ_SCOPE, AGENT_WRITE_SCOPE, _get_org_filter, check_org_access, get_org_scope,
+    require_action, require_any_scope, require_role, should_filter_org,
 )
 import core.crypto as crypto
 from modules.printers.anycubic_crud import validate_credentials, prepare_update_credentials
@@ -36,7 +30,6 @@ from modules.printers.models import Printer, FilamentSlot
 from modules.printers.schemas import (
     PrinterCreate, PrinterUpdate, PrinterResponse, FilamentSlotUpdate, FilamentSlotResponse,
 )
-from core.base import FilamentType
 from modules.printers.ledger_display import enrich_printers, ensure_local_filaments
 from modules.printers.route_utils import (
     TestConnectionRequest, _check_ssrf_blocklist, _validate_camera_url, camera_url_has_credentials,
@@ -467,7 +460,6 @@ def get_overlay_data(printer_id: int, db: Session = Depends(get_db)):
         "bed_temp": printer.bed_temp,
         "bed_target_temp": printer.bed_target_temp,
         "job_name": job_row[0] if job_row else None,
-        # Public overlay: sanitize raw identity without disclosing private model/file metadata.
         "display_name": human_name(job_row[0]) if job_row else None,
         "camera_url": camera_url,
     }

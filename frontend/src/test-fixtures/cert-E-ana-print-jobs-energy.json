@@ -6,6 +6,7 @@
     {
       "bed_temp_target": null,
       "current_layer": null,
+      "display_name": "cert",
       "duration_minutes": 120.0,
       "economic_birth_nonce": null,
       "economic_uid": null,
@@ -36,6 +37,7 @@
     {
       "bed_temp_target": null,
       "current_layer": null,
+      "display_name": "cert",
       "duration_minutes": 60.0,
       "economic_birth_nonce": null,
       "economic_uid": null,

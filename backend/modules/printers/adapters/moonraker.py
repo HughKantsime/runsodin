@@ -117,6 +117,7 @@ class MoonrakerStatus:
     current_layer: int = 0
     total_layers: int = 0
     print_duration: float = 0.0
+    total_duration: Optional[float] = None  # wall time since the printer started this print, pauses included
     filament_used_mm: float = 0.0
 
     # Error message (from webhooks.state_message on error)
