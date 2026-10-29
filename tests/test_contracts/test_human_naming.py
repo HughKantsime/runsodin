@@ -137,3 +137,22 @@ def test_job_keeps_operator_name_but_not_derived_names():
     assert job_name('Reprint: odin-dispatch-ab12', model_name='cabinet lock v3.1')=='cabinet lock v3.1'
     assert job_name('lock.gcode.3mf', model_name='cabinet lock v3.1', original_filename='lock.gcode.3mf')=='cabinet lock v3.1'
     assert job_name('part.gcode', original_filename=None)=='part'
+
+
+def test_model_rename_carries_generated_job_names_and_keeps_operator_names(token_client,named_graph):
+    from modules.models_library.routes import models_crud
+    client,_=token_client;client.app.include_router(models_crud.router)
+    named_graph.execute(text("INSERT INTO jobs(id,item_name,model_id,print_file_id,charged_to_org_id,status) VALUES(8002,'Squirtle',8001,8001,1,'completed'),(8003,'Order 12 squirtles',8001,8001,1,'pending'),(8004,'Squirtle',8001,8001,2,'pending')"))
+    named_graph.commit()
+    assert client.patch('/models/8001',headers=interactive_headers(),json={'name':'Squirtle revised'}).status_code==200
+    assert display_names(named_graph,'job',[8002,8003,8004])=={8002:'Squirtle revised',8003:'Order 12 squirtles',8004:'Squirtle'}
+
+
+def test_file_rename_carries_generated_job_names(token_client,named_graph):
+    from modules.models_library.routes import print_files
+    client,_=token_client;client.app.include_router(print_files.router)
+    named_graph.execute(text('UPDATE print_files SET model_id=NULL WHERE id=8001'))
+    named_graph.execute(text("UPDATE jobs SET model_id=NULL,item_name='original' WHERE id=8001"))
+    named_graph.commit()
+    assert client.patch('/print-files/8001/name',headers=interactive_headers(),json={'original_filename':'Human latch.gcode'}).status_code==200
+    assert display_names(named_graph,'job',[8001])[8001]=='Human latch'

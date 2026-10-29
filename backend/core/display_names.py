@@ -117,3 +117,19 @@ def observed_item_name(executor, print_job_id):
         return human_name()
     model = row['model_name'] if row['model_org'] in (None, row['file_org']) else None
     return human_name(model_name=model, original_filename=row['original_filename'] or row['raw_name'])
+
+
+def rename_generated_job_names(db, old_names, new_name, *, org_id, model_id=None, print_file_id=None):
+    """A rename carries jobs whose item_name is still the generated name; an operator's own name stays."""
+    olds = sorted({name for name in old_names if name} - {new_name})
+    if not olds or not new_name:
+        return []
+    owner = 'jobs.model_id=:owner' if model_id is not None else 'jobs.print_file_id=:owner AND jobs.model_id IS NULL'
+    query = text(f"SELECT id, charged_to_org_id FROM jobs WHERE {owner} AND item_name IN :olds").bindparams(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fragment chosen from two literals; values are bound
+        bindparam('olds', expanding=True))
+    ids = [row.id for row in db.execute(query, {'owner': model_id if model_id is not None else print_file_id, 'olds': olds})
+           if row.charged_to_org_id == org_id]
+    if ids:
+        db.execute(text('UPDATE jobs SET item_name=:name WHERE id IN :ids').bindparams(bindparam('ids', expanding=True)),
+                   {'name': new_name, 'ids': ids})
+    return ids

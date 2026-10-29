@@ -719,8 +719,11 @@ def rename_print_file(file_id: int, body: PrintFileRename,
         raise HTTPException(409, 'Rename the model for this print file')
     db.execute(text('UPDATE print_files SET original_filename=:name WHERE id=:id'),
                {'name':body.original_filename, 'id':file_id})
+    from core.display_names import rename_generated_job_names
+    jobs = rename_generated_job_names(db, (row.original_filename, filename_stem(row.original_filename), row.project_name),
+                                      filename_stem(body.original_filename), org_id=row.org_id, print_file_id=file_id)
     log_audit(db, 'print_file.renamed', 'print_file', file_id,
-              {'before':row.original_filename, 'after':body.original_filename})
+              {'before':row.original_filename, 'after':body.original_filename, 'jobs_renamed': jobs})
     db.commit()
     from core.display_names import human_name
     return {'id':file_id, 'original_filename':body.original_filename,
