@@ -2,6 +2,21 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.32] - 2026-10-29
+
+<!-- summary: AMS printers never start without a mapping, and a failed print's file can be scheduled again -->
+
+### Changed
+
+- A Bambu printer with an AMS (X1C, P1S, A1 and H2D alike) no longer receives a print with no AMS mapping. When the job has no saved mapping and the file verifies a single filament source, dispatch sends the identity mapping derived from the file, as 2.0.28 did for dual-nozzle printers. Printers with only an external spool are unchanged.
+- Otherwise dispatch refuses before upload with `ams_mapping_required` ("No AMS mapping: choose the tray for each filament") and the AMS preview suggestion. Nothing is uploaded or started. A preview match, even "exact", is only a suggestion until an operator saves it as the job's mapping.
+- The job's AMS mapping card explains when a saved mapping is needed.
+
+### Fixed
+
+- A print with no AMS mapping could sit on an X1C at "Failed to get AMS mapping table" until it paused.
+- A file whose jobs are all completed, failed or cancelled can be scheduled again without a re-upload. A file with a pending, scheduled or printing job is still refused as already scheduled.
+
 ## [2.0.31] - 2026-10-28
 
 <!-- summary: Trays forget a swapped-out spool, remaining shows unknown when the printer can't tell, and filament is charged only to the spool a print actually used -->
