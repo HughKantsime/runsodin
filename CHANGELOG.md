@@ -2,6 +2,14 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.34] - 2026-10-29
+
+<!-- summary: H2D prints with an AMS HT attached dispatch again -->
+
+### Fixed
+
+- An H2D with an AMS HT attached refused every AMS print before start with `ams_read_failed` ("Fresh AMS read failed"). The printer reports the AMS HT in every AMS status, and the fresh AMS read treated it as unknown hardware. The read now accepts AMS HT units; they stay inventory-only, so a print still cannot be mapped to an AMS HT tray.
+
 ## [2.0.33] - 2026-10-29
 
 <!-- summary: Old prints no longer show as finished today, Moonraker prints keep the printer's real times and status, and every print shows a human name -->
