@@ -173,7 +173,7 @@ def _hms_filename_matches(observed: str | None, stored: str | None) -> bool:
 
 
 @retry_production_linkage
-def _fail_active_job_for_hms(printer_id: int, hms_code: str, hms_message: str, observed_filename: str | None = None, expected_print_job_id: int | None = None):
+def _fail_active_job_for_hms(printer_id: int, hms_code: str, hms_message: str, observed_filename: str | None = None, expected_print_job_id: int | None = None, *, tray_evidence_incomplete: bool = False):
     """Mark the active print job as failed due to a print-stopping HMS error.
 
     Checks for an active print_jobs record on this printer. If found, marks it
@@ -228,6 +228,9 @@ def _fail_active_job_for_hms(printer_id: int, hms_code: str, hms_message: str, o
                     return {"terminal_outcome": "retryable"}
                 from core.job_terminal_observations import terminal_event
                 timeline_item = terminal_event(conn, print_job_id) if (education_result.get('physical_ended') or education_result.get('transitioned')) else None
+                if tray_evidence_incomplete:
+                    from core.interfaces.attempt_accounting import attempt_accounting
+                    attempt_accounting().mark_attempt_tray_evidence_incomplete(conn, print_job_id, printer_id)
                 conn.commit()
                 from core.job_timeline import enqueue
                 if timeline_item is not None:enqueue(timeline_item)
@@ -256,6 +259,10 @@ def _fail_active_job_for_hms(printer_id: int, hms_code: str, hms_message: str, o
                 raise ProductionLinkageChanged()
             if not _hms_filename_matches(observed_filename, filename):
                 return {"terminal_outcome": "irrelevant"}
+
+            if tray_evidence_incomplete:
+                from core.interfaces.attempt_accounting import attempt_accounting
+                attempt_accounting().mark_attempt_tray_evidence_incomplete(conn, print_job_id, printer_id)
 
             # Mark print_jobs as failed (WHERE status='running' guards against races)
             # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
@@ -317,7 +324,8 @@ def _fail_active_job_for_hms(printer_id: int, hms_code: str, hms_message: str, o
 
 def process_hms_errors(
     printer_id: int, hms_data: list, observed_filename: str | None = None,
-    expected_print_job_id: int | None = None
+    expected_print_job_id: int | None = None,
+    *, tray_evidence_incomplete: bool = False,
 ):
     """
     Process HMS errors from Bambu printer.
@@ -405,7 +413,7 @@ def process_hms_errors(
     # Check if any HMS code should fail the active print job
     for err in errors:
         if err["code"] in PRINT_STOPPING_HMS_CODES:
-            outcome = _fail_active_job_for_hms(printer_id, err["code"], err["message"], observed_filename=observed_filename, expected_print_job_id=expected_print_job_id)
+            outcome = _fail_active_job_for_hms(printer_id, err["code"], err["message"], observed_filename=observed_filename, expected_print_job_id=expected_print_job_id, tray_evidence_incomplete=tray_evidence_incomplete)
             if not isinstance(outcome, dict) or outcome.get("terminal_outcome") == "retryable":
                 return {"education_suppressed": education_suppressed, "errors": errors,
                         "classification_state": "unresolved", "retryable": True}

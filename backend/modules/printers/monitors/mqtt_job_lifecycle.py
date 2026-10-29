@@ -347,6 +347,7 @@ def record_job_ended(
     state: dict,
     start_spool_weights: dict,
     dispatch_alert_fn,
+    *, tray_evidence_incomplete: bool = False,
 ) -> Optional[int]:
     """
     Record a print job ending, update care counters, dispatch alerts.
@@ -415,6 +416,9 @@ def record_job_ended(
                 ):
                     from core.job_terminal_observations import terminal_event
                     timeline_item = terminal_event(conn, current_job_id) if (education_result.get('physical_ended') or education_result.get('transitioned')) else None
+                    if tray_evidence_incomplete:
+                        from core.interfaces.attempt_accounting import attempt_accounting
+                        attempt_accounting().mark_attempt_tray_evidence_incomplete(conn, current_job_id, printer_id)
                     conn.commit()
                     from core.job_timeline import enqueue
                     if timeline_item is not None:enqueue(timeline_item)
@@ -448,6 +452,10 @@ def record_job_ended(
                                         (current_job_id,)).fetchone()
             if locked_status is None or locked_status[0] in ('completed','failed','cancelled'):
                 return linked_job_id
+
+            if tray_evidence_incomplete:
+                from core.interfaces.attempt_accounting import attempt_accounting
+                attempt_accounting().mark_attempt_tray_evidence_incomplete(conn, current_job_id, printer_id)
 
             # Calculate filament used by comparing AMS remain percentages
             filament_used_g = None

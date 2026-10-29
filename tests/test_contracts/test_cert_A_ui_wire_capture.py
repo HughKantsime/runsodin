@@ -5,11 +5,11 @@ PrusaLink / Elegoo monitors fed protocol-accurate transport payloads, then
 the real printer routers. Wall-clock timestamps are normalized to a fixed
 base so the fixture is reproducible; every other value is as produced.
 
-2.0.27 intentionally creates/binds and confirms RFID spools during monitor
-ingestion. The consumer fixture retains those assigned_spool_id/spool_confirmed
-values; PrintersCertA certifies the remaining manual-assignment warning.
+The spool-tray-identity spec clears stale RFID bindings after captured tray
+swaps. PrintersCertA certifies the resulting unbound preset labels and warnings.
 """
 import json
+import os
 from pathlib import Path
 
 from sqlalchemy import text
@@ -28,6 +28,15 @@ VOLATILE = {"last_seen", "loaded_at", "recorded_at", "occurred_at", "time", "ins
 
 
 def normalize(value, counter):
+    # Observation ids are random, but their presence, shape and reuse are a
+    # consumer contract. Canonicalize identities without dropping the field.
+    if len(counter) == 1:
+        counter.append({})
+    if isinstance(value, dict) and value.get('observed_state') is not None:
+        state = value['observed_state']
+        assert len(state) == 32 and all(c in '0123456789abcdef' for c in state)
+        identities = counter[1]
+        value = {**value, 'observed_state': identities.setdefault(state, f'{len(identities) + 1:032x}')}
     if isinstance(value, dict):
         return {k: ((BASE.replace(" ", "T") if k in ("last_seen", "observed_at") else stamp(counter)) if k in VOLATILE and v
                     else normalize(v, counter)) for k, v in value.items()}
@@ -105,7 +114,7 @@ def test_capture_cert_A_printer_wire(cert_client, wire_monitor, proto, moonraker
     assert wire["ws_301"]["progress"] is not None and wire["ws_301"]["speed_percent"] is not None
     counter = [0]
     fixture = normalize(json.loads(json.dumps(wire)), counter)
-    if FIXTURE.exists():
+    if FIXTURE.exists() and os.environ.get("CAPTURE") != "1":
         changed = differences(json.loads(FIXTURE.read_text()), fixture)
         assert not changed, f"Producer contract changed; reconcile the consumer explicitly: {changed[:10]}"
     else:

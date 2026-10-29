@@ -65,6 +65,8 @@ def _archive_row_to_dict(r):
         d.get("printer_nickname") or d.get("printer_name")
         or f"Printer {d.get('printer_id')}"
     )
+    import json
+    d['consumption'] = json.loads(d.get('consumption_json') or '[]')
     # Parse tags from comma-separated string
     raw_tags = d.get("tags") or ""
     d["tags"] = [t.strip() for t in raw_tags.split(",") if t.strip()] if raw_tags else []

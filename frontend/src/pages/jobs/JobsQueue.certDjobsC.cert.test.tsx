@@ -252,3 +252,18 @@ it('F04-4.2-02 a deleted pin is shown in the edit modal and kept on save', async
   await waitFor(() => expect(api.update).toHaveBeenCalled())
   expect(api.update.mock.calls[0][1]).not.toHaveProperty('pinned_printer_id')
 })
+
+it('accepts the tray-identity printer wire without inventing material or blocking job edits', async () => {
+  // The jobsC producer has no observed tray identity; the new fields are
+  // explicitly unknown. Queue consumers must still accept these printers.
+  for (const printer of wire.printers) {
+    for (const slot of printer.filament_slots) {
+      expect(slot).toMatchObject({ observed_state: null, preset: null, brand: null,
+        spool_change_pending: false, remaining: null, remaining_weight: null })
+    }
+  }
+  await mount()
+  fireEvent.click(within(row('CertC adhoc pending B')).getByRole('button', { name: 'Edit job' }))
+  expect(screen.getByRole('dialog')).toHaveTextContent('Edit Job')
+  expect(field('Item Name *')).toHaveValue('CertC adhoc pending B')
+})

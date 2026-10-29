@@ -194,20 +194,40 @@ def complete_job(job_id: int, current_user: dict = Depends(require_action("jobs.
     # stays on the same attempt; a reset reprint deducts again), and the attempt
     # is claimed only when something is actually deducted.
     if slot_grams and job.printer_id:
-        from core.base import SpoolStatus
         from core.filament_ledger import record_job_filament
         from core.print_attempts import sqlalchemy_runner as _attempt_runner
-        loaded_spools = db.query(Spool).filter(
-            Spool.location_printer_id == job.printer_id,
-            Spool.status == SpoolStatus.ACTIVE
-        ).all()
-        spool_by_slot = {s.location_slot: s for s in loaded_spools if s.location_slot}
-        grams_by_spool, slot_of = {}, {}
-        for slot_num, grams in slot_grams.items():
-            spool = spool_by_slot.get(slot_num)
-            if spool is not None and grams > 0:
+        from core.tray_identity import decode
+        printer = db.get(Printer, job.printer_id)
+        from modules.jobs.material_slots import locked_printer_slots
+        slots = locked_printer_slots(db, job.printer_id)
+        slot_by_number = {s.slot_number: s for s in slots}
+        loaded_spools = [s.assigned_spool for s in slots if s.assigned_spool is not None]
+        try:
+            mapping = json.loads(job.ams_mapping) if isinstance(job.ams_mapping, str) else job.ams_mapping
+        except (ValueError, TypeError):
+            mapping = None
+        grams_by_spool, slot_of, unattributed = {}, {}, []
+        for source_slot, grams in slot_grams.items():
+            target = source_slot
+            if printer and printer.api_type == 'bambu':
+                if not isinstance(mapping, list) or len(mapping) < source_slot or type(mapping[source_slot - 1]) is not int or not 0 <= mapping[source_slot - 1] < 16:
+                    unattributed.append(dict(source_slot=source_slot, grams=grams, reason='missing_material_mapping'))
+                    continue
+                target = mapping[source_slot - 1] + 1
+            slot = slot_by_number.get(target)
+            spool = slot.assigned_spool if slot else None
+            if slot and decode(slot.tray_observation).get('pending'):
+                unattributed.append(dict(slot_number=target, grams=grams, reason='spool_change_pending'))
+            elif spool is not None and grams > 0:
                 grams_by_spool[spool.id] = grams_by_spool.get(spool.id, 0.0) + grams
-                slot_of.setdefault(spool.id, slot_num)
+                slot_of.setdefault(spool.id, target)
+            else:
+                unattributed.append(dict(slot_number=target, grams=grams, reason='no_bound_spool'))
+        if unattributed:
+            # The physical archive owns deferred attribution and its one-use ledger claim.
+            # Never partially claim this attempt before every used tray is known.
+            grams_by_spool = {}
+            log_audit(db, 'filament.unattributed', 'job', job.id, {'consumption': unattributed})
         outcome = record_job_filament(_attempt_runner(db), job.id, source="operator_complete",
                                       grams_by_spool=grams_by_spool,
                                       notes=f"job #{job.id} complete ({job.item_name})")

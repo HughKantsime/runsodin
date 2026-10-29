@@ -45,6 +45,10 @@ export interface FilamentSlot {
   remaining: number | null;
   /** Grams left on the assigned spool. */
   remaining_weight?: number | null;
+  spool_change_pending?: boolean;
+  observed_state?: string | null;
+  preset?: string | null;
+  brand?: string | null;
   material_type: string | null;
 }
 

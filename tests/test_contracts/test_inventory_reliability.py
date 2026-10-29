@@ -78,8 +78,9 @@ def test_receiving_failure_rolls_back_whole_batch(graph, monkeypatch):
     assert graph.query(Spool).count() == before
 
 
-@pytest.mark.parametrize('material,tag,grams,departed,status', [('',None,250,True,'active'), ('PLA','new-rfid',0,True,'empty'), ('PLA','new-rfid',250,True,'active'), ('PETG',None,250,False,'active'), ('PLA','move-rfid',250,False,'active')])
+@pytest.mark.parametrize('material,tag,grams,departed,status', [('',None,250,True,'active'), ('PLA','new-rfid',0,True,'empty'), ('PLA','new-rfid',250,True,'active'), ('PETG',None,250,True,'active'), ('PLA','move-rfid',250,False,'active')])
 def test_raw_departure_evidence_is_audited_and_never_guesses(graph, material, tag, grams, departed, status):
+    # spool-tray-identity spec §2: fixture 199 has move-rfid; RFID to no tag departs.
     from modules.printers.monitors.ams_inventory import sync_ams_inventory
     graph.execute(text('UPDATE spools SET remaining_weight_g=:g,status=\'active\' WHERE id=199'), {'g':grams});graph.commit()
     conn = sqlite3.connect(graph.get_bind().url.database)
@@ -89,6 +90,8 @@ def test_raw_departure_evidence_is_audited_and_never_guesses(graph, material, ta
         row = conn.execute('SELECT location_printer_id,status,storage_location FROM spools WHERE id=199').fetchone()
         assert row[0] == (None if departed else 9)
         assert row[1] == status
+        if departed:
+            assert row[2] == (None if status == 'empty' else 'Unlocated (removed from slot)')
         assert conn.execute('SELECT COUNT(*) FROM inventory_repairs WHERE spool_id=199').fetchone()[0] == int(departed)
         assigned = conn.execute('SELECT assigned_spool_id FROM filament_slots WHERE printer_id=9 AND slot_number=1').fetchone()[0]
         if material and tag == 'new-rfid':
@@ -184,3 +187,20 @@ def test_moonraker_only_explicit_empty_gate_is_departure_evidence(monkeypatch):
     monitor._sync_filament_slots(slots)
     # Unknown (-1) and buffered (2) gates keep their spool; only gate 2 (status 0) departs.
     assert seen == [[2]]
+
+
+def test_raw_tagless_type_only_keeps_location_and_flags(graph):
+    import json
+    from modules.printers.monitors.ams_inventory import sync_ams_inventory
+    graph.execute(text("UPDATE spools SET rfid_tag=NULL,remaining_weight_g=250,status='active' WHERE id=199"))
+    graph.commit()
+    with sqlite3.connect(graph.get_bind().url.database) as conn:
+        def send(material):
+            sync_ams_inventory(conn,9,[{'id':'0','tray':[{'id':'0','tray_type':material,'tag_uid':None,'tray_color':'FFFFFF'}]}])
+        send('PLA')
+        send('PETG')
+        assert conn.execute('SELECT location_printer_id,location_slot,status,remaining_weight_g FROM spools WHERE id=199').fetchone() == (9,1,'active',250)
+        assigned, observed = conn.execute('SELECT assigned_spool_id,tray_observation FROM filament_slots WHERE printer_id=9 AND slot_number=1').fetchone()
+        assert assigned == 199
+        assert json.loads(observed)['pending'] is True
+        assert conn.execute('SELECT COUNT(*) FROM inventory_repairs WHERE spool_id=199').fetchone()[0] == 0

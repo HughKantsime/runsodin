@@ -30,10 +30,19 @@ def handle_status(self, status, generation, runtime):
             pending_nozzles['nozzle_1_target_temp'] = (second_extruder[1], 'nozzle_1_target_observed_at', observed)
         self._pending_right_nozzle = pending_nozzles
         incoming_ams_report = raw.get('ams')
-        if isinstance(incoming_ams_report, dict) and isinstance(incoming_ams_report.get('ams'), list):
+        if isinstance(incoming_ams_report, dict) and ('ams' in incoming_ams_report or 'tray_exist_bits' in incoming_ams_report):
             # Held until the next heartbeat write: Bambu sends the AMS list
             # only on change/pushall, usually between heartbeats.
-            self._note_ams_report(incoming_ams_report['ams'])
+            from modules.printers.telemetry.bambu.ams_identity import inventory_report
+            units = incoming_ams_report.get('ams', getattr(self, '_inventory_ams_units', []))
+            report = inventory_report(units, incoming_ams_report.get('tray_exist_bits'),
+                                      getattr(self, '_pending_ams_report', None) or getattr(self, '_inventory_ams_units', ()))
+            from copy import deepcopy
+            self._inventory_ams_units = deepcopy(report)
+            from modules.printers.telemetry.bambu.ams_identity import ams_trays_by_slot
+            for _, tray in ams_trays_by_slot(self._inventory_ams_units):
+                tray.pop('_removed', None)
+            self._note_ams_report(report)
 
         # Merge correlation and lifecycle fields before any HMS processing.
         # A first RUNNING packet may also contain a print-stopping HMS code;
@@ -90,6 +99,32 @@ def handle_status(self, status, generation, runtime):
         if self._current_job_id:
             self._pending_running_state = None
 
+        # Capture every fresh tray delta, including packets between heartbeats.
+        # Cached AMS state can belong to a prior print, so never use it here.
+        if self._current_job_id:
+            from core.interfaces.attempt_accounting import attempt_accounting
+            accounting = attempt_accounting()
+            if getattr(self, '_tray_attempt_id', None) != self._current_job_id:
+                self._tray_attempt_id = self._current_job_id
+                self._recorded_attempt_trays = set()
+                self._pending_attempt_trays = set()
+            tray = accounting.valid_ams_tray(incoming_ams_report.get('tray_now')) if isinstance(incoming_ams_report, dict) else None
+            if gcode_state in ('RUNNING', 'PAUSE') and tray is not None and tray not in self._recorded_attempt_trays:
+                self._pending_attempt_trays.add(tray)
+            if self._pending_attempt_trays:
+                try:
+                    with runtime.get_db() as conn:
+                        conn.execute('BEGIN IMMEDIATE')
+                        for observed_tray in sorted(self._pending_attempt_trays):
+                            accounting.record_attempt_tray(conn, self._current_job_id, self.printer_id, observed_tray)
+                        conn.commit()
+                    self._recorded_attempt_trays.update(self._pending_attempt_trays)
+                    self._pending_attempt_trays.clear()
+                except Exception:
+                    # Keep evidence for retry without stalling HMS/lifecycle/heartbeat.
+                    # Terminal writers durably mark any still-pending evidence.
+                    runtime.log.warning('[%s] Attempt tray persistence failed; will retry', self.name)
+
         def process_hms(packet, expected_print_job_id=None):
             incoming_hms = packet.get('hms')
             if isinstance(incoming_hms, list) and not incoming_hms:
@@ -105,7 +140,9 @@ def handle_status(self, status, generation, runtime):
             try:
                 result = printer_events.process_hms_errors(
                     self.printer_id, incoming_hms, observed_filename=observed_filename,
-                    expected_print_job_id=expected_print_job_id)
+                    expected_print_job_id=expected_print_job_id,
+                    tray_evidence_incomplete=(getattr(self, '_tray_attempt_id', None) == expected_print_job_id
+                                              and bool(getattr(self, '_pending_attempt_trays', ()))))
             except Exception:
                 return False
             if isinstance(result, dict) and result.get('retryable') is True:
@@ -417,11 +454,11 @@ def handle_status(self, status, generation, runtime):
         ams_units = ams_raw.get('ams', [])
         if ams_units:
             ams_remain = {}
-            from modules.printers.telemetry.bambu.ams_identity import ams_trays_by_slot
+            from modules.printers.telemetry.bambu.ams_identity import ams_trays_by_slot, is_rfid_tag
             from modules.printers.monitors.ams_inventory import remaining_percent
             for slot_idx, tray in ams_trays_by_slot(ams_units):
                 known_remaining = remaining_percent(tray.get('remain'))
-                if known_remaining is not None:
+                if known_remaining is not None and (is_rfid_tag(tray.get('tag_uid')) or is_rfid_tag(tray.get('tray_uuid'))):
                     ams_remain[slot_idx] = known_remaining
             self._state['_ams_remain'] = ams_remain
 

@@ -47,7 +47,10 @@ class AMSSlotResponse(PydanticBaseModel):
     filament_type_raw: str
     filament_type: str
     color_hex: Optional[str]
-    remaining_percent: Optional[int]
+    spool_change_pending: bool = False
+    observed_state: Optional[str] = None
+    preset: Optional[str] = None
+    remaining_percent: Optional[float]
     brand: Optional[str]
     is_empty: bool
     match_source: Optional[str] = None
@@ -104,119 +107,22 @@ async def test_bambu_printer_connection(request: BambuConnectionTest, current_us
 
 @router.post("/printers/{printer_id}/bambu/sync-ams", response_model=BambuSyncResult, tags=["Bambu"])
 async def sync_bambu_ams(printer_id: int, current_user: dict = Depends(require_action("printers.edit", scope="write:printers")), db: Session = Depends(get_db)):
-    """Sync AMS filament slots from a Bambu Lab printer."""
-    if not BAMBU_AVAILABLE:
-        raise HTTPException(status_code=501, detail="Bambu integration not available")
-
+    """Use the shared observed-identity writer for the legacy sync endpoint."""
+    from modules.printers.routes_ams import sync_ams_state
+    from modules.printers.schemas import FilamentSlotResponse
+    result = sync_ams_state(printer_id, current_user=current_user, db=db)
     printer = _owned_printer(db, printer_id, current_user)
-    ensure_local_filaments(printer_id)
-
-    if printer.api_type != "bambu":
-        raise HTTPException(status_code=400, detail=f"Printer is type '{printer.api_type}', not 'bambu'")
-
-    if not printer.api_host:
-        raise HTTPException(status_code=400, detail="Printer has no Bambu config (api_host empty)")
-
-    try:
-        parts = crypto.decrypt(printer.api_key).split("|")
-        if len(parts) != 2:
-            raise ValueError()
-        serial_number, access_code = parts
-        ip_address = printer.api_host
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid Bambu config. Expected: ip|serial|access_code")
-
-    library_filaments = db.query(FilamentLibrary).all()
-    library_list = [
-        {"id": f"lib_{f.id}", "brand": f.brand, "name": f.name, "material": f.material, "color_hex": f.color_hex}
-        for f in library_filaments
-    ]
-
-    spoolman_list = []
-    spoolman_url = get_spoolman_url(db)
-    if spoolman_url:
-        try:
-            from fastapi.concurrency import run_in_threadpool
-            from core.spoolman_client import fetch_spools
-            for spool in await run_in_threadpool(fetch_spools, 5):  # validated, pinned, projected (O1)
-                filament = spool["filament"]
-                spoolman_list.append({
-                    "id": f"spool_{spool['id']}",
-                    "brand": filament["vendor"].get("name") or "Unknown",
-                    "name": filament.get("name") or "Unknown",
-                    "material": filament.get("material") or "PLA",
-                    "color_hex": filament.get("color_hex"),
-                })
-        except Exception as e:
-            log.debug(f"Failed to fetch spoolman spools: {e}")
-
-    result = sync_ams_filaments(
-        ip_address=ip_address,
-        serial_number=serial_number,
-        access_code=access_code,
-        library_filaments=library_list,
-        spoolman_spools=spoolman_list,
-    )
-
-    if not result.success:
-        raise HTTPException(status_code=502, detail=result.message)
-
-    slots_updated = 0
-    unmatched_slots = []
-    slot_responses = []
-
-    for slot_info in result.slots:
-        slot_dict = slot_to_dict(slot_info)
-        slot_responses.append(AMSSlotResponse(**slot_dict))
-
-        if slot_info.is_empty:
-            continue
-
-        db_slot = db.query(FilamentSlot).filter(
-            FilamentSlot.printer_id == printer_id,
-            FilamentSlot.slot_number == slot_info.slot_number,
-        ).first()
-
-        if not db_slot:
-            db_slot = FilamentSlot(
-                printer_id=printer_id,
-                slot_number=slot_info.slot_number,
-                filament_type=FilamentType(slot_filament_value(FilamentType.EMPTY)),
-            )
-            db.add(db_slot)
-
-        try:
-            db_slot.filament_type = FilamentType(slot_filament_value(FilamentType(slot_info.mapped_type)))
-        except ValueError:
-            try:
-                db_slot.filament_type = FilamentType(slot_filament_value(slot_info.filament_type))
-            except Exception:
-                db_slot.filament_type = FilamentType(slot_filament_value(FilamentType.OTHER))
-            unmatched_slots.append(slot_info.slot_number)
-
-        if slot_info.mapped_type in ["PLA_SUPPORT", "SUPPORT", "PVA", "HIPS", "BVOH"]:
-            db_slot.color_hex = "#F5F5F5"
-            db_slot.color = "Natural"
-        else:
-            db_slot.color_hex = slot_info.color_hex
-            db_slot.color = slot_info.color_name or slot_info.brand
-        db_slot.loaded_at = datetime.now(timezone.utc)
-
-        if slot_info.matched_filament:
-            db_slot.spoolman_spool_id = slot_info.matched_filament.get('id')
-
-        slots_updated += 1
-
-    db.commit()
-
-    return BambuSyncResult(
-        success=True,
-        printer_name=result.printer_name,
-        slots=slot_responses,
-        message=f"Synced {slots_updated} slots from AMS",
-        slots_updated=slots_updated,
-        unmatched_slots=unmatched_slots,
-    )
+    slots = []
+    for row in printer.filament_slots:
+        slot = FilamentSlotResponse.model_validate(row)
+        slots.append(dict(ams_id=(slot.slot_number - 1) // 4, tray_id=(slot.slot_number - 1) % 4,
+                          slot_number=slot.slot_number, filament_type_raw=slot.material_type or '',
+                          filament_type=slot.filament_type.value, color_hex=slot.color_hex,
+                          remaining_percent=slot.remaining, brand=slot.brand, color_name=slot.color,
+                          is_empty=slot.filament_type == FilamentType.EMPTY,
+                          spool_change_pending=slot.spool_change_pending, observed_state=slot.observed_state, preset=slot.preset))
+    return BambuSyncResult(success=True, printer_name=printer.name, slots=slots,
+                           slots_updated=result['slots_synced'], message=f"Synced {result['slots_synced']} slots from AMS")
 
 
 @router.get("/bambu/filament-types", tags=["Bambu"])

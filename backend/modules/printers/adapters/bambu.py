@@ -89,6 +89,8 @@ class AMSSlot:
     tray_id_name: str = ""
     sub_brand: str = ""  # e.g., "PLA Galaxy", "PETG HF"
     empty: bool = True
+    exists: Optional[bool] = None
+    preset: str = ""
 
 
 @dataclass 
@@ -581,7 +583,7 @@ class BambuPrinter:
         self._status.ams_slots = []
         
         ams_units = ams_data.get("ams", [])
-        from modules.printers.telemetry.bambu.ams_identity import ams_trays_by_slot
+        from modules.printers.telemetry.bambu.ams_identity import ams_trays_by_slot, tray_exists, is_rfid_tag
         
         from modules.printers.telemetry.validators import coerce_int_or_raise
 
@@ -593,13 +595,17 @@ class BambuPrinter:
                 except ValueError:
                     # Unknown telemetry is not a measured empty spool.
                     remaining = None
+            if not (is_rfid_tag(tray.get('tag_uid')) or is_rfid_tag(tray.get('tray_uuid'))) or remaining is None or not 0 <= remaining <= 100:
+                remaining = None
             slot = AMSSlot(
                 slot_number=slot_num,
                 filament_type=tray.get("tray_type", ""),
                 color=tray.get("tray_color", ""),
                 color_hex=tray.get("tray_color", "")[:6] if tray.get("tray_color") else "",
                 remaining_percent=remaining,
-                empty=tray.get("tray_type", "") == "",
+                empty=tray.get("tray_type", "") == "" or tray_exists(ams_data.get("tray_exist_bits"), slot_num) is False,
+                exists=tray_exists(ams_data.get("tray_exist_bits"), slot_num),
+                preset=tray.get("tray_info_idx") or "",
                 rfid_tag=tray.get("tag_uid", ""),
                 tray_uuid=tray.get("tray_uuid") or "",
                 tray_id_name=tray.get("tray_id_name") or "",

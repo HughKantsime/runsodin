@@ -23,6 +23,9 @@ def test_completion_commits_once_and_pushes_once(review_db, spoolman_peer, monke
     review_db.execute(text("INSERT INTO jobs(id,item_name,model_id,printer_id,status,charged_to_org_id,quantity,hold) VALUES(101,'Fixture print',101,9,'printing',1,1,0)"))
     review_db.execute(text("INSERT INTO filament_library(id,brand,name,material) VALUES(101,'Synthetic','Test','PLA')"))
     review_db.execute(text("INSERT INTO spools(id,filament_id,status,location_printer_id,location_slot,remaining_weight_g,initial_weight_g,spoolman_spool_id,org_id) VALUES(101,101,'active',9,1,100,100,42,1)"))
+    # Spec item 3: location alone is not a binding or proof of the used tray.
+    review_db.execute(text("UPDATE filament_slots SET assigned_spool_id=101 WHERE printer_id=9 AND slot_number=1"))
+    review_db.execute(text("UPDATE jobs SET ams_mapping='[0]' WHERE id=101"))
     review_db.commit()
     binding = review_db.get_bind()
     monkeypatch.setattr(core_db, "SessionLocal", sessionmaker(bind=binding))
