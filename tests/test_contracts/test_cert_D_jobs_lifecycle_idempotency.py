@@ -1,17 +1,48 @@
 """cert-D F04-4.1-01 / F04-4.5-01: lifecycle corrections are idempotent and fail is atomic."""
 import json
+import threading
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from tests.test_contracts.test_education_review_workflow import review_db  # noqa: F401
 
 
 @pytest.fixture
-def lifecycle_client(review_db, monkeypatch):
+def owned_completion_background(review_db, monkeypatch):
+    """Completion's real delivery thread uses only this test's database."""
+    from core import db as core_db
+    from core.spoolman_settings import get_spoolman_url
+    from modules.inventory import services
+    binding = review_db.get_bind()
+    monkeypatch.setattr(core_db, 'SessionLocal', sessionmaker(bind=binding))
+
+    def configured_url():
+        with Session(binding) as session:
+            return get_spoolman_url(db=session)
+
+    monkeypatch.setattr(services, 'get_spoolman_url', configured_url)
+    original = threading.Thread
+    workers = []
+
+    def thread(*args, **kwargs):
+        worker = original(*args, **kwargs)
+        if getattr(kwargs.get('target'), '__name__', None) == '_push_async':
+            workers.append(worker)
+        return worker
+
+    monkeypatch.setattr(threading, 'Thread', thread)
+    yield
+    for worker in workers:
+        worker.join(timeout=10)
+        assert not worker.is_alive(), 'Completion delivery outlived its fixture'
+
+
+@pytest.fixture
+def lifecycle_client(review_db, monkeypatch, owned_completion_background):
     from core import db as core_db
     from core.dependencies import get_current_user
     from core.registry import registry
@@ -25,6 +56,9 @@ def lifecycle_client(review_db, monkeypatch):
     review_db.execute(text("INSERT INTO filament_library(id,brand,name,material) VALUES(111,'Synthetic','Test','PLA')"))
     review_db.execute(text("INSERT INTO spools(id,filament_id,status,location_printer_id,location_slot,remaining_weight_g,"
                            "initial_weight_g,org_id) VALUES(111,111,'active',9,1,100,100,1)"))
+    # Consumption requires an actual tray binding and explicit Bambu source mapping.
+    review_db.execute(text("UPDATE filament_slots SET assigned_spool_id=111 WHERE printer_id=9 AND slot_number=1"))
+    review_db.execute(text("UPDATE jobs SET ams_mapping='[0]' WHERE id=111"))
     review_db.commit()
     binding = review_db.get_bind()
     app = FastAPI(); app.include_router(jobs_lifecycle.router)

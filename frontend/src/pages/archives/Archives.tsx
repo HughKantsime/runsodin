@@ -230,6 +230,14 @@ function ArchiveDetail({ archive, onClose, onDelete, onNotesUpdate, onTagsUpdate
           </div>
         </div>
 
+        {archive.accounting_state === 'unresolved' && <div className="mb-4 rounded-md border border-amber-500/40 p-3 text-sm" role="status">
+          <p>Filament consumption is unattributed.</p>
+          {archive.consumption?.map((item, index) => <p key={index}>
+            {item.slot_number ? `Slot ${item.slot_number}: ` : ''}{item.grams_used != null ? `${item.grams_used.toFixed(1)} g` : 'Quantity unknown'}
+            {item.reason === 'spool_change_pending' ? ' — confirm the spool on the Printers page.' : ' — no confirmed spool for this print.'}
+          </p>)}
+        </div>}
+
         {/* Tags */}
         {canDo('printers.edit') ? (
           <div className="mb-4">

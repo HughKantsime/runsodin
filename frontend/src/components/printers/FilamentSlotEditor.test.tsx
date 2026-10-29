@@ -1,8 +1,9 @@
 import React from 'react'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import FilamentSlotEditor from './FilamentSlotEditor'
-vi.mock('../../api', () => ({ printers: { assignSlotSpool: vi.fn() } }))
+import { printers } from '../../api'
+vi.mock('../../api', () => ({ printers: { assignSlotSpool: vi.fn(), confirmTrayIdentity: vi.fn() }, spools: { create: vi.fn() } }))
 vi.mock('../../permissions', () => ({ canDo: () => true }))
 afterEach(cleanup)
 const slot = { id: 1, slot_number: 1, color_hex: 'FFFFFF', material_type: 'PLA', remaining: 50, assigned_spool_id: null, spool_confirmed: false }
@@ -26,3 +27,19 @@ for (const mode of ['hover', 'drag']) for (const dismiss of ['Escape', 'Cancel',
     expect(parentClick).not.toHaveBeenCalled()
   })
 }
+
+
+it('renders flagged tray fields and confirms the bound spool using the observed state', async () => {
+  vi.mocked(printers.confirmTrayIdentity).mockResolvedValue({ spool_id: 56, replayed: false })
+  const onSave = vi.fn()
+  render(<FilamentSlotEditor slot={{ ...slot, assigned_spool_id: 56, remaining: null,
+    color: 'Elegoo Rapid PETG', material_type: 'PETG', spool_change_pending: true, observed_state: 'a'.repeat(32), preset: 'preset: Bambu PETG HF' }}
+    allFilaments={[]} spools={[]} printerId={1} onSave={onSave} />)
+  expect(screen.getByText('Slot 1: spool may have changed?')).toBeInTheDocument()
+  expect(screen.getByText('Remaining unknown')).toBeInTheDocument()
+  fireEvent.click(screen.getByText('Same spool'))
+  await waitFor(() => expect(printers.confirmTrayIdentity).toHaveBeenCalledWith(1, 1,
+    { observed_state: 'a'.repeat(32), decision: 'same' }))
+  await waitFor(() => expect(onSave).toHaveBeenCalledWith({}))
+  expect(screen.queryByText('Slot 1: spool may have changed?')).not.toBeInTheDocument()
+})

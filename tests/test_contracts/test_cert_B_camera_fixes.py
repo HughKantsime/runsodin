@@ -5,6 +5,7 @@
 * the OBS overlay camera is an MJPEG relay authorized by a scoped read:cameras API token
   carried in the copied overlay URL (F02-2.8-02). Live evidence: test_cert_B_live_stack.py.
 """
+import json
 import secrets
 
 import httpx
@@ -90,13 +91,30 @@ def test_default_ports_are_equivalent_endpoints(a, b, same):
     assert (_url_endpoint(a) == _url_endpoint(b)) is same
 
 
-def test_filament_slot_reports_remaining_grams(printers_client, review_db):
+@pytest.mark.parametrize("printer_id", [21, 23])
+def test_filament_slot_reports_remaining_grams(printers_client, review_db, printer_id):
     review_db.execute(text("INSERT INTO filament_library(id,brand,name,material) VALUES(501,'Synthetic','Black','PLA')"))
     review_db.execute(text("INSERT INTO spools(id,filament_id,remaining_weight_g,initial_weight_g) VALUES(601,501,640,1000)"))
-    review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type,color,assigned_spool_id) VALUES(21,1,'PLA','Black',601)"))
+    review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type,color,assigned_spool_id) VALUES(:printer,1,'PLA','Black',601)"), {"printer": printer_id})
+    if printer_id == 21:
+        # Spec item 1: Bambu needs a real tag and a known current measurement.
+        from core.tray_identity import advance
+        state, _ = advance({}, {"tag_uid": "0123456789ABCDEF", "tray_type": "PLA", "remain": 64})
+        review_db.execute(text("UPDATE filament_slots SET tray_observation=:state WHERE printer_id=21"), {"state": json.dumps(state)})
     review_db.commit()
-    slot = next(s for s in printers_client.get("/printers/21").json()["filament_slots"] if s["slot_number"] == 1)
+    slot = next(s for s in printers_client.get(f"/printers/{printer_id}").json()["filament_slots"] if s["slot_number"] == 1)
     assert slot["remaining_weight"] == 640 and slot["remaining"] == 64.0
+
+
+@pytest.mark.parametrize("initial_weight", [None, 0])
+def test_non_bambu_spool_grams_do_not_require_a_percentage(printers_client, review_db, initial_weight):
+    review_db.execute(text("INSERT INTO filament_library(id,brand,name,material) VALUES(501,'Synthetic','Black','PLA')"))
+    review_db.execute(text("INSERT INTO spools(id,filament_id,remaining_weight_g,initial_weight_g) VALUES(601,501,640,:initial)"), {"initial": initial_weight})
+    review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type,assigned_spool_id) VALUES(23,1,'PLA',601)"))
+    review_db.commit()
+    slot = printers_client.get('/printers/23').json()['filament_slots'][0]
+    assert slot['remaining_weight'] == 640
+    assert slot['remaining'] is None
 
 
 # --------------------------------------------------------------------------- overlay camera

@@ -45,6 +45,9 @@ def test_live_executable_counts():
 # Raw tables (and their exact columns) each registered post-027 migration adds. A new
 # migration must extend this map; the test below fails until it does.
 POST027_RAW_TABLES = {
+    "python:046-tray-identity": {
+        "tray_confirmations": frozenset("state_id slot_id decision spool_id previous_spool_id".split()),
+    },
     # These migrations add ORM columns only, without introducing raw tables.
     "python:041-inventory-color": {},
     "python:042-dispatch-capability": {},

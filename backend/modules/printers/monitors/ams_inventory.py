@@ -100,6 +100,11 @@ def sync_ams_inventory(conn, printer_id, units):
     identified = ams_trays_by_slot(units, strict=True)
     identified = [(number, {**tray, 'tag_uid': rfid.identity(tray.get('tag_uid')),
                             'tray_uuid': rfid.identity(tray.get('tray_uuid'))}) for number, tray in identified]
+    for _, tray in identified:
+        if tray.get('_exists') is False:
+            tray['_reported_type'] = tray.get('tray_type')
+            tray['tray_type'] = ''
+
     def material_reported(tray):
         value = tray.get('tray_type')
         return value == '' or canonical_reported_material(value) is not None
@@ -183,9 +188,10 @@ def sync_ams_inventory(conn, printer_id, units):
         rfid.raw_audit(conn, action, rfid.audit_details(spool_id, tray, printer_id, number, candidates, possible))
     from core.interfaces.inventory_moves import inventory_moves
     moves = inventory_moves()
-    moves.observed_departures(conn, printer_id,
-                              [(number, tray.get('tray_type') or '', tray.get('tag_uid')) for number, tray in identified],
-                              {value for value in destinations.values() if value is not None})
+    from core.tray_identity import advance, observe
+    states = moves.observed_departures(conn, printer_id,
+        [(number, tray.get('tray_type') or '', tray.get('tag_uid')) for number, tray in identified],
+        {value for value in destinations.values() if value is not None}, trays=dict(identified))
     for number, spool_id in destinations.items():
         if spool_id is None:
             continue
@@ -226,6 +232,10 @@ def sync_ams_inventory(conn, printer_id, units):
             conn.execute('UPDATE spools SET location_printer_id=?,location_slot=? WHERE id=?', (printer_id, number, spool_id))
             if weight is not None:
                 record_ams_measurement(qmark_runner(conn), spool_id, weight, printer_id)
+    # Persist observations only after all departures and destination writes.
+    for number, tray in identified:
+        identifier = conn.execute('SELECT id FROM filament_slots WHERE printer_id=? AND slot_number=?', (printer_id, number)).fetchone()[0]
+        observe(qmark_runner(conn), identifier, states[number] if number in states else advance({}, tray)[0])
     if not material_incomplete:
         _clear_unplugged_ht(conn, printer_id, reported_slots)
     return len(trays)

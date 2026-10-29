@@ -18,9 +18,15 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from tests.test_contracts.test_education_review_workflow import review_db  # noqa: F401
-from tests.test_contracts.test_cert_D_jobs_lifecycle_idempotency import lifecycle_client, _spool  # noqa: F401
+from tests.test_contracts.test_cert_D_jobs_lifecycle_idempotency import lifecycle_client, _spool, owned_completion_background  # noqa: F401
 from tests.test_contracts.test_archive_persistence_accounting_behavior import archive_case  # noqa: F401
 from tests.test_contracts import job_census
+
+
+@pytest.fixture(autouse=True)
+def _owned_archive_completion_threads(request):
+    if 'archive_case' in request.fixturenames:
+        request.getfixturevalue('owned_completion_background')
 
 
 def _keys(db, job_id=111):
@@ -275,7 +281,7 @@ def test_weighing_records_a_manual_adjustment_that_never_counts_as_a_deduction(l
 # ---------------- nothing to deduct ----------------
 
 @pytest.mark.parametrize("setup", ["UPDATE spools SET remaining_weight_g=NULL WHERE id=111",
-                                   "UPDATE spools SET location_slot=7 WHERE id=111"],
+                                   "UPDATE filament_slots SET assigned_spool_id=NULL WHERE printer_id=9 AND slot_number=1"],
                          ids=["unknown-balance", "no-matching-spool"])
 def test_nothing_deducted_claims_nothing_so_a_correction_still_deducts(lifecycle_client, setup):
     client, db = lifecycle_client
@@ -283,6 +289,7 @@ def test_nothing_deducted_claims_nothing_so_a_correction_still_deducts(lifecycle
     assert client.post("/jobs/111/complete").status_code == 200
     assert "quota_attempt:filament:job:111:0" not in _keys(db)
     db.execute(text("UPDATE spools SET remaining_weight_g=100, location_slot=1 WHERE id=111"))
+    db.execute(text("UPDATE filament_slots SET assigned_spool_id=111 WHERE printer_id=9 AND slot_number=1"))
     db.execute(text("UPDATE jobs SET status='failed' WHERE id=111")); db.commit()
     assert client.post("/jobs/111/complete").status_code == 200        # operator fixed the spool, corrected
     assert _spool(db) == (90.0, 1)
@@ -820,3 +827,20 @@ def test_bulk_spool_update_writes_in_ascending_id_order(lifecycle_client):
         event.remove(engine, "before_cursor_execute", record)
     assert response.status_code == 200, response.text
     assert seen == [111, 112, 113]
+
+
+def test_operator_completion_does_not_charge_pending_identity(lifecycle_client):
+    client, db = lifecycle_client
+    db.execute(text('UPDATE filament_slots SET tray_observation=:state WHERE printer_id=9 AND slot_number=1'),
+               {'state':json.dumps({'id':'a'*32,'pending':True,'observed':{}})})
+    db.commit()
+    assert client.post('/jobs/111/complete').status_code == 200
+    assert _spool(db) == (100.0,0)
+    assert db.execute(text("SELECT count(*) FROM audit_logs WHERE action='filament.unattributed' AND entity_id=111")).scalar_one()==1
+
+
+def test_operator_completion_does_not_use_location_only_binding(lifecycle_client):
+    client, db = lifecycle_client
+    db.execute(text('UPDATE filament_slots SET assigned_spool_id=NULL WHERE printer_id=9'));db.commit()
+    assert client.post('/jobs/111/complete').status_code == 200
+    assert _spool(db) == (100.0,0)

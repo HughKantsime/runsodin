@@ -1,0 +1,5 @@
+{
+  "rfid": {"id":"0","tray_type":"PLA","tray_sub_brands":"PLA Matte","tray_color":"FFFFFFFF","tag_uid":"1111111111111111","tray_uuid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","remain":5},
+  "tagless": {"id":"0","tray_type":"PETG","tray_sub_brands":"Bambu Lab PETG HF","tray_info_idx":"GFG02","tray_color":"FFFFFFFF","tag_uid":"0000000000000000","tray_uuid":"00000000000000000000000000000000","remain":-1},
+  "grey": {"id":"0","tray_type":"PETG","tray_sub_brands":"Bambu Lab PETG HF","tray_info_idx":"GFG02","tray_color":"898989FF","tag_uid":"0000000000000000","tray_uuid":"00000000000000000000000000000000","remain":-1}
+}

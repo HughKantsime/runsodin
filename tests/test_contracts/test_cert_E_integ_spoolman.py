@@ -154,6 +154,9 @@ def _completion_case(review_db, spoolman_id=42):  # noqa: F811
     review_db.execute(text("INSERT INTO spools(id,filament_id,status,location_printer_id,location_slot,remaining_weight_g,"
                            "initial_weight_g,spoolman_spool_id,org_id) VALUES(101,101,'active',9,1,100,100,:sm,1)"),
                       {"sm": spoolman_id})
+    # Spec item 3: location alone is not a binding or proof of the used tray.
+    review_db.execute(text("UPDATE filament_slots SET assigned_spool_id=101 WHERE printer_id=9 AND slot_number=1"))
+    review_db.execute(text("UPDATE jobs SET ams_mapping='[0]' WHERE id=101"))
     review_db.commit()
 
 

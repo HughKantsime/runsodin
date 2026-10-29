@@ -84,6 +84,8 @@ def freeze_unit_valuation(executor, scope, plan, attempt_id, material_plan, mate
     allocations = material_plan.get('allocations')
     if not isinstance(allocations, list) or not 1 <= len(allocations) <= 16 or any(not isinstance(x, dict) or type(x.get('spool_id')) is not int or x['spool_id'] <= 0 for x in allocations):
         result['reason'] = 'invalid_bounded_sources'; return result
+    if any(x.get('identity_state') for x in allocations):
+        result['reason'] = 'spool_change_pending'; return result
     identifiers = sorted({x['spool_id'] for x in allocations})
     for identifier in identifiers:
         statement = 'SELECT id FROM spools WHERE id=:id FOR UPDATE NOWAIT' if view.dialect.name == 'postgresql' else 'UPDATE spools SET id=id WHERE id=:id RETURNING id'

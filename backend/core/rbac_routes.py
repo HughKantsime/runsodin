@@ -155,6 +155,7 @@ ACTION_ROUTES: dict[str, list[tuple[str, str]]] = {
         ("PATCH", "/api/printers/{printer_id}/slots/{slot_number}"),
         ("POST", "/api/printers/{printer_id}/slots/{slot_number}/assign"),
         ("POST", "/api/printers/{printer_id}/slots/{slot_number}/confirm"),
+        ("POST", "/api/printers/{printer_id}/slots/{slot_number}/confirm-identity"),
         ("PATCH", "/api/printers/{printer_id}/slots/{slot_number}/manual-assign"),
         ("POST", "/api/filament-slots"),
     ],

@@ -42,6 +42,10 @@ class FilamentSlotResponse(FilamentSlotBase):
     loaded_at: Optional[datetime] = None
     remaining: Optional[float] = None
     remaining_weight: Optional[float] = None  # grams left on the assigned spool
+    spool_change_pending: bool = False
+    observed_state: Optional[str] = None
+    preset: Optional[str] = None
+    brand: Optional[str] = None
     material_type: Optional[str] = None
     display_name: Optional[str] = None
     mapping_status: Optional[str] = None
@@ -55,7 +59,20 @@ class FilamentSlotResponse(FilamentSlotBase):
             return data
         values = {name: getattr(data, name) for name in cls.model_fields if name != 'remaining_weight' and hasattr(data, name)}
         spool = data.assigned_spool
-        values['remaining_weight'] = float(spool.remaining_weight_g) if spool is not None and spool.remaining_weight_g is not None else None
+        from core.tray_identity import decode, preset_label
+        state = decode(data.tray_observation)
+        values['spool_change_pending'] = state.get('pending', False)
+        values['observed_state'] = state.get('id')
+        # A missing initial weight prevents a percentage, not a known gram
+        # balance on an operator-managed non-Bambu spool (spec item 1).
+        unknown_bambu = data.printer and data.printer.api_type == 'bambu' and data.remaining is None
+        values['remaining_weight'] = float(spool.remaining_weight_g) if not unknown_bambu and spool is not None and spool.remaining_weight_g is not None else None
+        if state:
+            values['preset'] = preset_label(state)
+            values['brand'] = spool.filament.brand if spool and spool.filament else None
+            values['color'] = f'{spool.filament.brand} {spool.filament.name}'.strip() if spool and spool.filament else values['preset']
+            if state.get('observed', {}).get('exists') is False:
+                values.update(color=None, brand=None, preset=None)
         return values
 
 

@@ -192,7 +192,10 @@ def test_inconsistent_material_plan_persists_reason_without_guess(mapped_capture
  assert plan['state']=='unresolved' and plan['reason']==reason and plan['allocations']==[]
  with mapped_capture_case.connect() as conn:assert conn.execute(text('SELECT remaining_weight_g FROM spools WHERE id=7299')).scalar_one()==1000
 
-def test_spool_inserted_between_reads_cannot_bless_missing_start_identity(capture_case,monkeypatch):
+@pytest.mark.parametrize('inserted_org', [None, 1, 2])
+def test_spool_inserted_between_reads_cannot_bless_missing_start_identity(mapped_capture_case,monkeypatch,inserted_org):
+ # Spec §3 requires actual tray evidence; retain the missing-spool assertion.
+ capture_case=mapped_capture_case
  from types import SimpleNamespace
  from modules.archives import attempt_accounting
  # Model a preexisting legacy dangling assignment. Current FK enforcement
@@ -207,7 +210,7 @@ def test_spool_inserted_between_reads_cannot_bless_missing_start_identity(captur
   result=real_execute(conn,statement,parameters)
   if statement.startswith('SELECT fs.slot_number,fs.assigned_spool_id'):
    rows=result.fetchall()
-   real_execute(conn,'INSERT INTO spools(id,filament_id,org_id,remaining_weight_g) VALUES(7499,7299,2,1000)')
+   real_execute(conn,'INSERT INTO spools(id,filament_id,org_id,remaining_weight_g) VALUES(7499,7299,?,1000)',(inserted_org,))
    inserted.append(True)
    return SimpleNamespace(fetchall=lambda:rows)
   return result
