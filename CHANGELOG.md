@@ -2,6 +2,25 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.33] - 2026-10-29
+
+<!-- summary: Old prints no longer show as finished today, Moonraker prints keep the printer's real times and status, and every print shows a human name -->
+
+### Changed
+
+- Jobs, prints, archives, history and the activity feed show a human name: the ODIN model name when the print belongs to a model, otherwise the print file's original filename without its extension. A dispatch transport name such as `odin-dispatch-<id>` is never shown. API payloads carry `display_name`; stored names are unchanged.
+- A new model created from an upload is named after the uploaded filename, not the 3MF metadata title, which could name a different object.
+- Reprints and prints attached to a job are named after the model, not "Reprint: odin-dispatch-…".
+- Renaming a model renames every job, print and archive under it. A print file without a model can be renamed with `PATCH /api/print-files/{id}/name`. Both renames are audited.
+- A write:jobs token can cancel a held job whose only dispatch attempt never started and was reconciled as no-start.
+
+### Fixed
+
+- A Moonraker printer (Kobra S1) attached each new print to the newest old print ODIN still had open, so a print from March could show as finished today with a run time of months. A new start now resumes an open print only when it is the same file and the elapsed time agrees. Any other open print on that printer is closed with an unknown end time, without an archive, filament charge or alert.
+- When a Moonraker print ends, ODIN takes the status, start, end and print time from the printer's own history. A print cancelled on the printer was sometimes recorded as completed.
+- A reconnect no longer resumes a print from the database alone; the next live status decides.
+- A print never gets a second archive.
+
 ## [2.0.32] - 2026-10-29
 
 <!-- summary: AMS printers never start without a mapping, and a failed print's file can be scheduled again -->
