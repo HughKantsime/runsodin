@@ -84,7 +84,10 @@ export default function PrinterDetail() {
 
   const online = isOnline(printer)
   const progress = printer.progress ?? printer.print_progress ?? 0
-  const currentJobName = displayName({ display_name: printer.current_print_display_name, job_name: printer.current_job || printer.job_name })
+  // Only a running job has a name; an idle printer shows no Current Job block.
+  const reportedJob = printer.current_job || printer.job_name
+  const currentJobName = printer.current_print_display_name || reportedJob
+    ? displayName({ display_name: printer.current_print_display_name, job_name: reportedJob }) : null
   const nozzleTemp = printer.nozzle_temp ?? printer.temperatures?.nozzle ?? null
   const bedTemp = printer.bed_temp ?? printer.temperatures?.bed ?? null
   const etaMinutes = printer.remaining_time ?? printer.eta_minutes ?? null
@@ -150,7 +153,7 @@ export default function PrinterDetail() {
                 {Math.round(progress)}%
               </span>
             </div>
-            <ProgressBar value={progress} color={progress >= 100 ? 'green' : 'print'} size="md" />
+            <ProgressBar value={progress} color={progress >= 100 ? 'green' : 'print'} size="md" label={`${currentJobName} progress`} />
             {etaMinutes > 0 && (
               <p className="text-xs mt-2" style={{ color: 'var(--brand-text-muted)' }}>
                 {formatEta(etaMinutes)}

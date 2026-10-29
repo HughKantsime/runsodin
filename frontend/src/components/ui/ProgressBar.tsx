@@ -7,6 +7,8 @@ interface ProgressBarProps {
   color?: ProgressBarColor
   size?: 'sm' | 'md'
   className?: string
+  /** Accessible name; a progressbar must have one. */
+  label?: string
 }
 
 const colorStyles: Record<string, string> = {
@@ -31,6 +33,7 @@ export default function ProgressBar({
   color = 'print',
   size = 'sm',
   className,
+  label = 'Progress',
 }: ProgressBarProps) {
   const clamped = Math.max(0, Math.min(100, value || 0))
 
@@ -42,6 +45,7 @@ export default function ProgressBar({
         className
       )}
       role="progressbar"
+      aria-label={label}
       aria-valuenow={clamped}
       aria-valuemin={0}
       aria-valuemax={100}
