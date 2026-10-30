@@ -10,7 +10,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 PYTHON="${PYTHON:-python3.11}"
 # Components run under an isolated HOME; point browser tests at the real cache, as aggregate.py does.
-export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/Library/Caches/ms-playwright}"
+export PLAYWRIGHT_BROWSERS_PATH="$("$PYTHON" -c 'import os,sys; from pathlib import Path; print(os.getenv("PLAYWRIGHT_BROWSERS_PATH") or str((Path.home()/"Library/Caches" if sys.platform == "darwin" else Path(os.getenv("XDG_CACHE_HOME", str(Path.home()/".cache"))))/"ms-playwright"))')"
 # Likewise Docker: the isolated HOME has no Docker context, so PostgreSQL tests would skip.
 export DOCKER_HOST="${DOCKER_HOST:-$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null)}"
 stamp="$(date -u +%Y%m%dt%H%M%Sz)"

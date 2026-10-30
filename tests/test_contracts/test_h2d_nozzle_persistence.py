@@ -203,7 +203,8 @@ def test_bambu_nozzle_counts_match_installed_bambu_studio_profiles():
     import json
     from pathlib import Path
     from modules.printers.printer_models import BAMBU_MODEL_IDS, bambu_nozzle_count
-    machine = Path('/Applications/BambuStudio.app/Contents/Resources/profiles/BBL/machine')
+    from tests.test_contracts.test_cert_D_bambu_code_map import PROFILES
+    machine = PROFILES
     if not machine.is_dir():
         pytest.skip('Bambu Studio profiles not installed')
     profiles = {}

@@ -523,7 +523,7 @@ def test_MW16_workflows_are_manual_serial_and_least_privilege():
         assert "push:" not in source and "pull_request:" not in source and "workflow_dispatch:" in source
         assert payload["permissions"] == {}
         assert payload["concurrency"] == {"group": "odin-release-mutation", "cancel-in-progress": False}
-        assert "runs-on: [self-hosted, mac-mini-runner, m4]" in source
+        assert "runs-on: [self-hosted, odin-ci]" in source
     assert publication["jobs"]["publish"]["permissions"] == {"actions": "read", "contents": "read", "packages": "write"}
     assert production["jobs"]["promote"]["permissions"] == {"actions": "read", "contents": "read", "packages": "write"}
     assert production["jobs"]["promote"]["environment"] == "production"
@@ -533,7 +533,7 @@ def test_MW17_workflow_side_effect_boundaries_and_pins():
     publication_source, publication = _workflow("publish-image.yml")
     production_source, production = _workflow("promote-production.yml")
     assert ":latest" not in publication_source
-    assert "docker buildx build" in publication_source and "--platform linux/amd64,linux/arm64" in publication_source
+    assert "docker buildx build" in publication_source and "--platform linux/amd64,linux/arm64 --provenance=false" in publication_source
     assert "docker buildx build" not in production_source and "actions/checkout" not in production_source
     candidate_checkout = next(
         step for step in publication["jobs"]["publish"]["steps"]
@@ -587,15 +587,14 @@ def test_MW19_failure_receipts_and_fresh_authorization_are_wired():
     assert "PRODUCTION_OBSERVATION_FAILED" in production_steps["Observe production version over verified TLS"]["run"]
 
 
-def test_MW20_publication_bootstrap_finds_runner_docker_before_path_export():
+def test_MW20_publication_bootstrap_finds_runner_docker_from_path():
     _, publication = _workflow("publish-image.yml")
-    steps = {step["name"]: step for step in publication["jobs"]["publish"]["steps"]}
-    bootstrap = steps["Establish isolated publication root"]["run"]
-    docker_check = "test -x /Users/ollama/homebrew/bin/docker"
-    path_export = "printf '%s\\n' /Users/ollama/homebrew/bin /opt/homebrew/bin >> \"$GITHUB_PATH\""
+    bootstrap = publication["jobs"]["publish"]["steps"][0]["run"]
+    docker_check = 'command -v docker >/dev/null || { echo "Required tool missing from PATH: docker" >&2; exit 1; }'
+    resolve = 'docker_bin="$(command -v docker)"'
     assert docker_check in bootstrap
-    assert path_export in bootstrap
-    assert bootstrap.index(docker_check) < bootstrap.index(path_export)
+    assert bootstrap.index(docker_check) < bootstrap.index(resolve)
+    assert "/homebrew/" not in bootstrap
 
 
 def test_MW21_mutation_bootstraps_preserve_daemon_with_isolated_credentials():
@@ -657,3 +656,95 @@ def test_MW23_publication_recovery_is_evidence_bound_and_never_rebuilds():
     assert "attach-tag" in adopt["run"] and '"$STAGING_TAG"' in adopt["run"]
     assert "docker buildx build" in build["run"]
     assert "recovery_publication_run_id" in source and "recovery_receipt_sha256" in source
+
+
+@pytest.mark.parametrize('shape', ['amd64', 'multi-arch', 'arm64-only', 'duplicate', 'empty', 'extra', 'windows', 'failed'])
+def test_publication_receipt_platform_shape_is_strict(shape):
+    receipt = _publication_state()
+    if shape == 'amd64':
+        receipt['platform_manifests'] = receipt['platform_manifests'][:1]
+    elif shape == 'arm64-only':
+        receipt['platform_manifests'] = receipt['platform_manifests'][1:]
+    elif shape == 'duplicate':
+        receipt['platform_manifests'] = receipt['platform_manifests'][:1] * 2
+    elif shape == 'empty':
+        receipt['platform_manifests'] = []
+    elif shape == 'extra':
+        receipt['platform_manifests'].append(dict(receipt['platform_manifests'][0], architecture='s390x'))
+    elif shape == 'windows':
+        receipt['platform_manifests'][1]['os'] = 'windows'
+    elif shape == 'failed':
+        receipt['platform_manifests'][1]['status'] = 'failed'
+    if shape == 'multi-arch':
+        mutation.validate_receipt(receipt)
+    else:
+        _expect('RECEIPT_INVALID', mutation.validate_receipt, receipt)
+
+
+@pytest.mark.parametrize('mode', [
+    'multi-arch', 'single', 'amd64-only', 'arm64-only', 'duplicate', 'extra',
+    'empty', 'windows', 'malformed-list', 'malformed-row', 'missing-platform',
+    'invalid-digest', 'digest-drift',
+])
+def test_publication_index_verification_is_digest_and_platform_bound(mode):
+    rows = [
+        {'digest': DIGEST, 'platform': {'os': 'linux', 'architecture': 'amd64'}},
+        {'digest': OTHER_DIGEST, 'platform': {'os': 'linux', 'architecture': 'arm64'}},
+    ]
+    if mode == 'amd64-only':
+        rows = rows[:1]
+    elif mode == 'arm64-only':
+        rows = rows[1:]
+    elif mode == 'duplicate':
+        rows = rows[:1] * 2
+    elif mode == 'extra':
+        rows.append({'digest': DIGEST, 'platform': {'os': 'linux', 'architecture': 's390x'}})
+    elif mode == 'empty':
+        rows = []
+    elif mode == 'windows':
+        rows[1]['platform']['os'] = 'windows'
+    elif mode == 'malformed-list':
+        rows = {}
+    elif mode == 'malformed-row':
+        rows[1] = None
+    elif mode == 'missing-platform':
+        del rows[1]['platform']
+    elif mode == 'invalid-digest':
+        rows[1]['digest'] = 'sha256:invalid'
+    payload = {'digest': OTHER_DIGEST if mode == 'digest-drift' else DIGEST}
+    if mode != 'single':
+        payload['manifests'] = rows
+
+    def runner(command, **kwargs):
+        assert command == ['docker', 'buildx', 'imagetools', 'inspect',
+                           f'{mutation.IMAGE_REPOSITORY}@{DIGEST}', '--format', '{{json .Manifest}}']
+        return subprocess.CompletedProcess(command, 0, json.dumps(payload), '')
+
+    if mode == 'multi-arch':
+        assert mutation.publication_platforms(mutation.IMAGE_REPOSITORY, DIGEST, runner=runner) == [
+            {'os': 'linux', 'architecture': 'amd64', 'digest': DIGEST, 'status': 'passed'},
+            {'os': 'linux', 'architecture': 'arm64', 'digest': OTHER_DIGEST, 'status': 'passed'},
+        ]
+    else:
+        _expect('RECOVERY_TAG_MISMATCH' if mode == 'digest-drift' else 'RECOVERY_PLATFORM_MISMATCH',
+                mutation.publication_platforms, mutation.IMAGE_REPOSITORY, DIGEST, runner=runner)
+
+
+def test_copy_index_uses_default_digest_preserving_copy():
+    commands = []
+
+    def runner(command, **kwargs):
+        commands.append(command)
+        return subprocess.CompletedProcess(command, 0, '', '')
+
+    source = f'{mutation.IMAGE_REPOSITORY}@{DIGEST}'
+    target = f'{mutation.IMAGE_REPOSITORY}:staging'
+    mutation.copy_manifest(source, target, runner=runner)
+    assert commands == [['docker', 'buildx', 'imagetools', 'create', '--tag', target, source]]
+
+
+def test_successful_publication_schema_requires_exactly_two_platform_manifests():
+    schema = json.loads((ROOT / 'ops/release_control/publication_receipt.schema.json').read_text())
+    success = next(rule['then'] for rule in schema['allOf']
+                   if rule['if']['properties']['status'] == {'const': 'success'})
+    assert success['properties']['platform_manifests'] == {'minItems': 2, 'maxItems': 2}

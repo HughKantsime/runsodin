@@ -1,6 +1,7 @@
 """Actual compiled Education UI and HTTP/JWT routes against a disposable app."""
 import os
 import secrets
+import shutil
 from pathlib import Path
 import socket
 import subprocess
@@ -32,6 +33,10 @@ def upload_volume(tmp_path):
     root = tmp_path / 'upload-volume'
     root.mkdir()
     if sys.platform != 'darwin':
+        # A real host filesystem needs no privileged mount on Linux. Fail before
+        # launching the app if its normal 1 GiB reserve cannot be exercised.
+        free = shutil.disk_usage(root).free
+        assert 2 * 1024**3 <= free < 1000000 * 1024**3, 'CV06 needs 2 GiB free and a filesystem below the denial-test reserve'
         yield root
         return
     # Use a real bounded filesystem, so host-wide fullness cannot silently

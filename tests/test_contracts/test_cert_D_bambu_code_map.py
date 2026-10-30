@@ -8,6 +8,8 @@ unrecognized models must remain fail-closed. Installing a newer slicer does
 not expand ODIN's supported-model table.
 """
 import json
+import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -26,7 +28,9 @@ EXPECTED = {
     'O1S': 'H2S',          # Bambu Lab H2S
     'O1C2': 'H2C',         # Bambu Lab H2C
 }
-PROFILES = Path('/Applications/BambuStudio.app/Contents/Resources/profiles/BBL/machine')
+PROFILES = Path(os.environ.get('BAMBU_STUDIO_PROFILES',
+    '/Applications/BambuStudio.app/Contents/Resources/profiles/BBL/machine' if sys.platform == 'darwin'
+    else '/usr/share/bambu-studio/profiles/BBL/machine'))
 FRIENDLY = {'X1 Carbon': 'X1C', 'A1 mini': 'A1 Mini'}
 
 

@@ -24,6 +24,7 @@ TAG_RE = re.compile(r"^[a-z0-9][a-z0-9._/-]{0,127}:[a-z0-9][a-z0-9._-]{0,63}$")
 GHA_TAG_RE = re.compile(r"^odin-(?:candidate:candidate|dbparity:parity)-gha-[0-9]+-1$")
 Command = Callable[..., subprocess.CompletedProcess[str]]
 HISTORICAL_PROBE_IMAGE_ID = "sha256:9534e5a8e315485d4061ed659af0fd78a284c015f9b73661b41d6bab25604534"
+# Historical field name retained in evidence; this is a registry digest, not .Id.
 PROBE_IMAGE_ID = "sha256:0b23cfb7425d065008b778022a17b1551c82f8b4866ee5a7a200084b7e2eafbf"
 PROBE_IMAGE_REF = f"python:3.11-slim@{PROBE_IMAGE_ID}"
 HOST_MIN_FREE_BYTES = 5 * 1024**3
@@ -41,7 +42,7 @@ VALIDATION_CAPACITY_COMMAND = (
     "--read-only",
     "--entrypoint",
     "/bin/df",
-    PROBE_IMAGE_ID,
+    PROBE_IMAGE_REF,
     "-Pk",
     "/",
 )
@@ -730,21 +731,26 @@ def _host_free_bytes() -> int:
 
 
 def ensure_probe_image(*, command: Command = _command) -> None:
-    """Recover a pruned probe without changing any tags or removing images."""
-    def inspect(reference: str) -> subprocess.CompletedProcess[str]:
+    """Pull only the immutable registry pin; never confuse it with a config ID."""
+    def inspect() -> subprocess.CompletedProcess[str]:
         return command(
-            ["docker", "image", "inspect", "--format", "{{.Id}}", reference],
-            capture=True,
-            check=False,
+            ["docker", "image", "inspect", "--format", "{{json .RepoDigests}}", PROBE_IMAGE_REF],
+            capture=True, check=False,
         )
 
-    observed = inspect(PROBE_IMAGE_ID)
+    observed = inspect()
     if observed.returncode:
         pulled = command(["docker", "pull", PROBE_IMAGE_REF], capture=True, check=True)
         if pulled.returncode:
             raise ValidationImageError("Docker capacity probe pull failed")
-        observed = inspect(PROBE_IMAGE_REF)
-    if observed.returncode or (observed.stdout or "").strip() != PROBE_IMAGE_ID:
+        observed = inspect()
+    try:
+        digests = json.loads(observed.stdout or "null")
+    except ValueError as exc:
+        raise ValidationImageError("Docker capacity probe image identity mismatch") from exc
+    if observed.returncode or not isinstance(digests, list) or not any(
+        ref in digests for ref in (f"python@{PROBE_IMAGE_ID}", f"docker.io/library/python@{PROBE_IMAGE_ID}")
+    ):
         raise ValidationImageError("Docker capacity probe image identity mismatch")
 
 
@@ -755,7 +761,7 @@ def _docker_free_kib(probe_image_id: str, *, command: Command = _command) -> int
     completed = command(
         [
             "docker", "run", "--pull=never", "--rm", "--network", "none",
-            "--read-only", "--entrypoint", "/bin/df", probe_image_id, "-Pk", "/",
+            "--read-only", "--entrypoint", "/bin/df", PROBE_IMAGE_REF, "-Pk", "/",
         ],
         capture=True,
         check=True,
