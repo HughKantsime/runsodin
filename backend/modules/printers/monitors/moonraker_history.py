@@ -25,7 +25,9 @@ def terminal_history(printer, filename, observed_end, *, row_started_at=None):
             if (not all(math.isfinite(v) for v in (start, end, duration))
                     or start > end or duration < 0):
                 continue
-            if abs(observed_end - end) > 300 if row_started_at is None else not start - 120 <= row_started_at <= end:
+            matches = (abs(observed_end - end) <= 300 if row_started_at is None
+                       else start - 120 <= row_started_at <= end)
+            if not matches:
                 continue
             candidates.append({'status': TERMINAL[job['status']],
                 'started_at': datetime.fromtimestamp(start, timezone.utc).isoformat(),

@@ -6,9 +6,10 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import text
 
+from core.db_compat import as_utc_datetime
 from tests.test_contracts.test_economic_creator_wiring import creators
 from tests.test_contracts.test_education_review_workflow import review_db
-from tests.test_contracts.test_dispatch_restart_resume import running_bambu
+from tests.test_contracts.test_dispatch_restart_resume import drift, running_bambu
 
 CANCELLED_CODE = 0x0300400C
 OUTCOMES = [('FINISH', 0, 'completed'), ('FAILED', 7, 'failed'), ('FAILED', CANCELLED_CODE, 'cancelled')]
@@ -96,7 +97,7 @@ def test_dispatched_print_ended_in_downtime_is_closed_once(running_bambu, delive
     rows, claims, job = row_state(case)
     assert len(rows) == 1 and rows[0]['id'] == case.identifier
     assert rows[0]['status'] == expected and rows[0]['ended_at'] is not None
-    assert job[0] == expected and job[1] == rows[0]['ended_at']
+    assert job[0] == expected and as_utc_datetime(job[1]) == as_utc_datetime(rows[0]['ended_at'])
     assert claims == 0
     assert monitor._current_job_id is None and monitor._linked_job_id is None
     assert_terminal_effects(case, delivered, expected)
@@ -113,6 +114,16 @@ def test_recovered_end_uses_the_first_start_filament_evidence(running_bambu):
     rows, _, _ = row_state(case)
     assert rows[0]['status'] == 'completed'
     assert rows[0]['filament_used_g'] == (100 if case.weights else None)
+
+
+def test_loadout_changed_in_downtime_still_proves_the_end(running_bambu):
+    # An operator can swap a spool once the print is over and ODIN is still down.
+    case = running_bambu
+    drift(case.engine)
+    monitor = restarted(case)
+    packet(monitor, gcode_state='FINISH', subtask_name=case.state['subtask_name'], print_error=0)
+    rows, claims, job = row_state(case)
+    assert rows[0]['status'] == 'completed' and job[0] == 'completed' and claims == 0
 
 
 def test_bambu_suffix_alias_proves_the_end(running_bambu):
@@ -197,7 +208,7 @@ def manual_bambu(review_db, tmp_path, monkeypatch):
     def database():
         raw = engine.raw_connection()
         try:
-            yield _ConnectionAdapter(raw, False)
+            yield _ConnectionAdapter(raw, engine.dialect.name == 'postgresql')
         finally:
             raw.close()
 
@@ -417,7 +428,7 @@ def owned_bambu(creators, review_db, tmp_path, monkeypatch):
     def database():
         raw = engine.raw_connection()
         try:
-            yield _ConnectionAdapter(raw, False)
+            yield _ConnectionAdapter(raw, engine.dialect.name == 'postgresql')
         finally:
             raw.close()
 
@@ -567,7 +578,7 @@ def test_moonraker_history_supplies_truth_long_after_the_end(moonraker, raw, rec
     monitor._process_status(moonraker_status(raw, total=3600))
     status, ended = case.state(identifier)
     assert status == expected
-    assert ended == datetime.fromtimestamp(end, timezone.utc).isoformat()
+    assert as_utc_datetime(ended) == datetime.fromtimestamp(end, timezone.utc)
 
 
 def test_moonraker_history_of_another_print_does_not_decide(moonraker):
@@ -580,7 +591,7 @@ def test_moonraker_history_of_another_print_does_not_decide(moonraker):
     monitor._process_status(moonraker_status('complete', total=3600))
     status, ended = case.state(identifier)
     assert status == 'completed'
-    assert ended != datetime.fromtimestamp(start, timezone.utc).isoformat()
+    assert as_utc_datetime(ended) != datetime.fromtimestamp(start + 300, timezone.utc)
 
 
 @pytest.mark.parametrize('raw', ['standby', 'ready'])
@@ -740,7 +751,7 @@ def generic(request, review_db, tmp_path, monkeypatch):
     def database():
         raw = engine.raw_connection()
         try:
-            yield _ConnectionAdapter(raw, False)
+            yield _ConnectionAdapter(raw, engine.dialect.name == 'postgresql')
         finally:
             raw.close()
 
