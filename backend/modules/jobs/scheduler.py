@@ -433,7 +433,7 @@ class Scheduler(SchedulerPlanning):
         duration_slots = max(1, int(job.effective_duration * (60 / self.slot_minutes)))
 
         from core.dispatch_identity import ownership_refusal
-        from modules.printers.services import dispatch_unsupported_reason
+        from modules.printers.dispatch_support import automatic_dispatch_unsupported_reason as dispatch_unsupported_reason
         for printer_id, state in printer_states.items():
             if dispatch_unsupported_reason(state.printer):
                 continue

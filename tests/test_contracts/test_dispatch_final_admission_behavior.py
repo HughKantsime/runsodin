@@ -256,7 +256,21 @@ def test_final_admission_refuses_printer_changed_to_kobra(setup):
     with engine.begin() as conn:
         conn.execute(text("UPDATE printers SET machine_type='Kobra S1 Max' WHERE id=59"))
     result = admit(engine, **inputs)
-    from modules.printers.dispatch_support import KOBRA_DISPATCH_DETAIL
     assert not result.admitted
-    assert result.reason == 'printer_dispatch_unsupported: ' + KOBRA_DISPATCH_DETAIL
+    assert result.reason == 'Printer configuration, capability or ownership changed'
     assert state(engine) == 'preparing'
+
+
+@pytest.mark.parametrize('derived',[True,False])
+def test_final_admission_feed_exclusion_includes_derived_mapping(setup,derived):
+    engine,_,inputs=setup
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE filament_slots SET do_not_feed=true,do_not_feed_note='Feed test failed' WHERE printer_id=59"))
+        if not derived:
+            conn.execute(text("UPDATE jobs SET ams_mapping='[0]' WHERE id=53"))
+            from modules.printers import dispatch
+            inputs['job']=dispatch._load_job(53,connection=conn)
+    if derived:inputs['effective_mapping']=[0]
+    result=admit(engine,**inputs)
+    assert not result.admitted and result.reason=='slot_do_not_feed: Slot 1: Feed test failed'
+    assert state(engine)=='preparing'

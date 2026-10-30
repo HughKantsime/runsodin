@@ -138,6 +138,8 @@ class MoonrakerStatus:
     webcam_stream_url: str = ""
     webcam_snapshot_url: str = ""
 
+    ace_status: Optional[Dict[str, Any]] = None
+
     # Raw data for debugging
     raw_data: Dict[str, Any] = field(default_factory=dict)
 
@@ -153,7 +155,10 @@ class MoonrakerPrinter:
     # Sensor name patterns that indicate MMU/enclosure environment
     _ENV_SENSOR_KEYWORDS = ("ace", "mmu", "dryer", "drybox", "enclosure", "chamber", "filament_box")
 
-    def __init__(self, host: str, port: int = 80, api_key: str = ""):
+    def __init__(self, host: str, port: int = 80, api_key: str = "", *, model=None, machine_type=None):
+        from modules.printers.dispatch_support import is_kobra_s1
+        self.is_kobra_s1 = is_kobra_s1(dict(api_type='moonraker', model=model, machine_type=machine_type))
+        self.last_upload_busy = False
         self.host = host
         self.port = port
         self.api_key = api_key
@@ -286,6 +291,8 @@ class MoonrakerPrinter:
             "gcode_move",
             "webhooks",
         ]
+        if self.is_kobra_s1:
+            objects.append("filament_hub")
         if self._has_fan:
             objects.append("fan")
         objects.extend(self._temperature_sensors)
@@ -309,7 +316,15 @@ class MoonrakerPrinter:
                 elif hasattr(status, name):
                     setattr(status, name, value)
             mmu = result.get("mmu", {})
-            if mmu and mmu.get("enabled"):
+            if self.is_kobra_s1:
+                from modules.printers.kobra_s1 import parse_ace
+                status.ace_status = parse_ace(result.get('filament_hub'))
+                status.filament_slots = [MoonrakerFilamentSlot(gate=s['index'], material=s['type'],
+                    color_hex=s['color_hex'] or '', loaded=s['usable'], gate_status=1 if s['usable'] else -1)
+                    for s in status.ace_status['slots']]
+                if status.ace_status['temperature'] is not None:
+                    status.environment_sensors['ACE'] = status.ace_status['temperature']
+            elif mmu and mmu.get("enabled"):
                 status.filament_slots = self._parse_mmu_slots(mmu)
             status.nozzle_diameter = self._nozzle_diameter
         except Exception as e:
@@ -360,6 +375,7 @@ class MoonrakerPrinter:
         """
         from core.webhook_utils import device_request
 
+        self.last_upload_busy = False
         if remote_filename is None:
             remote_filename = os.path.basename(local_path)
 
@@ -380,14 +396,46 @@ class MoonrakerPrinter:
             if resp.status_code in (200, 201):
                 log.info(f"Uploaded {remote_filename} to Moonraker at {self.host}")
                 return True
+            if resp.status_code == 409:
+                self.last_upload_busy = True
+                return False
             log.error(f"Moonraker upload returned {resp.status_code}: {resp.text[:200]}")
             return False
         except Exception as e:
             log.error(f"Moonraker upload failed ({self.host}): {e}")
             return False
 
+    def device_file_identity(self, filename):
+        """Hash the complete device copy, including Rinkhals' upload edits."""
+        import hashlib
+        from urllib.parse import quote
+        from modules.printers.kobra_s1 import safe_path, parse_header
+        from core.itar import enforce_request_destination
+        url = self.base_url + '/server/files/gcodes/' + quote(safe_path(filename))
+        enforce_request_destination(url)
+        headers = {'X-Api-Key': self.api_key} if self.api_key else {}
+        request = Request(url, headers=headers)
+        digest, size, prefix = hashlib.md5(usedforsecurity=False), 0, b''
+        with urlopen(request, timeout=120) as response:
+            for block in iter(lambda: response.read(128 * 1024), b''):
+                digest.update(block)
+                size += len(block)
+                if len(prefix) < 256 * 1024:
+                    prefix += block[:256 * 1024 - len(prefix)]
+        return dict(path=filename, md5=digest.hexdigest(), size=size,
+                    filaments=parse_header(prefix.decode('utf-8', 'replace')))
+
     def start_print(self, filename: str) -> bool:
         """Start printing a file already on the printer."""
+        from modules.printers.dispatch_support import is_kobra_s1
+        if self.is_kobra_s1 or is_kobra_s1(dict(api_type='moonraker', model=self._device_type)):
+            return False
+        # Identity can be unset (generic Klipper printers often have no model), so
+        # Rinkhals' ACE object also forbids a plain start; an unreadable answer refuses.
+        probe = self._get("/printer/objects/query?filament_hub")
+        status = probe.get("result", {}).get("status") if isinstance(probe, dict) else None
+        if not isinstance(status, dict) or "filament_hub" in status:
+            return False
         try:
             resp = self._post(f"/printer/print/start?filename={filename}")
             return resp is not None

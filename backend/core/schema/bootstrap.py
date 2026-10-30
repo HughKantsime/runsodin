@@ -304,7 +304,7 @@ def _orm_checksum() -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-CURRENT_ORM_BASELINE = "tray_identity_046_20261028"
+CURRENT_ORM_BASELINE = "slot_feed_policy_047_20261029"
 
 # Post-027 migrations, applied in this order on the current path only. Each must be
 # additive and must never fail because of existing user data (data-dependent
@@ -327,6 +327,7 @@ POST027_MIGRATIONS = (
     ("python:044-spool-tray-uuid", "core.schema.migrations.044_spool_tray_uuid"),
     ("python:045-pause-cancel-alerts", "core.schema.migrations.045_pause_cancel_alerts"),
     ("python:046-tray-identity", "core.schema.migrations.046_tray_identity"),
+    ("python:047-slot-feed-policy", "core.schema.migrations.047_slot_feed_policy"),
 )
 
 

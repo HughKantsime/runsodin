@@ -65,7 +65,7 @@ def recheck_admitted(engine, **inputs):
     return _check_attempt(engine, already_admitted=True, **inputs)
 
 
-def _check_attempt(engine,*,token,job,creds,key,payload_sha256,transport_filename,power_accepted,broker_connection=None,education_provider=None,education_reservation=None,already_admitted):
+def _check_attempt(engine,*,token,job,creds,key,payload_sha256,transport_filename,power_accepted,broker_connection=None,education_provider=None,education_reservation=None,already_admitted,effective_mapping=None):
     """Revalidate captured facts and persist adapter entry on the same connection.
 
     Payload hash describes the owned adapter snapshot. The orchestrator must
@@ -115,6 +115,10 @@ def _check_attempt(engine,*,token,job,creds,key,payload_sha256,transport_filenam
             unsupported = dispatch_unsupported_reason(current_creds)
             if unsupported:
                 raise _Refused(unsupported)
+            from modules.printers.slot_feed_policy import flagged_mapping_reason
+            feed_refusal = flagged_mapping_reason(conn, job['printer_id'], effective_mapping if effective_mapping is not None else current_job.get('ams_mapping'))
+            if feed_refusal:
+                raise _Refused(feed_refusal)
             if current_job!=job:
                 raise _Refused('Job, file, options or ownership changed before dispatch')
             current_identity=build_identity(current_creds,key)

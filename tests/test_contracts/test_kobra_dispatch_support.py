@@ -10,7 +10,7 @@ from modules.printers.dispatch_support import dispatch_unsupported_reason, KOBRA
 
 
 @pytest.mark.parametrize('field', ['model', 'machine_type'])
-@pytest.mark.parametrize('model', ['Kobra S1', 'kObRa s1 mAx', 'Anycubic Kobra 3', 'Kobra 3 V2', 'Kobra 3 Max'])
+@pytest.mark.parametrize('model', ['Anycubic Kobra 3', 'Kobra 3 V2', 'Kobra 3 Max'])
 def test_identity_matches_either_field(field, model):
     assert dispatch_unsupported_reason({'api_type': 'moonraker', field: model}) == (
         'printer_dispatch_unsupported: ' + KOBRA_DISPATCH_DETAIL)
@@ -30,7 +30,7 @@ def test_dispatch_refuses_before_power_read_or_upload(review_db, tmp_path, monke
     from modules.printers import dispatch, dispatch_acquisition, smart_plug
     engine, _ = configure_dispatch(review_db, tmp_path, monkeypatch)
     with engine.begin() as conn:
-        conn.execute(text("UPDATE printers SET model='Kobra S1',machine_type='Rinkhals' WHERE id=59"))
+        conn.execute(text("UPDATE printers SET model='Kobra 3',machine_type='Rinkhals' WHERE id=59"))
         conn.execute(text("UPDATE jobs SET status='pending' WHERE id=53"))
     def forbidden(*a, **kw):
         pytest.fail('Blocked printer must not reach device I/O')
@@ -86,4 +86,4 @@ def test_next_job_suggestion_excludes_kobra(fleet):
     assert not eligible(fleet, fleet.get(Job, 992), printer)
     suggestion = next_suggestion(fleet, printer)
     assert suggestion['job_id'] is None
-    assert suggestion['reason'] == 'printer_dispatch_unsupported: ' + KOBRA_DISPATCH_DETAIL
+    assert suggestion['reason'] == 's1_explicit_dispatch_required: Kobra S1 requires attended explicit dispatch'

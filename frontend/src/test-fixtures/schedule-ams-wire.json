@@ -9,6 +9,7 @@
         {
           "color": null,
           "color_hex": null,
+          "do_not_feed": false,
           "material": "PLA",
           "slot": 1,
           "spool_id": null
@@ -16,6 +17,7 @@
         {
           "color": "Black",
           "color_hex": "000000",
+          "do_not_feed": false,
           "material": "PETG",
           "slot": 3,
           "spool_id": null
@@ -23,6 +25,7 @@
         {
           "color": "White",
           "color_hex": "ffffff",
+          "do_not_feed": false,
           "material": "PETG",
           "slot": 4,
           "spool_id": null
@@ -52,6 +55,7 @@
       {
         "color": null,
         "color_hex": null,
+        "do_not_feed": false,
         "material": "PLA",
         "slot": 1,
         "spool_id": null
@@ -59,6 +63,7 @@
       {
         "color": "Black",
         "color_hex": "000000",
+        "do_not_feed": false,
         "material": "PETG",
         "slot": 3,
         "spool_id": null
@@ -66,6 +71,7 @@
       {
         "color": "White",
         "color_hex": "ffffff",
+        "do_not_feed": false,
         "material": "PETG",
         "slot": 4,
         "spool_id": null

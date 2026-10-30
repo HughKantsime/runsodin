@@ -263,3 +263,25 @@ def _clear_unplugged_ht(conn, printer_id, reported):
         if assigned is not None:
             conn.execute('UPDATE spools SET location_printer_id=NULL,location_slot=NULL'
                          ' WHERE id=? AND location_printer_id=? AND location_slot=?', (assigned, printer_id, number))
+
+
+def sync_ace_inventory(conn, printer_id, ace):
+    """Caller-owned transaction; ACE telemetry never changes spool assignments or flags."""
+    from sqlalchemy import text
+    if conn.dialect.name == 'postgresql':
+        conn.execute(text('SELECT id FROM printers WHERE id=:id FOR UPDATE'), {'id': printer_id}).one()
+    else:
+        conn.execute(text('UPDATE printers SET name=name WHERE id=:id'), {'id': printer_id})
+    conn.execute(text('UPDATE printers SET ace_status=:status WHERE id=:id'),
+                 {'id': printer_id, 'status': json.dumps(ace)})
+    for slot in ace['slots']:
+        params = dict(pid=printer_id, sn=slot['index'] + 1,
+            material=(slot_filament_value(slot['type']) if canonical_reported_material(slot['type']) else 'Unknown') if slot['usable'] else slot_filament_value('empty'),
+            color=slot['color_hex'], label=slot['type'] or None)
+        existing = conn.execute(text('SELECT id FROM filament_slots WHERE printer_id=:pid AND slot_number=:sn'), params).first()
+        if existing:
+            conn.execute(text('UPDATE filament_slots SET filament_type=:material,color_hex=:color,color=:label,loaded_at=CURRENT_TIMESTAMP '
+                              'WHERE printer_id=:pid AND slot_number=:sn'), params)
+        else:
+            conn.execute(text('INSERT INTO filament_slots(printer_id,slot_number,filament_type,color_hex,color,loaded_at) '
+                              'VALUES(:pid,:sn,:material,:color,:label,CURRENT_TIMESTAMP)'), params)

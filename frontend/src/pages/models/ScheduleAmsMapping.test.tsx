@@ -7,7 +7,7 @@ import wire from '../../test-fixtures/schedule-ams-wire.json'
 const api = vi.hoisted(() => ({ file: vi.fn(), confirm: vi.fn() }))
 vi.mock('../../api', () => ({
   models: { getVariants: async () => ({ variants: [] }), scheduleOptions: async () => ({ print_file_id: 501, payload_sha256: 'a'.repeat(64), plate_indices: [0] }), plates: async () => ({ plates: [] }) },
-  printers: { list: async () => [{ id: 9, name: 'Bambu A1', api_type: 'bambu', is_active: true }, { id: 10, name: 'Other Bambu', api_type: 'bambu', is_active: true }, { id: 12, name: 'Voron', api_type: 'moonraker', is_active: true }] },
+  printers: { list: async () => [{ id: 9, name: 'Bambu A1', api_type: 'bambu', is_active: true }, { id: 10, name: 'Other Bambu', api_type: 'bambu', is_active: true }, { id: 13, name: 'Kobra S1', model: 'Anycubic Kobra S1', api_type: 'moonraker', is_active: true }, { id: 12, name: 'Voron', api_type: 'moonraker', is_active: true }] },
   printFiles: { get: api.file }, filaments: {}, getApprovalSetting: vi.fn(),
 }))
 vi.mock('../../permissions', () => ({ canDo: () => true }))
@@ -58,4 +58,13 @@ test('preview failure is visible and blocks accidental scheduling', async () => 
   mount(); fireEvent.click(await screen.findByRole('button', { name: 'Bambu A1' }))
   expect(await screen.findByRole('alert')).toHaveTextContent('Filament mapping preview unavailable')
   expect(screen.getByRole('button', { name: 'Create Job' })).toBeDisabled()
+})
+
+
+test('S1 supports explicit mapping while remaining a Moonraker printer', async () => {
+  api.file.mockResolvedValue({ ams_preview: { ...wire.preview, available: [{ ...wire.preview.available[0], slot: 2 }], suggested_mapping: [{ source_slot: 1, target_slot: 2, confidence: 'material_only' }] } })
+  mount(); fireEvent.click(await screen.findByRole('button', { name: 'Kobra S1' }))
+  fireEvent.change(await screen.findByLabelText('Filament 1 AMS slot'), { target: { value: '2' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Create Job' }))
+  expect(api.confirm).toHaveBeenCalledWith(13, expect.objectContaining({ ams_mapping: [{ source_slot: 1, target_slot: 2 }] }))
 })

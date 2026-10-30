@@ -1,4 +1,4 @@
-"""Monitor-only stock Anycubic LAN client.
+"""Stock Anycubic LAN monitor with one restricted, one-shot S1 start method.
 
 Handshake/MQTT sequence adapted from this project's Phase A s1_capture.py.
 Self-signed printer TLS requires verification disabled, as in the capture.
@@ -76,6 +76,95 @@ class AnycubicLANPrinter:
         creds = decrypt_handshake(token, result['data']['token'], result['data']['info'])
         self.model_id = str(info['modelId'])
         return creds
+
+    def send_start(self, payload, *, before_publish, timeout=12):
+        """Fresh TLS handshake, one QoS0 print/start, no reconnect or republish.
+
+        A missing correlated report after publish is normal. Exceptions after
+        entering publish retain an uncertain outcome so callers cannot replay.
+        No raw handshake data, MQTT reports or exception text escape here.
+        """
+        if payload.get('type') != 'print' or payload.get('action') != 'start' or not callable(before_publish):
+            raise ValueError('Only guarded print/start is allowed')
+        client = None
+        entered = published = False
+        try:
+            import paho.mqtt.client as mqtt
+            from core.webhook_utils import device_connect_ip
+            creds = self.handshake()
+            broker = urlsplit(creds['broker'])
+            if broker.scheme not in ('mqtt', 'mqtts') or broker.port != 9883:
+                raise ValueError('Unsupported LAN broker')
+            address = device_connect_ip(self.host, 9883)
+            model, device = self.model_id, creds['deviceId']
+            topic = f'{PREFIX}/slicer/printer/{model}/{device}/print'
+            report = f'{PREFIX}/printer/public/{model}/{device}/print/report'
+            connected, subscribed, received = threading.Event(), threading.Event(), threading.Event()
+            def on_connect(c, _u, _f, reason, _p=None):
+                if not reason.is_failure:
+                    connected.set()
+                    c.subscribe(report, qos=0)
+            def on_subscribe(_c, _u, _mid, reasons, _p=None):
+                if reasons and all(not r.is_failure for r in reasons):
+                    subscribed.set()
+            def on_message(_c, _u, message):
+                try:
+                    body = json.loads(message.payload)
+                    if message.topic == report and isinstance(body, dict) and body.get('msgid') == payload['msgid']:
+                        received.set()
+                except (ValueError, TypeError):
+                    pass
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+            with tempfile.TemporaryDirectory(prefix='odin-s1-start-') as directory:
+                paths = [os.path.join(directory, n) for n in ('cert.pem', 'key.pem')]
+                for path, value in zip(paths, (creds['devicecrt'], creds['devicepk'])):
+                    with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as stream:
+                        stream.write(value)
+                context.load_cert_chain(*paths)
+            client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,
+                client_id='odin-s1-start-' + uuid.uuid4().hex[:8], protocol=mqtt.MQTTv311, reconnect_on_failure=False)
+            client.username_pw_set(creds['username'], creds['password'])
+            client.tls_set_context(context)
+            client.on_connect, client.on_subscribe, client.on_message = on_connect, on_subscribe, on_message
+            client.connect_timeout = timeout
+            client.connect(address, 9883, keepalive=60)
+            def wait(predicate):
+                deadline = time.monotonic() + timeout
+                while not predicate() and time.monotonic() < deadline:
+                    if client.loop(timeout=min(.2, max(.01, deadline - time.monotonic()))) != mqtt.MQTT_ERR_SUCCESS:
+                        return False
+                return predicate()
+            if not wait(connected.is_set) or not wait(subscribed.is_set):
+                return dict(published=False, uncertain=False, message='S1 MQTT connection/subscription was not acknowledged')
+            before_publish()
+            entered = True
+            sent = client.publish(topic, json.dumps(payload), qos=0, retain=False)
+            if sent.rc != mqtt.MQTT_ERR_SUCCESS:
+                return dict(published=False, uncertain=False, message='S1 MQTT publish was not accepted')
+            if not wait(sent.is_published):
+                return dict(published=False, uncertain=True, message='S1 MQTT delivery uncertain; do not retry automatically')
+            published = True
+            matched = wait(received.is_set)
+            return dict(published=True, report_received=matched,
+                message='Published; correlated report received' if matched else
+                        'Published; no correlated report. Do not retry automatically.')
+        except Exception as exc:
+            from modules.printers.kobra_s1 import S1Refusal
+            if not entered and isinstance(exc, S1Refusal):
+                raise
+            if published:
+                return dict(published=True, report_received=False,
+                    message='Published; no correlated report. Do not retry automatically.')
+            return dict(published=False, uncertain=entered,
+                message='S1 MQTT delivery uncertain; do not retry automatically' if entered else 'S1 LAN handshake or send preparation failed')
+        finally:
+            if client:
+                try:
+                    client.disconnect()
+                except Exception:
+                    pass
 
     def connect(self):
         self.disconnect()

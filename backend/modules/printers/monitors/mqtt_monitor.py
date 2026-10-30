@@ -117,7 +117,7 @@ class MQTTMonitorDaemon:
         """Load Moonraker-based printers from database."""
         with engine.connect() as conn:
             result = conn.execute(text("""
-                SELECT id, name, api_host
+                SELECT id, name, api_host, model, machine_type
                 FROM printers
                 WHERE api_type = 'moonraker'
                   AND api_host IS NOT NULL
@@ -145,6 +145,7 @@ class MQTTMonitorDaemon:
                     'name': row['name'],
                     'host': host,
                     'port': port,
+                    'model': row['model'], 'machine_type': row['machine_type'],
                 })
 
         return printers
@@ -190,7 +191,7 @@ class MQTTMonitorDaemon:
                         printer_id=p['id'],
                         name=p['name'],
                         host=p['host'],
-                        port=p['port'],
+                        port=p['port'], model=p.get('model'), machine_type=p.get('machine_type'),
                     )
                     if monitor.connect():
                         self.monitors[p['id']] = monitor
@@ -266,7 +267,7 @@ class MQTTMonitorDaemon:
                             printer_id=p['id'],
                             name=p['name'],
                             host=p['host'],
-                            port=p['port'],
+                            port=p['port'], model=p.get('model'), machine_type=p.get('machine_type'),
                         )
                         if monitor.connect():
                             self.monitors[p['id']] = monitor
@@ -348,7 +349,7 @@ class MQTTMonitorDaemon:
                     printer_id=p['id'],
                     name=p['name'],
                     host=p['host'],
-                    port=p['port'],
+                    port=p['port'], model=p.get('model'), machine_type=p.get('machine_type'),
                 )
                 if new_mon.connect():
                     self.monitors[pid] = new_mon
@@ -367,7 +368,7 @@ class MQTTMonitorDaemon:
                         printer_id=p['id'],
                         name=p['name'],
                         host=p['host'],
-                        port=p['port'],
+                        port=p['port'], model=p.get('model'), machine_type=p.get('machine_type'),
                     )
                     if new_mon.connect():
                         self.monitors[pid] = new_mon

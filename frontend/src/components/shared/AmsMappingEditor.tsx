@@ -9,7 +9,7 @@ export function useAmsMapping(preview: ArchiveAmsPreview | null | undefined, con
   const initial = stored?.flatMap((target, source) => target < 0 ? [] : [{ source_slot: source + 1, target_slot: target + 1 }])
     ?? preview?.suggested_mapping.map(({ source_slot, target_slot }) => ({ source_slot, target_slot })) ?? []
   const complete = (mapping: AmsMapping) => !!preview?.required.length
-    && preview.required.every(req => mapping.some(m => m.source_slot === req.slot && preview.available.some(s => s.slot === m.target_slot)))
+    && preview.required.every(req => mapping.some(m => m.source_slot === req.slot && preview.available.some(s => s.slot === m.target_slot && !s.do_not_feed)))
     && new Set(mapping.map(m => m.target_slot)).size === mapping.length
   const selection = choice?.context === context ? choice : { context, mapping: initial, enabled: complete(initial) }
   const valid = complete(selection.mapping)
@@ -45,7 +45,7 @@ export default function AmsMappingEditor({ preview, loading, error, mapping, ena
                 ...(e.target.value ? [{ source_slot: req.slot, target_slot: Number(e.target.value) }] : []),
               ].sort((a, b) => a.source_slot - b.source_slot))}>
               <option value="">No matching slot</option>
-              {preview.available.map(slot => <option key={slot.slot} value={slot.slot}>Slot {slot.slot} ({[slot.color, slot.material].filter(Boolean).join(' ')})</option>)}
+              {preview.available.map(slot => <option key={slot.slot} value={slot.slot} disabled={slot.do_not_feed}>Slot {slot.slot} ({[slot.color, slot.material].filter(Boolean).join(' ')}){slot.do_not_feed ? ' — Do not feed' : ''}</option>)}
             </select>
           </li>
         })}</ul>

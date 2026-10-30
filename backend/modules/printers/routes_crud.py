@@ -400,22 +400,34 @@ def update_filament_slot(
 
     if not slot:
         raise HTTPException(status_code=404, detail="Filament slot not found")
-    ensure_local_filaments(printer_id)
-
     values = updates.model_dump(exclude_unset=True)
+    slot_fields = set(values) - {'do_not_feed', 'do_not_feed_note'}
+    from modules.printers.slot_feed_policy import update_policy
+    if {'do_not_feed', 'do_not_feed_note'}.intersection(values):
+        # Serialize against final admission's printer/slot snapshot.
+        if db.get_bind().dialect.name == 'postgresql':
+            db.query(Printer).filter_by(id=printer_id).with_for_update().one()
+            db.refresh(slot, with_for_update=True)
+        else:
+            db.execute(text('UPDATE printers SET name=name WHERE id=:id'), {'id': printer_id})
+            db.refresh(slot)
+        update_policy(db, slot, values, current_user)
+    if slot_fields:
+        ensure_local_filaments(printer_id)
     if 'assigned_spool_id' in values:
         assign_slot(db, slot, values.pop('assigned_spool_id'), current_user)
     for field, value in values.items():
         setattr(slot, field, FilamentType(slot_filament_value(value)) if field == "filament_type" else value)
 
-    if slot.filament_type and slot.filament_type.value == "empty":
+    if slot_fields and slot.filament_type and slot.filament_type.value == "empty":
         slot.color = None
         slot.color_hex = None
         slot.spoolman_spool_id = None
         assign_slot(db, slot, None, current_user)
         slot.spool_confirmed = False
 
-    slot.loaded_at = datetime.now(timezone.utc)
+    if slot_fields:
+        slot.loaded_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(slot)
     return slot

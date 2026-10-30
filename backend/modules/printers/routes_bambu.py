@@ -41,6 +41,8 @@ class BambuConnectionTest(PydanticBaseModel):
 
 
 class AMSSlotResponse(PydanticBaseModel):
+    do_not_feed: bool = False
+    do_not_feed_note: Optional[str] = None
     ams_id: int
     tray_id: int
     slot_number: int
@@ -115,7 +117,7 @@ async def sync_bambu_ams(printer_id: int, current_user: dict = Depends(require_a
     slots = []
     for row in printer.filament_slots:
         slot = FilamentSlotResponse.model_validate(row)
-        slots.append(dict(ams_id=(slot.slot_number - 1) // 4, tray_id=(slot.slot_number - 1) % 4,
+        slots.append(dict(do_not_feed=slot.do_not_feed, do_not_feed_note=slot.do_not_feed_note, ams_id=(slot.slot_number - 1) // 4, tray_id=(slot.slot_number - 1) % 4,
                           slot_number=slot.slot_number, filament_type_raw=slot.material_type or '',
                           filament_type=slot.filament_type.value, color_hex=slot.color_hex,
                           remaining_percent=slot.remaining, brand=slot.brand, color_name=slot.color,

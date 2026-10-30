@@ -160,7 +160,7 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                         transport_filename=(reservation['remote_filename'] if reservation else
                             f"odin-dispatch-{claim.token}{os.path.splitext(staged.path)[1].lower()}")
                         _require_target(target_handle)
-                        admission=admit(engine,token=claim.token,job=job,creds=creds,key=key,
+                        admission=admit(engine,token=claim.token,job=job,creds=creds,key=key,effective_mapping=options.get('ams_mapping'),
                             payload_sha256=staged.sha256,transport_filename=transport_filename,power_accepted=power.accepted,broker_connection=power.connection,
                             education_provider=provider,education_reservation=reservation)
                         if not admission.admitted:
@@ -177,8 +177,11 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                             before_start = start_gate(engine, job['printer_id']) if creds['api_type'] == 'bambu' else None
                             if options.get('ams_mapping') is not None:
                                 from modules.printers.dispatch_ams_gate import create_ams_start_gate
+                                from modules.printers.dispatch_support import is_kobra_s1
+                                if is_kobra_s1(creds):
+                                    from modules.printers.s1_dispatch import create_start_gate as create_ams_start_gate
                                 before_start = create_ams_start_gate(engine,
-                                    admission_inputs=dict(token=claim.token,job=job,creds=creds,key=key,
+                                    admission_inputs=dict(token=claim.token,job=job,creds=creds,key=key,effective_mapping=options.get('ams_mapping'),
                                         payload_sha256=staged.sha256,transport_filename=transport_filename,
                                         power_accepted=power.accepted,broker_connection=power.connection,
                                         education_provider=provider,education_reservation=reservation),

@@ -1,3 +1,4 @@
+import { supportsFilamentMapping } from '../../utils/printerMapping'
 import { displayName } from '../../utils/displayName'
 import AmsMappingEditor, { useAmsMapping } from '../../components/shared/AmsMappingEditor'
 import type { ReactNode } from 'react'
@@ -145,7 +146,7 @@ function ArchiveDetail({ archive, onClose, onDelete, onNotesUpdate, onTagsUpdate
     enabled: showReprint && !!reprintPrinterId,
   })
   const mapping = useAmsMapping(amsPreview, `${archive.id}:${reprintPrinterId}`)
-  const canApplyMapping = targetPrinter?.api_type === 'bambu'
+  const canApplyMapping = supportsFilamentMapping(targetPrinter)
 
   const handleReprint = async () => {
     if (!reprintPrinterId) return toast.error('Select a printer')

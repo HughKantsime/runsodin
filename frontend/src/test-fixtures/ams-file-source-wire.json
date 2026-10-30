@@ -4,6 +4,7 @@
       {
         "color": "",
         "color_hex": "",
+        "do_not_feed": false,
         "material": "PLA",
         "slot": 1,
         "spool_id": null
@@ -11,6 +12,7 @@
       {
         "color": "",
         "color_hex": "FFFFFF",
+        "do_not_feed": false,
         "material": "PETG",
         "slot": 4,
         "spool_id": null

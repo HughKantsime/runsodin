@@ -203,10 +203,14 @@ def _dispatch_moonraker(job_id: int, stored_path: str, remote_filename: str, cre
     """Dispatch to a Moonraker printer: HTTP multipart upload + REST start."""
     from modules.printers.adapters.moonraker import MoonrakerPrinter
 
+    from modules.printers.dispatch_support import is_kobra_s1
+    if is_kobra_s1(creds):
+        return False, 's1_gate_required: Plain Moonraker start is forbidden for Kobra S1'
     printer = MoonrakerPrinter(
         host=creds["ip"],
         port=creds["port"],
         api_key=creds.get("api_key", ""),
+        model=creds.get("model"), machine_type=creds.get("machine_type"),
     )
 
     _ws(job_id, "uploading", f"Uploading {remote_filename} to Moonraker...")
@@ -414,7 +418,12 @@ def _run_admitted_dispatch(job,creds,stored_path,remote_filename,print_options,e
         if api_type == "bambu":
             success, message = _dispatch_bambu(job_id, stored_path, remote_filename, creds, before_start=before_start, **print_options)
         elif api_type == "moonraker":
-            success, message = _dispatch_moonraker(job_id, stored_path, remote_filename, creds)
+            from modules.printers.dispatch_support import is_kobra_s1
+            if is_kobra_s1(creds):
+                from modules.printers.s1_dispatch import dispatch as dispatch_s1
+                success, message = dispatch_s1(job_id, stored_path, remote_filename, creds, print_options, before_start)
+            else:
+                success, message = _dispatch_moonraker(job_id, stored_path, remote_filename, creds)
         else:
             success, message = _dispatch_prusalink(job_id, stored_path, remote_filename, creds)
     except MaintenanceHold as exc:
@@ -442,8 +451,8 @@ def _run_admitted_dispatch(job,creds,stored_path,remote_filename,print_options,e
             except (AttributeError, TypeError):
                 pass
             message += "; Education reservation requires explicit reconciliation"
-        _ws(job_id, "failed", message)
         refusal = getattr(before_start, "refusal", None)
+        _ws(job_id, "busy" if getattr(refusal, 'code', None) == 'printer_busy' else "failed", message)
         if refusal is not None:
             log.warning("Post-upload gate refused job_id=%s printer_id=%s code=%s detail=%s",
                         job_id, printer_id, refusal.code, refusal.detail)
@@ -516,6 +525,10 @@ def attempt_dispatch(printer_id: int):
         log.debug(f"[dispatch] AUTO_DISPATCH disabled — skipping printer {printer_id}")
         return
 
+    from modules.printers.dispatch_support import automatic_dispatch_unsupported_reason
+    if automatic_dispatch_unsupported_reason(_get_printer_info(printer_id)):
+        return
+
     job = _get_next_scheduled_job(printer_id)
     if not job:
         log.info(f"[dispatch] No queued jobs with stored files for printer {printer_id}")
@@ -563,4 +576,7 @@ def read_dispatch_progress(db, token, job_id):
             'uncertain': 'needs_reconciliation'}[claim_state]
     elif not claim_state and not running and record['phase'] not in ('start_accepted', 'refused', 'needs_reconciliation'):
         record['phase'] = 'unconfirmed'
+    facts = load(db, 's1_start:' + token)
+    if facts is not None:
+        record['s1_start'] = facts
     return record

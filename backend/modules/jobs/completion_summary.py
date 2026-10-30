@@ -141,7 +141,7 @@ def material_facts(db, job, printer, finished, at, config):
 
 
 def eligible(db, job, printer):
-    from modules.printers.services import dispatch_unsupported_reason
+    from modules.printers.dispatch_support import automatic_dispatch_unsupported_reason as dispatch_unsupported_reason
     if dispatch_unsupported_reason(printer):
         return False
     from modules.jobs.scheduler import _same_printer_model, _printer_identity
@@ -199,7 +199,7 @@ def eligible(db, job, printer):
 
 
 def next_suggestion(db, printer, *, visible=None, at=None):
-    from modules.printers.services import dispatch_unsupported_reason
+    from modules.printers.dispatch_support import automatic_dispatch_unsupported_reason as dispatch_unsupported_reason
     unsupported = dispatch_unsupported_reason(printer)
     if unsupported:
         return {'job_id': None, 'reason': unsupported, 'filament': 'verify_needed', 'fingerprint': None}

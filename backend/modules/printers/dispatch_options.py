@@ -7,6 +7,29 @@ def _validated_print_options(job,creds,stored_path,payload_sha256):
     if job.get("upload_target_printer_id") not in (None, printer_id):
         return None, "Print file is bound to another printer; no command was sent"
     api_type=creds['api_type']
+    from modules.printers.dispatch_support import is_kobra_s1
+    if is_kobra_s1(creds):
+        from modules.printers.s1_dispatch import options
+        from modules.printers.kobra_s1 import S1Refusal
+        # Archived hash/plate validation still applies before protocol planning.
+        if job.get('print_file_id') is not None:
+            if not hmac.compare_digest(str(job.get('payload_sha256') or '').lower(), payload_sha256):
+                return None, 'Archived payload changed; no command was sent'
+            from core.print_payload import validate_plate
+            from fastapi import HTTPException
+            try:
+                validate_plate(stored_path, job.get('plate_index'), api_type)
+            except HTTPException as exc:
+                return None, str(exc.detail)
+        try:
+            result = options(job, stored_path)
+            from core.db import engine
+            from modules.printers.slot_feed_policy import flagged_mapping_reason
+            with engine.connect() as conn:
+                reason = flagged_mapping_reason(conn, printer_id, result['ams_mapping'])
+            return (None, reason) if reason else (result, None)
+        except (S1Refusal, OSError) as exc:
+            return None, str(exc) if isinstance(exc, S1Refusal) else 's1_file_unavailable: Payload cannot be read'
     print_options = {}
     requires_mapping = _requires_ams_mapping(creds)
     archived = job.get("print_file_id") is not None
@@ -77,6 +100,11 @@ def _mapping_error(job, mapping, stored_path, payload_sha256, *, derived):
         slots = {row[0]: row[1] for row in conn.execute(
             text("SELECT slot_number,filament_type FROM filament_slots WHERE printer_id=:id"),
             {"id": job['printer_id']}).fetchall()}
+    from modules.printers.slot_feed_policy import flagged_mapping_reason
+    with engine.connect() as conn:
+        reason = flagged_mapping_reason(conn, job['printer_id'], mapping)
+    if reason:
+        return reason
     try:
         validated = validate_mapping([{"source_slot": i + 1, "target_slot": slot + 1}
                           for i, slot in enumerate(mapping) if slot != -1],
@@ -119,7 +147,7 @@ def _missing_mapping(job):
     try:
         with engine.connect() as conn:
             available = [dict(row) for row in conn.execute(text(
-                'SELECT slot_number AS slot,color,color_hex,filament_type AS material '
+                'SELECT slot_number AS slot,color,color_hex,filament_type AS material,do_not_feed '
                 'FROM filament_slots WHERE printer_id=:id ORDER BY slot_number'),
                 {'id': job['printer_id']}).mappings()]
         preview = preview_for_slots(job.get('filaments_json'), available)

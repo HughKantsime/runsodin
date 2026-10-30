@@ -143,10 +143,10 @@
   "suggested_price": null,
   "target_filter": "9",
   "target_type": "specific",
-  "updated_at": "2026-10-29T15:52:47"
+  "updated_at": "2026-10-30T02:31:31"
  },
  "fail_printing_response": {
-  "actual_end": "2026-10-29T15:52:47.377269Z",
+  "actual_end": "2026-10-30T02:31:32.101566Z",
   "actual_start": "2026-10-12T06:00:00",
   "ams_mapping": [
    0
@@ -650,7 +650,7 @@
    "suggested_price": null,
    "target_filter": "9",
    "target_type": "specific",
-   "updated_at": "2026-10-29T15:52:47"
+   "updated_at": "2026-10-30T02:31:31"
   },
   {
    "actual_end": null,
@@ -3460,7 +3460,7 @@
   "charged_to_org_id": 1,
   "colors_list": [],
   "colors_required": null,
-  "created_at": "2026-10-29T15:52:47",
+  "created_at": "2026-10-30T02:31:32",
   "display_name": "CertC pinned blocked",
   "due_date": null,
   "duration_hours": 1.0,
@@ -3496,10 +3496,11 @@
   "suggested_price": null,
   "target_filter": "10",
   "target_type": "specific",
-  "updated_at": "2026-10-29T15:52:47"
+  "updated_at": "2026-10-30T02:31:32"
  },
  "printers": [
   {
+   "ace_status": null,
    "api_host": "127.0.0.1",
    "api_type": "bambu",
    "bed_target_temp": null,
@@ -3510,7 +3511,7 @@
    "camera_enabled": false,
    "camera_source": "auto",
    "camera_url": "bambu-chamber://auto",
-   "created_at": "2026-10-29T15:52:47",
+   "created_at": "2026-10-30T02:31:30",
    "current_print_display_name": null,
    "fan_speed": null,
    "filament_slots": [
@@ -3520,10 +3521,12 @@
      "color": null,
      "color_hex": null,
      "display_name": null,
+     "do_not_feed": false,
+     "do_not_feed_note": null,
      "external_spool_id": null,
      "filament_type": "PLA",
      "id": 1,
-     "loaded_at": "2026-10-29T15:52:47",
+     "loaded_at": "2026-10-30T02:31:30",
      "mapping_status": null,
      "material_type": "PLA",
      "observed_state": null,
@@ -3576,9 +3579,10 @@
    "timelapse_enabled": false,
    "total_print_count": null,
    "total_print_hours": null,
-   "updated_at": "2026-10-29T15:52:47"
+   "updated_at": "2026-10-30T02:31:30"
   },
   {
+   "ace_status": null,
    "api_host": null,
    "api_type": "bambu",
    "bed_target_temp": null,
@@ -3589,7 +3593,7 @@
    "camera_enabled": false,
    "camera_source": null,
    "camera_url": null,
-   "created_at": "2026-10-29T15:52:47",
+   "created_at": "2026-10-30T02:31:30",
    "current_print_display_name": null,
    "fan_speed": null,
    "filament_slots": [
@@ -3599,10 +3603,12 @@
      "color": null,
      "color_hex": null,
      "display_name": null,
+     "do_not_feed": false,
+     "do_not_feed_note": null,
      "external_spool_id": null,
      "filament_type": "PLA",
      "id": 2,
-     "loaded_at": "2026-10-29T15:52:47",
+     "loaded_at": "2026-10-30T02:31:30",
      "mapping_status": null,
      "material_type": "PLA",
      "observed_state": null,
@@ -3655,7 +3661,7 @@
    "timelapse_enabled": false,
    "total_print_count": null,
    "total_print_hours": null,
-   "updated_at": "2026-10-29T15:52:47"
+   "updated_at": "2026-10-30T02:31:30"
   }
  ],
  "recent_terminal": [

@@ -72,13 +72,13 @@ class MoonrakerMonitor:
     Same DB tables, same state tracking, same job logging.
     """
     
-    def __init__(self, printer_id: int, name: str, host: str, port: int = 80, api_key: str = ""):
+    def __init__(self, printer_id: int, name: str, host: str, port: int = 80, api_key: str = "", *, model=None, machine_type=None):
         self.printer_id = printer_id
         self.name = name
         self.host = host
         self.port = port
         
-        self.printer = MoonrakerPrinter(host=host, port=port, api_key=api_key)
+        self.printer = MoonrakerPrinter(host=host, port=port, api_key=api_key, model=model, machine_type=machine_type)
         
         self._running = False
         self._thread: Optional[threading.Thread] = None
@@ -331,8 +331,11 @@ class MoonrakerMonitor:
 
         internal_state = status.internal_state
 
+        if getattr(status, 'ace_status', None) is not None:
+            self._maybe_sync_ace(status.ace_status, now)
+
         # ---- Filament slot sync (every 60s) ----
-        if status.filament_slots and now - self._last_slot_sync >= SLOT_SYNC_INTERVAL:
+        if getattr(status, "ace_status", None) is None and status.filament_slots and now - self._last_slot_sync >= SLOT_SYNC_INTERVAL:
             self._last_slot_sync = now
             self._sync_filament_slots(status.filament_slots)
 
@@ -720,6 +723,23 @@ class MoonrakerMonitor:
 
     # ==================== Filament Slot Sync ====================
 
+    def _maybe_sync_ace(self, ace, now):
+        """Persist on change, plus the regular slot cadence; not every 3 s poll."""
+        if ace == getattr(self, '_last_ace', None) and now - getattr(self, '_last_ace_sync', 0) < SLOT_SYNC_INTERVAL:
+            return
+        if self._sync_ace(ace):
+            self._last_ace, self._last_ace_sync = ace, now
+
+    def _sync_ace(self, ace):
+        from modules.printers.monitors.ams_inventory import sync_ace_inventory
+        try:
+            with engine.begin() as conn:
+                sync_ace_inventory(conn, self.printer_id, ace)
+            return True
+        except Exception:
+            log.warning('ACE inventory persistence failed; retry on next observation')
+            return False
+
     def _sync_filament_slots(self, slots):
         """Sync MMU/ACE gate data to filament_slots DB table."""
         try:
@@ -976,7 +996,7 @@ def start_moonraker_monitors():
     try:
         with engine.connect() as conn:
             rows = conn.execute(
-                text("SELECT id, name, api_host, api_key FROM printers "
+                text("SELECT id, name, api_host, api_key, model, machine_type FROM printers "
                 "WHERE api_type='moonraker' AND api_host IS NOT NULL AND is_active IS TRUE")
             ).mappings().fetchall()
 
@@ -1005,7 +1025,7 @@ def start_moonraker_monitors():
                     log.debug(f"Failed to decrypt API key (using raw): {e}")
                     api_key = api_key_raw
 
-            m = MoonrakerMonitor(printer_id=printer_id, name=name, host=host, port=port, api_key=api_key)
+            m = MoonrakerMonitor(printer_id=printer_id, name=name, host=host, port=port, api_key=api_key, model=row["model"], machine_type=row["machine_type"])
             if m.connect():
                 monitors.append(m)
                 log.info(f"Started Moonraker monitor for {name} ({host}:{port})")
