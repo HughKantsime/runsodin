@@ -210,11 +210,15 @@ for (const row of rows) {
               for (const text of ['Progress unknown', 'Time remaining unknown', 'Reported speed unknown', 'Printer speed mode unknown', 'Data']) {
                 finding.assertions.push({ name: `contrast fixture renders ${text}`, pass: await page.getByText(text, { exact: true }).count() > 0 })
               }
-              const screenshotDir = path.join(path.dirname(output), 'accessibility-screenshots')
-              fs.mkdirSync(screenshotDir, { recursive: true })
-              const screenshotPath = path.join(screenshotDir, `A03-card-${persona}-${theme}-${width}.png`)
-              await page.locator('[data-testid="printer-card"]').first().screenshot({ path: screenshotPath })
-              finding.cardScreenshot = path.relative(path.dirname(output), screenshotPath)
+              // Design-review captures only on request: validation evidence keeps the
+              // failure-only screenshot rule, since the artifact scan rejects unreviewed images.
+              if (process.env.ODIN_A11Y_CARD_SCREENSHOTS === '1') {
+                const screenshotDir = path.join(path.dirname(output), 'accessibility-screenshots')
+                fs.mkdirSync(screenshotDir, { recursive: true })
+                const screenshotPath = path.join(screenshotDir, `A03-card-${persona}-${theme}-${width}.png`)
+                await page.locator('[data-testid="printer-card"]').first().screenshot({ path: screenshotPath })
+                finding.cardScreenshot = path.relative(path.dirname(output), screenshotPath)
+              }
             }
           }
           if (row.id === 'A04') finding.assertions.push({ name: 'jobs table ready', pass: await page.getByRole('table').count() > 0 })

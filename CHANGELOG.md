@@ -28,6 +28,8 @@ All notable changes to O.D.I.N. are documented here.
 
 <!-- summary: Printer cards are readable on the default theme, slot labels wrap instead of overflowing, and cameras fall back to live video before snapshots -->
 
+2.0.35 was not published on its own; these changes shipped in 2.0.36.
+
 ### Fixed
 
 - Secondary and muted text on the default dark theme blended into the card background. The default text colours are now #bcb7aa and #a8a294, at least 4.5:1 on card, content and input backgrounds; the light and high-contrast themes also pass WCAG AA. An install whose text and surface colours are still the old defaults gets the new text colours automatically, even with its own brand colours. Customized text or surfaces are not changed, and nothing is written.
