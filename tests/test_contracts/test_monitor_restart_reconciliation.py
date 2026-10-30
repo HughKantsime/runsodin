@@ -621,12 +621,13 @@ def test_watched_cancel_to_idle_measures_filament_in_its_own_packet(running_bamb
     assert rows[0]['filament_used_g'] == (100 if case.weights else None)
 
 
-def test_malformed_ams_report_keeps_the_last_good_measurement(running_bambu):
+@pytest.mark.parametrize('report', ['garbled', {'ams': 'garbled'}], ids=['not_a_report', 'not_a_list'])
+def test_malformed_ams_report_keeps_the_last_good_measurement(running_bambu, report):
     case = running_bambu
     monitor = restarted(case)
     name = case.state['subtask_name']
     packet(monitor, gcode_state='RUNNING', subtask_name=name, print_error=0, ams=ams_report(75))
-    packet(monitor, gcode_state='FINISH', subtask_name=name, print_error=0, ams='garbled')
+    packet(monitor, gcode_state='FINISH', subtask_name=name, print_error=0, ams=report)
     rows, _, _ = row_state(case)
     assert rows[0]['status'] == 'completed'
     assert rows[0]['filament_used_g'] == (50 if case.weights else None)
