@@ -29,8 +29,12 @@ def validate_for_printer(db, mapping, filaments_json, printer_id, actor):
     reason = flagged_mapping_reason(db, printer_id, result)
     if reason:
         raise HTTPException(400, reason)
-    if is_kobra_s1(printer._mapping) and any(n >= 4 for n in result):
-        raise HTTPException(400, 'S1 mapping requires ACE slots 1–4')
+    if is_kobra_s1(printer._mapping):
+        if any(n >= 4 for n in result):
+            raise HTTPException(400, 'S1 mapping requires ACE slots 1–4')
+        used = [n for n in result if n != -1]
+        if len(set(used)) != len(used):
+            raise HTTPException(400, 'S1 mapping needs a separate ACE slot for each file filament')
     return result
 
 

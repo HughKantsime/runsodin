@@ -178,7 +178,9 @@ const WIRE: any = {
           "printer_id": 1,
           "loaded_at": "2026-10-15T00:58:20",
           "remaining": null,
-          "material_type": null
+          "material_type": null,
+          "do_not_feed": false,
+          "do_not_feed_note": null
         },
         {
           "slot_number": 2,
@@ -192,7 +194,9 @@ const WIRE: any = {
           "printer_id": 1,
           "loaded_at": "2026-10-15T00:58:20",
           "remaining": null,
-          "material_type": null
+          "material_type": null,
+          "do_not_feed": false,
+          "do_not_feed_note": null
         },
         {
           "slot_number": 3,
@@ -206,7 +210,9 @@ const WIRE: any = {
           "printer_id": 1,
           "loaded_at": "2026-10-15T00:58:20",
           "remaining": null,
-          "material_type": null
+          "material_type": null,
+          "do_not_feed": false,
+          "do_not_feed_note": null
         },
         {
           "slot_number": 4,
@@ -220,7 +226,9 @@ const WIRE: any = {
           "printer_id": 1,
           "loaded_at": "2026-10-15T00:58:20",
           "remaining": null,
-          "material_type": null
+          "material_type": null,
+          "do_not_feed": false,
+          "do_not_feed_note": null
         }
       ],
       "loaded_colors": [],
@@ -237,7 +245,8 @@ const WIRE: any = {
         "set_by_name": null,
         "set_at": null
       },
-      "current_print_display_name": null
+      "current_print_display_name": null,
+      "ace_status": null
     },
     {
       "name": "Shared floor printer",
@@ -291,7 +300,9 @@ const WIRE: any = {
           "printer_id": 2,
           "loaded_at": "2026-10-15T00:58:20",
           "remaining": null,
-          "material_type": null
+          "material_type": null,
+          "do_not_feed": false,
+          "do_not_feed_note": null
         },
         {
           "slot_number": 2,
@@ -305,7 +316,9 @@ const WIRE: any = {
           "printer_id": 2,
           "loaded_at": "2026-10-15T00:58:20",
           "remaining": null,
-          "material_type": null
+          "material_type": null,
+          "do_not_feed": false,
+          "do_not_feed_note": null
         },
         {
           "slot_number": 3,
@@ -319,7 +332,9 @@ const WIRE: any = {
           "printer_id": 2,
           "loaded_at": "2026-10-15T00:58:20",
           "remaining": null,
-          "material_type": null
+          "material_type": null,
+          "do_not_feed": false,
+          "do_not_feed_note": null
         },
         {
           "slot_number": 4,
@@ -333,7 +348,9 @@ const WIRE: any = {
           "printer_id": 2,
           "loaded_at": "2026-10-15T00:58:20",
           "remaining": null,
-          "material_type": null
+          "material_type": null,
+          "do_not_feed": false,
+          "do_not_feed_note": null
         }
       ],
       "loaded_colors": [],
@@ -350,7 +367,8 @@ const WIRE: any = {
         "set_by_name": null,
         "set_at": null
       },
-      "current_print_display_name": null
+      "current_print_display_name": null,
+      "ace_status": null
     }
   ],
   "groups_list_with_orgs": [

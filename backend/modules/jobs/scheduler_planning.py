@@ -51,7 +51,7 @@ class SchedulerPlanning:
         }
         claimed_printers = set(db.execute(text('SELECT printer_id FROM printer_dispatch_claims')).scalars())
         from core.printer_maintenance import hold_reason
-        from modules.printers.dispatch_support import automatic_dispatch_unsupported_reason as dispatch_unsupported_reason
+        from modules.printers.services import automatic_dispatch_unsupported_reason as dispatch_unsupported_reason
         printers = [p for p in db.query(Printer).filter(Printer.is_active.is_(True)).all()
                     if raw_authorities.get(p.id) is not None and p.id not in claimed_printers
                     and not hold_reason(db, p.id) and not dispatch_unsupported_reason(p)]

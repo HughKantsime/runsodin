@@ -47,8 +47,8 @@ def dispatch_status(job_id: int,
         return result
     result['phase'] = {'preparing':'preparing', 'adapter_entered':'sending',
                        'accepted':'start_accepted', 'uncertain':'needs_reconciliation'}[claim.state]
-    from modules.printers.start_next import load
-    facts = load(db, 's1_start:' + claim.token)
+    from modules.printers.services import s1_start_facts
+    facts = s1_start_facts(db, claim.token)
     if facts is not None:
         result['s1_start'] = facts
     receipt = db.get(DispatchAttemptReceipt, claim.token)

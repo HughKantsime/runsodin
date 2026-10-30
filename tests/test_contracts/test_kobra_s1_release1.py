@@ -131,8 +131,7 @@ def test_ace_sync_keeps_assignments_flags_and_unknown_material(inventory):
 def test_flags_all_protocols_and_admin_audit(inventory):
     from sqlalchemy.orm import Session
     from modules.printers.models import FilamentSlot
-    from modules.printers.slot_feed_policy import flagged_mapping_reason,update_policy
-    from core.models import AuditLog
+    from modules.printers.slot_feed_policy import flagged_mapping_reason,policy_change
     from fastapi import HTTPException
     with inventory.connect() as c:
         assert flagged_mapping_reason(c,1,[0])=='slot_do_not_feed: Slot 1: Feed fault'
@@ -141,14 +140,12 @@ def test_flags_all_protocols_and_admin_audit(inventory):
         slot=db.get(FilamentSlot,1)
         for role in ['viewer','operator']:
             with pytest.raises(HTTPException) as e:
-                update_policy(db,slot,{'do_not_feed':False},{'role':role})
+                policy_change(db,slot,{'do_not_feed':False},{'role':role})
             assert e.value.status_code==403
-        update_policy(db,slot,{'do_not_feed':False,'do_not_feed_note':'Feed passed'},{'role':'admin'})
-        slot.do_not_feed=False;slot.do_not_feed_note='Feed passed';db.commit()
-        audit=db.query(AuditLog).filter_by(action='filament_slot.feed_policy').one()
-        details=audit.details if isinstance(audit.details,dict) else json.loads(audit.details)
+        details=policy_change(db,slot,{'do_not_feed':False,'do_not_feed_note':'Feed passed'},{'role':'admin'})
         assert details['before']=={'do_not_feed':True,'note':'Feed fault'}
         assert details['after']=={'do_not_feed':False,'note':'Feed passed'} and details['note']=='Feed passed'
+        assert policy_change(db,slot,{'do_not_feed':True,'do_not_feed_note':'Feed fault'},{'role':'admin'}) is None
 
 
 @pytest.mark.parametrize('outcome', ['correlated','no_report','disconnect_after_publish','publish_rejected','publish_timeout','handshake_failed'])
@@ -328,7 +325,12 @@ def test_feed_flag_http_permissions_and_payload(inventory, monkeypatch, role, st
         assert response.json()['do_not_feed_note']=='Feed test passed'
         assert response.json()['assigned_spool_id']==1
     with inventory.connect() as c:
-        assert c.execute(text("SELECT count(*) FROM audit_logs WHERE action='filament_slot.feed_policy'")).scalar_one()==(1 if role=='admin' else 0)
+        audits=c.execute(text("SELECT details FROM audit_logs WHERE action='filament_slot.feed_policy'")).scalars().all()
+    assert len(audits)==(1 if role=='admin' else 0)
+    if role=='admin':
+        details=audits[0] if isinstance(audits[0],dict) else json.loads(audits[0])
+        assert details['before']=={'do_not_feed':True,'note':'Feed fault'}
+        assert details['after']=={'do_not_feed':False,'note':'Feed test passed'} and details['note']=='Feed test passed'
 
 
 def test_s1_mapping_api_and_suggestions_skip_flagged(inventory):
@@ -600,3 +602,112 @@ def test_printer_delete_refuses_while_a_slot_is_flagged(review_db, tmp_path, mon
     with engine.connect() as c:
         assert c.execute(text('SELECT count(*) FROM printers WHERE id=59')).scalar_one() == 1
         assert c.execute(text('SELECT do_not_feed FROM filament_slots WHERE printer_id=59')).scalar_one()
+
+
+@pytest.mark.parametrize('mapping,code', [([1, 1], 's1_mapping_duplicate_slot'), ([1, -1], 's1_mapping_incomplete'),
+                                          ([-1, 1], 's1_mapping_incomplete'), ([1], 's1_mapping_incomplete')])
+def test_s1_mapping_stays_stricter_than_the_multi_source_rules(mapping, code):
+    """2.0.36 lets Bambu sources share a tray or skip one. Neither may reach gklib."""
+    from core.print_payload import validate_mapping
+    slots = parse_ace(HUB)['slots']
+    with pytest.raises(S1Refusal, match=code):
+        verify_mapping(FILAMENTS, slots, mapping)
+    with pytest.raises(S1Refusal, match=code):
+        build_payload(dict(path='fixture.gcode', size=1, md5='a' * 32, filaments=FILAMENTS), slots, mapping, 1, 'fixture')
+    # The shared validator now accepts a shared tray, so the S1 rule is what refuses it.
+    assert validate_mapping([dict(source_slot=1, target_slot=2), dict(source_slot=2, target_slot=2)],
+                            json.dumps([dict(slot=1, type='PLA'), dict(slot=2, type='PLA')]), {2: 'PLA'}, 'bambu') == [1, 1]
+
+
+def test_s1_mapping_api_refuses_a_shared_ace_slot_and_bambu_keeps_it(inventory):
+    from sqlalchemy.orm import Session
+    from core.ams_mapping import validate_for_printer
+    from fastapi import HTTPException
+    from modules.printers.monitors.ams_inventory import sync_ace_inventory
+    with inventory.begin() as c:
+        sync_ace_inventory(c, 1, parse_ace(HUB))
+        c.execute(text("INSERT INTO printers(id,name,api_type,model) VALUES(2,'Bambu','bambu','A1')"))
+        c.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(2,2,'PLA')"))
+    file = json.dumps([{'slot': 1, 'type': 'PLA'}, {'slot': 2, 'type': 'PLA'}])
+    shared = [{'source_slot': 1, 'target_slot': 2}, {'source_slot': 2, 'target_slot': 2}]
+    actor = {'role': 'admin', 'group_id': None}
+    with Session(inventory) as db:
+        with pytest.raises(HTTPException, match='separate ACE slot'):
+            validate_for_printer(db, shared, file, 1, actor)
+        assert validate_for_printer(db, [{'source_slot': 1, 'target_slot': 2}, {'source_slot': 2, 'target_slot': 3}], file, 1, actor) == [1, 2]
+        assert validate_for_printer(db, shared, file, 2, actor) == [1, 1]
+
+
+def test_s1_job_sharing_an_ace_slot_refuses_before_any_device_contact(review_db, tmp_path, monkeypatch):
+    from modules.printers import dispatch
+    from modules.printers.adapters import moonraker, anycubic_lan
+    engine, path = configure_dispatch(review_db, tmp_path, monkeypatch)
+    path.write_text(S1_HEADER + '; filament_colour = #00AE42;#FF00FF\n; filament_type = PLA;PLA\nG28\n')
+    with engine.begin() as c:
+        c.execute(text("UPDATE printers SET model='Kobra S1',slot_count=4 WHERE id=59"))
+        c.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(59,2,'PLA')"))
+        c.execute(text("UPDATE jobs SET ams_mapping='[1,1]' WHERE id=53"))
+    def forbidden(*a, **k):
+        pytest.fail('A shared-slot S1 job must stop before device contact')
+    monkeypatch.setattr(moonraker.MoonrakerPrinter, 'get_status', forbidden)
+    monkeypatch.setattr(moonraker.MoonrakerPrinter, 'upload_file', forbidden)
+    monkeypatch.setattr(anycubic_lan.AnycubicLANPrinter, 'send_start', forbidden)
+    result = dispatch.dispatch_job(59, 53)
+    assert result[0] is False and 's1_mapping_duplicate_slot' in result[1]
+    with engine.connect() as c:
+        assert c.execute(text('SELECT COUNT(*) FROM printer_dispatch_claims')).scalar_one() == 0
+
+
+def test_s1_identity_needs_moonraker_so_gates_cannot_cross():
+    assert not is_kobra_s1(dict(api_type='bambu', model='Kobra S1'))
+    assert not is_kobra_s1(dict(api_type='prusalink', machine_type='Kobra S1'))
+
+
+def test_s1_start_never_enters_the_generic_ams_gate(review_db, tmp_path, monkeypatch):
+    from modules.printers import dispatch, dispatch_ams_gate, services, start_next
+    from modules.printers.adapters import moonraker, anycubic_lan
+    engine, path = configure_dispatch(review_db, tmp_path, monkeypatch)
+    path.write_text(S1_HEADER + '; filament_colour = #00AE42\n; filament_type = PLA\nG28\n')
+    with engine.begin() as c:
+        c.execute(text("UPDATE printers SET model='Kobra S1',slot_count=4 WHERE id=59"))
+        c.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(59,2,'PLA')"))
+        c.execute(text("UPDATE jobs SET ams_mapping='[1]' WHERE id=53"))
+    def forbidden(*a, **k):
+        pytest.fail('The generic AMS gate must not judge an S1 start')
+    monkeypatch.setattr(dispatch_ams_gate, 'create_ams_start_gate', forbidden)
+    monkeypatch.setattr(dispatch_ams_gate, 'preflight_ams_source', forbidden)
+    monkeypatch.setattr(services, 'inspect_ams_payload', forbidden)
+    monkeypatch.setattr(moonraker.MoonrakerPrinter, 'get_status', lambda self: SimpleNamespace(
+        internal_state='IDLE', raw_print_state='complete', raw_data={'webhooks': {'state': 'ready'}}, ace_status=parse_ace(HUB)))
+    monkeypatch.setattr(moonraker.MoonrakerPrinter, 'upload_file', lambda self, *a: True)
+    monkeypatch.setattr(moonraker.MoonrakerPrinter, 'device_file_identity', lambda self, name: dict(path=name, md5='b' * 32, size=999, filaments=FILAMENTS[:1]))
+    publishes = []
+    def send(self, payload, *, before_publish):
+        before_publish()
+        publishes.append(payload)
+        return dict(published=True, message='Published; no correlated report. Do not retry automatically.')
+    monkeypatch.setattr(anycubic_lan.AnycubicLANPrinter, 'send_start', send)
+    marker = _bed_clear_request(engine, 53, 59)
+    try:
+        result = dispatch.dispatch_job(59, 53)
+    finally:
+        start_next._context.reset(marker)
+    assert result[0] is True, result
+    assert [m['ams_index'] for m in publishes[0]['data']['ams_settings']['ams_box_mapping']] == [1]
+
+
+def test_bambu_multi_source_start_never_enters_the_s1_path(review_db, tmp_path, monkeypatch):
+    from modules.printers import dispatch, s1_dispatch
+    from tests.test_contracts.test_multi_source_ams_dispatch import setup_multi, transport, owned_read
+    engine, path, report = setup_multi(review_db, tmp_path, monkeypatch)
+    def forbidden(*a, **k):
+        pytest.fail('A Bambu start must not enter the S1 path')
+    monkeypatch.setattr(s1_dispatch, 'create_start_gate', forbidden)
+    monkeypatch.setattr(s1_dispatch, 'options', forbidden)
+    monkeypatch.setattr(s1_dispatch, 'dispatch', forbidden)
+    events = []
+    sent = transport(monkeypatch, path, 'legacy', events)
+    owned_read(monkeypatch, engine, report, events)
+    result = dispatch.dispatch_job(59, 53)
+    assert result[0] is True, result
+    assert events == ['upload', 'fresh_read', 'start'] and sent[0]['ams_mapping'] == [2, 1]

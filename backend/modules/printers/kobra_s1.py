@@ -97,6 +97,10 @@ def mapping_vector(value, filaments):
     if (type(value) is not list or len(value) != len(filaments)
             or any(type(n) is not int or not 0 <= n < 4 for n in value)):
         raise S1Refusal('s1_mapping_incomplete', 'AMS mapping must cover every file filament with an ACE slot')
+    # Bambu sources may share a tray since 2.0.36. gklib is proven with one slot per
+    # paint index only, so the shared validate_mapping no longer enforces this for us.
+    if len(set(value)) != len(value):
+        raise S1Refusal('s1_mapping_duplicate_slot', 'Each file filament needs its own ACE slot')
     return value
 
 

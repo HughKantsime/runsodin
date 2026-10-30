@@ -27,6 +27,7 @@ import core.crypto as crypto
 from modules.printers.anycubic_crud import validate_credentials, prepare_update_credentials
 from modules.printers.bambu_chamber_camera import drop_unchanged_marker
 from modules.printers.models import Printer, FilamentSlot
+from modules.printers.slot_feed_policy import POLICY_FIELDS, policy_change, refuse_delete_while_flagged, slots_removable_by_count
 from modules.printers.schemas import (
     PrinterCreate, PrinterUpdate, PrinterResponse, FilamentSlotUpdate, FilamentSlotResponse,
 )
@@ -298,20 +299,7 @@ def update_printer(
                     )
                     db.add(slot)
         elif new_count < current_count:
-            # Same printer lock as feed-policy updates, then re-read: a flag
-            # committed meanwhile must refuse the reduction, never be deleted.
-            if db.get_bind().dialect.name == 'postgresql':
-                db.query(Printer).filter_by(id=printer.id).with_for_update().one()
-            else:
-                db.execute(text('UPDATE printers SET name=name WHERE id=:id'), {'id': printer.id})
-            locked = db.query(FilamentSlot).filter(FilamentSlot.printer_id == printer.id).populate_existing()
-            if db.get_bind().dialect.name == 'postgresql':
-                locked = locked.with_for_update()
-            removed = [s for s in locked.all() if new_count < s.slot_number < AMS_HT_FIRST_SLOT]
-            restricted = sorted(s.slot_number for s in removed if s.do_not_feed)
-            if restricted:
-                raise HTTPException(409, f"Slot {restricted[0]} is marked do not feed; an admin must clear it before the slot count is reduced")
-            for slot in removed:
+            for slot in slots_removable_by_count(db, printer.id, new_count, AMS_HT_FIRST_SLOT):
                 db.delete(slot)
 
     for field, value in update_data.items():
@@ -346,16 +334,7 @@ def delete_printer(printer_id: int, current_user: dict = Depends(require_action(
     if education_policy is None:
         raise HTTPException(status_code=503, detail="Education policy unavailable")
     education_policy.assert_printer_tenant_change_or_delete_allowed(db, printer_id)
-    # Same printer lock as feed-policy updates: a restriction is removed only by an
-    # audited admin clear, never as a side effect of deleting the printer.
-    if db.get_bind().dialect.name == 'postgresql':
-        db.query(Printer).filter_by(id=printer_id).with_for_update().one()
-    else:
-        db.execute(text('UPDATE printers SET name=name WHERE id=:id'), {'id': printer_id})
-    restricted = db.execute(text('SELECT slot_number FROM filament_slots WHERE printer_id=:id AND do_not_feed IS TRUE '
-                                 'ORDER BY slot_number'), {'id': printer_id}).scalars().first()
-    if restricted is not None:
-        raise HTTPException(409, f"Slot {restricted} is marked do not feed; an admin must clear it before the printer is deleted")
+    refuse_delete_while_flagged(db, printer_id)
     printer_name = printer.name
     # Jobs pinned to this printer must not silently follow a reused id: mark
     # their pin deleted (they wait for a new choice) and tell their owners.
@@ -423,17 +402,10 @@ def update_filament_slot(
     if not slot:
         raise HTTPException(status_code=404, detail="Filament slot not found")
     values = updates.model_dump(exclude_unset=True)
-    slot_fields = set(values) - {'do_not_feed', 'do_not_feed_note'}
-    from modules.printers.slot_feed_policy import update_policy
-    if {'do_not_feed', 'do_not_feed_note'}.intersection(values):
-        # Serialize against final admission's printer/slot snapshot.
-        if db.get_bind().dialect.name == 'postgresql':
-            db.query(Printer).filter_by(id=printer_id).with_for_update().one()
-            db.refresh(slot, with_for_update=True)
-        else:
-            db.execute(text('UPDATE printers SET name=name WHERE id=:id'), {'id': printer_id})
-            db.refresh(slot)
-        update_policy(db, slot, values, current_user)
+    slot_fields = set(values) - POLICY_FIELDS
+    policy = policy_change(db, slot, values, current_user)
+    if policy:
+        log_audit(db, 'filament_slot.feed_policy', 'filament_slot', slot.id, policy)
     if slot_fields:
         ensure_local_filaments(printer_id)
     if 'assigned_spool_id' in values:
@@ -448,8 +420,7 @@ def update_filament_slot(
         assign_slot(db, slot, None, current_user)
         slot.spool_confirmed = False
 
-    if slot_fields:
-        slot.loaded_at = datetime.now(timezone.utc)
+    slot.loaded_at = datetime.now(timezone.utc) if slot_fields else slot.loaded_at
     db.commit()
     db.refresh(slot)
     return slot

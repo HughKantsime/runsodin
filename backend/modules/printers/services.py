@@ -8,7 +8,18 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from modules.printers.education_compatibility import evaluate_education_compatibility
-from modules.printers.dispatch_support import dispatch_unsupported_reason, KOBRA_DISPATCH_DETAIL
+from modules.printers.dispatch_support import (
+    automatic_dispatch_unsupported_reason,
+    dispatch_unsupported_reason,
+    is_kobra_s1,
+    KOBRA_DISPATCH_DETAIL,
+)
+
+
+def s1_start_facts(db, token):
+    """Publish evidence recorded for one Kobra S1 attempt, or None."""
+    from modules.printers.start_next import load
+    return load(db, 's1_start:' + token)
 
 
 def evaluate_submission_compatibility(
