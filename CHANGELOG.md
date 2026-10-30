@@ -4,11 +4,18 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [2.0.34] - 2026-10-29
 
-<!-- summary: H2D prints with an AMS HT attached dispatch again -->
+<!-- summary: H2D prints dispatch again, a restart or spool change can no longer strand a printer, and pre-start checks fit slow printers -->
 
 ### Fixed
 
 - An H2D with an AMS HT attached refused every AMS print before start with `ams_read_failed` ("Fresh AMS read failed"). The printer reports the AMS HT in every AMS status, and the fresh AMS read treated it as unknown hardware. The read now accepts AMS HT units; they stay inventory-only, so a print still cannot be mapped to an AMS HT tray.
+- Restarting ODIN during an ODIN-dispatched Bambu print could create a second "running" record for the same print. The printer then stayed reserved after the print finished, and new work was refused. A restart now resumes the original record and never creates a duplicate.
+- Changing an AMS spool or material during or after a print could keep the finished print's reservation forever. Releasing a finished print now checks the printer's identity, not its current spool loadout; starting a new print still checks the loadout.
+- Bambu post-upload checks used two separate printer connections inside one 10-second window, so a slow printer was refused with `snapshot_stale` or `ams_read_failed`. AMS prints now take the nozzle and AMS facts from one fresh report, and refusals record how long the read took.
+
+### Changed
+
+- ODIN no longer dispatches to a Kobra S1 (or Kobra 3 family) printer through Moonraker, and the scheduler never places work on one. A plain Moonraker start carries no ACE slot mapping. Start these prints on the printer and link the observed print to the ODIN job; S1 dispatch with ACE mapping comes in a later release.
 
 ## [2.0.33] - 2026-10-29
 
