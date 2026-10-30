@@ -542,6 +542,28 @@ def test_unreserved_print_ended_in_downtime_maps_like_a_watched_end(manual_bambu
     assert len(seen.completed) == len(seen.care) == int(expected == 'completed')
 
 
+@pytest.mark.parametrize('report', ['garbled', 7, [1, 2], {'ams': 'garbled'}, {'ams': 7}, {'ams': [1, 2]}, {'ams': [{'id': '0', 'tray': 'garbled'}]}],
+                         ids=['string', 'number', 'list', 'dict_of_string', 'dict_of_number', 'dict_of_list', 'garbled_tray'])
+def test_malformed_ams_report_does_not_cost_a_print_its_end(manual_bambu, report):
+    case = manual_bambu
+    monitor = case.monitor()
+    packet(monitor, gcode_state='FAILED', subtask_name=case.name, print_error=7, ams=report)
+    rows, job = manual_rows(case)
+    assert [row['status'] for row in rows] == ['failed'] and job == 'failed'
+    packet(monitor, gcode_state='FAILED', subtask_name=case.name, print_error=7, ams=report)  # And the tail of a later packet.
+
+
+def test_malformed_ams_report_keeps_the_last_good_measurement(running_bambu):
+    case = running_bambu
+    monitor = restarted(case)
+    name = case.state['subtask_name']
+    packet(monitor, gcode_state='RUNNING', subtask_name=name, print_error=0, ams=ams_report(75))
+    packet(monitor, gcode_state='FINISH', subtask_name=name, print_error=0, ams='garbled')
+    rows, _, _ = row_state(case)
+    assert rows[0]['status'] == 'completed'
+    assert rows[0]['filament_used_g'] == (50 if case.weights else None)
+
+
 def test_unreserved_end_measures_filament_against_its_first_start(manual_bambu):
     case = manual_bambu
     packet(case.monitor(), gcode_state='FINISH', subtask_name=case.name, print_error=0, ams=ams_report(70))

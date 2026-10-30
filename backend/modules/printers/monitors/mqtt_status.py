@@ -5,9 +5,10 @@ from core.printer_identity_audit import observe_printer_identity
 
 def refresh_ams_remain(self):
     """Keep AMS remain percentages fresh for filament tracking."""
+    # This runs before a terminal transition: a malformed report must not cost the print its end.
     ams_raw = self._state.get('ams', {})
-    ams_units = ams_raw.get('ams', [])
-    if ams_units:
+    ams_units = ams_raw.get('ams', []) if isinstance(ams_raw, dict) else None
+    if ams_units and isinstance(ams_units, list):
         ams_remain = {}
         from modules.printers.telemetry.bambu.ams_identity import ams_trays_by_slot, is_rfid_tag
         from modules.printers.monitors.ams_inventory import remaining_percent
