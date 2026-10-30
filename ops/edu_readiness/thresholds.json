@@ -7,9 +7,9 @@
   "minimum_reads": 800,
   "minimum_writes": 100,
   "maximum_repetition_seconds": 45,
-  "read_p95_ms": 650,
-  "write_p95_ms": 1400,
-  "global_p99_ms": 2800,
+  "read_p95_ms": 1450,
+  "write_p95_ms": 2550,
+  "global_p99_ms": 3850,
   "maximum_error_rate": 0,
   "maximum_5xx": 0,
   "maximum_tenant_leaks": 0,
@@ -35,5 +35,24 @@
       "evidence": "worst rep-3 global p99: 2055 ms gate run 14 (local-20261018T214501Z); 2478 ms standalone at a81380d (macOS report-query tail); +13%"
     },
     "unchanged": "maximum_repetition_seconds (worst 14.8 s of 45), websocket_p95_ms (worst 13.5 ms of 1000), maximum_fd_delta (worst -9 of 8), maximum_memory_delta_mib (worst 3.8 of 64), error/5xx/tenant-leak limits (0 observed)"
+  },
+  "rebaseline_odin_ci": {
+    "decision": "2026-10-30 ODIN Dev: Trusted Validation moved from the M4 Mac to the odin-ci VM (i7-11700K, 8 vCPU), which runs this workload about twice as slowly. Same method as rebaseline_2_0: measured worst plus 10-15%. A host change, not a product change; see docs/TRUSTED_VALIDATION_SCOPE.md 'api_load limits on odin-ci'.",
+    "read_p95_ms": {
+      "previous": 650,
+      "value": 1450,
+      "evidence": "worst rep-3 read p95 on odin-ci: 1293 ms gate run gha-41115715024-1; standalone 1184, 1027, 974 ms at f00d2129; +12%. Mac worst at gha-41079992620-1: 555 ms"
+    },
+    "write_p95_ms": {
+      "previous": 1400,
+      "value": 2550,
+      "evidence": "worst rep-3 write p95 on odin-ci: 2267 ms gate run gha-41115715024-1; standalone 1854, 1448, 1790 ms at f00d2129; +12.5%. Mac worst at gha-41079992620-1: 789 ms"
+    },
+    "global_p99_ms": {
+      "previous": 2800,
+      "value": 3850,
+      "evidence": "worst rep-3 global p99 on odin-ci: 3407 ms gate run gha-41115715024-1; standalone 3145, 2423, 2112 ms at f00d2129; +13%. Mac worst at gha-41079992620-1: 2344 ms"
+    },
+    "unchanged": "maximum_repetition_seconds (worst 29.5 s of 45) and every error, 5xx, tenant-leak, websocket, fd and memory limit"
   }
 }

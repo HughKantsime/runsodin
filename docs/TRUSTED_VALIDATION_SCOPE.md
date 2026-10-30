@@ -83,6 +83,21 @@ What the measurements show:
 Performance work continues after 2.0: shortening write transactions further,
 the per-request cost of authentication and authorisation, and the report query.
 
+## api_load limits on odin-ci
+
+Trusted Validation moved from the M4 Mac to the `odin-ci` VM (i7-11700K, 8 vCPU) on
+2026-10-30. The same workload takes about twice as long there (26-29 s per repetition
+against 12-14 s), so the three latency limits moved with the host, by the same method:
+measured worst plus 10-15%. The evidence sits next to each number in
+`rebaseline_odin_ci`. Every other limit is unchanged. These remain a regression floor
+for this host, not a capacity statement.
+
+| Limit | Mac | odin-ci | Mac worst | odin-ci worst |
+|---|---|---|---|---|
+| read p95 | 650 ms | 1450 ms | 555 ms | 1293 ms |
+| write p95 | 1400 ms | 2550 ms | 789 ms | 2267 ms |
+| global p99 | 2800 ms | 3850 ms | 2344 ms | 3407 ms |
+
 ## Gaps
 
 No stage in this gate proves the following. Read the results with these gaps in
