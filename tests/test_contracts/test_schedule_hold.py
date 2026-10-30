@@ -46,3 +46,14 @@ def test_print_file_schedule_audit_records_hold(mapping_client, review_db):
     assert response.status_code == 200, response.text
     details = review_db.execute(text("SELECT details FROM audit_logs WHERE action='print_file.scheduled'")).scalar()
     assert json.loads(details) == {'job_id': response.json()['job_id'], 'hold': True}
+
+
+def test_manual_start_refuses_a_held_job(mapping_client, review_db):
+    from modules.jobs.routes.jobs_lifecycle import router as lifecycle
+    client, auth = mapping_client
+    client.app.include_router(lifecycle, prefix='/api')
+    job = _schedule(mapping_client, 'print-files', {'hold': True}).json()['job_id']
+    response = client.post(f'/api/jobs/{job}/start', headers=auth())
+    assert response.status_code == 409, response.text
+    row = review_db.execute(text('SELECT status,hold,actual_start FROM jobs WHERE id=:id'), {'id': job}).one()
+    assert (row[0], bool(row[1]), row[2]) == ('pending', True, None)

@@ -73,9 +73,11 @@ def start_job(job_id: int, current_user: dict = Depends(require_action("jobs.sta
     if not job or not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(404, 'Job not found')
 
-    if not transition_job(db, job_id, JobStatus.PRINTING, "operator",
+    if not transition_job(db, job_id, JobStatus.PRINTING, "operator", where="hold IS NOT TRUE",
                           extra_fields={"actual_start": datetime.now(timezone.utc), "is_locked": True}):
         db.rollback()
+        if job.hold:
+            raise HTTPException(status_code=409, detail="Job is held; release the hold before starting it")
         raise HTTPException(status_code=400, detail=f"Cannot start job in {_status_value(job.status)} status")
     db.refresh(job)
 
