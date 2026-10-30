@@ -790,10 +790,11 @@ MOONRAKER_OUTCOMES = [('complete', 'completed'), ('cancelled', 'cancelled'), ('e
 @pytest.mark.parametrize('raw,expected', MOONRAKER_OUTCOMES)
 def test_moonraker_end_without_history_closes_its_row_once(moonraker, raw, expected):
     case = moonraker
-    identifier = case.row(job=53)
-    case.seen_printer(120)  # Two minutes unwatched: older than the resume rule's own tolerance.
+    # An hour unwatched: only measured at last_seen does the row's age fit inside the print.
+    identifier = case.row(started=2 * 3600, job=53)
+    case.seen_printer(3600)
     monitor = case.monitor()
-    status = moonraker_status(raw)
+    status = moonraker_status(raw, total=1.5 * 3600)
     monitor._process_status(status)
     monitor._process_status(status)
     assert case.state(identifier)[0] == expected
@@ -923,18 +924,37 @@ def test_moonraker_network_reconnect_closes_the_end(moonraker):
 
 
 def test_moonraker_failed_lookup_retries_on_the_next_poll(moonraker, monkeypatch):
+    # With the real heartbeat running: it refreshes last_seen on the failed poll, and the
+    # retry still has to measure the row's age at the time ODIN last saw this printer.
     from core import dispatch_observations
     case = moonraker
-    identifier = case.row()
-    case.seen_printer(60)
+    identifier = case.row(started=2 * 3600)
+    case.seen_printer(3600)
     monitor = case.monitor()
+    monitor._last_heartbeat = 0
+    status = moonraker_status('complete', total=1.5 * 3600)
     reserved = dispatch_observations.generic_observation_reserved
     monkeypatch.setattr(dispatch_observations, 'generic_observation_reserved', lambda *a, **kw: (_ for _ in ()).throw(RuntimeError('synthetic')))
-    monitor._process_status(moonraker_status('complete'))
+    monitor._process_status(status)
     assert case.state(identifier)[0] == 'running'
     assert monitor._prev_state is None
+    with case.engine.connect() as conn:
+        last_seen = conn.execute(text('SELECT last_seen FROM printers WHERE id=59')).scalar_one()
+    assert (datetime.now(timezone.utc) - as_utc_datetime(last_seen)).total_seconds() < 60  # The heartbeat ran.
     monkeypatch.setattr(dispatch_observations, 'generic_observation_reserved', reserved)
-    monitor._process_status(moonraker_status('complete'))
+    monitor._process_status(status)
+    assert case.state(identifier)[0] == 'completed'
+
+
+def test_moonraker_reconnect_measures_the_new_downtime(moonraker):
+    case = moonraker
+    monitor = case.monitor()
+    monitor._first_look = (ago(30 * 86400),)
+    monitor._recover_after_reconnect()
+    assert monitor._first_look is None
+    identifier = case.row(started=2 * 3600)
+    case.seen_printer(3600)
+    monitor._process_status(moonraker_status('complete', total=1.5 * 3600))
     assert case.state(identifier)[0] == 'completed'
 
 

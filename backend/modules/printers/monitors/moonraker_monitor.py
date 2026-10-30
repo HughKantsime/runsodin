@@ -91,6 +91,7 @@ class MoonrakerMonitor:
         self._last_progress_write = 0.0
         self._last_filename = ""
         self._unwatched_row = None
+        self._first_look = None
         self._last_telemetry_insert = 0.0
         self._last_slot_sync = 0.0
         self._last_env_telemetry = 0.0
@@ -205,6 +206,7 @@ class MoonrakerMonitor:
             self._current_job_db_id = None
             self._last_filename = ""
             self._prev_state = None
+            self._first_look = None
 
     # ==================== Status Processing ====================
     
@@ -233,11 +235,18 @@ class MoonrakerMonitor:
             if retry:
                 self._prev_state = None
 
+    def _first_look_last_seen(self, conn):
+        """printers.last_seen as the first look found it; this monitor's heartbeat replaces it."""
+        if self._first_look is None:
+            self._first_look = (conn.execute(text('SELECT last_seen FROM printers WHERE id=:pid'), {'pid': self.printer_id}).scalar_one_or_none(),)
+        return self._first_look[0]
+
     def _unwatched_end_history(self, status):
         """History for the one running row a first-seen end could belong to, if any."""
         from modules.printers.monitors.moonraker_history import terminal_history
         try:
             with engine.connect() as conn:
+                self._first_look_last_seen(conn)
                 rows = conn.execute(text("SELECT started_at FROM print_jobs WHERE printer_id=:pid AND status='running' "
                                          "AND (filename=:name OR job_name=:name) LIMIT 2"),
                                     {'pid': self.printer_id, 'name': status.filename}).all()
@@ -271,7 +280,7 @@ class MoonrakerMonitor:
                                         {'pid': self.printer_id}).mappings().all()
                     # A matched history entry already placed the row inside that print. Without
                     # one, the row's age when ODIN last saw this printer must fit inside the print.
-                    last_seen = conn.execute(text('SELECT last_seen FROM printers WHERE id=:pid'), {'pid': self.printer_id}).scalar_one_or_none()
+                    last_seen = self._first_look_last_seen(conn)
                     elapsed = None if history else getattr(status, 'total_duration', None)
                     plausible = [row for row in rows if same_physical_print(
                         row, filename, elapsed, now=as_utc_datetime(last_seen) if last_seen else None)]
