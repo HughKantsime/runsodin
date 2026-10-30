@@ -511,7 +511,9 @@ def _run_admitted_dispatch(job,creds,stored_path,remote_filename,print_options,e
 
     _ws(job_id, "dispatched", f"'{job['item_name']}' sent to printer successfully")
     log.info(f"[dispatch] Job {job_id} dispatched successfully ({api_type})")
-    return True, "Print started"
+    from modules.printers.dispatch_support import is_kobra_s1
+    # An S1 start is published, not confirmed, and its auto_refill warning must be seen.
+    return True, message if is_kobra_s1(creds) else "Print started"
 
 
 def attempt_dispatch(printer_id: int):

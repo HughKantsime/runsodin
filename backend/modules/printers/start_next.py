@@ -68,6 +68,10 @@ def start(db, printer, user, data, *, background=False):
                 'request_id': str(data.request_id), 'code': 'printer_maintenance_hold', 'message': reason}
     if data.bed_clear_confirmed is not True:
         raise HTTPException(422, 'Confirm the bed is clear before starting')
+    from modules.printers.dispatch_support import is_kobra_s1
+    kobra_s1 = is_kobra_s1(printer)
+    if kobra_s1 and data.attestation is None:
+        raise HTTPException(422, 'A Kobra S1 start must say who confirmed the bed is clear')
     visible = lambda job: check_org_access(user, job.charged_to_org_id)
     suggestion = next_suggestion(db, printer, visible=visible)
     if suggestion['job_id'] != data.suggested_job_id or suggestion['fingerprint'] != data.suggestion_fingerprint:
@@ -102,6 +106,8 @@ def start(db, printer, user, data, *, background=False):
             job = claim_db.query(Job).filter(Job.id == data.suggested_job_id).with_for_update().one_or_none()
             if job is None or getattr(job.status, 'value', job.status) != 'pending' or job.hold or job.printer_id not in (None, printer_id):
                 raise HTTPException(409, 'Candidate changed before it could be claimed')
+            if kobra_s1 and job.printer_id != printer_id:
+                raise HTTPException(409, 'A Kobra S1 starts only jobs assigned to it')
             record['assigned_by_claim'] = job.printer_id is None
             job.printer_id = printer_id
             claim_db.flush()
@@ -191,6 +197,13 @@ def _record_result(db, printer_id, data, key, guard, result, *, clean_no_start=F
         db.rollback()
         raise
     return result
+
+
+def start_requested(job):
+    """Whether this attempt runs inside a Start next request for exactly this job."""
+    context = _context.get()
+    return (context is not None and context['record']['job_id'] == job['id']
+            and context['record']['printer_id'] == job['printer_id'])
 
 
 def bed_clear_bound(conn, *, token, job, admitted):

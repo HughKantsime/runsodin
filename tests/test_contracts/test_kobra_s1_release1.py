@@ -88,6 +88,12 @@ def test_adapter_queries_hidden_object_and_preserves_happy_hare(monkeypatch):
     assert 'filament_hub' not in seen[-1]
 
 
+class _DeviceResponse(__import__('io').BytesIO):
+    def __init__(self, body, declared='auto'):
+        super().__init__(body)
+        self.headers = {} if declared is None else {'Content-Length': str(len(body) if declared == 'auto' else declared)}
+
+
 def test_upload_409_is_busy_and_device_identity_hashes_readback(tmp_path, monkeypatch):
     from core import webhook_utils
     p=MoonrakerPrinter('192.0.2.1',model='Kobra S1')
@@ -97,8 +103,13 @@ def test_upload_409_is_busy_and_device_identity_hashes_readback(tmp_path, monkey
     device=b'; Rinkhals added this line\n'+local.read_bytes()
     import io
     from modules.printers.adapters import moonraker
-    monkeypatch.setattr(moonraker,'urlopen',lambda *a,**k:io.BytesIO(device))
+    reads=[]
+    def copy(*a,**k):
+        reads.append(True)
+        return _DeviceResponse(device)
+    monkeypatch.setattr(moonraker,'urlopen',copy)
     facts=p.device_file_identity('folder/print.gcode')
+    assert len(reads)==2
     assert facts['size']==len(device) and facts['md5']==hashlib.md5(device).hexdigest()
     assert facts['md5']!=hashlib.md5(local.read_bytes()).hexdigest()
 
@@ -148,7 +159,8 @@ def test_flags_all_protocols_and_admin_audit(inventory):
         assert policy_change(db,slot,{'do_not_feed':True,'do_not_feed_note':'Feed fault'},{'role':'admin'}) is None
 
 
-@pytest.mark.parametrize('outcome', ['correlated','no_report','disconnect_after_publish','publish_rejected','publish_timeout','handshake_failed'])
+@pytest.mark.parametrize('outcome', ['correlated','no_report','disconnect_after_publish','publish_rejected','publish_timeout','handshake_failed',
+                                     'refused','refused_then_disconnect','report_without_code','report_with_unusable_code','code_200','other_model'])
 def test_one_shot_mqtt_no_retry(monkeypatch, outcome):
     from modules.printers.adapters import anycubic_lan as module
     from core import webhook_utils
@@ -166,31 +178,40 @@ def test_one_shot_mqtt_no_retry(monkeypatch, outcome):
         def publish(self,*a,**kw):
             calls.append((a,kw))
             body=json.loads((FIXTURES/'print_start_report.json').read_text())
-            if outcome=='correlated':body['msgid']='fixture'
-            self.on_message(self,None,SimpleNamespace(topic='anycubic/anycubicCloud/v1/printer/public/fixture-model/fixture-device/print/report',payload=json.dumps(body)))
+            if outcome in ('correlated','refused','refused_then_disconnect','report_without_code','report_with_unusable_code','code_200'):body['msgid']='fixture'
+            if outcome in ('refused','refused_then_disconnect'):body.update(code=10601,state='stoped',msg='not for ODIN')
+            if outcome=='code_200':body.update(code=200,state='printing')
+            if outcome=='report_with_unusable_code':body.update(code='10601',state='x'*99)
+            self.on_message(self,None,SimpleNamespace(topic='anycubic/anycubicCloud/v1/printer/public/20025/fixture-device/print/report',payload=json.dumps(body)))
             return SimpleNamespace(rc=1 if outcome=='publish_rejected' else 0,is_published=lambda:outcome!='publish_timeout')
         def loop(self,**kw):
-            if outcome=='disconnect_after_publish':raise RuntimeError('synthetic disconnected')
+            if outcome in ('disconnect_after_publish','refused_then_disconnect'):raise RuntimeError('synthetic disconnected')
             return 1  # No report/disconnected, never starts a retry.
         def disconnect(self):pass
     monkeypatch.setattr(mqtt,'Client',Client)
     monkeypatch.setattr(module.ssl,'SSLContext',lambda *a:SimpleNamespace(load_cert_chain=lambda *a:None))
     monkeypatch.setattr(webhook_utils,'device_connect_ip',lambda *a:'192.0.2.1')
-    p=module.AnycubicLANPrinter('192.0.2.1');p.model_id='fixture-model'
+    p=module.AnycubicLANPrinter('192.0.2.1');p.model_id='20025'
     def handshake():
         if outcome=='handshake_failed':raise RuntimeError('synthetic failure')
+        if outcome=='other_model':p.model_id='20029'
         return dict(broker='mqtts://192.0.2.1:9883',deviceId='fixture-device',username='fixture',password='fixture',devicecrt='fixture',devicepk='fixture')
     monkeypatch.setattr(p,'handshake',handshake)
     rechecked=[]
     result=p.send_start(dict(type='print',action='start',msgid='fixture',data={}),before_publish=lambda:rechecked.append(True),timeout=.01)
-    assert len(calls)==(0 if outcome=='handshake_failed' else 1)
-    assert result['published']==(outcome in ('correlated','no_report','disconnect_after_publish'))
+    assert len(calls)==(0 if outcome in ('handshake_failed','other_model') else 1)
+    assert result['published']==(outcome in ('correlated','no_report','disconnect_after_publish','refused','refused_then_disconnect','report_without_code','report_with_unusable_code','code_200'))
+    assert bool(result.get('rejected'))==(outcome in ('refused','refused_then_disconnect'))
+    if result.get('rejected'):
+        assert (result['code'],result['state'])==(10601,'stoped') and 'not for ODIN' not in json.dumps(result)
+    if outcome in ('report_without_code','report_with_unusable_code','code_200'):
+        assert result['report_received'] is True and 'x'*99 not in json.dumps(result)
     if calls:
         assert rechecked==[True] and calls[0][1]=={'qos':0,'retain':False}
     if outcome=='correlated':assert result['report_received'] is True
     if outcome=='no_report':assert result['report_received'] is False
     if outcome=='publish_timeout':assert result['uncertain'] is True
-    if outcome in ('publish_rejected','handshake_failed'):assert result['uncertain'] is False
+    if outcome in ('publish_rejected','handshake_failed','other_model'):assert result['uncertain'] is False
 
 
 def test_start_method_denies_other_actions():
@@ -218,7 +239,7 @@ def _bed_clear_request(engine, job_id, printer_id):
     return start_next._context.set({'key': key, 'record': record, 'user': {}})
 
 
-@pytest.mark.parametrize('scenario', ['sent','no_bed_clear','busy','flagged','flagged_after_upload','changed_slot','unknown_delivery','bad_handshake','not_idle','not_ready','ace_unknown','upload_failed','device_unavailable','file_changed','color_changed','duplicate_evidence'])
+@pytest.mark.parametrize('scenario', ['sent','no_bed_clear','busy','flagged','flagged_after_upload','changed_slot','unknown_delivery','bad_handshake','not_idle','not_ready','ace_unknown','upload_failed','device_unavailable','file_changed','color_changed','duplicate_evidence','start_rejected','device_copy_short','device_copy_incomplete','device_copy_changing'])
 def test_real_dispatch_pipeline_claims_and_no_retry(review_db,tmp_path,monkeypatch,scenario):
     from modules.printers import dispatch
     from modules.printers.adapters import moonraker, anycubic_lan
@@ -247,13 +268,16 @@ def test_real_dispatch_pipeline_claims_and_no_retry(review_db,tmp_path,monkeypat
         return scenario not in ('busy','upload_failed')
     def identity(self,name):
         if scenario=='device_unavailable':raise OSError('synthetic read failure')
-        return dict(path=name,md5='b'*32,size=999,filaments=FILAMENTS if scenario=='file_changed' else FILAMENTS[:1])
+        if scenario=='device_copy_incomplete':raise S1Refusal('s1_device_file_incomplete','Device file read did not match its declared size')
+        if scenario=='device_copy_changing':raise S1Refusal('s1_device_file_changed','Device file changed while it was being read')
+        return dict(path=name,md5='b'*32,size=1 if scenario=='device_copy_short' else 999,filaments=FILAMENTS if scenario=='file_changed' else FILAMENTS[:1])
     def send(self,payload,*,before_publish):
         if scenario=='bad_handshake':return dict(published=False,uncertain=False,message='Handshake failed')
         before_publish()
         if scenario=='duplicate_evidence':before_publish()
         publishes.append(payload)
         if scenario=='unknown_delivery':return dict(published=False,uncertain=True,message='Unknown delivery')
+        if scenario=='start_rejected':return dict(published=True,rejected=True,code=10601,state='stoped',message='Printer refused the start (code 10601, state stoped); do not retry automatically')
         return dict(published=True,message='Published; no correlated report. Do not retry automatically.')
     monkeypatch.setattr(moonraker.MoonrakerPrinter,'get_status',status)
     monkeypatch.setattr(moonraker.MoonrakerPrinter,'upload_file',upload)
@@ -284,7 +308,9 @@ def test_real_dispatch_pipeline_claims_and_no_retry(review_db,tmp_path,monkeypat
             assert facts['ams_box_mapping'][0]['ams_index']==1
             assert all(v==0 for v in facts['task_settings'].values())
         else:assert claim is None
-    if scenario=='sent':assert result[0] is True and len(publishes)==1
+    if scenario=='sent':
+        assert result[0] is True and len(publishes)==1
+        assert 'Published; no correlated report' in result[1] and 'auto_refill' in result[1], result
     else:
         assert result[0] is False
         code={'busy':'printer_busy','flagged':'slot_do_not_feed','flagged_after_upload':'slot_do_not_feed',
@@ -292,9 +318,10 @@ def test_real_dispatch_pipeline_claims_and_no_retry(review_db,tmp_path,monkeypat
               'not_idle':'s1_printer_not_ready','not_ready':'s1_printer_not_ready',
               'ace_unknown':'s1_ace_unknown','upload_failed':'s1_upload_failed',
               'device_unavailable':'s1_device_file_unavailable','file_changed':'s1_file_changed',
-              'color_changed':'s1_slot_changed','duplicate_evidence':'s1_attempt_already_recorded'}.get(scenario)
+              'color_changed':'s1_slot_changed','duplicate_evidence':'s1_attempt_already_recorded','start_rejected':'s1_start_rejected',
+              'device_copy_short':'s1_device_file_incomplete','device_copy_incomplete':'s1_device_file_incomplete','device_copy_changing':'s1_device_file_changed'}.get(scenario)
         if code:assert code in result[1]
-        assert len(publishes)==(1 if scenario=='unknown_delivery' else 0)
+        assert len(publishes)==(1 if scenario in ('unknown_delivery','start_rejected') else 0)
     if scenario=='unknown_delivery':
         assert dispatch.dispatch_job(59,53)[0] is False
         assert len(publishes)==1 and len(uploads)==1
@@ -545,10 +572,7 @@ def test_manual_ams_sync_keeps_flagged_slots_beyond_gate_count(review_db, tmp_pa
     monkeypatch.setattr(moonraker.MoonrakerPrinter, 'get_status', lambda self: SimpleNamespace(filament_slots=[gate], ace_status=None))
     monkeypatch.setattr(routes_ams, '_lock_ams_mutation', lambda db, pid, *a: (db.get(routes_ams.Printer, pid), None), raising=False)
     with Session(engine) as db:
-        try:
-            routes_ams.sync_ams_state(59, current_user={'id': 1, 'role': 'admin'}, db=db)
-        except Exception as exc:  # Only the deletion rule matters here.
-            pytest.skip(f'sync harness unavailable: {type(exc).__name__}')
+        routes_ams.sync_ams_state(59, current_user={'id': 1, 'role': 'admin'}, db=db)
     with engine.connect() as c:
         rows = c.execute(text('SELECT slot_number,do_not_feed FROM filament_slots WHERE printer_id=59 ORDER BY slot_number')).all()
     assert [r[0] for r in rows] == [1, 3] and bool(rows[1][1]) is True
@@ -787,3 +811,195 @@ def test_s1_operator_complete_leaves_an_unresolved_mapping_unattributed(review_d
 def test_other_moonraker_printers_keep_source_slot_deduction(review_db, monkeypatch):
     weights, audits, notes = _operator_complete(review_db, monkeypatch, model='Voron 2.4', mapping=None)
     assert weights == [88, 100, 100] and audits == [] and 'Slot 1' in notes
+
+
+class _ClosingServer:
+    """A real HTTP server for the read-back, because http.client decides what a short read does."""
+    def __init__(self, bodies, declared=None, send_length=True):
+        import http.server, threading
+        served = self.served = []
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = bodies[min(len(served), len(bodies) - 1)]
+                served.append(self.path)
+                self.send_response(200)
+                if send_length:
+                    self.send_header('Content-Length', str(declared if declared is not None else len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                self.close_connection = True
+            def log_message(self, *a):
+                pass
+        self.server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+    def __enter__(self):
+        return self
+    def __exit__(self, *a):
+        self.server.shutdown()
+        self.server.server_close()
+    def printer(self):
+        return MoonrakerPrinter('127.0.0.1', self.server.server_address[1], model='Kobra S1')
+
+
+@pytest.fixture
+def loopback_device(monkeypatch):
+    # The real client against a real socket; only the device address policy is opened for loopback.
+    import urllib.request
+    from modules.printers.adapters import moonraker
+    monkeypatch.setattr(moonraker, 'urlopen', urllib.request.urlopen)
+
+
+DEVICE_FILE = (FIXTURES / 'bambu_studio_one_colour.gcode').read_bytes()
+
+
+def test_read_back_hashes_the_complete_copy_twice(loopback_device):
+    with _ClosingServer([DEVICE_FILE]) as server:
+        facts = server.printer().device_file_identity('print.gcode')
+    assert facts['md5'] == hashlib.md5(DEVICE_FILE, usedforsecurity=False).hexdigest() and facts['size'] == len(DEVICE_FILE)
+    assert len(server.served) == 2
+
+
+@pytest.mark.parametrize('kwargs,code', [
+    pytest.param(dict(bodies=[DEVICE_FILE[:len(DEVICE_FILE) // 2]], declared=len(DEVICE_FILE)), 's1_device_file_incomplete', id='server_closes_at_half_of_content_length'),
+    pytest.param(dict(bodies=[DEVICE_FILE], send_length=False), 's1_device_file_incomplete', id='no_content_length'),
+    pytest.param(dict(bodies=[DEVICE_FILE, DEVICE_FILE + b'; patched while reading\n']), 's1_device_file_changed', id='changes_between_reads'),
+])
+def test_read_back_refuses_a_copy_it_cannot_trust(loopback_device, kwargs, code):
+    with _ClosingServer(**kwargs) as server:
+        with pytest.raises(S1Refusal, match=code):
+            server.printer().device_file_identity('print.gcode')
+
+
+def _suggestion_case(review_db, tmp_path, monkeypatch):
+    engine, path = configure_dispatch(review_db, tmp_path, monkeypatch)
+    with engine.begin() as c:
+        c.execute(text("UPDATE printers SET model='Kobra S1',slot_count=4 WHERE id=59"))
+        c.execute(text("UPDATE jobs SET status='pending',printer_id=NULL,target_type=NULL,target_filter=NULL,priority=1,quantity=1 WHERE id=53"))
+        c.execute(text("UPDATE jobs SET status='pending',printer_id=59,ams_mapping='[0]',priority=5,quantity=1 WHERE id=54"))
+    return engine
+
+
+def test_s1_suggestion_skips_unassigned_work_ahead_of_its_pinned_job(review_db, tmp_path, monkeypatch):
+    """An unassigned job can't block the S1: Start next must match the suggestion."""
+    from sqlalchemy.orm import Session
+    from modules.jobs.completion_summary import eligible, next_suggestion
+    from modules.jobs.models import Job
+    from modules.printers.models import Printer
+    engine = _suggestion_case(review_db, tmp_path, monkeypatch)
+    with Session(engine) as db:
+        printer = db.get(Printer, 59)
+        assert not eligible(db, db.get(Job, 53), printer)
+        assert eligible(db, db.get(Job, 54), printer)
+        assert next_suggestion(db, printer)['job_id'] == 54
+    with engine.begin() as c:
+        c.execute(text("UPDATE printers SET model='Voron 2.4' WHERE id=59"))
+    with Session(engine) as db:
+        assert eligible(db, db.get(Job, 53), db.get(Printer, 59)), 'Other printers can still adopt unassigned work'
+
+
+def test_s1_start_next_refuses_an_unassigned_job_even_if_suggested(review_db, tmp_path, monkeypatch):
+    import uuid
+    from fastapi import HTTPException
+    from sqlalchemy.orm import Session
+    from modules.printers import start_next
+    from modules.printers.models import Printer
+    from modules.printers.routes_start_next import StartNext
+    engine = _suggestion_case(review_db, tmp_path, monkeypatch)
+    monkeypatch.setattr(start_next, 'next_suggestion', lambda *a, **k: {'job_id': 53, 'fingerprint': 'f' * 64})
+    data = StartNext(suggested_job_id=53, suggestion_fingerprint='f' * 64, request_id=uuid.uuid4(), bed_clear_confirmed=True, attestation='owner_in_app')
+    with Session(engine) as db:
+        with pytest.raises(HTTPException) as refused:
+            start_next.start(db, db.get(Printer, 59), {'id': 3, 'role': 'admin', 'group_id': 1}, data)
+    assert refused.value.status_code == 409 and 'assigned' in str(refused.value.detail)
+    with engine.connect() as c:
+        assert c.execute(text('SELECT printer_id FROM jobs WHERE id=53')).scalar_one() is None
+
+
+@pytest.mark.parametrize('model,refused', [('Kobra S1', True), ('Voron 2.4', False)])
+def test_s1_start_next_needs_an_explicit_attestation(review_db, tmp_path, monkeypatch, model, refused):
+    import uuid
+    from fastapi import HTTPException
+    from sqlalchemy.orm import Session
+    from modules.printers import dispatch, start_next
+    from modules.printers.models import Printer
+    from modules.printers.routes_start_next import StartNext
+    engine = _suggestion_case(review_db, tmp_path, monkeypatch)
+    with engine.begin() as c:
+        c.execute(text('UPDATE printers SET model=:model WHERE id=59'), {'model': model})
+    monkeypatch.setattr(start_next, 'next_suggestion', lambda *a, **k: {'job_id': 54, 'fingerprint': 'f' * 64})
+    monkeypatch.setattr(dispatch, 'dispatch_job', lambda *a: (False, 'Synthetic stop'))
+    data = StartNext(suggested_job_id=54, suggestion_fingerprint='f' * 64, request_id=uuid.uuid4(), bed_clear_confirmed=True)
+    with Session(engine) as db:
+        printer = db.get(Printer, 59)
+        if refused:
+            with pytest.raises(HTTPException) as error:
+                start_next.start(db, printer, {'id': 3, 'role': 'admin', 'group_id': 1}, data)
+            assert error.value.status_code == 422
+            data.attestation = 'owner_confirmed_to_operator'
+        assert start_next.start(db, printer, {'id': 3, 'role': 'admin', 'group_id': 1}, data)['state'] == 'refused'
+    with engine.connect() as c:
+        stored = json.loads(c.execute(text("SELECT value FROM system_config WHERE key LIKE 'start_next:%'")).scalar_one())
+    assert stored['attestation'] == ('owner_confirmed_to_operator' if refused else 'owner_in_app')
+
+
+def test_s1_direct_dispatch_refuses_before_power_claim_or_device(review_db, tmp_path, monkeypatch):
+    from core import dispatch_claims
+    from modules.printers import dispatch, dispatch_acquisition, smart_plug
+    from modules.printers.adapters import moonraker
+    engine, path = configure_dispatch(review_db, tmp_path, monkeypatch)
+    path.write_text(S1_HEADER + '; filament_colour = #00AE42\n; filament_type = PLA\nG28\n')
+    with engine.begin() as c:
+        c.execute(text("UPDATE printers SET model='Kobra S1',slot_count=4 WHERE id=59"))
+        c.execute(text("UPDATE jobs SET ams_mapping='[0]' WHERE id=53"))
+    def forbidden(*a, **k):
+        pytest.fail('An S1 outside Start next must stop before this')
+    monkeypatch.setattr(smart_plug, 'prepare_bounded_dispatch_power', forbidden)
+    monkeypatch.setattr(dispatch_claims, 'acquire', forbidden)
+    monkeypatch.setattr(dispatch_acquisition, 'bounded_status_is_idle', forbidden)
+    monkeypatch.setattr(moonraker.MoonrakerPrinter, 'get_status', forbidden)
+    result = dispatch.dispatch_job(59, 53)
+    assert result[0] is False and result[1].startswith('s1_bed_clear_required')
+
+
+def test_manual_ace_sync_is_audited(review_db, tmp_path, monkeypatch):
+    from sqlalchemy.orm import Session
+    from modules.printers import routes_ams
+    from modules.printers.adapters import moonraker
+    engine, _ = configure_dispatch(review_db, tmp_path, monkeypatch)
+    with engine.begin() as c:
+        c.execute(text("UPDATE printers SET model='Kobra S1',slot_count=4 WHERE id=59"))
+    ace = parse_ace(HUB)
+    monkeypatch.setattr(moonraker.MoonrakerPrinter, 'connect', lambda self: True)
+    monkeypatch.setattr(moonraker.MoonrakerPrinter, 'get_status', lambda self: SimpleNamespace(
+        filament_slots=[moonraker.MoonrakerFilamentSlot(gate=0, material='PLA', color_hex='00AE42', loaded=True, gate_status=1)], ace_status=ace))
+    monkeypatch.setattr(routes_ams, '_lock_ams_mutation', lambda db, pid, *a: (db.get(routes_ams.Printer, pid), None), raising=False)
+    with Session(engine) as db:
+        routes_ams.sync_ams_state(59, current_user={'id': 1, 'role': 'admin'}, db=db)
+    with engine.connect() as c:
+        audit = c.execute(text("SELECT entity_id,details FROM audit_logs WHERE action='sync' AND entity_type='printer'")).one()
+    details = audit[1] if isinstance(audit[1], dict) else json.loads(audit[1])
+    assert audit[0] == 59 and details == {'slots_synced': 4, 'source': 'moonraker_ace'}
+
+
+@pytest.mark.parametrize('keys', [
+    '; textured_plate_temp_initial_layer = 0\n; first_layer_bed_temperature = 60\n',
+    '; textured_plate_temp_initial_layer = 0,55\n; first_layer_bed_temperature = 60\n',
+])
+def test_an_explicit_zero_on_the_selected_plate_is_a_cold_bed(keys):
+    from modules.printers.kobra_s1 import require_start_metadata
+    with pytest.raises(S1Refusal, match='s1_file_start_metadata_missing'):
+        require_start_metadata('; BambuStudio 02.08.02.61\n; curr_bed_type = Textured PEI Plate\n' + keys)
+
+
+def test_first_layer_key_only_answers_when_the_plate_has_no_key_of_its_own():
+    from modules.printers.kobra_s1 import require_start_metadata
+    assert require_start_metadata('; BambuStudio 02.08.02.61\n; curr_bed_type = Textured PEI Plate\n; first_layer_bed_temperature = 60\n') == 60
+
+
+def test_kobra_s1_max_is_not_a_kobra_s1():
+    for identity in ('Kobra S1 Max', 'kObRa s1 mAx', 'kobra_s1_max', 'Anycubic Kobra S1-Max'):
+        assert not is_kobra_s1(dict(api_type='moonraker', model=identity))
+        assert dispatch_unsupported_reason(dict(api_type='moonraker', model=identity)).startswith('printer_dispatch_unsupported')
+    for identity in ('Anycubic Kobra S1 Combo', 'kobra_s1', 'kobra_s1_combo', 'Kobra-S1'):
+        assert is_kobra_s1(dict(api_type='moonraker', model=identity)), identity
+    assert not is_kobra_s1(dict(api_type='moonraker', model='Kobra S10'))

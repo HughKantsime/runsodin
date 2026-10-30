@@ -412,22 +412,31 @@ class MoonrakerPrinter:
         """Hash the complete device copy, including Rinkhals' upload edits."""
         import hashlib
         from urllib.parse import quote
-        from modules.printers.kobra_s1 import safe_path, parse_header, require_start_metadata
+        from modules.printers.kobra_s1 import S1Refusal, safe_path, parse_header, require_start_metadata
         from core.itar import enforce_request_destination
         url = self.base_url + '/server/files/gcodes/' + quote(safe_path(filename))
         enforce_request_destination(url)
         headers = {'X-Api-Key': self.api_key} if self.api_key else {}
-        request = Request(url, headers=headers)
-        digest, size, prefix = hashlib.md5(usedforsecurity=False), 0, b''
-        with urlopen(request, timeout=120) as response:
-            for block in iter(lambda: response.read(128 * 1024), b''):
-                digest.update(block)
-                size += len(block)
-                if len(prefix) < 256 * 1024:
-                    prefix += block[:256 * 1024 - len(prefix)]
+        def read():
+            digest, size, prefix = hashlib.md5(usedforsecurity=False), 0, b''
+            with urlopen(Request(url, headers=headers), timeout=120) as response:
+                declared = response.headers.get('Content-Length')
+                for block in iter(lambda: response.read(128 * 1024), b''):
+                    digest.update(block)
+                    size += len(block)
+                    if len(prefix) < 256 * 1024:
+                        prefix += block[:256 * 1024 - len(prefix)]
+            # http.client returns a short read without an error when a server closes early.
+            if declared is None or not str(declared).isdigit() or int(declared) != size:
+                raise S1Refusal('s1_device_file_incomplete', 'Device file read did not match its declared size')
+            return digest.hexdigest(), size, prefix
+        md5, size, prefix = read()
+        # Rinkhals patches uploads. A file still changing would start with a stale md5.
+        if read()[:2] != (md5, size):
+            raise S1Refusal('s1_device_file_changed', 'Device file changed while it was being read')
         text = prefix.decode('utf-8', 'replace')
         require_start_metadata(text)
-        return dict(path=filename, md5=digest.hexdigest(), size=size, filaments=parse_header(text))
+        return dict(path=filename, md5=md5, size=size, filaments=parse_header(text))
 
     def start_print(self, filename: str) -> bool:
         """Start printing a file already on the printer."""

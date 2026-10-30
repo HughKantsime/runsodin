@@ -1,4 +1,5 @@
 """Explicit S1 upload/start inside the existing claim and sender boundaries."""
+import os
 import time
 import uuid
 from modules.printers.kobra_s1 import S1Refusal, build_payload, read_filaments, mapping_vector, verify_mapping
@@ -63,6 +64,8 @@ def dispatch(job_id, path, remote, creds, print_options, gate):
             raise
         except Exception:
             raise S1Refusal('s1_device_file_unavailable', 'Device file identity could not be read') from None
+        if file['size'] < os.path.getsize(path):
+            raise S1Refusal('s1_device_file_incomplete', 'Device copy is smaller than the uploaded file')
         if file['filaments'] != filaments:
             raise S1Refusal('s1_file_changed', 'Device filament header differs from the admitted payload')
         payload = build_payload(file, ace['slots'], mapping, int(time.time() * 1000), str(uuid.uuid4()))
@@ -89,6 +92,8 @@ def dispatch(job_id, path, remote, creds, print_options, gate):
                     raise S1Refusal('s1_attempt_already_recorded', 'This start attempt already has publish evidence; reconcile before retrying')
         common._ws(job_id, 'starting', 'File verified; preparing S1 start')
         result = AnycubicLANPrinter(creds['ip']).send_start(payload, before_publish=before_publish)
+        if result.get('rejected'):
+            raise S1Refusal('s1_start_rejected', result['message'])
         if not result['published']:
             if result.get('uncertain'):
                 raise common.DispatchOutcomeUncertain('S1 publish delivery uncertain; never retry automatically')

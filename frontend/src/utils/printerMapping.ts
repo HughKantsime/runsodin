@@ -2,6 +2,6 @@
 export function supportsFilamentMapping(printer?: { api_type?: string | null; model?: string | null; machine_type?: string | null }) {
   if (printer?.api_type === 'bambu') return true
   return printer?.api_type === 'moonraker' && [printer.model, printer.machine_type].some(
-    identity => /\bkobra[\s_-]*s1\b/i.test(identity || ''),
+    identity => /\bkobra[\s_-]*s1(?![a-z0-9])(?![\s_-]*max(?![a-z0-9]))/i.test(identity || ''),
   )
 }

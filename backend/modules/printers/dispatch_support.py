@@ -3,6 +3,7 @@ import re
 from collections.abc import Mapping
 
 
+S1_BED_CLEAR_REQUIRED = 's1_bed_clear_required: Start Kobra S1 prints with Start next and confirm the bed is clear'
 KOBRA_DISPATCH_DETAIL = "This Kobra printer cannot dispatch through ODIN yet; start it attended and link the print to this job."
 
 
@@ -17,7 +18,7 @@ def dispatch_unsupported_reason(printer):
         return None
     for name in ('model', 'machine_type'):
         identity = str(field(name) or '').casefold()
-        if re.search(r'\bkobra[\s_-]*(?:s1|3)\b', identity):
+        if re.search(r'\bkobra[\s_-]*(?:s1|3)(?![a-z0-9])', identity):
             return 'printer_dispatch_unsupported: ' + KOBRA_DISPATCH_DETAIL
     return None
 
@@ -26,7 +27,7 @@ def is_kobra_s1(printer):
     def field(name):
         return printer.get(name) if isinstance(printer, Mapping) else getattr(printer, name, None)
     return str(field('api_type') or '').strip().casefold() == 'moonraker' and any(
-        re.search(r'\bkobra[\s_-]*s1\b', str(field(name) or '').casefold())
+        re.search(r'\bkobra[\s_-]*s1(?![a-z0-9])(?![\s_-]*max(?![a-z0-9]))', str(field(name) or '').casefold())
         for name in ('model', 'machine_type'))
 
 

@@ -132,7 +132,8 @@ def _check_attempt(engine,*,token,job,creds,key,payload_sha256,transport_filenam
             if is_kobra_s1(current_creds):
                 from modules.printers.start_next import bed_clear_bound
                 if not bed_clear_bound(conn, token=token, job=current_job, admitted=already_admitted):
-                    raise _Refused('s1_bed_clear_required: Start Kobra S1 prints with Start next and confirm the bed is clear')
+                    from modules.printers.dispatch_support import S1_BED_CLEAR_REQUIRED
+                    raise _Refused(S1_BED_CLEAR_REQUIRED)
             if job['status'] not in ('pending','scheduled') or job.get('hold') not in (None,False,0):
                 raise _Refused('Job is held or no longer ready for dispatch')
             active=conn.execute(text("SELECT 1 FROM jobs WHERE printer_id=:id AND status IN ('printing','paused') LIMIT 1"),{'id':job['printer_id']}).first()

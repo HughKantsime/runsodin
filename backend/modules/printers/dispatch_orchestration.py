@@ -92,6 +92,12 @@ def dispatch_prepared(job,creds,source_path,remote_filename,payload_sha256,educa
 def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,education_decision,target_handle):
     if deploy_window_refusal(job):
         return False, 'deploy_window: ' + deploy_freeze.MESSAGE
+    from modules.printers.dispatch_support import S1_BED_CLEAR_REQUIRED, is_kobra_s1
+    if is_kobra_s1(creds):
+        # Before any claim, smart plug or device contact. Admission still rechecks the binding.
+        from modules.printers.start_next import start_requested
+        if not start_requested(job):
+            return False, S1_BED_CLEAR_REQUIRED
     from core.auth import SECRET_KEY
     from core.db import engine
     from modules.printers import dispatch,smart_plug

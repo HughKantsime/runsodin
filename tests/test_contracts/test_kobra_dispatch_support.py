@@ -10,7 +10,7 @@ from modules.printers.dispatch_support import dispatch_unsupported_reason, KOBRA
 
 
 @pytest.mark.parametrize('field', ['model', 'machine_type'])
-@pytest.mark.parametrize('model', ['Anycubic Kobra 3', 'Kobra 3 V2', 'Kobra 3 Max'])
+@pytest.mark.parametrize('model', ['kObRa s1 mAx', 'Anycubic Kobra 3', 'Kobra 3 V2', 'Kobra 3 Max'])
 def test_identity_matches_either_field(field, model):
     assert dispatch_unsupported_reason({'api_type': 'moonraker', field: model}) == (
         'printer_dispatch_unsupported: ' + KOBRA_DISPATCH_DETAIL)

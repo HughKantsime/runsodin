@@ -151,6 +151,9 @@ def eligible(db, job, printer):
     from core.model_preview_access import is_education_owned_file
     if not printer.is_active or job.printer_id not in (None, printer.id) or job.effective_duration is None:
         return False
+    from modules.printers.services import is_kobra_s1
+    if is_kobra_s1(printer) and job.printer_id != printer.id:
+        return False  # The S1 never adopts unassigned work; it is explicit only.
     if job.model is None:
         return False
     file_id = job_file_id(db, job.model_id, job.print_file_id)

@@ -9,6 +9,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import secrets
 import ssl
 import tempfile
@@ -24,6 +25,7 @@ from modules.printers.parsing.anycubic_lan import parse_report, valid_report
 
 log = logging.getLogger(__name__)
 PREFIX = 'anycubic/anycubicCloud/v1'
+KOBRA_S1_MODEL_ID = '20025'  # /info on the S1; 20029 is the S1 Max, which is a different printer.
 ALLOWED_ACTIONS = frozenset({'query', 'getInfo'})
 DEFAULTS = dict(internal_state='OFFLINE', bed_temp=0, bed_target=0, nozzle_temp=0,
                 nozzle_target=0, box_temp=0, model_fan=0, filename='', progress_percent=0,
@@ -88,10 +90,22 @@ class AnycubicLANPrinter:
             raise ValueError('Only guarded print/start is allowed')
         client = None
         entered = published = False
+        answer = {}
+        def after_publish():
+            """A missing report is normal; an explicit non-200 means the printer refused."""
+            if answer.get('code') is not None and answer['code'] != 200:
+                return dict(published=True, rejected=True, code=answer['code'], state=answer.get('state'), report_received=True,
+                            message=f"Printer refused the start (code {answer['code']}, state {answer.get('state') or 'unknown'}); do not retry automatically")
+            matched = bool(answer)
+            return dict(published=True, report_received=matched,
+                message='Published; correlated report received' if matched else
+                        'Published; no correlated report. Do not retry automatically.')
         try:
             import paho.mqtt.client as mqtt
             from core.webhook_utils import device_connect_ip
             creds = self.handshake()
+            if self.model_id != KOBRA_S1_MODEL_ID:
+                return dict(published=False, uncertain=False, message='Printer does not report the Kobra S1 model; no command was sent')
             broker = urlsplit(creds['broker'])
             if broker.scheme not in ('mqtt', 'mqtts') or broker.port != 9883:
                 raise ValueError('Unsupported LAN broker')
@@ -111,6 +125,10 @@ class AnycubicLANPrinter:
                 try:
                     body = json.loads(message.payload)
                     if message.topic == report and isinstance(body, dict) and body.get('msgid') == payload['msgid']:
+                        # Only these two fields leave this method, and only in these shapes.
+                        code, state = body.get('code'), body.get('state')
+                        answer.update(code=code if type(code) is int else None,
+                                      state=state if isinstance(state, str) and re.fullmatch(r'[A-Za-z0-9_ -]{1,32}', state) else None)
                         received.set()
                 except (ValueError, TypeError):
                     pass
@@ -146,17 +164,14 @@ class AnycubicLANPrinter:
             if not wait(sent.is_published):
                 return dict(published=False, uncertain=True, message='S1 MQTT delivery uncertain; do not retry automatically')
             published = True
-            matched = wait(received.is_set)
-            return dict(published=True, report_received=matched,
-                message='Published; correlated report received' if matched else
-                        'Published; no correlated report. Do not retry automatically.')
+            wait(received.is_set)
+            return after_publish()
         except Exception as exc:
             from modules.printers.kobra_s1 import S1Refusal
             if not entered and isinstance(exc, S1Refusal):
                 raise
             if published:
-                return dict(published=True, report_received=False,
-                    message='Published; no correlated report. Do not retry automatically.')
+                return after_publish()
             return dict(published=False, uncertain=entered,
                 message='S1 MQTT delivery uncertain; do not retry automatically' if entered else 'S1 LAN handshake or send preparation failed')
         finally:

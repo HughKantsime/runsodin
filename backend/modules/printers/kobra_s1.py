@@ -80,7 +80,8 @@ def require_start_metadata(text):
         value = re.split(r'[,;]', fields.get(key, ''))[0].strip()
         return int(value) if re.fullmatch(r'\d{1,3}', value) and 0 < int(value) <= 150 else None
     plate = _PLATE_KEYS.get(fields.get('curr_bed_type', '').strip().strip('"').casefold())
-    temperature = (first_positive(plate) if plate else None) or first_positive('first_layer_bed_temperature')
+    # The selected plate's own key decides when it is present, including an explicit 0.
+    temperature = first_positive(plate if plate in fields else 'first_layer_bed_temperature')
     if temperature is None:
         raise S1Refusal('s1_file_start_metadata_missing', 'S1 files need a first-layer bed temperature for the selected plate')
     return temperature
