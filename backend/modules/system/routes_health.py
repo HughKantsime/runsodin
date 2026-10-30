@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 
 from core.spoolman_settings import get_spoolman_url
+from core import deploy_freeze
 from core.db import get_db
 from core.schema import schema_fingerprint, validate_schema
 from core.schema.bootstrap import import_all_models
@@ -72,7 +73,8 @@ async def health_check():
         status="ok",
         version=__version__,
         database=settings.database_url.split("///")[-1],
-        spoolman_connected=spoolman_ok
+        spoolman_connected=spoolman_ok,
+        dispatch_freeze=deploy_freeze.active(),
     )
 
 

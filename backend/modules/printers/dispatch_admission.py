@@ -41,7 +41,23 @@ def _lock(conn,table,identifier,column):
 
 def admit(engine, **inputs):
     """Confirm current authority and durably enter the adapter exactly once."""
+    frozen = deploy_window_refusal(inputs.get('job'))
+    if frozen:
+        return frozen
     return _check_attempt(engine, already_admitted=False, **inputs)
+
+
+def deploy_window_refusal(job):
+    """Shared pre-claim and final admission gate, using normal refusal reporting."""
+    from core import deploy_freeze
+    if deploy_freeze.active() is None:
+        return None
+    if isinstance(job, dict) and job.get('id') is not None:
+        from modules.printers.dispatch import _notify_start_outcome
+        from modules.printers.dispatch_ams_gate import GateRefusal
+        _notify_start_outcome(job, 'adapter_rejected',
+            gate_refusal=GateRefusal('deploy_window', deploy_freeze.MESSAGE), message=deploy_freeze.MESSAGE)
+    return Admission(False, 'deploy_window')
 
 
 def recheck_admitted(engine, **inputs):

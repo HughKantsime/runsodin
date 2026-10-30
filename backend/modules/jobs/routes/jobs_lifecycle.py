@@ -68,6 +68,10 @@ def start_job(job_id: int, current_user: dict = Depends(require_action("jobs.sta
     if not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
     assert_generic_job_mutation_allowed(db, job_id)
+    from core.deploy_freeze import MESSAGE
+    from modules.printers.dispatch_admission import deploy_window_refusal
+    if deploy_window_refusal({'id': job.id, 'printer_id': job.printer_id}):
+        raise HTTPException(status_code=409, detail='deploy_window: ' + MESSAGE)
     production_orders = prepare_job_write(db, [job_id])
     job = db.query(Job).filter(Job.id == job_id).populate_existing().first()
     if not job or not check_org_access(current_user, job.charged_to_org_id):

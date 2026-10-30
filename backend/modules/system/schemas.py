@@ -66,11 +66,17 @@ class MaintenanceLogResponse(MaintenanceLogBase):
 
 # ============== General / Core Schemas ==============
 
+class DispatchFreeze(BaseModel):
+    release: Optional[str] = None
+    until: str
+
+
 class HealthCheck(BaseModel):
     status: str = "ok"
     version: str
     database: str
     spoolman_connected: bool = False
+    dispatch_freeze: Optional[DispatchFreeze] = None
 
 
 class PaginatedResponse(BaseModel):

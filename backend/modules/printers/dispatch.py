@@ -254,6 +254,8 @@ def _notify_start_outcome(job: dict, reason: str, *, gate_refusal=None, message=
         code = str(gate_refusal.code).upper()
         try:enqueue(event(job['id'], 'gate_refused', printer_id=job.get('printer_id'), code=code, detail={'gate': code[:64]}))
         except Exception:pass
+        if gate_refusal.code == 'deploy_window':
+            return
     creator = job.get("charged_to_user_id") or job.get("submitted_by")
     if creator is None:
         return

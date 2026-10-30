@@ -2,12 +2,12 @@
 import hmac
 import os
 import time
-from core import dispatch_claims
+from core import deploy_freeze, dispatch_claims
 from core.dispatch_identity import build_identity,ownership_refusal
 from core.dispatch_target_lock import acquire_target_lock
 from core.dispatch_target_guard import unresolved_target
 from modules.printers.dispatch_payload_snapshot import stage_payload,hash_regular_payload,PayloadUnavailable
-from modules.printers.dispatch_admission import admit
+from modules.printers.dispatch_admission import admit, deploy_window_refusal
 
 ADMISSION_SECONDS=30.0
 
@@ -90,6 +90,8 @@ def dispatch_prepared(job,creds,source_path,remote_filename,payload_sha256,educa
 
 
 def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,education_decision,target_handle):
+    if deploy_window_refusal(job):
+        return False, 'deploy_window: ' + deploy_freeze.MESSAGE
     from core.auth import SECRET_KEY
     from core.db import engine
     from modules.printers import dispatch,smart_plug
@@ -165,7 +167,8 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                             if admission.reason.startswith('printer_maintenance_hold:'):
                                 from modules.printers.maintenance_gate import report
                                 report(job, admission.reason)
-                            result=(False,admission.reason)
+                            result=(False, 'deploy_window: ' + deploy_freeze.MESSAGE
+                                if admission.reason == 'deploy_window' else admission.reason)
                         elif time.monotonic()>=deadline:
                             result=(False,'Dispatch admission completed after the preparation deadline; reconciliation is required before retrying')
                         else:
