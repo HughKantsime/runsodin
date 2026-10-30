@@ -1146,6 +1146,7 @@
   "library_submit": {
     "body": {
       "estimate_basis": "model",
+      "hold": false,
       "job_id": 19,
       "model_id": 78,
       "model_name": "Wire library model",
