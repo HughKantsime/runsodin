@@ -768,7 +768,7 @@ class PrinterMonitor:
             start_spool_weights=getattr(self, '_start_spool_weights', {}),
             dispatch_alert_fn=self._dispatch_alert,
             # Whatever a reconciled print did after the last report ODIN saw went unobserved.
-            tray_evidence_incomplete=(self._current_job_id == self._reconciled_row
+            tray_evidence_incomplete=(self._current_job_id == getattr(self, '_reconciled_row', None)
                                       or (getattr(self, '_tray_attempt_id', None) == self._current_job_id
                                           and bool(getattr(self, '_pending_attempt_trays', ())))),
         )
