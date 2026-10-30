@@ -2,6 +2,27 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.36] - 2026-10-30
+
+<!-- summary: Multi-filament prints dispatch to AMS printers again, jobs can be scheduled already held, and print starts pause during a deploy -->
+
+### Fixed
+
+- Since 2.0.32, a multi-filament print could not be dispatched to a Bambu printer with an AMS (A1 AMS lite, P1S, X1C, H2D). Without a mapping it was refused with `ams_mapping_required`; with one it was refused as "Explicit AMS source or plate is unsupported".
+  - ODIN now verifies every filament source the plate uses, and the AMS mapping must cover exactly those sources. Two sources may share a tray only if their materials match.
+  - Before start, one fresh AMS read checks the reported material of every mapped tray. On a multi-filament H2D print, ODIN also checks that each tray's AMS unit feeds the nozzle the file assigns, and refuses when that can't be confirmed.
+  - Refusals name the AMS slot and the reason.
+  - Completion charges each tray's spool with that filament's grams from the file.
+  - Derived mappings and Education approval stay single-filament.
+- Marking a held job as started (`POST /api/jobs/{id}/start`) moved it to printing. It now refuses with 409 until the hold is released.
+
+### Added
+
+- `POST /api/print-files/{id}/schedule` and `POST /api/models/{id}/schedule` accept `{"hold": true}` to create the job already held, so it never sits pending and unheld. `hold` must be a JSON boolean, and leaving it out keeps the current behaviour.
+- While a deploy window is open, ODIN refuses new print starts with `deploy_window` ("ODIN is updating; try again in a few minutes"). The window is set by the release process in `/data/deploy-freeze.json` and lasts at most 30 minutes from when the file was written.
+  - This covers dispatch, background dispatch, Start next, auto-dispatch and manual start. Holds can still be changed.
+  - `GET /health` shows `dispatch_freeze: {release, until}` while the window is open, and `null` otherwise.
+
 ## [2.0.35] - 2026-10-29
 
 <!-- summary: Printer cards are readable on the default theme, slot labels wrap instead of overflowing, and cameras fall back to live video before snapshots -->
