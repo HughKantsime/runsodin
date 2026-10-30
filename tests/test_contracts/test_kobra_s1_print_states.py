@@ -62,6 +62,29 @@ def test_a_print_aborted_in_any_state_frees_the_printer(s1, channel, states, job
     assert result[0] is True, result
 
 
+@pytest.mark.parametrize('channel,seen,after,job_status', [
+    pytest.param('gk', 'heating', ['heating', 'cancelled'], 'cancelled', id='gk_heating_then_cancelled'),
+    pytest.param('gk', 'heating', ['heating', 'error'], 'failed', id='gk_heating_then_error'),
+    pytest.param('gk', 'leveling', ['heating', 'printing', 'OnPause', 'cancelled'], 'cancelled', id='gk_prep_to_onpause_then_cancelled'),
+    pytest.param('gk', 'printing', ['OnPause', 'cancelled'], 'cancelled', id='gk_first_look_after_restart_is_onpause'),
+    pytest.param('moon', 'printing', ['printing', 'cancelled'], 'cancelled', id='moon_printing_then_cancelled'),
+])
+def test_a_monitor_restart_during_prep_still_closes_the_print_once(s1, channel, seen, after, job_status):
+    from modules.printers.monitors import moonraker_monitor
+    _started(s1, channel)
+    s1.device.state = seen
+    s1.monitor.observe()
+    assert s1.monitor._current_job_db_id
+    monitor = moonraker_monitor.MoonrakerMonitor(59, 'Synthetic', '127.0.0.1', model='Kobra S1')
+    for state in after:
+        s1.device.state = state
+        monitor._process_status(monitor.printer.get_status())
+    facts = _facts(s1.engine)
+    assert facts.job == job_status
+    assert [tuple(r) for r in facts.rows] == [(53, job_status)]
+    assert facts.claims == 0
+
+
 def test_a_finished_print_passing_through_standby_still_completes(s1):
     """gkapi goes printing, standby, complete at the end of a normal print (t=1470.5 in the capture)."""
     _started(s1)
