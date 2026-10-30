@@ -33,12 +33,12 @@ class _DeviceCopy(io.BytesIO):
 def s1(creators, review_db, tmp_path, monkeypatch):
     from modules.jobs.routes import jobs_lifecycle
     from modules.models_library.routes import models_crud, print_files
-    from modules.printers import routes_start_next
+    from modules.printers import routes_dispatch_recovery, routes_start_next
     from modules.printers.adapters import anycubic_lan, moonraker
     from modules.printers.monitors.ams_inventory import sync_ace_inventory
     client, auth, _, _ = creators
     print_files.limiter._storage.reset()
-    for router in (print_files.router, models_crud.router, routes_start_next.router, jobs_lifecycle.router):
+    for router in (print_files.router, models_crud.router, routes_start_next.router, jobs_lifecycle.router, routes_dispatch_recovery.router):
         client.app.include_router(router, prefix='/api')
     storage = tmp_path / 'storage'
     storage.mkdir()
@@ -145,14 +145,22 @@ def test_a_print_finishing_between_confirmation_and_admission_refuses_the_start(
     from modules.printers import dispatch_acquisition
     uploaded = s1.upload(ONE_COLOUR)
     assert _schedule(s1, uploaded, 'print-files', dict(ams_mapping=[{'source_slot': 1, 'target_slot': 2}])).status_code == 200
+    raced = []
     def ready(*args):
-        _finished_print(s1, 'raced.gcode', '2026-10-29T05:00:00')
+        # Plain SQL: observe_start can't run here, because the claim already exists.
+        with s1.engine.begin() as c:
+            c.execute(text("""INSERT INTO print_jobs(printer_id,job_name,filename,status,started_at,ended_at)
+                VALUES (59,'raced.gcode','raced.gcode','completed','2026-10-29T04:00:00','2026-10-29T05:00:00')"""))
+        raced.append(True)
         return True
     monkeypatch.setattr(dispatch_acquisition, 'bounded_status_is_idle', ready)
     _, started = _start_next(s1)
+    assert raced, 'The new finished print has to land inside the window under test'
     assert started.status_code == 200, started.text
     assert started.json()['state'] != 'dispatched', started.json()
     assert s1.device.publishes == [] and s1.device.files == {}
+    with s1.engine.connect() as c:
+        assert c.execute(text('SELECT count(*) FROM job_timeline_events WHERE kind=\'bed_clear_confirmed\'')).scalar_one() == 0
 
 
 @pytest.mark.parametrize('patch,differs', [
@@ -582,3 +590,43 @@ def test_a_startable_s1_job_keeps_the_ordinary_reason(s1):
     assert _schedule(s1, uploaded, 'print-files', dict(ams_mapping=[{'source_slot': 1, 'target_slot': 2}])).status_code == 200
     assert s1.client.get('/api/printers/59/next-suggestion', headers=s1.auth()).json()['reason'] == 'Scheduler queue order'
 
+
+RECOVERY_ATTESTATION = dict(version=1, printer_checked=True, sender_stopped_and_checked=True,
+                            transport_and_device_queues_checked=True, no_pending_dispatch_can_arrive=True)
+
+
+def _recovery(s1, action, reason):
+    snapshot = s1.client.get('/api/printers/59/dispatch-recovery', headers=s1.auth())
+    assert snapshot.status_code == 200, snapshot.text
+    body = dict(attempt_handle=snapshot.json()['attempt_handle'], snapshot_handle=snapshot.json()['snapshot_handle'], reason_category=reason)
+    if action == 'release':
+        body['attestation'] = RECOVERY_ATTESTATION
+    return s1.client.post(f'/api/printers/59/dispatch-recovery/{action}', headers=s1.auth(), json=body)
+
+
+@pytest.mark.parametrize('close', ['complete', 'fail'])
+@pytest.mark.parametrize('state', ['COMPLETE', 'ERROR', 'STANDBY', 'CANCELLED'])
+def test_a_print_never_observed_is_freed_by_closing_the_job_and_then_recovery(s1, state, close):
+    """Started, then ended while ODIN was down: no print row, so the monitor never closes it."""
+    scheduled = _schedule(s1, s1.upload(ONE_COLOUR), 'print-files', dict(ams_mapping=[{'source_slot': 1, 'target_slot': 2}]))
+    job_id = scheduled.json()['job_id']
+    assert _start_next(s1)[1].json()['state'] == 'dispatched'
+    with s1.engine.begin() as c:
+        assert c.execute(text('SELECT status FROM jobs WHERE id=:id'), {'id': job_id}).scalar_one() == 'printing'
+        assert c.execute(text('SELECT count(*) FROM print_jobs WHERE scheduled_job_id=:id'), {'id': job_id}).scalar_one() == 0
+        assert c.execute(text('SELECT state FROM printer_dispatch_claims WHERE printer_id=59')).scalar_one() == 'accepted'
+        c.execute(text('UPDATE printers SET gcode_state=:state,last_seen=CURRENT_TIMESTAMP WHERE id=59'), {'state': state})
+    assert _recovery(s1, 'hold', 'investigation').status_code == 200
+    refused = _recovery(s1, 'release', 'verified_no_pending_dispatch')
+    assert refused.status_code == 409, refused.text
+    assert refused.json()['detail']['code'] == 'active_observation', 'A job still marked printing keeps its claim'
+    closed = s1.client.post(f'/api/jobs/{job_id}/{close}', headers=s1.auth())
+    assert closed.status_code == 200, closed.text
+    with s1.engine.begin() as c:
+        assert c.execute(text('SELECT state FROM printer_dispatch_claims WHERE printer_id=59')).scalar_one() == 'accepted'
+        c.execute(text('UPDATE printers SET last_seen=CURRENT_TIMESTAMP WHERE id=59'))
+    released = _recovery(s1, 'release', 'verified_no_pending_dispatch')
+    assert released.status_code == 200, released.text
+    assert released.json()['outcome'] == 'released'
+    with s1.engine.connect() as c:
+        assert c.execute(text('SELECT count(*) FROM printer_dispatch_claims WHERE printer_id=59')).scalar_one() == 0

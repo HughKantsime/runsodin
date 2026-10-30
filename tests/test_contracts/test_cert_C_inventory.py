@@ -261,6 +261,19 @@ def test_measured_multi_filament_total_is_refused_not_distributed(archive_case):
     assert remaining == [1000, 1000]
 
 
+def test_a_charged_print_with_a_measured_mismatch_stays_refused_off_the_s1(archive_case):
+    """An S1's monitor charges each source its sliced weight, so its archive can say accounted. Nothing else can."""
+    from core.filament_ledger import print_marker
+    archive, engine = archive_case
+    with engine.begin() as conn:
+        conn.execute(text('UPDATE print_jobs SET filament_used_g=120 WHERE id=7099'))
+        conn.execute(text("INSERT INTO system_config(key,value) VALUES(:key,'{}')"), {'key': print_marker(7099, 7099)})
+    assert archive.create_print_archive(7099, 9, True) is not None
+    with engine.connect() as conn:
+        state = tuple(conn.execute(text('SELECT accounting_state,accounting_reason FROM print_archives WHERE print_job_id=7099')).one())
+    assert state == ('unresolved', 'measured_material_distribution_unknown')
+
+
 # ------------------------------------------- regression: cert-fix-C inventory fixes
 
 def test_filament_cost_per_gram_lists_clears_and_rejects_negative(inventory_client):

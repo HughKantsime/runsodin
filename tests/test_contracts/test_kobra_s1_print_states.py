@@ -36,6 +36,7 @@ def _facts(engine):
     pytest.param('gk', ['heating', 'cancelled'], 'cancelled', id='gk_first_seen_heating_then_cancelled'),
     pytest.param('gk', ['heating', 'error'], 'failed', id='gk_error_during_prep'),
     pytest.param('gk', ['leveling', 'standby'], 'cancelled', id='gk_prep_abort_lands_on_standby'),
+    pytest.param('gk', ['OnPause', 'cancelled'], 'cancelled', id='gk_first_seen_in_onpause_then_cancelled'),
     pytest.param('gk', ['printing', 'OnPause', 'cancelled'], 'cancelled', id='gk_cancelled_during_onpause_never_polled_paused'),
     pytest.param('gk', ['printing', 'OnPause', 'error'], 'failed', id='gk_error_during_onpause'),
     pytest.param('gk', ['printing', 'OnPause', 'paused', 'cancelled'], 'cancelled', id='gk_cancelled_after_paused'),
