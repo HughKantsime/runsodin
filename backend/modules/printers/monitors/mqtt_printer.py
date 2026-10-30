@@ -200,8 +200,27 @@ class PrinterMonitor:
         """Close any 'running' jobs in the DB if the printer is not actually printing."""
         # Wait before taking a lock or opening a transaction needed by callbacks.
         self._status_received.wait(3)
+        with self._lock:
+            self._reconcile_running_rows()
+
+    def _reconcile_running_rows(self):
+        """Caller holds self._lock (not reentrant; the status callback holds it too)."""
+        ended_state = self._recover_rows()
+        if ended_state is None:
+            return
+        # Past the recovery transaction: record_job_ended opens its own. The live
+        # mapping decides completed/failed/cancelled, exactly as for a watched end.
         try:
-            with self._lock, get_db() as conn:
+            self._on_state_change('RUNNING', ended_state)
+        except Exception as e:
+            log.error(f"[{self.name}] Recovered print end failed: {e}")
+            self._current_job_id = None
+            self._linked_job_id = None
+
+    def _recover_rows(self):
+        """Reconcile running rows with the known state; a returned state is a print to end."""
+        try:
+            with get_db() as conn:
                 cur = conn.cursor()
                 rows = cur.execute(
                     "SELECT id, job_name, started_at, filename, scheduled_job_id FROM print_jobs "
@@ -209,7 +228,7 @@ class PrinterMonitor:
                     (self.printer_id,)
                 ).fetchall()
                 if not rows:
-                    return
+                    return None
                 gcode_state = self._state.get('gcode_state', '')
                 from core.registry import registry
 
@@ -220,16 +239,19 @@ class PrinterMonitor:
                 education_sensitive=bool(incoming and (incoming.get('education_owned') or incoming.get('education_reserved')))
                 if generic_observation_reserved(conn,printer_id=self.printer_id,observed_filename=incoming_name):
                     # Unresolved physical attempts cannot be closed from idle or an unrelated task.
-                    if not education_sensitive and gcode_state in ('RUNNING','PAUSE'):
+                    resumed=None
+                    if not education_sensitive and gcode_state in ('RUNNING','PAUSE','FINISH','FAILED'):
                         identifier=prepare_generic_observation(conn,printer_id=self.printer_id,observed_filename=incoming_name)
                         if identifier is not None:
-                            self._current_job_id=identifier
-                            self._linked_job_id=conn.execute('SELECT scheduled_job_id FROM print_jobs WHERE id=?',(identifier,)).fetchone()[0]
                             from modules.printers.monitors.mqtt_job_lifecycle import load_mqtt_start_weights
-                            self._start_spool_weights=load_mqtt_start_weights(conn,identifier)
+                            resumed=(identifier,conn.execute('SELECT scheduled_job_id FROM print_jobs WHERE id=?',(identifier,)).fetchone()[0],
+                                     load_mqtt_start_weights(conn,identifier))
                     conn.commit()
                     log.info('[%s] Retained dispatch evidence protected during recovery',self.name)
-                    return
+                    if resumed is None:
+                        return None
+                    self._current_job_id,self._linked_job_id,self._start_spool_weights=resumed
+                    return gcode_state if gcode_state in ('FINISH','FAILED') else None
                 if gcode_state in ('RUNNING', 'PAUSE'):
                     # Printer is actually printing — resume tracking the most recent job
                     latest = rows[-1]
@@ -351,6 +373,7 @@ class PrinterMonitor:
                 for item in recovered_events:enqueue(item)
         except Exception as e:
             log.error(f"[{self.name}] Orphaned job recovery failed: {e}")
+        return None
 
     def _begin_connection(self):
         with self._lock:
@@ -502,6 +525,11 @@ class PrinterMonitor:
         if new_state in ('RUNNING', 'PAUSE') and not self._current_job_id:
             if old_state in (None, 'IDLE', 'FINISH', 'FAILED', 'PREPARE', 'PAUSE'):
                 self._job_started()
+
+        # First-seen FINISH/FAILED, nothing tracked: the print may have ended unwatched.
+        # Recovery runs only once per connect and a status can arrive after its wait.
+        elif new_state in ('FINISH', 'FAILED') and old_state is None and not self._current_job_id:
+            self._reconcile_running_rows()
 
         # RUNNING/PAUSE -> FINISH = Job completed
         elif new_state == 'FINISH' and old_state in ('RUNNING', 'PAUSE'):
