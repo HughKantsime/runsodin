@@ -343,7 +343,12 @@ fi
 
 # Verify install.sh can run in non-TTY without blocking on prompts
 # (We expect it to fail at docker checks, but NOT to hang on prompts)
-timeout 5 bash -c "echo '' | bash '$INSTALL_SH' 2>&1 || true" > "$TMPDIR_TEST/nontty_output" 2>&1 || {
+# A failing docker stub keeps this hermetic: on a host with working Docker the
+# real installer would otherwise pull the image and start ODIN.
+mkdir -p "$TMPDIR_TEST/no-docker" "$TMPDIR_TEST/nontty-cwd"
+printf '#!/bin/sh\nexit 1\n' > "$TMPDIR_TEST/no-docker/docker"
+chmod +x "$TMPDIR_TEST/no-docker/docker"
+(cd "$TMPDIR_TEST/nontty-cwd" && PATH="$TMPDIR_TEST/no-docker:$PATH" timeout 5 bash -c "echo '' | bash '$INSTALL_SH' 2>&1 || true") > "$TMPDIR_TEST/nontty_output" 2>&1 || {
     exitcode=$?
     if [ $exitcode -eq 124 ]; then
         fail "install.sh non-TTY hangs" "Script hung (timeout) — likely blocking on a prompt"

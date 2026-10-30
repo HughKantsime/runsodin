@@ -171,7 +171,7 @@ def test_capture_jobs_queue_timeline_recent_and_failure_wire(wire_client):
     assert (wire['pinned_blocked_job']['pinned_printer_id'], wire['pinned_blocked_job']['pinned_printer_issue']) == (10, 'pinned_printer_inactive')
     db.execute(text('UPDATE printers SET is_active=1 WHERE id=10')); db.commit()
     FIXTURE.parent.mkdir(parents=True, exist_ok=True)
-    publish(FIXTURE, wire, indent=1, volatile={'utilization_pct'})  # hours over a wall-clock window
+    publish(FIXTURE, wire, indent=1, volatile={'utilization_pct', 'thumbnail_data'})  # hours over a wall-clock window; PNG bytes vary with the zlib build
 
 
 # ---------------- F04-4.3-01 drag-and-drop reorder (backend) ----------------

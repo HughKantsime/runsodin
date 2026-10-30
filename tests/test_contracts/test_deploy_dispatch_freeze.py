@@ -96,6 +96,8 @@ def test_cache_stats_every_call_and_never_delays_expiry(window, monkeypatch):
     path.unlink()
     assert deploy_freeze.active() is None
     write()
+    # Linux can reuse the inode inside one timestamp tick, so the signature may match.
+    clock.ticks += 2
     assert deploy_freeze.active() and len(reads) == 4
 
 
