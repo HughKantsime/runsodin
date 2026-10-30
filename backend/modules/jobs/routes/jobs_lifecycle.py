@@ -221,7 +221,7 @@ def complete_job(job_id: int, current_user: dict = Depends(require_action("jobs.
                 file_grams = {}
                 for source, filament in (indexed or {}).items():
                     grams = filament.get("used_grams", filament.get("weight_grams"))
-                    if type(grams) in (int, float) and math.isfinite(grams) and grams > 0:
+                    if type(grams) in (int, float) and math.isfinite(grams) and grams >= 0:
                         file_grams[source + 1] = float(grams)
                 if file_grams or (indexed and len(indexed) > 1):
                     complete = len(file_grams) == len(indexed) and (len(mapped_sources) <= 1 or set(file_grams) == mapped_sources)
@@ -248,6 +248,8 @@ def complete_job(job_id: int, current_user: dict = Depends(require_action("jobs.
             mapping = None
         grams_by_spool, slot_of, unattributed = {}, {}, []
         for source_slot, grams in slot_grams.items():
+            if grams == 0:
+                continue
             target = source_slot
             if printer and printer.api_type == 'bambu':
                 if not isinstance(mapping, list) or len(mapping) < source_slot or type(mapping[source_slot - 1]) is not int or not 0 <= mapping[source_slot - 1] < 16:

@@ -44,8 +44,11 @@ def active() -> dict | None:
     path = Path(os.environ.get('ODIN_DEPLOY_FREEZE_PATH', '/data/deploy-freeze.json'))
     try:
         stat = path.stat()
-    except OSError:  # absent, or /data itself unreadable (then the database is too); never fail /health
+    except FileNotFoundError:
         return None
+    except OSError:
+        # Unknown state must refuse dispatch, even when a parsed window is cached.
+        return {'release': None, 'until': None}
     signature = (str(path), stat.st_dev, stat.st_ino, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size)
     with _lock:
         now = time.monotonic()

@@ -81,3 +81,51 @@ def test_operator_completion_prefers_selected_file_ids_over_model_positions(revi
     with engine.connect() as conn:
         assert conn.execute(text('SELECT remaining_weight_g FROM spools WHERE id IN (101,102) ORDER BY id')).scalars().all() == ([40, 80] if grams_available is True else [100, 100])
         assert conn.execute(text('SELECT count(*) FROM spool_usage WHERE job_id=101')).scalar_one() == (2 if grams_available is True else 0)
+
+
+@pytest.mark.parametrize('grams,mapping', [
+    pytest.param([0], [0], id='single_zero_overrides_model'),
+    pytest.param([20, 0], [1, 0], id='multi_zero_mapped'),
+    pytest.param([20, 0], [1, -1], id='multi_zero_unmapped'),
+    pytest.param([20, 0], [1, 2], id='multi_zero_unbound'),
+])
+def test_operator_completion_skips_zero_grams_without_unattributed_audit(review_db, monkeypatch, grams, mapping):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from sqlalchemy.orm import Session
+    from core import db as core_db
+    from core.dependencies import get_current_user
+    from core.registry import registry
+    from modules.organizations.services import EducationPolicyService
+    from modules.jobs.routes import jobs_lifecycle
+    monkeypatch.setitem(registry._providers, 'EducationPolicyProvider', EducationPolicyService())
+    engine = review_db.get_bind()
+    materials = [{'slot': i + 1, 'used_grams': amount} for i, amount in enumerate(grams)]
+    with engine.begin() as conn:
+        conn.execute(text("INSERT INTO models(id,name,org_id,color_requirements) VALUES(101,'fixture',1,:requirements)"),
+                     {'requirements': json.dumps({'slot1': {'grams': 20}})})
+        conn.execute(text("INSERT INTO print_files(id,filename,org_id,filaments_json) VALUES(101,'fixture.3mf',1,:materials)"),
+                     {'materials': json.dumps(materials)})
+        conn.execute(text("INSERT INTO jobs(id,item_name,model_id,printer_id,status,charged_to_org_id,quantity,hold,print_file_id,ams_mapping) VALUES(101,'fixture',101,9,'printing',1,1,0,101,:mapping)"),
+                     {'mapping': json.dumps(mapping)})
+        conn.execute(text("INSERT INTO filament_library(id,brand,name,material) VALUES(101,'Synthetic','Test','PLA')"))
+        conn.execute(text("INSERT INTO spools(id,filament_id,remaining_weight_g,initial_weight_g,org_id) VALUES(101,101,100,100,1),(102,101,100,100,1)"))
+        conn.execute(text('UPDATE filament_slots SET assigned_spool_id=101 WHERE printer_id=9 AND slot_number=1'))
+        conn.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type,assigned_spool_id) VALUES(9,2,'PLA',102)"))
+    app = FastAPI()
+    app.include_router(jobs_lifecycle.router)
+    def request_db():
+        with Session(engine) as db:
+            yield db
+    app.dependency_overrides[core_db.get_db] = request_db
+    app.dependency_overrides[get_current_user] = lambda: {'id': 3, 'role': 'operator', 'group_id': 1, 'is_active': True}
+    with TestClient(app) as client:
+        for _ in range(2):
+            response = client.post('/jobs/101/complete')
+            assert response.status_code == 200, response.text
+    with engine.connect() as conn:
+        assert conn.execute(text('SELECT remaining_weight_g FROM spools WHERE id IN (101,102) ORDER BY id')).scalars().all() == (
+            [100, 100] if len(grams) == 1 else [100, 80])
+        assert conn.execute(text('SELECT spool_id,weight_used_g FROM spool_usage WHERE job_id=101 ORDER BY spool_id')).all() == (
+            [] if len(grams) == 1 else [(102, 20)])
+        assert conn.execute(text("SELECT count(*) FROM audit_logs WHERE action='filament.unattributed' AND entity_type='job' AND entity_id=101")).scalar_one() == 0

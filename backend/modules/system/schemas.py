@@ -68,7 +68,7 @@ class MaintenanceLogResponse(MaintenanceLogBase):
 
 class DispatchFreeze(BaseModel):
     release: Optional[str] = None
-    until: str
+    until: Optional[str] = None
 
 
 class HealthCheck(BaseModel):

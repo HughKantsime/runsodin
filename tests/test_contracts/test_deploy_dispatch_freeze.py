@@ -284,19 +284,62 @@ def test_public_health_exposes_only_version_and_effective_until(window, monkeypa
         assert client.get('/api/health').json()['dispatch_freeze'] is None
 
 
-def test_unreadable_freeze_path_never_fails_health(window, monkeypatch):
+@pytest.mark.parametrize('cached', [False, True])
+@pytest.mark.parametrize('error', [PermissionError, OSError])
+def test_unreadable_freeze_path_never_fails_health(window, monkeypatch, cached, error):
     from pathlib import Path
     from modules.system import routes_health
+    path, _, write = window
+    if cached:
+        write()
+        assert deploy_freeze.active()['release'] == 'test-release'
+    original_stat = Path.stat
     def denied(self, *args, **kwargs):
-        raise PermissionError('synthetic')
+        if self == path:
+            raise error('synthetic')
+        return original_stat(self, *args, **kwargs)
     monkeypatch.setattr(Path, 'stat', denied)
-    assert deploy_freeze.active() is None
+    assert deploy_freeze.active() == {'release': None, 'until': None}
     monkeypatch.setattr(routes_health, 'get_spoolman_url', lambda: '')
     app = FastAPI()
     app.include_router(routes_health.router, prefix='/api')
     with TestClient(app) as client:
         response = client.get('/api/health')
-    assert response.status_code == 200 and response.json()['dispatch_freeze'] is None
+    assert response.status_code == 200
+    assert response.json()['dispatch_freeze'] == {'release': None, 'until': None}
+
+
+@pytest.mark.parametrize('cached', [False, True])
+@pytest.mark.parametrize('error', [PermissionError, OSError])
+def test_unreadable_freeze_refuses_dispatch_and_manual_start(dispatch_case, window, monkeypatch, cached, error):
+    from pathlib import Path
+    from core import dispatch_claims
+    from modules.printers.dispatch_admission import admit
+    from modules.printers.dispatch_orchestration import _dispatch_claimed
+    engine, client = dispatch_case
+    path, _, write = window
+    if cached:
+        write()
+        assert deploy_freeze.active()['release'] == 'test-release'
+    original_stat = Path.stat
+    def denied(self, *args, **kwargs):
+        if self == path:
+            raise error('synthetic')
+        return original_stat(self, *args, **kwargs)
+    def forbidden(*args, **kwargs):
+        pytest.fail('Unknown freeze state reached claim acquisition')
+    monkeypatch.setattr(Path, 'stat', denied)
+    monkeypatch.setattr(dispatch_claims, 'acquire', forbidden)
+    job = {'id': 53, 'printer_id': 59}
+    result = admit(None, job=job)
+    assert not result.admitted and result.reason == 'deploy_window'
+    assert _dispatch_claimed(job, None, None, None, None, None, None) == (
+        False, 'deploy_window: ' + deploy_freeze.MESSAGE)
+    response = client.post('/api/jobs/53/start')
+    assert response.status_code == 409
+    assert response.json()['detail'] == 'deploy_window: ' + deploy_freeze.MESSAGE
+    assert_unstarted(engine)
+    assert_recorded(engine)
 
 
 def test_frozen_health_never_echoes_the_release_as_version(window, monkeypatch):
