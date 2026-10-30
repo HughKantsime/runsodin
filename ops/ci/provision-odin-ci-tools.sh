@@ -48,11 +48,13 @@ python3.11 -m ensurepip --user >/dev/null 2>&1 || true
 python3.11 -m pip install -q --user --break-system-packages --disable-pip-version-check "jsonschema==${JSONSCHEMA}"
 
 # Gates refuse protected files under a world-writable parent, so jobs can't use /tmp.
-mkdir -p "$HOME/ci-tmp"
-chmod 700 "$HOME/ci-tmp"
+# Keep it outside $HOME: pytest roots a run at the folder shared by the checkout and the
+# test path, and test ids that assume no shared folder would change.
+ci_tmp=/opt/odin-ci-tmp
+sudo install -d -m 700 -o "$USER" -g "$USER" "$ci_tmp"
 env_file="$HOME/actions-runner-runsodin/.env"
-grep -qs '^TMPDIR=' "$env_file" || echo "TMPDIR=$HOME/ci-tmp" >> "$env_file"
-echo "d $HOME/ci-tmp 0700 $USER $USER 7d" | sudo tee /etc/tmpfiles.d/odin-ci.conf >/dev/null
+grep -qs '^TMPDIR=' "$env_file" || echo "TMPDIR=$ci_tmp" >> "$env_file"
+echo "d $ci_tmp 0700 $USER $USER 7d" | sudo tee /etc/tmpfiles.d/odin-ci.conf >/dev/null
 
 # The vendor profile tests skip without Bambu Studio's machine profiles, and CV02 refuses
 # skips. Copy them from any install; this path is the tests' Linux default:
