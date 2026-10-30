@@ -298,13 +298,21 @@ def update_printer(
                     )
                     db.add(slot)
         elif new_count < current_count:
-            restricted = sorted(s.slot_number for s in printer.filament_slots
-                                if new_count < s.slot_number < AMS_HT_FIRST_SLOT and s.do_not_feed)
+            # Same printer lock as feed-policy updates, then re-read: a flag
+            # committed meanwhile must refuse the reduction, never be deleted.
+            if db.get_bind().dialect.name == 'postgresql':
+                db.query(Printer).filter_by(id=printer.id).with_for_update().one()
+            else:
+                db.execute(text('UPDATE printers SET name=name WHERE id=:id'), {'id': printer.id})
+            locked = db.query(FilamentSlot).filter(FilamentSlot.printer_id == printer.id).populate_existing()
+            if db.get_bind().dialect.name == 'postgresql':
+                locked = locked.with_for_update()
+            removed = [s for s in locked.all() if new_count < s.slot_number < AMS_HT_FIRST_SLOT]
+            restricted = sorted(s.slot_number for s in removed if s.do_not_feed)
             if restricted:
                 raise HTTPException(409, f"Slot {restricted[0]} is marked do not feed; an admin must clear it before the slot count is reduced")
-            for slot in printer.filament_slots:
-                if new_count < slot.slot_number < AMS_HT_FIRST_SLOT:
-                    db.delete(slot)
+            for slot in removed:
+                db.delete(slot)
 
     for field, value in update_data.items():
         setattr(printer, field, value)

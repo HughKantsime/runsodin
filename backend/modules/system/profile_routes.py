@@ -64,7 +64,7 @@ def _accessible_profile_printer(db: Session, printer_id, current_user: dict):
     if isinstance(printer_id, bool) or not isinstance(printer_id, int) or printer_id <= 0:
         raise HTTPException(status_code=400, detail="printer_id must be a positive integer")
     printer = db.execute(text(
-        "SELECT id, name, org_id, api_type, api_host FROM printers WHERE id = :id"
+        "SELECT id, name, org_id, api_type, api_host, model, machine_type FROM printers WHERE id = :id"
     ), {"id": printer_id}).fetchone()
     if printer is None or not check_org_access(current_user, printer.org_id):
         raise HTTPException(status_code=404, detail="Printer not found")
@@ -507,6 +507,11 @@ async def apply_profile(
     printer = _accessible_profile_printer(db, target_printer_id, current_user)
     if printer.api_type != "moonraker":
         raise HTTPException(status_code=400, detail="Profile can only be applied to Klipper/Moonraker printers")
+    from modules.printers.dispatch_support import is_kobra_s1
+    if is_kobra_s1(printer):
+        # Any G-code or macro can start a print, bypassing the S1's Start next,
+        # bed-clear, file and slot checks.
+        raise HTTPException(status_code=400, detail="Profiles cannot be applied to a Kobra S1; its prints start only through Start next")
 
     # Parse profile content
     try:
@@ -586,6 +591,9 @@ def _profile_snapshot_current(db,profile_id,printer_id,row,current_user,key,expe
 
 def _apply_profile_commands(db,profile_id,target_printer_id,row,printer,gcodes,target_handle,current_user,key,expected_identity):
     from modules.printers.adapters.moonraker import MoonrakerPrinter
+    from modules.printers.dispatch_support import is_kobra_s1
+    if is_kobra_s1(printer):
+        raise HTTPException(400,'Profiles cannot be applied to a Kobra S1; its prints start only through Start next')
     if not target_handle.held():
         raise HTTPException(409,'Profile target ownership requires reconciliation before retrying')
     adapter = MoonrakerPrinter(printer.api_host)

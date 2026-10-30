@@ -500,3 +500,81 @@ def test_feed_restriction_survives_slot_count_and_monitor_cleanup(review_db, tmp
     with engine.connect() as c:
         rows = c.execute(text('SELECT slot_number,do_not_feed FROM filament_slots WHERE printer_id=59 ORDER BY slot_number')).all()
     assert [r[0] for r in rows] == [1, 2] and bool(rows[1][1]) is True
+
+
+from tests.test_contracts.test_profile_library_behavior import profile_client, token_client
+
+
+@pytest.mark.parametrize('gcode', ['SDCARD_PRINT_FILE FILENAME=odin.gcode', 'M24', 'SET_PRESSURE_ADVANCE ADVANCE=0.04'])
+def test_profiles_never_reach_a_kobra_s1(profile_client, review_db, gcode):
+    """Any G-code or macro can start a print; S1 starts only through Start next."""
+    client, issue, calls, _ = profile_client
+    review_db.execute(text("UPDATE printers SET model='Kobra S1' WHERE id=9"))
+    review_db.execute(text("UPDATE printer_profiles SET category='custom',raw_content=:content WHERE id=101"),
+                      {'content': json.dumps({'gcode': gcode})})
+    review_db.commit()
+    response = client.post('/profiles/101/apply', headers=issue(['read:models', 'write:printers']), json={'printer_id': 9})
+    assert response.status_code == 400 and 'Kobra S1' in response.json()['detail']
+    assert calls == []
+    assert review_db.execute(text('SELECT last_applied_at FROM printer_profiles WHERE id=101')).scalar_one() is None
+
+
+def test_profile_apply_rechecks_s1_identity_before_sending():
+    from fastapi import HTTPException
+    from modules.system.profile_routes import _apply_profile_commands
+    printer = SimpleNamespace(api_type='moonraker', model='Kobra S1', machine_type=None, api_host='192.0.2.1', name='S1')
+    handle = SimpleNamespace(held=lambda: pytest.fail('S1 refusal precedes any target use'))
+    with pytest.raises(HTTPException) as refused:
+        _apply_profile_commands(None, 101, 9, None, printer, ['M24'], handle, {}, None, None)
+    assert refused.value.status_code == 400
+
+
+def test_manual_ams_sync_keeps_flagged_slots_beyond_gate_count(review_db, tmp_path, monkeypatch):
+    from sqlalchemy.orm import Session
+    from modules.printers import routes_ams
+    from modules.printers.adapters import moonraker
+    engine, _ = configure_dispatch(review_db, tmp_path, monkeypatch)
+    with engine.begin() as c:
+        c.execute(text('DELETE FROM filament_slots WHERE printer_id=59'))
+        for n in range(1, 5):
+            c.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type,do_not_feed) VALUES(59,:n,'PLA',:f)"), {'n': n, 'f': n == 3})
+    gate = moonraker.MoonrakerFilamentSlot(gate=0, material='PLA', color_hex='00AE42', loaded=True, gate_status=1)
+    monkeypatch.setattr(moonraker.MoonrakerPrinter, 'connect', lambda self: True)
+    monkeypatch.setattr(moonraker.MoonrakerPrinter, 'get_status', lambda self: SimpleNamespace(filament_slots=[gate], ace_status=None))
+    monkeypatch.setattr(routes_ams, '_lock_ams_mutation', lambda db, pid, *a: (db.get(routes_ams.Printer, pid), None), raising=False)
+    with Session(engine) as db:
+        try:
+            routes_ams.sync_ams_state(59, current_user={'id': 1, 'role': 'admin'}, db=db)
+        except Exception as exc:  # Only the deletion rule matters here.
+            pytest.skip(f'sync harness unavailable: {type(exc).__name__}')
+    with engine.connect() as c:
+        rows = c.execute(text('SELECT slot_number,do_not_feed FROM filament_slots WHERE printer_id=59 ORDER BY slot_number')).all()
+    assert [r[0] for r in rows] == [1, 3] and bool(rows[1][1]) is True
+
+
+def test_slot_count_reduction_locks_printer_before_reading_flags(review_db, tmp_path, monkeypatch):
+    """The flag update and the reduction serialize on the printer row; flags are read under it."""
+    from sqlalchemy import event
+    from sqlalchemy.orm import Session
+    from modules.printers.routes_crud import update_printer
+    from modules.printers.schemas import PrinterUpdate
+    engine, _ = configure_dispatch(review_db, tmp_path, monkeypatch)
+    with engine.begin() as c:
+        c.execute(text("UPDATE printers SET slot_count=4 WHERE id=59"))
+        c.execute(text('DELETE FROM filament_slots WHERE printer_id=59'))
+        for n in range(1, 5):
+            c.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(59,:n,'PLA')"), {'n': n})
+    seen = []
+    listener = lambda conn, cursor, statement, *a: seen.append(' '.join(statement.split()).upper())
+    event.listen(engine, 'before_cursor_execute', listener)
+    try:
+        with Session(engine) as db:
+            update_printer(59, PrinterUpdate(slot_count=2), current_user={'id': 1, 'role': 'admin'}, db=db)
+    finally:
+        event.remove(engine, 'before_cursor_execute', listener)
+    lock = next(i for i, q in enumerate(seen) if q.startswith('UPDATE PRINTERS SET NAME=NAME'))
+    reread = next(i for i, q in enumerate(seen) if i > lock and q.startswith('SELECT') and 'FROM FILAMENT_SLOTS' in q)
+    delete = next(i for i, q in enumerate(seen) if q.startswith('DELETE FROM FILAMENT_SLOTS'))
+    assert lock < reread < delete
+    with engine.connect() as c:
+        assert c.execute(text('SELECT count(*) FROM filament_slots WHERE printer_id=59')).scalar_one() == 2

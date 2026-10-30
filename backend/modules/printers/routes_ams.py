@@ -310,7 +310,8 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_action(
         db.query(FilamentSlot).filter(
             FilamentSlot.printer_id == printer_id,
             FilamentSlot.slot_number > max_slot,
-        ).delete()
+            FilamentSlot.do_not_feed.is_not(True),  # Feed restrictions outlive gate-count changes.
+        ).delete(synchronize_session=False)
         log_audit(db, "sync", "printer", printer_id, {"slots_synced": len(updated_slots), "source": "moonraker_mmu"})
         db.commit()
         return {"success": True, "printer_id": printer_id, "printer_name": printer.name,
