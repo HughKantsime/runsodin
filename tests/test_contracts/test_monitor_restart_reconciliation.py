@@ -412,6 +412,29 @@ def test_failing_recovery_backs_off_instead_of_retrying_every_report(manual_bamb
     assert not monitor._recovery_pending and monitor._recovery_failures == 0
 
 
+def test_failed_commit_does_not_keep_the_ended_row_tracked(manual_bambu, monkeypatch):
+    # Tracking is set inside the transaction. Left behind, it would make the next print look
+    # already tracked, and block the retry, which runs only when nothing is tracked.
+    from core.db_utils import _ConnectionAdapter
+    case = manual_bambu
+    monitor = case.monitor()
+    fields = dict(gcode_state='FAILED', subtask_name=case.name, print_error=7)
+    monitor._state.update(fields)
+    commit = _ConnectionAdapter.commit
+    def refuse(self):
+        raise RuntimeError('synthetic')
+    monkeypatch.setattr(_ConnectionAdapter, 'commit', refuse)
+    monitor._recover_orphaned_jobs()
+    monkeypatch.setattr(_ConnectionAdapter, 'commit', commit)
+    assert monitor._current_job_id is None and monitor._linked_job_id is None
+    assert monitor._recovery_pending
+    assert manual_rows(case)[0][0]['status'] == 'running'
+    backoff_elapsed(monitor)
+    packet(monitor, **fields)
+    rows, job = manual_rows(case)
+    assert [row['status'] for row in rows] == ['failed'] and job == 'failed'
+
+
 def test_first_state_after_no_status_does_not_wait_for_any_backoff(manual_bambu):
     case = manual_bambu
     monitor = case.monitor()
@@ -575,6 +598,32 @@ def test_older_duplicates_stay_stale_and_cannot_take_the_outcome(manual_bambu, o
     assert [row['status'] for row in rows] == ['cancelled', 'failed']
     assert case.seen.alerts == [AlertType.PRINT_FAILED]
     assert [item['print_job_id'] for item in case.seen.archive] == [case.identifier + 1]
+
+
+def latest_row(case, name):
+    """A later running row under another name; the fixture's own row becomes the older one."""
+    with case.engine.begin() as conn:
+        return conn.execute(text("INSERT INTO print_jobs(id,printer_id,filename,job_name,status,started_at) "
+                                 "VALUES(:id,59,'latest.gcode',:name,'running',CURRENT_TIMESTAMP) RETURNING id"),
+                            {'id': case.identifier + 1, 'name': name}).scalar_one()
+
+
+@pytest.mark.parametrize('order', ['callback_first', 'recovery_first'])
+def test_older_row_with_another_name_does_not_stop_the_latest_ending(manual_bambu, order):
+    case = manual_bambu
+    latest = latest_row(case, 'latest-print')
+    observe(case.monitor(), order, gcode_state='FAILED', subtask_name='latest-print', print_error=7)
+    assert [(row['id'], row['status']) for row in manual_rows(case)[0]] == [(case.identifier, 'cancelled'), (latest, 'failed')]
+    assert [item['print_job_id'] for item in case.seen.archive] == [latest]
+
+
+@pytest.mark.parametrize('order', ['callback_first', 'recovery_first'])
+def test_name_of_an_older_row_does_not_prove_the_latest_ended(manual_bambu, order):
+    case = manual_bambu
+    latest_row(case, 'latest-print')
+    observe(case.monitor(), order, gcode_state='FAILED', subtask_name=case.name, print_error=7)
+    assert [row['status'] for row in manual_rows(case)[0]] == ['completed', 'completed']  # The open outcome.
+    assert case.seen.alerts == [] and case.seen.archive == []
 
 
 @pytest.mark.parametrize('order', ['callback_first', 'recovery_first'])
@@ -835,6 +884,19 @@ def test_moonraker_history_of_another_print_does_not_decide(moonraker):
     status, ended = case.state(identifier)
     assert status == 'completed'
     assert as_utc_datetime(ended) != datetime.fromtimestamp(start + 300, timezone.utc)
+
+
+def test_moonraker_history_that_ended_before_the_row_started_does_not_decide(moonraker):
+    # The same file printed and ended before this row existed: not the job this row watched.
+    case = moonraker
+    identifier = case.row(started=1800)
+    case.seen_printer(60)
+    end = time.time() - 3600
+    monitor = case.monitor(history=[dict(filename='part.gcode', status='cancelled', start_time=end - 3600, end_time=end, print_duration=3500)])
+    monitor._process_status(moonraker_status('complete', total=1700))
+    status, ended = case.state(identifier)
+    assert status == 'completed'
+    assert as_utc_datetime(ended) != datetime.fromtimestamp(end, timezone.utc)
 
 
 @pytest.mark.parametrize('raw', ['standby', 'ready'])
@@ -1406,9 +1468,9 @@ def test_generic_unrelated_start_leaves_a_reserved_row_with_no_job(generic, name
     with case.engine.begin() as conn:
         conn.execute(text("INSERT INTO print_jobs(id,printer_id,filename,job_name,status,started_at) VALUES(700,59,:name,:name,'running',CURRENT_TIMESTAMP)"), {'name': name})
     case.monitor()._process_status(case.status('PRINTING', filename='manual.gcode'))
-    quarantined, new = case.rows()
-    assert (quarantined['id'], quarantined['status'], quarantined['error_code']) == (700, 'running', None)
-    assert new['status'] == 'running' and case.tracked[59] == new['id']
+    rows = {row['id']: row for row in case.rows()}
+    assert (rows[700]['status'], rows[700]['error_code']) == ('running', None)
+    assert case.tracked[59] != 700 and rows[case.tracked[59]]['status'] == 'running'
 
 
 def test_generic_education_named_start_closes_nothing(generic):
