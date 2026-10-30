@@ -22,6 +22,7 @@ All notable changes to O.D.I.N. are documented here.
 - While a deploy window is open, ODIN refuses new print starts with `deploy_window` ("ODIN is updating; try again in a few minutes"). The window is set by the release process in `/data/deploy-freeze.json` and lasts at most 30 minutes from when the file was written.
   - This covers dispatch, background dispatch, Start next, auto-dispatch and manual start. Holds can still be changed.
   - `GET /health` shows `dispatch_freeze: {release, until}` while the window is open, and `null` otherwise.
+  - If the freeze file exists but can't be read, ODIN treats the window as open with `until: null` and refuses starts.
 
 ## [2.0.35] - 2026-10-29
 
