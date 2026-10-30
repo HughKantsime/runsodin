@@ -226,7 +226,7 @@ def test_accessibility_matrix_uses_named_method_scoped_fixtures():
     for row_id, fixture_name in {
         "A01": "anonymous.json",
         "A02": "fleet.json",
-        "A03": "fleet.json",
+        "A03": "printer-cards.json",
         "A04": "jobs.json",
         "A05": "jobs.json",
         "A06": "admin.json",

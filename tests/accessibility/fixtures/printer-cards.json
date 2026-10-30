@@ -1,0 +1,147 @@
+{
+  "$include": [
+    "fleet.json"
+  ],
+  "GET /api/branding": {
+    "content_bg": "#1a1917",
+    "card_bg": "#33312d",
+    "input_bg": "#3b3934",
+    "text_primary": "#e5e4e1",
+    "text_secondary": "#bcb7aa",
+    "text_muted": "#a8a294"
+  },
+  "GET /api/printers": [
+    {
+      "id": 1,
+      "org_id": 1,
+      "name": "EDU Printer",
+      "nickname": "EDU Printer",
+      "model": "Synthetic printer",
+      "api_type": "bambu",
+      "type": "bambu",
+      "api_host": "192.0.2.1",
+      "has_api_key": true,
+      "is_active": true,
+      "gcode_state": "RUNNING",
+      "last_seen": "$now",
+      "filament_slots": [
+        {
+          "id": 1,
+          "slot_number": 1,
+          "color_hex": "FFFFFF",
+          "material_type": "PLA Basic",
+          "color": "PLA Basic",
+          "remaining": null,
+          "assigned_spool_id": null,
+          "spool_confirmed": false,
+          "preset": "preset: Bambu PETG HF"
+        },
+        {
+          "id": 2,
+          "slot_number": 2,
+          "color_hex": "FFFFFF",
+          "material_type": "Support for PLA and PETG with a very long material name",
+          "color": "Support for PLA and PETG with a very long material name",
+          "remaining": null,
+          "assigned_spool_id": null,
+          "spool_confirmed": false,
+          "preset": null
+        },
+        {
+          "id": 3,
+          "slot_number": 3,
+          "color_hex": "FFFFFF",
+          "material_type": "BambuPETGVeryLongUnbrokenMaterialNameForNarrowCards",
+          "color": "BambuPETGVeryLongUnbrokenMaterialNameForNarrowCards",
+          "remaining": null,
+          "assigned_spool_id": null,
+          "spool_confirmed": false,
+          "preset": "BambuPETGVeryLongUnbrokenPresetNameForNarrowCards"
+        },
+        {
+          "id": 4,
+          "slot_number": 4,
+          "color_hex": null,
+          "material_type": null,
+          "color": null,
+          "remaining": null,
+          "assigned_spool_id": null,
+          "spool_confirmed": false,
+          "preset": null
+        }
+      ],
+      "installed_nozzles": [],
+      "tags": [],
+      "maintenance": {
+        "state": "ok",
+        "note": ""
+      }
+    }
+  ],
+  "GET /api/printers/1": {
+    "id": 1,
+    "org_id": 1,
+    "name": "EDU Printer",
+    "nickname": "EDU Printer",
+    "model": "Synthetic printer",
+    "api_type": "bambu",
+    "type": "bambu",
+    "api_host": "192.0.2.1",
+    "has_api_key": true,
+    "is_active": true,
+    "gcode_state": "RUNNING",
+    "last_seen": "$now",
+    "filament_slots": [
+      {
+        "id": 1,
+        "slot_number": 1,
+        "color_hex": "FFFFFF",
+        "material_type": "PLA Basic",
+        "color": "PLA Basic",
+        "remaining": null,
+        "assigned_spool_id": null,
+        "spool_confirmed": false,
+        "preset": "preset: Bambu PETG HF"
+      },
+      {
+        "id": 2,
+        "slot_number": 2,
+        "color_hex": "FFFFFF",
+        "material_type": "Support for PLA and PETG with a very long material name",
+        "color": "Support for PLA and PETG with a very long material name",
+        "remaining": null,
+        "assigned_spool_id": null,
+        "spool_confirmed": false,
+        "preset": null
+      },
+      {
+        "id": 3,
+        "slot_number": 3,
+        "color_hex": "FFFFFF",
+        "material_type": "BambuPETGVeryLongUnbrokenMaterialNameForNarrowCards",
+        "color": "BambuPETGVeryLongUnbrokenMaterialNameForNarrowCards",
+        "remaining": null,
+        "assigned_spool_id": null,
+        "spool_confirmed": false,
+        "preset": "BambuPETGVeryLongUnbrokenPresetNameForNarrowCards"
+      },
+      {
+        "id": 4,
+        "slot_number": 4,
+        "color_hex": null,
+        "material_type": null,
+        "color": null,
+        "remaining": null,
+        "assigned_spool_id": null,
+        "spool_confirmed": false,
+        "preset": null
+      }
+    ],
+    "installed_nozzles": [],
+    "tags": [],
+    "maintenance": {
+      "state": "ok",
+      "note": ""
+    }
+  }
+}

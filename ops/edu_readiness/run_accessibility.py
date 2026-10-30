@@ -69,7 +69,7 @@ def main() -> int:
     keyboard = [item for item in data["results"] if item.get("id", "").startswith("K")]
     expected_keyboard = {f"K{index:02d}" for index in range(1, 7)}
     observed_keyboard = {item.get("id") for item in keyboard}
-    complete = len(matrix) == 85 and observed_keyboard == expected_keyboard
+    complete = len(matrix) == 93 and observed_keyboard == expected_keyboard
     impact_counts = {impact: 0 for impact in ("critical", "serious", "moderate", "minor", "unknown")}
     nonblocking_rules: dict[str, set[str]] = {"moderate": set(), "minor": set(), "unknown": set()}
     for item in matrix:

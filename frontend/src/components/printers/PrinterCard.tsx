@@ -1,3 +1,4 @@
+import SlotLabel from './SlotLabel'
 import MaintenanceBanner from './MaintenanceBanner'
 import { useState, useEffect, useRef, type DragEvent } from 'react'
 import { Trash2, Power, PowerOff, Palette, Settings, GripVertical, AlertTriangle, Lightbulb, Activity, CircleDot, Video, QrCode, Thermometer, Plug, ExternalLink } from 'lucide-react'
@@ -74,14 +75,16 @@ function LedgerFilamentSlot({ slot }: { slot: any }) {
   const remaining = typeof slot.remaining === 'number' && Number.isFinite(slot.remaining) ? Math.max(0, Math.min(100, slot.remaining)) : null
   const color = typeof slot.color_hex === 'string' && /^[0-9a-f]{6}$/i.test(slot.color_hex) ? `#${slot.color_hex}` : '#888'
   return (
-    <div aria-label={label} className="bg-[var(--brand-input-bg)] rounded-md p-2 min-w-0 text-center flex flex-col items-center gap-1">
-      <span className="text-xs font-medium">{label}</span>
+    <div data-testid="filament-slot" aria-label={label} className="bg-[var(--brand-input-bg)] rounded-md p-2 min-w-0 overflow-hidden text-center flex flex-col items-center gap-1">
+      <SlotLabel text={label} />
       {mapped ? <>
-        {remaining !== null ? <SpoolRing color={color} material={slot.material_type || ''} level={remaining} size={20} /> : <span className="inline-flex items-center gap-1.5 text-xs"><span aria-label="Spool color" className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: color }} />{slot.material_type || 'Material unknown'}</span>}
-        {slot.color && <span className="text-xs text-[var(--brand-text-secondary)] break-words">{slot.color}</span>}
-        <span className="text-xs text-[var(--brand-text-muted)]">Mapped spool{slot.external_spool_id != null ? ` #${slot.external_spool_id}` : ''}</span>
-        <span className="text-xs text-[var(--brand-text-muted)]">{remaining !== null ? `${Math.round(remaining)}% remaining` : 'Remaining amount unknown'}</span>
-      </> : <span className="text-xs text-yellow-400">{available ? 'Unmapped' : 'Spool information unavailable'}</span>}
+        {remaining !== null ? <SpoolRing color={color} level={remaining} size={20} /> : <span aria-label="Spool color" className="inline-block w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: color }} />}
+        <SlotLabel text={slot.material_type || 'Material unknown'} />
+        {slot.color && <SlotLabel text={slot.color} />}
+        {slot.preset && <SlotLabel text={`preset: ${slot.preset.replace(/^preset:\s*/i, '')}`} />}
+        <SlotLabel text={`Mapped spool${slot.external_spool_id != null ? ` #${slot.external_spool_id}` : ''}`} />
+        <SlotLabel text={remaining !== null ? `${Math.round(remaining)}% remaining` : 'Remaining amount unknown'} />
+      </> : <SlotLabel text={available ? 'Unmapped' : 'Spool information unavailable'} />}
     </div>
   )
 }
@@ -184,7 +187,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
       data-printer-id={printer.id}
       data-printer-name={printer.name}
       className={clsx(
-        "bg-[var(--brand-card-bg)] rounded-md border-0 overflow-hidden h-fit transition-all ",
+        "bg-[var(--brand-card-bg)] text-[var(--brand-text-primary)] min-w-0 rounded-md border-0 overflow-hidden h-fit transition-all ",
         isDragging && "border border-[var(--brand-primary)] opacity-50 scale-95"
       )}
       style={{ boxShadow: 'var(--brand-card-shadow)' }}
@@ -266,7 +269,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
           const labelled = !groups.includes(null) && new Set(groups.map((g: any) => g.key)).size > 1
           let previous: string | null = null
           return (
-            <div className="grid gap-2 grid-cols-4">
+            <div data-testid="filament-slot-grid" className="filament-slot-grid grid gap-2 min-w-0">
               {slots.map((slot: any, index: number) => {
                 const group = groups[index]
                 const el = externallyManagedFilament ? <LedgerFilamentSlot key={slot.slot_number} slot={slot} /> : (
@@ -282,7 +285,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
                 const header = labelled && group && group.key !== previous
                 previous = group ? group.key : null
                 return header ? [
-                  <div key={`label-${group.key}`} data-testid="ams-unit-label" className="col-span-4 text-[10px] text-[var(--brand-text-muted)] font-medium mt-1">{group.label}</div>,
+                  <div key={`label-${group.key}`} data-testid="ams-unit-label" className="col-span-full text-[10px] text-[var(--brand-text-muted)] font-medium mt-1">{group.label}</div>,
                   el,
                 ] : el
               })}
@@ -297,11 +300,12 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
               {(['left', 'right'] as const).map(side => {
                 const ext = printer.external_spools?.[side]
                 return (
-                  <div key={side} className="flex items-center gap-1.5 bg-[var(--brand-input-bg)] rounded-md px-2 py-1">
+                  <div key={side} className="flex flex-wrap min-w-0 overflow-hidden items-center gap-1.5 bg-[var(--brand-input-bg)] rounded-md px-2 py-1">
                     <span className="text-[10px] text-[var(--brand-text-muted)] uppercase w-7">Ext-{side === 'left' ? 'L' : 'R'}</span>
                     {ext ? (
                       <>
-                        <SpoolRing color={ext.color || '#666'} material={ext.material || ''} level={ext.remain_percent != null ? ext.remain_percent : 100} size={16} />
+                        <SpoolRing color={ext.color || '#666'} level={ext.remain_percent != null ? ext.remain_percent : 100} size={16} />
+                        {ext.material && <SlotLabel text={ext.material} />}
                         {ext.remain_percent != null && (
                           <span className="text-[10px] text-[var(--brand-text-muted)] ml-auto">{ext.remain_percent}%</span>
                         )}
@@ -326,7 +330,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
           const isHeating = (bedTarget && bedTarget > 0) || (nozTarget && nozTarget > 0)
           const stage = printer.print_stage && printer.print_stage !== 'Idle' ? printer.print_stage : null
           return (
-            <div className="flex items-center justify-between text-xs">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
               <div className="flex items-center gap-2">
                 <div className="flex items-center gap-1.5">
                 <div className={`w-1.5 h-1.5 rounded-full ${online ? "bg-[var(--status-completed)]" : "bg-[var(--brand-text-muted)]"}`}></div>
@@ -348,7 +352,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
                   </button>
                 )}
               </div>
-              <div className="flex items-center gap-3 font-mono text-xs text-[var(--brand-text-secondary)]">
+              <div className="flex flex-wrap min-w-0 items-center gap-3 font-mono text-xs text-[var(--brand-text-secondary)]">
                 {nozTemp != null && !isDualNozzle(printer.machine_type) && (
                   <span
                     data-testid="printer-nozzle-temp"
@@ -401,10 +405,10 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
       {/* Bambu speed control — active prints only */}
       {printer.api_type === 'bambu' && isOnline(printer) && isActivePrintState(printer.gcode_state) && (
         <div className="px-3 md:px-4 py-2 border-t border-[var(--brand-border)]">
-          <p className="text-xs text-[var(--brand-text-muted)]">
+          <p className="text-xs text-[var(--brand-text-secondary)] [overflow-wrap:anywhere]">
             {reportedPercent == null ? 'Reported speed unknown' : `Last reported speed: ${reportedPercent}%`}
           </p>
-          <p className="text-xs text-[var(--brand-text-muted)]">
+          <p className="text-xs text-[var(--brand-text-secondary)] [overflow-wrap:anywhere]">
             {reportedLevel == null ? 'Printer speed mode unknown' : `Last reported mode: ${speedModes[reportedLevel - 1]}`}
           </p>
           {mayControl(printer, true) && <div className="mt-2 space-y-2">
@@ -418,7 +422,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
                   setSpeedDraft({ identity: JSON.stringify(getCurrentUser()), printerId: printer.id, level })
                 }
               }} />
-            <div className="flex justify-between text-xs text-[var(--brand-text-muted)]">
+            <div className="flex flex-wrap justify-between gap-x-3 gap-y-1 text-xs text-[var(--brand-text-secondary)]">
               {speedModes.map(mode => <span key={mode}>{mode}</span>)}
             </div>
             <button disabled={commandPending} className="min-h-11 px-3 py-2 rounded-md text-xs bg-[var(--brand-input-bg)] disabled:opacity-50"
@@ -431,7 +435,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
       )}
       {/* Data & Diagnostics toolbar */}
       <div className="px-3 md:px-4 py-2 border-t border-[var(--brand-border)] flex flex-wrap items-center gap-1">
-        <span className="text-xs text-[var(--brand-text-muted)] mr-1">Data</span>
+        <span className="text-xs text-[var(--brand-text-secondary)] mr-1">Data</span>
         <button onClick={() => setActivePanel(activePanel === 'ams' ? null : 'ams')}
           className={clsx('p-1.5 text-xs flex items-center gap-1 transition-colors',
             activePanel === 'ams' ? 'text-[var(--brand-primary)]' : 'text-[var(--brand-text-secondary)]')}

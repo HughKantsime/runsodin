@@ -16,6 +16,18 @@ import os
 from core.base import Base
 
 
+# Legacy text colours on the legacy surfaces. Brand, accent and sidebar colours are often
+# customized (prod uses an amber primary), so only these five fields decide the upgrade: when
+# both text tokens and the three surfaces they sit on are still the old defaults, the two text
+# tokens resolve to the AA defaults in the serialized response. Nothing is written.
+LEGACY_TEXT_ON_SURFACES = {
+    "content_bg": "#1a1917",
+    "card_bg": "#33312d",
+    "input_bg": "#3b3934",
+    "text_secondary": "#8a8679",
+    "text_muted": "#58554a",
+}
+
 # ============== Model ==============
 
 class Branding(Base):
@@ -42,8 +54,8 @@ class Branding(Base):
     card_bg = Column(String(7), default="#33312d")           # farm-900
     card_border = Column(String(7), default="#3b3934")       # farm-800
     text_primary = Column(String(7), default="#e5e4e1")      # farm-100
-    text_secondary = Column(String(7), default="#8a8679")    # farm-400
-    text_muted = Column(String(7), default="#58554a")        # farm-600
+    text_secondary = Column(String(7), default="#bcb7aa")    # AA on card/content/input
+    text_muted = Column(String(7), default="#a8a294")        # AA on card/content/input
     # Inputs / interactive
     input_bg = Column(String(7), default="#3b3934")          # farm-800
     input_border = Column(String(7), default="#47453d")      # farm-700
@@ -92,7 +104,7 @@ UPDATABLE_FIELDS = [
 
 def branding_to_dict(b: "Branding") -> dict:
     """Serialize branding record to dict for API response."""
-    return {
+    result = {
         "app_name": b.app_name,
         "app_subtitle": b.app_subtitle,
         "primary_color": b.primary_color,
@@ -119,6 +131,10 @@ def branding_to_dict(b: "Branding") -> dict:
         "support_url": b.support_url,
         "updated_at": str(b.updated_at) if b.updated_at else None,
     }
+
+    if all((result.get(key) or '').lower() == value for key, value in LEGACY_TEXT_ON_SURFACES.items()):
+        result.update(text_secondary="#bcb7aa", text_muted="#a8a294")
+    return result
 
 
 def default_branding_dict() -> dict:

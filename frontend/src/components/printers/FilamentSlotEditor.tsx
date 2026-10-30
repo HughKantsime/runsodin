@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { Search } from 'lucide-react'
 import { printers } from '../../api'
 import { canDo } from '../../permissions'
-import { getShortName } from '../../utils/shared'
+import SlotLabel from './SlotLabel'
 import { SpoolRing } from '../ui'
 import TrayIdentityConfirm from './TrayIdentityConfirm'
 
@@ -117,11 +117,15 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
   }
 
   const colorHex = slot.color_hex
+  const namedColor = slot.color && !/^preset:/i.test(slot.color) && !/^#?[0-9a-f]{6}$/i.test(slot.color) ? slot.color : null
+  const material = namedColor || slot.material_type || slot.type || (slot.filament_type !== 'empty' && slot.filament_type) || 'Empty'
+  const preset = slot.preset ? `preset: ${slot.preset.replace(/^preset:\s*/i, '')}` : null
 
   return (
     <>
       <div
-        className="bg-[var(--brand-input-bg)] rounded-md p-2 cursor-pointer hover:brightness-110 transition-all min-w-0 text-center flex flex-col items-center gap-1"
+        data-testid="filament-slot"
+        className="bg-[var(--brand-input-bg)] rounded-md p-2 overflow-hidden cursor-pointer hover:brightness-110 transition-all min-w-0 text-center flex flex-col items-center gap-1"
         onPointerDown={event => event.stopPropagation()}
         onDragStart={event => { event.preventDefault(); event.stopPropagation() }}
         onClick={(event) => { event.stopPropagation(); if (!slot.spool_change_pending && (typeof canDo === 'function' ? canDo('printers.slots') : true)) setIsEditing(true) }}
@@ -133,8 +137,9 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
           empty={!colorHex && !slot.material_type && !slot.type}
           size={20}
         />
-        <span className="text-xs text-[var(--brand-text-muted)] truncate block">{slot.preset && !slot.assigned_spool_id ? slot.preset : getShortName(slot)}</span>
-        {slot.remaining == null && <span className="text-xs text-[var(--brand-text-muted)]">Remaining unknown</span>}
+        <SlotLabel text={material} />
+        {preset && <SlotLabel text={preset} />}
+        {slot.remaining == null && <SlotLabel text="Remaining unknown" />}
       </div>
       {slot.spool_change_pending && slot.observed_state && <TrayIdentityConfirm
         printerId={printerId} slot={slot.slot_number} observedState={slot.observed_state}

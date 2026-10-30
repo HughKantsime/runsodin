@@ -7,6 +7,9 @@ const AxeBuilder = requireFromFrontend('@axe-core/playwright').default
 const { chromium } = requireFromFrontend('@playwright/test')
 
 const baseURL = process.env.EDU_FRONTEND_URL || 'http://127.0.0.1:4173'
+const parsedBaseURL = new URL(baseURL)
+if (parsedBaseURL.protocol !== 'http:' || !['localhost', '127.0.0.1'].includes(parsedBaseURL.hostname)) throw new Error('Accessibility audits require a local preview')
+const selectedRows = new Set((process.env.EDU_ACCESSIBILITY_ROWS || '').split(',').filter(Boolean))
 const output = process.env.EDU_ACCESSIBILITY_OUTPUT || 'artifacts/accessibility-raw.json'
 const fixtureRoot = new URL('./fixtures/', import.meta.url)
 
@@ -32,7 +35,7 @@ function fixtureDocument(name) {
 const rows = [
   { id: 'A01', route: '/login', fixture: 'anonymous.json', personas: ['anonymous'], themes: ['dark', 'high-contrast'], viewports: [[1440, 900], [390, 844]] },
   { id: 'A02', route: '/', fixture: 'fleet.json', personas: ['admin', 'operator', 'viewer'], themes: ['dark', 'light', 'high-contrast'], viewports: [[1440, 900], [768, 1024], [390, 844]] },
-  { id: 'A03', routes: ['/printers', '/printers/1'], fixture: 'fleet.json', personas: ['operator', 'viewer'], themes: ['dark', 'high-contrast'], viewports: [[1440, 900], [390, 844]] },
+  { id: 'A03', routes: ['/printers', '/printers/1'], fixture: 'printer-cards.json', personas: ['operator', 'viewer'], themes: ['dark', 'high-contrast'], viewports: [[1440, 900], [768, 1024], [390, 844]] },
   { id: 'A04', route: '/jobs', fixture: 'jobs.json', personas: ['admin', 'operator', 'viewer'], themes: ['dark', 'light', 'high-contrast'], viewports: [[1440, 900], [390, 844]] },
   { id: 'A05', route: '/upload', fixture: 'jobs.json', personas: ['operator'], themes: ['dark', 'high-contrast'], viewports: [[1440, 900], [390, 844]] },
   { id: 'A06', route: '/settings', tab: 'Access', fixture: 'admin.json', personas: ['admin'], themes: ['light', 'high-contrast'], viewports: [[1440, 900], [390, 844]] },
@@ -47,7 +50,7 @@ function fixture(name, method, path, persona) {
   if (!Object.hasOwn(values, key)) {
     return { declared: false, status: 599, body: { error: 'undeclared accessibility fixture endpoint' } }
   }
-  const declared = values[key]
+  const declared = JSON.parse(JSON.stringify(values[key]), (_key, value) => value === '$now' ? new Date().toISOString() : value)
   if (declared?.$dynamic === 'current_user') {
     return { declared: true, status: 200, body: { id: 1, username: `${role}@school.test`, email: `${role}@school.test`, role, group_id: 1 } }
   }
@@ -72,6 +75,7 @@ async function preparePage(page, fixtureName, persona, theme, unexpected, reques
   await page.addInitScript(({ selectedTheme }) => {
     localStorage.setItem('odin-theme', selectedTheme === 'light' ? 'light' : 'dark')
   }, { selectedTheme: theme })
+  await page.route('**/*', route => new URL(route.request().url()).origin === parsedBaseURL.origin ? route.continue() : route.abort())
   await page.route('**/api/**', route => handleApiRoute(route, fixtureName, persona, unexpected, requests))
 }
 
@@ -116,6 +120,7 @@ async function motionAndTargetMetrics(page, checkMotion, mobile) {
 const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] })
 const results = []
 for (const row of rows) {
+  if (selectedRows.size && !selectedRows.has(row.id)) continue
   for (const routePath of row.routes || [row.route]) {
   for (const persona of row.personas) {
     for (const theme of row.themes) {
@@ -167,6 +172,38 @@ for (const row of rows) {
           if (row.id === 'A03') {
             const expectedHeading = routePath.endsWith('/1') ? /EDU Printer/i : /Printers/i
             finding.assertions.push({ name: 'printer surface ready', pass: await page.getByRole('heading', { name: expectedHeading }).count() > 0 })
+            if (routePath === '/printers') {
+              await page.locator('[data-testid="filament-slot-grid"]').first().waitFor()
+              const contrast = await new AxeBuilder({ page }).include('[data-testid="printer-card"]').withRules(['color-contrast']).analyze()
+              finding.cardContrast = { violations: contrast.violations, incomplete: contrast.incomplete, passes: contrast.passes.map(rule => ({ id: rule.id, nodes: rule.nodes.length })) }
+              finding.assertions.push({ name: 'printer card and slots axe colour contrast', pass: contrast.violations.length === 0 && contrast.passes.some(rule => rule.id === 'color-contrast') })
+              const layout = await page.locator('[data-testid="filament-slot-grid"]').first().evaluate(grid => {
+                const tiles = [...grid.querySelectorAll('[data-testid="filament-slot"]')]
+                const labels = [...grid.querySelectorAll('.slot-label')]
+                const boxes = tiles.map(tile => tile.getBoundingClientRect())
+                return {
+                  columns: getComputedStyle(grid).gridTemplateColumns.split(' ').length,
+                  width: grid.getBoundingClientRect().width,
+                  labels: labels.length,
+                  bounded: labels.every(label => {
+                    const style = getComputedStyle(label), box = label.getBoundingClientRect(), tile = label.closest('[data-testid="filament-slot"]').getBoundingClientRect()
+                    return label.title === label.textContent && style.webkitLineClamp === '2' && style.overflow === 'hidden' && box.height <= parseFloat(style.lineHeight) * 2 + 1 && box.left >= tile.left && box.right <= tile.right + 1 && label.scrollWidth <= label.clientWidth + 1
+                  }),
+                  noOverlap: boxes.every((box, index) => boxes.every((other, otherIndex) => index === otherIndex || box.right <= other.left + 1 || other.right <= box.left + 1 || box.bottom <= other.top + 1 || other.bottom <= box.top + 1)),
+                }
+              })
+              finding.slotLayout = layout
+              finding.assertions.push({ name: 'slot labels bounded to two lines with full titles, no neighbour overlap', pass: layout.labels >= 6 && layout.bounded && layout.noOverlap })
+              finding.assertions.push({ name: 'columns adapt to card width (maximum four)', pass: layout.columns >= 1 && layout.columns <= 4 && (layout.width >= 408 ? layout.columns === 4 : layout.columns < 4) })
+              for (const text of ['Progress unknown', 'Time remaining unknown', 'Reported speed unknown', 'Printer speed mode unknown', 'Data']) {
+                finding.assertions.push({ name: `contrast fixture renders ${text}`, pass: await page.getByText(text, { exact: true }).count() > 0 })
+              }
+              const screenshotDir = path.join(path.dirname(output), 'accessibility-screenshots')
+              fs.mkdirSync(screenshotDir, { recursive: true })
+              const screenshotPath = path.join(screenshotDir, `A03-card-${persona}-${theme}-${width}.png`)
+              await page.locator('[data-testid="printer-card"]').first().screenshot({ path: screenshotPath })
+              finding.cardScreenshot = path.relative(path.dirname(output), screenshotPath)
+            }
           }
           if (row.id === 'A04') finding.assertions.push({ name: 'jobs table ready', pass: await page.getByRole('table').count() > 0 })
           if (row.id === 'A05') finding.assertions.push({ name: 'file input and upload action', pass: await page.locator('input[type=file]').count() > 0 && await page.locator('label[for="file-upload"]').count() > 0 })
@@ -200,6 +237,7 @@ for (const row of rows) {
 }
 
 async function runKeyboardCase(id, route, fixtureName, persona, viewport, scenario) {
+  if (selectedRows.size && !selectedRows.has(id)) return
   const context = await browser.newContext({ viewport })
   const page = await context.newPage()
   const finding = { id, route, fixture: fixtureName, persona, theme: 'dark', viewport: `${viewport.width}x${viewport.height}`, axeFindings: [], serious: [], assertions: [], consoleErrors: [], unexpected: [], requests: [] }

@@ -51,3 +51,22 @@ test('favicon upload selects the returned immutable URL and clears stale MIME hi
  expect(document.querySelector('link[rel="icon"]')).not.toHaveAttribute('type')
  expect(screen.getByAltText('Favicon')).toHaveAttribute('src',selected)
 })
+
+test('warns about saved custom contrast pairs and preserves the custom values after save', async () => {
+ const {fireEvent} = await import('@testing-library/react')
+ const {DEFAULT_SURFACE_COLORS} = await import('../../utils/brandingPalette')
+ let saved = {...DEFAULT_SURFACE_COLORS, app_name:'Custom farm', text_muted:'#58554a'}
+ vi.stubGlobal('fetch', vi.fn(async (_url:any, options:any) => {
+  if (options?.method === 'PUT') saved = {...saved, ...JSON.parse(options.body)}
+  return {ok:true,json:async()=>saved}
+ }))
+ render(<Branding />)
+ expect(await screen.findByText(/These saved colours/)).toBeInTheDocument()
+ expect(screen.getByText(/text muted on card bg:/)).toBeInTheDocument()
+ fireEvent.change(screen.getByPlaceholderText('O.D.I.N.'), {target:{value:'Renamed farm'}})
+ expect(screen.getByText(/These draft colours/)).toBeInTheDocument()
+ fireEvent.click(screen.getByRole('button',{name:'Save Changes'}))
+ await screen.findByRole('button',{name:'Saved!'})
+ expect(saved.text_muted).toBe('#58554a')
+ expect(screen.getByText(/These saved colours/)).toBeInTheDocument()
+})

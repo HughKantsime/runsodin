@@ -1,27 +1,22 @@
+import { contrastRatio } from "./utils/contrast"
+import { DEFAULT_SURFACE_COLORS } from "./utils/brandingPalette"
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from "react"
 
 const API_BASE = '/api'
 
-// Default branding - matches current hardcoded Tailwind config
+// Default surfaces match the warm stock backend palette.
 const DEFAULT_BRANDING = {
+  ...DEFAULT_SURFACE_COLORS,
+  sidebar_bg: "#0a0c10",
+  sidebar_border: "#1a2030",
+  sidebar_text: "#8b95a8",
+  sidebar_active_bg: "#1a203040",
   app_name: "O.D.I.N.",
   app_subtitle: "Print Farm Management",
   // Colors
   primary_color: "#C47A1A",
   accent_color: "#D4891F",
-  sidebar_bg: "#0a0c10",
-  sidebar_border: "#1a2030",
-  sidebar_text: "#8b95a8",
-  sidebar_active_bg: "#1a203040",
   sidebar_active_text: "#D4891F",
-  content_bg: "#0a0c10",
-  card_bg: "#0f1218",
-  card_border: "#1a2030",
-  text_primary: "#e8ecf2",
-  text_secondary: "#8b95a8",
-  text_muted: "#9099AA",
-  input_bg: "#1a2030",
-  input_border: "#252d3d",
   // Fonts
   font_display: "system-ui, -apple-system, sans-serif",
   font_body: "system-ui, -apple-system, sans-serif",
@@ -161,25 +156,6 @@ export function useBranding() {
   return useContext(BrandingContext)
 }
 
-/**
- * WCAG relative luminance of a hex color.
- */
-function relativeLuminance(hex) {
-  const r = parseInt(hex.slice(1, 3), 16) / 255
-  const g = parseInt(hex.slice(3, 5), 16) / 255
-  const b = parseInt(hex.slice(5, 7), 16) / 255
-  const toLinear = (c) => c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
-  return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b)
-}
-
-function contrastRatio(hex1, hex2) {
-  const l1 = relativeLuminance(hex1)
-  const l2 = relativeLuminance(hex2)
-  const lighter = Math.max(l1, l2)
-  const darker = Math.min(l1, l2)
-  return (lighter + 0.05) / (darker + 0.05)
-}
-
 function darkenHex(hex, amount) {
   const r = Math.max(0, parseInt(hex.slice(1, 3), 16) - amount)
   const g = Math.max(0, parseInt(hex.slice(3, 5), 16) - amount)
@@ -204,12 +180,12 @@ function ensureContrast(hex, minRatio = 4.5) {
  * Every branded surface reads from these vars so changing
  * them here re-themes the entire app instantly.
  *
- * In light mode, only theme-neutral properties (fonts, primary/accent)
+ * In light and high-contrast modes, only theme-neutral properties (fonts, primary/accent)
  * are applied as inline styles. Surface colors (backgrounds, text, inputs)
  * are left to the html.light CSS block in index.css, which would otherwise
  * be clobbered by inline style specificity.
  */
-function applyBrandingCSS(b) {
+export function applyBrandingCSS(b) {
   const root = document.documentElement
   const isLight = root.classList.contains("light")
 
@@ -224,9 +200,9 @@ function applyBrandingCSS(b) {
   root.style.setProperty("--brand-font-body", b.font_body)
   root.style.setProperty("--brand-font-mono", b.font_mono)
 
-  if (isLight) {
-    // In light mode, remove any inline surface overrides so the
-    // html.light {} CSS block takes effect without specificity fights.
+  if (isLight || root.classList.contains("high-contrast")) {
+    // Let the selected accessible theme control text and surfaces, including
+    // after a confirmed branding save. Dark mode restores the saved palette.
     const surfaceVars = [
       "--brand-sidebar-bg", "--brand-sidebar-border", "--brand-sidebar-text",
       "--brand-sidebar-active-bg", "--brand-sidebar-active-text",

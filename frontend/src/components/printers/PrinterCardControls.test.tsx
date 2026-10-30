@@ -157,3 +157,13 @@ function render(ui: Parameters<typeof rtlRender>[0]) {
  return rtlRender(ui, {wrapper:({children})=><QueryClientProvider client={client}>{children}</QueryClientProvider>})
 }
 vi.mock('../../api/printerMaintenance',()=>({printerMaintenance:{get:vi.fn().mockResolvedValue({state:'ok',note:'',set_by:null,set_by_name:null,set_at:null})}}))
+
+it('wraps status and speed rows with readable secondary text and a card-sized slot grid', () => {
+ render(<PrinterCard printer={printer} {...props} />)
+ expect(screen.getByTestId('filament-slot-grid')).toHaveClass('filament-slot-grid', 'min-w-0')
+ expect(screen.getByText('Progress unknown').parentElement).toHaveClass('flex-wrap', 'text-[var(--brand-text-secondary)]')
+ for (const text of ['Time remaining unknown', 'Reported speed unknown', 'Printer speed mode unknown', 'Data']) {
+  expect(screen.getByText(text)).toHaveClass('text-[var(--brand-text-secondary)]')
+ }
+ expect(screen.getByText('Ludicrous').parentElement).toHaveClass('flex-wrap', 'gap-x-3', 'text-[var(--brand-text-secondary)]')
+})

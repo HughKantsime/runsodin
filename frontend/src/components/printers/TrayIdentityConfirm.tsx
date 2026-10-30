@@ -44,7 +44,7 @@ export default function TrayIdentityConfirm({ printerId, slot, observedState, bo
     }
   }
 
-  return <div className="col-span-4 rounded-md border border-amber-500/40 p-2 text-sm" onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
+  return <div className="col-span-full min-w-0 [overflow-wrap:anywhere] rounded-md border border-amber-500/40 p-2 text-sm" onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
     <p>Slot {slot}: spool may have changed?</p>
     <p className="text-xs text-[var(--brand-text-muted)]">Remaining unknown. Consumption is held until confirmation. Printing can continue.</p>
     {canDo('printers.slots') && <>

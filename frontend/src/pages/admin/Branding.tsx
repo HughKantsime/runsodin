@@ -1,6 +1,8 @@
+import { brandingContrastWarnings } from "../../utils/contrast"
+import { DEFAULT_SURFACE_COLORS } from "../../utils/brandingPalette"
 import { useState, useEffect, useRef } from "react"
 import { Palette, Upload, RotateCcw, Eye, Save, Image, Type, Paintbrush, Monitor, PanelLeft } from "lucide-react"
-import { applyBrandingFavicon, useBrandingUpdate } from '../../BrandingContext'
+import { applyBrandingCSS, applyBrandingFavicon, useBrandingUpdate } from '../../BrandingContext'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import { Button, Input, Card, Select } from '../../components/ui'
 
@@ -82,23 +84,16 @@ const MONO_FONTS = [
 ]
 
 const DEFAULTS = {
-  app_name: "O.D.I.N.",
-  app_subtitle: "Scheduler",
-  primary_color: "#d97706",
-  accent_color: "#f59e0b",
+  ...DEFAULT_SURFACE_COLORS,
   sidebar_bg: "#0a0c10",
   sidebar_border: "#1a2030",
   sidebar_text: "#8b95a8",
   sidebar_active_bg: "#1a203040",
+  app_name: "O.D.I.N.",
+  app_subtitle: "Scheduler",
+  primary_color: "#d97706",
+  accent_color: "#f59e0b",
   sidebar_active_text: "#f59e0b",
-  content_bg: "#0a0c10",
-  card_bg: "#0f1218",
-  card_border: "#1a2030",
-  text_primary: "#e8ecf2",
-  text_secondary: "#8b95a8",
-  text_muted: "#9099AA",
-  input_bg: "#1a2030",
-  input_border: "#252d3d",
   font_display: "system-ui, -apple-system, sans-serif",
   font_body: "system-ui, -apple-system, sans-serif",
   font_mono: "ui-monospace, monospace",
@@ -130,7 +125,7 @@ export default function Branding() {
       const response = await fetch(`${API_BASE}/branding`)
       if (!response.ok) throw new Error("Branding request failed")
       const data = await response.json()
-      setBranding(data)
+      setBranding({ ...DEFAULTS, ...data })
       setDraft({ ...DEFAULTS, ...data })
     } catch {
       setError("Failed to load branding config")
@@ -156,10 +151,11 @@ export default function Branding() {
       })
       if (!res.ok) throw new Error("Failed to save")
       const data = await res.json()
-      setBranding(data)
+      setBranding({ ...DEFAULTS, ...data })
       setDraft({ ...DEFAULTS, ...data })
       setSaved(true)
-      applyLiveCSS(data)
+      applyBrandingCSS(data)
+      document.title = data.app_subtitle ? `${data.app_name} ${data.app_subtitle}` : data.app_name
       updateConfirmedBranding(data)
       setTimeout(() => setSaved(false), 3000)
     } catch (err: any) {
@@ -248,6 +244,8 @@ export default function Branding() {
 
   const hasChanges = JSON.stringify(draft) !== JSON.stringify(branding)
 
+  const contrastWarnings = brandingContrastWarnings(draft)
+
   const tabs = [
     { id: "identity", label: "Identity", icon: Paintbrush },
     { id: "sidebar", label: "Sidebar", icon: PanelLeft },
@@ -294,6 +292,16 @@ export default function Branding() {
           {error}
         </div>
       )}
+
+      {contrastWarnings.length > 0 && <div role="status" className="mb-6 p-4 rounded-md bg-[var(--brand-card-bg)] text-[var(--brand-text-primary)] text-sm">
+        <p className="font-semibold">Colour contrast warning: normal text needs at least 4.5:1 (WCAG AA).</p>
+        <p>{hasChanges ? 'These draft colours' : 'These saved colours'} may be difficult to read. You can still save your custom palette.</p>
+        <ul className="list-disc pl-5">
+          {contrastWarnings.map(({ text, background, ratio }) => <li key={`${text}-${background}`}>
+            {text.replace(/_/g, ' ')} on {background.replace(/_/g, ' ')}: {ratio.toFixed(2)}:1
+          </li>)}
+        </ul>
+      </div>}
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
         {/* Settings Column */}
@@ -616,72 +624,6 @@ export default function Branding() {
     </div>
   )
 }
-
-// Apply CSS vars live (called after save)
-// Mirrors BrandingContext.applyBrandingCSS: in light mode, only apply
-// theme-neutral vars (primary, accent, fonts) and remove surface overrides
-// so the html.light CSS block in index.css takes effect.
-function applyLiveCSS(b) {
-  const root = document.documentElement
-  const isLight = root.classList.contains("light")
-
-  // Darken a hex color until it meets WCAG contrast against white
-  const ensureContrast = (hex, minRatio = 4.5) => {
-    const lum = (h) => {
-      const r = parseInt(h.slice(1,3),16)/255, g = parseInt(h.slice(3,5),16)/255, bl = parseInt(h.slice(5,7),16)/255
-      const toL = c => c <= 0.03928 ? c/12.92 : Math.pow((c+0.055)/1.055, 2.4)
-      return 0.2126*toL(r) + 0.7152*toL(g) + 0.0722*toL(bl)
-    }
-    const cr = (a, b) => { const l1 = Math.max(lum(a),lum(b)), l2 = Math.min(lum(a),lum(b)); return (l1+0.05)/(l2+0.05) }
-    let c = hex
-    for (let i = 0; i < 20; i++) {
-      if (cr(c, "#ffffff") >= minRatio) return c
-      const r = Math.max(0,parseInt(c.slice(1,3),16)-15), g = Math.max(0,parseInt(c.slice(3,5),16)-15), bl = Math.max(0,parseInt(c.slice(5,7),16)-15)
-      c = `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${bl.toString(16).padStart(2,'0')}`
-    }
-    return c
-  }
-
-  // Primary / accent — always apply (darken for contrast in light mode)
-  const primary = isLight ? ensureContrast(b.primary_color) : b.primary_color
-  root.style.setProperty("--brand-primary", primary)
-  root.style.setProperty("--brand-accent", b.accent_color)
-
-  // Fonts — always apply
-  root.style.setProperty("--brand-font-display", b.font_display)
-  root.style.setProperty("--brand-font-body", b.font_body)
-  root.style.setProperty("--brand-font-mono", b.font_mono)
-
-  if (isLight) {
-    // Remove surface overrides so html.light CSS block takes effect
-    const surfaceVars = [
-      "--brand-sidebar-bg", "--brand-sidebar-border", "--brand-sidebar-text",
-      "--brand-sidebar-active-bg", "--brand-sidebar-active-text",
-      "--brand-content-bg", "--brand-card-bg", "--brand-card-border",
-      "--brand-text-primary", "--brand-text-secondary", "--brand-text-muted",
-      "--brand-input-bg", "--brand-input-border",
-    ]
-    surfaceVars.forEach(v => root.style.removeProperty(v))
-  } else {
-    // Dark mode — apply all surface properties inline
-    root.style.setProperty("--brand-sidebar-bg", b.sidebar_bg)
-    root.style.setProperty("--brand-sidebar-border", b.sidebar_border)
-    root.style.setProperty("--brand-sidebar-text", b.sidebar_text)
-    root.style.setProperty("--brand-sidebar-active-bg", b.sidebar_active_bg)
-    root.style.setProperty("--brand-sidebar-active-text", b.sidebar_active_text)
-    root.style.setProperty("--brand-content-bg", b.content_bg)
-    root.style.setProperty("--brand-card-bg", b.card_bg)
-    root.style.setProperty("--brand-card-border", b.card_border)
-    root.style.setProperty("--brand-text-primary", b.text_primary)
-    root.style.setProperty("--brand-text-secondary", b.text_secondary)
-    root.style.setProperty("--brand-text-muted", b.text_muted)
-    root.style.setProperty("--brand-input-bg", b.input_bg)
-    root.style.setProperty("--brand-input-border", b.input_border)
-  }
-
-  document.title = b.app_subtitle ? `${b.app_name} ${b.app_subtitle}` : b.app_name
-}
-
 
 // ============== Sub-components ==============
 

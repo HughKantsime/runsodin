@@ -169,3 +169,16 @@ test.each([['community',[]],['expired pro',[]],['pro without branding entitlemen
  await waitFor(()=>expect(screen.getByTestId('name')).toHaveTextContent('Synthetic global'))
  expect(screen.getByTestId('logo')).toHaveTextContent('/static/branding/logo-global.png')
 })
+
+test('high contrast releases saved inline surfaces and restores them on exit', async () => {
+ document.documentElement.className = ''
+ const custom = { ...globalBrand, text_muted: '#58554a', card_bg: '#33312d' }
+ vi.stubGlobal('fetch', vi.fn(async (url:any) => response(url === '/api/branding' ? custom : {group_id:null})))
+ render(<BrandingProvider><Probe /></BrandingProvider>)
+ await waitFor(() => expect(document.documentElement.style.getPropertyValue('--brand-text-muted')).toBe('#58554a'))
+ document.documentElement.classList.add('high-contrast')
+ await waitFor(() => expect(document.documentElement.style.getPropertyValue('--brand-text-muted')).toBe(''))
+ expect(document.documentElement.style.getPropertyValue('--brand-card-bg')).toBe('')
+ document.documentElement.classList.remove('high-contrast')
+ await waitFor(() => expect(document.documentElement.style.getPropertyValue('--brand-text-muted')).toBe('#58554a'))
+})
