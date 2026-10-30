@@ -578,3 +578,25 @@ def test_slot_count_reduction_locks_printer_before_reading_flags(review_db, tmp_
     assert lock < reread < delete
     with engine.connect() as c:
         assert c.execute(text('SELECT count(*) FROM filament_slots WHERE printer_id=59')).scalar_one() == 2
+
+
+def test_printer_delete_refuses_while_a_slot_is_flagged(review_db, tmp_path, monkeypatch):
+    from fastapi import HTTPException
+    from sqlalchemy.orm import Session
+    from core.registry import registry
+    from modules.printers.routes_crud import delete_printer
+    engine, _ = configure_dispatch(review_db, tmp_path, monkeypatch)
+    policy = SimpleNamespace(assert_printer_tenant_change_or_delete_allowed=lambda db, pid: None)
+    original = registry.get_provider
+    monkeypatch.setattr(registry, 'get_provider', lambda name: policy if name == 'EducationPolicyProvider' else original(name))
+    with engine.begin() as c:
+        c.execute(text('DELETE FROM filament_slots WHERE printer_id=59'))
+        c.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type,do_not_feed,do_not_feed_note) VALUES(59,1,'PLA',true,'Faulty green')"))
+    with Session(engine) as db:
+        with pytest.raises(HTTPException) as refused:
+            delete_printer(59, current_user={'id': 1, 'role': 'admin'}, db=db)
+        assert refused.value.status_code == 409 and 'Slot 1' in str(refused.value.detail)
+        db.rollback()
+    with engine.connect() as c:
+        assert c.execute(text('SELECT count(*) FROM printers WHERE id=59')).scalar_one() == 1
+        assert c.execute(text('SELECT do_not_feed FROM filament_slots WHERE printer_id=59')).scalar_one()
