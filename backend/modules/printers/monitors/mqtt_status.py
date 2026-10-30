@@ -70,6 +70,8 @@ def handle_status(self, status, generation, runtime):
                 value = speed_fields['speed_level' if key == 'spd_lvl' else 'speed_percent']
             if value is not None:
                 self._state[key] = value
+        if raw.get('gcode_state') is not None:
+            self._state_retained = getattr(status, 'mqtt_retained', None) is True
         gcode_state = self._state.get('gcode_state')
         if gcode_state in ('FINISH', 'FAILED', 'IDLE'):
             # An end measures filament against this packet, which after downtime is the only

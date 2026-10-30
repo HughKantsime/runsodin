@@ -20,6 +20,10 @@ def packet(monitor, **fields):
     monitor._on_status(SimpleNamespace(raw_data={'print': fields}))
 
 
+def retained_packet(monitor, **fields):
+    monitor._on_status(SimpleNamespace(raw_data={'print': fields}, mqtt_retained=True))
+
+
 def ams_report(remain):
     """A full AMS list as a report carries it, with RFID spools so remain percentages count."""
     return {'ams': [{'id': '0', 'tray': [{'id': str(index), 'remain': remain, 'tag_uid': f'AB12CD34EF56AB{index:02d}',
@@ -428,6 +432,68 @@ def test_retrying_recovery_leaves_a_tracked_print_to_its_live_end(manual_bambu):
     packet(monitor, gcode_state='FAILED', subtask_name='another-print', print_error=7)
     rows, job = manual_rows(case)
     assert [row['status'] for row in rows] == ['failed'] and job == 'failed'
+
+
+# ---------------------------------------------------------------- retained first report
+@pytest.mark.parametrize('state,expected', [('FINISH', 'completed'), ('FAILED', 'failed')])
+def test_retained_first_end_is_not_proof_until_a_live_report(manual_bambu, state, expected):
+    case = manual_bambu
+    monitor = case.monitor()
+    fields = dict(gcode_state=state, subtask_name=case.name, print_error=7 if state == 'FAILED' else 0)
+    retained_packet(monitor, **fields)
+    monitor._recover_orphaned_jobs()
+    rows, job = manual_rows(case)
+    assert [row['status'] for row in rows] == ['running'] and job == 'printing'
+    assert monitor._current_job_id is None and case.seen.alerts == []
+    assert monitor._state['gcode_state'] == state  # Still usable, only not proof.
+    packet(monitor, **fields)
+    rows, job = manual_rows(case)
+    assert [row['status'] for row in rows] == [expected] and job == expected
+    assert len(case.seen.alerts) == 1
+
+
+def test_retained_idle_does_not_raw_close_a_row(manual_bambu):
+    case = manual_bambu
+    monitor = case.monitor()
+    retained_packet(monitor, gcode_state='IDLE')
+    monitor._recover_orphaned_jobs()
+    assert [row['status'] for row in manual_rows(case)[0]] == ['running']
+
+
+def test_retained_end_of_an_earlier_print_leaves_the_live_print_tracked(manual_bambu):
+    case = manual_bambu
+    monitor = case.monitor()
+    retained_packet(monitor, gcode_state='FINISH', subtask_name=case.name, print_error=0)
+    packet(monitor, gcode_state='RUNNING', subtask_name=case.name, print_error=0)
+    rows, job = manual_rows(case)
+    assert [row['status'] for row in rows] == ['running'] and job == 'printing'
+    assert monitor._current_job_id == case.identifier
+    assert case.seen.archive == []
+
+
+@pytest.mark.parametrize('order', ['callback_first', 'recovery_first'])
+def test_retained_end_of_a_dispatched_print_keeps_the_fence_until_a_live_report(running_bambu, order):
+    case = running_bambu
+    monitor = restarted(case)
+    fields = dict(gcode_state='FINISH', subtask_name=case.state['subtask_name'], print_error=0)
+    if order == 'callback_first':
+        retained_packet(monitor, **fields)
+        monitor._recover_orphaned_jobs()
+    else:
+        monitor._recover_orphaned_jobs()
+        retained_packet(monitor, **fields)
+    assert_fenced(case, monitor)
+    packet(monitor, **fields)
+    rows, claims, job = row_state(case)
+    assert rows[0]['status'] == 'completed' and job[0] == 'completed' and claims == 0
+
+
+def test_unknown_retain_flag_is_not_treated_as_retained(manual_bambu):
+    # The legacy adapter reports None when the broker message carries no boolean flag.
+    case = manual_bambu
+    monitor = case.monitor()
+    monitor._on_status(SimpleNamespace(raw_data={'print': dict(gcode_state='FINISH', subtask_name=case.name, print_error=0)}, mqtt_retained=None))
+    assert [row['status'] for row in manual_rows(case)[0]] == ['completed']
 
 
 # ---------------------------------------------------------------- gap 7: unreserved rows

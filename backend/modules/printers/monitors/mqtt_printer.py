@@ -91,6 +91,7 @@ class PrinterMonitor:
         self._camera_discovered: bool = False
         self._lock = Lock()
         self._status_received = Event()
+        self._state_retained = False
         self._recovery_pending = False
         self._recovery_failures = 0
         self._recovery_retry_at = 0.0
@@ -213,8 +214,10 @@ class PrinterMonitor:
 
     def _reconcile_running_rows(self):
         """Caller holds self._lock (not reentrant; the status callback holds it too)."""
-        # No report yet says nothing about the printer: every row stays until one does.
-        if not self._state.get('gcode_state') or time.time() < self._recovery_retry_at:
+        # No report yet says nothing about the printer, and a retained one can predate this
+        # print, so neither proves an end: every row stays until a live report arrives.
+        state = self._state.get('gcode_state')
+        if not state or (self._state_retained and state in ('FINISH', 'FAILED', 'IDLE')) or time.time() < self._recovery_retry_at:
             self._recovery_pending = True
             return
         self._recovery_pending = False
