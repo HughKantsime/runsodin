@@ -256,8 +256,9 @@ def test_final_admission_refuses_printer_changed_to_kobra(setup):
     with engine.begin() as conn:
         conn.execute(text("UPDATE printers SET machine_type='Kobra S1 Max' WHERE id=59"))
     result = admit(engine, **inputs)
+    from modules.printers.dispatch_support import KOBRA_DISPATCH_DETAIL
     assert not result.admitted
-    assert result.reason == 'Printer configuration, capability or ownership changed'
+    assert result.reason == 'printer_dispatch_unsupported: ' + KOBRA_DISPATCH_DETAIL
     assert state(engine) == 'preparing'
 
 
