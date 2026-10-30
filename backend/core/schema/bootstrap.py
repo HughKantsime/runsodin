@@ -253,6 +253,18 @@ def import_all_models() -> None:
     import modules.vision.models  # noqa: F401
 
 
+def configure_orm() -> None:
+    """Daemon startup: map every model before any worker thread touches the ORM.
+
+    A monitor process imports only what it uses; the first ORM use of a class whose
+    relationships name an unimported model fails mapper configuration for the whole
+    registry, and that cannot be repaired without a restart.
+    """
+    import_all_models()
+    from sqlalchemy.orm import configure_mappers
+    configure_mappers()
+
+
 def migration_files(backend_root: Path) -> list[tuple[str, Path]]:
     files: list[tuple[str, Path]] = []
     core_dir = backend_root / "core" / "migrations"

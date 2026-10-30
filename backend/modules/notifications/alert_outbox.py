@@ -70,7 +70,9 @@ def _alert_for(db, kind, job, actor):
 def dispatch(engine, outbox_id: int) -> bool:
     """Claim one outbox row and stage its alert exactly once. True when this call staged it."""
     from core.dispatch_connection import dispatch_scope, dispatch_transaction
+    from core.schema.bootstrap import import_all_models
     from modules.notifications.alert_dispatcher import _deliver_staged_alert, stage_alert
+    import_all_models()  # The completion summary below is this path's first ORM use.
     plan = None
     try:
         with dispatch_scope(engine):
@@ -181,11 +183,13 @@ def register_delivery(callback):
 
 def deliver_mobile(db, plan):
     import sys
+    from core.schema.bootstrap import import_all_models
     from core.interfaces.terminal_delivery import register_mobile_delivery
+    import_all_models()  # Device queries configure every mapper, also in monitor daemons.
     register_mobile_delivery(sys.modules[__name__])
     for callback in tuple(_deliveries):
         try:callback(db, plan)
-        except Exception:logger.warning("Mobile alert delivery failed after confirmed commit")
+        except Exception as exc:logger.warning("Mobile alert delivery failed after confirmed commit (%s)", type(exc).__name__)
 
 
 def _stage_terminal(db, row, outbox_id, *, summary=None):

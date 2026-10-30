@@ -388,6 +388,9 @@ def stage_alert(
     target_user_ids: List[int] = None,
 ):
     """Stage tenant-scoped in-app alerts and immutable delivery intent without committing."""
+    # Monitor daemons import only what they use; Alert's relationships need every mapped class.
+    from core.schema.bootstrap import import_all_models
+    import_all_models()
     from modules.notifications.recipient_policy import resolve_alert_scope
     if alert_type in (AlertType.QUEUE_SKIPPED, AlertType.QUEUE_FAILED_START) and job_id:
         if not lock_queue_alert(db, job_id, alert_type):

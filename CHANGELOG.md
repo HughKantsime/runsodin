@@ -11,6 +11,7 @@ All notable changes to O.D.I.N. are documented here.
 - Secondary and muted text on the default dark theme blended into the card background. The default text colours are now #bcb7aa and #a8a294, at least 4.5:1 on card, content and input backgrounds; the light and high-contrast themes also pass WCAG AA. An install whose text and surface colours are still the old defaults gets the new text colours automatically, even with its own brand colours. Customized text or surfaces are not changed, and nothing is written.
 - Long filament slot labels overflowed printer cards. Material labels now wrap to at most two lines, presets sit on their own line, and the full text shows on hover. Narrow cards (below 420 px) use two slot columns, and printer card status rows wrap.
 - The active print name falls back to the file the printer reports.
+- A paused print (for example an AMS filament runout) never raised a "Print paused" alert. The printer monitor process failed while creating the alert and dropped it. It also failed to send mobile pushes once any alert had been created in it. Pause alerts and monitor-side mobile pushes are delivered again, and a failed delivery now logs the error type.
 
 ### Added
 

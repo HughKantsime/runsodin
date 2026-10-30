@@ -102,9 +102,9 @@ def _notify(printer_id, kind, code, *, occurred=None, context=None):
             db.commit()
             if plan is not None:
                 _deliver_staged_alert(db, plan)
-    except Exception:
+    except Exception as exc:
         import logging
-        logging.getLogger('odin.job_faults').warning('Attention delivery deferred to durable history')
+        logging.getLogger('odin.job_faults').warning('Attention delivery deferred to durable history (%s)', type(exc).__name__)
 
 
 from concurrent.futures import ThreadPoolExecutor

@@ -387,6 +387,8 @@ def start_prusalink_monitors():
 if __name__ == "__main__":
     from core.log_redaction import install_log_redaction
     install_log_redaction()
+    from core.schema.bootstrap import configure_orm
+    configure_orm()
     from core.job_timeline import start
     start("prusalink_monitor")
     import signal

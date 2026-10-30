@@ -382,6 +382,8 @@ def start_elegoo_monitors():
 if __name__ == "__main__":
     from core.log_redaction import install_log_redaction
     install_log_redaction()
+    from core.schema.bootstrap import configure_orm
+    configure_orm()
     from core.job_timeline import start
     start("elegoo_monitor")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
