@@ -330,6 +330,11 @@ class MoonrakerMonitor:
                 log.warning("Telemetry persistence failed; retry on next observation")
 
         internal_state = status.internal_state
+        # gklib has states Moonraker doesn't define. One in the middle of a tracked S1 print
+        # must not hide its end: a job closes only from RUNNING or PAUSE.
+        if (internal_state == 'UNKNOWN' and self._current_job_db_id and self._prev_state
+                and getattr(getattr(self, 'printer', None), 'is_kobra_s1', False)):
+            internal_state = self._prev_state
 
         if getattr(status, 'ace_status', None) is not None:
             self._maybe_sync_ace(status.ace_status, now)
@@ -385,6 +390,12 @@ class MoonrakerMonitor:
                 end_status = education_terminal_status or (
                     "completed" if internal_state == "IDLE" else "failed"
                 )
+                # An S1 can pass through standby on its way to complete, and can land there from
+                # an aborted prep. Only a print that printed something finished.
+                if (end_status == "completed" and raw_terminal != "complete"
+                        and getattr(getattr(self, 'printer', None), 'is_kobra_s1', False)
+                        and not status.print_duration):
+                    end_status = "cancelled"
                 education_suppressed = self._job_ended(
                     end_status,
                     status,
@@ -993,7 +1004,7 @@ class MoonrakerMonitor:
         """The stored mapping names the ACE slot, as in operator completion; never a located spool."""
         import json
         import math
-        from core.filament_ledger import record_job_filament
+        from core.filament_ledger import flag_reconciliation, record_job_filament
         from core.filament_sources import attribute_source_grams, indexed_materials
         from core.print_attempts import sqlalchemy_runner
         from core.print_file_binding import job_file_id
@@ -1013,7 +1024,11 @@ class MoonrakerMonitor:
             except S1Refusal:
                 pass
         def known(value):
-            return value is not None and math.isfinite(float(value)) and value >= 0
+            # A deterministic raise here would retry the print's end on every poll.
+            try:
+                return type(value) is not bool and math.isfinite(float(value)) and float(value) >= 0
+            except (TypeError, ValueError):
+                return False
         slot_grams = {}
         if sources and len(sources) == 1:
             source, material = next(iter(sources.items()))
@@ -1041,9 +1056,15 @@ class MoonrakerMonitor:
                 VALUES ('filament.unattributed','job',:id,:details)"""),
                 {'id': scheduled_job_id, 'details': json.dumps({'consumption': unattributed})})
             return None
-        return record_job_filament(sqlalchemy_runner(conn), scheduled_job_id, source='moonraker', grams_by_spool=grams_by_spool,
-                                   print_job_id=getattr(self, '_current_job_db_id', None),
-                                   notes='ACE slot from the stored mapping')
+        print_job_id = getattr(self, '_current_job_db_id', None)
+        outcome = record_job_filament(sqlalchemy_runner(conn), scheduled_job_id, source='moonraker', grams_by_spool=grams_by_spool,
+                                      print_job_id=print_job_id, notes='ACE slot from the stored mapping')
+        if outcome.unattributed and print_job_id is not None:
+            log.error("[%s] Filament for print %s of job %s not deducted (%s); reconciliation required",
+                      getattr(self, 'name', self.printer_id), print_job_id, scheduled_job_id, outcome.reason)
+            flag_reconciliation(sqlalchemy_runner(conn), scheduled_job_id, print_job_id,
+                                reason=outcome.reason, source="moonraker")
+        return outcome
 
 
 # ------------------------------------------------------------------

@@ -1,5 +1,5 @@
 """Explicit S1 upload/start inside the existing claim and sender boundaries."""
-import os
+import hashlib
 import time
 import uuid
 from modules.printers.kobra_s1 import S1Refusal, build_payload, read_filaments, mapping_vector, verify_mapping
@@ -27,6 +27,16 @@ def create_start_gate(engine, *, admission_inputs, target_handle, **unused):
     gate.job = admission_inputs['job']
     gate.token = admission_inputs['token']
     return gate
+
+
+def _staged_identity(path):
+    digest = hashlib.md5(usedforsecurity=False)
+    size = 0
+    with open(path, 'rb') as stream:
+        for block in iter(lambda: stream.read(128 * 1024), b''):
+            digest.update(block)
+            size += len(block)
+    return dict(md5=digest.hexdigest(), size=size)
 
 
 def _fresh(printer):
@@ -64,7 +74,8 @@ def dispatch(job_id, path, remote, creds, print_options, gate):
             raise
         except Exception:
             raise S1Refusal('s1_device_file_unavailable', 'Device file identity could not be read') from None
-        if file['size'] < os.path.getsize(path):
+        staged = _staged_identity(path)
+        if file['size'] < staged['size']:
             raise S1Refusal('s1_device_file_incomplete', 'Device copy is smaller than the uploaded file')
         if file['filaments'] != filaments:
             raise S1Refusal('s1_file_changed', 'Device filament header differs from the admitted payload')
@@ -80,7 +91,8 @@ def dispatch(job_id, path, remote, creds, print_options, gate):
                 raise S1Refusal(gate.refusal.code, gate.refusal.detail)
             from modules.printers.maintenance_gate import check_command
             check_command()
-            facts = dict(md5=file['md5'], filesize=file['size'],
+            facts = dict(md5=file['md5'], filesize=file['size'], staged_md5=staged['md5'], staged_size=staged['size'],
+                device_copy_differs=file['md5'] != staged['md5'],
                 ams_box_mapping=payload['data']['ams_settings']['ams_box_mapping'],
                 task_settings=payload['data']['task_settings'], auto_refill=fresh['auto_refill'],
                 warnings=['ACE auto_refill is on; it may select another same-material slot'] if fresh['auto_refill'] == 1 else [])

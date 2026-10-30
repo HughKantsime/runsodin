@@ -403,6 +403,14 @@ def _material_plan(connection, print_job_id, printer_id, printer_org_id, slots, 
     return plan
 
 
+def _kobra_s1_attempt_accounted(connection, printer_id, scheduled_job_id, print_job_id):
+    from core import filament_ledger
+    from modules.printers.services import is_kobra_s1
+    identity = execute(connection, 'SELECT api_type,model,machine_type FROM printers WHERE id=?', (printer_id,)).fetchone()
+    return bool(identity and is_kobra_s1(dict(api_type=identity[0], model=identity[1], machine_type=identity[2]))
+                and filament_ledger.prior_attempt_usage(_ledger_runner(connection), scheduled_job_id, print_job_id) == filament_ledger.MARKER)
+
+
 def account_archive(connection, *, archive_id, print_job_id, printer_id, snapshot_json,
                     scheduled_job_id, measured_grams, success):
     """Persist local consumption and its delivery outbox in the archive transaction.
@@ -511,6 +519,9 @@ def account_archive(connection, *, archive_id, print_job_id, printer_id, snapsho
         if not math.isfinite(total):
             return unresolved('invalid_material_quantity')
         if len(allocations) > 1 and measured_grams is not None and not math.isclose(total, measured_grams, rel_tol=1e-6, abs_tol=0.1):
+            # An S1 measures one total, so its monitor charged each source's sliced weight already.
+            if _kobra_s1_attempt_accounted(connection, printer_id, scheduled_job_id, print_job_id):
+                return 'accounted', 'attempt_already_accounted', []
             return unresolved('measured_material_distribution_unknown')
     except (ValueError, TypeError, KeyError):
         return unresolved('invalid_start_snapshot')

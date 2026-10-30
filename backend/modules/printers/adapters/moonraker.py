@@ -316,6 +316,10 @@ class MoonrakerPrinter:
                 elif hasattr(status, name):
                     setattr(status, name, value)
             mmu = result.get("mmu", {})
+            if self.is_kobra_s1:
+                from modules.printers.kobra_s1 import normalize_print_stats
+                stats = result.get('print_stats') if isinstance(result.get('print_stats'), dict) else {}
+                status.internal_state, status.filename = normalize_print_stats(stats.get('state'), status.filename, status.internal_state)
             hub = result.get('filament_hub')
             if self.is_kobra_s1 and isinstance(hub, dict) and hub.get('filament_hubs'):
                 from modules.printers.kobra_s1 import parse_ace

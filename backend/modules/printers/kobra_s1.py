@@ -7,6 +7,8 @@ import re
 # The S1 profile's Bambu Studio output writes its header and config blocks in the first 25 KB.
 # Files that keep them at the end (Anycubic Slicer Next) fail require_start_metadata anyway.
 HEADER_LIMIT = 256 * 1024
+ACE_SLOTS = 4
+MAX_FILAMENT_GRAMS = 10000  # Far above any one print; a header value past this is not a weight.
 
 
 class S1Refusal(ValueError):
@@ -39,6 +41,20 @@ def parse_ace(hub):
     return dict(slots=slots, current_filament=current, humidity=None,
                 auto_refill=hub.get('auto_refill') if type(hub.get('auto_refill')) is int and hub['auto_refill'] in (0, 1) else None,
                 temperature=unit.get('temp') if type(unit.get('temp')) in (int, float) else None)
+
+
+# The S1's own print states and file path, as the raw gkapi stream reports them. Moonraker reports
+# printing, paused and a relative name instead (swap capture), but a one-shot query on a real S1
+# during prep isn't proven, and a state nothing here knows would hide the end of the print.
+GK_INTERNAL_STATES = {'leveling': 'RUNNING', 'heating': 'RUNNING', 'onpause': 'PAUSE'}
+GK_GCODES_ROOT = '/useremain/app/gk/gcodes/'
+
+
+def normalize_print_stats(state, filename, internal_state):
+    """(internal_state, filename) for one S1 reading. raw_print_state is left alone, so dispatch still refuses."""
+    if isinstance(filename, str) and filename.startswith(GK_GCODES_ROOT):
+        filename = filename[len(GK_GCODES_ROOT):]
+    return GK_INTERNAL_STATES.get(str(state or '').casefold(), internal_state), filename
 
 
 def parse_header(text):
@@ -107,7 +123,7 @@ def parse_filament_grams(text, count):
         grams = [float(value) for value in match[1].split(',')]
     except ValueError:
         return None
-    return grams if len(grams) == count and all(math.isfinite(g) and g >= 0 for g in grams) else None
+    return grams if len(grams) == count and all(math.isfinite(g) and 0 <= g <= MAX_FILAMENT_GRAMS for g in grams) else None
 
 
 def file_materials(path):
@@ -115,6 +131,8 @@ def file_materials(path):
     text = _read_head(path)
     require_start_metadata(text)
     filaments = parse_header(text)
+    if len(filaments) > ACE_SLOTS:
+        raise S1Refusal('s1_file_filaments_unmappable', f'This file lists {len(filaments)} filaments; the S1 has {ACE_SLOTS} ACE slots')
     grams = parse_filament_grams(text, len(filaments))
     return [dict(slot=i + 1, type=f['type'], color=f['color'], **({'used_grams': grams[i]} if grams else {}))
             for i, f in enumerate(filaments)]

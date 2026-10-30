@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { ArchiveAmsPreview, AmsMapping } from '../../types/archive'
+import type { ArchiveAmsPreview, ArchiveAmsSlot, AmsMapping } from '../../types/archive'
 
 export type { AmsMapping } from '../../types/archive'
 
@@ -11,14 +11,22 @@ export function useAmsMapping(preview: ArchiveAmsPreview | null | undefined, con
   const complete = (mapping: AmsMapping) => !!preview?.required.length
     && preview.required.every(req => mapping.some(m => m.source_slot === req.slot && preview.available.some(s => s.slot === m.target_slot && !s.do_not_feed)))
     && new Set(mapping.map(m => m.target_slot)).size === mapping.length
-  const selection = choice?.context === context ? choice : { context, mapping: initial, enabled: complete(initial) }
+  const needsConfirmation = !stored && !!preview?.confirm_suggestions && preview.suggested_mapping.some(s => s.confidence === 'material_only')
+  const selection = choice?.context === context ? choice : { context, mapping: initial, enabled: complete(initial) && !needsConfirmation }
   const valid = complete(selection.mapping)
   return {
     mapping: selection.mapping, enabled: selection.enabled, valid,
     value: selection.enabled && valid ? selection.mapping : undefined,
-    onChange: (mapping: AmsMapping) => setChoice({ ...selection, mapping }),
+    // Picking the slots is the confirmation a held-back suggestion was waiting for.
+    onChange: (mapping: AmsMapping) => setChoice({ ...selection, mapping, enabled: selection.enabled || (!!preview?.confirm_suggestions && complete(mapping)) }),
     onEnabledChange: (enabled: boolean) => setChoice({ ...selection, enabled }),
   }
+}
+
+// Same-material slots differ only by colour, and an S1 slot's colour name is its material.
+function slotLabel(slot: ArchiveAmsSlot) {
+  const name = slot.color && slot.color !== slot.material ? slot.color : null
+  return [name, slot.material, slot.color_hex ? `#${slot.color_hex.replace(/^#/, '')}` : null].filter(Boolean).join(' ')
 }
 
 export default function AmsMappingEditor({ preview, loading, error, mapping, enabled, valid, onChange, onEnabledChange }: {
@@ -45,7 +53,7 @@ export default function AmsMappingEditor({ preview, loading, error, mapping, ena
                 ...(e.target.value ? [{ source_slot: req.slot, target_slot: Number(e.target.value) }] : []),
               ].sort((a, b) => a.source_slot - b.source_slot))}>
               <option value="">No matching slot</option>
-              {preview.available.map(slot => <option key={slot.slot} value={slot.slot} disabled={slot.do_not_feed}>Slot {slot.slot} ({[slot.color, slot.material].filter(Boolean).join(' ')}){slot.do_not_feed ? ' — Do not feed' : ''}</option>)}
+              {preview.available.map(slot => <option key={slot.slot} value={slot.slot} disabled={slot.do_not_feed}>Slot {slot.slot} ({slotLabel(slot)}){slot.do_not_feed ? ' — Do not feed' : ''}</option>)}
             </select>
           </li>
         })}</ul>

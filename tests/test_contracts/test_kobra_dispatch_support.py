@@ -85,10 +85,12 @@ def test_next_job_suggestion_excludes_kobra3_but_offers_s1_for_attended_start(fl
     printer = fleet.get(Printer, 9)
     assert not eligible(fleet, fleet.get(Job, 992), printer)
     suggestion = next_suggestion(fleet, printer)
-    assert suggestion['job_id'] is None and suggestion['reason'].startswith('printer_dispatch_unsupported')
-    # Start next is the S1's only start path: it requires the bed-clear confirmation.
+    assert suggestion['job_id'] is None
+    assert suggestion['reason'] == 'printer_dispatch_unsupported: ' + KOBRA_DISPATCH_DETAIL
+    # Start next is the S1's only start path, so an S1 reaches the queue. It adopts only its own work.
     fleet.execute(text("UPDATE printers SET model='Kobra S1' WHERE id=9"))
     fleet.commit()
     fleet.expire_all()
     suggestion = next_suggestion(fleet, fleet.get(Printer, 9))
-    assert not str(suggestion.get('reason') or '').startswith(('printer_dispatch_unsupported', 's1_explicit'))
+    assert suggestion['job_id'] is None
+    assert suggestion['reason'] == 'No queued job fits this printer.'

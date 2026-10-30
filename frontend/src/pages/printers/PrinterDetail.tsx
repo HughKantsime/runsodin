@@ -2,6 +2,7 @@ import { displayName } from '../../utils/displayName'
 import MaintenanceBanner from '../../components/printers/MaintenanceBanner'
 import InstalledNozzles from '../../components/printers/InstalledNozzles'
 import DispatchRecoveryPanel from '../../components/printers/DispatchRecoveryPanel'
+import { IdleS1StartNext } from '../../components/printers/StartNextPanel'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Printer, Thermometer, Clock, Wifi, WifiOff, Activity } from 'lucide-react'
@@ -207,6 +208,8 @@ export default function PrinterDetail() {
           </div>
         </Card>
       )}
+
+      <IdleS1StartNext printer={printer} />
 
       {/* Printer Info */}
       <Card className="mb-6">

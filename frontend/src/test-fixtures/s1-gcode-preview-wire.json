@@ -33,6 +33,7 @@
       "spool_id": null
     }
   ],
+  "confirm_suggestions": true,
   "required": [
     {
       "color": "#00AE42",

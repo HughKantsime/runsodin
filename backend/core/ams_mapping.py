@@ -67,6 +67,8 @@ def preview(db, filaments_json, printer_id, actor, *, stored_path=None):
         except S1Refusal as refusal:
             # Not a preview failure: a held job can still be created and started by hand.
             return {'required': [], 'available': available, 'suggested_mapping': [], 'file_note': refusal.detail}
+        # Real S1 headers carry the slicer's default green, so a material match says nothing about the slot.
+        return {**preview_for_slots(filaments_json, available), 'confirm_suggestions': True}
     return preview_for_slots(filaments_json, available)
 
 

@@ -30,6 +30,25 @@ def s1_preview_filaments_json(filaments_json, stored_path):
         return None
 
 
+def s1_start_problem(db, job):
+    """Why this S1 job can't start as it stands, in words for the queue, or None."""
+    from core.print_file_binding import job_file_id
+    from modules.printers.kobra_s1 import S1Refusal, mapping_vector, read_filaments
+    from modules.printers.slot_feed_policy import flagged_mapping_reason
+    file_id = job_file_id(db, job.model_id, job.print_file_id)
+    stored_path = db.execute(text('SELECT stored_path FROM print_files WHERE id=:id'), {'id': file_id}).scalar() if file_id else None
+    if not stored_path:
+        return 'The job has no stored print file.'
+    try:
+        mapping = mapping_vector(job.ams_mapping, read_filaments(stored_path))
+    except S1Refusal as refusal:
+        return refusal.detail
+    except OSError:
+        return 'Payload cannot be read'
+    flagged = flagged_mapping_reason(db, job.printer_id, mapping)
+    return flagged.split(': ', 1)[-1] if flagged else None
+
+
 def s1_start_facts(db, token):
     """Publish evidence recorded for one Kobra S1 attempt, or None."""
     from modules.printers.start_next import load

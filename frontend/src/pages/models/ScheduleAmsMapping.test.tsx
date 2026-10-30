@@ -84,6 +84,26 @@ test('an uploaded S1 gcode lists its filaments and creates a job with the confir
   expect(api.confirm).toHaveBeenCalledWith(13, expect.objectContaining({ ams_mapping: [{ source_slot: 1, target_slot: 2 }, { source_slot: 2, target_slot: 3 }] }))
 })
 
+test('a material-only suggestion on an S1 stays off until someone picks or confirms the slots', async () => {
+  api.file.mockResolvedValue({ ams_preview: s1GcodePreview })
+  mount(); fireEvent.click(await screen.findByRole('button', { name: 'Kobra S1' }))
+  await screen.findByLabelText('Filament 1 AMS slot')
+  expect(screen.getByLabelText('Use this mapping')).not.toBeChecked()
+  fireEvent.click(screen.getByRole('button', { name: 'Create Job' }))
+  expect(api.confirm.mock.calls[0][1]).not.toHaveProperty('ams_mapping')
+  fireEvent.click(screen.getByLabelText('Use this mapping'))
+  fireEvent.click(screen.getByRole('button', { name: 'Create Job' }))
+  expect(api.confirm.mock.calls[1][1]).toHaveProperty('ams_mapping')
+})
+
+test('same-material S1 slots can be told apart by colour', async () => {
+  api.file.mockResolvedValue({ ams_preview: s1GcodePreview })
+  mount(); fireEvent.click(await screen.findByRole('button', { name: 'Kobra S1' }))
+  const slot = await screen.findByLabelText('Filament 1 AMS slot')
+  const labels = Array.from(slot.querySelectorAll('option')).map(option => option.textContent)
+  expect(labels).toEqual(expect.arrayContaining(['Slot 1 (PLA #00BB31)', 'Slot 2 (PLA #6558B1)', 'Slot 3 (PLA #EF60A3)', 'Slot 4 (PLA #0047BB)']))
+})
+
 test('an S1 file that cannot be mapped says why and still allows a job without a mapping', async () => {
   api.file.mockResolvedValue({ ams_preview: { required: [], available: s1GcodePreview.available, suggested_mapping: [], file_note: 'S1 files need a Bambu Studio header' } })
   mount(); fireEvent.click(await screen.findByRole('button', { name: 'Kobra S1' }))

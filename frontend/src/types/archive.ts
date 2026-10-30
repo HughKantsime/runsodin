@@ -77,6 +77,8 @@ export interface ArchiveAmsPreview {
   suggested_mapping: ArchiveAmsSuggestion[];
   /** Why this printer can't map the file's filaments; a job can still be created without a mapping. */
   file_note?: string;
+  /** A material-only suggestion stays off until someone picks or confirms the slots. */
+  confirm_suggestions?: boolean;
 }
 
 export interface ArchiveReprintRequest {

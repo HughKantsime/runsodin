@@ -55,14 +55,14 @@ def s1(creators, review_db, tmp_path, monkeypatch):
                                 physical_values={'started_at': '2026-10-29T00:00:00+00:00'}, source='contract-start',
                                 allow_physical_resume=False, observed_elapsed=60)
         c.execute(text("UPDATE print_jobs SET status='completed',ended_at='2026-10-29T01:00:00' WHERE id=:id"), {'id': earlier.id})
-    device = SimpleNamespace(files={}, publishes=[])
+    device = SimpleNamespace(files={}, publishes=[], patch=lambda raw: b'; patched by Rinkhals\n' + raw)
     def query(self, path, timeout=5):
         if path.startswith('/server/history'):
             return {'result': {'jobs': []}}
         return {'result': {'status': dict(print_stats=dict(state='standby', filename=''), webhooks=dict(state='ready'), filament_hub=HUB)}}
     def upload(self, local, remote):
         # Rinkhals adds a line to every upload, so the device copy differs from the payload.
-        device.files[remote] = b'; patched by Rinkhals\n' + Path(local).read_bytes()
+        device.files[remote] = device.patch(Path(local).read_bytes())
         return True
     def read_back(request, timeout):
         return _DeviceCopy(device.files[request.full_url.rsplit('/', 1)[1]])
@@ -131,6 +131,51 @@ def test_uploaded_gcode_schedules_with_a_mapping_and_reaches_the_printer(s1, kin
     assert parse_filament_grams(raw.decode(), len(indices)) == grams
 
 
+def _finished_print(s1, name, ended):
+    from core.attempt_start_observation import observe_start
+    with s1.engine.begin() as c:
+        observed = observe_start(c, printer_id=59, protocol='moonraker', filename=name, job_name=name,
+                                 physical_values={'started_at': '2026-10-29T04:00:00+00:00'}, source='contract-start',
+                                 allow_physical_resume=False, observed_elapsed=60)
+        c.execute(text("UPDATE print_jobs SET status='completed',ended_at=:ended WHERE id=:id"), {'id': observed.id, 'ended': ended})
+    return observed.id
+
+
+def test_a_print_finishing_between_confirmation_and_admission_refuses_the_start(s1, monkeypatch):
+    from modules.printers import dispatch_acquisition
+    uploaded = s1.upload(ONE_COLOUR)
+    assert _schedule(s1, uploaded, 'print-files', dict(ams_mapping=[{'source_slot': 1, 'target_slot': 2}])).status_code == 200
+    def ready(*args):
+        _finished_print(s1, 'raced.gcode', '2026-10-29T05:00:00')
+        return True
+    monkeypatch.setattr(dispatch_acquisition, 'bounded_status_is_idle', ready)
+    _, started = _start_next(s1)
+    assert started.status_code == 200, started.text
+    assert started.json()['state'] != 'dispatched', started.json()
+    assert s1.device.publishes == [] and s1.device.files == {}
+
+
+@pytest.mark.parametrize('patch,differs', [
+    pytest.param(lambda raw: b'; patched by Rinkhals\n' + raw, True, id='rinkhals_adds_a_line'),
+    pytest.param(lambda raw: raw, False, id='copy_is_identical'),
+    pytest.param(lambda raw: raw[:-1] + b' ', True, id='same_size_but_changed'),
+])
+def test_start_facts_say_whether_the_device_copy_differs_from_the_staged_file(s1, patch, differs):
+    from modules.printers.start_next import load
+    s1.device.patch = patch
+    uploaded = s1.upload(ONE_COLOUR)
+    assert _schedule(s1, uploaded, 'print-files', dict(ams_mapping=[{'source_slot': 1, 'target_slot': 2}])).status_code == 200
+    _, started = _start_next(s1)
+    assert started.json()['state'] == 'dispatched', started.json()
+    copy = next(iter(s1.device.files.values()))
+    with s1.engine.connect() as c:
+        token = c.execute(text('SELECT token FROM printer_dispatch_claims')).scalar_one()
+        facts = load(c, 's1_start:' + token)
+    assert facts['device_copy_differs'] is differs
+    assert (facts['staged_md5'], facts['staged_size']) == (hashlib.md5(ONE_COLOUR, usedforsecurity=False).hexdigest(), len(ONE_COLOUR))
+    assert (facts['md5'], facts['filesize']) == (hashlib.md5(copy, usedforsecurity=False).hexdigest(), len(copy))
+
+
 def test_s1_suggestion_does_not_need_an_order_bound_or_any_earlier_print(s1):
     """Only an order's print has an economic uid, and Start next is the S1's only way to start."""
     uploaded = s1.upload(ONE_COLOUR)
@@ -141,15 +186,14 @@ def test_s1_suggestion_does_not_need_an_order_bound_or_any_earlier_print(s1):
         return response.json()['fingerprint']
     unbound = fingerprint()
     assert unbound
+    # A newer finished print changes what the operator confirmed, so the old suggestion dies.
+    _finished_print(s1, 'later.gcode', '2026-10-29T05:00:00')
+    newer = fingerprint()
+    assert newer and newer != unbound
     with s1.engine.begin() as c:
-        # A newer finished print changes what the operator confirmed, so the old suggestion dies.
-        c.execute(text("UPDATE print_jobs SET ended_at='2026-10-29T02:00:00' WHERE printer_id=59"))
-        identifier = c.execute(text('SELECT id FROM print_jobs WHERE printer_id=59')).scalar_one()
-        assert identifier
-    with s1.engine.begin() as c:
-        c.execute(text('UPDATE print_jobs SET status=\'running\',ended_at=NULL WHERE printer_id=59'))
+        c.execute(text("UPDATE print_jobs SET status='running',ended_at=NULL WHERE printer_id=59"))
     first_print = fingerprint()
-    assert first_print and first_print != unbound
+    assert first_print and first_print not in (unbound, newer)
     with s1.engine.begin() as c:
         c.execute(text("UPDATE printers SET model='Voron 2.4' WHERE id=59"))
     assert fingerprint() is None, 'Other printers keep the finished identity rule'
@@ -367,4 +411,174 @@ def test_archive_plan_freezes_the_mapped_slot_for_a_real_gcode_job(s1, monkeypat
         plan = json.loads(c.execute(text('SELECT spool_snapshot FROM print_jobs WHERE id=:id'), {'id': print_job}).scalar_one())['material_plan']
     assert plan['state'] == 'complete', plan
     assert [(a['slot_number'], a['spool_id'], a['estimated_grams']) for a in plan['allocations']] == [(2, 902, 11.49)]
+
+
+def _mapped_routes(s1):
+    from modules.archives.routes import archives_crud
+    from modules.jobs.routes import jobs_crud
+    s1.client.app.include_router(jobs_crud.router, prefix='/api')
+    s1.client.app.include_router(archives_crud.router, prefix='/api')
+
+
+def test_job_detail_and_patch_read_a_gcode_jobs_filaments_from_the_file(s1):
+    _mapped_routes(s1)
+    uploaded = s1.upload(ONE_COLOUR)
+    made = _schedule(s1, uploaded, 'print-files', dict(hold=True))
+    assert made.status_code == 200, made.text
+    job = made.json()['job_id']
+    detail = s1.client.get(f'/api/jobs/{job}', headers=s1.auth())
+    assert detail.status_code == 200, detail.text
+    assert [r['material'] for r in detail.json()['ams_preview']['required']] == ['PLA']
+    assert detail.json()['ams_mapping_editable'] is True
+    patched = s1.client.patch(f'/api/jobs/{job}', headers=s1.auth(), json={'ams_mapping': [{'source_slot': 1, 'target_slot': 2}]})
+    assert patched.status_code == 200, patched.text
+    assert patched.json()['ams_mapping'] == [1]
+
+
+def test_reprint_and_archive_preview_read_a_gcode_jobs_filaments_from_the_file(s1):
+    _mapped_routes(s1)
+    uploaded = s1.upload(ONE_COLOUR)
+    with s1.engine.begin() as c:
+        archive = c.execute(text("INSERT INTO print_archives(printer_id,print_name,status,print_file_id,org_id,ownership_state) "
+                                 "VALUES(59,'earlier','completed',:file,1,'known') RETURNING id"), {'file': uploaded['id']}).scalar_one()
+    preview = s1.client.get(f'/api/archives/{archive}/ams-preview?printer_id=59', headers=s1.auth())
+    assert preview.status_code == 200, preview.text
+    assert [r['material'] for r in preview.json()['required']] == ['PLA']
+    reprint = s1.client.post(f'/api/archives/{archive}/reprint', headers=s1.auth(), json=dict(printer_id=59, ams_mapping=[{'source_slot': 1, 'target_slot': 2}]))
+    assert reprint.status_code == 200, reprint.text
+    with s1.engine.connect() as c:
+        assert json.loads(c.execute(text('SELECT ams_mapping FROM jobs WHERE id=:id'), {'id': reprint.json()['job_id']}).scalar_one()) == [1]
+
+
+# ---- Hostile or odd file facts. ----
+
+@pytest.mark.parametrize('weight,expected', [('1e308', None), ('10000.5', None), ('inf', None), ('-1', None), ('10000', [10000.0]), ('11.49', [11.49])])
+def test_a_header_weight_outside_any_real_print_is_not_a_weight(weight, expected):
+    assert parse_filament_grams(f'; total filament weight [g] : {weight}', 1) == expected
+
+
+def test_operator_complete_refuses_an_absurd_header_weight(s1):
+    raw = ONE_COLOUR.replace(b'; total filament weight [g] : 11.49\n', b'; total filament weight [g] : 1e308\n')
+    job_id = _job_from_upload(s1, raw, [{'source_slot': 1, 'target_slot': 2}])
+    assert s1.client.post(f'/api/jobs/{job_id}/complete', headers=s1.auth()).status_code == 200
+    assert _weights(s1) == [100, 100, 100]
+    assert _audits(s1)[0]['consumption'][0]['reason'] == 'unknown_material_quantity'
+
+
+@pytest.mark.parametrize('count', [5, 17])
+def test_more_filaments_than_ace_slots_says_why_instead_of_failing_the_preview(s1, count):
+    colours = ';'.join(['#00AE42'] * count).encode()
+    types = ';'.join(['PLA'] * count).encode()
+    raw = ONE_COLOUR.replace(b'; filament_colour = #00AE42\n', b'; filament_colour = ' + colours + b'\n').replace(b'; filament_type = PLA\n', b'; filament_type = ' + types + b'\n')
+    uploaded = s1.upload(raw)
+    preview = s1.client.get(f"/api/print-files/{uploaded['id']}?printer_id=59", headers=s1.auth())
+    assert preview.status_code == 200, preview.text
+    assert preview.json()['ams_preview']['required'] == [] and str(count) in preview.json()['ams_preview']['file_note']
+    refused = _schedule(s1, uploaded, 'print-files', dict(ams_mapping=[{'source_slot': 1, 'target_slot': 2}]))
+    assert refused.status_code == 400 and 's1_file_filaments_unmappable' in refused.text
+    assert _schedule(s1, uploaded, 'print-files', dict(hold=True)).status_code == 200
+
+
+@pytest.mark.parametrize('materials,weight', [
+    pytest.param([{'slot': 1, 'type': 'PLA', 'used_grams': 'many'}], 'lots', id='one_source_non_numeric'),
+    pytest.param([{'slot': 1, 'type': 'PLA', 'used_grams': 'many'}, {'slot': 2, 'type': 'PLA', 'used_grams': 5}], None, id='two_sources_non_numeric'),
+    pytest.param([{'slot': 1, 'type': 'PLA', 'used_grams': True}], None, id='a_boolean_is_not_grams'),
+])
+def test_non_numeric_stored_grams_cannot_raise_at_the_end_of_a_print(s1, monkeypatch, materials, weight):
+    """A deterministic raise would retry the print's end on every poll."""
+    job_id = _job_from_upload(s1, ONE_COLOUR, [{'source_slot': 1, 'target_slot': 2}])
+    with s1.engine.begin() as c:
+        c.execute(text('UPDATE print_files SET filaments_json=:materials,filament_weight_grams=:weight'), {'materials': json.dumps(materials), 'weight': weight})
+        if len(materials) > 1:
+            c.execute(text("UPDATE jobs SET ams_mapping='[1,2]' WHERE id=:id"), {'id': job_id})
+    assert _monitor_deduct(s1, monkeypatch, job_id, None) is None
+    assert _weights(s1) == [100, 100, 100]
+    assert _audits(s1)[0]['consumption'][0]['reason'] == 'unknown_material_quantity'
+
+
+def test_monitor_flags_reconciliation_when_the_attempt_already_holds_job_usage(s1, monkeypatch):
+    """Same outcome as the generic path: the ledger refuses, and a durable flag says why."""
+    from core.filament_ledger import record_job_filament
+    from core.print_attempts import sqlalchemy_runner
+    job_id = _job_from_upload(s1, ONE_COLOUR, [{'source_slot': 1, 'target_slot': 2}])
+    with s1.engine.begin() as c:
+        record_job_filament(sqlalchemy_runner(c), job_id, source='operator_complete', grams_by_spool={902: 5.0}, notes='earlier')
+    outcome = _monitor_deduct(s1, monkeypatch, job_id, 25.0)
+    assert outcome.unattributed
+    assert _weights(s1) == [100, 95, 100]
+    with s1.engine.connect() as c:
+        flags = c.execute(text("SELECT key FROM system_config WHERE key LIKE '%:reconcile:print:%'")).scalars().all()
+    assert len(flags) == 1
+
+
+# ---- The monitor and the archive agree. ----
+
+def test_two_colour_completed_print_is_charged_once_and_its_archive_says_accounted(s1, monkeypatch):
+    from contextlib import contextmanager
+    from core.db_utils import _ConnectionAdapter
+    from core.monitor_bootstrap import bootstrap_monitor_authority
+    from modules.archives import archive
+    from modules.printers.adapters import moonraker
+    from modules.printers.monitors import moonraker_monitor
+    bootstrap_monitor_authority()
+    @contextmanager
+    def database():
+        raw = s1.engine.raw_connection()
+        try:
+            yield _ConnectionAdapter(raw, False)
+        finally:
+            raw.close()
+    monkeypatch.setattr(archive, 'get_db', database)
+    monkeypatch.setattr(moonraker_monitor, 'engine', s1.engine)
+    uploaded = s1.upload(TWO_COLOUR)
+    _bind_spools(s1)
+    mapping = [{'source_slot': 1, 'target_slot': 3}, {'source_slot': 2, 'target_slot': 2}]
+    assert _schedule(s1, uploaded, 'print-files', dict(ams_mapping=mapping)).status_code == 200
+    _, started = _start_next(s1)
+    assert started.json()['state'] == 'dispatched', started.json()
+    device = SimpleNamespace(state='printing', used=100)
+    name = next(iter(s1.device.files))
+    def query(self, path, timeout=5):
+        if path.startswith('/server/history'):
+            return {'result': {'jobs': []}}
+        return {'result': {'status': dict(print_stats=dict(state=device.state, filename=name, filament_used=device.used, print_duration=100),
+                                          webhooks=dict(state='ready'), filament_hub=HUB)}}
+    monkeypatch.setattr(moonraker.MoonrakerPrinter, '_get', query)
+    monitor = moonraker_monitor.MoonrakerMonitor(59, 'S1', '127.0.0.1', model='Kobra S1')
+    monitor._process_status(monitor.printer.get_status())
+    # Klipper measures one total, far from the sliced 5.1 g, so it can't be distributed.
+    device.state, device.used = 'complete', 3000
+    monitor._process_status(monitor.printer.get_status())
+    assert _weights(s1) == pytest.approx([100, 97.84, 97.06])
+    with s1.engine.connect() as c:
+        assert c.execute(text('SELECT accounting_state,accounting_reason FROM print_archives')).one() == ('accounted', 'attempt_already_accounted')
+        assert c.execute(text('SELECT COUNT(*) FROM spool_usage')).scalar_one() == 2
+
+
+# ---- An unstartable job at the head of the queue says why. ----
+
+@pytest.mark.parametrize('setup,words', [
+    pytest.param('no_mapping', 'Choose an ACE slot', id='no_mapping'),
+    pytest.param('flagged', 'Feed fault', id='mapped_slot_flagged'),
+    pytest.param('file_gone', 'Payload cannot be read', id='file_gone'),
+])
+def test_an_unstartable_s1_job_says_why_it_blocks_the_queue(s1, setup, words):
+    uploaded = s1.upload(ONE_COLOUR)
+    mapping = None if setup == 'no_mapping' else [{'source_slot': 1, 'target_slot': 2}]
+    made = _schedule(s1, uploaded, 'print-files', {} if mapping is None else dict(ams_mapping=mapping))
+    assert made.status_code == 200, made.text
+    with s1.engine.begin() as c:
+        if setup == 'flagged':
+            c.execute(text("UPDATE filament_slots SET do_not_feed=TRUE,do_not_feed_note='Feed fault' WHERE printer_id=59 AND slot_number=2"))
+        elif setup == 'file_gone':
+            Path(c.execute(text('SELECT stored_path FROM print_files WHERE id=:id'), {'id': uploaded['id']}).scalar_one()).unlink()
+    body = s1.client.get('/api/printers/59/next-suggestion', headers=s1.auth()).json()
+    assert body['job_id'] == made.json()['job_id']
+    assert words in body['reason'] and 'hold it to start later jobs' in body['reason']
+
+
+def test_a_startable_s1_job_keeps_the_ordinary_reason(s1):
+    uploaded = s1.upload(ONE_COLOUR)
+    assert _schedule(s1, uploaded, 'print-files', dict(ams_mapping=[{'source_slot': 1, 'target_slot': 2}])).status_code == 200
+    assert s1.client.get('/api/printers/59/next-suggestion', headers=s1.auth()).json()['reason'] == 'Scheduler queue order'
 

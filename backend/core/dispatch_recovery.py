@@ -107,9 +107,10 @@ def telemetry(db, evidence):
     except (ValueError,TypeError):
         return 'status_unavailable'
     state = str(p.get('gcode_state') or '').upper()
-    if state in ('RUNNING','PRINTING','PAUSE','PAUSED','PREPARE','PREPARING'):
+    # Moonraker's raw states arrive upper-cased, including the S1's own prep and pause states.
+    if state in ('RUNNING','PRINTING','PAUSE','PAUSED','PREPARE','PREPARING','LEVELING','HEATING','ONPAUSE'):
         return 'active_observation'
-    if state not in ('IDLE','FINISH','FINISHED','COMPLETED','FAILED','CANCELLED','READY','STANDBY'):
+    if state not in ('IDLE','FINISH','FINISHED','COMPLETED','COMPLETE','FAILED','ERROR','CANCELLED','READY','STANDBY'):
         return 'status_unavailable'
     if any(str(j['status']).lower() in ('printing','running','paused') for j in evidence['target_jobs']):
         return 'active_observation'

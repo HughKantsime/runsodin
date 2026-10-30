@@ -266,6 +266,12 @@ def next_suggestion(db, printer, *, visible=None, at=None):
         'configuration_key': config, 'finished_attempt_uid': finished_identity}).encode()).hexdigest()
     if not finished_identity or not config:
         fingerprint = None
+    if is_kobra_s1(printer):
+        from modules.printers.services import s1_start_problem
+        problem = s1_start_problem(db, job)
+        if problem:
+            # It stays the suggestion, so say why nothing after it can start either.
+            reason = f"Job {job.id} can't start: {problem}. Fix it, or hold it to start later jobs."
     return {'job_id': job.id, 'reason': reason, 'filament': filament, 'load': changes,
             'fingerprint': fingerprint, 'finished_attempt_uid': finished['economic_uid'] if finished else None,
             'inputs': {'computed_at': at.isoformat(), 'job_updated_at': str(job.updated_at), 'material': facts, 'stock': stock_inputs, 'order_created_at': order_created_at}}

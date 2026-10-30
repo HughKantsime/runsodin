@@ -76,6 +76,29 @@ def test_release_uses_passive_fresh_current_telemetry(actions,review_db,change,c
     assert review_db.execute(text('SELECT count(*) FROM printer_dispatch_claims')).scalar_one()==1
 
 
+@pytest.mark.parametrize('state',['COMPLETE','ERROR','STANDBY','CANCELLED'])
+def test_release_accepts_moonraker_raw_terminal_states(actions,review_db,state):
+    """The Moonraker monitor stores print_stats.state upper-cased, and a finished print rests here."""
+    *_,inspect,post=actions
+    assert post('hold').status_code==200
+    review_db.execute(text('UPDATE printers SET gcode_state=:state WHERE id=299'),{'state':state});review_db.commit()
+    released=post('release',inspect())
+    assert released.status_code==200,released.text
+    assert released.json()['outcome']=='released'
+    assert review_db.execute(text('SELECT count(*) FROM printer_dispatch_claims WHERE printer_id=299')).scalar_one()==0
+
+
+@pytest.mark.parametrize('state',['PRINTING','PAUSED','LEVELING','HEATING','ONPAUSE'])
+def test_release_treats_moonraker_and_s1_busy_states_as_active(actions,review_db,state):
+    *_,inspect,post=actions
+    assert post('hold').status_code==200
+    review_db.execute(text('UPDATE printers SET gcode_state=:state WHERE id=299'),{'state':state});review_db.commit()
+    response=post('release')
+    assert response.status_code==409,response.text
+    assert response.json()['detail']['code']=='active_observation'
+    assert review_db.execute(text('SELECT count(*) FROM printer_dispatch_claims WHERE printer_id=299')).scalar_one()==1
+
+
 def test_stale_snapshot_terminal_and_replacement_refuse(actions,review_db):
     *_,inspect,post=actions
     assert post('hold').status_code==200
