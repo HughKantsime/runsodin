@@ -214,13 +214,74 @@ class MoonrakerMonitor:
             tracked = self._current_job_db_id
             filename = self._last_filename
             terminal = self._prev_state in ('RUNNING', 'PAUSE') and status.internal_state in ('IDLE', 'FAILED')
+            # First look after a restart or reconnect, and the print is already over.
+            ended_unwatched = (getattr(status, 'raw_print_state', None) in ('complete', 'cancelled', 'error')
+                               and self._prev_state is None and not tracked and bool(status.filename))
         # Network I/O (adapter timeout 5s) holds neither status lock nor DB transaction.
         from modules.printers.monitors.moonraker_history import terminal_history
         history = terminal_history(self.printer, filename, time.time()) if terminal and tracked else None
+        if ended_unwatched:
+            history = self._unwatched_end_history(status)
         with self._status_lock:
             if self._retired or self._current_job_db_id != tracked:
                 return
+            retry = ended_unwatched and not self._adopt_unwatched_end(status, history)
             self._process_status_locked(status, history=history)
+            if retry:
+                self._prev_state = None
+
+    def _unwatched_end_history(self, status):
+        """History for the one running row a first-seen end could belong to, if any."""
+        from modules.printers.monitors.moonraker_history import terminal_history
+        try:
+            with engine.connect() as conn:
+                rows = conn.execute(text("SELECT started_at FROM print_jobs WHERE printer_id=:pid AND status='running' "
+                                         "AND (filename=:name OR job_name=:name) LIMIT 2"),
+                                    {'pid': self.printer_id, 'name': status.filename}).all()
+            if len(rows) != 1:
+                return None
+            return terminal_history(self.printer, status.filename, time.time(),
+                                    row_started_at=as_utc_datetime(rows[0][0]).timestamp())
+        except Exception:
+            return None  # History is optional; the raw state still names the outcome.
+
+    def _adopt_unwatched_end(self, status, history):
+        """Track the one row a first-seen end belongs to, so the live end branch closes it.
+
+        Physical-resume identity rules. Inserts nothing and closes nothing else.
+        False only when the lookup itself failed: the next poll tries again.
+        """
+        from core.dispatch_observations import generic_observation_reserved, prepare_generic_observation
+        from core.interfaces.education_policy import is_education_reserved_filename
+        from core.physical_print import same_physical_print
+        filename = status.filename
+        if is_education_reserved_filename(filename):
+            return True
+        try:
+            with engine.begin() as conn:
+                if generic_observation_reserved(conn, printer_id=self.printer_id, observed_filename=filename):
+                    identifier = prepare_generic_observation(conn, printer_id=self.printer_id, observed_filename=filename)
+                else:
+                    rows = conn.execute(text("SELECT p.id,p.filename,p.job_name,p.started_at FROM print_jobs p "
+                                             "WHERE p.printer_id=:pid AND p.status='running' "
+                                             "AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=p.scheduled_job_id)"),
+                                        {'pid': self.printer_id}).mappings().all()
+                    # A matched history entry already placed the row inside that print. Without
+                    # one, the row's age when ODIN last saw this printer must fit inside the print.
+                    last_seen = conn.execute(text('SELECT last_seen FROM printers WHERE id=:pid'), {'pid': self.printer_id}).scalar_one_or_none()
+                    elapsed = None if history else getattr(status, 'total_duration', None)
+                    plausible = [row for row in rows if same_physical_print(
+                        row, filename, elapsed, now=as_utc_datetime(last_seen) if last_seen else None)]
+                    identifier = plausible[0]['id'] if len(plausible) == 1 else None
+        except Exception as failure:
+            log.warning("[%s] First-seen print end lookup failed (%s)", self.name, type(failure).__name__)
+            return False
+        if identifier is not None:
+            self._current_job_db_id = identifier
+            self._last_filename = filename
+            self._prev_state = 'RUNNING'
+            log.info(f"[{self.name}] Print {identifier} ended while unwatched")
+        return True
 
     def _process_status_locked(self, status, *, history=None):
         """Process a status update — detect state changes, track jobs."""

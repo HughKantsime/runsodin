@@ -6,7 +6,11 @@ TERMINAL = {'completed': 'completed', 'cancelled': 'cancelled', 'error': 'failed
             'klippy_shutdown': 'failed', 'klippy_disconnect': 'failed', 'interrupted': 'failed'}
 
 
-def terminal_history(printer, filename, observed_end):
+def terminal_history(printer, filename, observed_end, *, row_started_at=None):
+    """The one job that ended now, or, given a row's start, the one job that row watched.
+
+    An end first seen after downtime can be any age, so only its row can place it.
+    """
     try:
         candidates = []
         for job in printer.get_job_history(limit=20):
@@ -19,7 +23,9 @@ def terminal_history(printer, filename, observed_end):
                 duration = job.get('total_duration')
             duration = float(duration)
             if (not all(math.isfinite(v) for v in (start, end, duration))
-                    or start > end or duration < 0 or abs(observed_end - end) > 300):
+                    or start > end or duration < 0):
+                continue
+            if abs(observed_end - end) > 300 if row_started_at is None else not start - 120 <= row_started_at <= end:
                 continue
             candidates.append({'status': TERMINAL[job['status']],
                 'started_at': datetime.fromtimestamp(start, timezone.utc).isoformat(),

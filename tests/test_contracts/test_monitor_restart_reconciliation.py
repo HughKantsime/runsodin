@@ -1,5 +1,6 @@
 """Prints that end while no monitor is watching, through the real monitor paths."""
 import time
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -448,3 +449,247 @@ def test_durable_terminal_intent_is_claimed_once(owned_bambu, order, state, erro
         assert conn.execute(text("SELECT count(*) FROM alert_outbox WHERE alert_kind LIKE 'terminal:%'")).scalar_one() == 1
         assert conn.execute(text('SELECT count(*) FROM printer_dispatch_claims')).scalar_one() == 0
         assert conn.execute(text('SELECT count(*) FROM print_jobs')).scalar_one() == 1
+
+
+# ---------------------------------------------------------------- gap 2: Moonraker
+def moonraker_status(raw_state, filename='part.gcode', total=3600.0):
+    """Exactly what the adapter hands the monitor for this print_stats object."""
+    from modules.printers.adapters.moonraker import MoonrakerState, MoonrakerStatus
+    from modules.printers.parsing.moonraker import parse_status
+    status = MoonrakerStatus()
+    for name, value in parse_status({'print_stats': {'state': raw_state, 'filename': filename, 'total_duration': total,
+                                                     'print_duration': total, 'filament_used': 0.0}}).items():
+        if name == 'state':
+            status.state = MoonrakerState(value)
+        elif hasattr(status, name):
+            setattr(status, name, value)
+    return status
+
+
+def ago(seconds):
+    return (datetime.now(timezone.utc) - timedelta(seconds=seconds)).strftime('%Y-%m-%d %H:%M:%S')
+
+
+@pytest.fixture
+def moonraker(review_db, tmp_path, monkeypatch):
+    from core import event_bus, events, job_timeline
+    from modules.archives import archive
+    from modules.notifications import event_dispatcher
+    from modules.printers import dispatch
+    from modules.printers.monitors import moonraker_monitor as module
+    from tests.test_contracts.test_dispatch_real_monitor_correlation import configure_dispatch
+    engine, _ = configure_dispatch(review_db, tmp_path, monkeypatch, protocol='moonraker')
+    monkeypatch.setattr(module, 'engine', engine)
+    seen = SimpleNamespace(alerts=[], timeline=[], archive=[], completed=[], care=[], errors=[])
+    event_bus.get_event_bus().subscribe(events.JOB_COMPLETED, lambda event: seen.completed.append(event))
+    monkeypatch.setattr(event_dispatcher, 'dispatch_alert', lambda **kw: seen.alerts.append(kw['alert_type']))
+    monkeypatch.setattr(event_dispatcher, 'record_error', lambda **kw: seen.errors.append(kw))
+    monkeypatch.setattr(event_dispatcher, 'increment_care_counters', lambda *a: seen.care.append(a))
+    monkeypatch.setattr(job_timeline, 'enqueue', lambda item: seen.timeline.append(item['kind']))
+    monkeypatch.setattr(archive, 'create_print_archive', lambda **kw: seen.archive.append(kw))
+    monkeypatch.setattr(module.MoonrakerMonitor, '_try_dispatch', lambda self: None)
+    monkeypatch.setattr(module.MoonrakerMonitor, '_try_auto_link', lambda self, *a: None)
+
+    def monitor(history=None):
+        result = module.MoonrakerMonitor(59, 'Synthetic', '127.0.0.1')
+        result.printer = SimpleNamespace(get_job_history=lambda limit: history or [])
+        result._last_heartbeat = time.time()
+        return result
+
+    def row(name='part.gcode', started=3600, job=None):
+        with engine.begin() as conn:
+            return conn.execute(text("INSERT INTO print_jobs(printer_id,filename,job_name,status,started_at,scheduled_job_id) "
+                                     "VALUES(59,:name,:name,'running',:start,:job) RETURNING id"),
+                                {'name': name, 'start': ago(started), 'job': job}).scalar_one()
+
+    def state(identifier):
+        with engine.connect() as conn:
+            return conn.execute(text('SELECT status,ended_at FROM print_jobs WHERE id=:id'), {'id': identifier}).one()
+
+    def seen_printer(seconds):
+        with engine.begin() as conn:
+            conn.execute(text('UPDATE printers SET last_seen=:at WHERE id=59'), {'at': ago(seconds)})
+
+    return SimpleNamespace(engine=engine, monitor=monitor, row=row, state=state, seen=seen, dispatch=dispatch, seen_printer=seen_printer)
+
+
+def running_row_count(case):
+    with case.engine.connect() as conn:
+        return conn.execute(text("SELECT count(*) FROM print_jobs WHERE status='running'")).scalar_one()
+
+
+MOONRAKER_OUTCOMES = [('complete', 'completed'), ('cancelled', 'cancelled'), ('error', 'failed')]
+
+
+@pytest.mark.parametrize('raw,expected', MOONRAKER_OUTCOMES)
+def test_moonraker_end_without_history_closes_its_row_once(moonraker, raw, expected):
+    case = moonraker
+    identifier = case.row(job=53)
+    case.seen_printer(120)  # Two minutes unwatched: older than the resume rule's own tolerance.
+    monitor = case.monitor()
+    status = moonraker_status(raw)
+    monitor._process_status(status)
+    monitor._process_status(status)
+    assert case.state(identifier)[0] == expected
+    with case.engine.connect() as conn:
+        assert conn.execute(text('SELECT status FROM jobs WHERE id=53')).scalar_one() == expected
+        assert conn.execute(text('SELECT count(*) FROM print_jobs')).scalar_one() == 1
+    assert monitor._current_job_db_id is None and monitor._prev_state != 'RUNNING'
+    assert len(case.seen.alerts) == 1 and len(case.seen.archive) == 1
+    assert [kind for kind in case.seen.timeline if kind in ('completed', 'failed', 'cancelled')] == [expected]
+    assert len(case.seen.completed) == len(case.seen.care) == int(expected == 'completed')
+
+
+@pytest.mark.parametrize('raw,recorded,expected', [
+    ('complete', 'completed', 'completed'), ('cancelled', 'cancelled', 'cancelled'), ('error', 'error', 'failed'),
+    ('complete', 'cancelled', 'cancelled'),  # The recorded truth outranks the state.
+])
+def test_moonraker_history_supplies_truth_long_after_the_end(moonraker, raw, recorded, expected):
+    # Ended two hours before the first look: far outside the live end's +/-300 s.
+    case = moonraker
+    identifier = case.row(started=3 * 3600)
+    start = time.time() - 3 * 3600
+    end = time.time() - 2 * 3600
+    monitor = case.monitor(history=[dict(filename='part.gcode', status=recorded, start_time=start, end_time=end, print_duration=3500)])
+    monitor._process_status(moonraker_status(raw, total=3600))
+    status, ended = case.state(identifier)
+    assert status == expected
+    assert ended == datetime.fromtimestamp(end, timezone.utc).isoformat()
+
+
+def test_moonraker_history_of_another_print_does_not_decide(moonraker):
+    # The only recorded job started after this row: it cannot be the job this row watched.
+    case = moonraker
+    identifier = case.row(started=1800)
+    case.seen_printer(60)
+    start = time.time() - 600
+    monitor = case.monitor(history=[dict(filename='part.gcode', status='cancelled', start_time=start, end_time=time.time() - 300, print_duration=300)])
+    monitor._process_status(moonraker_status('complete', total=3600))
+    status, ended = case.state(identifier)
+    assert status == 'completed'
+    assert ended != datetime.fromtimestamp(start, timezone.utc).isoformat()
+
+
+@pytest.mark.parametrize('raw', ['standby', 'ready'])
+def test_moonraker_unknown_outcome_is_not_guessed(moonraker, raw):
+    case = moonraker
+    identifier = case.row()
+    case.seen_printer(60)
+    case.monitor()._process_status(moonraker_status(raw, filename=''))
+    assert case.state(identifier)[0] == 'running'  # True outcome unknown: an open owner decision.
+
+
+@pytest.mark.parametrize('case_name', ['other_name', 'no_name', 'two_rows', 'older_than_print', 'education_name', 'education_row'])
+def test_moonraker_unproven_identity_changes_nothing(moonraker, case_name):
+    case = moonraker
+    name = {'other_name': 'another.gcode', 'no_name': '', 'education_name': 'odin-' + 'a' * 32 + '.gcode'}.get(case_name, 'part.gcode')
+    identifier = case.row(name=name if case_name == 'education_name' else 'part.gcode',
+                          started=3 * 86400 if case_name == 'older_than_print' else 3600,
+                          job=53 if case_name == 'education_row' else None)
+    if case_name == 'two_rows':
+        case.row()
+    if case_name == 'education_row':
+        with case.engine.begin() as conn:
+            conn.execute(text('UPDATE education_submissions SET job_id=53 WHERE id=(SELECT MIN(id) FROM education_submissions)'))
+    case.seen_printer(60)
+    with case.engine.connect() as conn:
+        before = conn.execute(text('SELECT count(*) FROM print_jobs')).scalar_one()
+    monitor = case.monitor()
+    monitor._process_status(moonraker_status('complete', filename=name, total=3600))
+    assert case.state(identifier)[0] == 'running'
+    assert monitor._current_job_db_id is None
+    assert case.seen.alerts == [] and case.seen.archive == []
+    with case.engine.connect() as conn:
+        assert conn.execute(text('SELECT count(*) FROM print_jobs')).scalar_one() == before
+
+
+def test_moonraker_network_reconnect_closes_the_end(moonraker):
+    case = moonraker
+    identifier = case.row()
+    case.seen_printer(300)
+    monitor = case.monitor()
+    monitor._current_job_db_id = identifier
+    monitor._last_filename = 'part.gcode'
+    monitor._prev_state = 'RUNNING'
+    monitor._recover_after_reconnect()  # As _handle_disconnect does after any network drop.
+    monitor._process_status(moonraker_status('error'))
+    assert case.state(identifier)[0] == 'failed'
+    assert monitor._current_job_db_id is None
+
+
+def test_moonraker_failed_lookup_retries_on_the_next_poll(moonraker, monkeypatch):
+    from core import dispatch_observations
+    case = moonraker
+    identifier = case.row()
+    case.seen_printer(60)
+    monitor = case.monitor()
+    reserved = dispatch_observations.generic_observation_reserved
+    monkeypatch.setattr(dispatch_observations, 'generic_observation_reserved', lambda *a, **kw: (_ for _ in ()).throw(RuntimeError('synthetic')))
+    monitor._process_status(moonraker_status('complete'))
+    assert case.state(identifier)[0] == 'running'
+    assert monitor._prev_state is None
+    monkeypatch.setattr(dispatch_observations, 'generic_observation_reserved', reserved)
+    monitor._process_status(moonraker_status('complete'))
+    assert case.state(identifier)[0] == 'completed'
+
+
+def test_moonraker_history_fetch_holds_no_lock(moonraker):
+    case = moonraker
+    case.row()
+    monitor = case.monitor()
+    fetched = []
+    def history(limit):
+        fetched.append(monitor._status_lock._is_owned())
+        return []
+    monitor.printer = SimpleNamespace(get_job_history=history)
+    monitor._process_status(moonraker_status('complete'))
+    assert fetched == [False]
+
+
+@pytest.fixture
+def dispatched_moonraker(moonraker, monkeypatch):
+    case = moonraker
+    names = []
+    monkeypatch.setattr(case.dispatch, '_dispatch_moonraker', lambda jid, path, name, creds, **kw: (names.append(name) or True, 'Synthetic accepted'))
+    assert case.dispatch.dispatch_job(59, 53)[0]
+    started = case.monitor()
+    started._job_started(moonraker_status('printing', filename=names[0], total=1))
+    case.identifier = started._current_job_db_id
+    case.name = names[0]
+    assert case.identifier
+    return case
+
+
+@pytest.mark.parametrize('raw,expected', MOONRAKER_OUTCOMES)
+def test_moonraker_dispatched_end_retires_the_claim_and_dispatches_again(dispatched_moonraker, raw, expected):
+    case = dispatched_moonraker
+    case.seen_printer(60)
+    monitor = case.monitor()
+    monitor._process_status(moonraker_status(raw, filename=case.name, total=60))
+    assert case.state(case.identifier)[0] == expected
+    with case.engine.connect() as conn:
+        assert conn.execute(text('SELECT status FROM jobs WHERE id=53')).scalar_one() == expected
+        assert conn.execute(text('SELECT count(*) FROM printer_dispatch_claims')).scalar_one() == 0
+        assert conn.execute(text('SELECT count(*) FROM print_jobs')).scalar_one() == 1
+    assert case.dispatch.dispatch_job(59, 54)[0]
+
+
+@pytest.mark.parametrize('name,mutation', [
+    ('another.gcode', None),
+    ('odin-dispatch-' + 'f' * 32 + '.gcode', None),
+    (None, "UPDATE printers SET api_host='changed.example.test' WHERE id=59"),
+    (None, "UPDATE printer_dispatch_claims SET state='preparing' WHERE printer_id=59"),
+], ids=['unrelated', 'other_reserved', 'changed_printer', 'changed_claim'])
+def test_moonraker_dispatched_end_follows_the_receipt_rules(dispatched_moonraker, name, mutation):
+    case = dispatched_moonraker
+    if mutation:
+        with case.engine.begin() as conn:
+            conn.execute(text(mutation))
+    case.seen_printer(60)
+    monitor = case.monitor()
+    monitor._process_status(moonraker_status('complete', filename=name or case.name, total=60))
+    assert case.state(case.identifier)[0] == 'running'
+    with case.engine.connect() as conn:
+        assert conn.execute(text('SELECT count(*) FROM printer_dispatch_claims')).scalar_one() == 1
+        assert conn.execute(text('SELECT count(*) FROM print_jobs')).scalar_one() == 1
+    assert monitor._current_job_db_id is None
