@@ -89,7 +89,7 @@ export const printFiles = {
   list: (): Promise<PrintFile[]> => fetchAPI('/print-files'),
   get: (id: number, printerId?: number): Promise<PrintFile> => fetchAPI(`/print-files/${id}${printerId ? `?printer_id=${printerId}` : ""}`),
   delete: (id: number): Promise<void> => fetchAPI(`/print-files/${id}`, { method: 'DELETE' }),
-  schedule: (fileId: number, printerId?: number, options?: { ams_mapping?: import("../types/archive").AmsMapping }): Promise<Job> => {
+  schedule: (fileId: number, printerId?: number, options?: { ams_mapping?: import("../types/archive").AmsMapping; hold?: boolean }): Promise<Job> => {
     const url = printerId
       ? `/print-files/${fileId}/schedule?printer_id=${printerId}`
       : `/print-files/${fileId}/schedule`

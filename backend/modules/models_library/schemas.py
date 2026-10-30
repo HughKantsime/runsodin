@@ -14,6 +14,8 @@ from core.base import FilamentType
 class FileScheduleOptions(BaseModel):
     model_config = ConfigDict(extra="forbid")
     ams_mapping: Optional[list[dict]] = None
+    # Create the job already held, so it is never pending and dispatchable unheld.
+    hold: bool = Field(default=False, strict=True)
 
 
 class ModelScheduleOptions(FileScheduleOptions):

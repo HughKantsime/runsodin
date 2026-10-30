@@ -134,7 +134,7 @@ def delete_generic_file(db, file_id, actor):
         raise HTTPException(500, 'Unable to delete print file. Refresh before retrying.') from None
 
 
-def schedule_generic_file(db, file_id, printer_id, actor, ams_mapping=None):
+def schedule_generic_file(db, file_id, printer_id, actor, ams_mapping=None, hold=False):
     from core.interfaces.queue_creation import require_queue_creation_provider
     queue_creator = require_queue_creation_provider()
     try:
@@ -183,7 +183,7 @@ def schedule_generic_file(db, file_id, printer_id, actor, ams_mapping=None):
             "colors_required": ','.join(f['color'] for f in filaments if f.get('color')),
             "quantity": 1, "priority": 5, "status": "pending", "printer_id": printer_id,
             **({"target_type": "specific", "target_filter": str(printer_id)} if printer_id is not None else {}),
-            "hold": False, "is_locked": False, "submitted_by": actor['id'],
+            "hold": hold, "is_locked": False, "submitted_by": actor['id'],
             "charged_to_user_id": actor['id'], "charged_to_org_id": actor.get('group_id'),
         }, actor)
         job_id = job.id
@@ -219,10 +219,10 @@ def schedule_generic_file(db, file_id, printer_id, actor, ams_mapping=None):
              'printer_org': target.org_id if target else None, 'shared': target.shared if target else None})
         if linked.rowcount != 1:
             raise HTTPException(409, 'Print file changed; refresh before scheduling')
-        log_audit(db, 'print_file.scheduled', 'print_file', file_id, {'job_id': job_id})
+        log_audit(db, 'print_file.scheduled', 'print_file', file_id, {'job_id': job_id, **({'hold': True} if hold else {})})
         db.flush()
         db.commit()
-        return {'job_id': job_id, 'file_id': file_id, 'project_name': row.project_name, 'status': 'pending'}
+        return {'job_id': job_id, 'file_id': file_id, 'project_name': row.project_name, 'status': 'pending', 'hold': hold}
     except (HTTPException, OdinError):
         _rollback_file_transaction(db, file_id)
         raise

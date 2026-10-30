@@ -664,7 +664,8 @@ def delete_print_file(file_id: int, current_user: dict = Depends(require_action(
 def schedule_print_file(file_id: int, printer_id: Optional[int] = None, options: Optional[FileScheduleOptions] = None,
                         current_user: dict = Depends(require_action("upload.schedule", scope="write:jobs")), db: Session = Depends(get_db)):
     from modules.models_library.file_management import schedule_generic_file
-    return schedule_generic_file(db, file_id, printer_id, current_user, options.ams_mapping if options else None)
+    return schedule_generic_file(db, file_id, printer_id, current_user, options.ams_mapping if options else None,
+                                 hold=options.hold if options else False)
 
 # ──────────────────────────────────────────────
 # Mesh / 3D Viewer

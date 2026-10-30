@@ -347,7 +347,7 @@ def schedule_from_model(
         **({"target_type": "specific", "target_filter": str(printer_id)} if printer_id is not None else {}),
         "charged_to_user_id": current_user.get("id"), "charged_to_org_id": current_user.get("group_id"),
         "submitted_by": current_user.get("id"), "status": "submitted" if submission else "pending",
-        "hold": False, "is_locked": False,
+        "hold": opts.hold, "is_locked": False,
     }
     job = queue_creator.stage_values(db, values, current_user)
     job_id = job.id
@@ -369,6 +369,7 @@ def schedule_from_model(
         "model_id": model.id,
         "model_name": model.name,
         "status": "submitted" if submission else "pending",
+        "hold": opts.hold,
         # model = plate 1 / model-level numbers; selected_plate = that plate's numbers;
         # plate_unknown = the 3MF records no grams/time for that plate (estimate left empty).
         "estimate_basis": estimate_basis,

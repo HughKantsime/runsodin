@@ -7,6 +7,7 @@ const API_BASE = '/api'
 
 export interface ModelScheduleOptions {
   ams_mapping?: import("../types/archive").AmsMapping;
+  hold?: boolean;
   quantity?: number;
   priority?: number;
   due_date?: string | null;
