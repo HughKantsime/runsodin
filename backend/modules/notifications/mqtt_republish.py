@@ -32,7 +32,11 @@ log = logging.getLogger("mqtt_republish")
 
 # Lazy-loaded paho client
 _client = None
+_client_started = 0.0
 _client_lock = threading.Lock()
+# A new client is not connected until the broker's CONNACK arrives; retiring it
+# during that window would drop whatever was just published.
+_CONNECT_GRACE_SECONDS = 5
 _config_cache = None
 _config_ts = 0
 CONFIG_TTL = 30  # seconds — reload config every 30s
@@ -168,7 +172,7 @@ def _stop_client(client):
 
 def _get_client():
     """Get or create MQTT client for external broker."""
-    global _client
+    global _client, _client_started
 
     config = _get_config()
     if not config:
@@ -177,7 +181,7 @@ def _get_client():
     with _client_lock:
         if _client is not None:
             try:
-                if _client.is_connected():
+                if _client.is_connected() or time.monotonic() - _client_started < _CONNECT_GRACE_SECONDS:
                     return _client
             except Exception as e:
                 log.debug("MQTT client connection check failed")
@@ -213,6 +217,7 @@ def _get_client():
                 raise RuntimeError("MQTT network loop failed to start")
 
             _client = client
+            _client_started = time.monotonic()
             log.info(f"Connected to external MQTT broker: {config['host']}:{config['port']}")
             return _client
 
@@ -360,9 +365,18 @@ def test_connection(host: str, port: int, username: str = "", password: str = ""
         from core.itar import enforce_host_destination
         enforce_host_destination(host, scheme="mqtt")
 
+        # connect() only opens the socket; the broker answers in CONNACK.
+        answered = threading.Event()
+        outcome = {}
+        def on_connect(_client_, _userdata, _flags, reason_code, _properties=None):
+            outcome["refused"] = reason_code.is_failure
+            answered.set()
+        client.on_connect = on_connect
         if client.connect(host, port, keepalive=10) != mqtt.MQTT_ERR_SUCCESS:
             return {"success": False, "message": "MQTT connection could not be established"}
         client.loop_start()
+        if not answered.wait(timeout=5) or outcome["refused"]:
+            return {"success": False, "message": "MQTT broker refused the connection"}
 
         # Publish a test message
         topic = f"{topic_prefix.rstrip('/')}/test"

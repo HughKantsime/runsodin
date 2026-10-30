@@ -102,7 +102,9 @@ def test_diagnostic_truth_and_cleanup_use_actual_paho_message_state(republisher,
             calls.append('connect')
             if outcome=='connect_failure':raise RuntimeError('Synthetic failure')
             return mqtt.MQTT_ERR_NO_CONN if outcome=='connect_rc' else 0
-        def loop_start(self):calls.append('start')
+        def loop_start(self):
+            calls.append('start')
+            self.on_connect(self,None,None,mqtt.ReasonCode(mqtt.PacketTypes.CONNACK,identifier=0))
         def publish(self,*a,**k):
             calls.append('publish')
             if outcome=='publish_failure':raise RuntimeError('Synthetic failure')
@@ -225,3 +227,22 @@ def test_disabled_republish_skips_alert_scope_and_job_lookups(republisher, monke
     republisher._on_alert_dispatched(SimpleNamespace(data={"alert_type": "job_submitted", "job_id": 1}))
     republisher._on_job_event(SimpleNamespace(event_type="job.completed", data={"printer_id": 9}))
     assert published == []
+
+
+def test_client_awaiting_connack_is_not_retired(configured, monkeypatch):
+    import time
+    calls = []
+    class Connecting:
+        def is_connected(self): return False
+        def loop_stop(self): calls.append('stop')
+        def disconnect(self): calls.append('disconnect')
+    client = Connecting()
+    monkeypatch.setattr(configured, '_client', client)
+    monkeypatch.setattr(configured, '_client_started', time.monotonic())
+    assert configured._get_client() is client and calls == []
+    monkeypatch.setattr(configured, '_client_started', time.monotonic() - configured._CONNECT_GRACE_SECONDS - 1)
+    import paho.mqtt.client as mqtt
+    from core import itar
+    monkeypatch.setattr(mqtt, 'Client', lambda *a, **k: (_ for _ in ()).throw(RuntimeError('synthetic-noncredential')))
+    monkeypatch.setattr(itar, 'enforce_host_destination', lambda *a, **k: None)
+    assert configured._get_client() is None and calls == ['stop', 'disconnect']
