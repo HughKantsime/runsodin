@@ -26,6 +26,14 @@ it('partial mappings distinguish unknown mapping from an empty spool',()=>{
  expect(screen.getByRole('status')).toHaveTextContent('Some slots could not be matched or read from Filament Ledger.')
  expect(within(screen.getByLabelText('Tool 2')).getByText('Unmapped')).toBeInTheDocument();expect(screen.queryByText('Empty')).not.toBeInTheDocument()
 })
+it('keeps Ledger material within two lines and preset within one with full titles', () => {
+ const material = 'Support for PLA and PETG with a very long material name'
+ const preset = 'BambuPETGVeryLongUnbrokenPresetNameForNarrowCards'
+ setup({ filament_source: 'filament-ledger', filament_source_status: 'fresh', filament_slots: [{ ...localSlot, display_name: 'Tool 1', mapping_status: 'mapped', material_type: material, preset }] })
+ expect(screen.getByTitle(material)).toHaveClass('line-clamp-2', '[overflow-wrap:anywhere]')
+ expect(screen.getByTitle(`preset: ${preset}`)).toHaveClass('truncate', 'overflow-hidden', 'min-w-0')
+ expect(screen.getByTitle(`preset: ${preset}`)).not.toHaveClass('line-clamp-2')
+})
 it('Ledger outage reports unavailable and offers no local assignment tools',()=>{
  setup({filament_source:'filament-ledger',filament_source_status:'unavailable',filament_slots:[{...localSlot,display_name:'Tool 3',mapping_status:'unavailable',color_hex:null,material_type:null,remaining:null}]})
  expect(screen.getByRole('status')).toHaveTextContent('Filament Ledger is unavailable.')

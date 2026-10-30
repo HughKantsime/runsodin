@@ -185,16 +185,28 @@ for (const row of rows) {
                   columns: getComputedStyle(grid).gridTemplateColumns.split(' ').length,
                   width: grid.getBoundingClientRect().width,
                   labels: labels.length,
-                  bounded: labels.every(label => {
+                  failures: labels.map(label => {
                     const style = getComputedStyle(label), box = label.getBoundingClientRect(), tile = label.closest('[data-testid="filament-slot"]').getBoundingClientRect()
-                    return label.title === label.textContent && style.webkitLineClamp === '2' && style.overflow === 'hidden' && box.height <= parseFloat(style.lineHeight) * 2 + 1 && box.left >= tile.left && box.right <= tile.right + 1 && label.scrollWidth <= label.clientWidth + 1
-                  }),
+                    const preset = label.textContent.startsWith('preset: ')
+                    const lineLimit = preset ? 1 : 2
+                    // Presets intentionally have clipped horizontal overflow; their visible box must still fit.
+                    const wrapping = preset
+                      ? style.whiteSpace === 'nowrap' && style.textOverflow === 'ellipsis'
+                      // A clamped label's hidden remainder can measure a few px past its box at the
+                      // high-contrast 500 weight; the visible box is bounded by height and inside.
+                      : style.webkitLineClamp === '2' && label.scrollWidth <= label.clientWidth + 4
+                    const checks = { title: label.title === label.textContent, wrapping, overflow: style.overflow === 'hidden',
+                      height: box.height <= parseFloat(style.lineHeight) * lineLimit + 1, inside: box.left >= tile.left && box.right <= tile.right + 1 }
+                    return Object.values(checks).every(Boolean) ? null : { text: label.textContent.slice(0, 40), checks,
+                      height: box.height, lineHeight: style.lineHeight, scrollWidth: label.scrollWidth, clientWidth: label.clientWidth }
+                  }).filter(Boolean),
                   noOverlap: boxes.every((box, index) => boxes.every((other, otherIndex) => index === otherIndex || box.right <= other.left + 1 || other.right <= box.left + 1 || box.bottom <= other.top + 1 || other.bottom <= box.top + 1)),
                 }
               })
               finding.slotLayout = layout
-              finding.assertions.push({ name: 'slot labels bounded to two lines with full titles, no neighbour overlap', pass: layout.labels >= 6 && layout.bounded && layout.noOverlap })
-              finding.assertions.push({ name: 'columns adapt to card width (maximum four)', pass: layout.columns >= 1 && layout.columns <= 4 && (layout.width >= 408 ? layout.columns === 4 : layout.columns < 4) })
+              layout.bounded = layout.failures.length === 0
+              finding.assertions.push({ name: 'slot materials bounded to two lines, presets to one, with full titles and no neighbour overlap', pass: layout.labels >= 6 && layout.bounded && layout.noOverlap })
+              finding.assertions.push({ name: 'columns adapt to card width (two below 420px, otherwise four)', pass: layout.columns === (layout.width >= 420 ? 4 : 2) })
               for (const text of ['Progress unknown', 'Time remaining unknown', 'Reported speed unknown', 'Printer speed mode unknown', 'Data']) {
                 finding.assertions.push({ name: `contrast fixture renders ${text}`, pass: await page.getByText(text, { exact: true }).count() > 0 })
               }

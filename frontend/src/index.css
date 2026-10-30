@@ -513,8 +513,17 @@ html.light .setup-wizard textarea {
   color: #fff;
 }
 
-/* At least 6rem per slot where space permits; never more than four columns.
-   min(100%, ...) also keeps exceptionally narrow cards inside their parent. */
+/* Size slots by the card's available content width, not the viewport. */
+.filament-slot-container {
+  container: filament-slots / inline-size;
+}
+
 .filament-slot-grid {
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, max(6rem, calc((100% - 1.5rem) / 4))), 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@container filament-slots (min-width: 420px) {
+  .filament-slot-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }

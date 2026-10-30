@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
 
-export default function SlotLabel({ text, children }: { text: string; children?: ReactNode }) {
-  return <span title={text} className="slot-label w-full min-w-0 line-clamp-2 overflow-hidden [overflow-wrap:anywhere] text-xs text-[var(--brand-text-secondary)]">{children ?? text}</span>
+export default function SlotLabel({ text, children, singleLine = false }: { text: string; children?: ReactNode; singleLine?: boolean }) {
+  return <span title={text} className={`slot-label w-full min-w-0 overflow-hidden text-xs text-[var(--brand-text-secondary)] ${singleLine ? 'truncate' : 'line-clamp-2 [overflow-wrap:anywhere]'}`}>{children ?? text}</span>
 }

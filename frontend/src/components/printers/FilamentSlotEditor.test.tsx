@@ -44,15 +44,19 @@ it('renders flagged tray fields and confirms the bound spool using the observed 
   expect(screen.queryByText('Slot 1: spool may have changed?')).not.toBeInTheDocument()
 })
 
-it('wraps full material and preset labels separately with two-line clamps and title tooltips', () => {
+it('clamps material to two lines and truncates the preset to one with full title tooltips', () => {
  const material = 'Support for PLA and PETG with a very long material name'
  const preset = 'BambuPETGVeryLongUnbrokenPresetNameForNarrowCards'
  render(<FilamentSlotEditor slot={{ ...slot, color: material, preset: `preset: ${preset}`, remaining: null }} allFilaments={[]} spools={[]} printerId={1} onSave={vi.fn()} />)
- for (const text of [material, `preset: ${preset}`, 'Remaining unknown']) {
+ for (const text of [material, 'Remaining unknown']) {
   const label = screen.getByTitle(text)
   expect(label).toHaveTextContent(text)
   expect(label).toHaveClass('line-clamp-2', 'overflow-hidden', 'w-full', 'min-w-0', '[overflow-wrap:anywhere]')
  }
+ const presetLabel = screen.getByTitle(`preset: ${preset}`)
+ expect(presetLabel).toHaveTextContent(`preset: ${preset}`)
+ expect(presetLabel).toHaveClass('truncate', 'overflow-hidden', 'w-full', 'min-w-0')
+ expect(presetLabel).not.toHaveClass('line-clamp-2')
  expect(screen.getByTitle(material)).not.toContainElement(screen.getByTitle(`preset: ${preset}`))
  expect(screen.getByTestId('filament-slot')).toHaveClass('min-w-0', 'overflow-hidden')
 })

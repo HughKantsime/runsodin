@@ -13,6 +13,7 @@ import PrintProgress from './PrintProgress'
 import { printers, apiTokens } from '../../api'
 import { canDo, getCurrentUser } from '../../permissions'
 import { canControlPlug } from '../../utils/plugControl'
+import { displayName } from '../../utils/displayName'
 import { isOnline, isActivePrintState, filamentSlotGroup, isDualNozzle, dualNozzleModelName } from '../../utils/shared'
 import { Button, SpoolRing } from '../ui'
 
@@ -81,7 +82,7 @@ function LedgerFilamentSlot({ slot }: { slot: any }) {
         {remaining !== null ? <SpoolRing color={color} level={remaining} size={20} /> : <span aria-label="Spool color" className="inline-block w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: color }} />}
         <SlotLabel text={slot.material_type || 'Material unknown'} />
         {slot.color && <SlotLabel text={slot.color} />}
-        {slot.preset && <SlotLabel text={`preset: ${slot.preset.replace(/^preset:\s*/i, '')}`} />}
+        {slot.preset && <SlotLabel text={`preset: ${slot.preset.replace(/^preset:\s*/i, '')}`} singleLine />}
         <SlotLabel text={`Mapped spool${slot.external_spool_id != null ? ` #${slot.external_spool_id}` : ''}`} />
         <SlotLabel text={remaining !== null ? `${Math.round(remaining)}% remaining` : 'Remaining amount unknown'} />
       </> : <SlotLabel text={available ? 'Unmapped' : 'Spool information unavailable'} />}
@@ -237,7 +238,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
       </div>
       {printer.plug_type && plugStates?.[printer.id] === undefined && <p className="px-3 text-xs text-[var(--brand-text-muted)]">State unknown</p>}
       {plugOutcome && <p role="status" className="px-3 py-1 text-xs text-[var(--brand-text-secondary)]">{plugOutcome}</p>}
-      <div className="p-3 md:p-4">
+      <div className="filament-slot-container p-3 md:p-4">
         <div className="flex items-center gap-2 mb-3 flex-wrap">
           <Palette size={14} className="text-[var(--brand-text-muted)]" />
           <span className="text-xs md:text-sm text-[var(--brand-text-secondary)]">{externallyManagedFilament ? 'Filament Ledger · read only' : 'Loaded Filaments'}</span>
@@ -398,7 +399,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
       </div>
       {isOnline(printer) && isActivePrintState(printer.gcode_state) && (
         <div className="px-3 md:px-4 py-2 border-t border-[var(--brand-border)]">
-          <p className="text-sm font-medium truncate mb-1">{printer.current_print_display_name || 'Unnamed print'}</p>
+          <p className="text-sm font-medium truncate mb-1">{displayName({ display_name: printer.current_print_display_name, filename: printer.gcode_file })}</p>
           <PrintProgress percent={printer.mc_percent} remainingMinutes={printer.mc_remaining_time} />
         </div>
       )}

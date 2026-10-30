@@ -138,7 +138,7 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
           size={20}
         />
         <SlotLabel text={material} />
-        {preset && <SlotLabel text={preset} />}
+        {preset && <SlotLabel text={preset} singleLine />}
         {slot.remaining == null && <SlotLabel text="Remaining unknown" />}
       </div>
       {slot.spool_change_pending && slot.observed_state && <TrayIdentityConfirm

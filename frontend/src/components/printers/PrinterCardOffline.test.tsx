@@ -35,6 +35,16 @@ it('does not present stale progress as an active print while offline', () => {
  expect(screen.queryByRole('progressbar', { name: 'Print progress' })).not.toBeInTheDocument()
  expect(screen.queryByText('2h 5m left')).not.toBeInTheDocument()
 })
+it.each([
+ { display: 'Class project', file: 'printer-file.3mf', expected: 'Class project' },
+ { display: null, file: 'printer-file.3mf', expected: 'printer-file.3mf' },
+ { display: '   ', file: 'printer-file.3mf', expected: 'printer-file.3mf' },
+ { display: null, file: null, expected: 'Unnamed print' },
+ { display: null, file: 'odin-dispatch-abcd-1234.gcode', expected: 'Unnamed print' },
+])('resolves the active print name from display name and printer file: $expected', ({ display, file, expected }) => {
+ render(<PrinterCard printer={{ ...printer, gcode_state: 'RUNNING', current_print_display_name: display, gcode_file: file }} {...props} />)
+ expect(screen.getByText(expected)).toBeInTheDocument()
+})
 it('shares measured progress with the camera current-job panel and hides it when heartbeat expires', () => {
  const active = { ...printer, gcode_state: 'PAUSE', mc_percent: 0, mc_remaining_time: 59.6 }
  const view = render(<ActiveJobPanel printer={active} />)
