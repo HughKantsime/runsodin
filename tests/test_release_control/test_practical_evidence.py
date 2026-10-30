@@ -510,18 +510,18 @@ def test_PW04_evidence_is_not_continue_on_error():
     assert "continue-on-error" not in section
 
 
-def test_PW05_workflow_uses_established_trusted_m4_boundary():
+def test_PW05_workflow_uses_established_trusted_linux_boundary():
     workflow = _workflow_data(); job = workflow["jobs"]["validate"]
     assert set(workflow["on"]) == {"workflow_dispatch"} and workflow["permissions"] == {}
     assert job["permissions"] == {"contents": "read"}
-    assert job["runs-on"] == ["self-hosted", "mac-mini-runner", "m4"]
+    assert job["runs-on"] == ["self-hosted", "odin-ci"]
     assert "isolated" not in job["name"].lower()
     identity = job["steps"][0]["run"]
-    assert "test -x /Users/ollama/homebrew/bin/python3.11" in identity
-    assert "test -x /opt/homebrew/bin/npm" in identity
-    assert "test -x /Users/ollama/homebrew/sbin/mosquitto" in identity
-    assert "GITHUB_PATH" in identity
-    assert "PLAYWRIGHT_SKIP_BROWSER_GC=1 python3.11 -m playwright install chromium" in _workflow()
+    assert "command -v python3.11 >/dev/null" in identity
+    assert "command -v npm >/dev/null" in identity
+    assert "command -v mosquitto >/dev/null" in identity
+    assert "Required tool missing from PATH:" in identity
+    assert "PLAYWRIGHT_SKIP_BROWSER_GC=1 .venv-contracts/bin/python -m playwright install chromium" in _workflow()
     assert job["steps"][1]["uses"] == "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
     assert job["steps"][1]["with"]["persist-credentials"] == "false"
     assert job["steps"][-1]["uses"] == "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"

@@ -1,7 +1,7 @@
 """Cert B live stack: camera, PiP, detail, TV, timelapse, overlay and archive UI claims.
 
 Real ODIN image (source-fenced to the working tree) + current frontend bundle +
-real Google Chrome. See test_cert_B_live_harness.py for what is simulated (only
+real Chromium/Chrome. See test_cert_B_live_harness.py for what is simulated (only
 the physical camera, the physical Klipper printer and Bambu MQTT telemetry IPC).
 Tests run in file order against one module-scoped stack.
 """
@@ -29,7 +29,7 @@ from tests.test_contracts.test_cert_B_live_harness import CERT, FIXTURES, IMAGE,
 pytestmark = [pytest.mark.live_environment, pytest.mark.skipif(
     shutil.which("docker") is None or docker("image", "inspect", IMAGE, check=False).returncode != 0
     or not chrome_available() or shutil.which("node") is None,
-    reason="docker, the ODIN image (CERT_B_IMAGE), node and Google Chrome are required",
+    reason="docker, the ODIN image (CERT_B_IMAGE), node and the platform Playwright browser are required",
 )]
 
 RTSP = "CertB RTSP X1C"
@@ -86,8 +86,8 @@ class BambuPrinting:
 
 @pytest.fixture(scope="module")
 def live(tmp_path_factory):
-    # Bind-mounted into the container, so it must be on a path the Docker VM shares
-    # (colima/Docker Desktop share $HOME by default); CERT_B_WORK overrides.
+    # Checkout-local bind mount works with native Docker and macOS shared paths;
+    # CERT_B_WORK can select another Docker-visible directory.
     work = Path(os.environ["CERT_B_WORK"]) if os.environ.get("CERT_B_WORK") else CERT / "work"
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)  # creates the gitignored output tree on a clean checkout
