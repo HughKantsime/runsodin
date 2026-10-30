@@ -1,4 +1,4 @@
 {
   "note": "Reviewed revision of backend/modules/notifications/job_events.py. Update only with a reviewed change; the extraction proof (source-before.json, job_events-before.py) never changes.",
-  "job_events_sha256": "534a5a7a00eeae9495bc5ba56f1c731814b02247418865d45c59c1c0adb7b0a7"
+  "job_events_sha256": "ecf08836d4e5c4b737f1357b9bfb9ded8cfd3d9185daf14b45407092dbe7dbc5"
 }
