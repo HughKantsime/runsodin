@@ -20,6 +20,8 @@ application_volume="odin-pg-app-data-${suffix}"
 admin_password_file="$(mktemp "${PWD}/.odin-pg-restore.XXXXXX")"
 app_password_file="$(mktemp "${PWD}/.odin-pg-restore.XXXXXX")"
 maintenance_password_file="$(mktemp "${PWD}/.odin-pg-restore.XXXXXX")"
+postgres_app_password_file="$(mktemp "${PWD}/.odin-pg-restore.XXXXXX")"
+postgres_maintenance_password_file="$(mktemp "${PWD}/.odin-pg-restore.XXXXXX")"
 runtime_secret_file="$(mktemp "${PWD}/.odin-pg-restore.XXXXXX")"
 runtime_diagnostic_file="$(mktemp "${PWD}/.odin-pg-restore.XXXXXX")"
 step="initialize"
@@ -34,6 +36,8 @@ cleanup() {
     unlink "${admin_password_file}" >/dev/null 2>&1 || true
     unlink "${app_password_file}" >/dev/null 2>&1 || true
     unlink "${maintenance_password_file}" >/dev/null 2>&1 || true
+    unlink "${postgres_app_password_file}" >/dev/null 2>&1 || true
+    unlink "${postgres_maintenance_password_file}" >/dev/null 2>&1 || true
     unlink "${runtime_secret_file}" >/dev/null 2>&1 || true
     unlink "${runtime_diagnostic_file}" >/dev/null 2>&1 || true
 }
@@ -103,7 +107,10 @@ fi
 printf '%s\n' "${secret_postgres_admin}" > "${admin_password_file}"
 printf '%s\n' "${secret_postgres_app}" > "${app_password_file}"
 printf '%s\n' "${secret_postgres_maintenance}" > "${maintenance_password_file}"
-chmod 0600 "${admin_password_file}" "${app_password_file}" "${maintenance_password_file}"
+printf '%s\n' "${secret_postgres_app}" > "${postgres_app_password_file}"
+printf '%s\n' "${secret_postgres_maintenance}" > "${postgres_maintenance_password_file}"
+chmod 0600 "${admin_password_file}" "${app_password_file}" "${maintenance_password_file}" \
+    "${postgres_app_password_file}" "${postgres_maintenance_password_file}"
 {
     printf 'API_KEY=%s\n' "${secret_api_key}"
     printf 'JWT_SECRET_KEY=%s\n' "${secret_jwt}"
@@ -128,6 +135,21 @@ done
 docker run --rm --entrypoint test \
     --mount "type=bind,src=${runtime_secret_file},dst=/run/secrets/runtime,readonly" \
     "${image}" -s /run/secrets/runtime
+# A Linux bind mount keeps host ownership, so each reader needs its own copy owned by
+# its uid, as docker-compose.enterprise.yml's secrets are. macOS file sharing hides this.
+if [ "$(uname -s)" = "Linux" ]; then
+    odin_uid="$(docker run --rm --entrypoint id "${image}" -u odin)"
+    own_secret() {
+        docker run --rm --user 0 --entrypoint chown \
+            --mount "type=bind,src=${2},dst=/run/secrets/target" \
+            "${postgres_image}" "${1}:${1}" /run/secrets/target
+    }
+    own_secret 70 "${admin_password_file}"
+    own_secret 70 "${postgres_app_password_file}"
+    own_secret 70 "${postgres_maintenance_password_file}"
+    own_secret "${odin_uid}" "${app_password_file}"
+    own_secret "${odin_uid}" "${maintenance_password_file}"
+fi
 docker network create "${network}" >/dev/null
 docker volume create "${data_volume}" >/dev/null
 docker volume create "${application_volume}" >/dev/null
@@ -142,8 +164,8 @@ docker run -d \
     -e ODIN_APP_PASSWORD_FILE=/run/secrets/postgres_app_password \
     -e ODIN_MAINTENANCE_PASSWORD_FILE=/run/secrets/postgres_maintenance_password \
     --mount "type=bind,src=${admin_password_file},dst=/run/secrets/postgres_admin_password,readonly" \
-    --mount "type=bind,src=${app_password_file},dst=/run/secrets/postgres_app_password,readonly" \
-    --mount "type=bind,src=${maintenance_password_file},dst=/run/secrets/postgres_maintenance_password,readonly" \
+    --mount "type=bind,src=${postgres_app_password_file},dst=/run/secrets/postgres_app_password,readonly" \
+    --mount "type=bind,src=${postgres_maintenance_password_file},dst=/run/secrets/postgres_maintenance_password,readonly" \
     --mount "type=bind,src=${PWD}/docker/postgres-init/10-odin-roles.sh,dst=/docker-entrypoint-initdb.d/10-odin-roles.sh,readonly" \
     --mount "type=volume,src=${data_volume},dst=/var/lib/postgresql/data" \
     "${postgres_image}" \
