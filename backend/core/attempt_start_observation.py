@@ -54,7 +54,9 @@ def observe_start(executor,*,printer_id,filename,job_name,physical_values,source
                 and same_physical_print(row,filename,observed_elapsed)
                 and not view.execute(text('SELECT 1 FROM education_submissions WHERE job_id=:id'),{'id':row['scheduled_job_id']}).first()]
             resume_id=plausible[0]['id'] if len(plausible)==1 else None
-            for row in rows:
+            # A reserved start says nothing about other rows, and an unresolved attempt cannot be
+            # closed from an unrelated task: its receipt and claim have no other way to finish.
+            for row in (rows if not reserved and not education_sensitive else ()):
                 if row['id'] != resume_id and view.execute(text('SELECT 1 FROM education_submissions WHERE job_id=:id'),{'id':row['scheduled_job_id']}).first():
                     continue  # Education owns its rows' terminal state; never close them here.
                 _lock(view,'print_jobs',row['id'],'status')

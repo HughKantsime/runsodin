@@ -1031,6 +1031,27 @@ def dispatched_moonraker(moonraker, monkeypatch):
     return case
 
 
+def test_moonraker_unrelated_start_leaves_a_receipt_bound_row_and_its_claim(dispatched_moonraker):
+    case = dispatched_moonraker
+    monitor = case.monitor()
+    monitor._process_status(moonraker_status('printing', filename='manual.gcode', total=5))
+    assert case.state(case.identifier)[0] == 'running'
+    assert monitor._current_job_db_id != case.identifier
+    with case.engine.connect() as conn:
+        assert conn.execute(text('SELECT count(*) FROM printer_dispatch_claims')).scalar_one() == 1
+        assert conn.execute(text('SELECT status FROM jobs WHERE id=53')).scalar_one() == 'printing'
+        assert conn.execute(text("SELECT count(*) FROM print_jobs WHERE status='running'")).scalar_one() == 2
+
+
+def test_moonraker_education_named_start_closes_nothing(moonraker):
+    case = moonraker
+    stale = case.row(name='old.gcode', started=3 * 86400)
+    monitor = case.monitor()
+    monitor._process_status(moonraker_status('printing', filename='odin-' + 'a' * 32 + '.gcode', total=5))
+    assert case.state(stale)[0] == 'running'
+    assert running_row_count(case) == 2
+
+
 @pytest.mark.parametrize('raw,expected', MOONRAKER_OUTCOMES)
 def test_moonraker_dispatched_end_retires_the_claim_and_dispatches_again(dispatched_moonraker, raw, expected):
     case = dispatched_moonraker
@@ -1233,6 +1254,13 @@ def test_generic_education_row_is_never_resumed_or_closed(generic):
     owned, new = case.rows()
     assert (owned['id'], owned['status']) == (700, 'running')
     assert new['status'] == 'running' and case.tracked[59] == new['id']
+
+
+def test_generic_education_named_start_closes_nothing(generic):
+    case = generic
+    case.monitor()._process_status(case.status('PRINTING'))
+    case.monitor()._process_status(case.status('PRINTING', filename='odin-' + 'a' * 32 + '.gcode'))
+    assert [row['status'] for row in case.rows()] == ['running', 'running']
 
 
 @pytest.mark.parametrize('state,expected', [('FINISHED', 'completed'), ('stopped', 'cancelled')])
