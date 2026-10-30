@@ -511,6 +511,36 @@ def test_retained_end_of_a_dispatched_print_keeps_the_fence_until_a_live_report(
     assert rows[0]['status'] == 'completed' and job[0] == 'completed' and claims == 0
 
 
+def retained_log_lines(caplog):
+    return [record.getMessage() for record in caplog.records if 'Retained MQTT report' in record.getMessage()]
+
+
+def test_retained_report_is_logged_once_per_interval_without_its_payload(manual_bambu, caplog):
+    import logging
+    from modules.printers.monitors import mqtt_status
+    case = manual_bambu
+    monitor = case.monitor()
+    with caplog.at_level(logging.INFO, logger='mqtt_monitor'):
+        for _ in range(5):
+            retained_packet(monitor, gcode_state='FINISH', subtask_name='private-file-name', print_error=0)
+        lines = retained_log_lines(caplog)
+        assert lines == ["Retained MQTT report: printer_id=59 gcode_state='FINISH'"]
+        monitor._last_retained_report_log = time.time() - mqtt_status.RETAINED_REPORT_LOG_SECONDS
+        retained_packet(monitor, nozzle_temper=200)  # A report with no state is still a replay.
+        assert retained_log_lines(caplog)[1:] == ['Retained MQTT report: printer_id=59 gcode_state=None']
+    assert 'private-file-name' not in caplog.text and monitor.access_code not in caplog.text
+
+
+@pytest.mark.parametrize('flag', [False, None], ids=['live', 'unknown'])
+def test_live_report_is_not_logged_as_retained(manual_bambu, caplog, flag):
+    import logging
+    case = manual_bambu
+    monitor = case.monitor()
+    with caplog.at_level(logging.INFO, logger='mqtt_monitor'):
+        monitor._on_status(SimpleNamespace(raw_data={'print': dict(gcode_state='RUNNING', subtask_name=case.name)}, mqtt_retained=flag))
+    assert retained_log_lines(caplog) == []
+
+
 def test_unknown_retain_flag_is_not_treated_as_retained(manual_bambu):
     # The legacy adapter reports None when the broker message carries no boolean flag.
     case = manual_bambu

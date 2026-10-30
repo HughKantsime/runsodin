@@ -2,6 +2,16 @@
 
 from core.printer_identity_audit import observe_printer_identity
 
+RETAINED_REPORT_LOG_SECONDS = 3600
+
+
+def log_retained_report(self, raw, runtime):
+    """Whether Bambu brokers ever replay reports is unknown; this line is how a deploy can tell."""
+    now = runtime.time.time()
+    if now - getattr(self, '_last_retained_report_log', 0) >= RETAINED_REPORT_LOG_SECONDS:
+        self._last_retained_report_log = now
+        runtime.log.warning('Retained MQTT report: printer_id=%s gcode_state=%r', self.printer_id, raw.get('gcode_state'))
+
 
 def refresh_ams_remain(self):
     """Keep AMS remain percentages fresh for filament tracking."""
@@ -26,6 +36,8 @@ def handle_status(self, status, generation, runtime):
         if self._connection_retired or (generation is not None and generation != self._connection_generation):
             return
         raw = status.raw_data.get('print', {})
+        if getattr(status, 'mqtt_retained', None) is True:
+            log_retained_report(self, raw, runtime)
         from modules.printers.monitors.nozzle_observations import observe
         observe(self, raw)
         from datetime import datetime, timezone
