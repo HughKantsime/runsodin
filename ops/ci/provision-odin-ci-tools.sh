@@ -47,6 +47,22 @@ sudo ln -sf /opt/semgrep/bin/semgrep /usr/local/bin/semgrep
 python3.11 -m ensurepip --user >/dev/null 2>&1 || true
 python3.11 -m pip install -q --user --break-system-packages --disable-pip-version-check "jsonschema==${JSONSCHEMA}"
 
+# Gates refuse protected files under a world-writable parent, so jobs can't use /tmp.
+mkdir -p "$HOME/ci-tmp"
+chmod 700 "$HOME/ci-tmp"
+env_file="$HOME/actions-runner-runsodin/.env"
+grep -qs '^TMPDIR=' "$env_file" || echo "TMPDIR=$HOME/ci-tmp" >> "$env_file"
+echo "d $HOME/ci-tmp 0700 $USER $USER 7d" | sudo tee /etc/tmpfiles.d/odin-ci.conf >/dev/null
+
+# The vendor profile tests skip without Bambu Studio's machine profiles, and CV02 refuses
+# skips. Copy them from any install; this path is the tests' Linux default:
+#   rsync -a /Applications/BambuStudio.app/Contents/Resources/profiles/BBL/machine/ \
+#     odin-ci:/usr/share/bambu-studio/profiles/BBL/machine/
+test -d /usr/share/bambu-studio/profiles/BBL/machine || echo "WARNING: Bambu Studio profiles missing; CV02 will fail"
+
+# Host side, on pve3 (not run here): zfs set sync=disabled rpool/data/vm-130-disk-0.
+# CV02's SQLite fsyncs went from 168 kB/s to 16.9 MB/s; the disk only holds rebuildable CI state.
+
 cd /
 echo "versions:"; gitleaks version; hadolint --version; gh --version | head -1; semgrep --version
 python3.11 -c 'import jsonschema,importlib.metadata as m; print("jsonschema", m.version("jsonschema"))'
