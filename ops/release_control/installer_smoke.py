@@ -22,6 +22,7 @@ from pathlib import Path
 from ops.edu_readiness.artifact_scan import scan_text as scan_text_for_pii
 from ops.release_gate.policy import redact_text, scan_text_for_secrets
 from ops.release_control.validation_image_cleanup import (
+    PROBE_IMAGE_REF,
     DisposableImageLifecycle,
     read_iidfile,
     verify_built_image,
@@ -730,7 +731,13 @@ def run(run_id: str, artifact_root: Path) -> int:
                 )
         for path in (install_dir, data_path):
             if path.exists():
-                shutil.rmtree(path)
+                try:
+                    shutil.rmtree(path)
+                except PermissionError:
+                    # Native Linux Docker leaves files the container created as root
+                    # on the bind mount; hand them back to this user, then remove.
+                    reclaim_bind_mount(path)
+                    shutil.rmtree(path)
     manifest = {
         "schema_version": 1, "run_id": run_id, "status": "pass" if error is None else "fail",
         "duration_seconds": round(time.monotonic() - started, 3), "resources": records,
@@ -745,6 +752,15 @@ def run(run_id: str, artifact_root: Path) -> int:
         print(str(error), file=sys.stderr)
         return 1
     return 0
+
+
+def reclaim_bind_mount(path: Path) -> None:
+    """chown a container-written bind mount back to the runner user (no network, read-only image)."""
+    subprocess.run(
+        ["docker", "run", "--rm", "--pull=never", "--network", "none", "--entrypoint", "/bin/chown",
+         "-v", f"{path.resolve()}:/reclaim", PROBE_IMAGE_REF, "-R", f"{os.getuid()}:{os.getgid()}", "/reclaim"],
+        check=True, capture_output=True, text=True, timeout=120,
+    )
 
 
 def main() -> int:
