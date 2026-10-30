@@ -655,6 +655,48 @@ def owned_bambu(creators, review_db, tmp_path, monkeypatch):
     return SimpleNamespace(engine=engine, monitor=monitor, identifier=identifier, job=job, name=names[0], alerts=alerts)
 
 
+def tray_markers(engine):
+    with engine.connect() as conn:
+        return conn.execute(text("SELECT key FROM system_config WHERE key LIKE '%tray_evidence_incomplete'")).scalars().all()
+
+
+def test_reconciled_unreserved_end_marks_its_tray_evidence_incomplete(manual_bambu):
+    case = manual_bambu
+    packet(case.monitor(), gcode_state='FINISH', subtask_name=case.name, print_error=0)
+    from core.filament_ledger import print_marker
+    assert tray_markers(case.engine) == [print_marker(53, case.identifier) + ':tray_evidence_incomplete']
+
+
+@pytest.mark.parametrize('state,error,expected', OUTCOMES)
+def test_reconciled_end_cannot_charge_a_single_tray_it_did_not_watch(owned_bambu, state, error, expected):
+    import json
+    from modules.archives import attempt_accounting
+    case = owned_bambu
+    # One tray seen before the restart would otherwise resolve the plan to that tray.
+    with case.engine.begin() as conn:
+        assert attempt_accounting.record_attempt_tray(conn, case.identifier, 59, 2)
+    packet(case.monitor(), gcode_state=state, subtask_name=case.name, print_error=error)
+    assert tray_markers(case.engine)
+    with case.engine.connect() as conn:
+        snapshot = json.loads(conn.execute(text('SELECT spool_snapshot FROM print_jobs WHERE id=:id'), {'id': case.identifier}).scalar_one())
+        assert attempt_accounting.resolve_attempt_material_plan(conn, snapshot, case.identifier)['reason'] == 'tray_evidence_incomplete'
+
+
+def test_watched_end_keeps_its_tray_evidence(owned_bambu):
+    import json
+    from modules.archives import attempt_accounting
+    case = owned_bambu
+    monitor = case.monitor()
+    packet(monitor, gcode_state='RUNNING', subtask_name=case.name, print_error=0, ams={'tray_now': 2})
+    assert monitor._current_job_id == case.identifier
+    packet(monitor, gcode_state='FINISH', subtask_name=case.name, print_error=0)
+    assert tray_markers(case.engine) == []
+    with case.engine.connect() as conn:
+        assert conn.execute(text('SELECT status FROM print_jobs WHERE id=:id'), {'id': case.identifier}).scalar_one() == 'completed'
+        snapshot = json.loads(conn.execute(text('SELECT spool_snapshot FROM print_jobs WHERE id=:id'), {'id': case.identifier}).scalar_one())
+        assert attempt_accounting.resolve_attempt_material_plan(conn, snapshot, case.identifier)['reason'] != 'tray_evidence_incomplete'
+
+
 @pytest.mark.parametrize('order', ['callback_first', 'recovery_first', 'status_after_wait'])
 @pytest.mark.parametrize('state,error,expected', OUTCOMES)
 def test_durable_terminal_intent_is_claimed_once(owned_bambu, order, state, error, expected):

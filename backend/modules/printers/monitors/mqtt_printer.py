@@ -92,6 +92,7 @@ class PrinterMonitor:
         self._lock = Lock()
         self._status_received = Event()
         self._state_retained = False
+        self._reconciled_row = None
         self._recovery_pending = False
         self._recovery_failures = 0
         self._recovery_retry_at = 0.0
@@ -228,7 +229,7 @@ class PrinterMonitor:
             return
         # Past the recovery transaction: record_job_ended opens its own. The live
         # mapping decides completed/failed/cancelled, exactly as for a watched end.
-        identifier = self._current_job_id
+        identifier = self._reconciled_row = self._current_job_id
         try:
             self._on_state_change('RUNNING', ended_state)
         except Exception as e:
@@ -766,8 +767,10 @@ class PrinterMonitor:
             state=self._state,
             start_spool_weights=getattr(self, '_start_spool_weights', {}),
             dispatch_alert_fn=self._dispatch_alert,
-            tray_evidence_incomplete=(getattr(self, '_tray_attempt_id', None) == self._current_job_id
-                                      and bool(getattr(self, '_pending_attempt_trays', ()))),
+            # Whatever a reconciled print did after the last report ODIN saw went unobserved.
+            tray_evidence_incomplete=(self._current_job_id == self._reconciled_row
+                                      or (getattr(self, '_tray_attempt_id', None) == self._current_job_id
+                                          and bool(getattr(self, '_pending_attempt_trays', ())))),
         )
         self._current_job_id = None
         self._linked_job_id = None
