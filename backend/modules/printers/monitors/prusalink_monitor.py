@@ -171,12 +171,16 @@ class PrusaLinkMonitorThread(threading.Thread):
                 for_printer(self.printer_id, 'resumed')
             elif odin_state == "RUNNING" and self._last_state != "PRINTING":
                 # Print started
+                from core.physical_print import continuing_print_limit
                 printer_events.on_print_start(
                     self.printer_id,
                     current_file or "Unknown",
                     0,  # total_layers — PrusaLink doesn't always provide
                     None,  # layer count
                     status.time_remaining // 60 if status.time_remaining else None,
+                    observed_elapsed=continuing_print_limit(status.time_printing, first_look=self._last_state is None),
+                    # /api/v1/status names no file, so the job id is what identifies this print.
+                    physical_job_id=f"prusalink_{status.job_id}" if status.job_id is not None else None,
                 )
             elif odin_state == "FINISH":
                 # Print completed

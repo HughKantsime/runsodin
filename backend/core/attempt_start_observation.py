@@ -26,7 +26,7 @@ class ObservedStart:
 
 
 def observe_start(executor,*,printer_id,filename,job_name,physical_values,source,
-                  protocol=None,prepare_operational=False,allow_physical_resume=False,observed_elapsed=None):
+                  protocol=None,prepare_operational=False,allow_physical_resume=False,observed_elapsed=None,observed_job_id=None):
     """Prepare/create/capture/finalize in caller's existing outer transaction.
 
     Operational matching parents can be preheld before printer/attempt locks.
@@ -53,11 +53,11 @@ def observe_start(executor,*,printer_id,filename,job_name,physical_values,source
             identifier=finalize_start(executor,scope,plan)
             return ObservedStart(identifier,plan.job_id,False,education_sensitive,reserved,candidates,parents)
         if allow_physical_resume:
-            from core.physical_print import same_physical_print, CLOSED_UNKNOWN
+            from core.physical_print import continues_print, CLOSED_UNKNOWN
             from modules.printers.dispatch_admission import _lock
-            rows=view.execute(text("SELECT id,scheduled_job_id,filename,job_name,started_at FROM print_jobs WHERE printer_id=:id AND status='running' ORDER BY id DESC"),{'id':printer_id}).mappings().all()
+            rows=view.execute(text("SELECT id,scheduled_job_id,job_id,filename,job_name,started_at FROM print_jobs WHERE printer_id=:id AND status='running' ORDER BY id DESC"),{'id':printer_id}).mappings().all()
             plausible=[row for row in rows if not reserved and not education_sensitive and not _reserved_row(row)
-                and same_physical_print(row,filename,observed_elapsed)
+                and continues_print(row,filename,observed_elapsed,observed_job_id)
                 and not view.execute(text('SELECT 1 FROM education_submissions WHERE job_id=:id'),{'id':row['scheduled_job_id']}).first()]
             resume_id=plausible[0]['id'] if len(plausible)==1 else None
             # A reserved start says nothing about other rows, and an unresolved attempt cannot be

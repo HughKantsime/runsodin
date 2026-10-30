@@ -1101,15 +1101,29 @@ def test_moonraker_dispatched_end_follows_the_receipt_rules(dispatched_moonraker
 STOPPED = {'prusalink': 'STOPPED', 'elegoo': 'STOPPING', 'anycubic_lan': 'STOPPING'}
 
 
-def generic_status(protocol, state, filename):
+def generic_status(protocol, state, filename, timer=0):
     from modules.printers.adapters.anycubic_lan import DEFAULTS
     from modules.printers.adapters.elegoo import ElegooStatus
     from modules.printers.adapters.prusalink import PrusaLinkState, PrusaLinkStatus
     if protocol == 'prusalink':
-        return PrusaLinkStatus(state=PrusaLinkState[state], internal_state=state, filename=filename)
+        return PrusaLinkStatus(state=PrusaLinkState[state], internal_state=state, filename=filename, time_printing=timer)
     if protocol == 'elegoo':
-        return ElegooStatus(internal_state=state, filename=filename)
-    return SimpleNamespace(**(DEFAULTS | dict(internal_state=state, filename=filename, boxes=[])))
+        return ElegooStatus(internal_state=state, filename=filename, current_ticks=timer)
+    return SimpleNamespace(**(DEFAULTS | dict(internal_state=state, filename=filename, current_ticks=timer, boxes=[])))
+
+
+def prusalink_wire(state='PRINTING', job_id=297, timer=7718):
+    """The documented /api/v1/status shape, through the adapter's parser: it names no file."""
+    from modules.printers.adapters.prusalink import PrusaLinkPrinter, PrusaLinkStatus
+    from modules.printers.parsing.prusalink import parse_v1_status
+    status = PrusaLinkStatus()
+    PrusaLinkPrinter._apply_parsed(status, parse_v1_status({
+        'job': {'id': job_id, 'progress': 91.0, 'time_remaining': 600, 'time_printing': timer},
+        'storage': {'path': '/usb/', 'name': 'usb', 'read_only': False},
+        'printer': {'state': state, 'temp_bed': 60.0, 'target_bed': 60.0, 'temp_nozzle': 209.9, 'target_nozzle': 210.0,
+                    'axis_z': 2.4, 'flow': 100, 'speed': 100, 'fan_hotend': 3099, 'fan_print': 5964}}))
+    assert status.filename == ''
+    return status
 
 
 @pytest.fixture(params=['prusalink', 'elegoo', 'anycubic_lan'])
@@ -1162,7 +1176,7 @@ def generic(request, review_db, tmp_path, monkeypatch):
 
     return SimpleNamespace(engine=engine, protocol=protocol, monitor=monitor, rows=rows, seen=seen, dispatch=dispatch,
                            tracked=job_events._active_print_jobs,
-                           status=lambda state, filename='part.gcode': generic_status(protocol, state, filename))
+                           status=lambda state, filename='part.gcode', timer=0: generic_status(protocol, state, filename, timer))
 
 
 def test_generic_print_continuing_through_a_restart_keeps_its_row(generic):
@@ -1178,6 +1192,125 @@ def test_generic_print_continuing_through_a_restart_keeps_its_row(generic):
     monitor._process_status(case.status('FINISHED'))
     assert [row['status'] for row in case.rows()] == ['completed']
     assert len(case.seen.alerts) == 1
+
+
+def age_row(case, identifier, seconds):
+    with case.engine.begin() as conn:
+        conn.execute(text('UPDATE print_jobs SET started_at=:at WHERE id=:id'), {'at': ago(seconds), 'id': identifier})
+
+
+def test_generic_reprint_days_later_gets_its_own_row(generic):
+    # The first print ended unwatched and the row stayed running. The same file again, with its
+    # timer just started, cannot be that row: it must not inherit its start or spool snapshot.
+    from core.physical_print import CLOSED_UNKNOWN
+    case = generic
+    case.monitor()._process_status(case.status('PRINTING'))
+    old = case.rows()[0]['id']
+    age_row(case, old, 3 * 86400)
+    started = len(case.seen.started)
+    monitor = case.monitor()
+    monitor._process_status(case.status('PRINTING', timer=60))
+    first, second = case.rows()
+    assert (first['id'], first['status'], first['ended_at'], first['error_code']) == (old, 'cancelled', None, CLOSED_UNKNOWN)
+    assert second['status'] == 'running' and case.tracked[59] == second['id']
+    assert len(case.seen.started) == started + 1
+    assert case.seen.alerts == [] and case.seen.archive == []
+
+
+def test_generic_watched_start_is_new_however_recent_the_stale_row(generic):
+    # This monitor saw the printer idle, so no pause allowance applies to the row left behind.
+    case = generic
+    case.monitor()._process_status(case.status('PRINTING'))
+    old = case.rows()[0]['id']
+    age_row(case, old, 2 * 3600)
+    started = len(case.seen.started)
+    monitor = case.monitor()
+    monitor._process_status(case.status('IDLE', filename=''))
+    assert case.rows()[0]['status'] == 'running'
+    monitor._process_status(case.status('PRINTING', timer=5))
+    first, second = case.rows()
+    assert first['id'] == old and first['status'] == 'cancelled'
+    assert second['status'] == 'running' and case.tracked[59] == second['id']
+    assert len(case.seen.started) == started + 1
+
+
+@pytest.mark.parametrize('timer,age', [(3600, 3600), (3600, 10 * 3600)], ids=['no_pause', 'long_pause'])
+def test_generic_first_look_at_a_continuing_print_resumes_within_the_pause_allowance(generic, timer, age):
+    case = generic
+    case.monitor()._process_status(case.status('PRINTING'))
+    before = case.rows()
+    age_row(case, before[0]['id'], age)
+    case.monitor()._process_status(case.status('PRINTING', timer=timer))
+    assert [row['id'] for row in case.rows()] == [before[0]['id']]
+    assert case.rows()[0]['status'] == 'running' and case.tracked[59] == before[0]['id']
+
+
+def test_generic_first_look_past_the_pause_allowance_is_refused(generic):
+    from core.physical_print import PAUSE_ALLOWANCE_SECONDS
+    case = generic
+    case.monitor()._process_status(case.status('PRINTING'))
+    old = case.rows()[0]['id']
+    age_row(case, old, 3600 + PAUSE_ALLOWANCE_SECONDS + 300)
+    case.monitor()._process_status(case.status('PRINTING', timer=3600))
+    assert [row['status'] for row in case.rows()] == ['cancelled', 'running']
+
+
+def test_start_with_no_timer_evidence_neither_resumes_nor_closes(generic):
+    from modules.notifications import job_events
+    case = generic
+    case.monitor()._process_status(case.status('PRINTING'))
+    first = case.rows()[0]['id']
+    assert job_events.job_started(59, 'part.gcode') != first
+    assert [row['status'] for row in case.rows()] == ['running', 'running']
+
+
+@pytest.mark.parametrize('generic', ['prusalink'], indirect=True)
+def test_prusalink_real_status_shape_keeps_one_row_through_a_restart(generic):
+    case = generic
+    case.monitor()._process_status(prusalink_wire())
+    before = case.rows()
+    assert [(row['filename'], row['status']) for row in before] == [('Unknown', 'running')]
+    age_row(case, before[0]['id'], 3 * 86400)  # The same job id decides, however long it paused.
+    case.monitor()._process_status(prusalink_wire(timer=7800))
+    assert [row['id'] for row in case.rows()] == [before[0]['id']]
+    assert case.tracked[59] == before[0]['id']
+    assert len(case.seen.started) == 1
+
+
+@pytest.mark.parametrize('generic', ['prusalink'], indirect=True)
+def test_prusalink_next_job_id_is_a_new_print(generic):
+    from core.physical_print import CLOSED_UNKNOWN
+    case = generic
+    case.monitor()._process_status(prusalink_wire(job_id=297))
+    old = case.rows()[0]['id']
+    case.monitor()._process_status(prusalink_wire(job_id=298, timer=5))
+    first, second = case.rows()
+    assert (first['id'], first['status'], first['error_code']) == (old, 'cancelled', CLOSED_UNKNOWN)
+    assert second['status'] == 'running' and case.tracked[59] == second['id']
+
+
+@pytest.mark.parametrize('generic', ['prusalink'], indirect=True)
+def test_prusalink_same_file_next_job_id_is_a_new_print_even_with_a_fitting_timer(generic):
+    from modules.printers.adapters.prusalink import PrusaLinkState, PrusaLinkStatus
+    case = generic
+    def status(job_id):
+        return PrusaLinkStatus(state=PrusaLinkState.PRINTING, internal_state='PRINTING', filename='part.gcode', time_printing=60, job_id=job_id)
+    case.monitor()._process_status(status(297))
+    case.monitor()._process_status(status(298))
+    assert [row['status'] for row in case.rows()] == ['cancelled', 'running']
+
+
+@pytest.mark.parametrize('generic', ['prusalink'], indirect=True)
+def test_prusalink_job_id_cannot_adopt_an_unknown_row_it_cannot_compare(generic):
+    # A row from before job ids were kept has only the name Unknown to compare.
+    from core.physical_print import CLOSED_UNKNOWN
+    case = generic
+    with case.engine.begin() as conn:
+        conn.execute(text("INSERT INTO print_jobs(id,printer_id,filename,job_name,status,started_at) VALUES(700,59,'Unknown','Unknown','running',CURRENT_TIMESTAMP)"))
+    case.monitor()._process_status(prusalink_wire())
+    first, second = case.rows()
+    assert (first['id'], first['status'], first['error_code']) == (700, 'cancelled', CLOSED_UNKNOWN)
+    assert second['status'] == 'running'
 
 
 def test_generic_pause_after_a_restart_still_reaches_the_attention_lane(generic, monkeypatch):
