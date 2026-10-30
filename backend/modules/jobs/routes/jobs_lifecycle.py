@@ -178,6 +178,7 @@ def complete_job(job_id: int, current_user: dict = Depends(require_action("jobs.
         from core.tray_identity import decode
         printer = db.get(Printer, job.printer_id)
         from modules.jobs.material_slots import locked_printer_slots
+        from modules.printers.services import is_kobra_s1
         slots = locked_printer_slots(db, job.printer_id)
         slot_by_number = {s.slot_number: s for s in slots}
         loaded_spools = [s.assigned_spool for s in slots if s.assigned_spool is not None]
@@ -190,7 +191,8 @@ def complete_job(job_id: int, current_user: dict = Depends(require_action("jobs.
             if grams == 0:
                 continue
             target = source_slot
-            if printer and printer.api_type == 'bambu':
+            # Only a stored mapping says which AMS or ACE slot fed this source.
+            if printer and (printer.api_type == 'bambu' or is_kobra_s1(printer)):
                 if not isinstance(mapping, list) or len(mapping) < source_slot or type(mapping[source_slot - 1]) is not int or not 0 <= mapping[source_slot - 1] < 16:
                     unattributed.append(dict(source_slot=source_slot, grams=grams, reason='missing_material_mapping'))
                     continue

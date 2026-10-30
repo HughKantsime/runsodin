@@ -711,3 +711,79 @@ def test_bambu_multi_source_start_never_enters_the_s1_path(review_db, tmp_path, 
     result = dispatch.dispatch_job(59, 53)
     assert result[0] is True, result
     assert events == ['upload', 'fresh_read', 'start'] and sent[0]['ams_mapping'] == [2, 1]
+
+
+def _operator_complete(review_db, monkeypatch, *, model, mapping, grams=(12,)):
+    """Slots 1-3 hold spools 101-103 (100 g each). Returns their weights and the unattributed audits."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from sqlalchemy.orm import Session
+    from core import db as core_db
+    from core.dependencies import get_current_user
+    from core.registry import registry
+    from modules.organizations.services import EducationPolicyService
+    from modules.jobs.routes import jobs_lifecycle
+    monkeypatch.setitem(registry._providers, 'EducationPolicyProvider', EducationPolicyService())
+    engine = review_db.get_bind()
+    materials = [{'slot': i + 1, 'type': 'PLA', 'used_grams': amount} for i, amount in enumerate(grams)]
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE printers SET api_type='moonraker',model=:model,slot_count=4 WHERE id=9"), {'model': model})
+        conn.execute(text("INSERT INTO models(id,name,org_id,color_requirements) VALUES(101,'fixture',1,:requirements)"),
+                     {'requirements': json.dumps({'slot1': {'grams': grams[0]}})})
+        conn.execute(text("INSERT INTO print_files(id,filename,org_id,filaments_json) VALUES(101,'fixture.gcode',1,:materials)"),
+                     {'materials': json.dumps(materials)})
+        conn.execute(text("INSERT INTO jobs(id,item_name,model_id,printer_id,status,charged_to_org_id,quantity,hold,print_file_id,ams_mapping) "
+                          "VALUES(101,'fixture',101,9,'printing',1,1,0,101,:mapping)"), {'mapping': mapping})
+        conn.execute(text("INSERT INTO filament_library(id,brand,name,material) VALUES(101,'Synthetic','Test','PLA')"))
+        conn.execute(text('INSERT INTO spools(id,filament_id,remaining_weight_g,initial_weight_g,org_id) '
+                          'VALUES(101,101,100,100,1),(102,101,100,100,1),(103,101,100,100,1)'))
+        conn.execute(text('UPDATE filament_slots SET assigned_spool_id=101 WHERE printer_id=9 AND slot_number=1'))
+        conn.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type,assigned_spool_id) "
+                          "VALUES(9,2,'PLA',102),(9,3,'PLA',103),(9,4,'PLA',NULL)"))
+    app = FastAPI()
+    app.include_router(jobs_lifecycle.router)
+    def request_db():
+        with Session(engine) as db:
+            yield db
+    app.dependency_overrides[core_db.get_db] = request_db
+    app.dependency_overrides[get_current_user] = lambda: {'id': 3, 'role': 'operator', 'group_id': 1, 'is_active': True}
+    with TestClient(app) as client:
+        response = client.post('/jobs/101/complete')
+    assert response.status_code == 200, response.text
+    with engine.connect() as conn:
+        weights = conn.execute(text('SELECT remaining_weight_g FROM spools WHERE id IN (101,102,103) ORDER BY id')).scalars().all()
+        audits = conn.execute(text("SELECT details FROM audit_logs WHERE action='filament.unattributed'")).scalars().all()
+        notes = conn.execute(text('SELECT notes FROM jobs WHERE id=101')).scalar_one()
+    return weights, [a if isinstance(a, dict) else json.loads(a) for a in audits], notes
+
+
+@pytest.mark.parametrize('mapping,grams,weights,slots', [
+    pytest.param('[1]', (12,), [100, 88, 100], ['Slot 2'], id='one_colour_slot_2'),
+    pytest.param('[2,1]', (12, 5), [100, 95, 88], ['Slot 3', 'Slot 2'], id='two_colour_in_mapped_order'),
+])
+def test_s1_operator_complete_deducts_from_the_mapped_slot(review_db, monkeypatch, mapping, grams, weights, slots):
+    actual, audits, notes = _operator_complete(review_db, monkeypatch, model='Kobra S1', mapping=mapping, grams=grams)
+    assert actual == weights and audits == []
+    assert all(slot in notes for slot in slots) and 'Slot 1' not in notes
+
+
+@pytest.mark.parametrize('mapping,grams', [
+    pytest.param(None, (12,), id='no_stored_mapping'),
+    pytest.param('[]', (12,), id='empty_mapping'),
+    pytest.param('[-1]', (12,), id='source_not_mapped'),
+    pytest.param('[true]', (12,), id='not_a_slot_index'),
+    pytest.param('[7]', (12,), id='no_such_slot'),
+    pytest.param('[3]', (12,), id='mapped_slot_has_no_spool'),
+    pytest.param('[1,-1]', (12, 5), id='one_of_two_sources_not_mapped'),
+])
+def test_s1_operator_complete_leaves_an_unresolved_mapping_unattributed(review_db, monkeypatch, mapping, grams):
+    """Never fall back to file source N meaning slot N: on an S1 that is a guess."""
+    weights, audits, notes = _operator_complete(review_db, monkeypatch, model='Kobra S1', mapping=mapping, grams=grams)
+    assert weights == [100, 100, 100]
+    assert len(audits) == 1 and audits[0]['consumption']
+    assert 'Filament deducted' not in (notes or '')
+
+
+def test_other_moonraker_printers_keep_source_slot_deduction(review_db, monkeypatch):
+    weights, audits, notes = _operator_complete(review_db, monkeypatch, model='Voron 2.4', mapping=None)
+    assert weights == [88, 100, 100] and audits == [] and 'Slot 1' in notes
