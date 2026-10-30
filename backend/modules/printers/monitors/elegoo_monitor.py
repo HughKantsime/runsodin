@@ -160,6 +160,9 @@ class ElegooMonitorThread(threading.Thread):
         # 1. Detect state transitions via printer_events.py
         # ----------------------------------------------------------
         current_state = status.internal_state
+        # A frame naming no state says nothing about the print, so the first look lasts until a known one.
+        first_look = not getattr(self, '_known_state_seen', False)
+        self._known_state_seen = not first_look or current_state not in ('UNKNOWN', 'OFFLINE')
 
         # Map to O.D.I.N. states
         if current_state == "PRINTING":
@@ -195,9 +198,9 @@ class ElegooMonitorThread(threading.Thread):
                     status.total_layers,
                     None,  # layer count from file
                     remaining_min,
-                    observed_elapsed=continuing_print_limit(status.current_ticks, first_look=self._last_state is None),
+                    observed_elapsed=continuing_print_limit(status.current_ticks, first_look=first_look),
                 )
-            elif odin_state == "FINISH" and (self._last_state in active or self._last_state is None):
+            elif odin_state == "FINISH" and (self._last_state in active or first_look):
                 # Print completed
                 printer_events.on_print_complete(
                     self.printer_id,
@@ -205,7 +208,7 @@ class ElegooMonitorThread(threading.Thread):
                     status.current_ticks,
                     None,  # filament_used_g
                 )
-            elif odin_state == "STOPPED" and (self._last_state in active or self._last_state is None):
+            elif odin_state == "STOPPED" and (self._last_state in active or first_look):
                 printer_events.on_print_cancelled(
                     self.printer_id,
                     status.filename or self._last_filename or "Unknown",

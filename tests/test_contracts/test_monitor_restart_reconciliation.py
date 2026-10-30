@@ -1500,6 +1500,122 @@ def test_prusalink_job_id_cannot_adopt_an_unknown_row_it_cannot_compare(generic)
     assert second['status'] == 'running'
 
 
+def elegoo_frame(print_status, current=0, ticks=0, filename='part.gcode'):
+    """Through the real SDCP parser. Status 13 and 9 with CurrentStatus 0 parse as UNKNOWN."""
+    from modules.printers.adapters.elegoo import ElegooStatus
+    from modules.printers.parsing.elegoo import parse_status
+    status = ElegooStatus()
+    for name, value in parse_status({'Status': {'CurrentStatus': [current], 'PrintInfo': {
+            'Status': print_status, 'Filename': filename, 'CurrentTicks': ticks, 'TotalTicks': 7200, 'Progress': 50}}}).items():
+        if hasattr(status, name):
+            setattr(status, name, value)
+    return status
+
+
+def prusalink_named_wire(state, timer=0):
+    """/api/v1/status through the real parser, from firmware that names the file but gives no job id."""
+    from modules.printers.adapters.prusalink import PrusaLinkPrinter, PrusaLinkStatus
+    from modules.printers.parsing.prusalink import parse_v1_status
+    status = PrusaLinkStatus()
+    PrusaLinkPrinter._apply_parsed(status, parse_v1_status({
+        'job': {'file': {'display': 'part.gcode'}, 'time_printing': timer}, 'printer': {'state': state}}))
+    return status
+
+
+@pytest.mark.parametrize('generic', ['elegoo'], indirect=True)
+@pytest.mark.parametrize('undecided', [13, 9])
+def test_elegoo_first_look_lasts_until_a_known_state(generic, undecided):
+    case = generic
+    assert elegoo_frame(undecided).internal_state == 'UNKNOWN'
+    case.monitor()._process_status(elegoo_frame(8, ticks=60))
+    before = case.rows()
+    age_row(case, before[0]['id'], 10 * 3600)
+    started = len(case.seen.started)
+    monitor = case.monitor()
+    monitor._process_status(elegoo_frame(undecided, ticks=3600))
+    monitor._process_status(elegoo_frame(8, ticks=3600))
+    assert [row['id'] for row in case.rows()] == [before[0]['id']]
+    assert case.rows()[0]['status'] == 'running' and case.tracked[59] == before[0]['id']
+    assert len(case.seen.started) == started
+
+
+@pytest.mark.parametrize('generic', ['elegoo'], indirect=True)
+@pytest.mark.parametrize('end,expected', [(16, 'completed'), (7, 'cancelled')], ids=['finished', 'stopped'])
+def test_elegoo_end_after_an_undecided_first_frame_still_closes_the_row(generic, end, expected):
+    case = generic
+    case.monitor()._process_status(elegoo_frame(8, ticks=60))
+    monitor = case.monitor()
+    monitor._process_status(elegoo_frame(13))
+    monitor._process_status(elegoo_frame(end))
+    assert [row['status'] for row in case.rows()] == [expected]
+
+
+@pytest.mark.parametrize('generic', ['elegoo'], indirect=True)
+def test_elegoo_undecided_frame_during_a_watched_start_is_not_a_first_look(generic):
+    case = generic
+    case.monitor()._process_status(elegoo_frame(8, ticks=60))
+    old = case.rows()[0]['id']
+    age_row(case, old, 2 * 3600)
+    monitor = case.monitor()
+    monitor._process_status(elegoo_frame(0))
+    assert case.rows()[0]['status'] == 'running'
+    monitor._process_status(elegoo_frame(13))
+    monitor._process_status(elegoo_frame(8, ticks=5))
+    rows = {row['id']: row for row in case.rows()}
+    assert rows[old]['status'] == 'cancelled' and rows[case.tracked[59]]['status'] == 'running'
+    assert case.tracked[59] != old
+
+
+@pytest.mark.parametrize('generic', ['prusalink'], indirect=True)
+@pytest.mark.parametrize('undecided', ['BUSY', 'UNKNOWN'])
+def test_prusalink_first_look_lasts_until_a_state_that_decides(generic, undecided):
+    case = generic
+    case.monitor()._process_status(prusalink_named_wire('PRINTING', timer=60))
+    before = case.rows()
+    age_row(case, before[0]['id'], 10 * 3600)
+    monitor = case.monitor()
+    monitor._process_status(prusalink_named_wire(undecided))
+    monitor._process_status(prusalink_named_wire('PRINTING', timer=3600))
+    assert [row['id'] for row in case.rows()] == [before[0]['id']]
+    assert case.tracked[59] == before[0]['id']
+
+
+@pytest.mark.parametrize('generic', ['prusalink'], indirect=True)
+def test_prusalink_undecided_state_during_a_watched_start_is_not_a_first_look(generic):
+    case = generic
+    case.monitor()._process_status(prusalink_named_wire('PRINTING', timer=60))
+    old = case.rows()[0]['id']
+    age_row(case, old, 2 * 3600)
+    monitor = case.monitor()
+    monitor._process_status(prusalink_named_wire('IDLE'))
+    monitor._process_status(prusalink_named_wire('BUSY'))
+    monitor._process_status(prusalink_named_wire('PRINTING', timer=5))
+    rows = {row['id']: row for row in case.rows()}
+    assert rows[old]['status'] == 'cancelled' and case.tracked[59] != old
+
+
+@pytest.mark.parametrize('generic', ['anycubic_lan'], indirect=True)
+def test_anycubic_has_no_undecided_frame_before_its_first_look(generic):
+    # Same check on Anycubic: an unrecognised project state stays OFFLINE, which the monitor
+    # skips before the shared sink, so no frame can use up the first look.
+    from modules.printers.adapters.anycubic_lan import DEFAULTS
+    from modules.printers.parsing.anycubic_lan import parse_report
+    topic = 'anycubic/anycubicCloud/v1/printer/public/20025/CN0000/info/report'
+    case = generic
+    case.monitor()._process_status(case.status('PRINTING', timer=60))
+    before = case.rows()
+    age_row(case, before[0]['id'], 10 * 3600)
+    monitor = case.monitor()
+    state = parse_report(topic, {'action': 'x', 'data': {'project': {'state': 'unrecognised', 'filename': 'part.gcode'}}}, {'internal_state': 'OFFLINE'})
+    assert state['internal_state'] == 'OFFLINE'
+    monitor._process_status(SimpleNamespace(**(DEFAULTS | state)))
+    state = parse_report(topic, {'action': 'x', 'data': {'project': {'state': 'printing', 'filename': 'part.gcode', 'print_time': 60}}}, state)
+    assert state['internal_state'] == 'PRINTING' and state['current_ticks'] == 3600
+    monitor._process_status(SimpleNamespace(**(DEFAULTS | state)))
+    assert [row['id'] for row in case.rows()] == [before[0]['id']]
+    assert case.tracked[59] == before[0]['id']
+
+
 def test_generic_pause_after_a_restart_still_reaches_the_attention_lane(generic, monkeypatch):
     # Two running rows silently drop pause alerts, so the duplicate is what must not happen.
     from modules.notifications import alert_dispatcher, job_faults
