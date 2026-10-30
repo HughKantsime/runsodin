@@ -193,6 +193,9 @@ def test_plaintext_sentinels_absent_from_entire_database(odin):
         assert hits == []
     finally:
         con.close()
+    # Closing any descriptor for this file drops the process's POSIX locks, so a pooled
+    # connection could lose its WAL lock and read a stale snapshot afterwards.
+    o.engine.dispose()
     raw = o.db_path.read_bytes()
     for name, plain in o.secrets.items():
         assert plain.encode() not in raw, name
