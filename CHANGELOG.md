@@ -11,7 +11,7 @@ All notable changes to O.D.I.N. are documented here.
 - ODIN refused H2D multi-filament prints that use both nozzles with "Unverifiable source mapping", so none of them could start through ODIN.
   - A tool change across nozzles names the hotend it leaves (`M620.11 ... B0` or `B1`), and ODIN only knew `B-1`. ODIN now accepts these when the hotend agrees with the file's `filament_map`.
   - The slicer CLI leaves `filament_nozzle_map` at a one-entry default on a multi-filament file. ODIN counted that as evidence, so it conflicted with `filament_map` or left the second filament's nozzle unknown. ODIN now ignores only that default; a full map still has to agree.
-  - The nozzle and AMS checks before start still apply: each filament's tray must feed the nozzle the file assigns it.
+  - The nozzle and AMS checks before start apply to both nozzles: each nozzle must match what the file needs, and each filament's tray must feed the nozzle the file assigns it.
 
 ## [2.0.36] - 2026-10-30
 

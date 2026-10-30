@@ -294,10 +294,12 @@ def test_change_template_exceptions_cannot_hide_other_sources_or_shapes(command)
 def cross_nozzle_file(filament_map, *commands, nozzle_map=('1',), plate_map=None):
     """A two-colour H2D slice across both nozzles, shaped like the slicer CLI's output."""
     project = {'filament_type': ['PLA', 'PLA'], 'filament_map': list(filament_map),
-               'filament_nozzle_map': list(nozzle_map), 'physical_extruder_map': ['1', '0']}
+               'filament_nozzle_map': list(nozzle_map), 'physical_extruder_map': ['1', '0'],
+               'nozzle_diameter': ['0.4', '0.4'], 'nozzle_volume_type': ['High Flow', 'High Flow']}
     xml = ('<config><plate><metadata key="index" value="1"/>'
            f'<metadata key="filament_maps" value="{plate_map or " ".join(filament_map)}"/>'
-           '<filament id="1" type="PLA" used_g="206.93"/><filament id="2" type="PLA" used_g="8.28"/></plate></config>')
+           '<filament id="1" type="PLA" used_g="206.93" used_m="68.28" nozzle_diameter="0.40" volume_type="High Flow"/>'
+           '<filament id="2" type="PLA" used_g="8.28" used_m="2.73" nozzle_diameter="0.40" volume_type="High Flow"/></plate></config>')
     code = ('; filament_type = PLA;PLA\nT1001\nM620 S0A H-1 ; switch material if AMS exist\nT0 H-1\nM621 S0A\n'
             'M620.11 P0 I0 B-1 E0\nM620.11 K1 I0 B-1 R10 F997.797\nM620.11 S1 L0 I0 B-1 R10 D8 E-10 F997.797\n'
             'M620 S1A H-1\nT1 H-1\nM621 S1A\n' + ''.join(command + '\n' for command in commands) + 'T65535\nT65279\n')
@@ -376,6 +378,38 @@ def test_h2d_cli_slice_across_nozzles_dispatches_only_on_the_right_trays(review_
         assert sent[0]['ams_mapping'] == [1, 4]
     else:
         assert not sent and 'ams_binding_mismatch' in result[1]
+
+
+@pytest.mark.parametrize('filament_map', [('2', '1'), ('1', '2'), ('1', '1')])
+def test_nozzle_gate_and_source_inspection_agree_on_a_cli_slice(tmp_path, filament_map):
+    from modules.printers.dispatch_capability_payload import inspect_payload
+    path = tmp_path / 'slice.3mf'
+    path.write_bytes(cross_nozzle_file(filament_map))
+    facts = inspect_payload(path, 1, 'H2D')
+    sources = inspect_ams_sources(path.read_bytes()).sources
+    assert not facts['incomplete']
+    assert {int(index): extruder for index, extruder in facts['filament_map'].items()} == {
+        source.source_index: source.extruder for source in sources}
+    assert {requirement['extruder'] for requirement in facts['requirements']} == {source.extruder for source in sources}
+
+
+@pytest.mark.parametrize('change,side', [
+    ({'id': 0, 'diameter': .6}, 'right'), ({'id': 1, 'diameter': .6}, 'left'),
+    ({'id': 0, 'type': 'HS01'}, 'right'), ({'id': 1, 'type': 'HS01'}, 'left'),
+])
+def test_cli_slice_compares_both_installed_nozzles(review_db, tmp_path, monkeypatch, change, side):
+    from modules.printers import dispatch
+    engine, path, report = setup_multi(review_db, tmp_path, monkeypatch, model='H2D', mapping=[1, 4], materials=('PLA', 'PLA'))
+    path.write_bytes(cross_nozzle_file(('2', '1'), 'M620.11 P0 I1 B0 E0', 'M620.11 P0 I0 B1 E0'))
+    with engine.begin() as conn:
+        conn.execute(text('UPDATE jobs SET payload_sha256=:sha WHERE id=53'), {'sha': hashlib.sha256(path.read_bytes()).hexdigest()})
+    report['device']['nozzle']['info'][change['id']].update(change)
+    events = []
+    sent = transport(monkeypatch, path, 'legacy', events)
+    owned_read(monkeypatch, engine, report, events, slots=(2, 5))
+    result = dispatch.dispatch_job(59, 53)
+    assert not result[0] and not sent, result
+    assert 'nozzle_mismatch' in result[1] and side in result[1]
 
 
 @pytest.mark.parametrize('protocol', ['legacy', 'v2'])

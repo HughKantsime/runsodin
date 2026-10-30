@@ -66,7 +66,12 @@ def inspect_payload(path, plate_number, model):
         dual = bambu_nozzle_count(model or project.get('printer_model')) == 2
         physical = values(project.get('physical_extruder_map'))
         dual = dual or len(physical) > 1
-        mapping = values(project.get('filament_nozzle_map')) or values(project.get('filament_map'))
+        # The slicer CLI leaves filament_nozzle_map at a one-entry default on a
+        # multi-filament file, as ams_source_inspection._source_extruder also ignores.
+        nozzle_map = values(project.get('filament_nozzle_map'))
+        if len(nozzle_map) == 1 < len(values(project.get('filament_type'))):
+            nozzle_map = []
+        mapping = nozzle_map or values(project.get('filament_map'))
         requirements = []
         incomplete = False
         filament_to_physical = {}
