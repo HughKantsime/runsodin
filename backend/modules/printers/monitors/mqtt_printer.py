@@ -59,6 +59,11 @@ AMS_SYNC_MAX_ATTEMPTS = 5
 AMS_SYNC_RETRY_BASE_SECONDS = 10
 AMS_SYNC_RETRY_MAX_SECONDS = 300
 
+# A failed reconciliation retries on later reports, backing off because each attempt
+# opens a connection under self._lock and can wait out the database busy timeout.
+RECOVERY_RETRY_BASE_SECONDS = 10
+RECOVERY_RETRY_MAX_SECONDS = 300
+
 
 def _ams_report_digest(report) -> str:
     """Content hash of a reported AMS list (key order independent)."""
@@ -87,6 +92,8 @@ class PrinterMonitor:
         self._lock = Lock()
         self._status_received = Event()
         self._recovery_pending = False
+        self._recovery_failures = 0
+        self._recovery_retry_at = 0.0
         self._pending_running_state = None
         self._pending_hms_terminal = None
         self._connection_generation = 0
@@ -207,12 +214,14 @@ class PrinterMonitor:
     def _reconcile_running_rows(self):
         """Caller holds self._lock (not reentrant; the status callback holds it too)."""
         # No report yet says nothing about the printer: every row stays until one does.
-        if not self._state.get('gcode_state'):
+        if not self._state.get('gcode_state') or time.time() < self._recovery_retry_at:
             self._recovery_pending = True
             return
         self._recovery_pending = False
         ended_state = self._recover_rows()
         if ended_state is None:
+            if not self._recovery_pending:
+                self._recovery_failures = 0
             return
         # Past the recovery transaction: record_job_ended opens its own. The live
         # mapping decides completed/failed/cancelled, exactly as for a watched end.
@@ -226,7 +235,15 @@ class PrinterMonitor:
         # record_job_ended swallows a failed write, and nothing else would try it again
         # on this connection: the row, job and claim would stay stuck until a reconnect.
         if self._row_still_running(identifier):
-            self._recovery_pending = True
+            self._retry_recovery_later()
+        else:
+            self._recovery_failures = 0
+
+    def _retry_recovery_later(self):
+        self._recovery_pending = True
+        self._recovery_failures += 1
+        self._recovery_retry_at = time.time() + min(
+            RECOVERY_RETRY_BASE_SECONDS * 2 ** (self._recovery_failures - 1), RECOVERY_RETRY_MAX_SECONDS)
 
     def _row_still_running(self, identifier):
         try:
@@ -417,7 +434,7 @@ class PrinterMonitor:
         except Exception as e:
             log.error(f"[{self.name}] Orphaned job recovery failed: {e}")
             # Rows are unchanged, and recovery would not otherwise run again this connect.
-            self._recovery_pending = True
+            self._retry_recovery_later()
             if ended_state:
                 self._current_job_id = None
                 self._linked_job_id = None

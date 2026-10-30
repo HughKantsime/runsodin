@@ -20,6 +20,10 @@ def packet(monitor, **fields):
     monitor._on_status(SimpleNamespace(raw_data={'print': fields}))
 
 
+def backoff_elapsed(monitor):
+    monitor._recovery_retry_at = 0.0
+
+
 def restarted(case):
     """A new monitor after a restart: nothing tracked, no state, no packet yet."""
     monitor = case.monitor()
@@ -194,6 +198,7 @@ def test_failed_end_does_not_fail_connect_and_retries(running_bambu):
     assert monitor._current_job_id is None and monitor._linked_job_id is None
     assert row_state(case)[0][0]['status'] == 'running' and monitor._recovery_pending
     monitor._job_ended = ended
+    backoff_elapsed(monitor)
     packet(monitor, **fields)
     rows, claims, job = row_state(case)
     assert rows[0]['status'] == 'completed' and claims == 0 and job[0] == 'completed'
@@ -220,6 +225,7 @@ def test_end_lost_to_a_transient_database_error_retries_on_this_connection(runni
     assert rows[0]['status'] == 'running' and claims == 1 and job[0] == 'printing'
     assert monitor._current_job_id is None and monitor._recovery_pending
     monkeypatch.setattr(lifecycle, 'get_db', database)
+    backoff_elapsed(monitor)
     packet(monitor, **fields)
     packet(monitor, **fields)
     rows, claims, job = row_state(case)
@@ -337,8 +343,52 @@ def test_failed_recovery_retries_on_the_next_report(manual_bambu, monkeypatch):
     assert monitor._recovery_pending
     assert manual_rows(case)[0][0]['status'] == 'running'
     monkeypatch.setattr(mqtt_printer, 'get_db', database)
+    backoff_elapsed(monitor)
     packet(monitor, gcode_state='IDLE')
     assert not monitor._recovery_pending
+    assert manual_rows(case)[0][0]['status'] == 'completed'
+
+
+def test_failing_recovery_backs_off_instead_of_retrying_every_report(manual_bambu, monkeypatch, caplog):
+    import logging
+    from modules.printers.monitors import mqtt_printer
+    case = manual_bambu
+    monitor = case.monitor()
+    monitor._state['gcode_state'] = 'IDLE'
+    database = mqtt_printer.get_db
+    opened = []
+    def refuse():
+        opened.append(True)
+        raise RuntimeError('synthetic')
+    monkeypatch.setattr(mqtt_printer, 'get_db', refuse)
+    with caplog.at_level(logging.ERROR, logger='mqtt_monitor'):
+        monitor._recover_orphaned_jobs()
+        for _ in range(10):
+            packet(monitor, gcode_state='IDLE')
+        # One attempt for eleven chances: no connection, no error line, no _lock stall.
+        assert len(opened) == 1
+        assert sum('Orphaned job recovery failed' in record.getMessage() for record in caplog.records) == 1
+        assert 0 < monitor._recovery_retry_at - time.time() <= mqtt_printer.RECOVERY_RETRY_BASE_SECONDS
+        delays = []
+        for _ in range(8):
+            backoff_elapsed(monitor)
+            packet(monitor, gcode_state='IDLE')
+            delays.append(round(monitor._recovery_retry_at - time.time()))
+    assert delays == [20, 40, 80, 160, 300, 300, 300, 300]
+    assert len(opened) == 9
+    monkeypatch.setattr(mqtt_printer, 'get_db', database)
+    backoff_elapsed(monitor)
+    packet(monitor, gcode_state='IDLE')
+    assert manual_rows(case)[0][0]['status'] == 'completed'
+    assert not monitor._recovery_pending and monitor._recovery_failures == 0
+
+
+def test_first_state_after_no_status_does_not_wait_for_any_backoff(manual_bambu):
+    case = manual_bambu
+    monitor = case.monitor()
+    monitor._recover_orphaned_jobs()
+    assert monitor._recovery_pending and monitor._recovery_failures == 0
+    packet(monitor, gcode_state='IDLE')
     assert manual_rows(case)[0][0]['status'] == 'completed'
 
 
