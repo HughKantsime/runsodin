@@ -20,6 +20,12 @@ def packet(monitor, **fields):
     monitor._on_status(SimpleNamespace(raw_data={'print': fields}))
 
 
+def ams_report(remain):
+    """A full AMS list as a report carries it, with RFID spools so remain percentages count."""
+    return {'ams': [{'id': '0', 'tray': [{'id': str(index), 'remain': remain, 'tag_uid': f'AB12CD34EF56AB{index:02d}',
+                                          'tray_uuid': f'{index:032X}'} for index in range(4)]}], 'tray_exist_bits': 'f'}
+
+
 def backoff_elapsed(monitor):
     monitor._recovery_retry_at = 0.0
 
@@ -109,15 +115,29 @@ def test_dispatched_print_ended_in_downtime_is_closed_once(running_bambu, delive
     assert dispatch.dispatch_job(59, 54)[0]
 
 
-def test_recovered_end_uses_the_first_start_filament_evidence(running_bambu):
+@pytest.mark.parametrize('order', ['callback_first', 'status_after_wait'])
+def test_recovered_end_uses_the_first_start_filament_evidence(running_bambu, order):
+    # Through the status callback: the report that shows the end is the only evidence of it.
     case = running_bambu
     monitor = restarted(case)
-    monitor._state['_ams_remain'] = {1: 70}
-    monitor._state.update(gcode_state='FINISH', subtask_name=case.state['subtask_name'], print_error=0)
-    monitor._recover_orphaned_jobs()
+    fields = dict(gcode_state='FINISH', subtask_name=case.state['subtask_name'], print_error=0, ams=ams_report(70))
+    observe(monitor, order, **fields)
     rows, _, _ = row_state(case)
     assert rows[0]['status'] == 'completed'
     assert rows[0]['filament_used_g'] == (100 if case.weights else None)
+
+
+@pytest.mark.parametrize('end_report,expected', [(ams_report(70), 100), (None, 50)], ids=['in_the_end_packet', 'from_the_last_packet'])
+def test_watched_end_still_measures_filament(running_bambu, end_report, expected):
+    case = running_bambu
+    monitor = restarted(case)
+    packet(monitor, gcode_state='RUNNING', subtask_name=case.state['subtask_name'], print_error=0, ams=ams_report(75))
+    assert monitor._current_job_id == case.identifier
+    end = dict(gcode_state='FINISH', subtask_name=case.state['subtask_name'], print_error=0)
+    packet(monitor, **(dict(end, ams=end_report) if end_report else end))
+    rows, _, _ = row_state(case)
+    assert rows[0]['status'] == 'completed'
+    assert rows[0]['filament_used_g'] == (expected if case.weights else None)
 
 
 def test_loadout_changed_in_downtime_still_proves_the_end(running_bambu):
@@ -275,10 +295,15 @@ def manual_bambu(review_db, tmp_path, monkeypatch):
         result._camera_discovered = True
         return result
 
+    with engine.begin() as conn:
+        conn.execute(text("INSERT INTO filament_library(id,brand,name) VALUES(700,'Synthetic','PLA')"))
+        conn.execute(text('INSERT INTO spools(id,filament_id,initial_weight_g,remaining_weight_g,org_id) VALUES(700,700,1000,800,1)'))
+        conn.execute(text('UPDATE filament_slots SET assigned_spool_id=700 WHERE printer_id=59'))
     first = monitor()
-    first._state = {'gcode_state': 'RUNNING', 'subtask_name': 'Owned dispatch test', 'gcode_file': 'manual.gcode'}
+    first._state = {'gcode_state': 'RUNNING', 'subtask_name': 'Owned dispatch test', 'gcode_file': 'manual.gcode', '_ams_remain': {1: 80}}
     assert first._job_started()
     assert first._linked_job_id == 53
+    assert first._start_spool_weights
     return SimpleNamespace(engine=engine, monitor=monitor, identifier=first._current_job_id, seen=seen, name='Owned dispatch test')
 
 
@@ -426,6 +451,28 @@ def test_unreserved_print_ended_in_downtime_maps_like_a_watched_end(manual_bambu
     assert [kind for kind in seen.timeline if kind in ('completed', 'failed', 'cancelled')] == [expected]
     assert [item['success'] for item in seen.archive] == [expected == 'completed']
     assert len(seen.completed) == len(seen.care) == int(expected == 'completed')
+
+
+def test_unreserved_end_measures_filament_against_its_first_start(manual_bambu):
+    case = manual_bambu
+    packet(case.monitor(), gcode_state='FINISH', subtask_name=case.name, print_error=0, ams=ams_report(70))
+    with case.engine.connect() as conn:
+        assert conn.execute(text('SELECT filament_used_g FROM print_jobs WHERE id=:id'), {'id': case.identifier}).scalar_one() == 100
+
+
+def test_first_packet_of_a_print_under_way_is_not_its_start_evidence(manual_bambu):
+    # This print started while ODIN was down, so this remain says nothing about its start.
+    case = manual_bambu
+    with case.engine.begin() as conn:
+        conn.execute(text("UPDATE print_jobs SET status='cancelled' WHERE id=:id"), {'id': case.identifier})
+    monitor = case.monitor()
+    packet(monitor, gcode_state='RUNNING', subtask_name='started-in-downtime', print_error=0, ams=ams_report(40))
+    identifier = monitor._current_job_id
+    assert identifier and identifier != case.identifier
+    assert monitor._start_spool_weights == {}
+    packet(monitor, gcode_state='FINISH', subtask_name='started-in-downtime', print_error=0, ams=ams_report(30))
+    with case.engine.connect() as conn:
+        assert conn.execute(text('SELECT status,filament_used_g FROM print_jobs WHERE id=:id'), {'id': identifier}).one() == ('completed', None)
 
 
 @pytest.mark.parametrize('order', ['callback_first', 'recovery_first'])

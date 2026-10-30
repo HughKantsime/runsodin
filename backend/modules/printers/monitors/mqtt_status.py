@@ -3,6 +3,21 @@
 from core.printer_identity_audit import observe_printer_identity
 
 
+def refresh_ams_remain(self):
+    """Keep AMS remain percentages fresh for filament tracking."""
+    ams_raw = self._state.get('ams', {})
+    ams_units = ams_raw.get('ams', [])
+    if ams_units:
+        ams_remain = {}
+        from modules.printers.telemetry.bambu.ams_identity import ams_trays_by_slot, is_rfid_tag
+        from modules.printers.monitors.ams_inventory import remaining_percent
+        for slot_idx, tray in ams_trays_by_slot(ams_units):
+            known_remaining = remaining_percent(tray.get('remain'))
+            if known_remaining is not None and (is_rfid_tag(tray.get('tag_uid')) or is_rfid_tag(tray.get('tray_uuid'))):
+                ams_remain[slot_idx] = known_remaining
+        self._state['_ams_remain'] = ams_remain
+
+
 def handle_status(self, status, generation, runtime):
     """Handle incoming MQTT status update."""
     import modules.notifications.event_dispatcher as printer_events
@@ -56,6 +71,11 @@ def handle_status(self, status, generation, runtime):
             if value is not None:
                 self._state[key] = value
         gcode_state = self._state.get('gcode_state')
+        if gcode_state in ('FINISH', 'FAILED', 'IDLE'):
+            # An end measures filament against this packet, which after downtime is the only
+            # report there is. A start waits for the tail: its snapshot is first-start evidence,
+            # and a first packet can be a print already under way.
+            refresh_ams_remain(self)
         if gcode_state and getattr(self, '_recovery_pending', False) and not self._current_job_id:
             # Recovery's wait ended before any report carried a state, or it failed. A tracked
             # print is ending live, so its row waits for this packet's transition instead.
@@ -453,18 +473,7 @@ def handle_status(self, status, generation, runtime):
                 printer_events.discover_camera(self.printer_id, full_url)
                 self._camera_discovered = True
 
-        # Keep AMS remain percentages fresh for filament tracking
-        ams_raw = self._state.get('ams', {})
-        ams_units = ams_raw.get('ams', [])
-        if ams_units:
-            ams_remain = {}
-            from modules.printers.telemetry.bambu.ams_identity import ams_trays_by_slot, is_rfid_tag
-            from modules.printers.monitors.ams_inventory import remaining_percent
-            for slot_idx, tray in ams_trays_by_slot(ams_units):
-                known_remaining = remaining_percent(tray.get('remain'))
-                if known_remaining is not None and (is_rfid_tag(tray.get('tag_uid')) or is_rfid_tag(tray.get('tray_uuid'))):
-                    ams_remain[slot_idx] = known_remaining
-            self._state['_ams_remain'] = ams_remain
+        refresh_ams_remain(self)
 
         # Update progress if we have an active job (throttled to every 5 seconds)
         if self._current_job_id and runtime.time.time() - self._last_progress_update >= 5:
