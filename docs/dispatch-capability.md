@@ -6,7 +6,7 @@ A duplicate job POST receives 409. Start-next replays its existing actor-scoped 
 
 Pre-claim validation refusals retain HTTP **400**; an existing claim returns **409** and worker capacity/start failures return **503**. Start-next restores its assignment and releases its suggestion guard if staging cannot start. A staging timeout is **202**, never a retry-authorizing failure.
 
-Compatibility: append `?wait=true` to either POST for the previous synchronous result (HTTP 200 on success). Internal scheduler callers retain synchronous `dispatch_job`. Web callers poll GET only, with no automatic POST retry; a bounded polling timeout leaves the attempt unconfirmed and fenced. No MCP tool definitions were found in this repository; external clients should adopt the handle or request the compatibility path.
+Compatibility: append `?wait=true` to either POST for the previous synchronous result (HTTP 200 on success). The request stays open for the whole send, so a reverse proxy can answer 504 while the send continues. A proxy timeout is not a failure: read the job's dispatch status and never retry on it. Prefer the default 202 path. Internal scheduler callers retain synchronous `dispatch_job`. Web callers poll GET only, with no automatic POST retry; a bounded polling timeout leaves the attempt unconfirmed and fenced. No MCP tool definitions were found in this repository; external clients should adopt the handle or request the compatibility path.
 
 ## Nozzle gate
 
