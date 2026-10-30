@@ -90,3 +90,41 @@ def test_real_order_owned_first_start_callback_freezes_exact_unit_evidence(creat
         with engine.connect() as c:
             assert c.execute(text('SELECT count(*) FROM print_jobs')).scalar_one()==1
             assert c.execute(text('SELECT spool_snapshot FROM print_jobs WHERE id=:id'),{'id':identifier}).scalar_one()==before_snapshot
+
+        # Reconnect must preserve a genuinely owned economic birth and its
+        # captured valuation, even after the mutable AMS loadout changes.
+        from modules.printers.monitors import mqtt_printer
+        monkeypatch.setattr(mqtt_printer,'get_db',database)
+        with engine.begin() as c:
+            before=dict(c.execute(text('SELECT * FROM print_jobs WHERE id=:id'),{'id':identifier}).mappings().one())
+            c.execute(text("UPDATE filament_slots SET filament_type='PETG' WHERE printer_id=59"))
+        for first in ('callback','recovery'):
+            restarted=mqtt_printer.PrinterMonitor(59,'Owned','127.0.0.1','SYNTHETICPRINTER','synthetic')
+            restarted._state={'gcode_state':'RUNNING','subtask_name':names[0],'gcode_file':'Metadata/plate_1.gcode'}
+            restarted._status_received.set()
+            actions=[restarted._job_started,restarted._recover_orphaned_jobs]
+            if first=='recovery':actions.reverse()
+            for action in actions:action()
+            assert restarted._current_job_id==identifier and restarted._linked_job_id==job
+            with engine.connect() as c:
+                assert dict(c.execute(text('SELECT * FROM print_jobs WHERE id=:id'),{'id':identifier}).mappings().one())==before
+                assert c.execute(text('SELECT count(*) FROM print_jobs')).scalar_one()==1
+        assert len(events)==1
+
+        from modules.notifications import alert_dispatch,event_dispatcher,alert_outbox
+        terminal_alerts=[]
+        monkeypatch.setattr(alert_outbox,'dispatch',lambda *a:terminal_alerts.append(a))
+        from modules.archives import archive
+        monkeypatch.setattr(alert_dispatch,'dispatch_alert',lambda **kw:None)
+        monkeypatch.setattr(alert_dispatch,'_start_bed_cooled_monitor',lambda *a:None)
+        monkeypatch.setattr(event_dispatcher,'increment_care_counters',lambda *a:None)
+        monkeypatch.setattr(archive,'create_print_archive',lambda **kw:None)
+        restarted._on_state_change('RUNNING','FINISH')
+        restarted._on_state_change('FINISH','FINISH')
+        assert len(terminal_alerts)==1
+        with engine.connect() as c:
+            assert c.execute(text('SELECT count(*) FROM printer_dispatch_claims')).scalar_one()==0
+            assert c.execute(text('SELECT count(*) FROM job_summary_outbox')).scalar_one()==1
+            assert c.execute(text("SELECT count(*) FROM alert_outbox WHERE alert_kind LIKE 'terminal:%'")).scalar_one()==1
+            row=c.execute(text('SELECT economic_uid,spool_snapshot,status FROM print_jobs WHERE id=:id'),{'id':identifier}).one()
+            assert tuple(row)==(before['economic_uid'],before_snapshot,'completed')

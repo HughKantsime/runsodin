@@ -11,6 +11,11 @@ from core.dispatch_observations import _matches_prepared_dispatch,_bind
 
 _SEAL=object()
 
+
+class ReservedResumeRefused(SourceCreationError):
+    """Same physical attempt remains fenced; no fresh observation is allowed."""
+
+
 @dataclass(frozen=True,eq=False)
 class _StartPlan:
     branch:str
@@ -106,12 +111,35 @@ def prepare_start(executor,scope,*,printer_id,observed_filename,protocol,observa
                 if existing is not None:
                     _lock(view,'print_jobs',existing)
                     row=view.execute(text('SELECT printer_id,scheduled_job_id,status,filename,job_name,observed_received_at,economic_birth_nonce FROM print_jobs WHERE id=:id'),{'id':existing}).mappings().first()
-                    if row is not None and (row['job_name'] if protocol=='bambu' else row['filename'])==observed_filename and row['printer_id']==printer_id and row['scheduled_job_id']==claim['job_id'] and row['status']=='running' and _proof(view,record,row):
+                    transport_matches=row is not None and (row['job_name'] if protocol=='bambu' else row['filename'])==observed_filename
+                    if education is None and type(record['key']) is bytes and len(record['key'])>=32:
+                        # Bambu may omit the upload suffix on reconnect. Prove
+                        # incoming and retained names against the same receipt.
+                        from core.dispatch_receipts import observed_filename_matches
+                        transport_matches=observed_filename_matches(record['key'],claim['token'],protocol,observed_filename,receipt['observed_filename_key'])
+                    if row is not None and transport_matches and row['printer_id']==printer_id and row['scheduled_job_id']==claim['job_id'] and row['status']=='running' and _proof(view,record,row):
                         if row['economic_birth_nonce'] is not None:_validate_existing_source(executor,'attempt',existing)
                         branch='legacy_resume' if row['economic_birth_nonce'] is None else 'resume';job_id=claim['job_id'];resume_id=existing;reason=None;record['observed']=dict(row)
                 elif _proof(view,record,observed):
                     branch='fresh_authorized';job_id=claim['job_id'];reason=None
-        if branch=='fresh_unresolved':reason='reserved_authority_refused'
+        if branch=='fresh_unresolved':
+            reason='reserved_authority_refused'
+            # A failed authority proof is not evidence of another physical start.
+            # Check independently of eligibility so changed claim/receipt/job
+            # authority cannot send the same running transport into INSERT.
+            # Education owns its separate quarantine/identity-conflict policy.
+            if education_token is None and receipt is not None and receipt['observed_print_job_id'] is not None:
+                existing=receipt['observed_print_job_id']
+                _lock(view,'print_jobs',existing)
+                row=view.execute(text('SELECT status,filename,job_name FROM print_jobs WHERE id=:id'),{'id':existing}).mappings().first()
+                from core.dispatch_receipts import generic_observed_token
+                same_transport=(row is not None and (row['job_name'] if protocol=='bambu' else row['filename'])==observed_filename)
+                same_token=generic_observed_token(protocol,observed_filename)==claim['token']
+                if row is not None and row['status']=='running' and (same_transport or same_token):
+                    import logging
+                    reason='receipt_bound_resume_refused'
+                    logging.getLogger('printers').warning('Reserved start retained: printer_id=%s reason=%s',printer_id,reason)
+                    raise ReservedResumeRefused(reason)
     plan=_StartPlan(branch,job_id,resume_id,reason,reserved,_SEAL)
     record['plan']=plan;scope._start_plan_records[id(plan)]=record
     return plan

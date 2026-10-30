@@ -20,27 +20,29 @@ def generic_observation_reserved(executor,*,printer_id,observed_filename):
 
 
 def prepare_generic_observation(executor,*,printer_id,observed_filename):
-    """Serialize retained attempts before inserting, and resume only their bound row."""
+    """Use the callback's fenced start plan; recovery never inserts a row."""
+    from core import auth
+    from core.attempt_start_plan import prepare_start,finalize_start,ReservedResumeRefused
+    from core.attempt_start_transaction import start_transaction
     from core.dispatch_observation_executor import TransactionView
-    from core.order_production import prepare_job_write,ProductionLinkageChanged
-    from modules.printers.dispatch_admission import _lock
     conn=TransactionView(executor)
-    peek=conn.execute(text('SELECT job_id,token FROM printer_dispatch_claims WHERE printer_id=:pid'),{'pid':printer_id}).first()
-    if peek is None:return None
-    prepare_job_write(executor,[peek[0]])
-    statement=('SELECT job_id,token FROM printer_dispatch_claims WHERE printer_id=:pid FOR UPDATE NOWAIT' if conn.dialect.name=='postgresql' else 'UPDATE printer_dispatch_claims SET token=token WHERE printer_id=:pid RETURNING job_id,token')
-    current=conn.execute(text(statement),{'pid':printer_id}).first()
-    if current is None or tuple(current)!=tuple(peek):raise ProductionLinkageChanged()
-    _lock(conn,'printers',printer_id,'is_active')
-    row=conn.execute(text("SELECT p.id,p.filename,p.job_name,r.job_id,p.scheduled_job_id,p.status FROM dispatch_attempt_receipts r JOIN print_jobs p ON p.id=r.observed_print_job_id WHERE r.claim_token=:token AND r.printer_id=:pid AND p.printer_id=:pid"),{'token':current[1],'pid':printer_id}).first()
-    if row is None:return None
     protocol=conn.execute(text('SELECT api_type FROM printers WHERE id=:pid'),{'pid':printer_id}).scalar_one()
-    name=row[2] if protocol=='bambu' else row[1]
-    if name==observed_filename and row[3]==current[0] and row[4]==current[0] and row[5]=='running':
-        _lock(conn,'print_jobs',row[0],'status')
-        # NOWAIT serializes terminal updates; recheck after the acquired lock.
-        fresh=conn.execute(text('SELECT status,scheduled_job_id FROM print_jobs WHERE id=:id'),{'id':row[0]}).first()
-        if fresh is not None and fresh[0]=='running' and fresh[1]==current[0]:return row[0]
+    if not isinstance(observed_filename,str) or not observed_filename:return None
+    # Legacy DBAPI recovery callers have only read so far. Reserve the SQLite
+    # writer before opening the caller-owned start scope (never commit here).
+    if conn.dialect.name=='sqlite':
+        conn.execute(text('UPDATE printer_dispatch_claims SET token=token WHERE 0'))
+    try:
+        with start_transaction(executor) as scope:
+            scope.fence_dispatch_membership(executor,education=True)
+            plan=prepare_start(executor,scope,printer_id=printer_id,
+                observed_filename=observed_filename,protocol=protocol,
+                observation_fields={'filename':observed_filename,'job_name':observed_filename,
+                                    'dispatch_key':auth.SECRET_KEY.encode()})
+            if plan.branch in ('resume','legacy_resume'):
+                return finalize_start(executor,scope,plan)
+    except ReservedResumeRefused:
+        pass  # prepare_start logs only a bounded reason; keep the claim fenced.
     return None
 
 
@@ -130,7 +132,12 @@ def _matches_prepared_dispatch(conn, *, printer_id, observed, claim, receipt, ke
     creds=dispatch._get_printer_info(printer_id,connection=conn)
     identity=build_identity(creds,key)
     if (identity is None or creds.get('is_active') is not True
-            or identity.configuration_key!=claim['configuration_key'] or identity.target_key!=claim['physical_key']):
+            or identity.target_key!=claim['physical_key'] or creds.get('org_id')!=claim['owner_org_id']):
+        return False
+    from core.dispatch_identity import receipt_configuration_matches
+    if receipt['observed_print_job_id'] is not None:
+        if not receipt_configuration_matches(receipt,creds,key,identity.configuration_key):return False
+    elif identity.configuration_key!=claim['configuration_key']:
         return False
     transport=observed['job_name'] if creds['api_type']=='bambu' else observed['filename']
     if education is None:

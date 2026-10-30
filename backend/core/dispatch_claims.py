@@ -121,7 +121,7 @@ def retire_terminal_locked(engine,*,printer_id,physical_key,configuration_key,ow
             elif len(rows)==1:
                 peek=rows[0]
                 if (peek['printer_id']!=printer_id or peek['physical_key']!=physical_key
-                        or peek['configuration_key']!=configuration_key or peek['owner_org_id']!=owner_org_id
+                        or peek['owner_org_id']!=owner_org_id
                         or peek['state']!='accepted'):
                     return 'retained'
                 prepare_job_write(conn,[peek['job_id']])
@@ -137,7 +137,16 @@ def retire_terminal_locked(engine,*,printer_id,physical_key,configuration_key,ow
                 if conn.dialect.name=='postgresql':query=query.with_for_update(nowait=True)
                 receipt=conn.execute(query).mappings().one_or_none()
                 if (receipt is None or receipt['printer_id']!=printer_id or receipt['job_id']!=claim['job_id']
-                        or receipt['configuration_key']!=configuration_key or receipt['observed_print_job_id'] is None):
+                        or receipt['configuration_key']!=claim['configuration_key'] or receipt['observed_print_job_id'] is None):
+                    return 'retained'
+                from core.dispatch_identity import build_identity,receipt_configuration_matches
+                from modules.printers import dispatch
+                creds=dispatch._get_printer_info(printer_id,connection=conn)
+                identity=build_identity(creds,key)
+                if (identity is None or identity.target_key!=physical_key
+                        or creds.get('org_id')!=owner_org_id
+                        or (receipt['stable_configuration_key'] is None and identity.configuration_key!=configuration_key)
+                        or not receipt_configuration_matches(receipt,creds,key,identity.configuration_key)):
                     return 'retained'
                 if expected_observation_id is not None and receipt['observed_print_job_id']!=expected_observation_id:return 'retained'
                 _lock_terminal_resource(conn,'print_jobs',receipt['observed_print_job_id'],'status')

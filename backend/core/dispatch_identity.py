@@ -141,3 +141,17 @@ def stable_configuration_key(creds, key):
               if name not in ('active_materials', 'filament_slots', 'plug_configuration')}
     identity = build_identity(stable, key, _recipe=True)
     return identity.configuration_key if identity else None
+
+
+def receipt_configuration_matches(receipt, creds, key, full_configuration_key):
+    """Bound-attempt equality; legacy receipts retain full dispatch equality.
+
+    Never backfill here: only dispatch or audited backfill evidence may relax
+    mutable loadout equality. Admission still requires the full key.
+    """
+    stable = receipt.get('stable_configuration_key')
+    if stable is None:
+        return receipt['configuration_key'] == full_configuration_key
+    return (isinstance(stable, str) and re.fullmatch('[0-9a-f]{64}', stable) is not None
+            and receipt.get('stable_key_source') in ('dispatch', 'backfilled_no_printer_audit')
+            and stable == stable_configuration_key(creds, key))
