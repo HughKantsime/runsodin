@@ -355,6 +355,30 @@ def test_only_the_one_entry_default_nozzle_map_is_ignored(nozzle_map, plate_map)
 
 
 @pytest.mark.parametrize('protocol', ['legacy', 'v2'])
+@pytest.mark.parametrize('filament_map,commands,accepted', [
+    (('2', '1'), ('M620.11 P0 I1 B0 E0', 'M620.11 P0 I0 B1 E0'), True),
+    # The same trays, but the file puts each source on the other nozzle.
+    (('1', '2'), ('M620.11 P0 I1 B1 E0',), False),
+])
+def test_h2d_cli_slice_across_nozzles_dispatches_only_on_the_right_trays(review_db, tmp_path, monkeypatch, protocol,
+                                                                         filament_map, commands, accepted):
+    from modules.printers import dispatch
+    engine, path, report = setup_multi(review_db, tmp_path, monkeypatch, model='H2D', mapping=[1, 4], materials=('PLA', 'PLA'))
+    path.write_bytes(cross_nozzle_file(filament_map, *commands))
+    with engine.begin() as conn:
+        conn.execute(text('UPDATE jobs SET payload_sha256=:sha WHERE id=53'), {'sha': hashlib.sha256(path.read_bytes()).hexdigest()})
+    events = []
+    sent = transport(monkeypatch, path, protocol, events)
+    owned_read(monkeypatch, engine, report, events, slots=(2, 5))
+    result = dispatch.dispatch_job(59, 53)
+    assert result[0] is accepted, result
+    if accepted:
+        assert sent[0]['ams_mapping'] == [1, 4]
+    else:
+        assert not sent and 'ams_binding_mismatch' in result[1]
+
+
+@pytest.mark.parametrize('protocol', ['legacy', 'v2'])
 @pytest.mark.parametrize('change', ['mapping', 'hold', 'stale'])
 def test_final_command_gate_rechecks_original_all_tray_proof(review_db, tmp_path, monkeypatch, protocol, change):
     from modules.printers import dispatch, dispatch_ams_gate as gate
