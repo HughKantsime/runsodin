@@ -1,0 +1,237 @@
+"""Shared Pydantic models and helpers for inventory routes."""
+
+from datetime import datetime
+from io import BytesIO
+from modules.inventory.constants import MAX_LOW_STOCK_THRESHOLD_G
+from typing import Optional
+
+import qrcode
+from PIL import Image, ImageDraw, ImageFont
+from pydantic import BaseModel as PydanticBaseModel, ConfigDict, Field, field_validator, model_validator
+
+from core.spool_purchase_validation import PurchaseInput, MAX_REVISION
+from core.filament_ledger import MANUAL_NOTES_MAX
+
+import logging
+log = logging.getLogger("odin.api")
+
+
+# ====================================================================
+# Inline Pydantic models
+# ====================================================================
+
+MAX_SPOOLMAN_ID = 2_147_483_647  # spools.spoolman_spool_id is a 32-bit INTEGER
+
+
+class SpoolCreate(PydanticBaseModel):
+    purchase_evidence: Optional[PurchaseInput] = None
+    pa_profile: Optional[str] = Field(default=None, max_length=50)
+    low_stock_threshold_g: int = Field(default=50, ge=0, le=MAX_LOW_STOCK_THRESHOLD_G, strict=True)
+    filament_id: int
+    color_hex: Optional[str] = None
+    color_name: Optional[str] = Field(default=None, max_length=100)
+
+    @field_validator('color_hex')
+    @classmethod
+    def hex_color(cls, value):
+        from modules.inventory.receiving import ReceiveRolls
+        return ReceiveRolls.hex_color(value.strip() if value is not None else None)
+
+    @field_validator('color_name')
+    @classmethod
+    def named_color(cls, value):
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError('Color name must not be blank')
+        return value
+
+    initial_weight_g: float = 1000.0
+    spool_weight_g: float = 250.0
+    price: Optional[float] = None
+    purchase_date: Optional[datetime] = None
+    vendor: Optional[str] = None
+    lot_number: Optional[str] = None
+    storage_location: Optional[str] = None
+    notes: Optional[str] = None
+    spoolman_spool_id: Optional[int] = Field(default=None, strict=True, ge=1, le=MAX_SPOOLMAN_ID)  # Spoolman link (usage push)
+
+
+class SpoolUpdate(PydanticBaseModel):
+    color_name: Optional[str] = Field(default=None, max_length=100)
+    _named_color = field_validator('color_name')(SpoolCreate.named_color.__func__)
+
+    purchase_evidence: Optional[PurchaseInput] = None
+    expected_purchase_revision: Optional[int] = Field(default=None, strict=True, ge=0, le=MAX_REVISION)
+
+    @model_validator(mode="after")
+    def purchase_operation(self):
+        operation = "purchase_evidence" in self.model_fields_set
+        expected = "expected_purchase_revision" in self.model_fields_set
+        if operation != expected or (expected and self.expected_purchase_revision is None):
+            raise ValueError("Purchase operation requires expected_purchase_revision and a full evidence object or null")
+        return self
+
+    pa_profile: Optional[str] = Field(default=None, max_length=50)
+    low_stock_threshold_g: Optional[int] = Field(default=None, ge=0, le=MAX_LOW_STOCK_THRESHOLD_G, strict=True)
+    remaining_weight_g: Optional[float] = None
+    status: Optional[str] = None
+    storage_location: Optional[str] = None
+    notes: Optional[str] = None
+    price: Optional[float] = None
+    vendor: Optional[str] = None
+    lot_number: Optional[str] = None
+    spoolman_spool_id: Optional[int] = Field(default=None, strict=True, ge=1, le=MAX_SPOOLMAN_ID)  # null unlinks
+
+
+class SpoolResponse(PydanticBaseModel):
+    id: int
+    filament_id: int
+    qr_code: Optional[str]
+    initial_weight_g: float
+    remaining_weight_g: float
+    spool_weight_g: float
+    percent_remaining: float
+    price: Optional[float]
+    purchase_date: Optional[datetime]
+    vendor: Optional[str]
+    lot_number: Optional[str]
+    status: str
+    location_printer_id: Optional[int]
+    location_slot: Optional[int]
+    storage_location: Optional[str]
+    notes: Optional[str]
+    created_at: datetime
+    # Include filament info
+    filament_brand: Optional[str] = None
+    filament_name: Optional[str] = None
+    filament_material: Optional[str] = None
+    filament_color_hex: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SpoolLoadRequest(PydanticBaseModel):
+    printer_id: int
+    slot_number: int
+
+
+class SpoolUseRequest(PydanticBaseModel):
+    # Backward-compatible body shape. Either `weight_used_g` (legacy
+    # frontend/portal field) or `grams` (MCP consume_spool field name)
+    # may be sent; if both are present, `weight_used_g` wins. The
+    # handler resolves to a single value before use.
+    weight_used_g: Optional[float] = None
+    grams: Optional[float] = None
+    job_id: Optional[int] = None
+    # Stored after the ledger's "manual: " prefix in spool_usage.notes (VARCHAR(255)).
+    notes: Optional[str] = Field(default=None, max_length=MANUAL_NOTES_MAX)
+
+    @property
+    def resolved_grams(self) -> float:
+        """Return whichever of weight_used_g / grams is set. Raises ValueError if neither."""
+        if self.weight_used_g is not None:
+            return float(self.weight_used_g)
+        if self.grams is not None:
+            return float(self.grams)
+        raise ValueError("Must provide either weight_used_g or grams")
+
+
+class SpoolWeighRequest(PydanticBaseModel):
+    gross_weight_g: float  # Total weight including spool
+
+
+MAX_COST_PER_GRAM = 100.0  # $/g; far above any real filament, rejects typos and overflow
+
+
+class FilamentCreateRequest(PydanticBaseModel):
+    brand: str
+    name: str
+    material: str = "PLA"
+    color_hex: Optional[str] = None
+    # Per-material rate ($/g); null = global default. Global across orgs: superadmin-only write.
+    cost_per_gram: Optional[float] = Field(default=None, ge=0, le=MAX_COST_PER_GRAM, allow_inf_nan=False)
+
+
+class FilamentUpdateRequest(PydanticBaseModel):
+    brand: Optional[str] = None
+    name: Optional[str] = None
+    material: Optional[str] = None
+    color_hex: Optional[str] = None
+    cost_per_gram: Optional[float] = Field(default=None, ge=0, le=MAX_COST_PER_GRAM, allow_inf_nan=False)  # null clears
+
+
+class ScanAssignRequest(PydanticBaseModel):
+    qr_code: str
+    printer_id: int
+    slot: int  # 0-indexed slot/gate number
+
+
+class ScanAssignResponse(PydanticBaseModel):
+    success: bool
+    message: str
+    spool_id: Optional[int] = None
+    spool_name: Optional[str] = None
+    printer_name: Optional[str] = None
+    slot: Optional[int] = None
+
+
+# ====================================================================
+# Helper
+# ====================================================================
+
+def generate_single_label(spool, width, height):
+    """Generate a single label image for a spool."""
+    img = Image.new('RGB', (width, height), 'white')
+    draw = ImageDraw.Draw(img)
+
+    # QR code
+    qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=10, border=2)
+    qr.add_data(spool.qr_code)
+    qr.make(fit=True)
+    qr_img = qr.make_image(fill_color="black", back_color="white")
+
+    qr_size = min(height - 20, width // 2 - 20)
+    qr_img = qr_img.resize((qr_size, qr_size), Image.Resampling.LANCZOS)
+    img.paste(qr_img, (10, (height - qr_size) // 2))
+
+    # Text
+    try:
+        font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
+        font_medium = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 28)
+        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 20)
+    except Exception:
+        font_large = font_medium = font_small = ImageFont.load_default()
+
+    text_x = qr_size + 30
+    y = 15
+
+    brand = spool.filament.brand if spool.filament else "Unknown"
+    name = spool.filament.name if spool.filament else "Unknown"
+    material = spool.filament.material if spool.filament else "?"
+    color_hex = spool.filament.color_hex if spool.filament else None
+
+    # Color swatch
+    if color_hex:
+        hex_clean = color_hex.replace("#", "")
+        try:
+            rgb = tuple(int(hex_clean[i:i+2], 16) for i in (0, 2, 4))
+            draw.rectangle([text_x, y, text_x + 40, y + 40], fill=rgb, outline="black")
+        except Exception as e:
+            log.debug(f"Failed to parse color hex '{hex_clean}': {e}")
+        title_x = text_x + 50
+    else:
+        title_x = text_x
+
+    draw.text((title_x, y), f"{brand} - {name}", fill="black", font=font_large)
+    y += 45
+    draw.text((text_x, y), f"Material: {material}", fill="black", font=font_medium)
+    y += 35
+    draw.text((text_x, y), f"Weight: {spool.initial_weight_g:.0f}g", fill="black", font=font_medium)
+    y += 35
+    draw.text((text_x, y), f"ID: {spool.qr_code}", fill="gray", font=font_small)
+
+    draw.rectangle([0, 0, width-1, height-1], outline="black", width=2)
+
+    return img

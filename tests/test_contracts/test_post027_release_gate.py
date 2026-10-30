@@ -37,11 +37,18 @@ def fake_pg_restore(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", str(tools) + os.pathsep + os.environ["PATH"])
     monkeypatch.setenv("DATABASE_PASSWORD_FILE", str(secret))
     archive = tmp_path / "archive.dump"; archive.write_bytes(b"x" * 200)
+    # These tests exercise routing combinations, not repeated integrity reads.
+    # Each immutable bundle is still fully verified on its first lookup per test.
+    from functools import lru_cache
+    import importlib
+    for era in (29, 34, 35, 36, 37, 38, 39, 40, 43, 44, 45, 46):
+        bundle = importlib.import_module(f'core.schema.preserved{era:03}')
+        monkeypatch.setattr(bundle, 'ledger_ids', lru_cache(maxsize=1)(bundle.ledger_ids))
     return tmp_path, archive
 
 
 def test_every_recorded_release_ledger_is_current_or_routed_by_a_bundle(fake_pg_restore, monkeypatch):
-    from modules.system.pre026_restore_stage import identify_contract, PRESERVED029, PRESERVED034, PRESERVED035, PRESERVED036, PRESERVED037, PRESERVED038, PRESERVED039, PRESERVED040, PRESERVED043, PRESERVED044, PRESERVED045
+    from modules.system.pre026_restore_stage import identify_contract, PRESERVED029, PRESERVED034, PRESERVED035, PRESERVED036, PRESERVED037, PRESERVED038, PRESERVED039, PRESERVED040, PRESERVED043, PRESERVED044, PRESERVED045, PRESERVED046
     tmp_path, archive = fake_pg_restore
     current = [migration_id for migration_id, _ in POST027_MIGRATIONS]
     releases = _releases()
@@ -61,7 +68,7 @@ def test_every_recorded_release_ledger_is_current_or_routed_by_a_bundle(fake_pg_
         if ids == current:
             assert routed is None, version
         else:
-            assert (routed is PRESERVED029 and ids == []) or (routed is PRESERVED034 and ids == current[:3]) or (routed is PRESERVED035 and ids == current[:4]) or (routed is PRESERVED036 and ids == current[:5]) or (routed is PRESERVED037 and ids == current[:6]) or (routed is PRESERVED038 and ids == current[:7]) or (routed is PRESERVED039 and ids == current[:8]) or (routed is PRESERVED040 and ids == current[:9]) or (routed is PRESERVED043 and ids == current[:12]) or (routed is PRESERVED044 and ids == current[:13]) or (routed is PRESERVED045 and ids == current[:14]), (version, "needs a preservedNNN bundle before this source ships")
+            assert (routed is PRESERVED029 and ids == []) or (routed is PRESERVED034 and ids == current[:3]) or (routed is PRESERVED035 and ids == current[:4]) or (routed is PRESERVED036 and ids == current[:5]) or (routed is PRESERVED037 and ids == current[:6]) or (routed is PRESERVED038 and ids == current[:7]) or (routed is PRESERVED039 and ids == current[:8]) or (routed is PRESERVED040 and ids == current[:9]) or (routed is PRESERVED043 and ids == current[:12]) or (routed is PRESERVED044 and ids == current[:13]) or (routed is PRESERVED045 and ids == current[:14]) or (routed is PRESERVED046 and ids == current[:15]), (version, "needs a preservedNNN bundle before this source ships")
 
 
 def test_every_ledger_variant_an_archive_can_record_is_routed_or_refused_by_name(fake_pg_restore, monkeypatch):
@@ -70,7 +77,7 @@ def test_every_ledger_variant_an_archive_can_record_is_routed_or_refused_by_name
     empty one (preserved029) restore; any other prefix is an intermediate build."""
     from core.schema import pre026_restore_contract as C
     from modules.system.backup_service import BackupValidationError
-    from modules.system.pre026_restore_stage import identify_contract, PRESERVED029, PRESERVED034, PRESERVED035, PRESERVED036, PRESERVED037, PRESERVED038, PRESERVED039, PRESERVED040, PRESERVED043, PRESERVED044, PRESERVED045
+    from modules.system.pre026_restore_stage import identify_contract, PRESERVED029, PRESERVED034, PRESERVED035, PRESERVED036, PRESERVED037, PRESERVED038, PRESERVED039, PRESERVED040, PRESERVED043, PRESERVED044, PRESERVED045, PRESERVED046
     tmp_path, archive = fake_pg_restore
     from core.schema import bootstrap
     # The synthetic 099 registry is a future build: under it a released ledger such as 2.0.0's
@@ -86,7 +93,7 @@ def test_every_ledger_variant_an_archive_can_record_is_routed_or_refused_by_name
 def _variants(tmp_path, archive, monkeypatch, current, check_released=True):
     from core.schema import pre026_restore_contract as C
     from modules.system.backup_service import BackupValidationError
-    from modules.system.pre026_restore_stage import identify_contract, PRESERVED029, PRESERVED034, PRESERVED035, PRESERVED036, PRESERVED037, PRESERVED038, PRESERVED039, PRESERVED040, PRESERVED043, PRESERVED044, PRESERVED045
+    from modules.system.pre026_restore_stage import identify_contract, PRESERVED029, PRESERVED034, PRESERVED035, PRESERVED036, PRESERVED037, PRESERVED038, PRESERVED039, PRESERVED040, PRESERVED043, PRESERVED044, PRESERVED045, PRESERVED046
     bases = {"025": [row[0] for row in C.EXPECTED_POSTGRES_LEDGER], "026": [row[0] for row in C.EXPECTED_POSTGRES_LEDGER026],
              "027": sorted(preserved029.ledger_ids())}
     releases = _releases()
@@ -111,6 +118,8 @@ def _variants(tmp_path, archive, monkeypatch, current, check_released=True):
                 assert identify_contract(archive, 'postgresql://o@pg/odin', None, tmp_path) is PRESERVED039
             elif frozenset(base + prefix) == __import__('core.schema.preserved043', fromlist=['ledger_ids']).ledger_ids():
                 assert identify_contract(archive, 'postgresql://o@pg/odin', None, tmp_path) is PRESERVED043
+            elif frozenset(base + prefix) == __import__('core.schema.preserved046', fromlist=['ledger_ids']).ledger_ids():
+                assert identify_contract(archive, 'postgresql://o@pg/odin', None, tmp_path) is PRESERVED046
             elif frozenset(base + prefix) == __import__('core.schema.preserved045', fromlist=['ledger_ids']).ledger_ids():
                 assert identify_contract(archive, 'postgresql://o@pg/odin', None, tmp_path) is PRESERVED045
             elif frozenset(base + prefix) == __import__('core.schema.preserved044', fromlist=['ledger_ids']).ledger_ids():
@@ -124,6 +133,37 @@ def _variants(tmp_path, archive, monkeypatch, current, check_released=True):
                     identify_contract(archive, "postgresql://o@pg/odin", None, tmp_path)
                 if check_released and base_name == "027":
                     assert prefix not in releases.values(), (prefix, "a released ledger would be stranded: add a preservedNNN bundle")
+
+
+@pytest.mark.parametrize("version", ["2.0.31", "2.0.32", "2.0.33", "2.0.34", "2.0.35", "2.0.36"])
+def test_recorded_046_ledgers_route_to_preserved046(fake_pg_restore, monkeypatch, version):
+    from modules.system.pre026_restore_stage import identify_contract, PRESERVED046
+    tmp_path, archive = fake_pg_restore
+    ids = _releases()[version]
+    assert ids[-1] == "python:046-tray-identity"
+    ledger = tmp_path / f"{version}.sql"
+    ledger.write_text(_ledger_sql(sorted(preserved029.ledger_ids()) + ids))
+    monkeypatch.setenv("FAKE_LEDGER_FILE", str(ledger))
+    assert identify_contract(archive, "postgresql://o@pg/odin", None, tmp_path) is PRESERVED046
+
+
+# Bundles whose frozen manifest omits modules.system.backup_failure_alerts, which their
+# frozen postgres_backup_service imports: restoring such an archive stops with exit 78
+# before the target is touched. They are byte-pinned, so the repair is separate work.
+KNOWN_UNEXECUTABLE_ERAS = {39, 40, 43, 44, 45}
+
+
+@pytest.mark.parametrize("era", [34, 35, 36, 37, 38, 39, 40, 43, 44, 45, 46])
+def test_routed_bundles_can_import_their_restore_closure(era):
+    """Routing and hashes do not prove a bundle runs. A new unrunnable bundle fails here."""
+    import importlib
+    from .test_preserved046_bundle import RESTORE_CLOSURE, run_frozen
+    package = importlib.import_module(f"core.schema.preserved{era:03}")
+    result = run_frozen(Path(package.__file__).with_name("runner.py"), RESTORE_CLOSURE)
+    if era in KNOWN_UNEXECUTABLE_ERAS:
+        assert result.returncode != 0 and "dependency is not admitted: modules.system.backup_failure_alerts" in result.stderr, result.stderr
+    else:
+        assert result.returncode == 0, result.stderr
 
 
 def test_publish_workflow_gate_without_a_ledger_file_fails_with_a_clear_message(tmp_path):

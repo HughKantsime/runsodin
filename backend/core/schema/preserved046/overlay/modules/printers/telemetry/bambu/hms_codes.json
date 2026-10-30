@@ -1,0 +1,110 @@
+{
+  "_meta": {
+    "source": "odin-e2e/captures/run-2026-04-16",
+    "bootstrapped": true,
+    "total_unique_codes": 9,
+    "note": "Bootstrap catalog from real Bambu telemetry (track telemetry-rewrite-bambu-first_20260417, T0.2). Codes below are observed in production Bambu MQTT reports but lack human-readable descriptions pending curation from the official Bambu HMS reference (OrcaSlicer source / Bambu Handy binaries). `severity` defaults to `unknown`; `message` must be updated before these surface to end users. Catalog is loaded by `BambuHMSCatalog.load()`.",
+    "curation_todo": "Source official HMS descriptions from Bambu (manually extract from OrcaSlicer/Handy) and update entries below. Any code not in this file, observed at runtime, is surfaced as DEGRADED (fail-loud) in the observability queue and logged at WARN."
+  },
+  "codes": {
+    "03003100_00010001": {
+      "attr": 50339840,
+      "code": 65537,
+      "attr_hex": "0x03003100",
+      "code_hex": "0x00010001",
+      "count": 33,
+      "first_seen_iso": "2026-04-16T14:44:36Z",
+      "printer_ids": ["bambu-p1s"],
+      "severity": "unknown",
+      "message": "UNKNOWN — needs catalog entry"
+    },
+    "05000200_0003000A": {
+      "attr": 83886592,
+      "code": 196618,
+      "attr_hex": "0x05000200",
+      "code_hex": "0x0003000A",
+      "count": 9258,
+      "first_seen_iso": "2026-04-16T14:42:56Z",
+      "printer_ids": ["bambu-h2d"],
+      "severity": "unknown",
+      "message": "UNKNOWN — needs catalog entry"
+    },
+    "05000600_000200A0": {
+      "attr": 83887616,
+      "code": 131232,
+      "attr_hex": "0x05000600",
+      "code_hex": "0x000200A0",
+      "count": 9258,
+      "first_seen_iso": "2026-04-16T14:42:56Z",
+      "printer_ids": ["bambu-h2d"],
+      "severity": "unknown",
+      "message": "UNKNOWN — needs catalog entry"
+    },
+    "05010400_00030002": {
+      "attr": 83952640,
+      "code": 196610,
+      "attr_hex": "0x05010400",
+      "code_hex": "0x00030002",
+      "count": 9258,
+      "first_seen_iso": "2026-04-16T14:42:56Z",
+      "printer_ids": ["bambu-h2d"],
+      "severity": "unknown",
+      "message": "UNKNOWN — needs catalog entry"
+    },
+    "05010400_00030004": {
+      "attr": 83952640,
+      "code": 196612,
+      "attr_hex": "0x05010400",
+      "code_hex": "0x00030004",
+      "count": 9258,
+      "first_seen_iso": "2026-04-16T14:42:56Z",
+      "printer_ids": ["bambu-h2d"],
+      "severity": "unknown",
+      "message": "UNKNOWN — needs catalog entry"
+    },
+    "07002200_00020012": {
+      "attr": 117448704,
+      "code": 131090,
+      "attr_hex": "0x07002200",
+      "code_hex": "0x00020012",
+      "count": 4397,
+      "first_seen_iso": "2026-04-16T14:42:56Z",
+      "printer_ids": ["bambu-h2d"],
+      "severity": "unknown",
+      "message": "UNKNOWN — needs catalog entry"
+    },
+    "0C000100_00010004": {
+      "attr": 201326848,
+      "code": 65540,
+      "attr_hex": "0x0C000100",
+      "code_hex": "0x00010004",
+      "count": 12090,
+      "first_seen_iso": "2026-04-16T14:42:56Z",
+      "printer_ids": ["bambu-x1c"],
+      "severity": "unknown",
+      "message": "UNKNOWN — needs catalog entry"
+    },
+    "0C000100_00020017": {
+      "attr": 201326848,
+      "code": 131095,
+      "attr_hex": "0x0C000100",
+      "code_hex": "0x00020017",
+      "count": 9178,
+      "first_seen_iso": "2026-04-16T14:42:56Z",
+      "printer_ids": ["bambu-h2d"],
+      "severity": "unknown",
+      "message": "UNKNOWN — needs catalog entry"
+    },
+    "0C000300_0003000B": {
+      "attr": 201327360,
+      "code": 196619,
+      "attr_hex": "0x0C000300",
+      "code_hex": "0x0003000B",
+      "count": 163,
+      "first_seen_iso": "2026-04-16T14:42:56Z",
+      "printer_ids": ["bambu-x1c"],
+      "severity": "unknown",
+      "message": "UNKNOWN — needs catalog entry"
+    }
+  }
+}

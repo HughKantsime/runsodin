@@ -236,7 +236,7 @@ class TestCoreHasNoRoutes:
             # Their package integrity is independently pinned; they are not core runtime routes.
             if (py_file.is_relative_to(BACKEND_DIR / "core/schema/preserved034/bundle/modules")
                     or any(py_file.is_relative_to(BACKEND_DIR / f"core/schema/preserved{version}/overlay")
-                           for version in ("035", "036", "037", "038", "039"))):
+                           for version in ("035", "036", "037", "038", "039", "046"))):
                 continue
             try:
                 content = py_file.read_text(encoding="utf-8")
