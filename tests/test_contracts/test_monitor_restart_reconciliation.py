@@ -958,6 +958,52 @@ def test_moonraker_reconnect_measures_the_new_downtime(moonraker):
     assert case.state(identifier)[0] == 'completed'
 
 
+def test_moonraker_end_without_history_is_bounded_by_the_print_duration(moonraker):
+    case = moonraker
+    identifier = case.row(started=2 * 3600)
+    case.seen_printer(3600)
+    case.monitor()._process_status(moonraker_status('complete', total=1.5 * 3600))
+    status, ended = case.state(identifier)
+    assert status == 'completed'
+    with case.engine.connect() as conn:
+        started, duration = conn.execute(text('SELECT started_at,print_duration_seconds FROM print_jobs WHERE id=:id'), {'id': identifier}).one()
+    assert as_utc_datetime(ended) == as_utc_datetime(started) + timedelta(seconds=1.5 * 3600)
+    assert duration == 1.5 * 3600
+
+
+def test_moonraker_implausible_duration_does_not_lose_the_end(moonraker):
+    # Beyond now, or unreadable: the bound does not apply and the row still closes.
+    case = moonraker
+    identifier = case.row(started=3600)
+    case.seen_printer(60)
+    case.monitor()._process_status(moonraker_status('complete', total=30 * 86400))
+    assert case.state(identifier)[0] == 'completed'
+    assert (datetime.now(timezone.utc) - as_utc_datetime(case.state(identifier)[1])).total_seconds() < 60
+
+
+def test_moonraker_live_end_is_not_bounded_by_the_print_duration(moonraker):
+    case = moonraker
+    monitor = case.monitor()
+    monitor._process_status(moonraker_status('printing', total=5))
+    identifier = monitor._current_job_db_id
+    with case.engine.begin() as conn:
+        conn.execute(text('UPDATE print_jobs SET started_at=:at WHERE id=:id'), {'at': ago(3600), 'id': identifier})
+    monitor._process_status(moonraker_status('complete', total=60))
+    assert (datetime.now(timezone.utc) - as_utc_datetime(case.state(identifier)[1])).total_seconds() < 60
+
+
+def test_moonraker_bounded_end_still_retires_a_dispatched_claim(dispatched_moonraker):
+    case = dispatched_moonraker
+    with case.engine.begin() as conn:
+        conn.execute(text('UPDATE print_jobs SET started_at=:at WHERE id=:id'), {'at': ago(2 * 3600), 'id': case.identifier})
+        conn.execute(text('UPDATE jobs SET actual_start=:at WHERE id=53'), {'at': ago(2 * 3600)})
+    case.seen_printer(3600)
+    case.monitor()._process_status(moonraker_status('complete', filename=case.name, total=1.5 * 3600))
+    assert case.state(case.identifier)[0] == 'completed'
+    with case.engine.connect() as conn:
+        assert conn.execute(text('SELECT count(*) FROM printer_dispatch_claims')).scalar_one() == 0
+
+
 def test_moonraker_history_fetch_holds_no_lock(moonraker):
     case = moonraker
     case.row()

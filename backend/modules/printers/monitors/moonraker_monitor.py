@@ -26,7 +26,7 @@ import sys
 import time
 import logging
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 
 from sqlalchemy import text
@@ -562,6 +562,10 @@ class MoonrakerMonitor:
                     try:
                         started = as_utc_datetime(pj_row[0])
                         ended = as_utc_datetime(now_utc)
+                        if not history and ended_observation_id == self._unwatched_row and getattr(status, 'total_duration', None) is not None:
+                            # It ran for total_duration, not until this poll first saw the end.
+                            ended = min(ended, started + timedelta(seconds=float(status.total_duration)))
+                            now_utc = ended.isoformat()
                         duration_seconds = int((ended - started).total_seconds())
                     except Exception as e:
                         log.debug(f"Failed to parse duration: {e}")
