@@ -944,6 +944,11 @@ class MoonrakerMonitor:
         never guess which spool supplied a multi-material print.
         """
         import math
+        from modules.printers.dispatch_support import is_kobra_s1
+        printer = conn.execute(text('SELECT api_type,model,machine_type FROM printers WHERE id=:id'),
+                               {'id': self.printer_id}).mappings().first()
+        if printer and is_kobra_s1(printer):
+            return self._deduct_s1_filament(conn, scheduled_job_id, observed_grams=observed_grams)
         job = conn.execute(text("""
             SELECT j.printer_id,j.charged_to_org_id,pf.filament_weight_grams,pf.filaments_json
             FROM jobs j LEFT JOIN print_files pf ON j.print_file_id=pf.id WHERE j.id=:id
@@ -983,6 +988,62 @@ class MoonrakerMonitor:
             flag_reconciliation(sqlalchemy_runner(conn), scheduled_job_id, print_job_id,
                                 reason=outcome.reason, source="moonraker")
         return outcome
+
+    def _deduct_s1_filament(self, conn, scheduled_job_id, *, observed_grams):
+        """The stored mapping names the ACE slot, as in operator completion; never a located spool."""
+        import json
+        import math
+        from core.filament_ledger import record_job_filament
+        from core.filament_sources import attribute_source_grams, indexed_materials
+        from core.print_attempts import sqlalchemy_runner
+        from core.print_file_binding import job_file_id
+        from core.tray_identity import decode
+        from modules.printers.kobra_s1 import S1Refusal, stored_or_file_materials
+        job = conn.execute(text('SELECT printer_id,charged_to_org_id,model_id,print_file_id,ams_mapping FROM jobs WHERE id=:id'),
+                           {'id': scheduled_job_id}).mappings().first()
+        if not job or job['printer_id'] != self.printer_id:
+            return None
+        file_id = job_file_id(conn, job['model_id'], job['print_file_id'])
+        file = conn.execute(text('SELECT filaments_json,stored_path,filament_weight_grams FROM print_files WHERE id=:id'),
+                            {'id': file_id}).mappings().first() if file_id else None
+        sources = None
+        if file:
+            try:
+                sources = indexed_materials(stored_or_file_materials(file['filaments_json'], file['stored_path']))
+            except S1Refusal:
+                pass
+        def known(value):
+            return value is not None and math.isfinite(float(value)) and value >= 0
+        slot_grams = {}
+        if sources and len(sources) == 1:
+            source, material = next(iter(sources.items()))
+            # Klipper's extrusion is measured; the file's weight is the sliced estimate.
+            grams = next((g for g in (observed_grams, material.get('used_grams'), file['filament_weight_grams']) if known(g)), None)
+            slot_grams = {source + 1: float(grams)} if grams is not None else {}
+        elif sources and all(known(m.get('used_grams')) for m in sources.values()):
+            # A measured total can't be split between sources, so each uses its sliced weight.
+            slot_grams = {source + 1: float(m['used_grams']) for source, m in sources.items()}
+        try:
+            mapping = json.loads(job['ams_mapping']) if isinstance(job['ams_mapping'], str) else job['ams_mapping']
+        except (ValueError, TypeError):
+            mapping = None
+        slots = {}
+        for row in conn.execute(text("""
+                SELECT fs.slot_number,fs.tray_observation,s.id AS spool_id FROM filament_slots fs
+                LEFT JOIN spools s ON s.id=fs.assigned_spool_id AND s.status='active' AND (s.org_id IS NULL OR s.org_id=:org)
+                WHERE fs.printer_id=:printer"""), {'org': job['charged_to_org_id'], 'printer': self.printer_id}).mappings():
+            slots[row['slot_number']] = (row['spool_id'], decode(row['tray_observation']).get('pending'))
+        grams_by_spool, _, unattributed = attribute_source_grams(slot_grams, mapping=mapping, mapped=True, slots=slots)
+        if not slot_grams:
+            unattributed = [dict(reason='unknown_material_quantity')]
+        if unattributed:
+            conn.execute(text("""INSERT INTO audit_logs(action,entity_type,entity_id,details)
+                VALUES ('filament.unattributed','job',:id,:details)"""),
+                {'id': scheduled_job_id, 'details': json.dumps({'consumption': unattributed})})
+            return None
+        return record_job_filament(sqlalchemy_runner(conn), scheduled_job_id, source='moonraker', grams_by_spool=grams_by_spool,
+                                   print_job_id=getattr(self, '_current_job_db_id', None),
+                                   notes='ACE slot from the stored mapping')
 
 
 # ------------------------------------------------------------------

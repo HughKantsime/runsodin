@@ -1,7 +1,12 @@
 """Rinkhals ACE observations and credential-free gkapi start planning."""
 import json
+import math
 import posixpath
 import re
+
+# The S1 profile's Bambu Studio output writes its header and config blocks in the first 25 KB.
+# Files that keep them at the end (Anycubic Slicer Next) fail require_start_metadata anyway.
+HEADER_LIMIT = 256 * 1024
 
 
 class S1Refusal(ValueError):
@@ -81,11 +86,57 @@ def require_start_metadata(text):
     return temperature
 
 
-def read_filaments(path):
+def _read_head(path):
     with open(path, 'rb') as stream:
-        text = stream.read(256 * 1024).decode('utf-8', 'replace')
+        return stream.read(HEADER_LIMIT).decode('utf-8', 'replace')
+
+
+def read_filaments(path):
+    text = _read_head(path)
     require_start_metadata(text)
     return parse_header(text)
+
+
+def parse_filament_grams(text, count):
+    """Sliced grams per filament, or None unless the header gives exactly one value for each."""
+    match = re.search(r'^;\s*total filament weight \[g\]\s*:\s*(.+)$', text, re.M)
+    if not match:
+        return None
+    try:
+        grams = [float(value) for value in match[1].split(',')]
+    except ValueError:
+        return None
+    return grams if len(grams) == count and all(math.isfinite(g) and g >= 0 for g in grams) else None
+
+
+def file_materials(path):
+    """The filaments a stored file declares, in the shape print_files.filaments_json uses."""
+    text = _read_head(path)
+    require_start_metadata(text)
+    filaments = parse_header(text)
+    grams = parse_filament_grams(text, len(filaments))
+    return [dict(slot=i + 1, type=f['type'], color=f['color'], **({'used_grams': grams[i]} if grams else {}))
+            for i, f in enumerate(filaments)]
+
+
+def stored_or_file_materials(filaments_json, stored_path):
+    """Stored metadata, or what the bytes declare for a gcode row stored as [].
+
+    Upload stores [] for every gcode so other printers' colors_required stay as they are, and
+    existing rows must work without a data edit. This is derived on read, never written back.
+    """
+    try:
+        stored = json.loads(filaments_json) if isinstance(filaments_json, str) else filaments_json
+    except ValueError:
+        stored = None
+    if stored:
+        return stored
+    if not stored_path:
+        raise S1Refusal('s1_file_filaments_unknown', 'File filament header unavailable')
+    try:
+        return file_materials(stored_path)
+    except OSError:
+        raise S1Refusal('s1_file_unavailable', 'Payload cannot be read') from None
 
 
 def mapping_vector(value, filaments):

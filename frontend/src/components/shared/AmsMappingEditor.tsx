@@ -30,7 +30,7 @@ export default function AmsMappingEditor({ preview, loading, error, mapping, ena
     <h3 className="text-sm font-medium">AMS filament mapping</h3>
     {loading ? <p role="status">Loading filament mapping...</p>
       : error ? <p role="alert">Filament mapping preview unavailable</p>
-      : !preview?.required.length ? <p className="text-xs">The original file lists no filaments.</p>
+      : !preview?.required.length ? <p className="text-xs">{preview?.file_note || 'The original file lists no filaments.'}</p>
       : <>
         <ul className="space-y-2">{preview.required.map(req => {
           const match = mapping.find(m => m.source_slot === req.slot)

@@ -16,7 +16,13 @@ def accessible_printer(db, printer_id, actor):
     return printer
 
 
-def validate_for_printer(db, mapping, filaments_json, printer_id, actor):
+def s1_filaments_json(filaments_json, stored_path):
+    """A Kobra S1 mapping needs the file's filaments, including for a gcode row stored as []."""
+    from modules.printers.kobra_s1 import stored_or_file_materials
+    return json.dumps(stored_or_file_materials(filaments_json, stored_path))
+
+
+def validate_for_printer(db, mapping, filaments_json, printer_id, actor, *, stored_path=None):
     if mapping is None:
         return None
     printer = accessible_printer(db, printer_id, actor)
@@ -24,6 +30,12 @@ def validate_for_printer(db, mapping, filaments_json, printer_id, actor):
                             {'id': printer_id}).all())
     from modules.printers.dispatch_support import is_kobra_s1
     protocol = 'bambu' if is_kobra_s1(printer._mapping) else printer.api_type
+    if is_kobra_s1(printer._mapping):
+        from modules.printers.kobra_s1 import S1Refusal
+        try:
+            filaments_json = s1_filaments_json(filaments_json, stored_path)
+        except S1Refusal as refusal:
+            raise HTTPException(400, str(refusal)) from None
     result = validate_mapping(mapping, filaments_json, slots, protocol)
     from modules.printers.slot_feed_policy import flagged_mapping_reason
     reason = flagged_mapping_reason(db, printer_id, result)
@@ -38,7 +50,7 @@ def validate_for_printer(db, mapping, filaments_json, printer_id, actor):
     return result
 
 
-def preview(db, filaments_json, printer_id, actor):
+def preview(db, filaments_json, printer_id, actor, *, stored_path=None):
     printer = accessible_printer(db, printer_id, actor)
     from modules.printers.dispatch_support import is_kobra_s1
     if printer.api_type != 'bambu' and not is_kobra_s1(printer._mapping):
@@ -48,6 +60,13 @@ def preview(db, filaments_json, printer_id, actor):
         'FROM filament_slots WHERE printer_id=:id ORDER BY slot_number'), {'id': printer_id}).mappings()]
     for slot in available:
         slot['do_not_feed'] = bool(slot['do_not_feed'])
+    if is_kobra_s1(printer._mapping):
+        from modules.printers.kobra_s1 import S1Refusal
+        try:
+            filaments_json = s1_filaments_json(filaments_json, stored_path)
+        except S1Refusal as refusal:
+            # Not a preview failure: a held job can still be created and started by hand.
+            return {'required': [], 'available': available, 'suggested_mapping': [], 'file_note': refusal.detail}
     return preview_for_slots(filaments_json, available)
 
 

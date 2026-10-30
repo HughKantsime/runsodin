@@ -180,32 +180,16 @@ def complete_job(job_id: int, current_user: dict = Depends(require_action("jobs.
         from modules.jobs.material_slots import locked_printer_slots
         from modules.printers.services import is_kobra_s1
         slots = locked_printer_slots(db, job.printer_id)
-        slot_by_number = {s.slot_number: s for s in slots}
         loaded_spools = [s.assigned_spool for s in slots if s.assigned_spool is not None]
         try:
             mapping = json.loads(job.ams_mapping) if isinstance(job.ams_mapping, str) else job.ams_mapping
         except (ValueError, TypeError):
             mapping = None
-        grams_by_spool, slot_of, unattributed = {}, {}, []
-        for source_slot, grams in slot_grams.items():
-            if grams == 0:
-                continue
-            target = source_slot
-            # Only a stored mapping says which AMS or ACE slot fed this source.
-            if printer and (printer.api_type == 'bambu' or is_kobra_s1(printer)):
-                if not isinstance(mapping, list) or len(mapping) < source_slot or type(mapping[source_slot - 1]) is not int or not 0 <= mapping[source_slot - 1] < 16:
-                    unattributed.append(dict(source_slot=source_slot, grams=grams, reason='missing_material_mapping'))
-                    continue
-                target = mapping[source_slot - 1] + 1
-            slot = slot_by_number.get(target)
-            spool = slot.assigned_spool if slot else None
-            if slot and decode(slot.tray_observation).get('pending'):
-                unattributed.append(dict(slot_number=target, grams=grams, reason='spool_change_pending'))
-            elif spool is not None and grams > 0:
-                grams_by_spool[spool.id] = grams_by_spool.get(spool.id, 0.0) + grams
-                slot_of.setdefault(spool.id, target)
-            else:
-                unattributed.append(dict(slot_number=target, grams=grams, reason='no_bound_spool'))
+        from core.filament_sources import attribute_source_grams
+        grams_by_spool, slot_of, unattributed = attribute_source_grams(
+            slot_grams, mapping=mapping, mapped=bool(printer and (printer.api_type == 'bambu' or is_kobra_s1(printer))),
+            slots={s.slot_number: (s.assigned_spool.id if s.assigned_spool else None, decode(s.tray_observation).get('pending'))
+                   for s in slots})
         if unattributed:
             # The physical archive owns deferred attribution and its one-use ledger claim.
             # Never partially claim this attempt before every used tray is known.
@@ -228,6 +212,11 @@ def complete_job(job_id: int, current_user: dict = Depends(require_action("jobs.
                 "grams": float(entry["grams"]),
                 "job_id": job.id,
             })
+
+    elif job.printer_id:
+        from modules.printers.services import is_kobra_s1
+        if is_kobra_s1(db.get(Printer, job.printer_id)):
+            log_audit(db, 'filament.unattributed', 'job', job.id, {'consumption': [dict(reason='unknown_material_quantity')]})
 
     if deductions:
         deduct_summary = "; ".join(

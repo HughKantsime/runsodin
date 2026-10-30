@@ -331,11 +331,13 @@ def _material_plan(connection, print_job_id, printer_id, printer_org_id, slots, 
     else:
         if materials and len(materials) > 1:
             return unresolved('missing_material_mapping')
-        printer = execute(connection, 'SELECT api_type,slot_count FROM printers WHERE id=?', (printer_id,)).fetchone()
+        printer = execute(connection, 'SELECT api_type,slot_count,model,machine_type FROM printers WHERE id=?', (printer_id,)).fetchone()
         # A start-time AMS value may be cached from a different print.
         # Only fresh attempt observations can resolve an unmapped Bambu plan.
         target = None
-        if printer and printer[0] != 'bambu' and printer[1] == 1:
+        # A Kobra S1 always has four ACE slots, whatever slot count is stored: never slot 1 by default.
+        from modules.printers.services import is_kobra_s1
+        if printer and printer[0] != 'bambu' and printer[1] == 1 and not is_kobra_s1(dict(api_type=printer[0], model=printer[2], machine_type=printer[3])):
             target = 1
         if target is None:
             if printer and printer[0] == 'bambu' and plan['print_file_id'] is not None:

@@ -16,6 +16,20 @@ from modules.printers.dispatch_support import (
 )
 
 
+def stored_or_file_materials(filaments_json, stored_path):
+    from modules.printers.kobra_s1 import stored_or_file_materials as materials
+    return materials(filaments_json, stored_path)
+
+
+def s1_preview_filaments_json(filaments_json, stored_path):
+    """filaments_json for an optional S1 preview: None when the file's filaments can't be read."""
+    from modules.printers.kobra_s1 import S1Refusal
+    try:
+        return json.dumps(stored_or_file_materials(filaments_json, stored_path))
+    except S1Refusal:
+        return None
+
+
 def s1_start_facts(db, token):
     """Publish evidence recorded for one Kobra S1 attempt, or None."""
     from modules.printers.start_next import load

@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { ScheduleModal } from './Models'
 import wire from '../../test-fixtures/schedule-ams-wire.json'
+import s1GcodePreview from '../../test-fixtures/s1-gcode-preview-wire.json'
 
 const api = vi.hoisted(() => ({ file: vi.fn(), confirm: vi.fn() }))
 vi.mock('../../api', () => ({
@@ -67,4 +68,27 @@ test('S1 supports explicit mapping while remaining a Moonraker printer', async (
   fireEvent.change(await screen.findByLabelText('Filament 1 AMS slot'), { target: { value: '2' } })
   fireEvent.click(screen.getByRole('button', { name: 'Create Job' }))
   expect(api.confirm).toHaveBeenCalledWith(13, expect.objectContaining({ ams_mapping: [{ source_slot: 1, target_slot: 2 }] }))
+})
+
+// Captured from the real upload and preview routes by test_kobra_s1_gcode_pipeline.
+test('an uploaded S1 gcode lists its filaments and creates a job with the confirmed mapping', async () => {
+  api.file.mockResolvedValue({ ams_preview: s1GcodePreview })
+  mount(); fireEvent.click(await screen.findByRole('button', { name: 'Kobra S1' }))
+  const first = await screen.findByLabelText('Filament 1 AMS slot')
+  const second = screen.getByLabelText('Filament 2 AMS slot')
+  expect(screen.getByRole('button', { name: 'Create Job' })).toBeEnabled()
+  fireEvent.change(first, { target: { value: '2' } })
+  fireEvent.change(second, { target: { value: '3' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Create Job' }))
+  expect(api.file).toHaveBeenCalledWith(501, 13)
+  expect(api.confirm).toHaveBeenCalledWith(13, expect.objectContaining({ ams_mapping: [{ source_slot: 1, target_slot: 2 }, { source_slot: 2, target_slot: 3 }] }))
+})
+
+test('an S1 file that cannot be mapped says why and still allows a job without a mapping', async () => {
+  api.file.mockResolvedValue({ ams_preview: { required: [], available: s1GcodePreview.available, suggested_mapping: [], file_note: 'S1 files need a Bambu Studio header' } })
+  mount(); fireEvent.click(await screen.findByRole('button', { name: 'Kobra S1' }))
+  expect(await screen.findByText('S1 files need a Bambu Studio header')).toBeInTheDocument()
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Create Job' }))
+  expect(api.confirm.mock.calls[0][1]).not.toHaveProperty('ams_mapping')
 })

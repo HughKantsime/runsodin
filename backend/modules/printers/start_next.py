@@ -49,7 +49,8 @@ def admission_facts(db, job_id, printer_id):
     finished = finished_attempt(db, printer_id)
     return {'job': {k:str(v) if v is not None else None for k,v in row.items()} if row else None,
             'configuration_key': configuration_key(db, printer_id),
-            'finished_attempt_uid': finished['economic_uid'] if finished else None}
+            'finished_attempt_uid': finished['economic_uid'] if finished else None,
+            'finished_attempt_id': finished.get('id') if finished else None}
 
 
 def start(db, printer, user, data, *, background=False):

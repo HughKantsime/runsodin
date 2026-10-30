@@ -59,7 +59,7 @@ def snapshot(db, owner, product_id, at):
 
 
 def finished_attempt(db, printer_id):
-    return db.execute(text("SELECT economic_uid,ended_at FROM print_jobs WHERE printer_id=:id AND ended_at IS NOT NULL AND status IN ('completed','failed','cancelled') ORDER BY ended_at DESC,id DESC LIMIT 1"), {'id': printer_id}).mappings().first()
+    return db.execute(text("SELECT id,economic_uid,ended_at FROM print_jobs WHERE printer_id=:id AND ended_at IS NOT NULL AND status IN ('completed','failed','cancelled') ORDER BY ended_at DESC,id DESC LIMIT 1"), {'id': printer_id}).mappings().first()
 
 
 def configuration_key(db, printer_id):
@@ -251,10 +251,17 @@ def next_suggestion(db, printer, *, visible=None, at=None):
         return {'job_id': None, 'reason': 'No queued job fits this printer.', 'filament': 'verify_needed', 'fingerprint': None}
     _, job, reason, stock_inputs, order_created_at = min(ranked, key=lambda item: item[0])
     filament, changes, facts = material_facts(db, job, printer, finished, at, config)
+    finished_identity = finished['economic_uid'] if finished else None
+    # Only an order's print has an economic uid. Start next is a Kobra S1's only way to start,
+    # so its suggestion can't depend on the last print having belonged to an order: an unbound
+    # print is named by its row, and a printer's first print by that fact.
+    from modules.printers.services import is_kobra_s1
+    if is_kobra_s1(printer) and not finished_identity:
+        finished_identity = f"print:{finished['id']}" if finished else 'first-print'
     fingerprint = hashlib.sha256(batches.packed({'job_id': job.id, 'updated_at': str(job.updated_at),
         'printer_id': job.printer_id, 'payload_sha256': job.payload_sha256, 'plate': job.plate_index, 'materials': facts['required'],
-        'configuration_key': config, 'finished_attempt_uid': finished['economic_uid'] if finished else None}).encode()).hexdigest()
-    if not finished or not finished.get('economic_uid') or not config:
+        'configuration_key': config, 'finished_attempt_uid': finished_identity}).encode()).hexdigest()
+    if not finished_identity or not config:
         fingerprint = None
     return {'job_id': job.id, 'reason': reason, 'filament': filament, 'load': changes,
             'fingerprint': fingerprint, 'finished_attempt_uid': finished['economic_uid'] if finished else None,

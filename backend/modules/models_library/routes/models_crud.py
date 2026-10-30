@@ -259,7 +259,8 @@ def schedule_from_model(
             raise HTTPException(404, "Printer not found")
     file = _schedule_file(db, model, current_user)
     from core.ams_mapping import validate_for_printer
-    mapping = validate_for_printer(db, opts.ams_mapping, file.filaments_json if file else None, printer_id, current_user)
+    mapping = validate_for_printer(db, opts.ams_mapping, file.filaments_json if file else None, printer_id, current_user,
+                                   stored_path=file.stored_path if file else None)
     from core.print_file_binding import require_bound_target
     require_bound_target(db, file.id if file else None, printer_id)
     if (opts.print_file_id is None) != (opts.payload_sha256 is None):

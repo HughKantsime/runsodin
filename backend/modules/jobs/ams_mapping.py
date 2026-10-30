@@ -49,7 +49,7 @@ def checked_changes(db, actor, job, changes):
             raise HTTPException(409, 'AMS mapping target must match the assigned printer')
         target = pin or target
         file = source_file(db, job, actor)
-        changes['ams_mapping'] = validate_for_printer(db, mapping, file.filaments_json, target, actor)
+        changes['ams_mapping'] = validate_for_printer(db, mapping, file.filaments_json, target, actor, stored_path=file.stored_path)
         changes.update(pin_columns(target))
         changes['printer_id'] = target
     return changes
@@ -87,7 +87,7 @@ def detail_view(db, job, actor):
         return result
     try:
         file = source_file(db, job, actor)
-        result['ams_preview'] = preview(db, file.filaments_json, target, actor)
+        result['ams_preview'] = preview(db, file.filaments_json, target, actor, stored_path=file.stored_path)
     except HTTPException:
         # An optional suggestion must never hide an otherwise accessible job.
         return result

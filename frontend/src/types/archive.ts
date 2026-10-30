@@ -75,6 +75,8 @@ export interface ArchiveAmsPreview {
   required: ArchiveAmsRequirement[];
   available: ArchiveAmsSlot[];
   suggested_mapping: ArchiveAmsSuggestion[];
+  /** Why this printer can't map the file's filaments; a job can still be created without a mapping. */
+  file_note?: string;
 }
 
 export interface ArchiveReprintRequest {

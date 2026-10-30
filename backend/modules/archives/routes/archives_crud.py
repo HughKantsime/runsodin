@@ -506,10 +506,17 @@ def ams_preview(
     if file_id:
         from core.model_preview_access import accessible_preview_file
         pf = accessible_preview_file(db, file_id, user)
-        if pf.filaments_json:
+        filaments_json = pf.filaments_json
+        if printer_id:
+            # A Kobra S1 reads a gcode row's filaments from the file; other printers are unchanged.
+            from modules.printers.services import is_kobra_s1, s1_preview_filaments_json
+            target = db.execute(text("SELECT api_type,model,machine_type FROM printers WHERE id=:id"), {"id": printer_id}).mappings().first()
+            if target and is_kobra_s1(target):
+                filaments_json = s1_preview_filaments_json(filaments_json, pf.stored_path)
+        if filaments_json:
             try:
                 from core.print_payload import source_filaments
-                filaments = source_filaments(pf.filaments_json)
+                filaments = source_filaments(filaments_json)
                 for f in filaments:
                     required.append({
                         "slot": f["slot"],
@@ -602,7 +609,7 @@ def reprint_archive(
             raise HTTPException(400, "Original print file contents changed")
     validate_plate(file_path, body.plate_index, printer.api_type)
     from core.ams_mapping import validate_for_printer
-    mapping = validate_for_printer(db, body.ams_mapping, file['filaments_json'], printer.id, user)
+    mapping = validate_for_printer(db, body.ams_mapping, file['filaments_json'], printer.id, user, stored_path=file['stored_path'])
     identity = user if isinstance(user, dict) else vars(user)
     new_job = Job(
         item_name=human_name(model_name=model.name, original_filename=file['original_filename']),
