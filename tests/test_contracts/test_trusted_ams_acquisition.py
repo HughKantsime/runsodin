@@ -115,3 +115,32 @@ def test_diagnostic_snapshot_retains_runtime_and_cleanup_checks(allow_unreported
     assert result.cleanup_confirmed
     if allow_unreported:
         assert result.snapshot.trays[0].material_state=='explicit_empty'
+
+
+@pytest.mark.parametrize('nozzles,cleanup,changed,success', [
+    (True, True, False, True), (False, True, False, False),
+    (True, False, False, False), (True, True, True, False),
+])
+def test_shared_report_requires_nozzles_cleanup_and_current_runtime(monkeypatch, nozzles, cleanup, changed, success):
+    from dataclasses import replace
+    from modules.printers.nozzle_capability import installed_nozzles
+    snapshot = replace(_snapshot('c'*32, KEY, 1), nozzles=(tuple(installed_nozzles(
+        {'nozzle_type': 'hardened_steel', 'nozzle_diameter': .4})) if nozzles else None))
+    monkeypatch.setattr(module, 'read_runtime_identity', lambda: RUNTIME)
+    def acquire(*args, **kwargs):
+        assert kwargs['worker'].keywords['nozzle_dual'] is False
+        assert kwargs['required_runtime'] is RUNTIME
+        return AMSAcquisitionResult(True, snapshot, None, cleanup)
+    def validate(runtime):
+        if changed:
+            raise ValueError('runtime replaced after IPC')
+    monkeypatch.setattr(module, '_run_owned_worker', acquire)
+    monkeypatch.setattr(module, 'revalidate_runtime_identity', validate)
+    result = module.read_current_selected_ams(CONFIG, configuration_key=KEY, owner_org_id=1,
+        selected_slots=[1], nozzle_dual=False)
+    assert result.success is success
+    assert result.cleanup_confirmed is cleanup
+    if success:
+        assert result.snapshot is snapshot
+    else:
+        assert result.snapshot is None

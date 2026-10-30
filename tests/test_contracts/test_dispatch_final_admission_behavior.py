@@ -249,3 +249,14 @@ def test_malformed_database_permission_flags_never_become_authorized_credentials
     assert dispatch._get_printer_info(59) is None
     assert not admit(engine,**inputs).admitted
     assert state(engine)=='preparing'
+
+
+def test_final_admission_refuses_printer_changed_to_kobra(setup):
+    engine, _, inputs = setup
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE printers SET machine_type='Kobra S1 Max' WHERE id=59"))
+    result = admit(engine, **inputs)
+    from modules.printers.dispatch_support import KOBRA_DISPATCH_DETAIL
+    assert not result.admitted
+    assert result.reason == 'printer_dispatch_unsupported: ' + KOBRA_DISPATCH_DETAIL
+    assert state(engine) == 'preparing'

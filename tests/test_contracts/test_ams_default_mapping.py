@@ -9,6 +9,8 @@ from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import text
+from modules.printers.nozzle_capability import installed_nozzles
+from tests.test_contracts.test_dispatch_capability import REPORT
 
 from tests.test_contracts.dispatch_test_support import configure_dispatch
 from tests.test_contracts.test_ams_evidence_transactions import RUNTIME
@@ -77,7 +79,7 @@ def test_bambu_ams_verified_default_sends_derived_identity(review_db, tmp_path, 
         events.append('fresh_read')
         assert options['selected_slots'] == (source + 1,)
         snapshot = RawAMSSnapshot(options['operation_id'], 'c' * 32, 1, time.monotonic(),
-            options['configuration_key'], 1, (RawTrayFact(source + 1, 0, source, 'PETG', 'reported'),), True)
+            options['configuration_key'], 1, (RawTrayFact(source + 1, 0, source, 'PETG', 'reported'),), True, nozzles=tuple(installed_nozzles(REPORT)))
         return RuntimeBoundAMSResult(True, snapshot, RUNTIME.incarnation, RUNTIME.clock_domain, True, None)
 
     monkeypatch.setattr(gate, 'read_current_selected_ams', acquired)

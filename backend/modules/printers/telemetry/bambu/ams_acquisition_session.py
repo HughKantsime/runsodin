@@ -28,7 +28,8 @@ def _code(value):
 
 class AMSSessionController:
     """Paho callbacks bound to one subscription and one completed acquisition."""
-    def __init__(self,config,configuration_key,owner_org_id,selected_slots,incarnation,*,allow_unreported=False):
+    def __init__(self,config,configuration_key,owner_org_id,selected_slots,incarnation,*,allow_unreported=False,nozzle_dual=None):
+        self.nozzle_dual=nozzle_dual
         self.allow_unreported=allow_unreported
         self.config=config;self.key=configuration_key;self.owner=owner_org_id
         self.selected=tuple(selected_slots);self.incarnation=incarnation
@@ -51,7 +52,7 @@ class AMSSessionController:
                 if len(result)!=2 or _code(result[0])!=0:raise ValueError()
                 self.collector=RawAMSAcquisitionCollector(topic=self.config.topic_report,
                     configuration_key=self.key,owner_org_id=self.owner,
-                    selected_slots=self.selected,subscribe_mid=result[1],incarnation=self.incarnation,allow_unreported=self.allow_unreported)
+                    selected_slots=self.selected,subscribe_mid=result[1],incarnation=self.incarnation,allow_unreported=self.allow_unreported,nozzle_dual=self.nozzle_dual)
                 pending=self._pending_ack.pop(result[1],None)
                 if pending is not None:self.on_subscribe(client,userdata,result[1],pending)
             except Exception:self._refuse()
@@ -109,7 +110,7 @@ class AMSSessionController:
             return snapshot
 
 
-def _network_worker(channel,config,key,owner,slots,incarnation,deadline,*,allow_unreported=False):
+def _network_worker(channel,config,key,owner,slots,incarnation,deadline,*,allow_unreported=False,nozzle_dual=None):
     import logging
     logging.disable(logging.CRITICAL)
     adapter=None;snapshot=None;error='AMS acquisition unavailable'
@@ -121,7 +122,7 @@ def _network_worker(channel,config,key,owner,slots,incarnation,deadline,*,allow_
         enforce_host_destination(config.host, scheme="mqtt")
         policy=resolve_bambu_broker_config(config.host,printer_id='ams-read-acquisition')
         if config.port!=policy.port or config.use_tls is not policy.use_tls:raise ValueError()
-        controller=AMSSessionController(config,key,owner,slots,incarnation,allow_unreported=allow_unreported)
+        controller=AMSSessionController(config,key,owner,slots,incarnation,allow_unreported=allow_unreported,nozzle_dual=nozzle_dual)
         adapter=BambuTelemetryAdapter(config,lambda event:None)
         def factory():
             client=mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,

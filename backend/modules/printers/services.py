@@ -8,6 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from modules.printers.education_compatibility import evaluate_education_compatibility
+from modules.printers.dispatch_support import dispatch_unsupported_reason, KOBRA_DISPATCH_DETAIL
 
 
 def evaluate_submission_compatibility(

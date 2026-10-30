@@ -24,6 +24,8 @@ class RawAMSSnapshot:
     gcode_state: str | None = None
     print_error: int | None = None
     active_hms_codes: tuple[str, ...] | None = None
+    # Normalized nozzle facts from this exact tray-bearing packet, never merged.
+    nozzles: tuple[dict, ...] | None = None
 
 
 def safe_status_fields(packet):
@@ -48,7 +50,7 @@ def safe_status_fields(packet):
 
 class RawAMSAcquisitionCollector:
     def __init__(self, *, topic, configuration_key, owner_org_id, selected_slots,
-                 subscribe_mid, clock=time.monotonic, max_age=120.0, incarnation=None, allow_unreported=False):
+                 subscribe_mid, clock=time.monotonic, max_age=120.0, incarnation=None, allow_unreported=False, nozzle_dual=None):
         if (not isinstance(topic,str) or not re.fullmatch(r'device/[^/\s+#\x00]+/report',topic)
             or not isinstance(configuration_key,str) or not re.fullmatch(r'[0-9a-f]{64}',configuration_key)
             or (owner_org_id is not None and (type(owner_org_id) is not int or owner_org_id <= 0))
@@ -56,10 +58,12 @@ class RawAMSAcquisitionCollector:
             or not isinstance(selected_slots,(list,tuple,set,frozenset)) or not selected_slots
             or any(type(s) is not int or not 1 <= s <= 16 for s in selected_slots)
             or len(set(selected_slots)) != len(selected_slots)
+            or (nozzle_dual is not None and type(nozzle_dual) is not bool)
             or type(max_age) not in (int,float) or not math.isfinite(max_age) or not 0 < max_age <= 120):
             raise ValueError('AMS acquisition configuration unavailable')
         if incarnation is not None and (type(incarnation) is not str or not re.fullmatch("[0-9a-f]{32}",incarnation)):
             raise ValueError("AMS acquisition incarnation unavailable")
+        self._nozzle_dual = nozzle_dual
         self._allow_unreported = allow_unreported is True
         self.incarnation=incarnation if incarnation is not None else uuid.uuid4().hex
         self._topic=topic;self._config=configuration_key;self._owner=owner_org_id
@@ -118,9 +122,20 @@ class RawAMSAcquisitionCollector:
                 # New relevant partial facts supersede earlier complete evidence.
                 if addressed:self._snapshot=None
                 return False
+            nozzles = None
+            if self._nozzle_dual is not None:
+                from modules.printers.nozzle_capability import installed_nozzles
+                device = packet.get('device')
+                nozzle = device.get('nozzle') if isinstance(device, dict) else None
+                has_rows = isinstance(nozzle, dict) and isinstance(nozzle.get('info'), list)
+                if (packet.get('command') != 'push_status'
+                        or (not has_rows and (self._nozzle_dual or 'nozzle_type' not in packet))):
+                    self._snapshot = None
+                    return False
+                nozzles = tuple(installed_nozzles(packet, dual=self._nozzle_dual))
             self._snapshot=RawAMSSnapshot(self.incarnation,uuid.uuid4().hex,
                 self._order,now,self._config,self._owner,
-                tuple(addressed[s] for s in sorted(addressed)), idle_without_error, **diagnostics)
+                tuple(addressed[s] for s in sorted(addressed)), idle_without_error, nozzles=nozzles, **diagnostics)
             return True
 
     @property

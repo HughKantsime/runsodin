@@ -326,6 +326,11 @@ def dispatch_job(printer_id: int, job_id: int) -> tuple[bool, str]:
     if not creds:
         return False, f"Cannot retrieve credentials for printer {printer_id}"
 
+    from modules.printers.dispatch_support import dispatch_unsupported_reason
+    unsupported = dispatch_unsupported_reason(creds)
+    if unsupported:
+        return False, unsupported
+
     from core.dispatch_identity import ownership_refusal
     ownership_error=ownership_refusal(job,creds)
     if ownership_error:return False,ownership_error

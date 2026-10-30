@@ -364,7 +364,9 @@ class Scheduler(SchedulerPlanning):
     def _finish_run(db: Session, result: SchedulerResult, total_jobs: int, skipped):
         from modules.notifications.alert_dispatcher import lock_queue_alert, stage_alert, deliver_staged_alert
         plans = []
+        from modules.printers.services import KOBRA_DISPATCH_DETAIL
         messages = {
+            'printer_dispatch_unsupported': KOBRA_DISPATCH_DETAIL,
             "unknown_quantity": "Set the job quantity before scheduling. The job remains queued.",
             "no_fit": "No compatible printer has capacity within the scheduling horizon. Check job requirements and printer availability.",
             "no_active_printers": "No active printers are available. Check which printers are enabled; the job remains queued.",
@@ -431,7 +433,10 @@ class Scheduler(SchedulerPlanning):
         duration_slots = max(1, int(job.effective_duration * (60 / self.slot_minutes)))
 
         from core.dispatch_identity import ownership_refusal
+        from modules.printers.services import dispatch_unsupported_reason
         for printer_id, state in printer_states.items():
+            if dispatch_unsupported_reason(state.printer):
+                continue
             if state.authority is None or ownership_refusal(
                     {'charged_to_org_id': job.charged_to_org_id}, state.authority):
                 continue

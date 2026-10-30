@@ -12,8 +12,11 @@ def create_capability_gate(*, job, creds, staged_path, plate_number, target_hand
     prepared = used = False
     ready = False
     acquired_at = None
+    read_ms = None
 
     def refuse(code, detail):
+        if read_ms is not None:
+            detail += f'; report_read_ms={read_ms}'
         return record_refusal(checked, code, detail)
 
     def prior(operation):
@@ -26,7 +29,7 @@ def create_capability_gate(*, job, creds, staged_path, plate_number, target_hand
         return refuse(getattr(refusal, 'code', 'ams_read_failed'), getattr(refusal, 'detail', 'AMS gate refused'))
 
     def prepare():
-        nonlocal prepared, ready, acquired_at
+        nonlocal prepared, ready, acquired_at, read_ms
         with lock:
             if prepared or used:
                 return refuse('already_used', 'Capability gate is single use')
@@ -44,12 +47,24 @@ def create_capability_gate(*, job, creds, staged_path, plate_number, target_hand
             from modules.printers.dispatch_acquisition import bounded_bambu_report
             # Start the age budget before acquisition, never renew it at return.
             acquired_at = time.monotonic()
-            packet = bounded_bambu_report(creds, acquired_at + 10)
-            if packet is None:
-                return refuse('nozzle_read_failed', 'Fresh printer report could not be verified')
             from modules.printers.printer_models import bambu_nozzle_count
             dual = bambu_nozzle_count(creds.get('machine_type') or creds.get('model')) == 2
-            installed = installed_nozzles(packet, dual=dual)
+            shared_read = getattr(previous, 'prepare_report', None)
+            if shared_read is not None:
+                installed = shared_read(deadline=acquired_at + 10, dual=dual)
+                read_ms = round((time.monotonic() - acquired_at) * 1000)
+                if installed is None:
+                    refusal = getattr(previous, 'refusal', None)
+                    return refuse(getattr(refusal, 'code', 'ams_read_failed'),
+                                  getattr(refusal, 'detail', 'AMS gate refused'))
+            else:
+                packet = bounded_bambu_report(creds, acquired_at + 10)
+                read_ms = round((time.monotonic() - acquired_at) * 1000)
+                if packet is None:
+                    return refuse('nozzle_read_failed', 'Fresh printer report could not be verified')
+                installed = installed_nozzles(packet, dual=dual)
+            if not 0 <= time.monotonic() - acquired_at < 10:
+                return refuse('snapshot_stale', 'Nozzle observation expired before START')
             detail, incomplete = compare_nozzles(facts['requirements'], installed)
             if detail:
                 return refuse('nozzle_mismatch', detail)
@@ -59,7 +74,7 @@ def create_capability_gate(*, job, creds, staged_path, plate_number, target_hand
                     enqueue(event(job['id'], 'nozzle_unverified', printer_id=job['printer_id'], detail={'geometry_unverified': bool(facts.get('notes'))}))
                 except Exception:
                     pass  # Diagnostics cannot turn unknown metadata into a refusal.
-            if not prior('prepare'):
+            if shared_read is None and not prior('prepare'):
                 return False
             ready = True
             return True

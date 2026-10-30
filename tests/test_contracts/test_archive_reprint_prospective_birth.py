@@ -1,5 +1,6 @@
 """Actual JWT archive reprint prospective birth; no physical dispatch."""
 import pytest
+from modules.printers.nozzle_capability import installed_nozzles
 from sqlalchemy import text
 from tests.test_contracts.test_archive_reprint_behavior import reprint_client
 from tests.test_contracts.test_education_review_workflow import review_db
@@ -119,7 +120,8 @@ def test_ungrouped_archive_reprint_explicit_source_zero_to_tray_one(
                 conn.execute(text("UPDATE printers SET api_host='changed.example.test' WHERE id=109"))
         snapshot = RawAMSSnapshot(options['operation_id'], 'c'*32, 1, clock[0],
             options['configuration_key'], None,
-            (RawTrayFact(1,0,0,'PLA' if failure=='material' else 'PETG','reported'),), failure!='busy')
+            (RawTrayFact(1,0,0,'PLA' if failure=='material' else 'PETG','reported'),), failure!='busy', nozzles=tuple(installed_nozzles(
+                {'nozzle_type': 'hardened_steel', 'nozzle_diameter': .4})))
         return RuntimeBoundAMSResult(failure!='acquisition', snapshot, RUNTIME.incarnation,
             RUNTIME.clock_domain, True, None)
     monkeypatch.setattr(gate, 'read_current_selected_ams', acquired)

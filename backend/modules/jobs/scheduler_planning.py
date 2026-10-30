@@ -51,8 +51,10 @@ class SchedulerPlanning:
         }
         claimed_printers = set(db.execute(text('SELECT printer_id FROM printer_dispatch_claims')).scalars())
         from core.printer_maintenance import hold_reason
+        from modules.printers.services import dispatch_unsupported_reason
         printers = [p for p in db.query(Printer).filter(Printer.is_active.is_(True)).all()
-                    if raw_authorities.get(p.id) is not None and p.id not in claimed_printers and not hold_reason(db, p.id)]
+                    if raw_authorities.get(p.id) is not None and p.id not in claimed_printers
+                    and not hold_reason(db, p.id) and not dispatch_unsupported_reason(p)]
         if not printers:
             # Stale cleanup may have made an atomic Education lifecycle
             # correction even when there is no printer available for new work.
@@ -153,6 +155,13 @@ class SchedulerPlanning:
         # Schedule each job
         education_policy = registry.get_provider("EducationPolicyProvider")
         for job in pending_jobs:
+            assigned = db.get(Printer, job.printer_id) if job.printer_id is not None else None
+            unsupported = dispatch_unsupported_reason(assigned)
+            if unsupported:
+                result.skipped_count += 1
+                skipped.append((job.id, 'printer_dispatch_unsupported'))
+                result.errors.append(unsupported)
+                continue
             if job.effective_duration is None:
                 result.skipped_count += 1
                 skipped.append((job.id, "unknown_quantity"))

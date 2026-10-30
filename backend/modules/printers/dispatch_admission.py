@@ -59,6 +59,10 @@ def _check_attempt(engine,*,token,job,creds,key,payload_sha256,transport_filenam
     from modules.printers import dispatch
     from core.order_production import prepare_job_write
     from core.registry import registry
+    from modules.printers.dispatch_support import dispatch_unsupported_reason
+    unsupported = dispatch_unsupported_reason(creds)
+    if unsupported:
+        return Admission(False, unsupported)
     identity=build_identity(creds,key)
     if (identity is None or not isinstance(job,dict)
             or type(job.get('id')) is not int or type(job.get('printer_id')) is not int
@@ -92,6 +96,9 @@ def _check_attempt(engine,*,token,job,creds,key,payload_sha256,transport_filenam
                 conn.execute(text('SELECT id FROM filament_slots WHERE printer_id=:id ORDER BY id FOR UPDATE NOWAIT'),{'id':job['printer_id']}).all()
             current_job=dispatch._load_job(job['id'],connection=conn)
             current_creds=dispatch._get_printer_info(job['printer_id'],connection=conn)
+            unsupported = dispatch_unsupported_reason(current_creds)
+            if unsupported:
+                raise _Refused(unsupported)
             if current_job!=job:
                 raise _Refused('Job, file, options or ownership changed before dispatch')
             current_identity=build_identity(current_creds,key)

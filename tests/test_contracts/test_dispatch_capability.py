@@ -39,7 +39,7 @@ def test_file_10_refuses_left_standard_against_high_flow(tmp_path, monkeypatch):
     checked = gate(tmp_path, monkeypatch)
     assert checked.prepare() is False
     assert checked.refusal.code == 'nozzle_mismatch'
-    assert checked.refusal.detail == 'left nozzle requires Standard; installed High Flow'
+    assert checked.refusal.detail.startswith('left nozzle requires Standard; installed High Flow; report_read_ms=')
     assert checked() is False
 
 

@@ -5,6 +5,8 @@ from pathlib import Path
 from types import SimpleNamespace
 import pytest
 from sqlalchemy import text
+from modules.printers.nozzle_capability import installed_nozzles
+from tests.test_contracts.test_dispatch_capability import REPORT
 from tests.test_contracts.test_dispatch_final_admission_behavior import setup, review_db, education_inputs
 from tests.test_contracts.test_ams_evidence_transactions import RUNTIME
 from modules.printers.dispatch_admission import admit
@@ -16,7 +18,7 @@ from modules.printers.telemetry.bambu.trusted_ams_acquisition import RuntimeBoun
 
 @pytest.mark.parametrize('change', ['none', 'material', 'unreported', 'read_failed', 'busy', 'expired', 'cleanup', 'target',
                                     'configuration', 'job', 'grant', 'claim', 'runtime', 'runtime_replaced', 'mapping_mismatch', 'mapping_mutated'])
-@pytest.mark.parametrize('phase', ['direct', 'prepared', 'concurrent'])
+@pytest.mark.parametrize('phase', ['direct', 'prepared', 'concurrent', 'combined'])
 def test_post_upload_gate_rechecks_same_attempt_after_read(setup, monkeypatch, change, phase):
     from core import dispatch_claims
     from core.dispatch_identity import build_identity
@@ -66,7 +68,7 @@ def test_post_upload_gate_rechecks_same_attempt_after_read(setup, monkeypatch, c
             time.monotonic() - (20 if change == 'expired' else 0),
             options['configuration_key'], 1,
             (RawTrayFact(1, 0, 0, None if change == 'unreported' else ('PLA' if change == 'material' else 'PETG'), 'explicit_empty' if change == 'unreported' else 'reported'),),
-            idle_without_error=change != 'busy')
+            idle_without_error=change != 'busy', nozzles=tuple(installed_nozzles(REPORT)))
         return RuntimeBoundAMSResult(change != 'read_failed', snapshot,
             'd'*32 if change == 'runtime' else RUNTIME.incarnation, RUNTIME.clock_domain,
             change != 'cleanup', None)
@@ -82,6 +84,14 @@ def test_post_upload_gate_rechecks_same_attempt_after_read(setup, monkeypatch, c
                                          mapping=mapping, target_handle=target)
     if change == 'mapping_mutated':
         mapping[0] = 1
+    if phase == 'combined':
+        from modules.printers import dispatch_capability_gate as capability, dispatch_acquisition
+        monkeypatch.setattr(capability, 'inspect_payload', lambda *a: {'requirements': []})
+        monkeypatch.setattr(capability, 'geometry_refusal', lambda *a: None)
+        monkeypatch.setattr(dispatch_acquisition, 'bounded_bambu_report',
+                            lambda *a: pytest.fail('Combined gate must use only the trusted AMS session'))
+        checked = capability.create_capability_gate(job=job, creds=creds, staged_path=str(source),
+            plate_number=1, target_handle=target, previous=checked)
     if phase == 'prepared':
         assert checked.prepare() is (change == 'none')
         assert checked.prepare() is False
@@ -142,7 +152,8 @@ def test_actual_dispatch_upload_read_and_single_start_sequence(review_db, tmp_pa
         assert engine.pool.checkedout() == 0
         snapshot = RawAMSSnapshot(options['operation_id'], 'c'*32, 1, time.monotonic(),
             options['configuration_key'], 1,
-            (RawTrayFact(1, 0, 0, 'PETG' if material_matches else 'PLA', 'reported'),), True)
+            (RawTrayFact(1, 0, 0, 'PETG' if material_matches else 'PLA', 'reported'),), True, nozzles=tuple(installed_nozzles(
+                {'nozzle_type': 'hardened_steel', 'nozzle_diameter': .4})))
         return RuntimeBoundAMSResult(True, snapshot, RUNTIME.incarnation, RUNTIME.clock_domain, True, None)
     monkeypatch.setattr(gate, 'read_current_selected_ams', acquired)
     def uploaded(staged, remote):

@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import pytest
 from sqlalchemy import text
+from modules.printers.nozzle_capability import installed_nozzles
 from tests.test_contracts.test_education_review_workflow import review_db as review_db
 from tests.test_contracts.dispatch_test_support import configure_dispatch
 from tests.test_contracts.test_ams_evidence_transactions import RUNTIME
@@ -50,15 +51,14 @@ def test_h2d_dispatch_uploads_then_checks_exact_mapping(review_db, tmp_path, mon
         assert engine.pool.checkedout() == 0
         snapshot = RawAMSSnapshot(options['operation_id'], 'c'*32, 1, time.monotonic(),
             options['configuration_key'], 1,
-            (RawTrayFact(2, 0, 1, 'PLA' if change == 'material' else 'PETG', 'reported'),), True)
+            (RawTrayFact(2, 0, 1, 'PLA' if change == 'material' else 'PETG', 'reported'),), True, nozzles=tuple(installed_nozzles(
+                {'device': {'nozzle': {'info': [{'id': 1, 'type': 'HS01', 'diameter': .4}]}}}
+                if change == 'nozzle' else REPORT, dual=True)))
         return RuntimeBoundAMSResult(True, snapshot, RUNTIME.incarnation, RUNTIME.clock_domain, True, None)
     monkeypatch.setattr(gate, 'read_current_selected_ams', acquired)
     def uploaded(staged, remote):
         events.append('upload')
         assert Path(staged).read_bytes() == H2D.read_bytes()
-        if change == 'nozzle':
-            monkeypatch.setattr(dispatch_acquisition, 'bounded_bambu_report', lambda *a:
-                {'device': {'nozzle': {'info': [{'id': 1, 'type': 'HS01', 'diameter': .4}]}}})
         if change == 'ams_configuration':
             with engine.begin() as conn:
                 conn.execute(text('UPDATE printers SET slot_count=1 WHERE id=59'))

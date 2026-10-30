@@ -3,6 +3,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 import pytest
+from modules.printers.nozzle_capability import installed_nozzles
 from sqlalchemy import text
 from tests.test_contracts.test_economic_creator_wiring import creators as creators
 from tests.test_contracts.test_education_review_workflow import review_db as review_db
@@ -57,7 +58,8 @@ def test_scheduled_mapping_runs_post_upload_material_gate(creators, review_db, t
         assert options['selected_slots'] == (4,)
         snapshot = RawAMSSnapshot(options['operation_id'], 'c'*32, 1, time.monotonic(),
             options['configuration_key'], 1,
-            (RawTrayFact(4, 0, 3, 'PETG' if matches else 'PLA', 'reported'),), True)
+            (RawTrayFact(4, 0, 3, 'PETG' if matches else 'PLA', 'reported'),), True, nozzles=tuple(installed_nozzles(
+                {'nozzle_type': 'hardened_steel', 'nozzle_diameter': .4})))
         return RuntimeBoundAMSResult(True, snapshot, RUNTIME.incarnation, RUNTIME.clock_domain, True, None)
     monkeypatch.setattr(gate, 'read_current_selected_ams', acquired)
     def uploaded(staged, remote):
