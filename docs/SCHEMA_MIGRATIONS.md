@@ -66,6 +66,7 @@ This document explains how to add a database schema migration numbered 030 or hi
    - a database written by the published v1.9.24 image's own bootstrap, upgraded, backed up and restored;
    - a row in every new table surviving the current backup→restore round trip;
    - a killed preserved029 child leaving nothing behind;
+   - a real archive of the newest frozen era, written by that release's own sources from Git objects, validated, staged and applied (`POST027_RELEASED046_SOURCE` for 046), with ledger and schema refusals and a killed child;
    - a staged historical restore applied by the coordinator under enterprise-compose secret ownership (uid 10001, mode 0400); a root-run coordinator keeps the restore staged and fails; a deterministic archive refusal is quarantined;
    - a maintenance URL that carries `?sslmode=`.
 

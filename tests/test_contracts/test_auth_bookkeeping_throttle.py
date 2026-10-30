@@ -212,7 +212,7 @@ def test_only_the_retention_cleanup_compares_bookkeeping_times():
         if any(part in ("preserved027", "preserved029", "preserved034") for part in file.parts):
             continue
         if any(file.is_relative_to(_BACKEND / f"core/schema/preserved{version}/overlay")
-               for version in ("035", "036", "037", "038", "039")):
+               for version in ("035", "036", "037", "038", "039", "046")):
             continue
         for line in file.read_text(errors="ignore").splitlines():
             if pattern.search(line) and not line.strip().startswith("#"):

@@ -275,8 +275,8 @@ def sync_ace_inventory(conn, printer_id, ace):
     conn.execute(text('UPDATE printers SET ace_status=:status WHERE id=:id'),
                  {'id': printer_id, 'status': json.dumps(ace)})
     for slot in ace['slots']:
-        params = dict(pid=printer_id, sn=slot['index'] + 1,
-            material=(slot_filament_value(slot['type']) if canonical_reported_material(slot['type']) else 'Unknown') if slot['usable'] else slot_filament_value('empty'),
+        reported = (slot['type'] if canonical_reported_material(slot['type']) else 'unknown') if slot['usable'] else 'empty'
+        params = dict(pid=printer_id, sn=slot['index'] + 1, material=slot_filament_value(reported),
             color=slot['color_hex'], label=slot['type'] or None)
         existing = conn.execute(text('SELECT id FROM filament_slots WHERE printer_id=:pid AND slot_number=:sn'), params).first()
         if existing:

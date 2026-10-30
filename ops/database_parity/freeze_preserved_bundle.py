@@ -10,7 +10,8 @@ is read from a database bootstrapped by those same bytes in an isolated interpre
 
 Usage (explicit inputs, no defaults):
   python -m ops.database_parity.freeze_preserved_bundle \
-      --commit <full sha> --release 2.0.36 --era 46 --base-era 45 --write
+      --commit <full sha> --release 2.0.36 --era 46 --base-era 45 \
+      --migration python:046-tray-identity --write
   ... --check     verify the committed bundle against the commit, changing nothing
 """
 import argparse
