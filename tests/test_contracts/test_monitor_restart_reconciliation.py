@@ -294,6 +294,19 @@ def test_failed_recovery_retries_on_the_next_report(manual_bambu, monkeypatch):
     assert manual_rows(case)[0][0]['status'] == 'completed'
 
 
+def test_retrying_recovery_leaves_a_tracked_print_to_its_live_end(manual_bambu):
+    case = manual_bambu
+    monitor = case.monitor()
+    monitor._current_job_id = case.identifier
+    monitor._linked_job_id = 53
+    monitor._last_gcode_state = 'RUNNING'
+    monitor._recovery_pending = True
+    # An unproven name would raw-close this row as completed if recovery ran first.
+    packet(monitor, gcode_state='FAILED', subtask_name='another-print', print_error=7)
+    rows, job = manual_rows(case)
+    assert [row['status'] for row in rows] == ['failed'] and job == 'failed'
+
+
 # ---------------------------------------------------------------- gap 7: unreserved rows
 @pytest.mark.parametrize('order', ['callback_first', 'recovery_first', 'status_after_wait'])
 @pytest.mark.parametrize('state,error,expected', OUTCOMES)
