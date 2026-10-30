@@ -1,0 +1,178 @@
+"""A fed ACE slot moves during a print. That motion must not read as an unloaded slot."""
+import json
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+from sqlalchemy import text
+
+from modules.printers.kobra_s1 import S1Refusal, parse_ace, verify_mapping
+from tests.test_contracts.test_dispatch_real_monitor_correlation import configure_dispatch
+from tests.test_contracts.test_education_review_workflow import review_db
+from tests.test_contracts.test_kobra_s1_release1 import S1_HEADER, _bed_clear_request
+
+FIXTURES = Path(__file__).resolve().parents[2] / 'backend/tests/fixtures/kobra_s1'
+FRAMES = json.loads((FIXTURES / 'ace_status_sequence.json').read_text())['frames']
+FILAMENT = parse_ace(dict(filament_hubs=[dict(slots=FRAMES[0]['slots'])]))['slots'][0]
+
+
+def hub(frame):
+    return dict(auto_refill=frame['auto_refill'], current_filament=frame['current_filament'],
+                filament_hubs=[dict(status='ready', slots=frame['slots'])])
+
+
+def _frame_at(t):
+    return [frame for frame in FRAMES if frame['t'] <= t][-1]
+
+
+@pytest.fixture
+def s1(review_db, tmp_path, monkeypatch):
+    """Printer 59 as an S1, fed from slot 1 like the capture. Slot 4 carries a feed restriction."""
+    from modules.printers import dispatch, start_next
+    from modules.printers.adapters import anycubic_lan, moonraker
+    from modules.printers.monitors import moonraker_monitor
+    engine, path = configure_dispatch(review_db, tmp_path, monkeypatch)
+    path.write_text(S1_HEADER + '; filament_colour = #00AE42\n; filament_type = PLA\nG28\n')
+    with engine.begin() as c:
+        c.execute(text("UPDATE printers SET model='Kobra S1',slot_count=4 WHERE id=59"))
+        c.execute(text('DELETE FROM filament_slots WHERE printer_id=59'))
+        c.execute(text("UPDATE jobs SET ams_mapping='[0]' WHERE id IN (53,54)"))
+    device = SimpleNamespace(frame=FRAMES[0], filename='', publishes=[])
+    def query(self, path, timeout=5):
+        if path.startswith('/server/history'):
+            return {'result': {'jobs': []}}
+        return {'result': {'status': dict(
+            print_stats=dict(state=device.frame['print'], filename=device.filename, filament_used=0),
+            webhooks=dict(state='ready'), filament_hub=hub(device.frame))}}
+    def upload(self, local, remote):
+        device.filename = remote
+        return True
+    def send(self, payload, *, before_publish):
+        before_publish()
+        device.publishes.append(payload)
+        return dict(published=True, message='Published; no correlated report. Do not retry automatically.')
+    monkeypatch.setattr(moonraker.MoonrakerPrinter, '_get', query)
+    monkeypatch.setattr(moonraker.MoonrakerPrinter, 'upload_file', upload)
+    monkeypatch.setattr(moonraker.MoonrakerPrinter, 'device_file_identity',
+                        lambda self, name: dict(path=name, md5='b' * 32, size=999, filaments=[dict(color='#00AE42', type='PLA')]))
+    monkeypatch.setattr(anycubic_lan.AnycubicLANPrinter, 'send_start', send)
+    monkeypatch.setattr(moonraker_monitor, 'engine', engine)
+    monitor = moonraker_monitor.MoonrakerMonitor(59, 'Synthetic', '127.0.0.1', model='Kobra S1')
+    monitor.observe = lambda: monitor._process_status(monitor.printer.get_status())
+    def start(job):
+        marker = _bed_clear_request(engine, job, 59)
+        try:
+            return dispatch.dispatch_job(59, job)
+        finally:
+            start_next._context.reset(marker)
+    return SimpleNamespace(engine=engine, device=device, monitor=monitor, start=start)
+
+
+def slot_rows(engine):
+    with engine.connect() as c:
+        return {r.slot_number: r for r in c.execute(text(
+            'SELECT slot_number,filament_type,color_hex,do_not_feed,do_not_feed_note FROM filament_slots WHERE printer_id=59')).all()}
+
+
+# The first poll to see print_stats=printing lands at this capture time.
+@pytest.mark.parametrize('first_running_poll,fed_status', [
+    pytest.param(602.5, 'unwinding', id='poll_lands_while_the_fed_slot_unwinds'),
+    pytest.param(604.5, 'ready', id='poll_lands_after_the_fed_slot_settles'),
+    pytest.param(601.9, 'ready', id='poll_lands_before_the_fed_slot_moves'),
+])
+def test_start_binds_and_completes_through_the_captured_status_sequence(s1, first_running_poll, fed_status):
+    engine, device, monitor = s1.engine, s1.device, s1.monitor
+    # Idle: the monitor creates the slots from a settled report. Then one is restricted.
+    device.frame = _frame_at(69)
+    monitor.observe()
+    with engine.begin() as c:
+        c.execute(text("UPDATE filament_slots SET do_not_feed=TRUE,do_not_feed_note='Feed fault' WHERE printer_id=59 AND slot_number=4"))
+    result = s1.start(53)
+    assert result[0] is True, result
+    t = first_running_poll - 3 * 2
+    bound = False
+    while t <= FRAMES[-1]['t'] + 3:
+        device.frame = _frame_at(t)
+        monitor.observe()
+        rows = slot_rows(engine)
+        assert rows[1].filament_type == 'PLA', (t, device.frame['slots'][0]['status'])
+        assert rows[1].color_hex == FILAMENT['color_hex']
+        assert bool(rows[4].do_not_feed) is True and rows[4].do_not_feed_note == 'Feed fault'
+        if not bound and device.frame['print'] == 'printing':
+            bound = True
+            assert t == first_running_poll and device.frame['slots'][0]['status'] == fed_status
+            with engine.connect() as c:
+                observed = c.execute(text('SELECT observed_print_job_id FROM dispatch_attempt_receipts WHERE job_id=53')).scalar_one()
+                linked = c.execute(text('SELECT scheduled_job_id FROM print_jobs WHERE id=:id'), {'id': monitor._current_job_db_id}).scalar_one()
+            assert observed == monitor._current_job_db_id and linked == 53
+        t += 3
+    assert bound
+    with engine.connect() as c:
+        assert c.execute(text('SELECT status FROM jobs WHERE id=53')).scalar_one() == 'completed'
+        assert c.execute(text('SELECT COUNT(*) FROM printer_dispatch_claims')).scalar_one() == 0
+    # The next attempt is not fenced by a claim the first one stranded.
+    device.frame = _frame_at(FRAMES[-1]['t'])
+    result = s1.start(54)
+    assert result[0] is True, result
+    assert len(device.publishes) == 2
+
+
+@pytest.mark.parametrize('status', ['shifting', 'unwinding', 'feeding', 'some_future_status', None])
+def test_a_slot_in_motion_keeps_its_material_and_stays_unusable(s1, status):
+    from modules.printers.monitors.ams_inventory import sync_ace_inventory
+    settled = json.loads(json.dumps(FRAMES[0]))
+    moving = json.loads(json.dumps(FRAMES[0]))
+    moving['slots'][0]['status'] = status
+    with s1.engine.begin() as c:
+        sync_ace_inventory(c, 59, parse_ace(hub(settled)))
+        c.execute(text("UPDATE filament_slots SET do_not_feed=TRUE,do_not_feed_note='Feed fault' WHERE printer_id=59 AND slot_number=1"))
+    before = slot_rows(s1.engine)[1]
+    with s1.engine.begin() as c:
+        sync_ace_inventory(c, 59, parse_ace(hub(moving)))
+    assert slot_rows(s1.engine)[1] == before
+    assert before.filament_type == 'PLA' and bool(before.do_not_feed) is True
+    with pytest.raises(S1Refusal, match='s1_slot_unusable'):
+        verify_mapping([dict(color='#00AE42', type='PLA')], parse_ace(hub(moving))['slots'], [0])
+
+
+@pytest.mark.parametrize('status,material', [('empty', 'PLA'), ('ready', ''), ('unwinding', ''), ('empty', '')])
+def test_only_an_empty_report_or_a_blank_type_clears_a_slot(s1, status, material):
+    from modules.printers.monitors.ams_inventory import sync_ace_inventory
+    settled = json.loads(json.dumps(FRAMES[0]))
+    cleared = json.loads(json.dumps(FRAMES[0]))
+    cleared['slots'][0].update(status=status, type=material)
+    with s1.engine.begin() as c:
+        sync_ace_inventory(c, 59, parse_ace(hub(settled)))
+        c.execute(text("UPDATE filament_slots SET do_not_feed=TRUE,do_not_feed_note='Feed fault' WHERE printer_id=59 AND slot_number=1"))
+        sync_ace_inventory(c, 59, parse_ace(hub(cleared)))
+    row = slot_rows(s1.engine)[1]
+    assert row.filament_type == 'empty' and row.color_hex is None
+    assert bool(row.do_not_feed) is True and row.do_not_feed_note == 'Feed fault'
+
+
+@pytest.mark.parametrize('status,material,expected', [
+    ('unwinding', 'PLA', 'PLA'), ('shifting', 'PETG', 'PETG'), ('feeding', 'Future polymer', 'Unknown'),
+    ('unwinding', '', 'empty'), ('ready', 'PLA', 'PLA'), ('empty', 'PLA', 'empty'),
+])
+def test_a_new_slot_row_records_the_reported_type_even_in_motion(s1, status, material, expected):
+    from modules.printers.monitors.ams_inventory import sync_ace_inventory
+    frame = json.loads(json.dumps(FRAMES[0]))
+    frame['slots'][0].update(status=status, type=material)
+    with s1.engine.begin() as c:
+        sync_ace_inventory(c, 59, parse_ace(hub(frame)))
+    assert slot_rows(s1.engine)[1].filament_type == expected
+
+
+def test_a_poll_without_an_ace_report_writes_nothing_and_is_not_usable(s1, monkeypatch):
+    from modules.printers.adapters import moonraker
+    s1.device.frame = _frame_at(69)
+    s1.monitor.observe()
+    before = slot_rows(s1.engine)
+    def no_hub(self, path, timeout=5):
+        return {'result': {'status': dict(print_stats=dict(state='printing', filename='x.gcode'), webhooks=dict(state='ready'))}}
+    monkeypatch.setattr(moonraker.MoonrakerPrinter, '_get', no_hub)
+    status = s1.monitor.printer.get_status()
+    assert status.ace_status is None and status.filament_slots == []
+    s1.monitor._maybe_sync_ace = lambda *a: pytest.fail('Nothing was reported, so nothing may be persisted')
+    s1.monitor._process_status(status)
+    assert slot_rows(s1.engine) == before

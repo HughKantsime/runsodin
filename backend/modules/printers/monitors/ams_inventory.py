@@ -275,10 +275,20 @@ def sync_ace_inventory(conn, printer_id, ace):
     conn.execute(text('UPDATE printers SET ace_status=:status WHERE id=:id'),
                  {'id': printer_id, 'status': json.dumps(ace)})
     for slot in ace['slots']:
-        reported = (slot['type'] if canonical_reported_material(slot['type']) else 'unknown') if slot['usable'] else 'empty'
+        # Only an empty report or a blank type clears a slot. Any other status describes
+        # motion: the fed slot unwinds and shifts during a print, and clearing it would
+        # change the dispatch configuration key and strand the attempt being started.
+        cleared = slot['status'] == 'empty' or (not slot['type'] and slot['status'] != 'unreported')
+        settled = cleared or slot['status'] == 'ready'
+        existing = conn.execute(text('SELECT id FROM filament_slots WHERE printer_id=:pid AND slot_number=:sn'),
+                                dict(pid=printer_id, sn=slot['index'] + 1)).first()
+        if existing and not settled:
+            continue
+        # A new row records the type even in motion: it does not change while the slot
+        # moves, and inserting the row later would itself change the configuration key.
+        reported = 'empty' if cleared or not slot['type'] else slot['type'] if canonical_reported_material(slot['type']) else 'unknown'
         params = dict(pid=printer_id, sn=slot['index'] + 1, material=slot_filament_value(reported),
-            color=slot['color_hex'], label=slot['type'] or None)
-        existing = conn.execute(text('SELECT id FROM filament_slots WHERE printer_id=:pid AND slot_number=:sn'), params).first()
+            color=None if cleared else slot['color_hex'], label=None if cleared else slot['type'] or None)
         if existing:
             conn.execute(text('UPDATE filament_slots SET filament_type=:material,color_hex=:color,color=:label,loaded_at=CURRENT_TIMESTAMP '
                               'WHERE printer_id=:pid AND slot_number=:sn'), params)

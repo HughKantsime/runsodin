@@ -316,14 +316,17 @@ class MoonrakerPrinter:
                 elif hasattr(status, name):
                     setattr(status, name, value)
             mmu = result.get("mmu", {})
-            if self.is_kobra_s1:
+            hub = result.get('filament_hub')
+            if self.is_kobra_s1 and isinstance(hub, dict) and hub.get('filament_hubs'):
                 from modules.printers.kobra_s1 import parse_ace
-                status.ace_status = parse_ace(result.get('filament_hub'))
+                status.ace_status = parse_ace(hub)
                 status.filament_slots = [MoonrakerFilamentSlot(gate=s['index'], material=s['type'],
                     color_hex=s['color_hex'] or '', loaded=s['usable'], gate_status=1 if s['usable'] else -1)
                     for s in status.ace_status['slots']]
                 if status.ace_status['temperature'] is not None:
                     status.environment_sensors['ACE'] = status.ace_status['temperature']
+            elif self.is_kobra_s1:
+                pass  # No ACE report this poll: nothing is known, so nothing is written or usable.
             elif mmu and mmu.get("enabled"):
                 status.filament_slots = self._parse_mmu_slots(mmu)
             status.nozzle_diameter = self._nozzle_diameter

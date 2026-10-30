@@ -23,10 +23,12 @@ def parse_ace(hub):
         material = material.strip()[:64] if isinstance(material, str) and not any(ord(c) < 32 for c in material) else ''
         color = raw.get('color')
         color = color[:3] if isinstance(color, list) and len(color) >= 3 and all(type(n) is int and 0 <= n <= 255 for n in color[:3]) else None
+        status = raw.get('status')
+        # A slot in motion (shifting, unwinding, feeding) is not usable but keeps its spool.
         slots.append(dict(index=i, type=material, color=color,
                           color_hex=''.join(f'{n:02X}' for n in color) if color else None,
-                          usable=bool(material) and raw.get('status') == 'ready',
-                          status=raw.get('status') if raw.get('status') in ('ready', 'empty') else 'unknown'))
+                          usable=bool(material) and status == 'ready',
+                          status=status if status in ('ready', 'empty') else 'unknown' if i in by_index else 'unreported'))
     current = hub.get('current_filament')
     current = current if isinstance(current, str) and (current == '' or re.fullmatch(r'\d+-\d+', current)) else None
     return dict(slots=slots, current_filament=current, humidity=None,
