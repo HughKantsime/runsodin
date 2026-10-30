@@ -51,7 +51,7 @@ jobs:
           test "$(node --version)" = v25.9.0 || { echo "Node 25.9.0 is required" >&2; exit 1; }
           npm_version="$(npm --version)"
           [[ "$npm_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && test "${npm_version%%.*}" -ge 10 || { echo "npm 10 or newer is required" >&2; exit 1; }
-          mosquitto -h | head -n 1 | grep -Eq '^mosquitto version 2\.' || { echo "Mosquitto 2.x is required" >&2; exit 1; }
+          { mosquitto -h 2>&1 || true; } | head -n 1 | grep -Eq '^mosquitto version 2\.' || { echo "Mosquitto 2.x is required" >&2; exit 1; }  # -h exits 3
           docker_bin="$(command -v docker)"
           docker_host="$("$docker_bin" context inspect --format '{{ .Endpoints.docker.Host }}')"
           [[ "$docker_host" =~ ^unix:///[^[:space:]]+\.sock$ ]]
