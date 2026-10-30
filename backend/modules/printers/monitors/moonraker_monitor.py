@@ -774,7 +774,7 @@ class MoonrakerMonitor:
                 max_slot = len(slots)
                 if max_slot > 0:
                     conn.execute(
-                        text("DELETE FROM filament_slots WHERE printer_id=:pid AND slot_number>:ms"),
+                        text("DELETE FROM filament_slots WHERE printer_id=:pid AND slot_number>:ms AND do_not_feed IS NOT TRUE"),
                         {"pid": self.printer_id, "ms": max_slot})
         except Exception as e:
             log.debug(f"[{self.name}] Filament slot sync: {e}")

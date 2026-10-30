@@ -409,7 +409,7 @@ class MoonrakerPrinter:
         """Hash the complete device copy, including Rinkhals' upload edits."""
         import hashlib
         from urllib.parse import quote
-        from modules.printers.kobra_s1 import safe_path, parse_header
+        from modules.printers.kobra_s1 import safe_path, parse_header, require_start_metadata
         from core.itar import enforce_request_destination
         url = self.base_url + '/server/files/gcodes/' + quote(safe_path(filename))
         enforce_request_destination(url)
@@ -422,8 +422,9 @@ class MoonrakerPrinter:
                 size += len(block)
                 if len(prefix) < 256 * 1024:
                     prefix += block[:256 * 1024 - len(prefix)]
-        return dict(path=filename, md5=digest.hexdigest(), size=size,
-                    filaments=parse_header(prefix.decode('utf-8', 'replace')))
+        text = prefix.decode('utf-8', 'replace')
+        require_start_metadata(text)
+        return dict(path=filename, md5=digest.hexdigest(), size=size, filaments=parse_header(text))
 
     def start_print(self, filename: str) -> bool:
         """Start printing a file already on the printer."""

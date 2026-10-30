@@ -59,6 +59,8 @@ def dispatch(job_id, path, remote, creds, print_options, gate):
             raise S1Refusal(code, detail)
         try:
             file = printer.device_file_identity(remote)
+        except S1Refusal:
+            raise
         except Exception:
             raise S1Refusal('s1_device_file_unavailable', 'Device file identity could not be read') from None
         if file['filaments'] != filaments:

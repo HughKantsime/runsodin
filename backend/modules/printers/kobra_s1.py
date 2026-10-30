@@ -48,9 +48,42 @@ def parse_header(text):
     return [dict(color=c.upper(), type=t.upper()) for c, t in zip(colors, types)]
 
 
+# Bambu Studio's curr_bed_type names the plate whose first-layer key gklib heats to.
+_PLATE_KEYS = {'cool plate': 'cool_plate_temp_initial_layer', 'engineering plate': 'eng_plate_temp_initial_layer',
+               'high temp plate': 'hot_plate_temp_initial_layer', 'textured pei plate': 'textured_plate_temp_initial_layer',
+               'textured cool plate': 'textured_cool_plate_temp_initial_layer',
+               'cool plate (supertack)': 'supertack_plate_temp_initial_layer', 'supertack plate': 'supertack_plate_temp_initial_layer'}
+
+
+def require_start_metadata(text):
+    """gklib reads the bed temperature only from a slicer header it recognizes.
+
+    Without one it levels on a cold bed (Oct 28: target 5 C, 20-minute wait), and
+    auto_leveling=0 does not prevent it. Only the proven Bambu Studio header passes.
+    """
+    lines = text.splitlines()
+    if not any(re.match(r'^;\s*BambuStudio\s+\d', line) for line in lines[:20]):
+        raise S1Refusal('s1_file_start_metadata_missing', 'S1 files need a Bambu Studio header; other files make the printer level on a cold bed')
+    fields = {}
+    for line in lines:
+        match = re.match(r'^;\s*([a-z_]+)\s*=\s*(.*)$', line)
+        if match and match[1] not in fields:
+            fields[match[1]] = match[2].strip()
+    def first_positive(key):
+        value = re.split(r'[,;]', fields.get(key, ''))[0].strip()
+        return int(value) if re.fullmatch(r'\d{1,3}', value) and 0 < int(value) <= 150 else None
+    plate = _PLATE_KEYS.get(fields.get('curr_bed_type', '').strip().strip('"').casefold())
+    temperature = (first_positive(plate) if plate else None) or first_positive('first_layer_bed_temperature')
+    if temperature is None:
+        raise S1Refusal('s1_file_start_metadata_missing', 'S1 files need a first-layer bed temperature for the selected plate')
+    return temperature
+
+
 def read_filaments(path):
     with open(path, 'rb') as stream:
-        return parse_header(stream.read(256 * 1024).decode('utf-8', 'replace'))
+        text = stream.read(256 * 1024).decode('utf-8', 'replace')
+    require_start_metadata(text)
+    return parse_header(text)
 
 
 def mapping_vector(value, filaments):

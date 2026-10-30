@@ -13,6 +13,8 @@ from modules.printers.dispatch_support import is_kobra_s1, dispatch_unsupported_
 
 FIXTURES = Path(__file__).resolve().parents[2] / 'backend/tests/fixtures/kobra_s1'
 HUB = json.loads((FIXTURES / 'filament_hub.json').read_text())['result']['status']['filament_hub']
+# The proven Bambu Studio start header (benchy/torture files, Oct 29).
+S1_HEADER = '; HEADER_BLOCK_START\n; BambuStudio 02.08.02.61\n; HEADER_BLOCK_END\n; curr_bed_type = Textured PEI Plate\n; textured_plate_temp_initial_layer = 55\n'
 FILAMENTS = parse_header('; filament_colour = #00AE42;#FF00FF\n; filament_type = PLA;PLA')
 
 
@@ -89,7 +91,7 @@ def test_adapter_queries_hidden_object_and_preserves_happy_hare(monkeypatch):
 def test_upload_409_is_busy_and_device_identity_hashes_readback(tmp_path, monkeypatch):
     from core import webhook_utils
     p=MoonrakerPrinter('192.0.2.1',model='Kobra S1')
-    local=tmp_path/'print.gcode';local.write_bytes(b'; filament_colour = #00AE42\n; filament_type = PLA\nG28\n')
+    local=tmp_path/'print.gcode';local.write_bytes(S1_HEADER.encode() + b'; filament_colour = #00AE42\n; filament_type = PLA\nG28\n')
     monkeypatch.setattr(webhook_utils,'device_request',lambda *a,**k:SimpleNamespace(status_code=409))
     assert p.upload_file(str(local)) is False and p.last_upload_busy
     device=b'; Rinkhals added this line\n'+local.read_bytes()
@@ -205,13 +207,27 @@ from tests.test_contracts.test_education_review_workflow import review_db
 from tests.test_contracts.dispatch_test_support import configure_dispatch
 
 
-@pytest.mark.parametrize('scenario', ['sent','busy','flagged','flagged_after_upload','changed_slot','unknown_delivery','bad_handshake','not_idle','not_ready','ace_unknown','upload_failed','device_unavailable','file_changed','color_changed','duplicate_evidence'])
+def _bed_clear_request(engine, job_id, printer_id):
+    """A confirmed Start next request, as start_next.start() records it before dispatch."""
+    from core.durable_config import insert
+    from modules.printers import start_next
+    key = f'start_next_request:test-{job_id}'
+    with engine.begin() as c:
+        record = {'actor': {'user_id': 1, 'token_id': None}, 'printer_id': printer_id, 'job_id': job_id,
+                  'fingerprint': 'fixture', 'attestation': 'owner_in_app',
+                  'result': {'success': False, 'state': 'preparing', 'job_id': job_id, 'request_id': 'fixture'},
+                  'admission_facts': start_next.admission_facts(c, job_id, printer_id)}
+        insert(c, key, record)
+    return start_next._context.set({'key': key, 'record': record, 'user': {}})
+
+
+@pytest.mark.parametrize('scenario', ['sent','no_bed_clear','busy','flagged','flagged_after_upload','changed_slot','unknown_delivery','bad_handshake','not_idle','not_ready','ace_unknown','upload_failed','device_unavailable','file_changed','color_changed','duplicate_evidence'])
 def test_real_dispatch_pipeline_claims_and_no_retry(review_db,tmp_path,monkeypatch,scenario):
     from modules.printers import dispatch
     from modules.printers.adapters import moonraker, anycubic_lan
     from modules.printers.kobra_s1 import parse_ace
     engine,path=configure_dispatch(review_db,tmp_path,monkeypatch)
-    path.write_text('; filament_colour = #00AE42\n; filament_type = PLA\nG28\n')
+    path.write_text(S1_HEADER + '; filament_colour = #00AE42\n; filament_type = PLA\nG28\n')
     with engine.begin() as c:
         c.execute(text("UPDATE printers SET model='Kobra S1',slot_count=4 WHERE id=59"))
         c.execute(text('INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(59,2,\'PLA\')'))
@@ -247,7 +263,18 @@ def test_real_dispatch_pipeline_claims_and_no_retry(review_db,tmp_path,monkeypat
     monkeypatch.setattr(moonraker.MoonrakerPrinter,'device_file_identity',identity)
     monkeypatch.setattr(moonraker.MoonrakerPrinter,'start_print',lambda *a:pytest.fail('Plain Moonraker start'))
     monkeypatch.setattr(anycubic_lan.AnycubicLANPrinter,'send_start',send)
-    result=dispatch.dispatch_job(59,53)
+    from modules.printers import start_next
+    marker=None if scenario=='no_bed_clear' else _bed_clear_request(engine,53,59)
+    try:result=dispatch.dispatch_job(59,53)
+    finally:
+        if marker is not None:start_next._context.reset(marker)
+    if scenario=='no_bed_clear':
+        assert result[0] is False and 's1_bed_clear_required' in result[1]
+        assert uploads==[] and publishes==[]
+        return
+    if scenario=='sent':
+        with engine.connect() as c:
+            assert c.execute(text("SELECT count(*) FROM job_timeline_events WHERE job_id=53 AND printer_id=59 AND kind='bed_clear_confirmed'")).scalar_one()==1
     with engine.connect() as c:
         claim=c.execute(text('SELECT token,state FROM printer_dispatch_claims')).first()
         jobstate=c.execute(text('SELECT status FROM jobs WHERE id=53')).scalar_one()
@@ -393,3 +420,83 @@ def test_ace_persists_on_change_or_slot_cadence_not_every_poll(monkeypatch):
     monitor._maybe_sync_ace(ace, 300.0)                # failed write retries next poll
     monitor._maybe_sync_ace(ace, 303.0)
     assert monitor._last_ace == changed
+
+
+
+def _benchy_like(**over):
+    fields = {'curr_bed_type': 'Textured PEI Plate', 'textured_plate_temp_initial_layer': '55',
+              'hot_plate_temp_initial_layer': '55'}
+    fields.update(over)
+    body = ''.join(f'; {k} = {v}\n' for k, v in fields.items() if v is not None)
+    return '; HEADER_BLOCK_START\n; BambuStudio 02.08.02.61\n; HEADER_BLOCK_END\n' + body
+
+
+def test_start_metadata_accepts_proven_bambu_studio_files():
+    from modules.printers.kobra_s1 import require_start_metadata
+    assert require_start_metadata(_benchy_like()) == 55
+    assert require_start_metadata(_benchy_like(curr_bed_type='High Temp Plate', hot_plate_temp_initial_layer='60,60')) == 60
+    # make_first_layer.py v2: explicit first-layer key.
+    v2 = '; HEADER_BLOCK_START\n; BambuStudio 02.08.02.61\n; first_layer_bed_temperature = 55\n'
+    assert require_start_metadata(v2) == 55
+
+
+@pytest.mark.parametrize('text', [
+    # Oct 28 v1 corner test: no slicer header, gklib heated the bed to 5 C and levelled cold.
+    '; HEADER_BLOCK_START\n; generated by make_first_layer.py\n; filament_colour = #6558B1\n; filament_type = PLA\nG28\n',
+    '; HEADER_BLOCK_START\n; PrusaSlicer 2.8\n; first_layer_bed_temperature = 55\n',
+    _benchy_like(textured_plate_temp_initial_layer='0'),
+    _benchy_like(curr_bed_type='Mystery Plate'),
+    _benchy_like(curr_bed_type=None, textured_plate_temp_initial_layer=None, hot_plate_temp_initial_layer=None),
+])
+def test_start_metadata_refuses_cold_bed_files(text):
+    from modules.printers.kobra_s1 import require_start_metadata
+    with pytest.raises(S1Refusal, match='s1_file_start_metadata_missing'):
+        require_start_metadata(text)
+
+
+def test_bed_clear_binding_is_per_request_and_claim(review_db, tmp_path, monkeypatch):
+    from modules.printers import start_next
+    engine, _ = configure_dispatch(review_db, tmp_path, monkeypatch)
+    job = {'id': 53, 'printer_id': 59}
+    with engine.connect() as c:
+        assert start_next.bed_clear_bound(c, token='t1', job=job, admitted=False) is False  # no Start next request
+    marker = _bed_clear_request(engine, 53, 59)
+    try:
+        with engine.begin() as c:
+            assert start_next.bed_clear_bound(c, token='t1', job=job, admitted=False) is True
+            assert start_next.bed_clear_bound(c, token='t1', job={'id': 54, 'printer_id': 59}, admitted=False) is False
+            current = start_next.load(c, start_next._context.get()['key'])
+            current['claim_token'] = 't1'
+            start_next.save(c, start_next._context.get()['key'], current)
+            assert start_next.bed_clear_bound(c, token='t1', job=job, admitted=True) is True
+            assert start_next.bed_clear_bound(c, token='t2', job=job, admitted=True) is False
+            assert start_next.bed_clear_bound(c, token='t2', job=job, admitted=False) is False  # already claimed
+    finally:
+        start_next._context.reset(marker)
+
+
+def test_feed_restriction_survives_slot_count_and_monitor_cleanup(review_db, tmp_path, monkeypatch):
+    from fastapi import HTTPException
+    from sqlalchemy.orm import Session
+    from modules.printers.routes_crud import update_printer
+    from modules.printers.schemas import PrinterUpdate
+    engine, _ = configure_dispatch(review_db, tmp_path, monkeypatch)
+    with engine.begin() as c:
+        c.execute(text("UPDATE printers SET slot_count=4 WHERE id=59"))
+        c.execute(text('DELETE FROM filament_slots WHERE printer_id=59'))
+        for n in range(1, 5):
+            c.execute(text('INSERT INTO filament_slots(printer_id,slot_number,filament_type,do_not_feed) VALUES(59,:n,\'PLA\',:f)'), {'n': n, 'f': n == 2})
+    with Session(engine) as db:
+        with pytest.raises(HTTPException) as refused:
+            update_printer(59, PrinterUpdate(slot_count=1), current_user={'id': 1, 'role': 'admin'}, db=db)
+        assert refused.value.status_code == 409 and 'Slot 2' in str(refused.value.detail)
+    with engine.connect() as c:
+        assert c.execute(text('SELECT count(*) FROM filament_slots WHERE printer_id=59')).scalar_one() == 4
+    from modules.printers.monitors import moonraker_monitor as mm
+    monitor = object.__new__(mm.MoonrakerMonitor)
+    monitor.printer_id, monitor.name = 59, 'S1'
+    monkeypatch.setattr(mm, 'engine', engine)
+    monitor._sync_filament_slots([SimpleNamespace(gate=0, material='PLA', color_hex='00AE42', name=None, gate_status=1)])
+    with engine.connect() as c:
+        rows = c.execute(text('SELECT slot_number,do_not_feed FROM filament_slots WHERE printer_id=59 ORDER BY slot_number')).all()
+    assert [r[0] for r in rows] == [1, 2] and bool(rows[1][1]) is True

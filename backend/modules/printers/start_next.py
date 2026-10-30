@@ -192,6 +192,18 @@ def _record_result(db, printer_id, data, key, guard, result, *, clean_no_start=F
     return result
 
 
+def bed_clear_bound(conn, *, token, job, admitted):
+    """Kobra S1: a start needs this request's bed-clear confirmation, bound to its claim."""
+    context = _context.get()
+    if context is None:
+        return False
+    current = load(conn, context['key'])
+    if (current is None or current['job_id'] != job['id'] or current['printer_id'] != job['printer_id']
+            or not current.get('attestation')):
+        return False
+    return current.get('claim_token') == token if admitted else not current.get('claim_token')
+
+
 def confirm_on_admission(conn, *, token, job):
     context = _context.get()
     if context is None:

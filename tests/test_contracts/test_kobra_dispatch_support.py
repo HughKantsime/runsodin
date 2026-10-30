@@ -75,15 +75,20 @@ def test_manual_link_print_on_kobra_remains_available(fleet, signed_license, mon
     assert fleet.execute(text('SELECT scheduled_job_id FROM print_jobs WHERE id=7991')).scalar_one() == 991
 
 
-def test_next_job_suggestion_excludes_kobra(fleet):
+def test_next_job_suggestion_excludes_kobra3_but_offers_s1_for_attended_start(fleet):
     from modules.printers.models import Printer
     from modules.jobs.completion_summary import next_suggestion, eligible
     from modules.jobs.models import Job
-    fleet.execute(text("UPDATE printers SET api_type='moonraker',model='Kobra S1' WHERE id=9"))
+    fleet.execute(text("UPDATE printers SET api_type='moonraker',model='Kobra 3' WHERE id=9"))
     fleet.commit()
     add_job(fleet, 992)
     printer = fleet.get(Printer, 9)
     assert not eligible(fleet, fleet.get(Job, 992), printer)
     suggestion = next_suggestion(fleet, printer)
-    assert suggestion['job_id'] is None
-    assert suggestion['reason'] == 's1_explicit_dispatch_required: Kobra S1 requires attended explicit dispatch'
+    assert suggestion['job_id'] is None and suggestion['reason'].startswith('printer_dispatch_unsupported')
+    # Start next is the S1's only start path: it requires the bed-clear confirmation.
+    fleet.execute(text("UPDATE printers SET model='Kobra S1' WHERE id=9"))
+    fleet.commit()
+    fleet.expire_all()
+    suggestion = next_suggestion(fleet, fleet.get(Printer, 9))
+    assert not str(suggestion.get('reason') or '').startswith(('printer_dispatch_unsupported', 's1_explicit'))
