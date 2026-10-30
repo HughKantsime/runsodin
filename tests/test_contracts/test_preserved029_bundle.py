@@ -192,7 +192,7 @@ def test_owned_child_supervision_closed_ack_output_deadline_and_reap(tmp_path, m
                "stderr": "import sys;print('preserved029-validated:27');print('uncertain',file=sys.stderr)",
                "nonzero": "raise SystemExit(2)",
                "wrong_ack": "print('preserved029-validated:30')",
-               "oversized": "print('x'*20000,flush=True)",
+               "oversized": "import signal;print('x'*20000,flush=True);signal.pause()",
                "timeout": "import time;time.sleep(5)"}
     child = tmp_path / "owned_child.py"; child.write_text(scripts[mode])
     process = []

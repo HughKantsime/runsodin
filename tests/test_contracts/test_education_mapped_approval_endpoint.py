@@ -1,5 +1,5 @@
 """Normal report/approval HTTP flow retains explicit mapping and payload pins."""
-import hashlib,json,uuid,time
+import hashlib,json,uuid
 from types import SimpleNamespace
 from cryptography.fernet import Fernet
 from sqlalchemy import text
@@ -22,6 +22,9 @@ def review_db(submission_db):
 @pytest.fixture
 def mapped_case(token_client,review_db,monkeypatch,tmp_path,request):
     import io,zipfile
+    from datetime import datetime,timedelta,timezone
+    from functools import wraps
+    from inspect import iscoroutinefunction
     import core.runtime_identity as identity
     from modules.organizations import education_access,routes_education_reviews,education_ams_read_service
     from modules.printers.telemetry.bambu import ams_evidence_transactions as transactions,ams_database_clock,trusted_ams_acquisition
@@ -62,14 +65,62 @@ def mapped_case(token_client,review_db,monkeypatch,tmp_path,request):
     monkeypatch.setattr(transactions,'revalidate_runtime_identity',lambda value:None)
     monkeypatch.setattr(ams_database_clock,'revalidate_runtime_identity',lambda value:None)
     monkeypatch.setattr(education_ams_read_service,'SessionLocal',lambda:Session(review_db.get_bind()))
+    # One clock covers generation, receipt, anchoring, persistence and approval.
+    # Advancing at each sample keeps freshness independent of machine load.
+    epoch=datetime(2026,1,1,tzinfo=timezone.utc);logical_time=0.0
+    def advance(seconds=1.0):
+        nonlocal logical_time
+        logical_time+=seconds
+        return logical_time
+    def sample_clock(db):
+        started=advance();finished=advance(.125)
+        return ams_database_clock.DatabaseClockAnchor(epoch+timedelta(seconds=started),started,finished)
+    monkeypatch.setattr(ams_database_clock,'sample_database_clock',sample_clock)
+    monkeypatch.setattr(transactions,'sample_database_clock',sample_clock)
+    # validate_current_ams_selection imports the source sampler at call time.
     def read(config,**kwargs):
-        report=RawAMSSnapshot(kwargs['operation_id'],uuid.uuid4().hex,1,time.monotonic(),kwargs['configuration_key'],kwargs['owner_org_id'],(RawTrayFact(1,0,0,'PLA','reported'),))
+        report=RawAMSSnapshot(kwargs['operation_id'],uuid.uuid4().hex,1,advance(),kwargs['configuration_key'],kwargs['owner_org_id'],(RawTrayFact(1,0,0,'PLA','reported'),))
         return RuntimeBoundAMSResult(True,report,runtime.incarnation,runtime.clock_domain,True,None)
     monkeypatch.setattr(trusted_ams_acquisition,'read_current_selected_ams',read)
     client,issue=token_client;client.app.include_router(routes_education_reviews.router)
     headers=issue(['write:education'])
-    response=client.post(f"/education/submissions/{uploaded['id']}/ams-read",headers=headers,json={'revision':1,'printer_id':9,'selected_slots':[1]})
-    assert response.status_code==200,response.text
+    diagnostics=[]
+    def record_failure(phase,error):
+        # Follow suppressed contexts too, but never format messages or locals.
+        seen=set()
+        while error is not None and id(error) not in seen:
+            seen.add(id(error));locations=[];tb=error.__traceback__
+            while tb is not None:
+                locations.append(f'{tb.tb_frame.f_code.co_filename}:{tb.tb_lineno}')
+                tb=tb.tb_next
+            diagnostics.append((phase,type(error).__name__,tuple(locations)))
+            error=error.__cause__ if error.__cause__ is not None else error.__context__
+    def diagnose(phase,function):
+        if iscoroutinefunction(function):
+            @wraps(function)
+            async def wrapped(*args,**kwargs):
+                try:return await function(*args,**kwargs)
+                except Exception as error:
+                    record_failure(phase,error)
+                    raise
+        else:
+            @wraps(function)
+            def wrapped(*args,**kwargs):
+                try:return function(*args,**kwargs)
+                except Exception as error:
+                    record_failure(phase,error)
+                    raise
+        return wrapped
+    # Scope observation to setup; approval/replay fault injection stays untouched.
+    with monkeypatch.context() as setup:
+        for name in ('acquire_teacher_ams_report','reauthenticate_teacher_request','lock_teacher_ams_context',
+                     'begin_ams_read','acquire_ams_report','persist_ams_report','retire_ams_read','SessionLocal'):
+            setup.setattr(education_ams_read_service,name,diagnose(name,getattr(education_ams_read_service,name)))
+        for name in ('_freeze_read_result','_persist_report'):
+            setup.setattr(transactions,name,diagnose(name,getattr(transactions,name)))
+        setup.setattr(Session,'commit',diagnose('commit',Session.commit))
+        response=client.post(f"/education/submissions/{uploaded['id']}/ams-read",headers=headers,json={'revision':1,'printer_id':9,'selected_slots':[1]})
+    assert response.status_code==200,diagnostics
     body={'revision':1,'printer_id':9,'command_id':str(uuid.uuid4()),'ams_generation_id':response.json()['generation_id'],
           'plate_index':0,'ams_mapping':[{'source_slot':0,'target_slot':1}]}
     return client,headers,body,digest,path,uploaded

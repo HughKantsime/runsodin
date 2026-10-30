@@ -12,6 +12,14 @@ def command(path):
     return [sys.executable,'-c',"from pathlib import Path;import time;Path(%r).write_text('ran');time.sleep(30)"%str(path)]
 
 
+def deferred_group(argv,*,arm_seconds):
+    # Python anchor startup needs the default budget even when arm must time out
+    # quickly. Narrow the shared budget only after READY confirms construction.
+    group=supervisor.OwnedSenderGroup(argv,defer_start=True)
+    group._startup_seconds=arm_seconds
+    return group
+
+
 def test_deferred_start_has_no_worker_until_explicit_arm(tmp_path):
     path=tmp_path/'command'
     group=supervisor.OwnedSenderGroup(command(path),defer_start=True)
@@ -70,7 +78,7 @@ def test_invalid_ipc_budget_refuses_before_launch(monkeypatch,budget):
 
 def test_lost_start_ack_retains_uncertain_receipt(tmp_path,monkeypatch):
     path=tmp_path/'command'
-    group=supervisor.OwnedSenderGroup(command(path),defer_start=True,startup_seconds=.15)
+    group=deferred_group(command(path),arm_seconds=.15)
     original=group._read_ack
     monkeypatch.setattr(group,'_read_ack',lambda deadline: (_ for _ in ()).throw(TimeoutError('private-marker')))
     try:
@@ -137,7 +145,7 @@ def test_malformed_or_partial_ready_never_arms(monkeypatch,tmp_path,ack):
     source="import sys,time;sys.stdin.buffer.readline();sys.stdout.buffer.write(%s);sys.stdout.buffer.flush();time.sleep(30)"%ack
     synthetic_anchor(monkeypatch,source)
     with pytest.raises(supervisor.OwnedGroupStartupError) as caught:
-        supervisor.OwnedSenderGroup(command(tmp_path/'command'),startup_seconds=.15)
+        supervisor.OwnedSenderGroup(command(tmp_path/'command'))
     try:
         assert not caught.value.group._arm_delivered
         assert caught.value.retirement.group_empty
@@ -147,8 +155,14 @@ def test_malformed_or_partial_ready_never_arms(monkeypatch,tmp_path,ack):
 
 def test_anchor_dies_after_ready_before_arm(tmp_path):
     group=supervisor.OwnedSenderGroup(command(tmp_path/'command'),defer_start=True)
-    group._process.kill();time.sleep(.1)
     try:
+        group._process.kill()
+        deadline=time.monotonic()+2
+        # Observe exit without reaping: retirement must retain the owned PID.
+        while not supervisor._check_unreaped_child(group._process.pid):
+            if time.monotonic()>=deadline:
+                raise TimeoutError('Killed anchor did not exit')
+            time.sleep(.01)
         receipt=group.arm()
         assert not receipt.worker_started and not receipt.command_may_have_started
         assert not group.retire().group_empty
@@ -159,7 +173,7 @@ def test_anchor_dies_after_ready_before_arm(tmp_path):
 def test_actual_arm_ack_timeout_is_bounded_and_uncertain(monkeypatch,tmp_path):
     source="import sys,time;sys.stdin.buffer.readline();sys.stdout.buffer.write(b'READY\\n');sys.stdout.buffer.flush();sys.stdin.buffer.readline();time.sleep(30)"
     synthetic_anchor(monkeypatch,source)
-    group=supervisor.OwnedSenderGroup(command(tmp_path/'command'),defer_start=True,startup_seconds=.15)
+    group=deferred_group(command(tmp_path/'command'),arm_seconds=.15)
     try:
         started=time.monotonic();receipt=group.arm()
         assert time.monotonic()-started<1
@@ -172,7 +186,7 @@ def test_actual_arm_ack_timeout_is_bounded_and_uncertain(monkeypatch,tmp_path):
 def test_anchor_dies_after_arm_keeps_command_uncertain(monkeypatch,tmp_path):
     source="import sys,os;sys.stdin.buffer.readline();sys.stdout.buffer.write(b'READY\\n');sys.stdout.buffer.flush();sys.stdin.buffer.readline();os._exit(0)"
     synthetic_anchor(monkeypatch,source)
-    group=supervisor.OwnedSenderGroup(command(tmp_path/'command'),defer_start=True,startup_seconds=.2)
+    group=deferred_group(command(tmp_path/'command'),arm_seconds=.2)
     try:
         receipt=group.arm()
         assert not receipt.worker_started and receipt.command_may_have_started
@@ -200,7 +214,7 @@ def test_startup_failure_keeps_handle_when_retirement_unconfirmed(monkeypatch,tm
 
 
 def test_delayed_writable_select_does_not_arm_after_deadline(tmp_path,monkeypatch):
-    group=supervisor.OwnedSenderGroup(command(tmp_path/'command'),defer_start=True,startup_seconds=.1)
+    group=deferred_group(command(tmp_path/'command'),arm_seconds=.1)
     real=supervisor.select.select
     def delayed(readers,writers,errors,timeout):
         result=real(readers,writers,errors,timeout)
@@ -215,7 +229,7 @@ def test_delayed_writable_select_does_not_arm_after_deadline(tmp_path,monkeypatc
 
 
 def test_delayed_ack_read_does_not_accept_late_started(tmp_path,monkeypatch):
-    group=supervisor.OwnedSenderGroup(command(tmp_path/'command'),defer_start=True,startup_seconds=.1)
+    group=deferred_group(command(tmp_path/'command'),arm_seconds=.1)
     real=supervisor.os.read
     def delayed(fd,size):
         value=real(fd,size)
