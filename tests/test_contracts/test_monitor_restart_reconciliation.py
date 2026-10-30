@@ -693,3 +693,218 @@ def test_moonraker_dispatched_end_follows_the_receipt_rules(dispatched_moonraker
         assert conn.execute(text('SELECT count(*) FROM printer_dispatch_claims')).scalar_one() == 1
         assert conn.execute(text('SELECT count(*) FROM print_jobs')).scalar_one() == 1
     assert monitor._current_job_db_id is None
+
+
+# ---------------------------------------------------------------- gap 3: PrusaLink, Elegoo, Anycubic
+STOPPED = {'prusalink': 'STOPPED', 'elegoo': 'STOPPING', 'anycubic_lan': 'STOPPING'}
+
+
+def generic_status(protocol, state, filename):
+    from modules.printers.adapters.anycubic_lan import DEFAULTS
+    from modules.printers.adapters.elegoo import ElegooStatus
+    from modules.printers.adapters.prusalink import PrusaLinkState, PrusaLinkStatus
+    if protocol == 'prusalink':
+        return PrusaLinkStatus(state=PrusaLinkState[state], internal_state=state, filename=filename)
+    if protocol == 'elegoo':
+        return ElegooStatus(internal_state=state, filename=filename)
+    return SimpleNamespace(**(DEFAULTS | dict(internal_state=state, filename=filename, boxes=[])))
+
+
+@pytest.fixture(params=['prusalink', 'elegoo', 'anycubic_lan'])
+def generic(request, review_db, tmp_path, monkeypatch):
+    from contextlib import contextmanager
+    from core import event_bus, events, job_timeline
+    from core.db_utils import _ConnectionAdapter
+    from modules.archives import archive
+    from modules.notifications import job_events, job_faults
+    from modules.printers import dispatch
+    from modules.printers.monitors import anycubic_lan_monitor, elegoo_monitor, prusalink_monitor
+    from tests.test_contracts.test_dispatch_real_monitor_correlation import configure_dispatch
+    protocol = request.param
+    engine, _ = configure_dispatch(review_db, tmp_path, monkeypatch, protocol=protocol)
+
+    @contextmanager
+    def database():
+        raw = engine.raw_connection()
+        try:
+            yield _ConnectionAdapter(raw, False)
+        finally:
+            raw.close()
+
+    monkeypatch.setattr(job_events, 'get_db', database)
+    bus = event_bus.get_event_bus()
+    monkeypatch.setattr(job_events, 'get_event_bus', lambda: bus)
+    seen = SimpleNamespace(alerts=[], archive=[], started=[], faults=[])
+    bus.subscribe(events.JOB_STARTED, lambda event: seen.started.append(event))
+    monkeypatch.setattr(job_events, 'dispatch_alert', lambda **kw: seen.alerts.append(kw['alert_type']))
+    monkeypatch.setattr(job_events, '_start_bed_cooled_monitor', lambda *a: None)
+    monkeypatch.setattr(job_events, 'increment_care_counters', lambda *a: None)
+    monkeypatch.setattr(job_events, 'record_error', lambda **kw: None)
+    monkeypatch.setattr(job_timeline, 'enqueue', lambda item: None)
+    monkeypatch.setattr(job_faults, 'notify', lambda printer, kind, *a, **kw: seen.faults.append(kind))
+    monkeypatch.setattr(archive, 'create_print_archive', lambda **kw: seen.archive.append(kw))
+    monkeypatch.setattr(job_events, '_active_print_jobs', {})
+    monkeypatch.setattr(prusalink_monitor.PrusaLinkMonitorThread, '_try_dispatch', lambda self: None)
+
+    def monitor():
+        job_events._active_print_jobs.clear()  # A restarted process tracks nothing in memory.
+        make = {'prusalink': prusalink_monitor.PrusaLinkMonitorThread, 'elegoo': elegoo_monitor.ElegooMonitorThread,
+                'anycubic_lan': anycubic_lan_monitor.AnycubicLANMonitorThread}[protocol]
+        result = make(59, 'Synthetic', '127.0.0.1')
+        result._last_heartbeat = time.time()
+        return result
+
+    def rows():
+        with engine.connect() as conn:
+            return [dict(row) for row in conn.execute(text('SELECT id,filename,status,ended_at,error_code FROM print_jobs ORDER BY id')).mappings()]
+
+    return SimpleNamespace(engine=engine, protocol=protocol, monitor=monitor, rows=rows, seen=seen, dispatch=dispatch,
+                           tracked=job_events._active_print_jobs,
+                           status=lambda state, filename='part.gcode': generic_status(protocol, state, filename))
+
+
+def test_generic_print_continuing_through_a_restart_keeps_its_row(generic):
+    case = generic
+    case.monitor()._process_status(case.status('PRINTING'))
+    before = case.rows()
+    assert [row['status'] for row in before] == ['running'] and len(case.seen.started) == 1
+    monitor = case.monitor()
+    monitor._process_status(case.status('PRINTING'))
+    assert case.rows() == before
+    assert case.tracked[59] == before[0]['id']
+    assert len(case.seen.started) == 1
+    monitor._process_status(case.status('FINISHED'))
+    assert [row['status'] for row in case.rows()] == ['completed']
+    assert len(case.seen.alerts) == 1
+
+
+def test_generic_pause_after_a_restart_still_reaches_the_attention_lane(generic, monkeypatch):
+    # Two running rows silently drop pause alerts, so the duplicate is what must not happen.
+    from modules.notifications import alert_dispatcher, job_faults
+    case = generic
+    staged, stage = [], alert_dispatcher.stage_alert
+    monkeypatch.setattr(alert_dispatcher, 'stage_alert', lambda db, alert_type, *a, **kw: staged.append(alert_type) or stage(db, alert_type, *a, **kw))
+    monkeypatch.setattr(alert_dispatcher, '_deliver_staged_alert', lambda db, plan: None)
+    case.monitor()._process_status(case.status('PRINTING'))
+    monitor = case.monitor()
+    monitor._process_status(case.status('PRINTING'))
+    monitor._process_status(case.status('PAUSED'))
+    monitor._process_status(case.status('PAUSED'))
+    assert case.seen.faults.count('paused') == 1
+    job_faults._notify(59, 'paused', None)
+    job_faults._notify(59, 'paused', None)  # The durable episode claim, for a pre-restart pause.
+    assert len(staged) == 1
+
+
+def test_generic_print_paused_across_a_restart_ends_on_its_own_row(generic):
+    case = generic
+    case.monitor()._process_status(case.status('PRINTING'))
+    before = case.rows()
+    monitor = case.monitor()
+    monitor._process_status(case.status('PAUSED'))
+    monitor._process_status(case.status('PRINTING'))
+    assert case.rows() == before
+    monitor._process_status(case.status('FINISHED'))
+    assert [row['status'] for row in case.rows()] == ['completed']
+
+
+@pytest.mark.parametrize('name', ['', 'Unknown'])
+def test_generic_unnamed_print_does_not_resume_or_close_anything(generic, name):
+    # Nothing identifies it: the duplicate is ugly, but a guess could end the wrong print.
+    case = generic
+    case.monitor()._process_status(case.status('PRINTING'))
+    case.monitor()._process_status(case.status('PRINTING', filename=name))
+    case.monitor()._process_status(case.status('PRINTING', filename=name))
+    rows = case.rows()
+    assert [row['filename'] for row in rows] == ['part.gcode', 'Unknown', 'Unknown']
+    assert [row['status'] for row in rows] == ['running'] * 3
+
+
+def test_generic_different_print_does_not_adopt_the_old_row(generic):
+    from core.physical_print import CLOSED_UNKNOWN
+    case = generic
+    case.monitor()._process_status(case.status('PRINTING'))
+    case.monitor()._process_status(case.status('PRINTING', filename='next.gcode'))
+    old, new = case.rows()
+    assert (old['status'], old['ended_at'], old['error_code']) == ('cancelled', None, CLOSED_UNKNOWN)
+    assert (new['filename'], new['status']) == ('next.gcode', 'running')
+    assert case.tracked[59] == new['id']
+    assert case.seen.alerts == [] and case.seen.archive == []
+    assert len(case.seen.started) == 2
+
+
+@pytest.mark.parametrize('generic', ['prusalink'], indirect=True)
+def test_generic_dispatched_attempt_keeps_the_receipt_rules(generic, monkeypatch):
+    from modules.notifications import job_events
+    case = generic
+    names = []
+    monkeypatch.setattr(case.dispatch, '_dispatch_prusalink', lambda jid, path, name, creds, **kw: (names.append(name) or True, 'Synthetic accepted'))
+    assert case.dispatch.dispatch_job(59, 53)[0]
+    identifier = job_events.job_started(59, names[0])
+    assert identifier
+    case.monitor()._process_status(case.status('PRINTING', filename=names[0]))
+    assert [row['id'] for row in case.rows()] == [identifier]
+    assert case.tracked[59] == identifier
+    # An unrelated start leaves the unresolved attempt and its fence alone.
+    case.monitor()._process_status(case.status('PRINTING', filename='manual.gcode'))
+    rows = case.rows()
+    assert [row['status'] for row in rows] == ['running', 'running'] and rows[0]['id'] == identifier
+    with case.engine.connect() as conn:
+        assert conn.execute(text('SELECT count(*) FROM printer_dispatch_claims')).scalar_one() == 1
+
+
+def test_generic_education_row_is_never_resumed_or_closed(generic):
+    case = generic
+    with case.engine.begin() as conn:
+        conn.execute(text("INSERT INTO print_jobs(id,printer_id,filename,job_name,status,started_at,scheduled_job_id) VALUES(700,59,'part.gcode','part.gcode','running',CURRENT_TIMESTAMP,53)"))
+        conn.execute(text('UPDATE education_submissions SET job_id=53 WHERE id=(SELECT MIN(id) FROM education_submissions)'))
+    case.monitor()._process_status(case.status('PRINTING'))
+    owned, new = case.rows()
+    assert (owned['id'], owned['status']) == (700, 'running')
+    assert new['status'] == 'running' and case.tracked[59] == new['id']
+
+
+@pytest.mark.parametrize('state,expected', [('FINISHED', 'completed'), ('stopped', 'cancelled')])
+def test_generic_terminal_first_seen_closes_the_unique_row(generic, state, expected):
+    case = generic
+    case.monitor()._process_status(case.status('PRINTING'))
+    case.monitor()._process_status(case.status(STOPPED[case.protocol] if state == 'stopped' else state))
+    assert [row['status'] for row in case.rows()] == [expected]
+
+
+def test_generic_idle_first_seen_changes_nothing(generic):
+    # The open owner decision: the true outcome is unknown, so nothing is recorded yet.
+    case = generic
+    case.monitor()._process_status(case.status('IDLE', filename=''))
+    assert case.rows() == []
+    case.monitor()._process_status(case.status('PRINTING'))
+    before = case.rows()
+    case.monitor()._process_status(case.status('IDLE', filename=''))
+    assert case.rows() == before
+
+
+# ---------------------------------------------------------------- pause, all five monitors
+def test_bambu_first_seen_pause_alerts_once_on_its_own_row(manual_bambu, monkeypatch):
+    from modules.notifications import job_faults
+    case = manual_bambu
+    faults = []
+    monkeypatch.setattr(job_faults, 'notify', lambda printer, kind, *a, **kw: faults.append(kind))
+    monitor = case.monitor()
+    for _ in range(2):
+        packet(monitor, gcode_state='PAUSE', subtask_name=case.name)
+    assert faults.count('paused') == 1
+    assert monitor._current_job_id == case.identifier
+    assert [row['status'] for row in manual_rows(case)[0]] == ['running']
+
+
+def test_moonraker_first_seen_pause_alerts_once_on_its_own_row(moonraker, monkeypatch):
+    from modules.notifications import job_faults
+    case = moonraker
+    identifier = case.row(started=60)
+    faults = []
+    monkeypatch.setattr(job_faults, 'notify', lambda printer, kind, *a, **kw: faults.append(kind))
+    monitor = case.monitor()
+    for _ in range(2):
+        monitor._process_status(moonraker_status('paused', total=60))
+    assert faults.count('paused') == 1
+    assert monitor._current_job_db_id == identifier and running_row_count(case) == 1

@@ -39,6 +39,18 @@ def _education_policy():
         return None
 
 
+def _physical_resume_allowed(conn, printer_id: int, job_name) -> bool:
+    """These monitors report no elapsed time, so only a real name can identify a continuing print.
+
+    Dispatched and Education attempts keep their own identity rules and row ownership.
+    """
+    from core.dispatch_observations import generic_observation_reserved
+    from core.interfaces.education_policy import is_education_reserved_filename
+    if not job_name or job_name == "Unknown" or is_education_reserved_filename(job_name):
+        return False
+    return not generic_observation_reserved(conn, printer_id=printer_id, observed_filename=job_name)
+
+
 @retry_production_linkage
 def job_started(
     printer_id: int,
@@ -57,7 +69,8 @@ def job_started(
             try:
                 result=observe_start(conn,printer_id=printer_id,filename=job_name,job_name=job_name,
                     physical_values={'started_at':conn.execute('SELECT '+sql.now()).fetchone()[0],
-                                     'total_layers':total_layers},source='printer-event-first-start')
+                                     'total_layers':total_layers},source='printer-event-first-start',
+                    allow_physical_resume=_physical_resume_allowed(conn,printer_id,job_name))
                 job_id=result.id
                 education_result={'education_owned':result.education_sensitive,'education_reserved':result.education_sensitive}
                 conn.commit()
