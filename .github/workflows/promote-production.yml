@@ -49,7 +49,7 @@ concurrency:
 jobs:
   promote:
     name: Move exact image digest to production
-    runs-on: [self-hosted, mac-mini-runner, m4]
+    runs-on: [self-hosted, odin-ci]
     timeout-minutes: 45
     environment: production
     permissions:
@@ -90,17 +90,28 @@ jobs:
           [[ "$INPUT_EVIDENCE_SHA256" =~ ^[0-9a-f]{64}$ ]]
           [[ "$INPUT_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           [[ "$INPUT_IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
-          test -x /Users/ollama/homebrew/bin/python3.11
-          test -x /opt/homebrew/bin/gh
-          if [ -x /Users/ollama/homebrew/bin/docker ]; then docker_bin=/Users/ollama/homebrew/bin/docker
-          elif [ -x /usr/local/bin/docker ]; then docker_bin=/usr/local/bin/docker
-          elif [ -x /opt/homebrew/bin/docker ]; then docker_bin=/opt/homebrew/bin/docker
-          else docker_bin="$(command -v docker)"
-          fi
+          command -v python3.11 >/dev/null || { echo "Required tool missing from PATH: python3.11" >&2; exit 1; }
+          command -v gh >/dev/null || { echo "Required tool missing from PATH: gh" >&2; exit 1; }
+          command -v docker >/dev/null || { echo "Required tool missing from PATH: docker" >&2; exit 1; }
+          python3.11 -P -c 'import sys; sys.version_info[:2] == (3, 11) or sys.exit("Python 3.11 is required")'
+          python3.11 -P <<'PYTHON'
+          import sys
+          import importlib.metadata
+          try:
+              import jsonschema
+              installed = importlib.metadata.version("jsonschema")
+          except (ImportError, importlib.metadata.PackageNotFoundError):
+              sys.exit("Host python3.11 must provide importable jsonschema==4.25.1; provision the runner before retrying")
+          if installed != "4.25.1":
+              sys.exit(f"Host python3.11 requires jsonschema==4.25.1; found {installed}; provision the runner before retrying")
+          PYTHON
+          gh --version | head -n 1 | grep -Eq '^gh version 2\.' || { echo "GitHub CLI 2.x is required" >&2; exit 1; }
+          docker_bin="$(command -v docker)"
           docker_host="$("$docker_bin" context inspect --format '{{ .Endpoints.docker.Host }}')"
           [[ "$docker_host" =~ ^unix:///[^[:space:]]+\.sock$ ]]
           DOCKER_HOST="$docker_host" "$docker_bin" version >/dev/null
-          printf '%s\n' /Users/ollama/homebrew/bin /opt/homebrew/bin >> "$GITHUB_PATH"
+          DOCKER_HOST="$docker_host" "$docker_bin" version --format '{{.Server.Version}}' | grep -Eq '^29\.' || { echo "Docker Engine 29.x is required" >&2; exit 1; }
+          docker buildx version >/dev/null || { echo "Docker buildx plugin is required" >&2; exit 1; }
           root="$RUNNER_TEMP/odin-production-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           test ! -e "$root"
           mkdir -m 700 "$root" "$root/auth"

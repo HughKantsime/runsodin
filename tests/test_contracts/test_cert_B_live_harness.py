@@ -15,7 +15,7 @@ container:
   the exact payload keys of modules/printers/monitors/mqtt_printer.py (the
   monitor->backend IPC boundary) plus the printer row fields that monitor writes.
 
-The browser is real Google Chrome (Playwright channel "chrome", headless) so H.264
+The browser is real Chromium on Linux or Google Chrome on macOS (headless) so H.264
 WebRTC decoding, <video>, fullscreen and WebGL are the shipping implementations.
 Owned resources: container/volume ``certb-live-<pid>`` (CERT_B_NAME overrides), host
 ports CERT_B_HTTP_PORT (default 18871) and the go2rtc WebRTC port. ODIN advertises
@@ -24,8 +24,8 @@ the container's 8555 at <ice host>:8555. By default the container's 8555 tcp+udp
 published on 127.0.0.1:8555. When that is taken, set CERT_B_ICE_HOST to another host
 address (e.g. the LAN IP) and CERT_B_WEBRTC_PORT to a free loopback port: the
 container's 8555 is published on 127.0.0.1:CERT_B_WEBRTC_PORT and a harness-owned TCP
-relay listens on CERT_B_ICE_HOST:8555 (ICE-TCP; the colima/lima port forwarder carries
-TCP only, so the default path is ICE-TCP as well). Every owned resource is removed in
+relay listens on CERT_B_ICE_HOST:8555 (ICE-TCP; also compatible with macOS Docker
+VM port forwarding). Every owned resource is removed in
 teardown and again at interpreter exit. Test credentials are generated at runtime and
 never printed.
 """
@@ -37,6 +37,7 @@ import secrets
 import shutil
 import socket
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -339,7 +340,7 @@ class Live:
     # ---------------- browser ----------------
     def browser(self, scenario, timeout=420, **args):
         SCREENS.mkdir(parents=True, exist_ok=True)
-        env = dict(os.environ, CERTB_BASE=BASE, CERTB_PASSWORD=self.password, CERTB_SCREENS=str(SCREENS))
+        env = dict(os.environ, CERTB_BASE=BASE, CERTB_PASSWORD=self.password, CERTB_SCREENS=str(SCREENS), CERTB_BROWSER_CHANNEL=browser_channel())
         r = subprocess.run(["node", str(PLAYWRIGHT), scenario, json.dumps(args)], cwd=ROOT / "frontend",
                            capture_output=True, text=True, timeout=timeout, env=env)
         log = self.work / f"browser-{scenario}.log"
@@ -351,5 +352,17 @@ class Live:
         return result
 
 
+def browser_channel():
+    return "chrome" if sys.platform == "darwin" else "chromium"
+
+
 def chrome_available():
-    return Path("/Applications/Google Chrome.app").exists() or shutil.which("google-chrome") is not None
+    if browser_channel() == "chrome":
+        return Path("/Applications/Google Chrome.app").exists()
+    if shutil.which("node") is None:
+        return False
+    result = subprocess.run(
+        ["node", "-e", "const {chromium}=require('@playwright/test'); process.exit(require('fs').existsSync(chromium.executablePath()) ? 0 : 1)"],
+        cwd=ROOT / "frontend", capture_output=True, text=True, timeout=30,
+    )
+    return result.returncode == 0

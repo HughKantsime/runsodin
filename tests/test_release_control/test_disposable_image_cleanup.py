@@ -43,8 +43,8 @@ class DockerSimulation:
     ) -> subprocess.CompletedProcess[str]:
         del capture
         self.calls.append(list(args))
-        if args == ["docker", "image", "inspect", "--format", "{{.Id}}", lifecycle.PROBE_IMAGE_ID]:
-            return subprocess.CompletedProcess(args, 0, lifecycle.PROBE_IMAGE_ID + "\n")
+        if args == ["docker", "image", "inspect", "--format", "{{json .RepoDigests}}", lifecycle.PROBE_IMAGE_REF]:
+            return subprocess.CompletedProcess(args, 0, json.dumps(["python@" + lifecycle.PROBE_IMAGE_ID]))
         returncode = 0
         output = ""
         if args[:3] == ["docker", "image", "inspect"]:
@@ -109,8 +109,8 @@ class HistoryDockerSimulation:
     ) -> subprocess.CompletedProcess[str]:
         del capture
         self.calls.append(list(args))
-        if args == ["docker", "image", "inspect", "--format", "{{.Id}}", lifecycle.PROBE_IMAGE_ID]:
-            return subprocess.CompletedProcess(args, 0, lifecycle.PROBE_IMAGE_ID + "\n")
+        if args == ["docker", "image", "inspect", "--format", "{{json .RepoDigests}}", lifecycle.PROBE_IMAGE_REF]:
+            return subprocess.CompletedProcess(args, 0, json.dumps(["python@" + lifecycle.PROBE_IMAGE_ID]))
         returncode = 0
         output = ""
         if args == ["docker", "image", "ls", "-a", "--no-trunc", "--quiet"]:
@@ -386,7 +386,7 @@ def test_DI16_validation_capacity_preflight_is_common_and_fail_closed() -> None:
         "observed_at": lifecycle_run.capacity["observed_at"],
     }
     assert docker.calls == [
-        ["docker", "image", "inspect", "--format", "{{.Id}}", lifecycle.PROBE_IMAGE_ID],
+        ["docker", "image", "inspect", "--format", "{{json .RepoDigests}}", lifecycle.PROBE_IMAGE_REF],
         list(lifecycle.VALIDATION_CAPACITY_COMMAND),
     ]
 
@@ -624,7 +624,7 @@ def test_DI09_exact_allowlist_cleanup_writes_bounded_pass_record(
     assert probe_calls == [[
         "docker", "run", "--pull=never", "--rm", "--network", "none",
         "--read-only", "--entrypoint", "/bin/df",
-        lifecycle.PROBE_IMAGE_ID,
+        lifecycle.PROBE_IMAGE_REF,
         "-Pk", "/",
     ]]
 
@@ -710,11 +710,10 @@ def test_DI09_malformed_or_low_capacity_is_recorded_as_failure(
     assert record["capacity"]["meets_minimum"] is False
 
 
-@pytest.mark.parametrize("mode", ["cached", "pruned", "wrong-id", "pull-failed", "inspect-failed"])
+@pytest.mark.parametrize("mode", ["cached", "pruned", "wrong-id", "pull-failed", "inspect-failed", "malformed"])
 def test_capacity_probe_ensures_exact_pullable_pin(mode: str) -> None:
     calls = []
-    inspect_id = ["docker", "image", "inspect", "--format", "{{.Id}}", lifecycle.PROBE_IMAGE_ID]
-    inspect_ref = ["docker", "image", "inspect", "--format", "{{.Id}}", lifecycle.PROBE_IMAGE_REF]
+    inspect_ref = ["docker", "image", "inspect", "--format", "{{json .RepoDigests}}", lifecycle.PROBE_IMAGE_REF]
     pull = ["docker", "pull", lifecycle.PROBE_IMAGE_REF]
     assert lifecycle.PROBE_IMAGE_REF == (
         "python:3.11-slim@sha256:0b23cfb7425d065008b778022a17b1551c82f8b4866ee5a7a200084b7e2eafbf"
@@ -722,14 +721,14 @@ def test_capacity_probe_ensures_exact_pullable_pin(mode: str) -> None:
 
     def docker(args, **kwargs):
         calls.append(args)
-        if args == inspect_id:
-            return subprocess.CompletedProcess(args, 0 if mode == "cached" else 1,
-                                               lifecycle.PROBE_IMAGE_ID if mode == "cached" else "No such image")
+        if args == inspect_ref:
+            missing = (len(calls) == 1 and mode != "cached") or mode == "inspect-failed"
+            output = json.dumps(["python@" + OTHER_ID] if mode == "wrong-id" else ["python@" + lifecycle.PROBE_IMAGE_ID])
+            if mode == "malformed":
+                output = "invalid json"
+            return subprocess.CompletedProcess(args, 1 if missing else 0, output)
         if args == pull:
             return subprocess.CompletedProcess(args, 1 if mode == "pull-failed" else 0, "")
-        if args == inspect_ref:
-            return subprocess.CompletedProcess(args, 1 if mode == "inspect-failed" else 0,
-                                               OTHER_ID if mode == "wrong-id" else lifecycle.PROBE_IMAGE_ID)
         if args == list(lifecycle.VALIDATION_CAPACITY_COMMAND):
             return subprocess.CompletedProcess(args, 0,
                 "Filesystem 1024-blocks Used Available Capacity Mounted on\n"
@@ -740,13 +739,12 @@ def test_capacity_probe_ensures_exact_pullable_pin(mode: str) -> None:
     if mode in {"cached", "pruned"}:
         assert error is None
         assert evidence["passed"] is True
-        assert calls[-1] == list(lifecycle.VALIDATION_CAPACITY_COMMAND)
     else:
         assert error
         assert evidence["passed"] is False
         assert evidence["observed_free_kib"] is None
         assert not any(call[:2] == ["docker", "run"] for call in calls)
-    expected = [inspect_id]
+    expected = [inspect_ref]
     if mode != "cached":
         expected.append(pull)
         if mode != "pull-failed":

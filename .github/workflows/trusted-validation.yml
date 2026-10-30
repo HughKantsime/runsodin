@@ -17,7 +17,7 @@ permissions: {}
 jobs:
   validate:
     name: Trusted candidate validation
-    runs-on: [self-hosted, mac-mini-runner, m4]
+    runs-on: [self-hosted, odin-ci]
     timeout-minutes: 360
     permissions:
       contents: read
@@ -36,10 +36,28 @@ jobs:
           test "$GITHUB_TRIGGERING_ACTOR" = "$GITHUB_ACTOR"
           [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$TARGET_REF" = "release-candidate/$TARGET_SHA"
-          test -x /Users/ollama/homebrew/bin/python3.11
-          test -x /opt/homebrew/bin/npm
-          test -x /Users/ollama/homebrew/sbin/mosquitto
-          printf '%s\n' /Users/ollama/homebrew/bin /Users/ollama/homebrew/sbin /opt/homebrew/bin >> "$GITHUB_PATH"
+          command -v python3.11 >/dev/null || { echo "Required tool missing from PATH: python3.11" >&2; exit 1; }
+          command -v node >/dev/null || { echo "Required tool missing from PATH: node" >&2; exit 1; }
+          command -v npm >/dev/null || { echo "Required tool missing from PATH: npm" >&2; exit 1; }
+          command -v mosquitto >/dev/null || { echo "Required tool missing from PATH: mosquitto" >&2; exit 1; }
+          command -v docker >/dev/null || { echo "Required tool missing from PATH: docker" >&2; exit 1; }
+          command -v git >/dev/null || { echo "Required tool missing from PATH: git" >&2; exit 1; }
+          command -v git-lfs >/dev/null || { echo "Required tool missing from PATH: git-lfs" >&2; exit 1; }
+          command -v make >/dev/null || { echo "Required tool missing from PATH: make" >&2; exit 1; }
+          command -v gitleaks >/dev/null || { echo "Required tool missing from PATH: gitleaks" >&2; exit 1; }
+          command -v semgrep >/dev/null || { echo "Required tool missing from PATH: semgrep" >&2; exit 1; }
+          command -v hadolint >/dev/null || { echo "Required tool missing from PATH: hadolint" >&2; exit 1; }
+          python3.11 -P -c 'import sys; sys.version_info[:2] == (3, 11) or sys.exit("Python 3.11 is required")'
+          test "$(node --version)" = v25.9.0 || { echo "Node 25.9.0 is required" >&2; exit 1; }
+          npm_version="$(npm --version)"
+          [[ "$npm_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && test "${npm_version%%.*}" -ge 10 || { echo "npm 10 or newer is required" >&2; exit 1; }
+          mosquitto -h | head -n 1 | grep -Eq '^mosquitto version 2\.' || { echo "Mosquitto 2.x is required" >&2; exit 1; }
+          docker_bin="$(command -v docker)"
+          docker_host="$("$docker_bin" context inspect --format '{{ .Endpoints.docker.Host }}')"
+          [[ "$docker_host" =~ ^unix:///[^[:space:]]+\.sock$ ]]
+          DOCKER_HOST="$docker_host" "$docker_bin" version >/dev/null
+          DOCKER_HOST="$docker_host" "$docker_bin" version --format '{{.Server.Version}}' | grep -Eq '^29\.' || { echo "Docker Engine 29.x is required" >&2; exit 1; }
+          docker buildx version >/dev/null || { echo "Docker buildx plugin is required" >&2; exit 1; }
 
       - name: Check out immutable candidate
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -85,8 +103,10 @@ jobs:
           .venv-stress/bin/pip install --disable-pip-version-check -r backend/requirements.txt
           python3.11 -m venv .venv-contracts
           .venv-contracts/bin/pip install --disable-pip-version-check -r tests/requirements-contracts.txt
+          printf '%s\n' "$GITHUB_WORKSPACE/.venv-contracts/bin" >> "$GITHUB_PATH"
           npm --prefix frontend ci
-          PLAYWRIGHT_SKIP_BROWSER_GC=1 python3.11 -m playwright install chromium
+          PLAYWRIGHT_SKIP_BROWSER_GC=1 .venv-contracts/bin/python -m playwright install chromium
+          (cd frontend && PLAYWRIGHT_SKIP_BROWSER_GC=1 npx --no-install playwright install chromium)
 
       - name: Verify candidate ref and run aggregate gate
         shell: bash

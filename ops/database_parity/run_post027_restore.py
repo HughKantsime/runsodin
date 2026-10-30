@@ -20,7 +20,7 @@ RUNTIME_PLATFORM = os.environ.get('POST027_RUNTIME_PLATFORM','linux/amd64')
 RELEASED_IMAGE = 'ghcr.io/hughkantsime/odin:v1.9.24'
 import os
 # Owners of concurrent proofs pick their own container prefix and receipt directory.
-STAGING = Path(os.environ.get('POST027_STAGING', '/Users/ollama/Documents/Claude/odin/artifacts/application-certification/migrations'))
+STAGING = Path(os.environ.get('POST027_STAGING', Path(__file__).resolve().parents[2] / 'artifacts/application-certification/migrations'))
 PREFIX = os.environ.get('POST027_CONTAINER_PREFIX', 'certfixMig_')
 
 

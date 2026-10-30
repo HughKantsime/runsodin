@@ -19,6 +19,16 @@ ROOT = Path(__file__).parents[2]
 RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{2,96}$")
 
 
+def playwright_browsers_path() -> str:
+    """Resolve the real user's browser cache before the gate isolates HOME."""
+    explicit = os.getenv("PLAYWRIGHT_BROWSERS_PATH")
+    if explicit:
+        return explicit
+    if sys.platform == "darwin":
+        return str(Path.home() / "Library/Caches/ms-playwright")
+    return str(Path(os.getenv("XDG_CACHE_HOME", str(Path.home() / ".cache"))) / "ms-playwright")
+
+
 def hardware_python() -> str:
     """Prefer the locked checkout runtime, while keeping local gates runnable."""
     checkout_runtime = ROOT / ".hardware-cert-venv/bin/python"
@@ -72,10 +82,10 @@ def main() -> int:
         "EDU_SANDBOX_ID": f"sandbox-{run_id}"[:47].lower(),
         "ODIN_HARDWARE_ARTIFACT_ROOT": str(native / "hardware"),
         "ODIN_HARDWARE_RUN_ID": evidence_id,
-        "EDU_BROWSER_PYTHON": "python3.11",
+        "EDU_BROWSER_PYTHON": str(ROOT / ".venv-contracts/bin/python") if (ROOT / ".venv-contracts/bin/python").is_file() else "python3.11",
         "HARDWARE_PYTHON": hardware_python(),
         "DOCKER_HOST": docker_host,
-        "PLAYWRIGHT_BROWSERS_PATH": str(Path.home() / "Library/Caches/ms-playwright"),
+        "PLAYWRIGHT_BROWSERS_PATH": playwright_browsers_path(),
         "ODIN_TELEMETRY_V2": "1",
     }
     native_rel = str(native.relative_to(ROOT))
