@@ -225,6 +225,7 @@ class PrinterMonitor:
 
     def _recover_rows(self):
         """Reconcile running rows with the known state; a returned state is a print to end."""
+        ended_state = None
         try:
             with get_db() as conn:
                 cur = conn.cursor()
@@ -258,7 +259,26 @@ class PrinterMonitor:
                         return None
                     self._current_job_id,self._linked_job_id,self._start_spool_weights=resumed
                     return gcode_state if gcode_state in ('FINISH','FAILED') else None
-                if gcode_state in ('RUNNING', 'PAUSE'):
+                # A first-seen end naming the latest row is that print ending, so the live
+                # path can map its outcome. Anything less proven keeps the idle outcome below.
+                if (gcode_state in ('FINISH', 'FAILED') and not education_sensitive
+                        and incoming_name and incoming_name == rows[-1][1]):
+                    classification = (
+                        policy.classify_monitor_observation(
+                            conn,
+                            printer_id=self.printer_id,
+                            print_job_id=rows[-1][0],
+                            observed_filename=rows[-1][1] or rows[-1][3],
+                        )
+                        if policy
+                        else None
+                    )
+                    if not (classification and (
+                        classification.get("education_owned")
+                        or classification.get("education_reserved")
+                    )):
+                        ended_state = gcode_state
+                if gcode_state in ('RUNNING', 'PAUSE') or ended_state:
                     # Printer is actually printing — resume tracking the most recent job
                     latest = rows[-1]
                     classification = (
@@ -295,6 +315,9 @@ class PrinterMonitor:
                     else:
                         self._current_job_id = latest[0]
                         self._linked_job_id = latest[4]
+                        if ended_state:
+                            from modules.printers.monitors.mqtt_job_lifecycle import load_mqtt_start_weights
+                            self._start_spool_weights = load_mqtt_start_weights(conn, latest[0])
                         log.info(f"[{self.name}] Resumed tracking job {latest[0]} ({latest[1]})")
                     # Close any older orphaned jobs
                     for row in rows[:-1]:
@@ -377,10 +400,14 @@ class PrinterMonitor:
                 conn.commit()
                 from core.job_timeline import enqueue
                 for item in recovered_events:enqueue(item)
+                return ended_state
         except Exception as e:
             log.error(f"[{self.name}] Orphaned job recovery failed: {e}")
             # Rows are unchanged, and recovery would not otherwise run again this connect.
             self._recovery_pending = True
+            if ended_state:
+                self._current_job_id = None
+                self._linked_job_id = None
         return None
 
     def _begin_connection(self):

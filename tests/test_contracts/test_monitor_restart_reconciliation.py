@@ -293,6 +293,77 @@ def test_failed_recovery_retries_on_the_next_report(manual_bambu, monkeypatch):
     assert manual_rows(case)[0][0]['status'] == 'completed'
 
 
+# ---------------------------------------------------------------- gap 7: unreserved rows
+@pytest.mark.parametrize('order', ['callback_first', 'recovery_first', 'status_after_wait'])
+@pytest.mark.parametrize('state,error,expected', OUTCOMES)
+def test_unreserved_print_ended_in_downtime_maps_like_a_watched_end(manual_bambu, order, state, error, expected):
+    from core.base import AlertType
+    case = manual_bambu
+    monitor = case.monitor()
+    fields = dict(gcode_state=state, subtask_name=case.name, print_error=error)
+    observe(monitor, order, **fields)
+    packet(monitor, **fields)
+    monitor._recover_orphaned_jobs()
+    rows, job = manual_rows(case)
+    assert rows == [dict(id=case.identifier, status=expected, scheduled_job_id=53)]
+    assert job == expected  # The linked job moves, which the raw close never did.
+    assert monitor._current_job_id is None and monitor._linked_job_id is None
+    seen = case.seen
+    assert seen.alerts == [{'completed': AlertType.PRINT_COMPLETE, 'failed': AlertType.PRINT_FAILED,
+                            'cancelled': AlertType.PRINT_CANCELLED}[expected]]
+    assert [kind for kind in seen.timeline if kind in ('completed', 'failed', 'cancelled')] == [expected]
+    assert [item['success'] for item in seen.archive] == [expected == 'completed']
+    assert len(seen.completed) == len(seen.care) == int(expected == 'completed')
+
+
+@pytest.mark.parametrize('order', ['callback_first', 'recovery_first'])
+@pytest.mark.parametrize('fields', [
+    dict(gcode_state='IDLE'),
+    dict(gcode_state='FINISH'),
+    dict(gcode_state='FAILED', subtask_name='another-print'),
+], ids=['idle', 'unnamed', 'other_name'])
+def test_unproven_unreserved_end_keeps_the_open_outcome(manual_bambu, order, fields):
+    # What these really were is Shane's open decision: only the raw close stays, nothing new.
+    case = manual_bambu
+    monitor = case.monitor()
+    observe(monitor, order, **fields)
+    rows, job = manual_rows(case)
+    assert [row['status'] for row in rows] == ['completed']
+    assert job == 'printing'
+    assert monitor._current_job_id is None
+    assert case.seen.alerts == [] and case.seen.archive == []
+
+
+@pytest.mark.parametrize('order', ['callback_first', 'recovery_first', 'status_after_wait'])
+def test_older_duplicates_stay_stale_and_cannot_take_the_outcome(manual_bambu, order):
+    from core.base import AlertType
+    case = manual_bambu
+    with case.engine.begin() as conn:
+        conn.execute(text("INSERT INTO print_jobs(id,printer_id,filename,job_name,status,started_at) VALUES(:id,59,'manual.gcode',:name,'running',CURRENT_TIMESTAMP)"),
+                     {'id': case.identifier + 1, 'name': case.name})
+    monitor = case.monitor()
+    fields = dict(gcode_state='FAILED', subtask_name=case.name, print_error=7)
+    observe(monitor, order, **fields)
+    packet(monitor, **fields)
+    monitor._recover_orphaned_jobs()
+    rows, job = manual_rows(case)
+    assert [row['status'] for row in rows] == ['cancelled', 'failed']
+    assert case.seen.alerts == [AlertType.PRINT_FAILED]
+    assert [item['print_job_id'] for item in case.seen.archive] == [case.identifier + 1]
+
+
+@pytest.mark.parametrize('order', ['callback_first', 'recovery_first'])
+def test_education_row_ended_in_downtime_keeps_its_policy_path(manual_bambu, order, monkeypatch):
+    case = manual_bambu
+    with case.engine.begin() as conn:
+        conn.execute(text('UPDATE education_submissions SET job_id=53 WHERE id=(SELECT MIN(id) FROM education_submissions)'))
+    monitor = case.monitor()
+    monkeypatch.setattr(monitor, '_job_ended', lambda status: pytest.fail('Education terminal authority bypassed'))
+    observe(monitor, order, gcode_state='FINISH', subtask_name=case.name)
+    assert monitor._current_job_id is None
+    assert case.seen.alerts == []
+
+
 @pytest.fixture
 def owned_bambu(creators, review_db, tmp_path, monkeypatch):
     """An order-owned dispatched print, so a terminal claims its durable summary and alert intent."""
