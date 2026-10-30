@@ -291,6 +291,69 @@ def test_change_template_exceptions_cannot_hide_other_sources_or_shapes(command)
         inspect_ams_sources(payload(code=code + command + '\n'))
 
 
+def cross_nozzle_file(filament_map, *commands, nozzle_map=('1',), plate_map=None):
+    """A two-colour H2D slice across both nozzles, shaped like the slicer CLI's output."""
+    project = {'filament_type': ['PLA', 'PLA'], 'filament_map': list(filament_map),
+               'filament_nozzle_map': list(nozzle_map), 'physical_extruder_map': ['1', '0']}
+    xml = ('<config><plate><metadata key="index" value="1"/>'
+           f'<metadata key="filament_maps" value="{plate_map or " ".join(filament_map)}"/>'
+           '<filament id="1" type="PLA" used_g="206.93"/><filament id="2" type="PLA" used_g="8.28"/></plate></config>')
+    code = ('; filament_type = PLA;PLA\nT1001\nM620 S0A H-1 ; switch material if AMS exist\nT0 H-1\nM621 S0A\n'
+            'M620.11 P0 I0 B-1 E0\nM620.11 K1 I0 B-1 R10 F997.797\nM620.11 S1 L0 I0 B-1 R10 D8 E-10 F997.797\n'
+            'M620 S1A H-1\nT1 H-1\nM621 S1A\n' + ''.join(command + '\n' for command in commands) + 'T65535\nT65279\n')
+    raw = io.BytesIO()
+    with zipfile.ZipFile(raw, 'w') as package:
+        package.writestr('Metadata/slice_info.config', xml)
+        package.writestr('Metadata/project_settings.config', json.dumps(project))
+        package.writestr('Metadata/plate_1.json', json.dumps({'filament_ids': [0, 1]}))
+        package.writestr('Metadata/plate_1.gcode', code)
+    return raw.getvalue()
+
+
+@pytest.mark.parametrize('filament_map,commands,expected', [
+    # Real prints: the fireplace (filament_map 2 1) and the dual cap (filament_map 1 2).
+    (('2', '1'), ('M620.11 P0 I1 B0 E0', 'M620.11 K1 I1 B0 R10 F997.797', 'M620.11 S1 L0 I1 B0 R10 D8 E-10 F997.797',
+                  'M620.11 P0 I0 B1 E0', 'M620.11 K1 I0 B1 R10 F997.797'), {0: 0, 1: 1}),
+    (('1', '2'), ('M620.11 P0 I1 B1 E0', 'M620.11 K1 I1 B1 R10 F997.797', 'M620.11 S1 L0 I1 B1 R10 D8 E-10 F997.797'),
+     {0: 1, 1: 0}),
+    # One nozzle: B stays -1, and the second source's nozzle is now known.
+    (('1', '1'), (), {0: 1, 1: 1}),
+])
+def test_cli_slice_across_nozzles_is_verified_with_each_sources_nozzle(filament_map, commands, expected):
+    result = inspect_ams_sources(cross_nozzle_file(filament_map, *commands))
+    assert {source.source_index: source.extruder for source in result.sources} == expected
+
+
+@pytest.mark.parametrize('command', [
+    'M620.11 P0 I0 B0 E0',  # Source 1 is on hotend 1 in this file.
+    'M620.11 K1 I1 B1 R10 F997.797', 'M620.11 S1 L0 I1 B1 R10 D8 E-10 F997.797',
+    'M620.11 P0 I2 B0 E0',  # Not a source of this file.
+    'M620.11 P0 I1 B2 E0', 'M620.11 P2 I1 B0 E0', 'M620.11 K1 I1 B0', 'M620.11 S1 L2 I1 B0 E-10 F300',
+    'M620.11 P0 I1 B0 E0 S1',
+])
+def test_cross_nozzle_commands_must_agree_with_the_files_own_map(command):
+    assert inspect_ams_sources(cross_nozzle_file(('2', '1'), 'M620.11 P0 I1 B0 E0'))
+    with pytest.raises(ValueError, match='^Unverifiable source mapping$'):
+        inspect_ams_sources(cross_nozzle_file(('2', '1'), command))
+
+
+def test_cross_nozzle_command_needs_a_filament_map_to_agree_with():
+    from core.ams_source_inspection import _cross_nozzle_agrees
+    assert _cross_nozzle_agrees('M620.11 P0 I1 B0 E0', {}, {0, 1}) is False
+    assert _cross_nozzle_agrees('M620.11 P0 I1 B0 E0', {'filament_map': ['2', '3']}, {0, 1}) is False
+    assert _cross_nozzle_agrees('M620.11 P0 I1 B-1 E0', {'filament_map': ['2', '1']}, {0, 1}) is None
+
+
+@pytest.mark.parametrize('nozzle_map,plate_map', [
+    (('2', '2'), None),  # A full map still has to agree: source 1 would be on another nozzle.
+    (('1', '1'), None),
+    (('1',), '1 1'),  # The plate's own map still has to agree.
+])
+def test_only_the_one_entry_default_nozzle_map_is_ignored(nozzle_map, plate_map):
+    with pytest.raises(ValueError, match='^Unverifiable source mapping$'):
+        inspect_ams_sources(cross_nozzle_file(('2', '1'), nozzle_map=nozzle_map, plate_map=plate_map))
+
+
 @pytest.mark.parametrize('protocol', ['legacy', 'v2'])
 @pytest.mark.parametrize('change', ['mapping', 'hold', 'stale'])
 def test_final_command_gate_rechecks_original_all_tray_proof(review_db, tmp_path, monkeypatch, protocol, change):

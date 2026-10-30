@@ -51,6 +51,15 @@ _MULTI_SOURCE_AUXILIARY = (
     r'M620\s+Q[1-9][0-9]*',
 )
 
+# A tool change across nozzles names the hotend it leaves, where a change on one
+# nozzle has B-1. B is the filament_map value minus one, so it must agree with the
+# file's own map: I names a verified source and B that source's hotend.
+_CROSS_NOZZLE = tuple(re.compile(pattern) for pattern in (
+    rf'M620\.11\s+P[01]\s+I([0-9]+)\s+B([01])\s+E{_NUMBER}(?:\s+F{_NUMBER})?',
+    rf'M620\.11\s+K[01]\s+I([0-9]+)\s+B([01])\s+R{_NUMBER}(?:\s+F{_NUMBER})?',
+    rf'M620\.11\s+S[01]\s+L[01]\s+I([0-9]+)\s+B([01])(?:\s+R{_NUMBER}\s+D{_NUMBER})?\s+E{_NUMBER}\s+F{_NUMBER}',
+))
+
 
 class MultipleAMSSources(ValueError):
     pass
@@ -77,17 +86,24 @@ class VerifiedSources:
     sources: tuple[VerifiedSource, ...]
 
 
+def _map_values(value):
+    if isinstance(value, list):
+        return value
+    return value.replace(',', ' ').split() if isinstance(value, str) else []
+
+
 def _source_extruder(settings, plate, index):
-    def values(value):
-        if isinstance(value, list):
-            return value
-        return value.replace(',', ' ').split() if isinstance(value, str) else []
-    physical = values(settings.get('physical_extruder_map'))
-    maps = [values(settings[key]) for key in ('filament_nozzle_map', 'filament_map') if key in settings]
+    physical = _map_values(settings.get('physical_extruder_map'))
+    maps = [_map_values(settings[key]) for key in ('filament_nozzle_map', 'filament_map') if key in settings]
+    # The slicer CLI leaves filament_nozzle_map at a one-entry default on a
+    # multi-filament file: that is not a fact about this filament.
+    filaments = settings.get('filament_type')
+    if 'filament_nozzle_map' in settings and isinstance(filaments, list) and len(maps[0]) == 1 < len(filaments):
+        maps.pop(0)
     declared = [node.get('value') for node in plate.findall('metadata') if node.get('key') == 'filament_maps']
     if len(declared) > 1:
         raise ValueError('Ambiguous plate extruders')
-    maps.extend(values(value) for value in declared)
+    maps.extend(_map_values(value) for value in declared)
     if not physical or not maps:
         return None
     targets = []
@@ -107,6 +123,17 @@ def _source_extruder(settings, plate, index):
     if len(set(targets)) != 1:
         raise ValueError('Conflicting source extruders')
     return targets[0]
+
+
+def _cross_nozzle_agrees(command, settings, used):
+    """None when this isn't a cross-nozzle change; else whether it agrees with the file."""
+    match = next(filter(None, (pattern.fullmatch(command) for pattern in _CROSS_NOZZLE)), None)
+    if match is None:
+        return None
+    source, hotend = map(int, match.groups())
+    mapping = _map_values(settings.get('filament_map'))
+    return (source in used and source < len(mapping)
+            and str(mapping[source]) in ('1', '2') and int(mapping[source]) - 1 == hotend)
 
 
 def inspect_single_source_ams(payload: bytes, plate_index: int = 0) -> VerifiedSingleSource:
@@ -229,6 +256,12 @@ def inspect_ams_sources(payload: bytes, plate_index: int = 0, *, single_source=F
                 if len(used) > 1 and any(re.fullmatch(pattern.replace('{source}', source_pattern), command)
                                          for pattern in _MULTI_SOURCE_AUXILIARY):
                     continue
+                if len(used) > 1:
+                    crossing = _cross_nozzle_agrees(command, settings, used)
+                    if crossing is False:
+                        raise ValueError(refusal)
+                    if crossing:
+                        continue
                 if re.fullmatch(r'M62[01]\s+S255A?', command):
                     continue
                 # H2D end-template sentinels pair with T65535/T65279 above.
