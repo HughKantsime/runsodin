@@ -9,7 +9,7 @@ from core.order_production import prepare_job_write
 
 
 def _reserved_row(row):
-    """Reserved names have their own owners, whether or not a job or claim still shows it."""
+    """A reserved name never enters the name or job-id match: its owner decides what it was."""
     return any(is_education_reserved_filename(value) or (isinstance(value,str) and 'odin-dispatch-' in value.lower())
                for value in (row['filename'],row['job_name']))
 
@@ -41,7 +41,8 @@ def observe_start(executor,*,printer_id,filename,job_name,physical_values,source
             protocol=view.execute(text('SELECT api_type FROM printers WHERE id=:id'),{'id':printer_id}).scalar_one()
         transport=job_name if protocol=='bambu' else filename
         education_sensitive=any(is_education_reserved_filename(value) for value in (filename,job_name,transport))
-        reserved=view.execute(text('SELECT 1 FROM printer_dispatch_claims WHERE printer_id=:id'),{'id':printer_id}).first() is not None or (isinstance(transport,str) and 'odin-dispatch-' in transport.lower())
+        claim_held=view.execute(text('SELECT 1 FROM printer_dispatch_claims WHERE printer_id=:id'),{'id':printer_id}).first() is not None
+        reserved=claim_held or (isinstance(transport,str) and 'odin-dispatch-' in transport.lower())
         candidates=parents=()
         if prepare_operational and not reserved and not education_sensitive:
             candidates=tuple(row[0] for row in view.execute(text("SELECT id FROM jobs WHERE printer_id=:id AND status IN ('scheduled','pending') AND NOT EXISTS(SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id) ORDER BY id"),{'id':printer_id}).all())
@@ -60,13 +61,20 @@ def observe_start(executor,*,printer_id,filename,job_name,physical_values,source
                 and continues_print(row,filename,observed_elapsed,observed_job_id)
                 and not view.execute(text('SELECT 1 FROM education_submissions WHERE job_id=:id'),{'id':row['scheduled_job_id']}).first()]
             resume_id=plausible[0]['id'] if len(plausible)==1 else None
-            # A reserved start says nothing about other rows, and an unresolved attempt cannot be
-            # closed from an unrelated task: its receipt and claim have no other way to finish.
-            for row in (rows if not reserved and not education_sensitive else ()):
-                if row['id'] != resume_id and (_reserved_row(row) or view.execute(text('SELECT 1 FROM education_submissions WHERE job_id=:id'),{'id':row['scheduled_job_id']}).first()):
+            # An attempt under a held claim cannot be closed from an unrelated task: its receipt and
+            # claim have no other way to finish. Without a claim, a row left running blocks dispatch
+            # and pause alerts for good, because no API can close it, so a reserved name is no shelter.
+            for row in (rows if not claim_held and not education_sensitive else ()):
+                if row['id'] != resume_id and view.execute(text('SELECT 1 FROM education_submissions WHERE job_id=:id'),{'id':row['scheduled_job_id']}).first():
                     continue  # Education owns its rows' terminal state; never close them here.
                 _lock(view,'print_jobs',row['id'],'status')
-                if row['id'] != resume_id:
+                if row['id'] != resume_id and any(is_education_reserved_filename(value) for value in (row['filename'],row['job_name'])):
+                    # A quarantined observation ends through Education's own terminal path.
+                    from core.registry import registry
+                    policy=registry.get_provider('EducationPolicyProvider')
+                    if policy:
+                        policy.terminal_monitor_observation(view.executor,print_job_id=row['id'],printer_id=printer_id,terminal_status='cancelled',error_code=CLOSED_UNKNOWN)
+                elif row['id'] != resume_id:
                     # Physical bookkeeping only: no scheduled-job transition,
                     # accounting, archive or alert for an unknown historical end.
                     view.execute(text("UPDATE print_jobs SET status='cancelled',ended_at=NULL,error_code=:reason WHERE id=:id AND status='running'"),{'id':row['id'],'reason':CLOSED_UNKNOWN})

@@ -1123,14 +1123,69 @@ def test_moonraker_unrelated_start_leaves_a_receipt_bound_row_and_its_claim(disp
         assert conn.execute(text("SELECT count(*) FROM print_jobs WHERE status='running'")).scalar_one() == 2
 
 
-@pytest.mark.parametrize('name', ['odin-' + 'a' * 32 + '.gcode', 'odin-dispatch-' + 'f' * 32 + '.gcode'], ids=['education', 'dispatch'])
-def test_moonraker_unrelated_start_leaves_a_reserved_row_with_no_job(moonraker, name):
+EDUCATION_NAME = 'odin-' + 'a' * 32 + '.gcode'
+DISPATCH_NAME = 'odin-dispatch-' + 'f' * 32 + '.gcode'
+
+
+def assert_closed_unbound_reserved_row(name, status, ended, error):
+    """A dispatch name closes like any stale row; an Education name through Education's own path."""
+    from core.physical_print import CLOSED_UNKNOWN
+    assert (status, error) == ('cancelled', CLOSED_UNKNOWN)
+    assert (ended is not None) == (name == EDUCATION_NAME)
+
+
+@pytest.mark.parametrize('name', [EDUCATION_NAME, DISPATCH_NAME], ids=['education', 'dispatch'])
+def test_moonraker_unrelated_start_closes_a_reserved_row_with_no_claim(moonraker, name):
     case = moonraker
-    quarantined = case.row(name=name, started=3 * 86400)
+    stale = case.row(name=name, started=3 * 86400)
     monitor = case.monitor()
     monitor._process_status(moonraker_status('printing', filename='manual.gcode', total=5))
-    assert case.state(quarantined)[0] == 'running'
-    assert monitor._current_job_db_id != quarantined
+    with case.engine.connect() as conn:
+        assert_closed_unbound_reserved_row(name, *conn.execute(text('SELECT status,ended_at,error_code FROM print_jobs WHERE id=:id'), {'id': stale}).one())
+    assert monitor._current_job_db_id != stale and case.state(monitor._current_job_db_id)[0] == 'running'
+    assert running_row_count(case) == 1
+    assert case.seen.alerts == [] and case.seen.archive == []
+
+
+def test_moonraker_unrelated_start_under_a_held_claim_leaves_an_unknown_row(dispatched_moonraker):
+    # Nothing about this row's name shows it is protected: only the claim does.
+    case = dispatched_moonraker
+    unnamed = case.row(name='Unknown', started=60)
+    case.monitor()._process_status(moonraker_status('printing', filename='manual.gcode', total=5))
+    assert case.state(unnamed)[0] == 'running'
+    assert case.state(case.identifier)[0] == 'running'
+    with case.engine.connect() as conn:
+        assert conn.execute(text('SELECT count(*) FROM printer_dispatch_claims')).scalar_one() == 1
+
+
+def test_moonraker_unrelated_start_never_closes_an_education_owned_row(moonraker):
+    case = moonraker
+    owned = case.row(name='part.gcode', started=3 * 86400, job=53)
+    with case.engine.begin() as conn:
+        conn.execute(text('UPDATE education_submissions SET job_id=53 WHERE id=(SELECT MIN(id) FROM education_submissions)'))
+    monitor = case.monitor()
+    monitor._process_status(moonraker_status('printing', filename='manual.gcode', total=5))
+    assert case.state(owned)[0] == 'running'
+    assert monitor._current_job_db_id != owned
+
+
+@pytest.mark.parametrize('next_start', ['manual.gcode', DISPATCH_NAME], ids=['manual', 'same_retained_file'])
+def test_moonraker_reprint_of_a_retained_dispatch_file_cannot_block_the_printer(moonraker, monkeypatch, next_start):
+    # Reprinted from the printer's own UI: a reserved name, and no claim ever held for this row.
+    case = moonraker
+    monitor = case.monitor()
+    monitor._process_status(moonraker_status('printing', filename=DISPATCH_NAME, total=5))
+    reprint = monitor._current_job_db_id
+    assert reprint
+    # It ends unwatched, and the next start is the first this monitor sees.
+    restarted_monitor = case.monitor()
+    restarted_monitor._process_status(moonraker_status('printing', filename=next_start, total=5))
+    following = restarted_monitor._current_job_db_id
+    assert following != reprint and case.state(reprint)[0] == 'cancelled' and running_row_count(case) == 1
+    restarted_monitor._process_status(moonraker_status('complete', filename=next_start, total=60))
+    assert case.state(following)[0] == 'completed' and running_row_count(case) == 0
+    monkeypatch.setattr(case.dispatch, '_dispatch_moonraker', lambda *a, **kw: (True, 'Synthetic accepted'))
+    assert case.dispatch.dispatch_job(59, 53)[0]
 
 
 def test_moonraker_education_named_start_closes_nothing(moonraker):
@@ -1474,21 +1529,57 @@ def test_generic_education_row_is_never_resumed_or_closed(generic):
         conn.execute(text("INSERT INTO print_jobs(id,printer_id,filename,job_name,status,started_at,scheduled_job_id) VALUES(700,59,'part.gcode','part.gcode','running',CURRENT_TIMESTAMP,53)"))
         conn.execute(text('UPDATE education_submissions SET job_id=53 WHERE id=(SELECT MIN(id) FROM education_submissions)'))
     case.monitor()._process_status(case.status('PRINTING'))
-    owned, new = case.rows()
-    assert (owned['id'], owned['status']) == (700, 'running')
-    assert new['status'] == 'running' and case.tracked[59] == new['id']
+    rows = {row['id']: row for row in case.rows()}
+    assert rows[700]['status'] == 'running' and len(rows) == 2
+    assert case.tracked[59] != 700 and rows[case.tracked[59]]['status'] == 'running'
 
 
-@pytest.mark.parametrize('name', ['odin-' + 'a' * 32 + '.gcode', 'odin-dispatch-' + 'f' * 32 + '.gcode'], ids=['education', 'dispatch'])
-def test_generic_unrelated_start_leaves_a_reserved_row_with_no_job(generic, name):
-    # A quarantined observation has no job and no claim to show that it is reserved.
+@pytest.mark.parametrize('name', [EDUCATION_NAME, DISPATCH_NAME], ids=['education', 'dispatch'])
+def test_generic_unrelated_start_closes_a_reserved_row_with_no_claim(generic, name):
     case = generic
     with case.engine.begin() as conn:
         conn.execute(text("INSERT INTO print_jobs(id,printer_id,filename,job_name,status,started_at) VALUES(700,59,:name,:name,'running',CURRENT_TIMESTAMP)"), {'name': name})
     case.monitor()._process_status(case.status('PRINTING', filename='manual.gcode'))
     rows = {row['id']: row for row in case.rows()}
-    assert (rows[700]['status'], rows[700]['error_code']) == ('running', None)
+    assert_closed_unbound_reserved_row(name, rows[700]['status'], rows[700]['ended_at'], rows[700]['error_code'])
     assert case.tracked[59] != 700 and rows[case.tracked[59]]['status'] == 'running'
+    assert case.seen.alerts == [] and case.seen.archive == []
+
+
+@pytest.mark.parametrize('generic', ['prusalink'], indirect=True)
+def test_generic_unrelated_start_under_a_held_claim_leaves_an_unknown_row(generic, monkeypatch):
+    case = generic
+    monkeypatch.setattr(case.dispatch, '_dispatch_prusalink', lambda *a, **kw: (True, 'Synthetic accepted'))
+    assert case.dispatch.dispatch_job(59, 53)[0]
+    with case.engine.begin() as conn:
+        conn.execute(text("INSERT INTO print_jobs(id,printer_id,filename,job_name,status,started_at) VALUES(700,59,'Unknown','Unknown','running',CURRENT_TIMESTAMP)"))
+    case.monitor()._process_status(case.status('PRINTING', filename='manual.gcode'))
+    rows = {row['id']: row for row in case.rows()}
+    assert rows[700]['status'] == 'running' and case.tracked[59] != 700
+    with case.engine.connect() as conn:
+        assert conn.execute(text('SELECT count(*) FROM printer_dispatch_claims')).scalar_one() == 1
+
+
+@pytest.mark.parametrize('generic', ['prusalink'], indirect=True)
+def test_generic_reprint_of_a_retained_dispatch_file_cannot_block_the_printer(generic, monkeypatch):
+    case = generic
+    case.monitor()._process_status(case.status('PRINTING', filename=DISPATCH_NAME))
+    reprint = case.tracked[59]
+    case.monitor()._process_status(case.status('PRINTING', filename='manual.gcode'))
+    following = case.tracked[59]
+    assert following != reprint
+    assert {row['id']: row['status'] for row in case.rows()} == {reprint: 'cancelled', following: 'running'}
+    from modules.notifications import alert_dispatcher, job_faults
+    staged, stage = [], alert_dispatcher.stage_alert
+    monkeypatch.setattr(alert_dispatcher, 'stage_alert', lambda db, alert_type, *a, **kw: staged.append(alert_type) or stage(db, alert_type, *a, **kw))
+    monkeypatch.setattr(alert_dispatcher, '_deliver_staged_alert', lambda db, plan: None)
+    job_faults._notify(59, 'paused', None)  # Two running rows would drop this silently.
+    assert len(staged) == 1
+    monitor = case.monitor()
+    monitor._process_status(case.status('FINISHED', filename='manual.gcode'))
+    assert {row['id']: row['status'] for row in case.rows()}[following] == 'completed'
+    monkeypatch.setattr(case.dispatch, '_dispatch_prusalink', lambda *a, **kw: (True, 'Synthetic accepted'))
+    assert case.dispatch.dispatch_job(59, 53)[0]
 
 
 def test_generic_education_named_start_closes_nothing(generic):
