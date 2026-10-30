@@ -94,7 +94,7 @@ def main() -> int:
         component_id = str(component["id"])
         output_dir = components_dir / component_id
         output_dir.mkdir()
-        if first_failed_id is not None:
+        if first_failed_id is not None and not (ROOT / ".shadow-no-fail-fast").exists():
             finding = f"not run: {first_failed_id} failed (fail-fast)"
             timestamp = utc_now()
             log_path = output_dir / "result.log"
