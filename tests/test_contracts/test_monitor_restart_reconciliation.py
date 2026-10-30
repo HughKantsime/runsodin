@@ -255,8 +255,34 @@ def test_end_lost_to_a_transient_database_error_retries_on_this_connection(runni
     rows, claims, job = row_state(case)
     assert rows[0]['status'] == expected and job[0] == expected and claims == 0
     assert not monitor._recovery_pending
+    assert monitor._recovery_failures == 0  # The next failure backs off from the start again.
     assert_terminal_effects(case, delivered, expected)
     assert dispatch.dispatch_job(59, 54)[0]
+
+
+def test_end_during_a_database_outage_stays_pending(running_bambu, monkeypatch):
+    # The re-read fails too: an unreadable row is not a closed row, or nothing would retry it.
+    from modules.printers.monitors import mqtt_job_lifecycle as lifecycle, mqtt_printer
+    case = running_bambu
+    monitor = restarted(case)
+    lifecycle_db, printer_db = lifecycle.get_db, mqtt_printer.get_db
+    def outage():
+        raise RuntimeError('synthetic outage')
+    def outage_begins():
+        monkeypatch.setattr(mqtt_printer, 'get_db', outage)
+        raise RuntimeError('synthetic outage')
+    monkeypatch.setattr(lifecycle, 'get_db', outage_begins)
+    fields = dict(gcode_state='FINISH', subtask_name=case.state['subtask_name'], print_error=0)
+    packet(monitor, **fields)
+    assert row_state(case)[0][0]['status'] == 'running'
+    assert monitor._recovery_pending and monitor._recovery_failures == 1
+    monkeypatch.setattr(lifecycle, 'get_db', lifecycle_db)
+    monkeypatch.setattr(mqtt_printer, 'get_db', printer_db)
+    backoff_elapsed(monitor)
+    packet(monitor, **fields)
+    rows, claims, job = row_state(case)
+    assert rows[0]['status'] == 'completed' and job[0] == 'completed' and claims == 0
+    assert monitor._recovery_failures == 0
 
 
 @pytest.fixture
@@ -581,6 +607,18 @@ def test_malformed_ams_report_does_not_cost_a_print_its_end(manual_bambu, report
     rows, job = manual_rows(case)
     assert [row['status'] for row in rows] == ['failed'] and job == 'failed'
     packet(monitor, gcode_state='FAILED', subtask_name=case.name, print_error=7, ams=report)  # And the tail of a later packet.
+
+
+def test_watched_cancel_to_idle_measures_filament_in_its_own_packet(running_bambu):
+    # RUNNING -> IDLE is a cancel, and its report is the only one with what it really used.
+    case = running_bambu
+    monitor = restarted(case)
+    name = case.state['subtask_name']
+    packet(monitor, gcode_state='RUNNING', subtask_name=name, print_error=0, ams=ams_report(75))
+    packet(monitor, gcode_state='IDLE', subtask_name=name, print_error=0, ams=ams_report(70))
+    rows, _, _ = row_state(case)
+    assert rows[0]['status'] == 'cancelled'
+    assert rows[0]['filament_used_g'] == (100 if case.weights else None)
 
 
 def test_malformed_ams_report_keeps_the_last_good_measurement(running_bambu):
@@ -1485,6 +1523,19 @@ def test_prusalink_same_file_next_job_id_is_a_new_print_even_with_a_fitting_time
     case.monitor()._process_status(status(297))
     case.monitor()._process_status(status(298))
     assert [row['status'] for row in case.rows()] == ['cancelled', 'running']
+
+
+@pytest.mark.parametrize('generic', ['prusalink'], indirect=True)
+@pytest.mark.parametrize('name', [EDUCATION_NAME, DISPATCH_NAME], ids=['education', 'dispatch'])
+def test_prusalink_matching_job_id_does_not_resume_a_reserved_row(generic, name):
+    # A reserved name's owner decides what it was, even when the printer's job id matches.
+    case = generic
+    with case.engine.begin() as conn:
+        conn.execute(text("INSERT INTO print_jobs(id,printer_id,job_id,filename,job_name,status,started_at) VALUES(700,59,'prusalink_297',:name,:name,'running',CURRENT_TIMESTAMP)"), {'name': name})
+    case.monitor()._process_status(prusalink_wire(job_id=297))
+    rows = {row['id']: row for row in case.rows()}
+    assert case.tracked[59] != 700 and rows[case.tracked[59]]['status'] == 'running'
+    assert rows[700]['status'] == 'cancelled'
 
 
 @pytest.mark.parametrize('generic', ['prusalink'], indirect=True)
