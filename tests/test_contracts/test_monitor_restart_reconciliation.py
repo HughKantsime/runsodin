@@ -177,7 +177,7 @@ def test_refused_identity_keeps_the_fence(running_bambu, order, mutation, caplog
     assert 'reason=receipt_bound_resume_refused' in caplog.text
 
 
-def test_failed_end_does_not_fail_connect(running_bambu, monkeypatch):
+def test_failed_end_does_not_fail_connect_and_retries(running_bambu):
     # connect() reports any recovery exception as a failed connection.
     case = running_bambu
     monitor = restarted(case)
@@ -185,11 +185,48 @@ def test_failed_end_does_not_fail_connect(running_bambu, monkeypatch):
     def fail(status):
         attempted.append(status)
         raise RuntimeError('synthetic')
-    monkeypatch.setattr(monitor, '_job_ended', fail)
-    monitor._state.update(gcode_state='FINISH', subtask_name=case.state['subtask_name'])
+    ended = monitor._job_ended
+    monitor._job_ended = fail
+    fields = dict(gcode_state='FINISH', subtask_name=case.state['subtask_name'], print_error=0)
+    monitor._state.update(fields)
     monitor._recover_orphaned_jobs()
     assert attempted == ['completed']
     assert monitor._current_job_id is None and monitor._linked_job_id is None
+    assert row_state(case)[0][0]['status'] == 'running' and monitor._recovery_pending
+    monitor._job_ended = ended
+    packet(monitor, **fields)
+    rows, claims, job = row_state(case)
+    assert rows[0]['status'] == 'completed' and claims == 0 and job[0] == 'completed'
+    assert not monitor._recovery_pending
+
+
+@pytest.mark.parametrize('first', ['callback', 'recovery'])
+@pytest.mark.parametrize('state,error,expected', OUTCOMES)
+def test_end_lost_to_a_transient_database_error_retries_on_this_connection(running_bambu, delivered, monkeypatch, first, state, error, expected):
+    # record_job_ended swallows this, as it does contention on a real database.
+    from modules.printers import dispatch
+    from modules.printers.monitors import mqtt_job_lifecycle as lifecycle
+    case = running_bambu
+    monitor = restarted(case)
+    database = lifecycle.get_db
+    monkeypatch.setattr(lifecycle, 'get_db', lambda: (_ for _ in ()).throw(RuntimeError('synthetic contention')))
+    fields = dict(gcode_state=state, subtask_name=case.state['subtask_name'], print_error=error)
+    if first == 'callback':
+        packet(monitor, **fields)
+    else:
+        monitor._state.update(fields)
+        monitor._recover_orphaned_jobs()
+    rows, claims, job = row_state(case)
+    assert rows[0]['status'] == 'running' and claims == 1 and job[0] == 'printing'
+    assert monitor._current_job_id is None and monitor._recovery_pending
+    monkeypatch.setattr(lifecycle, 'get_db', database)
+    packet(monitor, **fields)
+    packet(monitor, **fields)
+    rows, claims, job = row_state(case)
+    assert rows[0]['status'] == expected and job[0] == expected and claims == 0
+    assert not monitor._recovery_pending
+    assert_terminal_effects(case, delivered, expected)
+    assert dispatch.dispatch_job(59, 54)[0]
 
 
 @pytest.fixture
@@ -625,6 +662,45 @@ def test_moonraker_unproven_identity_changes_nothing(moonraker, case_name):
     assert case.seen.alerts == [] and case.seen.archive == []
     with case.engine.connect() as conn:
         assert conn.execute(text('SELECT count(*) FROM print_jobs')).scalar_one() == before
+
+
+def test_moonraker_end_lost_to_a_transient_error_retries_and_the_next_print_is_new(moonraker, monkeypatch):
+    from modules.printers.monitors import moonraker_monitor as module
+    case = moonraker
+    identifier = case.row(job=53)
+    case.seen_printer(120)
+    monitor = case.monitor()
+    prepare = module.prepare_print_job_write
+    monkeypatch.setattr(module, 'prepare_print_job_write', lambda *a: (_ for _ in ()).throw(RuntimeError('synthetic contention')))
+    status = moonraker_status('complete')
+    monitor._process_status(status)
+    assert case.state(identifier)[0] == 'running'
+    assert monitor._current_job_db_id == identifier and monitor._prev_state == 'RUNNING'
+    assert case.seen.alerts == [] and case.seen.errors == []
+    monkeypatch.setattr(module, 'prepare_print_job_write', prepare)
+    monitor._process_status(status)
+    monitor._process_status(status)
+    assert case.state(identifier)[0] == 'completed'
+    assert monitor._current_job_db_id is None and monitor._prev_state == 'IDLE'
+    assert len(case.seen.alerts) == 1 and len(case.seen.archive) == 1
+    # The stale tracking was what made a following print look already tracked.
+    monitor._process_status(moonraker_status('printing', filename='next.gcode', total=5))
+    assert monitor._current_job_db_id not in (None, identifier)
+
+
+def test_moonraker_live_end_lost_to_a_transient_error_retries_too(moonraker, monkeypatch):
+    from modules.printers.monitors import moonraker_monitor as module
+    case = moonraker
+    monitor = case.monitor()
+    monitor._process_status(moonraker_status('printing', total=5))
+    identifier = monitor._current_job_db_id
+    prepare = module.prepare_print_job_write
+    monkeypatch.setattr(module, 'prepare_print_job_write', lambda *a: (_ for _ in ()).throw(RuntimeError('synthetic contention')))
+    monitor._process_status(moonraker_status('cancelled'))
+    assert case.state(identifier)[0] == 'running' and monitor._prev_state == 'RUNNING'
+    monkeypatch.setattr(module, 'prepare_print_job_write', prepare)
+    monitor._process_status(moonraker_status('cancelled'))
+    assert case.state(identifier)[0] == 'cancelled' and monitor._current_job_db_id is None
 
 
 def test_moonraker_network_reconnect_closes_the_end(moonraker):

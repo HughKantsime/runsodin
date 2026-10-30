@@ -90,6 +90,7 @@ class MoonrakerMonitor:
         self._current_job_db_id: Optional[int] = None
         self._last_progress_write = 0.0
         self._last_filename = ""
+        self._unwatched_row = None
         self._last_telemetry_insert = 0.0
         self._last_slot_sync = 0.0
         self._last_env_telemetry = 0.0
@@ -217,10 +218,12 @@ class MoonrakerMonitor:
             # First look after a restart or reconnect, and the print is already over.
             ended_unwatched = (getattr(status, 'raw_print_state', None) in ('complete', 'cancelled', 'error')
                                and self._prev_state is None and not tracked and bool(status.filename))
+            # Its end failed to commit: a retry still places history by the row, not by now.
+            retrying_unwatched = terminal and tracked and tracked == self._unwatched_row
         # Network I/O (adapter timeout 5s) holds neither status lock nor DB transaction.
         from modules.printers.monitors.moonraker_history import terminal_history
-        history = terminal_history(self.printer, filename, time.time()) if terminal and tracked else None
-        if ended_unwatched:
+        history = terminal_history(self.printer, filename, time.time()) if terminal and tracked and not retrying_unwatched else None
+        if ended_unwatched or retrying_unwatched:
             history = self._unwatched_end_history(status)
         with self._status_lock:
             if self._retired or self._current_job_db_id != tracked:
@@ -280,6 +283,7 @@ class MoonrakerMonitor:
             self._current_job_db_id = identifier
             self._last_filename = filename
             self._prev_state = 'RUNNING'
+            self._unwatched_row = identifier
             log.info(f"[{self.name}] Print {identifier} ended while unwatched")
         return True
 
@@ -448,6 +452,10 @@ class MoonrakerMonitor:
                     status,
                     education_terminal_status=education_terminal_status, history=history,
                 )
+                if not education_suppressed and self._current_job_db_id:
+                    # Nothing committed. Moving on would leave a stale tracked row that makes the
+                    # next print look already tracked; the previous state retries this end instead.
+                    return
                 if not education_suppressed:
                     threading.Thread(target=self._try_dispatch, daemon=True).start()
 

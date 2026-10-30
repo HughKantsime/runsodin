@@ -216,12 +216,25 @@ class PrinterMonitor:
             return
         # Past the recovery transaction: record_job_ended opens its own. The live
         # mapping decides completed/failed/cancelled, exactly as for a watched end.
+        identifier = self._current_job_id
         try:
             self._on_state_change('RUNNING', ended_state)
         except Exception as e:
             log.error(f"[{self.name}] Recovered print end failed: {e}")
             self._current_job_id = None
             self._linked_job_id = None
+        # record_job_ended swallows a failed write, and nothing else would try it again
+        # on this connection: the row, job and claim would stay stuck until a reconnect.
+        if self._row_still_running(identifier):
+            self._recovery_pending = True
+
+    def _row_still_running(self, identifier):
+        try:
+            with get_db() as conn:
+                row = conn.execute('SELECT status FROM print_jobs WHERE id=?', (identifier,)).fetchone()
+            return row is not None and row[0] == 'running'
+        except Exception:
+            return True  # Unreadable is not closed; the retry reads it again.
 
     def _recover_rows(self):
         """Reconcile running rows with the known state; a returned state is a print to end."""
