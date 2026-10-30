@@ -2,6 +2,23 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.35] - 2026-10-29
+
+<!-- summary: Printer cards are readable on the default theme, slot labels wrap instead of overflowing, and cameras fall back to live video before snapshots -->
+
+### Fixed
+
+- Secondary and muted text on the default dark theme blended into the card background. The default text colours are now #bcb7aa and #a8a294, at least 4.5:1 on card, content and input backgrounds; the light and high-contrast themes also pass WCAG AA. An install whose text and surface colours are still the old defaults gets the new text colours automatically, even with its own brand colours. Customized text or surfaces are not changed, and nothing is written.
+- Long filament slot labels overflowed printer cards. Material labels now wrap to at most two lines, presets sit on their own line, and the full text shows on hover. Narrow cards (below 420 px) use two slot columns, and printer card status rows wrap.
+- The active print name falls back to the file the printer reports.
+
+### Added
+
+- When the WebRTC camera stream is unavailable, the web camera view tries a live MJPEG stream (`GET /api/cameras/{id}/mjpeg`) before falling back to 5-second snapshots. The stream uses the snapshot route's camera access rules and stream limits (3 per user per printer, 8 per printer per worker). It rechecks the viewer's credential every 30 seconds, so logging out, revoking a token or an expired session ends the stream.
+- Branding warns when a saved text and background pair is below 4.5:1 contrast.
+- Settings > Remote access tells you to use the MagicDNS URL in the app and warns when `ODIN_TAILNET_IP` is unset. The API reports `tailnet_ice_configured`, never the IP. `docs/REMOTE_ACCESS.md` covers DNS and subnet routes.
+- The previous look is saved as the "ODIN Classic (Oct 2026)" theme snapshot in `design/themes/odin-classic-2026-10/` (tokens, CSS and reference screenshots) so it can be restored later.
+
 ## [2.0.34] - 2026-10-29
 
 <!-- summary: H2D prints dispatch again, a restart or spool change can no longer strand a printer, and pre-start checks fit slow printers -->
