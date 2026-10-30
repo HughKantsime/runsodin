@@ -8,6 +8,12 @@ from core.interfaces.education_policy import is_education_reserved_filename
 from core.order_production import prepare_job_write
 
 
+def _reserved_row(row):
+    """Reserved names have their own owners, whether or not a job or claim still shows it."""
+    return any(is_education_reserved_filename(value) or (isinstance(value,str) and 'odin-dispatch-' in value.lower())
+               for value in (row['filename'],row['job_name']))
+
+
 @dataclass(frozen=True)
 class ObservedStart:
     id:int
@@ -50,14 +56,14 @@ def observe_start(executor,*,printer_id,filename,job_name,physical_values,source
             from core.physical_print import same_physical_print, CLOSED_UNKNOWN
             from modules.printers.dispatch_admission import _lock
             rows=view.execute(text("SELECT id,scheduled_job_id,filename,job_name,started_at FROM print_jobs WHERE printer_id=:id AND status='running' ORDER BY id DESC"),{'id':printer_id}).mappings().all()
-            plausible=[row for row in rows if not reserved and not education_sensitive
+            plausible=[row for row in rows if not reserved and not education_sensitive and not _reserved_row(row)
                 and same_physical_print(row,filename,observed_elapsed)
                 and not view.execute(text('SELECT 1 FROM education_submissions WHERE job_id=:id'),{'id':row['scheduled_job_id']}).first()]
             resume_id=plausible[0]['id'] if len(plausible)==1 else None
             # A reserved start says nothing about other rows, and an unresolved attempt cannot be
             # closed from an unrelated task: its receipt and claim have no other way to finish.
             for row in (rows if not reserved and not education_sensitive else ()):
-                if row['id'] != resume_id and view.execute(text('SELECT 1 FROM education_submissions WHERE job_id=:id'),{'id':row['scheduled_job_id']}).first():
+                if row['id'] != resume_id and (_reserved_row(row) or view.execute(text('SELECT 1 FROM education_submissions WHERE job_id=:id'),{'id':row['scheduled_job_id']}).first()):
                     continue  # Education owns its rows' terminal state; never close them here.
                 _lock(view,'print_jobs',row['id'],'status')
                 if row['id'] != resume_id:

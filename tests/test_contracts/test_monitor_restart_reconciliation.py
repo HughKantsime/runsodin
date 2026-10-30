@@ -1043,6 +1043,16 @@ def test_moonraker_unrelated_start_leaves_a_receipt_bound_row_and_its_claim(disp
         assert conn.execute(text("SELECT count(*) FROM print_jobs WHERE status='running'")).scalar_one() == 2
 
 
+@pytest.mark.parametrize('name', ['odin-' + 'a' * 32 + '.gcode', 'odin-dispatch-' + 'f' * 32 + '.gcode'], ids=['education', 'dispatch'])
+def test_moonraker_unrelated_start_leaves_a_reserved_row_with_no_job(moonraker, name):
+    case = moonraker
+    quarantined = case.row(name=name, started=3 * 86400)
+    monitor = case.monitor()
+    monitor._process_status(moonraker_status('printing', filename='manual.gcode', total=5))
+    assert case.state(quarantined)[0] == 'running'
+    assert monitor._current_job_db_id != quarantined
+
+
 def test_moonraker_education_named_start_closes_nothing(moonraker):
     case = moonraker
     stale = case.row(name='old.gcode', started=3 * 86400)
@@ -1253,6 +1263,18 @@ def test_generic_education_row_is_never_resumed_or_closed(generic):
     case.monitor()._process_status(case.status('PRINTING'))
     owned, new = case.rows()
     assert (owned['id'], owned['status']) == (700, 'running')
+    assert new['status'] == 'running' and case.tracked[59] == new['id']
+
+
+@pytest.mark.parametrize('name', ['odin-' + 'a' * 32 + '.gcode', 'odin-dispatch-' + 'f' * 32 + '.gcode'], ids=['education', 'dispatch'])
+def test_generic_unrelated_start_leaves_a_reserved_row_with_no_job(generic, name):
+    # A quarantined observation has no job and no claim to show that it is reserved.
+    case = generic
+    with case.engine.begin() as conn:
+        conn.execute(text("INSERT INTO print_jobs(id,printer_id,filename,job_name,status,started_at) VALUES(700,59,:name,:name,'running',CURRENT_TIMESTAMP)"), {'name': name})
+    case.monitor()._process_status(case.status('PRINTING', filename='manual.gcode'))
+    quarantined, new = case.rows()
+    assert (quarantined['id'], quarantined['status'], quarantined['error_code']) == (700, 'running', None)
     assert new['status'] == 'running' and case.tracked[59] == new['id']
 
 
