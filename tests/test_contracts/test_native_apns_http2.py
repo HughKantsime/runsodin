@@ -4,6 +4,7 @@ import ipaddress
 import json
 import socket
 import ssl
+import threading
 from concurrent.futures import ThreadPoolExecutor
 
 import jwt
@@ -52,6 +53,7 @@ def test_real_tls_http2_apns_request(tmp_path, monkeypatch, status, accepted):
     context.load_cert_chain(cert_path, key_path)
     context.set_alpn_protocols(['h2'])
 
+    client_finished = threading.Event()
     with socket.socket() as listener:
         listener.bind(('127.0.0.1', 0))
         listener.listen(1)
@@ -82,6 +84,9 @@ def test_real_tls_http2_apns_request(tmp_path, monkeypatch, status, accepted):
                             protocol.send_headers(event.stream_id,
                                 [(':status', str(status))], end_stream=True)
                             connection.sendall(protocol.data_to_send())
+                            # Closing with the client's frames unread resets the
+                            # connection and can lose this response before it is read.
+                            client_finished.wait(5)
                             return headers, json.loads(body)
                     pending = protocol.data_to_send()
                     if pending:
@@ -94,8 +99,10 @@ def test_real_tls_http2_apns_request(tmp_path, monkeypatch, status, accepted):
             try:
                 assert provider.send_push('0'*64, 'Local test', 'No real print',
                                           'PRINT_FAILED') is accepted
+                client_finished.set()
                 headers, body = response.result(timeout=6)
             finally:
+                client_finished.set()
                 provider.close()
         assert headers[':path'] == '/3/device/'+'0'*64
         assert headers['apns-topic'] == 'com.jlls.odin'
