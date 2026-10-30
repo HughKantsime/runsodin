@@ -69,11 +69,12 @@ def observe_start(executor,*,printer_id,filename,job_name,physical_values,source
                     continue  # Education owns its rows' terminal state; never close them here.
                 _lock(view,'print_jobs',row['id'],'status')
                 if row['id'] != resume_id and any(is_education_reserved_filename(value) for value in (row['filename'],row['job_name'])):
-                    # A quarantined observation ends through Education's own terminal path.
+                    # A quarantined observation ends through Education's own terminal path. Its end
+                    # time is just as unknown, and a made-up one would be archived as a real duration.
                     from core.registry import registry
                     policy=registry.get_provider('EducationPolicyProvider')
-                    if policy:
-                        policy.terminal_monitor_observation(view.executor,print_job_id=row['id'],printer_id=printer_id,terminal_status='cancelled',error_code=CLOSED_UNKNOWN)
+                    if policy and policy.terminal_monitor_observation(view.executor,print_job_id=row['id'],printer_id=printer_id,terminal_status='cancelled',error_code=CLOSED_UNKNOWN).get('transitioned'):
+                        view.execute(text('UPDATE print_jobs SET ended_at=NULL WHERE id=:id'),{'id':row['id']})
                 elif row['id'] != resume_id:
                     # Physical bookkeeping only: no scheduled-job transition,
                     # accounting, archive or alert for an unknown historical end.

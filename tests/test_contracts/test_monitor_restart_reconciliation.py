@@ -1218,11 +1218,10 @@ EDUCATION_NAME = 'odin-' + 'a' * 32 + '.gcode'
 DISPATCH_NAME = 'odin-dispatch-' + 'f' * 32 + '.gcode'
 
 
-def assert_closed_unbound_reserved_row(name, status, ended, error):
-    """A dispatch name closes like any stale row; an Education name through Education's own path."""
+def assert_closed_unbound_reserved_row(status, ended, error):
+    """Closed with its end unknown, which is what keeps it out of archive recovery."""
     from core.physical_print import CLOSED_UNKNOWN
-    assert (status, error) == ('cancelled', CLOSED_UNKNOWN)
-    assert (ended is not None) == (name == EDUCATION_NAME)
+    assert (status, ended, error) == ('cancelled', None, CLOSED_UNKNOWN)
 
 
 @pytest.mark.parametrize('name', [EDUCATION_NAME, DISPATCH_NAME], ids=['education', 'dispatch'])
@@ -1232,7 +1231,7 @@ def test_moonraker_unrelated_start_closes_a_reserved_row_with_no_claim(moonraker
     monitor = case.monitor()
     monitor._process_status(moonraker_status('printing', filename='manual.gcode', total=5))
     with case.engine.connect() as conn:
-        assert_closed_unbound_reserved_row(name, *conn.execute(text('SELECT status,ended_at,error_code FROM print_jobs WHERE id=:id'), {'id': stale}).one())
+        assert_closed_unbound_reserved_row(*conn.execute(text('SELECT status,ended_at,error_code FROM print_jobs WHERE id=:id'), {'id': stale}).one())
     assert monitor._current_job_db_id != stale and case.state(monitor._current_job_db_id)[0] == 'running'
     assert running_row_count(case) == 1
     assert case.seen.alerts == [] and case.seen.archive == []
@@ -1761,9 +1760,39 @@ def test_generic_unrelated_start_closes_a_reserved_row_with_no_claim(generic, na
         conn.execute(text("INSERT INTO print_jobs(id,printer_id,filename,job_name,status,started_at) VALUES(700,59,:name,:name,'running',CURRENT_TIMESTAMP)"), {'name': name})
     case.monitor()._process_status(case.status('PRINTING', filename='manual.gcode'))
     rows = {row['id']: row for row in case.rows()}
-    assert_closed_unbound_reserved_row(name, rows[700]['status'], rows[700]['ended_at'], rows[700]['error_code'])
+    assert_closed_unbound_reserved_row(rows[700]['status'], rows[700]['ended_at'], rows[700]['error_code'])
     assert case.tracked[59] != 700 and rows[case.tracked[59]]['status'] == 'running'
     assert case.seen.alerts == [] and case.seen.archive == []
+
+
+def test_quarantined_row_ends_through_education_and_is_never_archived(generic, monkeypatch):
+    # The real recovery sweep and archive writer: this row has no real end to report.
+    from contextlib import contextmanager
+    from core.db_utils import _ConnectionAdapter
+    from core.registry import registry
+    from modules.archives import archive
+    case = generic
+    ended = []
+    policy = registry.get_provider('EducationPolicyProvider')
+    terminal = policy.terminal_monitor_observation
+    monkeypatch.setattr(policy, 'terminal_monitor_observation', lambda db, **kw: ended.append(kw) or terminal(db, **kw))
+    with case.engine.begin() as conn:
+        conn.execute(text("INSERT INTO print_jobs(id,printer_id,filename,job_name,status,started_at) VALUES(700,59,:name,:name,'running',:at)"), {'name': EDUCATION_NAME, 'at': ago(3 * 86400)})
+    case.monitor()._process_status(case.status('PRINTING', filename='manual.gcode'))
+    assert [(item['print_job_id'], item['terminal_status']) for item in ended] == [(700, 'cancelled')]
+
+    @contextmanager
+    def database():
+        raw = case.engine.raw_connection()
+        try:
+            yield _ConnectionAdapter(raw, case.engine.dialect.name == 'postgresql')
+        finally:
+            raw.close()
+
+    monkeypatch.setattr(archive, 'get_db', database)
+    assert archive.recover_missing_archives()['attempted'] == 0
+    with case.engine.connect() as conn:
+        assert conn.execute(text('SELECT COUNT(*) FROM print_archives')).scalar_one() == 0
 
 
 @pytest.mark.parametrize('generic', ['prusalink'], indirect=True)

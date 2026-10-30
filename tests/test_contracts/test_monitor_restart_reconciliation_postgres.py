@@ -46,6 +46,7 @@ from tests.test_contracts.test_monitor_restart_reconciliation import (  # noqa: 
     test_moonraker_unrelated_start_under_a_held_claim_leaves_an_unknown_row,
     test_prusalink_first_look_lasts_until_a_state_that_decides,
     test_prusalink_matching_job_id_does_not_resume_a_reserved_row,
+    test_quarantined_row_ends_through_education_and_is_never_archived,
     test_reconciled_end_cannot_charge_a_single_tray_it_did_not_watch,
     test_reconciled_unreserved_end_marks_its_tray_evidence_incomplete,
     test_retained_report_is_logged_once_per_interval_without_its_payload,
