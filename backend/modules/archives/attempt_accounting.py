@@ -259,7 +259,7 @@ def _material_plan(connection, print_job_id, printer_id, printer_org_id, slots, 
         plan['scheduled_job_id'] = job_id
         job = execute(connection,
             'SELECT j.printer_id,j.charged_to_org_id,j.print_file_id,j.ams_mapping,'
-            'pf.id,pf.org_id,pf.filament_weight_grams,pf.filaments_json '
+            'pf.id,pf.org_id,pf.filament_weight_grams,pf.filaments_json,pf.stored_path '
             'FROM jobs j LEFT JOIN print_files pf ON pf.id=j.print_file_id WHERE j.id=?',
             (job_id,)).fetchone()
         if job is None:
@@ -271,10 +271,10 @@ def _material_plan(connection, print_job_id, printer_id, printer_org_id, slots, 
         if job[2] is not None:
             if job[4] is None:
                 return unresolved('missing_explicit_file')
-            file = job[4:8]
+            file = job[4:9]
         else:
             files = execute(connection,
-                'SELECT id,org_id,filament_weight_grams,filaments_json FROM print_files WHERE job_id=? ORDER BY id' + (' LIMIT 2' if bounded else ''),
+                'SELECT id,org_id,filament_weight_grams,filaments_json,stored_path FROM print_files WHERE job_id=? ORDER BY id' + (' LIMIT 2' if bounded else ''),
                 (job_id,)).fetchall()
             if len(files) != 1:
                 return unresolved('ambiguous_legacy_file' if files else 'missing_file')
@@ -288,6 +288,15 @@ def _material_plan(connection, print_job_id, printer_id, printer_org_id, slots, 
             mapping = json.loads(job[3]) if isinstance(job[3], str) else job[3]
         except (ValueError, TypeError):
             return unresolved('invalid_material_metadata')
+        if not materials:
+            # A gcode row lists no filaments. A Kobra S1 reads them from the file and freezes them here.
+            from modules.printers.services import is_kobra_s1, stored_or_file_materials
+            identity = execute(connection, 'SELECT api_type,model,machine_type FROM printers WHERE id=?', (printer_id,)).fetchone()
+            if identity and is_kobra_s1(dict(api_type=identity[0], model=identity[1], machine_type=identity[2])):
+                try:
+                    materials = stored_or_file_materials(file[3], file[4])
+                except ValueError:
+                    pass  # Unreadable facts stay unresolved below; S1Refusal is a ValueError.
         if materials is not None and (not isinstance(materials, list) or len(materials) > 16
                                       or any(not isinstance(x, dict) for x in materials)):
             return unresolved('invalid_material_metadata')

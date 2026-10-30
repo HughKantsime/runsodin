@@ -354,3 +354,17 @@ def test_archive_plan_never_guesses_slot_1_for_an_unmapped_s1(s1):
         assert capture_attempt_spools(c, print_job, 59, source='s1-contract')
         snapshot = json.loads(c.execute(text('SELECT spool_snapshot FROM print_jobs WHERE id=:id'), {'id': print_job}).scalar_one())
     assert snapshot['material_plan']['state'] == 'unresolved'
+
+
+def test_archive_plan_freezes_the_mapped_slot_for_a_real_gcode_job(s1, monkeypatch):
+    """Monitor and archive agree, and a cancelled print's measured grams have a known spool."""
+    from modules.archives.attempt_accounting import capture_attempt_spools
+    job_id = _job_from_upload(s1, ONE_COLOUR, [{'source_slot': 1, 'target_slot': 2}])
+    with s1.engine.begin() as c:
+        print_job = c.execute(text("INSERT INTO print_jobs(printer_id,job_name,filename,status,started_at,scheduled_job_id) "
+                                   "VALUES(59,'x','x.gcode','running','2026-10-30T00:00:00',:job) RETURNING id"), {'job': job_id}).scalar_one()
+        assert capture_attempt_spools(c, print_job, 59, source='s1-contract')
+        plan = json.loads(c.execute(text('SELECT spool_snapshot FROM print_jobs WHERE id=:id'), {'id': print_job}).scalar_one())['material_plan']
+    assert plan['state'] == 'complete', plan
+    assert [(a['slot_number'], a['spool_id'], a['estimated_grams']) for a in plan['allocations']] == [(2, 902, 11.49)]
+
