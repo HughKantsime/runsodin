@@ -92,16 +92,14 @@ def validate_mapping(mapping, filaments_json, slots, api_type):
     if sources != set(by_id) and not legacy:
         raise HTTPException(400, 'Invalid or duplicate AMS slot')
     result = [-1] * max(by_id)
-    destinations = set()
     for item in mapping:
         source = item['source_slot'] + (1 if legacy else 0)
         target = item['target_slot']
-        if target not in slots or not 1 <= target <= 16 or result[source - 1] != -1 or target in destinations:
+        if target not in slots or not 1 <= target <= 16 or result[source - 1] != -1:
             raise HTTPException(400, 'Invalid or duplicate AMS slot')
         source_material = canonical_reported_material(by_id[source].get('type'))
         target_material = canonical_reported_material(slots[target])
         if source_material is None or target_material is None or source_material != target_material:
-            raise HTTPException(400, 'Selected tray material does not match the source filament')
+            raise HTTPException(400, f'AMS slot {target}: selected tray material does not match source filament {source}')
         result[source - 1] = target - 1
-        destinations.add(target)
     return result

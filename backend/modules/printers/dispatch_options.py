@@ -69,8 +69,7 @@ def _mapping_error(job, mapping, stored_path, payload_sha256, *, derived):
     # Bambu tray index 0-15, with -1 for unused file sources. AMS HT (tray
     # id 128+) is not a dispatch target; see ams_identity.
     if (not isinstance(mapping, list) or not mapping or len(mapping) > 16
-            or any(type(slot) is not int or not -1 <= slot < 16 for slot in mapping)
-            or len({slot for slot in mapping if slot != -1}) != sum(slot != -1 for slot in mapping)):
+            or any(type(slot) is not int or not -1 <= slot < 16 for slot in mapping)):
         return "Stored AMS mapping is invalid; no command was sent"
     from core.db import engine
     from sqlalchemy import text
@@ -93,8 +92,9 @@ def _mapping_error(job, mapping, stored_path, payload_sha256, *, derived):
     try:
         preflight_ams_source(job, mapping=mapping, staged_path=stored_path,
                              payload_sha256=payload_sha256, derived=derived)
-    except (ValueError, OSError, PayloadUnavailable):
-        return "Explicit AMS source or plate is unsupported; no command was sent"
+    except (ValueError, OSError, PayloadUnavailable) as exc:
+        detail = str(exc) if isinstance(exc, ValueError) else 'Payload inspection unavailable'
+        return f"Explicit AMS source or plate is unsupported: {detail}; no command was sent"
     return None
 
 

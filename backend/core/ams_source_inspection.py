@@ -1,10 +1,9 @@
-"""Bounded interpretation of the single-source Bambu slice with agreeing material facts.
-
-Explicit mappings require one independently verified file source.
+"""Bounded interpretation of Bambu plate sources with agreeing material facts.
 Caller owns safe file acquisition; this helper accepts already acquired bytes.
 """
 import io
 import json
+import math
 import re
 import zipfile
 from dataclasses import dataclass
@@ -35,6 +34,27 @@ _H2D_NON_SOURCE = (
     r'M620\s+Q1',
 )
 
+# BambuStudio A1/P1S/X1C/H2D change_filament_gcode templates. These
+# configure travel, flush and retraction; I still names a verified source.
+_MULTI_SOURCE_AUXILIARY = (
+    rf'M620\.1\s+X{_NUMBER}\s+Y{_NUMBER}\s+F{_NUMBER}\s+P[012]',
+    r'M620\.11\s+S0',
+    rf'M620\.11\s+S1\s+I{{source}}\s+E{_NUMBER}\s+F{_NUMBER}',
+    rf'M620\.10\s+A0\s+F{_NUMBER}',
+    rf'M620\.10\s+A1\s+F{_NUMBER}\s+L{_NUMBER}\s+H{_NUMBER}\s+T{_NUMBER}',
+    rf'M620\.10\s+A[01]\s+F{_NUMBER}\s+L{_NUMBER}\s+H{_NUMBER}\s+T{_NUMBER}\s+P{_NUMBER}\s+S[01]',
+    rf'M620\.11\s+P1\s+I{{source}}\s+B-1\s+E{_NUMBER}\s+F{_NUMBER}',
+    rf'M620\.15\s+C{_NUMBER}',
+    r'M620\.11\s+H0|M620\.11\s+H2\s+C331',
+    rf'M620\.10\s+R{_NUMBER}',
+    rf'M620\.13\s+W0\s+L{_NUMBER}\s+T{_NUMBER}\s+R{_NUMBER}',
+    r'M620\s+Q[1-9][0-9]*',
+)
+
+
+class MultipleAMSSources(ValueError):
+    pass
+
 
 @dataclass(frozen=True)
 class VerifiedSingleSource:
@@ -43,7 +63,59 @@ class VerifiedSingleSource:
     material: str
 
 
+@dataclass(frozen=True)
+class VerifiedSource:
+    source_index: int
+    material: str
+    extruder: int | None
+    used_grams: float | None
+
+
+@dataclass(frozen=True)
+class VerifiedSources:
+    plate_index: int
+    sources: tuple[VerifiedSource, ...]
+
+
+def _source_extruder(settings, plate, index):
+    def values(value):
+        if isinstance(value, list):
+            return value
+        return value.replace(',', ' ').split() if isinstance(value, str) else []
+    physical = values(settings.get('physical_extruder_map'))
+    maps = [values(settings[key]) for key in ('filament_nozzle_map', 'filament_map') if key in settings]
+    declared = [node.get('value') for node in plate.findall('metadata') if node.get('key') == 'filament_maps']
+    if len(declared) > 1:
+        raise ValueError('Ambiguous plate extruders')
+    maps.extend(values(value) for value in declared)
+    if not physical or not maps:
+        return None
+    targets = []
+    for mapping in maps:
+        if index >= len(mapping):
+            return None
+        logical = mapping[index]
+        if type(logical) not in (int, str) or not re.fullmatch('[12]', str(logical)):
+            return None
+        logical = int(logical) - 1
+        if logical >= len(physical):
+            return None
+        extruder = physical[logical]
+        if type(extruder) not in (int, str) or str(extruder) not in ('0', '1'):
+            return None
+        targets.append(int(extruder))
+    if len(set(targets)) != 1:
+        raise ValueError('Conflicting source extruders')
+    return targets[0]
+
+
 def inspect_single_source_ams(payload: bytes, plate_index: int = 0) -> VerifiedSingleSource:
+    verified = inspect_ams_sources(payload, plate_index, single_source=True)
+    source = verified.sources[0]
+    return VerifiedSingleSource(verified.plate_index, source.source_index, source.material)
+
+
+def inspect_ams_sources(payload: bytes, plate_index: int = 0, *, single_source=False) -> VerifiedSources:
     """Refuse ambiguous/unsupported sources; never infer metadata array order."""
     refusal = 'Unverifiable source mapping'
     try:
@@ -78,9 +150,16 @@ def inspect_single_source_ams(payload: bytes, plate_index: int = 0) -> VerifiedS
             if indexes != ['1']:
                 raise ValueError(refusal)
             filaments = plates[0].findall('filament')
-            if len(filaments) != 1 or not re.fullmatch(r'[1-9]|1[0-6]', filaments[0].get('id', '')):
+            if (not 1 <= len(filaments) <= 16
+                    or any(not re.fullmatch(r'[1-9]|1[0-6]', f.get('id', '')) for f in filaments)):
                 raise ValueError(refusal)
-            source_index = int(filaments[0].get('id')) - 1
+            by_source = {int(f.get('id')) - 1: f for f in filaments}
+            if len(by_source) != len(filaments):
+                raise ValueError(refusal)
+            if single_source and len(filaments) != 1:
+                raise MultipleAMSSources('AMS read and approval require a single-source file; multi-source files are unsupported')
+            used = set(by_source)
+            source_pattern = '(?:' + '|'.join(str(i) for i in sorted(used)) + ')'
             if 'Metadata/plate_1.json' in package.namelist():
                 plate = json.loads(read('Metadata/plate_1.json', MAX_XML_BYTES))
                 # Older slicers omit filament_ids; the plate XML and command
@@ -89,16 +168,26 @@ def inspect_single_source_ams(payload: bytes, plate_index: int = 0) -> VerifiedS
                     raise ValueError(refusal)
                 if 'filament_ids' in plate:
                     ids = plate['filament_ids']
-                    if type(ids) is not list or len(ids) != 1 or type(ids[0]) is not int or ids != [source_index]:
+                    if (type(ids) is not list or any(type(i) is not int for i in ids)
+                            or len(ids) != len(used) or set(ids) != used):
                         raise ValueError(refusal)
-            material = canonical_reported_material(filaments[0].get('type'))
             settings = json.loads(read('Metadata/project_settings.config', MAX_XML_BYTES))
             materials = settings.get('filament_type') if isinstance(settings, dict) else None
-            # Saved profiles are not evidence of used sources. The plate XML
-            # and command scan independently require exactly the declared source.
-            # Check its corresponding profile without inventing unused trays.
-            if material is None or not isinstance(materials, list) or not source_index < len(materials) <= 16 or canonical_reported_material(materials[source_index]) != material:
+            if not isinstance(materials, list) or not max(used) < len(materials) <= 16:
                 raise ValueError(refusal)
+            sources = []
+            for index, filament in sorted(by_source.items()):
+                material = canonical_reported_material(filament.get('type'))
+                if material is None or canonical_reported_material(materials[index]) != material:
+                    raise ValueError(refusal)
+                grams = filament.get('used_g')
+                if grams is not None:
+                    grams = float(grams)
+                    if not math.isfinite(grams) or grams < 0:
+                        raise ValueError(refusal)
+                sources.append(VerifiedSource(index, material,
+                    None if single_source else _source_extruder(settings, plates[0], index), grams))
+            extruders = {source.source_index: source.extruder for source in sources}
             code = io.BytesIO(read('Metadata/plate_1.gcode', MAX_GCODE_BYTES))
             headers = []
             switches = {620: set(), 621: set()}
@@ -123,14 +212,22 @@ def inspect_single_source_ams(payload: bytes, plate_index: int = 0) -> VerifiedS
                     # H2D uses T1001 in its start template, T65535 to pull
                     # filament back to AMS, and T65279 in its end template.
                     # These are non-source sentinels, never numbered trays.
-                    if not re.fullmatch(rf'T(?:{source_index}(?:\s+H-1)?|255|1000|1001|1100|65535|65279)', command):
+                    if not re.fullmatch(rf'T(?:{source_pattern}(?:\s+H-1)?|255|1000|1001|1100|65535|65279)', command):
                         raise ValueError(refusal)
                 if not re.match(r'^M62[01](?:\s|\.|$)', command):
                     continue
                 # Known non-source remap/tangle commands in this genuine slice.
                 if re.fullmatch(r'M620\s+M|M620\.3\s+W[01]|M620\.1\s+E\s+F[0-9]+(?:\.[0-9]+)?\s+T[0-9]+(?:\.[0-9]+)?', command):
                     continue
-                if any(re.fullmatch(pattern.replace('{source}', str(source_index)), command) for pattern in _H2D_NON_SOURCE):
+                nozzle = re.fullmatch(r'M620\.17\s+T([01])\s+S' + _NUMBER + r'\s+L([0-9]+)', command)
+                if nozzle and len(used) > 1 and all(value is not None for value in extruders.values()):
+                    target, source = map(int, nozzle.groups())
+                    if extruders.get(source) != target and not (source == 0 and target not in extruders.values()):
+                        raise ValueError(refusal)
+                if any(re.fullmatch(pattern.replace('{source}', source_pattern), command) for pattern in _H2D_NON_SOURCE):
+                    continue
+                if len(used) > 1 and any(re.fullmatch(pattern.replace('{source}', source_pattern), command)
+                                         for pattern in _MULTI_SOURCE_AUXILIARY):
                     continue
                 if re.fullmatch(r'M62[01]\s+S255A?', command):
                     continue
@@ -145,8 +242,10 @@ def inspect_single_source_ams(payload: bytes, plate_index: int = 0) -> VerifiedS
                 switches[int(match.group(1))].add(int(match.group(2)))
             expected_materials = [canonical_reported_material(value) for value in materials]
             if (any(value is None for value in expected_materials) or headers != [expected_materials]
-                    or switches != {620: {source_index}, 621: {source_index}}):
+                    or switches != {620: used, 621: used}):
                 raise ValueError(refusal)
-        return VerifiedSingleSource(0, source_index, material)
+        return VerifiedSources(0, tuple(sources))
+    except MultipleAMSSources:
+        raise
     except Exception:
         raise ValueError(refusal) from None

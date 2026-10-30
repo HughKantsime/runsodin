@@ -299,12 +299,17 @@ def _material_plan(connection, print_job_id, printer_id, printer_org_id, slots, 
     if identities and located_ids and not located_ids <= identities:
         return unresolved('contradictory_start_identity')
     if mapping is not None:
-        if not isinstance(mapping, list) or not mapping or any(type(x) is not int or not 0 <= x < 16 for x in mapping) or len(set(mapping)) != len(mapping):
+        if not isinstance(mapping, list) or not 1 <= len(mapping) <= 16 or any(type(x) is not int or not -1 <= x < 16 for x in mapping):
             return unresolved('invalid_mapping')
-        if not materials or len(mapping) != len(materials):
+        from core.filament_sources import indexed_materials
+        by_source = indexed_materials(materials)
+        if not by_source or {i for i, target in enumerate(mapping) if target != -1} != set(by_source):
             return unresolved('incomplete_mapping')
+        source_ids = sorted(by_source)
+        materials = [by_source[index] for index in source_ids]
         selected = []
-        for target in mapping:
+        for index in source_ids:
+            target = mapping[index]
             matches = [row for row in slots if row[0] == target + 1]
             if len(matches) != 1:
                 matches = [(target + 1, None, None, None, None)]
@@ -334,6 +339,8 @@ def _material_plan(connection, print_job_id, printer_id, printer_org_id, slots, 
         if len(matches) > 1:
             return unresolved('ambiguous_start_spool')
         selected = matches or [(target, None, None, None, None)]
+    if mapping is None:
+        source_ids = [0]
     allocations = []
     for index, row in enumerate(selected):
         # Unbound trays are valid unattributed sources; a dangling assignment
@@ -356,7 +363,7 @@ def _material_plan(connection, print_job_id, printer_id, printer_org_id, slots, 
         from core.tray_identity import decode
         state = decode(row[4]) if len(row) > 4 else {}
         allocations.append({'observation_state': state.get('id'), 'identity_state': state.get('hold_id', state.get('id')) if state.get('pending') else None, 'spool_id': row[1], 'spool_org_id': row[2],
-                            'source_slot': index, 'slot_number': row[0],
+                            'source_slot': source_ids[index], 'slot_number': row[0],
                             'estimated_grams': grams,
                             'purchase_inputs': _purchase_inputs(current[2], current[3]) if current else None,
                             'quantity_provenance': 'sliced_estimate' if grams is not None else 'unknown'})

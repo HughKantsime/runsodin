@@ -6,6 +6,7 @@ from modules.organizations.education_ams_request_auth import reauthenticate_teac
 from modules.organizations.education_ams_payload_authority import capture_payload_graph,PreparedAMSApproval
 from modules.organizations.education_review_service import approve_submission
 from modules.printers.services import inspect_ams_payload
+from core.ams_source_inspection import MultipleAMSSources
 
 
 async def approve_with_explicit_ams(request,*,db,principal,submission_id,body):
@@ -25,6 +26,9 @@ async def approve_with_explicit_ams(request,*,db,principal,submission_id,body):
         return approve_submission(db,submission_id=submission_id,body=body,principal=current,
                                   prepared_ams=PreparedAMSApproval(graph,facts))
     except OdinError:raise
+    except MultipleAMSSources:
+        db.rollback()
+        raise OdinError(ErrorCode.resource_conflict,'Education AMS approval requires a single-source file; multi-source files are unsupported.',status=409) from None
     except Exception:
         db.rollback()
         raise OdinError(ErrorCode.resource_conflict,'AMS selection or payload changed. Refresh and try again.',status=409) from None

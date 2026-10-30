@@ -101,14 +101,14 @@ def retire_ams_read(db,*,operation):
     return _fail_owned_read(db,started=operation._started,runtime=operation._runtime)
 
 
-def inspect_ams_payload(path,*,expected_sha256,expected_bytes,plate_index):
+def inspect_ams_payload(path,*,expected_sha256,expected_bytes,plate_index,multi_source=False):
     """Verify an owned immutable snapshot outside approval authority locks.
 
     Caller first authorizes the exact committed file graph; this service does
     not authorize a pathname. No bytes or filesystem paths are returned.
     """
     import hashlib,hmac
-    from core.ams_source_inspection import inspect_single_source_ams,MAX_ARCHIVE_BYTES
+    from core.ams_source_inspection import inspect_single_source_ams,inspect_ams_sources,MAX_ARCHIVE_BYTES
     from modules.printers.dispatch_payload_snapshot import stage_payload
     if type(expected_bytes) is not int or not 0<expected_bytes<=MAX_ARCHIVE_BYTES:
         raise ValueError('AMS payload size unavailable')
@@ -117,7 +117,15 @@ def inspect_ams_payload(path,*,expected_sha256,expected_bytes,plate_index):
             payload=source.read(MAX_ARCHIVE_BYTES+1)
         if len(payload)!=expected_bytes or not hmac.compare_digest(hashlib.sha256(payload).hexdigest(),expected_sha256):
             raise ValueError('AMS payload changed')
-        verified=inspect_single_source_ams(payload,plate_index)
+        verified=(inspect_ams_sources(payload,plate_index) if multi_source
+                  else inspect_single_source_ams(payload,plate_index))
+    if multi_source:
+        from dataclasses import asdict
+        facts = {'payload_sha256':expected_sha256,'storage_bytes':expected_bytes,'plate_index':verified.plate_index,
+                 'sources':tuple(asdict(source) for source in verified.sources)}
+        if len(verified.sources) == 1:
+            facts.update(source_index=verified.sources[0].source_index, material=verified.sources[0].material)
+        return facts
     return {'payload_sha256':expected_sha256,'storage_bytes':expected_bytes,'plate_index':verified.plate_index,
             'source_index':verified.source_index,'material':verified.material}
 

@@ -36,7 +36,6 @@ def preflight_ams_source(job, *, mapping, staged_path, payload_sha256, derived=F
     plate_index = _ams_plate_index(job)
     if (type(mapping) is not list or not 1 <= len(mapping) <= 16
             or any(type(slot) is not int or not -1 <= slot < 16 for slot in mapping)
-            or sum(slot != -1 for slot in mapping) != 1
             or plate_index != 0):
         raise ValueError('Explicit AMS dispatch requires supported source and plate')
     stored_mapping = job.get('ams_mapping')
@@ -49,10 +48,19 @@ def preflight_ams_source(job, *, mapping, staged_path, payload_sha256, derived=F
             or any(type(slot) is not int for slot in stored_mapping)):
         raise ValueError('AMS selection differs from the admitted job')
     facts = inspect_ams_payload(staged_path, expected_sha256=payload_sha256,
-                               expected_bytes=os.stat(staged_path).st_size, plate_index=plate_index)
-    source = facts['source_index']
-    if source >= len(mapping) or mapping[source] == -1:
-        raise ValueError('AMS selection does not cover the verified file source')
+                               expected_bytes=os.stat(staged_path).st_size, plate_index=plate_index,
+                               **({} if derived or job.get('education_submission_id') is not None else {'multi_source': True}))
+    sources = facts.get('sources', (dict(source_index=facts.get('source_index'), material=facts.get('material')),))
+    used = {source['source_index'] for source in sources}
+    if {i for i, slot in enumerate(mapping) if slot != -1} != used:
+        raise ValueError('AMS selection must cover every verified file source and no unused sources')
+    materials = {}
+    for source in sources:
+        slot = mapping[source['source_index']]
+        if slot in materials and materials[slot] != source['material']:
+            raise ValueError(f'AMS slot {slot + 1} maps sources with different materials')
+        materials[slot] = source['material']
+    source = sources[0]['source_index']
     if derived and mapping != [-1] * source + [source]:
         raise ValueError('Derived AMS selection must match the verified file source')
     return facts
@@ -77,7 +85,11 @@ def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, tar
     facts = preflight_ams_source(job, mapping=mapping, staged_path=staged_path,
                                  payload_sha256=captured['payload_sha256'], derived=derived)
     expected_mapping = tuple(mapping)
-    slots = (mapping[facts['source_index']] + 1,)
+    sources = facts.get('sources', (dict(source_index=facts.get('source_index'), material=facts.get('material')),))
+    slots = tuple(sorted({mapping[source['source_index']] + 1 for source in sources}))
+    from modules.printers.printer_models import bambu_nozzle_count
+    dual = bambu_nozzle_count(captured['creds'].get('machine_type') or captured['creds'].get('model')) == 2
+    check_bindings = dual and len(sources) > 1
     runtime = read_runtime_identity()
     with engine.connect() as conn:
         configuration = load_ams_configuration(conn, job['printer_id'])
@@ -153,19 +165,30 @@ def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, tar
             return refuse("snapshot_identity_mismatch", "AMS snapshot identity does not match this attempt")
         if snapshot.idle_without_error is not True:
             return refuse("printer_not_idle_or_error", f"gcode_state={getattr(snapshot, 'gcode_state', None)}; print_error={getattr(snapshot, 'print_error', None)}; active_hms_codes={getattr(snapshot, 'active_hms_codes', None)}")
-        if len(snapshot.trays) != 1:
-            return refuse("tray_count", f"Selected tray count={len(snapshot.trays)}; expected=1")
-        tray = snapshot.trays[0]
-        if tray.slot_number != slots[0]:
-            return refuse("tray_slot_mismatch", f"Reported slot={tray.slot_number}; expected slot={slots[0]}")
-        if tray.material_state != 'reported':
-            if tray.material_state == 'explicit_empty':
-                return refuse("tray_material_unreported", f"AMS slot {tray.slot_number} is empty: load a spool and set the filament type on the printer")
-            return refuse("tray_material_unreported", f"AMS slot {tray.slot_number}: set the filament type on the printer")
-        if tray.material != facts['material']:
-            return refuse("material_mismatch", f"Reported material={canonical_reported_material(tray.material)}; required material={canonical_reported_material(facts['material'])}")
-        if tray.mechanically_ready is not None:
-            return refuse("tray_not_mechanically_ready", "Selected tray mechanical readiness is unsupported")
+        trays = {tray.slot_number: tray for tray in snapshot.trays}
+        missing = set(slots) - set(trays)
+        if missing:
+            return refuse("tray_missing", f"AMS slot {min(missing)} is missing from the fresh snapshot")
+        if len(snapshot.trays) != len(slots) or set(trays) != set(slots):
+            return refuse("tray_slot_mismatch", f"Reported slots={sorted(trays)}; expected slots={list(slots)}")
+        for source in sources:
+            tray = trays[mapping[source['source_index']] + 1]
+            if tray.material_state != 'reported' or canonical_reported_material(tray.material) is None:
+                if tray.material_state == 'explicit_empty':
+                    return refuse("tray_material_unreported", f"AMS slot {tray.slot_number} is empty: load a spool and set the filament type on the printer")
+                return refuse("tray_material_unreported", f"AMS slot {tray.slot_number}: set the filament type on the printer")
+            if canonical_reported_material(tray.material) != source['material']:
+                return refuse("material_mismatch", f"AMS slot {tray.slot_number}: reported material={canonical_reported_material(tray.material)}; required material={source['material']}")
+            if tray.mechanically_ready is not None:
+                return refuse("tray_not_mechanically_ready", f"AMS slot {tray.slot_number}: mechanical readiness is unsupported")
+            if check_bindings:
+                extruder = source.get('extruder')
+                if type(extruder) is not int or extruder not in (0, 1):
+                    return refuse("source_extruder_unverified", f"File source {source['source_index'] + 1}: H2D extruder evidence is missing")
+                if type(tray.extruder) is not int or tray.extruder not in (0, 1):
+                    return refuse("ams_binding_unverified", f"AMS slot {tray.slot_number}: H2D nozzle binding is missing or unsupported")
+                if tray.extruder != extruder:
+                    return refuse("ams_binding_mismatch", f"AMS slot {tray.slot_number} feeds extruder {tray.extruder}; file source {source['source_index'] + 1} requires extruder {extruder}")
         if not current():
             return False
         if not runtime_current():

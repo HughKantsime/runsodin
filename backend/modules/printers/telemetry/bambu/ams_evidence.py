@@ -1,5 +1,6 @@
 """Raw-only AMS facts. These facts do not prove mechanical feed readiness."""
 from dataclasses import dataclass
+import re
 from typing import Literal
 
 from core.material_identity import canonical_reported_material
@@ -17,6 +18,7 @@ class RawTrayFact:
     material_state: Literal['reported', 'explicit_empty', 'unknown', 'invalid']
     # Firmware material labels cannot establish actual filament occupancy.
     mechanically_ready: None = None
+    extruder: int | None = None
 
 
 def parse_raw_ams_facts(print_packet) -> tuple[RawTrayFact, ...]:
@@ -50,6 +52,13 @@ def parse_raw_ams_facts(print_packet) -> tuple[RawTrayFact, ...]:
         entries = ams_trays_by_slot(root['ams'], strict=True)
     except ValueError:
         raise ValueError('AMS packet identity unavailable') from None
+    # BambuStudio DevFilaSystemParser::ParseAmsInfo: info bits 8-11 are
+    # the bound physical extruder. Missing info and switcher bindings are unknown.
+    bindings = {}
+    for unit in root['ams']:
+        info = unit.get('info')
+        extruder = (int(info, 16) >> 8) & 0xf if type(info) is str and re.fullmatch('[0-9a-fA-F]{1,8}', info) else None
+        bindings[ams_slot_number(unit['id'], 0)] = extruder if extruder in (0, 1) else None
     result = []
     for slot, tray in entries:
         if slot >= AMS_HT_FIRST_SLOT:
@@ -71,5 +80,5 @@ def parse_raw_ams_facts(print_packet) -> tuple[RawTrayFact, ...]:
         else:
             state = 'invalid'
         result.append(RawTrayFact(slot, (slot - 1) // 4, (slot - 1) % 4,
-                                  material, state))
+                                  material, state, extruder=bindings.get((slot - 1) // 4 * 4 + 1)))
     return tuple(sorted(result, key=lambda fact: fact.slot_number))
