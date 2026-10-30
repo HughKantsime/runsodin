@@ -68,7 +68,8 @@ def test_rotation_and_truncation_require_refresh(client):
     cursor = http.get('/api/admin/logs', params={'lines': 2}).json()['next_cursor']
     path.write_text('[INFO] Short\n')
     assert http.get('/api/admin/logs', params={'cursor': cursor}).status_code == 409
-    path.unlink()
+    # Rotate by rename, as log rotation does: delete-and-recreate can reuse the inode on ext4.
+    path.rename(path.with_name(path.name + '.1'))
     path.write_text('replacement\n' * 100)
     assert http.get('/api/admin/logs', params={'cursor': cursor}).status_code == 409
 

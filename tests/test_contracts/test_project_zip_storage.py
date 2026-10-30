@@ -1,4 +1,5 @@
 """Actual owned filesystem/FD tests; no journal/write/route authority."""
+import time
 import errno
 import hashlib
 import os
@@ -52,6 +53,8 @@ def test_substitution_or_content_drift_discards_read(root_path,replacement):
             elif replacement == 'root':
                 root_path.rename(root_path.with_name('old')); root_path.mkdir(mode=0o700)
             elif replacement == 'content':
+                # Same size: only timestamps can show this, and ext4's tick is about 4 ms.
+                time.sleep(0.02)
                 path.write_bytes(b'different')
             elif replacement == 'hardlink':
                 os.link(path,parent/'alias')
