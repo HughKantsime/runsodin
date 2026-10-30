@@ -31,8 +31,10 @@ def test_design_token_source_reproduces_tracked_accessible_css(tmp_path: Path) -
 
     tokens = json.loads((ROOT / "design" / "tokens.json").read_text(encoding="utf-8"))
     assert tokens["brand"]["onPrimary"] == "#0B0D11"
-    assert tokens["text"]["dark"]["muted"] == "#9099AA"
+    # 2.0.35 readable defaults: >= 4.5:1 on card, content and input surfaces.
+    assert tokens["text"]["dark"]["secondary"] == "#bcb7aa"
+    assert tokens["text"]["dark"]["muted"] == "#a8a294"
     assert tokens["modes"]["highContrast"]["brand"]["onPrimary"] == "#080A0E"
     assert tokens["modes"]["highContrast"]["text"]["muted"] == "#AAB4C8"
     assert tokens["modes"]["light"]["brand"]["onPrimary"] == "#FFFFFF"
-    assert tokens["modes"]["light"]["text"]["muted"] == "#607086"
+    assert tokens["modes"]["light"]["text"]["muted"] == "#5E6E84"
