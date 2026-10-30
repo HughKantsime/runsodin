@@ -15,7 +15,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 sudo apt-get update -q
 sudo apt-get install -yq ca-certificates curl gnupg software-properties-common git git-lfs make \
-  build-essential jq unzip xz-utils mosquitto qemu-guest-agent sqlite3 libpq-dev pkg-config
+  build-essential jq unzip xz-utils mosquitto qemu-guest-agent sqlite3 libpq-dev pkg-config shellcheck
 sudo systemctl enable --now qemu-guest-agent
 # The validation suite starts its own broker; the packaged service must not hold :1883.
 sudo systemctl disable --now mosquitto

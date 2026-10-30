@@ -47,6 +47,7 @@ jobs:
           command -v gitleaks >/dev/null || { echo "Required tool missing from PATH: gitleaks" >&2; exit 1; }
           command -v semgrep >/dev/null || { echo "Required tool missing from PATH: semgrep" >&2; exit 1; }
           command -v hadolint >/dev/null || { echo "Required tool missing from PATH: hadolint" >&2; exit 1; }
+          command -v shellcheck >/dev/null || { echo "Required tool missing from PATH: shellcheck" >&2; exit 1; }
           python3.11 -P -c 'import sys; sys.version_info[:2] == (3, 11) or sys.exit("Python 3.11 is required")'
           test "$(node --version)" = v25.9.0 || { echo "Node 25.9.0 is required" >&2; exit 1; }
           npm_version="$(npm --version)"
