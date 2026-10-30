@@ -86,6 +86,7 @@ class PrinterMonitor:
         self._camera_discovered: bool = False
         self._lock = Lock()
         self._status_received = Event()
+        self._recovery_pending = False
         self._pending_running_state = None
         self._pending_hms_terminal = None
         self._connection_generation = 0
@@ -205,6 +206,11 @@ class PrinterMonitor:
 
     def _reconcile_running_rows(self):
         """Caller holds self._lock (not reentrant; the status callback holds it too)."""
+        # No report yet says nothing about the printer: every row stays until one does.
+        if not self._state.get('gcode_state'):
+            self._recovery_pending = True
+            return
+        self._recovery_pending = False
         ended_state = self._recover_rows()
         if ended_state is None:
             return
@@ -373,6 +379,8 @@ class PrinterMonitor:
                 for item in recovered_events:enqueue(item)
         except Exception as e:
             log.error(f"[{self.name}] Orphaned job recovery failed: {e}")
+            # Rows are unchanged, and recovery would not otherwise run again this connect.
+            self._recovery_pending = True
         return None
 
     def _begin_connection(self):

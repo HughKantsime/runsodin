@@ -181,6 +181,119 @@ def test_failed_end_does_not_fail_connect(running_bambu, monkeypatch):
 
 
 @pytest.fixture
+def manual_bambu(review_db, tmp_path, monkeypatch):
+    """An unreserved print ODIN saw start and fuzzy-linked to job 53; no dispatch claim exists."""
+    from contextlib import contextmanager
+    from core import event_bus, events, job_timeline
+    from core.db_utils import _ConnectionAdapter
+    from modules.archives import archive
+    from modules.notifications import alert_dispatch, event_dispatcher
+    from modules.printers.monitors import mqtt_job_lifecycle, mqtt_printer
+    from tests.test_contracts.test_dispatch_real_monitor_correlation import configure_dispatch
+    engine, _ = configure_dispatch(review_db, tmp_path, monkeypatch, protocol='bambu')
+
+    @contextmanager
+    def database():
+        raw = engine.raw_connection()
+        try:
+            yield _ConnectionAdapter(raw, False)
+        finally:
+            raw.close()
+
+    monkeypatch.setattr(mqtt_job_lifecycle, 'get_db', database)
+    monkeypatch.setattr(mqtt_printer, 'get_db', database)
+    seen = SimpleNamespace(alerts=[], timeline=[], archive=[], completed=[], care=[])
+    event_bus.get_event_bus().subscribe(events.JOB_COMPLETED, lambda event: seen.completed.append(event))
+    monkeypatch.setattr(alert_dispatch, 'dispatch_alert', lambda **kw: seen.alerts.append(kw['alert_type']))
+    monkeypatch.setattr(job_timeline, 'enqueue', lambda item: seen.timeline.append(item['kind']))
+    monkeypatch.setattr(alert_dispatch, '_start_bed_cooled_monitor', lambda *a: None)
+    monkeypatch.setattr(event_dispatcher, 'increment_care_counters', lambda *a: seen.care.append(a))
+    monkeypatch.setattr(archive, 'create_print_archive', lambda **kw: seen.archive.append(kw))
+
+    def monitor():
+        result = mqtt_printer.PrinterMonitor(59, 'Synthetic', '127.0.0.1', 'SYNTHETICPRINTER', 'synthetic')
+        result._state = {}
+        result._status_received.set()
+        result._dispatch_alert = lambda **kw: None
+        result._trigger_reschedule = lambda: None
+        result._last_heartbeat = result._last_progress_update = result._last_spool_check = time.time()
+        result._camera_discovered = True
+        return result
+
+    first = monitor()
+    first._state = {'gcode_state': 'RUNNING', 'subtask_name': 'Owned dispatch test', 'gcode_file': 'manual.gcode'}
+    assert first._job_started()
+    assert first._linked_job_id == 53
+    return SimpleNamespace(engine=engine, monitor=monitor, identifier=first._current_job_id, seen=seen, name='Owned dispatch test')
+
+
+def manual_rows(case):
+    with case.engine.connect() as conn:
+        rows = conn.execute(text('SELECT id,status,scheduled_job_id FROM print_jobs ORDER BY id')).mappings().all()
+        job = conn.execute(text('SELECT status FROM jobs WHERE id=53')).scalar_one()
+    return [dict(row) for row in rows], job
+
+
+# ---------------------------------------------------------------- gap 6: no status yet
+def test_no_status_after_the_wait_leaves_a_live_print_alone(manual_bambu):
+    case = manual_bambu
+    monitor = case.monitor()
+    monitor._recover_orphaned_jobs()
+    assert manual_rows(case)[0][0]['status'] == 'running'
+    assert monitor._current_job_id is None
+    # A report without a state is still no evidence.
+    packet(monitor, nozzle_temper=200)
+    assert manual_rows(case)[0][0]['status'] == 'running'
+    assert monitor._recovery_pending
+    # The print was live all along: the same row is tracked, nothing is added.
+    packet(monitor, gcode_state='RUNNING', subtask_name=case.name)
+    rows, job = manual_rows(case)
+    assert [row['status'] for row in rows] == ['running'] and job == 'printing'
+    assert monitor._current_job_id == case.identifier
+    assert not monitor._recovery_pending
+
+
+def test_deferred_recovery_runs_once_and_keeps_the_idle_outcome(manual_bambu, monkeypatch):
+    case = manual_bambu
+    monitor = case.monitor()
+    monitor._recover_orphaned_jobs()
+    runs = []
+    recover = monitor._recover_rows
+    monkeypatch.setattr(monitor, '_recover_rows', lambda: runs.append(True) or recover())
+    packet(monitor, gcode_state='IDLE')
+    assert manual_rows(case)[0][0]['status'] == 'completed'  # Today's outcome; Shane's open decision.
+    packet(monitor, gcode_state='IDLE')
+    packet(monitor, gcode_state='RUNNING', subtask_name='next.3mf')
+    packet(monitor, gcode_state='RUNNING', subtask_name='next.3mf')
+    assert runs == [True]
+    assert manual_rows(case)[0][-1]['status'] == 'running'
+
+
+def test_recovery_waits_for_status_before_taking_the_lock(manual_bambu, monkeypatch):
+    monitor = manual_bambu.monitor()
+    held = []
+    monkeypatch.setattr(monitor._status_received, 'wait', lambda timeout: held.append(monitor._lock.locked()))
+    monitor._recover_orphaned_jobs()
+    assert held == [False]
+
+
+def test_failed_recovery_retries_on_the_next_report(manual_bambu, monkeypatch):
+    from modules.printers.monitors import mqtt_printer
+    case = manual_bambu
+    monitor = case.monitor()
+    monitor._state['gcode_state'] = 'IDLE'
+    database = mqtt_printer.get_db
+    monkeypatch.setattr(mqtt_printer, 'get_db', lambda: (_ for _ in ()).throw(RuntimeError('synthetic')))
+    monitor._recover_orphaned_jobs()
+    assert monitor._recovery_pending
+    assert manual_rows(case)[0][0]['status'] == 'running'
+    monkeypatch.setattr(mqtt_printer, 'get_db', database)
+    packet(monitor, gcode_state='IDLE')
+    assert not monitor._recovery_pending
+    assert manual_rows(case)[0][0]['status'] == 'completed'
+
+
+@pytest.fixture
 def owned_bambu(creators, review_db, tmp_path, monkeypatch):
     """An order-owned dispatched print, so a terminal claims its durable summary and alert intent."""
     import hashlib

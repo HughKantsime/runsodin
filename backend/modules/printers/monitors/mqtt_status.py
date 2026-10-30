@@ -56,6 +56,9 @@ def handle_status(self, status, generation, runtime):
             if value is not None:
                 self._state[key] = value
         gcode_state = self._state.get('gcode_state')
+        if gcode_state and getattr(self, '_recovery_pending', False):
+            # Recovery's wait ended before any report carried a state.
+            self._reconcile_running_rows()
         tracked_before = self._current_job_id
         pending_start_before = self._pending_running_state
         self._status_received.set()
