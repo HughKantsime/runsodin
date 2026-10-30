@@ -221,7 +221,7 @@ class MoonrakerMonitor:
             ended_unwatched = (getattr(status, 'raw_print_state', None) in ('complete', 'cancelled', 'error')
                                and self._prev_state is None and not tracked and bool(status.filename))
             # Its end failed to commit: a retry still places history by the row, not by now.
-            retrying_unwatched = terminal and tracked and tracked == self._unwatched_row
+            retrying_unwatched = terminal and tracked and tracked == getattr(self, '_unwatched_row', None)
         # Network I/O (adapter timeout 5s) holds neither status lock nor DB transaction.
         from modules.printers.monitors.moonraker_history import terminal_history
         history = terminal_history(self.printer, filename, time.time()) if terminal and tracked and not retrying_unwatched else None
@@ -237,7 +237,7 @@ class MoonrakerMonitor:
 
     def _first_look_last_seen(self, conn):
         """printers.last_seen as the first look found it; this monitor's heartbeat replaces it."""
-        if self._first_look is None:
+        if getattr(self, '_first_look', None) is None:
             self._first_look = (conn.execute(text('SELECT last_seen FROM printers WHERE id=:pid'), {'pid': self.printer_id}).scalar_one_or_none(),)
         return self._first_look[0]
 
@@ -562,7 +562,7 @@ class MoonrakerMonitor:
                     try:
                         started = as_utc_datetime(pj_row[0])
                         ended = as_utc_datetime(now_utc)
-                        if not history and ended_observation_id == self._unwatched_row and getattr(status, 'total_duration', None) is not None:
+                        if not history and ended_observation_id == getattr(self, '_unwatched_row', None) and getattr(status, 'total_duration', None) is not None:
                             # It ran for total_duration, not until this poll first saw the end.
                             ended = min(ended, started + timedelta(seconds=float(status.total_duration)))
                             now_utc = ended.isoformat()
