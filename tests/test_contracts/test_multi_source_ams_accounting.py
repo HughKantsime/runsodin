@@ -19,6 +19,9 @@ def test_completion_charges_each_mapped_trays_frozen_spool(archive_case, shape):
             materials.reverse()
     if shape == 'shared':
         mapping = [1, 1]
+        # Sharing requires evidence that both sources can use the same spool.
+        for material in materials:
+            material['type'] = 'PLA'
     if shape == 'missing_grams':
         materials[1].pop('used_grams')
     if shape == 'unmapped':

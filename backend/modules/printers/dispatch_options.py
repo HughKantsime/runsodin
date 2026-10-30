@@ -64,7 +64,7 @@ def _validated_print_options(job,creds,stored_path,payload_sha256):
 
 
 def _mapping_error(job, mapping, stored_path, payload_sha256, *, derived):
-    from core.print_payload import validate_mapping
+    from core.print_payload import MappingMaterialMismatch, validate_mapping
     from fastapi import HTTPException
     # Bambu tray index 0-15, with -1 for unused file sources. AMS HT (tray
     # id 128+) is not a dispatch target; see ams_identity.
@@ -84,6 +84,8 @@ def _mapping_error(job, mapping, stored_path, payload_sha256, *, derived):
         if validated != mapping:
             return "Stored AMS mapping differs from file sources; no command was sent"
     except HTTPException as exc:
+        if isinstance(exc, MappingMaterialMismatch):
+            return f'{exc.detail} (AMS slot {exc.target_slot})'
         return str(exc.detail)
     # Finish the slot transaction before bounded source inspection.
     # Predictably unsupported source shapes must not commit admission.

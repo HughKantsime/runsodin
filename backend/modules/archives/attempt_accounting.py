@@ -307,10 +307,24 @@ def _material_plan(connection, print_job_id, printer_id, printer_org_id, slots, 
             return unresolved('incomplete_mapping')
         source_ids = sorted(by_source)
         materials = [by_source[index] for index in source_ids]
+        from core.material_identity import canonical_reported_material
+        shared_targets = {target for target in mapping if target != -1 and mapping.count(target) > 1}
+        for target in shared_targets:
+            reported = {canonical_reported_material(by_source[index].get('type'))
+                        for index in source_ids if mapping[index] == target}
+            # Reusing a tray is supported only with positive material evidence;
+            # absent labels must not turn an inconsistent plan into a deduction.
+            if None in reported or len(reported) != 1:
+                return unresolved('invalid_mapping')
         selected = []
         for index in source_ids:
             target = mapping[index]
             matches = [row for row in slots if row[0] == target + 1]
+            if target in shared_targets:
+                if len(matches) != 1:
+                    return unresolved('ambiguous_start_spool')
+                if matches[0][1] is None:
+                    return unresolved('no_bound_spool')
             if len(matches) != 1:
                 matches = [(target + 1, None, None, None, None)]
             selected.append(matches[0])

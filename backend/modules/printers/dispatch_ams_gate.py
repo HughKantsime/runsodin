@@ -165,6 +165,13 @@ def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, tar
             return refuse("snapshot_identity_mismatch", "AMS snapshot identity does not match this attempt")
         if snapshot.idle_without_error is not True:
             return refuse("printer_not_idle_or_error", f"gcode_state={getattr(snapshot, 'gcode_state', None)}; print_error={getattr(snapshot, 'print_error', None)}; active_hms_codes={getattr(snapshot, 'active_hms_codes', None)}")
+        # Preserve the single-tray refusal contract, including its actionable
+        # count/slot details, while multi-tray reads identify the missing slot.
+        if len(slots) == 1:
+            if len(snapshot.trays) != 1:
+                return refuse("tray_count", f"Selected tray count={len(snapshot.trays)}; expected=1")
+            if snapshot.trays[0].slot_number != slots[0]:
+                return refuse("tray_slot_mismatch", f"Reported slot={snapshot.trays[0].slot_number}; expected slot={slots[0]}")
         trays = {tray.slot_number: tray for tray in snapshot.trays}
         missing = set(slots) - set(trays)
         if missing:
@@ -173,12 +180,12 @@ def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, tar
             return refuse("tray_slot_mismatch", f"Reported slots={sorted(trays)}; expected slots={list(slots)}")
         for source in sources:
             tray = trays[mapping[source['source_index']] + 1]
-            if tray.material_state != 'reported' or canonical_reported_material(tray.material) is None:
+            if tray.material_state != 'reported':
                 if tray.material_state == 'explicit_empty':
                     return refuse("tray_material_unreported", f"AMS slot {tray.slot_number} is empty: load a spool and set the filament type on the printer")
                 return refuse("tray_material_unreported", f"AMS slot {tray.slot_number}: set the filament type on the printer")
             if canonical_reported_material(tray.material) != source['material']:
-                return refuse("material_mismatch", f"AMS slot {tray.slot_number}: reported material={canonical_reported_material(tray.material)}; required material={source['material']}")
+                return refuse("material_mismatch", f"Reported material={canonical_reported_material(tray.material)}; required material={canonical_reported_material(source['material'])} (AMS slot {tray.slot_number})")
             if tray.mechanically_ready is not None:
                 return refuse("tray_not_mechanically_ready", f"AMS slot {tray.slot_number}: mechanical readiness is unsupported")
             if check_bindings:

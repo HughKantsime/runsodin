@@ -192,6 +192,33 @@ def test_inconsistent_material_plan_persists_reason_without_guess(mapped_capture
  assert plan['state']=='unresolved' and plan['reason']==reason and plan['allocations']==[]
  with mapped_capture_case.connect() as conn:assert conn.execute(text('SELECT remaining_weight_g FROM spools WHERE id=7299')).scalar_one()==1000
 
+@pytest.mark.parametrize('types,identity,reason', [
+ (['PLA',' pla '], 'bound', None),
+ (['PLA','PETG'], 'bound', 'invalid_mapping'),
+ (['PLA',None], 'bound', 'invalid_mapping'),
+ (['unsupported','unsupported'], 'bound', 'invalid_mapping'),
+ (['PLA','PLA'], 'unbound', 'no_bound_spool'),
+ (['PLA','PLA'], 'ambiguous', 'ambiguous_start_spool'),
+])
+def test_shared_tray_requires_matching_material_and_start_identity(mapped_capture_case,types,identity,reason):
+ with mapped_capture_case.begin() as conn:
+  conn.execute(text("UPDATE jobs SET ams_mapping='[0,0]' WHERE id=7399"))
+  conn.execute(text('UPDATE print_files SET filaments_json=:materials WHERE id=7399'),
+               {'materials':json.dumps([{'slot':i,'type':material,'used_grams':grams}
+                                       for i,(material,grams) in enumerate(zip(types,[20,60]))])})
+  if identity=='unbound':
+   conn.execute(text('UPDATE filament_slots SET assigned_spool_id=NULL WHERE printer_id=9 AND slot_number=1'))
+  elif identity=='ambiguous':
+   conn.execute(text('UPDATE filament_slots SET slot_number=1 WHERE printer_id=9 AND slot_number=2'))
+  assert capture(conn)
+ plan=snapshot(mapped_capture_case)['material_plan']
+ assert plan['reason']==reason
+ if reason is None:
+  assert plan['state']=='complete'
+  assert [(x['spool_id'],x['estimated_grams']) for x in plan['allocations']]==[(7299,20),(7299,60)]
+ else:
+  assert plan['state']=='unresolved' and plan['allocations']==[]
+
 @pytest.mark.parametrize('inserted_org', [None, 1, 2])
 def test_spool_inserted_between_reads_cannot_bless_missing_start_identity(mapped_capture_case,monkeypatch,inserted_org):
  # Spec §3 requires actual tray evidence; retain the missing-spool assertion.

@@ -4,6 +4,14 @@ import zipfile
 from fastapi import HTTPException
 
 
+class MappingMaterialMismatch(HTTPException):
+    """Keep the API detail stable while retaining the tray for dispatch diagnostics."""
+
+    def __init__(self, target_slot):
+        super().__init__(400, 'Selected tray material does not match the source filament')
+        self.target_slot = target_slot
+
+
 def bambu_plate_numbers(path: str) -> list:
     """The stored package's Metadata/plate_N.gcode numbers, from one bounded open.
 
@@ -100,6 +108,6 @@ def validate_mapping(mapping, filaments_json, slots, api_type):
         source_material = canonical_reported_material(by_id[source].get('type'))
         target_material = canonical_reported_material(slots[target])
         if source_material is None or target_material is None or source_material != target_material:
-            raise HTTPException(400, f'AMS slot {target}: selected tray material does not match source filament {source}')
+            raise MappingMaterialMismatch(target)
         result[source - 1] = target - 1
     return result

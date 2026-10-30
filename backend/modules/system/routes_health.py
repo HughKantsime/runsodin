@@ -3,7 +3,6 @@
 import json
 import logging
 import os
-import pathlib as _pathlib
 from typing import Optional
 
 import httpx
@@ -31,14 +30,9 @@ from license_manager import (
 log = logging.getLogger("odin.api")
 router = APIRouter()
 
-_version_file = _pathlib.Path(__file__).parent.parent.parent.parent / "VERSION"
-if _version_file.exists():
-    __version__ = _version_file.read_text().strip()
-else:
-    try:
-        from main import __version__  # noqa: F811
-    except ImportError:
-        __version__ = "0.0.0"
+from modules.system.health_version import backend_version
+
+__version__ = backend_version()
 
 
 # ============== Health Check ==============
