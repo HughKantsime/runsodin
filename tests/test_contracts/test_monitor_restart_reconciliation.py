@@ -956,6 +956,24 @@ def test_moonraker_end_lost_to_a_transient_error_retries_and_the_next_print_is_n
     assert monitor._current_job_db_id not in (None, identifier)
 
 
+def test_moonraker_retried_end_still_places_old_history_by_its_row(moonraker, monkeypatch):
+    # Ended two hours before the first look: a retry on the live +/-300 s would lose the truth.
+    from modules.printers.monitors import moonraker_monitor as module
+    case = moonraker
+    identifier = case.row(started=3 * 3600)
+    end = time.time() - 2 * 3600
+    monitor = case.monitor(history=[dict(filename='part.gcode', status='cancelled', start_time=time.time() - 3 * 3600, end_time=end, print_duration=3500)])
+    prepare = module.prepare_print_job_write
+    monkeypatch.setattr(module, 'prepare_print_job_write', lambda *a: (_ for _ in ()).throw(RuntimeError('synthetic contention')))
+    status = moonraker_status('complete', total=3600)
+    monitor._process_status(status)
+    assert case.state(identifier)[0] == 'running'
+    monkeypatch.setattr(module, 'prepare_print_job_write', prepare)
+    monitor._process_status(status)
+    state, ended = case.state(identifier)
+    assert state == 'cancelled' and as_utc_datetime(ended) == datetime.fromtimestamp(end, timezone.utc)
+
+
 def test_moonraker_live_end_lost_to_a_transient_error_retries_too(moonraker, monkeypatch):
     from modules.printers.monitors import moonraker_monitor as module
     case = moonraker
