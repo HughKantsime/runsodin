@@ -1406,11 +1406,11 @@
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
-      "source": "printer = execute(connection, 'SELECT api_type,slot_count FROM printers WHERE id=?', (printer_id,)).fetchone()"
+      "source": "printer = execute(connection, 'SELECT api_type,slot_count,model,machine_type FROM printers WHERE id=?', (printer_id,)).fetchone()"
     },
     {
       "classification": "dialect-neutral",
-      "line": 367,
+      "line": 369,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1418,7 +1418,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 416,
+      "line": 418,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1426,7 +1426,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 431,
+      "line": 433,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1434,7 +1434,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 439,
+      "line": 441,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1442,7 +1442,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 448,
+      "line": 450,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1450,7 +1450,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 463,
+      "line": 465,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1458,7 +1458,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 526,
+      "line": 528,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1466,7 +1466,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 530,
+      "line": 532,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1474,7 +1474,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 558,
+      "line": 560,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1482,7 +1482,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 565,
+      "line": 567,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
