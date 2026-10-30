@@ -38,7 +38,7 @@ permissions: {}
 jobs:
   eligibility:
     name: Authenticate promotion eligibility
-    runs-on: [self-hosted, mac-mini-runner, m4]
+    runs-on: [self-hosted, odin-ci]
     timeout-minutes: 30
     environment: ${{ inputs.action }}
     permissions:
@@ -73,9 +73,21 @@ jobs:
           test "$CURRENT_ACTOR" = "HughKantsime"
           test "$CURRENT_ACTOR_ID" = "201174638"
           test "$CURRENT_TRIGGERING_ACTOR" = "$CURRENT_ACTOR"
-          test -x /Users/ollama/homebrew/bin/python3.11
-          test -x /opt/homebrew/bin/gh
-          printf '%s\n' /Users/ollama/homebrew/bin /opt/homebrew/bin >> "$GITHUB_PATH"
+          command -v python3.11 >/dev/null || { echo "Required tool missing from PATH: python3.11" >&2; exit 1; }
+          command -v gh >/dev/null || { echo "Required tool missing from PATH: gh" >&2; exit 1; }
+          python3.11 -P -c 'import sys; sys.version_info[:2] == (3, 11) or sys.exit("Python 3.11 is required")'
+          python3.11 -P <<'PYTHON'
+          import sys
+          import importlib.metadata
+          try:
+              import jsonschema
+              installed = importlib.metadata.version("jsonschema")
+          except (ImportError, importlib.metadata.PackageNotFoundError):
+              sys.exit("Host python3.11 must provide importable jsonschema==4.25.1; provision the runner before retrying")
+          if installed != "4.25.1":
+              sys.exit(f"Host python3.11 requires jsonschema==4.25.1; found {installed}; provision the runner before retrying")
+          PYTHON
+          gh --version | head -n 1 | grep -Eq '^gh version 2\.' || { echo "GitHub CLI 2.x is required" >&2; exit 1; }
           promotion_root="$RUNNER_TEMP/odin-promotion-${CURRENT_RUN_ID}-${CURRENT_RUN_ATTEMPT}"
           test "$promotion_root" != "/"
           case "$promotion_root" in "$RUNNER_TEMP"/odin-promotion-*) ;; *) exit 2 ;; esac

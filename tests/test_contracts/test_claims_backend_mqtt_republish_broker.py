@@ -28,9 +28,9 @@ def _free_port():
 
 @pytest.fixture
 def broker(tmp_path):
-    binary = shutil.which('mosquitto') or '/Users/ollama/homebrew/sbin/mosquitto'
-    if not Path(binary).exists():
-        pytest.skip('mosquitto unavailable')
+    binary = shutil.which('mosquitto')
+    if binary is None:
+        pytest.fail('mosquitto is required on PATH for the live broker contract')
     port = _free_port()
     conf = tmp_path / 'mosquitto.conf'
     conf.write_text(f'listener {port} 127.0.0.1\nallow_anonymous true\npersistence false\n')

@@ -63,7 +63,7 @@ detect_environment() {
         # Auto-detect based on hostname or IP
         local hostname
         hostname=$(hostname)
-        if [[ "$(uname)" == "Darwin" ]]; then
+        if [[ "$(uname)" == "Darwin" ]] || [[ "$hostname" == "odin-ci" ]]; then
             ENV_MODE="local"
         elif [[ "$hostname" == *"sandbox"* ]] || ip addr show 2>/dev/null | grep -q "70\.200"; then
             ENV_MODE="sandbox"

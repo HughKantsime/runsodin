@@ -1,7 +1,6 @@
 self-hosted-runner:
   labels:
-    - mac-mini-runner
-    - m4
+    - odin-ci
 
 config-variables: null
 
