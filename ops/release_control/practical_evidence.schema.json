@@ -4,6 +4,24 @@
   "additionalProperties": false,
   "required": ["schema_version", "status", "run_id", "generated_at", "source_commit", "candidate_ref", "aggregate", "source_identities", "components", "files"],
   "properties": {
+    "api_load_host": {
+      "type": "object", "additionalProperties": false,
+      "required": ["host_class", "latency_limits", "host_identity", "result_sha256"],
+      "properties": {
+        "host_class": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"},
+        "latency_limits": {
+          "type": "object", "additionalProperties": false,
+          "required": ["read_p95_ms", "write_p95_ms", "global_p99_ms"],
+          "properties": {
+            "read_p95_ms": {"type": "number", "exclusiveMinimum": 0},
+            "write_p95_ms": {"type": "number", "exclusiveMinimum": 0},
+            "global_p99_ms": {"type": "number", "exclusiveMinimum": 0}
+          }
+        },
+        "host_identity": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "string"}},
+        "result_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
     "security_exception": {
       "type": "object", "additionalProperties": false,
       "required": ["advisory", "expires_at", "raw_audit_sha256", "policy_sha256", "decision_sha256"],
