@@ -8,7 +8,9 @@ import math
 import re
 import threading
 import time
+from contextlib import nullcontext
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -131,18 +133,39 @@ def _fetch_payload(url: str, deadline: float) -> tuple[bool, dict[str, dict[str,
     """
     endpoint = f"{url}/api/filament-display"
     try:
-        with pinned_device_destination(endpoint) as ips:
+        parsed = urlsplit(url)
+        socket_path = None
+        if parsed.scheme == "unix":
+            # Use a literal path; never decode or normalize a socket target.
+            if (
+                not url.startswith("unix:///") or parsed.netloc
+                or "?" in url or "#" in url
+                or any(part in {"", ".", ".."} for part in parsed.path.split("/")[1:])
+                or any(ord(char) < 33 or ord(char) == 127 for char in url)
+                or "%" in parsed.path or "\\" in parsed.path
+            ):
+                raise ValueError("display socket must be an absolute local path")
+            socket_path = parsed.path
+            endpoint = "http://localhost/api/filament-display"
+        destination = nullcontext(None) if socket_path else pinned_device_destination(endpoint)
+        with destination as ips:
             # Validate the exact addresses the connection will use.
-            if not ips or not all(is_private_destination(ip) for ip in ips):
+            if socket_path is None and (not ips or not all(is_private_destination(ip) for ip in ips)):
                 raise ValueError("display destination must be private")
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise TimeoutError
+            transport = {}
+            if socket_path is not None:
+                transport["transport"] = httpx.HTTPTransport(
+                    uds=socket_path, retries=0, trust_env=False,
+                )
             with httpx.Client(
                 timeout=httpx.Timeout(remaining),
                 follow_redirects=False,
                 trust_env=False,
                 headers={"Accept-Encoding": "identity"},
+                **transport,
             ) as client:
                 with client.stream("GET", endpoint) as response:
                     if response.status_code != 200:
@@ -231,7 +254,9 @@ def _fetch_printers() -> tuple[bool, dict[str, dict[str, Any]]]:
     provider.
     """
     global _refreshing_url
-    url = (getattr(settings, "filament_ledger_url", None) or "").strip().rstrip("/")
+    url = (getattr(settings, "filament_ledger_url", None) or "").strip()
+    if not url.lower().startswith("unix:"):
+        url = url.rstrip("/")
     if not url:
         return False, {}
 

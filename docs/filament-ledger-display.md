@@ -110,6 +110,21 @@ payloads, oversized responses, timeouts and provider outages produce a visible
 warning while preserving the printer list. The adapter does not expose provider
 error bodies.
 
+## Local Unix socket transport
+
+Set `FILAMENT_LEDGER_URL=unix:///absolute/path/feed.sock` to read the feed
+from a local Unix socket. Odin sends only `GET /api/filament-display` over HTTP
+on that socket, with no TCP or DNS fallback. It disables environment proxies
+and redirects. The same refresh deadline, 512 KiB response limit, cache and
+ownership rules apply.
+
+Use a literal absolute socket path. Authorities, query strings, fragments,
+percent escapes, whitespace, backslashes, empty path segments and `.` or `..`
+segments are rejected. Mount the socket directory into the Odin container and
+grant its process permission to connect. A read-only mount prevents filesystem
+changes but does not restrict requests over the socket. The trusted provider
+should expose only the read-only display route.
+
 ## Verification
 
 Backend checks use the shared contract database fixture and a synthetic provider;

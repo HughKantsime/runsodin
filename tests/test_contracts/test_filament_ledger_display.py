@@ -1,8 +1,8 @@
 """Contract tests for the opt-in read-only external filament display.
 
 Uses the shared contract database fixture; no ODIN_TEST_BACKEND, live printer,
-provider or login is required. The display HTTP client is replaced in-process
-and every request is refused before outbound I/O.
+provider or login is required. HTTP tests replace the display client in-process;
+Unix transport tests use only temporary local sockets.
 """
 
 from __future__ import annotations
@@ -734,3 +734,81 @@ def test_timed_out_dns_does_not_accumulate_transport_workers(fake, monkeypatch):
         gate.set()
         assert ledger_display._transport_lock.acquire(timeout=2)
         ledger_display._transport_lock.release()
+
+
+@pytest.mark.parametrize("url", [
+    "unix://host/run/feed.sock", "unix:///run/../feed.sock",
+    "unix:///run/feed.sock?query=1", "unix:///run/feed.sock#fragment", "unix:",
+    "unix:/run/feed.sock", "unix:////run/feed.sock", "unix:///",
+    "unix:///run/./feed.sock", "unix:///run//feed.sock", "unix:///run/feed.sock/",
+    "unix:///run/%2e%2e/feed.sock", "unix:///run/feed.sock?", "unix:///run/feed.sock#",
+    "unix:///run/feed\x00.sock", "unix:///run/feed\n.sock", "unix:///run/feed sock",
+    "unix:///run/feed\\sock", "UNIX:///run/feed.sock",
+])
+def test_invalid_socket_destination_cannot_fall_back_to_network(fake, url):
+    assert ledger_display._fetch_payload(url, time.monotonic() + 1) == (False, {})
+    assert fake.calls == []
+
+
+def test_unix_socket_transport_uses_only_local_feed(fake, monkeypatch):
+    calls = []
+    transport = object()
+    monkeypatch.setattr(ledger_display.httpx, "HTTPTransport", lambda **kw: calls.append(kw) or transport)
+
+    def no_dns(_endpoint):
+        raise AssertionError("Unix socket must not resolve a TCP destination")
+    monkeypatch.setattr(ledger_display, "pinned_device_destination", no_dns)
+    assert ledger_display._fetch_payload("unix:///run/odin-ledger/feed.sock", time.monotonic() + 1)[0]
+    assert calls == [{"uds": "/run/odin-ledger/feed.sock", "retries": 0, "trust_env": False}]
+    assert fake.calls == [("GET", "http://localhost/api/filament-display")]
+    assert fake.init_kwargs["transport"] is transport
+    assert fake.init_kwargs["follow_redirects"] is False
+    assert fake.init_kwargs["trust_env"] is False
+
+
+def test_real_unix_socket_round_trip(tmp_path):
+    import socketserver
+    from http.server import BaseHTTPRequestHandler
+
+    socket_path = str(tmp_path / "feed.sock")
+    seen = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            seen.append(self.path)
+            body = json.dumps(ledger_payload()).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    with socketserver.UnixStreamServer(socket_path, Handler) as server:
+        worker = threading.Thread(target=server.handle_request, daemon=True)
+        worker.start()
+        available, payload = ledger_display._fetch_payload("unix://" + socket_path, time.monotonic() + 2)
+        worker.join(timeout=2)
+    assert available and "u1" in payload
+    assert seen == ["/api/filament-display"]
+
+
+def test_missing_unix_socket_is_unavailable_without_dns(tmp_path, monkeypatch):
+    dns_calls = []
+
+    def no_dns(endpoint):
+        dns_calls.append(endpoint)
+        raise AssertionError("Unix socket must not resolve a TCP destination")
+
+    monkeypatch.setattr(ledger_display, "pinned_device_destination", no_dns)
+    assert ledger_display._fetch_within_deadline(
+        "unix://" + str(tmp_path / "missing.sock")
+    ) == (False, {})
+    assert dns_calls == []
+
+
+def test_unix_socket_trailing_slash_is_not_normalized_away(fake, monkeypatch):
+    monkeypatch.setattr(settings, "filament_ledger_url", "unix:///run/feed.sock/")
+    assert refresh_and_wait() == (False, {})
+    assert fake.calls == []
