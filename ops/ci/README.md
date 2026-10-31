@@ -82,6 +82,16 @@ gh variable set ODIN_RUNNER_HOOK_REQUIRED --body true --repo HughKantsime/runsod
 
 The check only sees odin-ci. No workflow checks the Mac's hook yet.
 
+### Changing the hook
+
+The step after checkout compares the installed hook with the candidate's `ops/ci/runner-job-started-hook.sh`, byte for byte. A candidate that changes the hook therefore fails validation until the new copy is installed, so the order is:
+
+1. Wait until no job is running on odin-ci.
+2. From a checkout of that candidate, run `ops/ci/install-runner-hook.sh`.
+3. Dispatch validation for that candidate.
+
+Until that candidate reaches main, any other candidate fails the same comparison, because it still carries the old hook. Rolling back to a candidate with an older hook needs the older copy installed the same way. A candidate from before the hook existed has no file to compare, so it fails too.
+
 ### Remove what eligibility left on the running VM
 
 Provisioning no longer installs `gh` or a user-site jsonschema, but the running VM still has both. On odin-ci, as `odin`:

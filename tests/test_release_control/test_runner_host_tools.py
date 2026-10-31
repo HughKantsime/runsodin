@@ -1,6 +1,7 @@
 """The runner host scripts under ops/ci, always behind stub tools: nothing here touches a real
 runner, service or firewall, and the only processes killed are ones these tests start."""
 import json
+import os
 import re
 import shutil
 import stat
@@ -175,6 +176,60 @@ def test_every_refusal_kills_the_worker_so_always_steps_cant_run(tmp_path, stubs
     assert 'killing Runner.Worker' in result.stderr
 
 
+def test_closed_stderr_cant_stop_the_kill(tmp_path, stubs):
+    """Under set -e, a failing echo before the kill would end the script with the job still running."""
+    _stub(stubs, 'ps', f'echo "{LINUX_WORKER}"')
+    survived = tmp_path / 'parent-survived'
+    result = subprocess.run(['/bin/bash', '-c', f'/bin/bash -e {HOOK} 2>&-; echo "$?" > {survived}'],
+                            env=_hook_values(tmp_path, stubs, GITHUB_EVENT_NAME='push'),
+                            capture_output=True, text=True, timeout=30)
+    assert result.returncode == -9, result.stderr
+    assert not survived.exists()
+
+
+def test_broken_stderr_cant_stop_the_kill(tmp_path, stubs):
+    """A pipe nobody reads raises SIGPIPE on the first echo, which would end the script outright."""
+    _stub(stubs, 'ps', f'echo "{LINUX_WORKER}"')
+    survived = tmp_path / 'parent-survived'
+    reader, writer = os.pipe()
+    os.close(reader)
+    try:
+        result = subprocess.run(['/bin/bash', '-c', f'/bin/bash -e {HOOK}; echo "$?" > {survived}'],
+                                env=_hook_values(tmp_path, stubs, GITHUB_EVENT_NAME='push'),
+                                stdout=subprocess.DEVNULL, stderr=writer, timeout=30)
+    finally:
+        os.close(writer)
+    assert result.returncode == -9
+    assert not survived.exists()
+    assert 'killing Runner.Worker' in (tmp_path / '.odin-runner-job-hook.log').read_text()
+
+
+def test_fifo_at_the_log_path_cant_stop_the_kill(tmp_path, stubs):
+    """Opening a FIFO nobody reads blocks for good, and the kill comes after the record."""
+    log = tmp_path / '.odin-runner-job-hook.log'
+    os.mkfifo(log)
+    result, survived = _under_parent(tmp_path, stubs, LINUX_WORKER, GITHUB_EVENT_NAME='push')
+    assert result.returncode == -9, result.stderr
+    assert not survived.exists()
+    assert stat.S_ISFIFO(log.stat().st_mode)
+
+
+def test_directory_at_the_log_path_cant_stop_the_kill(tmp_path, stubs):
+    (tmp_path / '.odin-runner-job-hook.log').mkdir()
+    result, survived = _under_parent(tmp_path, stubs, LINUX_WORKER, GITHUB_EVENT_NAME='push')
+    assert result.returncode == -9, result.stderr
+    assert not survived.exists()
+
+
+def test_an_existing_log_file_is_appended_to(tmp_path, stubs):
+    log = tmp_path / '.odin-runner-job-hook.log'
+    log.write_text('an earlier refusal\n')
+    result, _ = _under_parent(tmp_path, stubs, LINUX_WORKER, GITHUB_EVENT_NAME='push')
+    assert result.returncode == -9, result.stderr
+    lines = log.read_text().splitlines()
+    assert lines[0] == 'an earlier refusal' and 'event=push' in lines[1]
+
+
 def test_missing_jq_kills_the_worker(tmp_path, stubs):
     # Only the stubs on PATH, so the check itself can't run. The stub ps needs nothing else.
     result, survived = _under_parent(tmp_path, stubs, LINUX_WORKER, PATH=str(stubs))
@@ -316,6 +371,15 @@ def test_readme_lists_the_commands_that_clean_the_running_vm():
         assert command in readme
 
 
+def test_readme_cleanup_check_allows_for_ubuntus_own_jsonschema():
+    """python3-jsonschema is a cloud-init dependency, so the import still resolves after the cleanup."""
+    readme = (CI / 'README.md').read_text()
+    section = readme[readme.index('### Remove what eligibility left'):readme.index('## Egress to production')]
+    assert "`python3.11 -c 'import jsonschema'` fails" not in section
+    assert "print(jsonschema.__file__)" in section and '~/.local' in section
+    assert 'python3-jsonschema' in section and '/usr/lib/python3/dist-packages' in section
+
+
 if sys.platform == 'linux':  # macOS kills copied system interpreters, and a skip would fail the gate there
     def test_refusal_kills_a_real_process_named_runner_worker(tmp_path, stubs):
         worker = tmp_path / 'Runner.Worker'
@@ -421,7 +485,8 @@ def test_tools_provisioning_replaces_an_old_tmpdir_and_restarts_after_a_change()
 
 
 def test_provisioning_drops_what_only_eligibility_needed():
-    """Eligibility runs on the Mac now, so odin-ci keeps no gh and no host jsonschema."""
+    """Eligibility runs on the Mac now, so provisioning adds no gh and no user-site jsonschema.
+    Ubuntu's own python3-jsonschema stays, as a cloud-init dependency nothing here imports."""
     for script in ('provision-odin-ci.sh', 'provision-odin-ci-tools.sh'):
         source = (CI / script).read_text()
         assert not re.search(r'\bjsonschema\b|\bcli/cli\b|\bgh_\$|\bgh --version|--break-system-packages|ensurepip', source)

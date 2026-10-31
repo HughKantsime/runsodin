@@ -11,6 +11,8 @@
 # The kill also stops the runner uploading this step's log, so each refusal is first appended
 # to ~/.odin-runner-job-hook.log on this host. Bash 3.2 compatible.
 set -euo pipefail
+# Nothing this script prints or records may stop it before the kill, so a broken stderr can't either.
+trap '' PIPE
 OWNER=HughKantsime
 OWNER_ID=201174638
 REPOSITORY=HughKantsime/runsodin
@@ -18,12 +20,15 @@ REPOSITORY_ID=1143865575
 passed=0
 why="the hook stopped before its checks finished"
 
-# Best effort: a log that can't be written must never save a job from the kill.
+# Best effort: a log that can't be written must never save a job from the kill. Anything at
+# this path but a regular file is skipped, because opening a FIFO would block here for good.
 record() {
+  local log="${HOME:-/nonexistent}/.odin-runner-job-hook.log"
+  if [ -e "$log" ] && [ ! -f "$log" ]; then return 0; fi
   {
     printf '%s run=%s event=%s actor=%s repository=%s why=[%s] action=[%s]\n' \
       "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)" "${GITHUB_RUN_ID:-unset}" "${GITHUB_EVENT_NAME:-unset}" \
-      "${GITHUB_ACTOR:-unset}" "${GITHUB_REPOSITORY:-unset}" "$why" "$1" >> "${HOME:-/nonexistent}/.odin-runner-job-hook.log"
+      "${GITHUB_ACTOR:-unset}" "${GITHUB_REPOSITORY:-unset}" "$why" "$1" >> "$log"
   } 2>/dev/null || true
 }
 
@@ -35,18 +40,18 @@ stop_job() {
   case "$parent" in
     Runner.Worker|*/Runner.Worker)
       record "killing Runner.Worker $PPID"
-      echo "runner job hook: killing Runner.Worker $PPID so no later step runs" >&2
+      echo "runner job hook: killing Runner.Worker $PPID so no later step runs" >&2 || true
       kill -KILL "$PPID"
       ;;
     *)
       record "parent ${parent:-unknown} kept running"
-      echo "runner job hook: parent ${parent:-unknown} is not Runner.Worker, so it keeps running" >&2
+      echo "runner job hook: parent ${parent:-unknown} is not Runner.Worker, so it keeps running" >&2 || true
       ;;
   esac
 }
 trap stop_job EXIT
 
-refuse() { why="$*"; echo "runner job hook refuses this job: $*" >&2; exit 1; }
+refuse() { why="$*"; echo "runner job hook refuses this job: $*" >&2 || true; exit 1; }
 
 [ "${GITHUB_EVENT_NAME:-}" = workflow_dispatch ] || refuse "event ${GITHUB_EVENT_NAME:-unset} is not workflow_dispatch"
 [ "${GITHUB_REPOSITORY:-}" = "$REPOSITORY" ] || refuse "repository ${GITHUB_REPOSITORY:-unset} is not $REPOSITORY"
