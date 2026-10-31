@@ -3,8 +3,9 @@
 // tests/test_contracts/test_cert_B_archive_fixes.py::test_ams_preview_for_printer_with_slots_maps_distinct_trays.
 import { render, screen, cleanup, fireEvent, within, waitFor } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
-import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi, describe } from 'vitest'
 import wire from '../../test-fixtures/cert-B-wire.json'
+import s1Preview from '../../test-fixtures/s1-gcode-preview-wire.json'
 import ArchivesPage from './Archives'
 
 const state = vi.hoisted(() => ({ items: [] as any[], previewArgs: [] as any[], reprint: vi.fn() }))
@@ -16,7 +17,7 @@ vi.mock('@tanstack/react-query', () => ({
       state.previewArgs.push(queryKey.slice(1)); queryFn()
       return { data: wire.archive_ams_preview, isLoading: false, isError: false }
     }
-    if (queryKey[0] === 'printers-list') return { data: [{ id: 9, name: 'P1S-09', is_active: true, api_type: 'bambu' }, { id: 7, name: 'Voron', is_active: true, api_type: 'moonraker' }] }
+    if (queryKey[0] === 'printers-list') return { data: [{ id: 9, name: 'P1S-09', is_active: true, api_type: 'bambu' }, { id: 13, name: 'Kobra S1', is_active: true, api_type: 'moonraker', model: 'Anycubic Kobra S1' }, { id: 7, name: 'Voron', is_active: true, api_type: 'moonraker' }] }
     return { data: undefined }
   },
   useMutation: () => ({ mutate: vi.fn(), isPending: false }),
@@ -91,4 +92,36 @@ test('a complete suggested mapping is sent with the reprint for a Bambu printer'
     await waitFor(() => expect(state.reprint).toHaveBeenCalled())
     expect(state.reprint).toHaveBeenCalledWith(101, { printer_id: 9, plate_index: 0, ams_mapping: [{ source_slot: 1, target_slot: 2 }, { source_slot: 2, target_slot: 1 }] })
   } finally { (wire as any).archive_ams_preview = original }
+})
+
+describe('an S1 reprint', () => {
+  const original = wire.archive_ams_preview
+  beforeEach(() => { (wire as any).archive_ams_preview = s1Preview })
+  afterEach(() => { (wire as any).archive_ams_preview = original })
+  const openOnTheS1 = () => {
+    mount()
+    fireEvent.click(screen.getByText('Bracket'))
+    const dialog = within(screen.getByRole('dialog'))
+    fireEvent.click(dialog.getByRole('button', { name: /Reprint/ }))
+    fireEvent.change(dialog.getByRole('combobox'), { target: { value: '13' } })
+    return dialog
+  }
+
+  test('sends no material-only suggestion unconfirmed', async () => {
+    const dialog = openOnTheS1()
+    expect(dialog.getByLabelText('Use this mapping')).not.toBeChecked()
+    fireEvent.click(dialog.getAllByRole('button', { name: 'Reprint' }).slice(-1)[0])
+    await waitFor(() => expect(state.reprint).toHaveBeenCalledTimes(1))
+    expect(state.reprint).toHaveBeenCalledWith(101, { printer_id: 13, plate_index: 0 })
+  })
+
+  test('sends the slots someone picked', async () => {
+    const dialog = openOnTheS1()
+    fireEvent.change(dialog.getByLabelText('Filament 1 AMS slot'), { target: { value: '2' } })
+    fireEvent.change(dialog.getByLabelText('Filament 2 AMS slot'), { target: { value: '3' } })
+    expect(dialog.getByLabelText('Use this mapping')).toBeChecked()
+    fireEvent.click(dialog.getAllByRole('button', { name: 'Reprint' }).slice(-1)[0])
+    await waitFor(() => expect(state.reprint).toHaveBeenCalledTimes(1))
+    expect(state.reprint).toHaveBeenCalledWith(101, { printer_id: 13, plate_index: 0, ams_mapping: [{ source_slot: 1, target_slot: 2 }, { source_slot: 2, target_slot: 3 }] })
+  })
 })

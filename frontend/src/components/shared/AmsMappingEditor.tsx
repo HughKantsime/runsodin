@@ -23,10 +23,11 @@ export function useAmsMapping(preview: ArchiveAmsPreview | null | undefined, con
   }
 }
 
-// Same-material slots differ only by colour, and an S1 slot's colour name is its material.
+// An S1 slot's colour name is only its material, so its hex is what tells same-material slots apart.
 function slotLabel(slot: ArchiveAmsSlot) {
   const name = slot.color && slot.color !== slot.material ? slot.color : null
-  return [name, slot.material, slot.color_hex ? `#${slot.color_hex.replace(/^#/, '')}` : null].filter(Boolean).join(' ')
+  const hex = !name && slot.color_hex ? `#${slot.color_hex.replace(/^#/, '')}` : null
+  return [name, slot.material, hex].filter(Boolean).join(' ')
 }
 
 export default function AmsMappingEditor({ preview, loading, error, mapping, enabled, valid, onChange, onEnabledChange }: {

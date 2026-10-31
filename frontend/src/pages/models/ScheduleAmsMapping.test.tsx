@@ -1,7 +1,9 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { ScheduleModal } from './Models'
+import { useAmsMapping } from '../../components/shared/AmsMappingEditor'
+import type { ArchiveAmsPreview } from '../../types/archive'
 import wire from '../../test-fixtures/schedule-ams-wire.json'
 import s1GcodePreview from '../../test-fixtures/s1-gcode-preview-wire.json'
 
@@ -111,4 +113,25 @@ test('an S1 file that cannot be mapped says why and still allows a job without a
   expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Create Job' }))
   expect(api.confirm.mock.calls[0][1]).not.toHaveProperty('ams_mapping')
+})
+
+test('picking slots turns a mapping on only where a suggestion was held back for confirmation', () => {
+  const slots = s1GcodePreview.available
+  const required = [{ slot: 1, color: '#00AE42', material: 'PLA' }]
+  const pick = [{ source_slot: 1, target_slot: 2 }]
+  const bambu = renderHook(() => useAmsMapping({ required, available: slots, suggested_mapping: [] }, 'bambu'))
+  expect(bambu.result.current.enabled).toBe(false)
+  act(() => bambu.result.current.onChange(pick))
+  expect(bambu.result.current.mapping).toEqual(pick)
+  expect(bambu.result.current.enabled).toBe(false)
+  expect(bambu.result.current.value).toBeUndefined()
+  const s1 = renderHook(() => useAmsMapping({ required, available: slots, suggested_mapping: [], confirm_suggestions: true }, 's1'))
+  act(() => s1.result.current.onChange(pick))
+  expect(s1.result.current.value).toEqual(pick)
+})
+
+test('a mapping someone already saved stays on, even where a new suggestion would be held back', () => {
+  const { result } = renderHook(() => useAmsMapping(s1GcodePreview as ArchiveAmsPreview, 'job', [1, 2]))
+  expect(result.current.enabled).toBe(true)
+  expect(result.current.value).toEqual([{ source_slot: 1, target_slot: 2 }, { source_slot: 2, target_slot: 3 }])
 })

@@ -504,7 +504,9 @@ class MoonrakerMonitor:
 
                 if history:
                     duration_seconds = history['duration']
-                    if pj_row and pj_row[0] and as_utc_datetime(pj_row[0]) < as_utc_datetime(history['started_at']):
+                    # An S1's history closes a record at each pause, so a later start is only the resume.
+                    if (not getattr(getattr(self, 'printer', None), 'is_kobra_s1', False)
+                            and pj_row and pj_row[0] and as_utc_datetime(pj_row[0]) < as_utc_datetime(history['started_at'])):
                         conn.execute(text('UPDATE print_jobs SET started_at=:start WHERE id=:id'),
                                      {'start':history['started_at'], 'id':self._current_job_db_id})
 

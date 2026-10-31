@@ -508,11 +508,12 @@ def ams_preview(
         pf = accessible_preview_file(db, file_id, user)
         filaments_json = pf.filaments_json
         if printer_id:
-            # A Kobra S1 reads a gcode row's filaments from the file; other printers are unchanged.
-            from modules.printers.services import is_kobra_s1, s1_preview_filaments_json
+            # A Kobra S1 previews a reprint as it does a schedule; other printers are unchanged.
+            from modules.printers.services import is_kobra_s1
             target = db.execute(text("SELECT api_type,model,machine_type FROM printers WHERE id=:id"), {"id": printer_id}).mappings().first()
             if target and is_kobra_s1(target):
-                filaments_json = s1_preview_filaments_json(filaments_json, pf.stored_path)
+                from core.ams_mapping import preview
+                return preview(db, filaments_json, printer_id, user, stored_path=pf.stored_path)
         if filaments_json:
             try:
                 from core.print_payload import source_filaments

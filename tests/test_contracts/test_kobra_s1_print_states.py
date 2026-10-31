@@ -4,6 +4,8 @@ Moonraker's subscription reports printing, paused and a relative file name throu
 (swap capture). The raw gkapi stream reports leveling, heating, OnPause and an absolute name. Whether
 a one-shot query on a real S1 can show the raw view isn't proven, so both must behave.
 """
+import time
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -93,6 +95,62 @@ def test_a_finished_print_passing_through_standby_still_completes(s1):
     s1.device.state, s1.device.print_duration = 'standby', 803
     s1.monitor.observe()
     assert _facts(s1.engine).job == 'completed'
+
+
+def test_a_print_reporting_complete_with_no_print_time_still_completes(s1):
+    """The no-print-time rule is for landing on standby; complete is the printer's own word."""
+    _started(s1)
+    s1.device.state = 'printing'
+    s1.monitor.observe()
+    s1.device.state, s1.device.print_duration = 'complete', 0
+    s1.monitor.observe()
+    assert _facts(s1.engine).job == 'completed'
+
+
+def test_onpause_records_the_pause_and_the_resume(s1, monkeypatch):
+    from core import job_timeline
+    kinds = []
+    monkeypatch.setattr(job_timeline, 'for_printer', lambda printer_id, kind, **details: kinds.append(kind))
+    _started(s1)
+    for state in ('printing', 'OnPause', 'printing'):
+        s1.device.state = state
+        s1.monitor.observe()
+    assert kinds == ['paused', 'resumed']
+
+
+def _iso(moment):
+    return datetime.fromtimestamp(moment, timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
+
+
+def _utc(value):
+    return datetime.fromisoformat(str(value)).replace(tzinfo=timezone.utc).timestamp()
+
+
+def test_a_paused_print_keeps_its_start_when_the_s1s_history_splits_at_the_pause(s1):
+    """The swap capture: a record ends cancelled at the pause, and the one that finishes starts at the resume."""
+    _started(s1, 'moon')
+    s1.device.state = 'printing'
+    s1.monitor.observe()
+    now = time.time()
+    start, resume, end = now - 1403, now - 772, now - 5
+    with s1.engine.begin() as c:
+        c.execute(text('UPDATE print_jobs SET started_at=:at WHERE scheduled_job_id=53'), {'at': _iso(start)})
+        c.execute(text('UPDATE jobs SET actual_start=:at WHERE id=53'), {'at': _iso(start)})
+    for state in ('paused', 'printing'):
+        s1.device.state = state
+        s1.monitor.observe()
+    name = s1.device.filename
+    s1.device.jobs = [dict(filename=name, status='completed', start_time=resume, end_time=end, print_duration=803, total_duration=767),
+                      dict(filename=name, status='cancelled', start_time=start, end_time=resume, print_duration=31, total_duration=631)]
+    s1.device.state, s1.device.print_duration = 'complete', 803
+    s1.monitor.observe()
+    with s1.engine.connect() as c:
+        row = c.execute(text('SELECT status,started_at,ended_at FROM print_jobs WHERE scheduled_job_id=53')).one()
+        job_start = c.execute(text('SELECT actual_start FROM jobs WHERE id=53')).scalar_one()
+    assert row[0] == 'completed'
+    assert _utc(row[1]) == pytest.approx(start, abs=1), 'The row starts when the print did, not at the resume'
+    assert datetime.fromisoformat(str(row[2])).timestamp() == pytest.approx(end, abs=1)
+    assert _utc(job_start) == pytest.approx(start, abs=1)
 
 
 @pytest.mark.parametrize('states', [
@@ -191,3 +249,29 @@ def test_standby_ends_another_moonraker_printers_print_as_before(review_db, tmp_
     monitor._process_status(monitor.printer.get_status())
     with engine.connect() as c:
         assert c.execute(text('SELECT status FROM print_jobs WHERE id=:id'), {'id': tracked}).scalar_one() == 'completed'
+
+
+def test_another_moonraker_printers_row_still_takes_a_later_history_start(review_db, tmp_path, monkeypatch):
+    from modules.printers.adapters import moonraker
+    from modules.printers.monitors import moonraker_monitor
+    from tests.test_contracts.test_dispatch_real_monitor_correlation import configure_dispatch
+    engine, _ = configure_dispatch(review_db, tmp_path, monkeypatch)
+    device = SimpleNamespace(state='printing', jobs=[])
+    def query(self, path, timeout=5):
+        if path.startswith('/server/history'):
+            return {'result': {'jobs': device.jobs}}
+        return {'result': {'status': dict(print_stats=dict(state=device.state, filename='x.gcode', print_duration=60), webhooks=dict(state='ready'))}}
+    monkeypatch.setattr(moonraker.MoonrakerPrinter, '_get', query)
+    monkeypatch.setattr(moonraker_monitor, 'engine', engine)
+    monitor = moonraker_monitor.MoonrakerMonitor(59, 'Synthetic', '127.0.0.1', model='Voron 2.4')
+    monitor._process_status(monitor.printer.get_status())
+    tracked = monitor._current_job_db_id
+    now = time.time()
+    with engine.begin() as c:
+        c.execute(text('UPDATE print_jobs SET started_at=:at WHERE id=:id'), {'at': _iso(now - 1000), 'id': tracked})
+    device.jobs = [dict(filename='x.gcode', status='completed', start_time=now - 100, end_time=now - 5, print_duration=95, total_duration=95)]
+    device.state = 'complete'
+    monitor._process_status(monitor.printer.get_status())
+    with engine.connect() as c:
+        started = c.execute(text('SELECT started_at FROM print_jobs WHERE id=:id'), {'id': tracked}).scalar_one()
+    assert datetime.fromisoformat(str(started)).timestamp() == pytest.approx(now - 100, abs=1)

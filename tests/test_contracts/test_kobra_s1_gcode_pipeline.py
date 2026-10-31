@@ -452,10 +452,36 @@ def test_reprint_and_archive_preview_read_a_gcode_jobs_filaments_from_the_file(s
     preview = s1.client.get(f'/api/archives/{archive}/ams-preview?printer_id=59', headers=s1.auth())
     assert preview.status_code == 200, preview.text
     assert [r['material'] for r in preview.json()['required']] == ['PLA']
+    assert preview.json()['confirm_suggestions'] is True
+    assert preview.json() == s1.client.get(f"/api/print-files/{uploaded['id']}?printer_id=59", headers=s1.auth()).json()['ams_preview']
     reprint = s1.client.post(f'/api/archives/{archive}/reprint', headers=s1.auth(), json=dict(printer_id=59, ams_mapping=[{'source_slot': 1, 'target_slot': 2}]))
     assert reprint.status_code == 200, reprint.text
     with s1.engine.connect() as c:
         assert json.loads(c.execute(text('SELECT ams_mapping FROM jobs WHERE id=:id'), {'id': reprint.json()['job_id']}).scalar_one()) == [1]
+
+
+def _archive_of(s1, uploaded):
+    with s1.engine.begin() as c:
+        return c.execute(text("INSERT INTO print_archives(printer_id,print_name,status,print_file_id,org_id,ownership_state) "
+                              "VALUES(59,'earlier','completed',:file,1,'known') RETURNING id"), {'file': uploaded['id']}).scalar_one()
+
+
+def test_a_reprint_of_a_file_the_s1_cannot_map_says_why(s1):
+    _mapped_routes(s1)
+    archive = _archive_of(s1, s1.upload(ANYCUBIC, 'anycubic.gcode'))
+    body = s1.client.get(f'/api/archives/{archive}/ams-preview?printer_id=59', headers=s1.auth()).json()
+    assert body['required'] == [] and 'Bambu Studio' in body['file_note']
+
+
+def test_a_reprint_preview_on_another_printer_keeps_its_shape(s1):
+    _mapped_routes(s1)
+    archive = _archive_of(s1, s1.upload(TWO_COLOUR))
+    with s1.engine.begin() as c:
+        c.execute(text("UPDATE printers SET model='Voron 2.4' WHERE id=59"))
+        c.execute(text('UPDATE print_files SET filaments_json=:stored'), {'stored': json.dumps([dict(slot=1, type='PLA', color='#00AE42')])})
+    body = s1.client.get(f'/api/archives/{archive}/ams-preview?printer_id=59', headers=s1.auth()).json()
+    assert sorted(body) == ['available', 'required', 'suggested_mapping'], body
+    assert [r['slot'] for r in body['required']] == [1], 'Stored filaments, not the two in the file'
 
 
 # ---- Hostile or odd file facts. ----
@@ -521,7 +547,7 @@ def test_monitor_flags_reconciliation_when_the_attempt_already_holds_job_usage(s
 
 # ---- The monitor and the archive agree. ----
 
-def test_two_colour_completed_print_is_charged_once_and_its_archive_says_accounted(s1, monkeypatch):
+def _watched_two_colour_print(s1, monkeypatch):
     from contextlib import contextmanager
     from core.db_utils import _ConnectionAdapter
     from core.monitor_bootstrap import bootstrap_monitor_authority
@@ -554,13 +580,40 @@ def test_two_colour_completed_print_is_charged_once_and_its_archive_says_account
     monkeypatch.setattr(moonraker.MoonrakerPrinter, '_get', query)
     monitor = moonraker_monitor.MoonrakerMonitor(59, 'S1', '127.0.0.1', model='Kobra S1')
     monitor._process_status(monitor.printer.get_status())
-    # Klipper measures one total, far from the sliced 5.1 g, so it can't be distributed.
-    device.state, device.used = 'complete', 3000
-    monitor._process_status(monitor.printer.get_status())
+    def end(state):
+        # Klipper measures one total, far from the sliced 5.1 g, so it can't be distributed.
+        device.state, device.used = state, 3000
+        monitor._process_status(monitor.printer.get_status())
+    return end
+
+
+def test_two_colour_completed_print_is_charged_once_and_its_archive_says_accounted(s1, monkeypatch):
+    _watched_two_colour_print(s1, monkeypatch)('complete')
     assert _weights(s1) == pytest.approx([100, 97.84, 97.06])
     with s1.engine.connect() as c:
         assert c.execute(text('SELECT accounting_state,accounting_reason FROM print_archives')).one() == ('accounted', 'attempt_already_accounted')
         assert c.execute(text('SELECT COUNT(*) FROM spool_usage')).scalar_one() == 2
+
+
+def test_two_colour_cancelled_print_charges_nothing_and_its_archive_says_unresolved(s1, monkeypatch):
+    """The monitor charges only a completed print, and the archive can't split an unfinished one."""
+    _watched_two_colour_print(s1, monkeypatch)('cancelled')
+    assert _weights(s1) == [100, 100, 100]
+    with s1.engine.connect() as c:
+        assert c.execute(text('SELECT accounting_state,accounting_reason FROM print_archives')).one() == ('unresolved', 'non_successful_material_distribution_unknown')
+        assert c.execute(text('SELECT COUNT(*) FROM spool_usage')).scalar_one() == 0
+
+
+def test_a_measured_mismatch_the_monitor_did_not_charge_stays_unresolved_on_an_s1_too(s1, monkeypatch):
+    """Only the ledger's marker says the monitor charged each source. Being an S1 isn't enough."""
+    end = _watched_two_colour_print(s1, monkeypatch)
+    with s1.engine.begin() as c:
+        c.execute(text("UPDATE spools SET status='archived' WHERE id=902"))
+    end('complete')
+    assert _weights(s1) == [100, 100, 100]
+    with s1.engine.connect() as c:
+        assert c.execute(text('SELECT accounting_state,accounting_reason FROM print_archives')).one() == ('unresolved', 'measured_material_distribution_unknown')
+        assert c.execute(text('SELECT COUNT(*) FROM spool_usage')).scalar_one() == 0
 
 
 # ---- An unstartable job at the head of the queue says why. ----
@@ -583,6 +636,27 @@ def test_an_unstartable_s1_job_says_why_it_blocks_the_queue(s1, setup, words):
     body = s1.client.get('/api/printers/59/next-suggestion', headers=s1.auth()).json()
     assert body['job_id'] == made.json()['job_id']
     assert words in body['reason'] and 'hold it to start later jobs' in body['reason']
+    assert body['fingerprint'], 'It keeps its fingerprint, so only the start itself can refuse it'
+    _, started = _start_next(s1)
+    assert started.status_code == 200, started.text
+    assert started.json()['state'] == 'refused', started.json()
+    assert s1.device.publishes == []
+
+
+def test_suggestion_wire_fixture_is_what_the_route_returns(s1):
+    """The panel test renders these, so they can't drift from the real route. A fingerprint hashes a timestamp."""
+    from tests.test_contracts.cert_D_capture import publish
+    def suggestion():
+        body = s1.client.get('/api/printers/59/next-suggestion', headers=s1.auth()).json()
+        body['reason'] = body['reason'].replace(f"Job {body['job_id']} ", 'Job 12 ')
+        return dict(job_id=12, reason=body['reason'], filament=body['filament'], load=body['load'],
+                    fingerprint='f' * 64 if body['fingerprint'] else None)
+    assert _schedule(s1, s1.upload(ONE_COLOUR), 'print-files', {}).status_code == 200
+    unstartable = suggestion()
+    with s1.engine.begin() as c:
+        c.execute(text("UPDATE printers SET model='Voron 2.4' WHERE id=59"))
+        # Other printers keep the finished identity rule, so this print leaves no fingerprint.
+    publish('frontend/src/test-fixtures/s1-start-next-suggestion-wire.json', dict(unstartable=unstartable, no_fingerprint=suggestion()))
 
 
 def test_a_startable_s1_job_keeps_the_ordinary_reason(s1):
@@ -608,6 +682,7 @@ def _recovery(s1, action, reason):
 @pytest.mark.parametrize('state', ['COMPLETE', 'ERROR', 'STANDBY', 'CANCELLED'])
 def test_a_print_never_observed_is_freed_by_closing_the_job_and_then_recovery(s1, state, close):
     """Started, then ended while ODIN was down: no print row, so the monitor never closes it."""
+    _bind_spools(s1)
     scheduled = _schedule(s1, s1.upload(ONE_COLOUR), 'print-files', dict(ams_mapping=[{'source_slot': 1, 'target_slot': 2}]))
     job_id = scheduled.json()['job_id']
     assert _start_next(s1)[1].json()['state'] == 'dispatched'
@@ -622,6 +697,8 @@ def test_a_print_never_observed_is_freed_by_closing_the_job_and_then_recovery(s1
     assert refused.json()['detail']['code'] == 'active_observation', 'A job still marked printing keeps its claim'
     closed = s1.client.post(f'/api/jobs/{job_id}/{close}', headers=s1.auth())
     assert closed.status_code == 200, closed.text
+    # Complete charges the file's full weight, so an aborted print should be closed with Fail.
+    assert _weights(s1) == pytest.approx({'complete': [100, 88.51, 100], 'fail': [100, 100, 100]}[close])
     with s1.engine.begin() as c:
         assert c.execute(text('SELECT state FROM printer_dispatch_claims WHERE printer_id=59')).scalar_one() == 'accepted'
         c.execute(text('UPDATE printers SET last_seen=CURRENT_TIMESTAMP WHERE id=59'))

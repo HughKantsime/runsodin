@@ -13,10 +13,11 @@ export interface CompletionSummary {
   inspection_available: boolean; inspection_unavailable_reason: string | null;
   square_projection: { product_id: number; quantity: number | null }[]; bed_line: string;
 }
+export type StartAttestation = 'owner_in_app' | 'owner_confirmed_to_operator'
 export interface TimelineEvent { id: string; kind: string; code: string | null; occurred_at: string; detail: Record<string, unknown> }
 export const jobCompletion = {
   suggestion: (id: number) => fetchAPI<Suggestion>(`/printers/${id}/next-suggestion`),
-  start: async (id: number, data: { suggested_job_id: number; suggestion_fingerprint: string; request_id: string; bed_clear_confirmed: true; attestation: 'owner_in_app' }) =>
+  start: async (id: number, data: { suggested_job_id: number; suggestion_fingerprint: string; request_id: string; bed_clear_confirmed: true; attestation: StartAttestation }) =>
     {
       const result = await fetchAPI<{ success: boolean; accepted?: boolean; state: string; job_id?: number; attempt_id?: string; message?: string }>(`/printers/${id}/start-next`, { method: 'POST', body: JSON.stringify(data) })
       if (result.accepted || ['preparing', 'admitted'].includes(result.state)) {
