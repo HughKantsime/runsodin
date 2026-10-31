@@ -1,10 +1,11 @@
-"""The odin-ci host scripts under ops/ci, always behind stub tools: nothing here touches a real
-runner, service, firewall or process."""
+"""The runner host scripts under ops/ci, always behind stub tools: nothing here touches a real
+runner, service or firewall, and the only processes killed are ones these tests start."""
 import json
 import re
 import shutil
 import stat
 import subprocess
+import sys
 import textwrap
 import time
 from pathlib import Path
@@ -119,6 +120,134 @@ def test_hook_fails_closed_without_jq(tmp_path):
     assert result.returncode != 0 and 'refuses' in result.stderr
 
 
+# A failed hook alone doesn't stop later `if: always()` steps, so every refusal has to end the worker.
+
+LINUX_WORKER = 'Runner.Worker'
+MAC_WORKER = '/Users/ollama/actions-runner-runsodin/bin.2.338.0/Runner.Worker'  # as ps reports it on the Mac
+
+
+def _hook_values(tmp_path, stubs, **env):
+    payload = tmp_path / 'event.json'
+    if not payload.exists():
+        payload.write_text(json.dumps(_event()))
+    jq = shutil.which('jq')
+    assert jq, 'jq is required by the hook'
+    return {
+        'PATH': f'{stubs}:{Path(jq).parent}:/usr/bin:/bin', 'GITHUB_EVENT_NAME': 'workflow_dispatch',
+        'GITHUB_REPOSITORY': 'HughKantsime/runsodin', 'GITHUB_REPOSITORY_ID': '1143865575',
+        'GITHUB_ACTOR': 'HughKantsime', 'GITHUB_ACTOR_ID': '201174638',
+        'GITHUB_TRIGGERING_ACTOR': 'HughKantsime', 'GITHUB_EVENT_PATH': str(payload), **env,
+    }
+
+
+def _under_parent(tmp_path, stubs, parent_name, **env):
+    """Run the hook as the runner does, `bash -e <hook>`, under a throwaway parent that ps reports
+    as parent_name. The parent records surviving, so a kill shows as both -9 and no record."""
+    _stub(stubs, 'ps', f'echo "{parent_name}"')
+    survived = tmp_path / 'parent-survived'
+    drop = env.pop('drop', ())
+    values = _hook_values(tmp_path, stubs, **env)
+    for name in drop:
+        del values[name]
+    result = subprocess.run(['/bin/bash', '-c', f'/bin/bash -e {HOOK}; echo "$?" > {survived}'],
+                            env=values, capture_output=True, text=True, timeout=30)
+    return result, survived
+
+
+@pytest.mark.parametrize('worker', [LINUX_WORKER, MAC_WORKER])
+@pytest.mark.parametrize('env', [
+    {'GITHUB_EVENT_NAME': 'pull_request'},
+    {'GITHUB_EVENT_NAME': 'push'},
+    {'GITHUB_ACTOR': 'returning-contributor'},
+    {'GITHUB_REPOSITORY': 'someone-else/runsodin'},
+    {'drop': ('GITHUB_EVENT_NAME',)},
+    {'drop': ('GITHUB_ACTOR_ID',)},
+    {'drop': ('GITHUB_EVENT_PATH',)},
+    {'GITHUB_EVENT_PATH': '/nonexistent/event.json'},
+], ids=lambda env: str(env)[:60])
+def test_every_refusal_kills_the_worker_so_always_steps_cant_run(tmp_path, stubs, worker, env):
+    result, survived = _under_parent(tmp_path, stubs, worker, **env)
+    assert result.returncode == -9, result.stderr
+    assert not survived.exists()
+    assert 'killing Runner.Worker' in result.stderr
+
+
+def test_missing_jq_kills_the_worker(tmp_path, stubs):
+    # Only the stubs on PATH, so the check itself can't run. The stub ps needs nothing else.
+    result, survived = _under_parent(tmp_path, stubs, LINUX_WORKER, PATH=str(stubs))
+    assert result.returncode == -9, result.stderr
+    assert not survived.exists()
+
+
+def test_disagreeing_payload_kills_the_worker(tmp_path, stubs):
+    (tmp_path / 'event.json').write_text(json.dumps(_event(sender={'login': 'returning-contributor', 'id': 1})))
+    result, survived = _under_parent(tmp_path, stubs, LINUX_WORKER)
+    assert result.returncode == -9, result.stderr
+    assert not survived.exists()
+
+
+def test_a_crash_inside_the_hook_kills_the_worker_too(tmp_path, stubs):
+    """Anything short of the pass at the end counts, even a failure nobody wrote a refusal for."""
+    broken = tmp_path / 'hook.sh'
+    broken.write_text(HOOK.read_text().replace('[ -f "${GITHUB_EVENT_PATH:-}" ]', 'false; [ -f "${GITHUB_EVENT_PATH:-}" ]'))
+    _stub(stubs, 'ps', f'echo "{LINUX_WORKER}"')
+    survived = tmp_path / 'parent-survived'
+    result = subprocess.run(['/bin/bash', '-c', f'/bin/bash -e {broken}; echo "$?" > {survived}'],
+                            env=_hook_values(tmp_path, stubs), capture_output=True, text=True, timeout=30)
+    assert result.returncode == -9, result.stderr
+    assert not survived.exists()
+
+
+@pytest.mark.parametrize('worker', [LINUX_WORKER, MAC_WORKER])
+def test_owner_dispatch_leaves_the_worker_running(tmp_path, stubs, worker):
+    result, survived = _under_parent(tmp_path, stubs, worker)
+    assert result.returncode == 0, result.stderr
+    assert survived.read_text().strip() == '0'
+
+
+@pytest.mark.parametrize('name', ['bash', 'python3.11', 'Runner.Worker.notes', 'NotRunner.Worker', 'Runner.Listener', '/x/Runner.Worker/bash', ''])
+def test_refusal_only_kills_a_process_named_runner_worker(tmp_path, stubs, name):
+    result, survived = _under_parent(tmp_path, stubs, name, GITHUB_EVENT_NAME='push')
+    assert result.returncode == 0, result.stderr  # the parent lived to record the hook's exit
+    assert survived.read_text().strip() == '1'
+    assert 'is not Runner.Worker' in result.stderr
+
+
+def test_refusal_keeps_the_parent_when_ps_fails(tmp_path, stubs):
+    _stub(stubs, 'ps', 'exit 1')
+    survived = tmp_path / 'parent-survived'
+    values = _hook_values(tmp_path, stubs, GITHUB_EVENT_NAME='push')
+    result = subprocess.run(['/bin/bash', '-c', f'/bin/bash -e {HOOK}; echo "$?" > {survived}'],
+                            env=values, capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0 and survived.read_text().strip() == '1'
+    assert 'unknown is not Runner.Worker' in result.stderr
+
+
+def test_refusal_never_reaches_past_the_direct_parent(tmp_path, stubs):
+    """The test suite runs under a real worker, so this hook must never walk up to it."""
+    _stub(stubs, 'ps', textwrap.dedent('''\
+        if [ "$4" = "$FAKE_WORKER" ]; then echo Runner.Worker; else echo bash; fi'''))
+    survived = tmp_path / 'worker-survived'
+    values = _hook_values(tmp_path, stubs, GITHUB_EVENT_NAME='push')
+    script = f'''export FAKE_WORKER=$$; /bin/bash -c '/bin/bash -e {HOOK}; true'; echo alive > {survived}'''
+    result = subprocess.run(['/bin/bash', '-c', script], env=values, capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+    assert survived.read_text().strip() == 'alive'
+
+
+if sys.platform == 'linux':  # macOS kills copied system interpreters, and a skip would fail the gate there
+    def test_refusal_kills_a_real_process_named_runner_worker(tmp_path, stubs):
+        worker = tmp_path / 'Runner.Worker'
+        shutil.copy2(Path(sys.executable).resolve(), worker)
+        survived = tmp_path / 'parent-survived'
+        values = _hook_values(tmp_path, stubs, GITHUB_EVENT_NAME='push')
+        driver = (f"import subprocess; subprocess.run(['/bin/bash', '-e', {str(HOOK)!r}]); "
+                  f"open({str(survived)!r}, 'w').write('alive')")
+        result = subprocess.run([str(worker), '-c', driver], env=values, capture_output=True, text=True, timeout=30)
+        assert result.returncode == -9, result.stderr
+        assert not survived.exists()
+
+
 def test_hook_identity_matches_the_workflows_owner_pin():
     source = HOOK.read_text()
     workflow = (ROOT / '.github/workflows/trusted-validation.yml').read_text()
@@ -170,7 +299,7 @@ def test_restart_refuses_during_a_job(tmp_path, stubs):
     (tmp_path / '.service').write_text('actions.runner.synthetic.service\n')
     _ps(stubs, LISTENER, WORKER)
     result = _lib('runner_restart', tmp_path, stubs)
-    assert result.returncode == 1 and 'systemctl restart' in result.stderr
+    assert result.returncode == 1 and 'after the job: actions.runner.synthetic.service' in result.stderr
     assert not (stubs.parent / 'sudo.log').exists()
 
 
@@ -184,6 +313,28 @@ def test_tools_provisioning_replaces_an_old_tmpdir_and_restarts_after_a_change()
     source = (CI / 'provision-odin-ci-tools.sh').read_text()
     assert 'if runner_env_set TMPDIR "$ci_tmp"; then\n  runner_restart\nfi' in source
     assert "grep -qs '^TMPDIR='" not in source
+
+
+def test_provisioning_drops_what_only_eligibility_needed():
+    """Eligibility runs on the Mac now, so odin-ci keeps no gh and no host jsonschema."""
+    for script in ('provision-odin-ci.sh', 'provision-odin-ci-tools.sh'):
+        source = (CI / script).read_text()
+        assert not re.search(r'\bjsonschema\b|\bcli/cli\b|\bgh_\$|\bgh --version|--break-system-packages|ensurepip', source)
+    workflow = (ROOT / '.github/workflows/trusted-validation.yml').read_text()
+    assert 'command -v gh' not in workflow and 'gh api' not in workflow
+    # The gate's own jsonschema comes from the contracts venv, which the workflow puts first on PATH.
+    assert '"$GITHUB_WORKSPACE/.venv-contracts/bin" >> "$GITHUB_PATH"' in workflow
+    assert 'jsonschema==' in (ROOT / 'backend/requirements.txt').read_text()
+    assert '-r ../backend/requirements.txt' in (ROOT / 'tests/requirements-contracts.txt').read_text()
+
+
+def test_qemu_stays_for_the_registry_contract_not_for_publishing():
+    source = (CI / 'provision-odin-ci-tools.sh').read_text()
+    assert 'qemu-user-static' in source
+    header = source.split('set -euo pipefail', 1)[0]
+    assert 'registry contract' in header and 'arm64 image half' not in header
+    contract = (ROOT / 'tests/test_release_control/test_registry_integration.py').read_text()
+    assert '"linux/amd64,linux/arm64"' in contract and 'RUN ' in contract
 
 
 def test_provisioning_sets_the_hostname_the_limits_and_phase0_rely_on():
@@ -215,10 +366,45 @@ def test_installer_makes_the_hook_root_owned_points_env_at_it_and_restarts(tmp_p
     assert (runner / '.env').read_text() == f'LANG=C.UTF-8\nACTIONS_RUNNER_HOOK_JOB_STARTED={hook}\n'
     log = (tmp_path / 'sudo.log').read_text().splitlines()
     assert log == [
-        'install -d -m 0755 -o root -g root /usr/local/libexec/odin-ci',
-        f'install -m 0755 -o root -g root {HOOK} {hook}',
+        'install -d -m 0755 -o 0 -g 0 /usr/local/libexec/odin-ci',
+        f'install -m 0755 -o 0 -g 0 {HOOK} {hook}',
         'systemctl restart actions.runner.synthetic.service',
     ]
+
+
+def test_installer_on_the_mac_restarts_the_launch_agent_without_sudo(tmp_path, stubs):
+    runner = tmp_path / 'runner'
+    runner.mkdir()
+    (runner / '.env').write_text('LANG=en_US.UTF-8\n')
+    (runner / '.service').write_text('/Users/ollama/Library/LaunchAgents/actions.runner.synthetic.plist\n')
+    (runner / 'svc.sh').write_text(f'#!/bin/sh\necho "svc.sh $*" >> {tmp_path}/svc.log\n')
+    (runner / 'svc.sh').chmod(0o755)
+    _stub(stubs, 'uname', 'echo Darwin')
+    _ps(stubs, '/Users/ollama/actions-runner-runsodin/bin/Runner.Listener')
+    _, result = _install(tmp_path, stubs)
+    assert result.returncode == 0, result.stderr
+    hook = '/usr/local/libexec/odin-ci/runner-job-started-hook.sh'
+    assert (runner / '.env').read_text() == f'LANG=en_US.UTF-8\nACTIONS_RUNNER_HOOK_JOB_STARTED={hook}\n'
+    assert (tmp_path / 'svc.log').read_text().splitlines() == ['svc.sh stop', 'svc.sh start']
+    # macOS has no group called root, and a launch agent must not be restarted as root.
+    log = (tmp_path / 'sudo.log').read_text()
+    assert '-g root' not in log and '-o root' not in log and 'systemctl' not in log and 'svc.sh' not in log
+
+
+def test_installer_refuses_during_a_job_on_the_mac(tmp_path, stubs):
+    _stub(stubs, 'uname', 'echo Darwin')
+    _ps(stubs, MAC_WORKER + ' spawnclient 157 160')
+    runner, result = _install(tmp_path, stubs)
+    assert result.returncode == 75
+    assert not (tmp_path / 'sudo.log').exists() and not (runner / '.env').exists()
+
+
+@pytest.mark.parametrize('script', ['runner-job-started-hook.sh', 'runner-lib.sh', 'install-runner-hook.sh'])
+def test_scripts_the_mac_runs_stay_within_bash_32(script):
+    """No associative arrays, ${var^^}, mapfile or |&: all newer than the Mac's /bin/bash."""
+    source = (CI / script).read_text()
+    for forbidden in ('declare -A', 'local -A', 'mapfile', 'readarray', '|&', '^^}', ',,}', '${var@', 'coproc', 'wait -n'):
+        assert forbidden not in source
 
 
 def test_installer_does_not_restart_when_env_is_already_right(tmp_path, stubs):
@@ -324,9 +510,8 @@ def test_CV04_to_CV08_never_name_production():
         assert 'verify_live' not in recipe and 'verify-edu-live' not in recipe
 
 
-@pytest.mark.parametrize('workflow', ['trusted-validation', 'promote'])
-def test_workflows_on_odin_ci_never_name_production(workflow):
-    assert not PRODUCTION.search((ROOT / '.github/workflows' / f'{workflow}.yml').read_text())
+def test_workflow_on_odin_ci_never_names_production():
+    assert not PRODUCTION.search((ROOT / '.github/workflows/trusted-validation.yml').read_text())
 
 
 # ---------------- ad-hoc run guard ----------------

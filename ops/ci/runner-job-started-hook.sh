@@ -1,15 +1,39 @@
 #!/usr/bin/env bash
-# Job-started hook for the odin-ci runner, set through ACTIONS_RUNNER_HOOK_JOB_STARTED in the
-# runner's .env. Jobs here reach root through Docker, can read the runner's credentials and
-# later jobs' tokens, so the runner only runs what the owner dispatched on this repository.
-# A non-zero exit stops the job before any of its steps.
+# Job-started hook for this repository's runners on odin-ci and the Mac, set through
+# ACTIONS_RUNNER_HOOK_JOB_STARTED in the runner's .env. A job can read a runner's credentials
+# and, on the Mac, the account's gh login and production SSH key, so a runner only runs what
+# the owner dispatched on this repository.
+#
+# A failing hook doesn't stop a job. The runner treats it as an ordinary step, and later steps
+# with `if: always()` still run. So anything short of the pass at the end of this script kills
+# Runner.Worker, this script's parent, which ends the job at once. Only the direct parent can
+# be killed: the tests run this script under real runners, as a descendant of their workers.
+# Bash 3.2 compatible.
 set -euo pipefail
 OWNER=HughKantsime
 OWNER_ID=201174638
 REPOSITORY=HughKantsime/runsodin
 REPOSITORY_ID=1143865575
+passed=0
 
-refuse() { echo "odin-ci refuses this job: $*" >&2; exit 1; }
+stop_job() {
+  local parent
+  [ "$passed" = 0 ] || return 0
+  parent=$(ps -o comm= -p "$PPID" 2>/dev/null) || parent=""
+  parent=${parent%% *}
+  case "$parent" in
+    Runner.Worker|*/Runner.Worker)
+      echo "runner job hook: killing Runner.Worker $PPID so no later step runs" >&2
+      kill -KILL "$PPID"
+      ;;
+    *)
+      echo "runner job hook: parent ${parent:-unknown} is not Runner.Worker, so it keeps running" >&2
+      ;;
+  esac
+}
+trap stop_job EXIT
+
+refuse() { echo "runner job hook refuses this job: $*" >&2; exit 1; }
 
 [ "${GITHUB_EVENT_NAME:-}" = workflow_dispatch ] || refuse "event ${GITHUB_EVENT_NAME:-unset} is not workflow_dispatch"
 [ "${GITHUB_REPOSITORY:-}" = "$REPOSITORY" ] || refuse "repository ${GITHUB_REPOSITORY:-unset} is not $REPOSITORY"
@@ -25,3 +49,5 @@ jq -e --arg owner "$OWNER" --argjson owner_id "$OWNER_ID" --arg repository "$REP
   and .repository.full_name == $repository and .repository.id == $repository_id
   and .pull_request == null
 ' "$GITHUB_EVENT_PATH" >/dev/null 2>&1 || refuse "event payload does not show the owner dispatching on $REPOSITORY"
+
+passed=1

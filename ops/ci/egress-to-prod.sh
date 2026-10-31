@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Keep odin-ci, and the containers its jobs start, away from production's address. Trusted
-# Validation and stage eligibility don't need it; promotion runs on the Mac.
+# Stop odin-ci, and the containers its jobs start, reaching production's address by accident.
+# Only an accident guard: a job with root through Docker can delete this table, so a real
+# boundary belongs on pve3 or the gateway. Trusted Validation doesn't need production.
 # Usage: egress-to-prod.sh audit|check|enforce|status|remove (see ops/ci/README.md)
 #   audit    count traffic to production without blocking it; leave on for one full validation
 #   check    fail unless an audit is loaded and has counted nothing

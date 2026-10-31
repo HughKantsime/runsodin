@@ -1,6 +1,6 @@
 # shellcheck shell=bash
-# Shared by the odin-ci runner scripts. Source it; it does nothing by itself.
-# Bash 3.2 compatible, so its tests also run on the Mac.
+# Shared by the runner scripts for odin-ci and the Mac. Source it; it does nothing by itself.
+# Bash 3.2 compatible.
 RUNNER_DIR="${RUNNER_DIR:-$HOME/actions-runner-runsodin}"
 
 # The runner keeps Runner.Listener for as long as it is up and starts Runner.Worker only for
@@ -32,8 +32,11 @@ runner_restart() {
   fi
   unit=$(cat "$RUNNER_DIR/.service")
   if runner_job_active; then
-    echo "a runner job is active; .env is written but not live. After the job: sudo systemctl restart $unit" >&2
+    echo "a runner job is active; .env is written but not live. Restart this runner after the job: $unit" >&2
     return 1
   fi
-  sudo systemctl restart "$unit"
+  case "$(uname -s)" in
+    Darwin) (cd "$RUNNER_DIR" && ./svc.sh stop && ./svc.sh start) ;;  # a launch agent, so never under sudo
+    *) sudo systemctl restart "$unit" ;;
+  esac
 }

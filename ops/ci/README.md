@@ -3,10 +3,9 @@
 | Work | Host | Why |
 |---|---|---|
 | Trusted Validation | odin-ci | Production's OS and architecture, off the dev Mac |
-| Stage eligibility (`promote.yml`, action `stage`) | odin-ci | Only reads evidence through the API and uploads an artifact |
-| Publish, production and demo eligibility, production promotion, rollback | Mac | arm64 under QEMU never goes healthy on the VM |
+| Eligibility, publish, production promotion, rollback | Mac | arm64 under QEMU never goes healthy on the VM, and eligibility authenticates validation's evidence, so it stays off the host that just ran candidate code |
 
-Evidence moves between hosts only as an uploaded artifact. Neither host reads the other's disk.
+Evidence moves between hosts only as an uploaded artifact. Neither host reads the other's disk. The Mac isn't being retired.
 
 ## Rebuild
 
@@ -14,13 +13,12 @@ Evidence moves between hosts only as an uploaded artifact. Neither host reads th
 2. Run `provision-odin-ci.sh`, then `provision-odin-ci-tools.sh`. Both can be re-run.
 3. On pve3: `zfs set sync=disabled rpool/data/vm-130-disk-0`. CV02's SQLite commits need it, and the disk only holds state that can be rebuilt.
 4. Copy Bambu Studio's machine profiles; `provision-odin-ci-tools.sh` prints the command.
-5. Register the runner, then start the service. The token goes straight from `gh` to `config.sh` and is never printed:
+5. Register the runner, then start the service. This host has no `gh`, so the token comes from the Mac, straight from `gh` to `config.sh`, and is never printed:
    ```sh
-   cd ~/actions-runner-runsodin
    gh api -X POST repos/HughKantsime/runsodin/actions/runners/registration-token --jq .token \
-     | xargs -I{} ./config.sh --unattended --url https://github.com/HughKantsime/runsodin --token {} \
-         --name odin-ci-pve3 --labels odin-ci --work _work
-   sudo ./svc.sh install odin && sudo ./svc.sh start
+     | ssh odin@192.168.68.151 'cd ~/actions-runner-runsodin && xargs -I{} ./config.sh --unattended \
+         --url https://github.com/HughKantsime/runsodin --token {} --name odin-ci-pve3 --labels odin-ci --work _work \
+         && sudo ./svc.sh install odin && sudo ./svc.sh start'
    ```
 6. Install the job hook, then restrict egress (both below).
 
@@ -28,17 +26,50 @@ The runner's `.credentials` and `.credentials_rsaparams` are long-lived, and a j
 
 ## Job hook
 
-`runner-job-started-hook.sh` fails any job that isn't an owner `workflow_dispatch` on HughKantsime/runsodin, before its steps run. To install, on odin-ci as `odin`, from a checkout of this repository:
+`runner-job-started-hook.sh` ends any job that isn't an owner `workflow_dispatch` on HughKantsime/runsodin, and any job it can't check: no `jq`, no event file, a missing variable. A failed hook alone wouldn't stop anything, because the runner treats a hook as an ordinary step and later `if: always()` steps still run. So on refusal it checks that its parent's process name is `Runner.Worker`, then sends it SIGKILL.
+
+It belongs on both runners. The Mac needs it more: a job there runs in the account holding the gh login and the production SSH key.
+
+To install, from a checkout of this repository, as the runner's account, while no runner on that host has a job. On odin-ci, as `odin`; on the Mac, as `ollama`, where `sudo` asks for a password:
 
 ```sh
 ops/ci/install-runner-hook.sh
 ```
 
-It refuses during a job, copies the hook to `/usr/local/libexec/odin-ci/`, sets `ACTIONS_RUNNER_HOOK_JOB_STARTED` in the runner's `.env` and restarts the service, because the runner reads `.env` only at start. Afterwards, dispatch a validation and look for "Set up runner" passing the hook; to prove the refusal, run the hook by hand with `GITHUB_EVENT_NAME=pull_request`. Until the hook is live, never approve a fork PR's run.
+It copies the hook to `/usr/local/libexec/odin-ci/`, root-owned, sets `ACTIONS_RUNNER_HOOK_JOB_STARTED` in the runner's `.env` (`~/actions-runner-runsodin`, or `RUNNER_DIR`), and restarts that runner, which reads `.env` only at start. The hook only knows this repository, so it goes in this repository's runner alone. Until it is live, never approve a fork PR's run.
+
+### Prove it
+
+Run this on each host after installing. It needs a real runner, so nothing in the test suite can stand in for it. Push this workflow to a throwaway branch: a `push` event is refused, and nothing else about the hook has to change.
+
+```yaml
+# .github/workflows/hook-proof.yml on branch hook-proof
+name: Hook proof
+on: push
+jobs:
+  proof:
+    runs-on: [self-hosted, odin-ci]   # on the Mac: [self-hosted, mac-mini-runner, m4]
+    steps:
+      - run: echo "HOOK PROOF FAILED, a step ran"
+      - if: always()
+        run: echo "HOOK PROOF FAILED, an always() step ran"
+```
+
+It passes if all of these hold:
+
+- The run fails, and its log has "runner job hook refuses this job" and "killing Runner.Worker".
+- Neither `HOOK PROOF FAILED` line appears in the log.
+- `Runner.Listener` is still up, and the next owner dispatch of Trusted Validation gets past "Set up runner".
+
+Then delete the branch.
 
 ## Egress to production
 
-odin-ci shares a /22 with production and needs nothing from it: no CV04-CV08 source names production's address or hostname, which `tests/test_release_control/test_runner_host_tools.py` checks. Only a real run proves it, so the restriction goes on in two stages:
+odin-ci shares a /22 with production and needs nothing from it: no CV04-CV08 source names production's address or hostname, which `tests/test_release_control/test_runner_host_tools.py` checks.
+
+`egress-to-prod.sh` is an accident guard only. It stops a test or a stray config reaching production by mistake, but a job with root through Docker can delete the table. A real boundary belongs on pve3 or the gateway.
+
+Only a real run proves nothing needs production, so the rule goes on in two stages:
 
 ```sh
 ops/ci/egress-to-prod.sh audit     # counts, doesn't block
