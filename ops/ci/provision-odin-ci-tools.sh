@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # Second provisioning pass for odin-ci: the gate's security tools at the macOS
 # runner's versions, QEMU binfmt for the arm64 image half, and jsonschema for the
-# host python3.11 used by the production-mutation workflows. Release binaries are
-# verified against the project's published checksum files.
+# host python3.11 used by stage eligibility. gitleaks, hadolint and gh are verified against
+# committed hashes and the published checksum files. semgrep and jsonschema are version-pinned
+# only: their dependencies are unhashed.
 set -euo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=ops/ci/runner-lib.sh
+. "$here/runner-lib.sh"
 GITLEAKS=8.30.1
 HADOLINT=2.14.0
 GH=2.89.0
@@ -52,9 +56,10 @@ python3.11 -m pip install -q --user --break-system-packages --disable-pip-versio
 # test path, and test ids that assume no shared folder would change.
 ci_tmp=/opt/odin-ci-tmp
 sudo install -d -m 700 -o "$USER" -g "$USER" "$ci_tmp"
-env_file="$HOME/actions-runner-runsodin/.env"
-grep -qs '^TMPDIR=' "$env_file" || echo "TMPDIR=$ci_tmp" >> "$env_file"
 echo "d $ci_tmp 0700 $USER $USER 7d" | sudo tee /etc/tmpfiles.d/odin-ci.conf >/dev/null
+if runner_env_set TMPDIR "$ci_tmp"; then
+  runner_restart
+fi
 
 # The vendor profile tests skip without Bambu Studio's machine profiles, and CV02 refuses
 # skips. Copy them from any install; this path is the tests' Linux default:

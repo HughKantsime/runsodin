@@ -2,7 +2,8 @@
 # Provision the odin-ci GitHub Actions runner host (Ubuntu 24.04, amd64).
 # Toolchain matches the macOS runner it replaces: Python 3.11, Node 25.9.0,
 # mosquitto, Docker Engine, git-lfs, Playwright Chromium system deps.
-# Every download is from the project's official source; tarballs are SHA256-verified.
+# Every download is from the project's official source. Node and the runner tarball are
+# SHA256-verified; apt packages rest on the signing keys fetched here, PyPI on TLS and pins.
 set -euo pipefail
 NODE_VERSION=25.9.0
 NODE_SHA256=1d8db7d6e291d167e8c467ae4094be175e1a0b3969c7ae1f8955b9f7824f7b2e
@@ -12,6 +13,9 @@ PLAYWRIGHT=1.62.0   # matches tests/requirements-contracts.txt
 # Docker Engine 29.x is what the release workflows accept; pin and hold it.
 DOCKER_PKGS="docker-ce=5:29.9.2-1~ubuntu.24.04~noble docker-ce-cli=5:29.9.2-1~ubuntu.24.04~noble containerd.io=2.4.2-3~ubuntu.24.04~noble docker-buildx-plugin=0.38.1-1~ubuntu.24.04~noble docker-compose-plugin=5.6.1-1~ubuntu.24.04~noble"
 export DEBIAN_FRONTEND=noninteractive
+
+# phase0_verify.sh and the api_load limits identify this host by name.
+sudo hostnamectl set-hostname odin-ci
 
 sudo apt-get update -q
 sudo apt-get install -yq ca-certificates curl gnupg software-properties-common git git-lfs make \
@@ -31,6 +35,7 @@ curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor --y
 echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable" \
   | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
 sudo apt-get update -q
+# shellcheck disable=SC2086  # a list of packages, split on purpose
 sudo apt-get install -yq --allow-downgrades $DOCKER_PKGS
 sudo apt-mark hold docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 sudo usermod -aG docker odin
@@ -47,7 +52,7 @@ pw=$(mktemp -d); trap 'rm -rf "$pw"' EXIT
 python3.11 -m venv "$pw/venv" && "$pw/venv/bin/pip" install -q --disable-pip-version-check "playwright==${PLAYWRIGHT}"
 sudo "$pw/venv/bin/playwright" install-deps chromium
 
-# GitHub Actions runner, unregistered (registration is a separate step).
+# GitHub Actions runner, unregistered (registration is a separate step: ops/ci/README.md).
 mkdir -p "$HOME/actions-runner-runsodin" && cd "$HOME/actions-runner-runsodin"
 curl -fsSLo runner.tar.gz "https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz"
 echo "${RUNNER_SHA256}  runner.tar.gz" | sha256sum -c -
