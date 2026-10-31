@@ -55,8 +55,9 @@ headroom; the previous value and the evidence sit next to the number in
 **For this release the latency limits sit well above real latency.** They were measured
 with the tracer running, and timed repetitions now run without it. On the Mac, untraced
 read p95, write p95 and global p99 measure about 250, 330 and 340 ms, against limits of
-650, 1400 and 2800 ms. So for this one release the gate catches only a large latency
-regression. The limits are tightened in the next release. The cause of the tail that
+650, 1400 and 2800 ms, and a repetition takes about 7.5 s against a limit of 45 s. So for
+this one release the gate catches only a large latency regression. The limits are
+tightened in the next release. The cause of the tail that
 remains without the tracer is still open; see below.
 
 Why 2.0 costs more per request:
