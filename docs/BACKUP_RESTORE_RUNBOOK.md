@@ -38,7 +38,7 @@ Older ODIN releases do not enforce paid device binding. Roll out the new ODIN ve
 
 A supervised process, `db_guardian`, runs these on single-container SQLite installs. On PostgreSQL it stays idle; use the PostgreSQL steps below.
 
-- **Integrity check:** `PRAGMA integrity_check` and `foreign_key_check` on a read-only connection every 30 minutes. A failure raises a critical alert to platform admins and turns `/health` to `"status": "degraded"` with `"database_integrity": {"status": "failed"}`. It stays that way until a check passes. ODIN never repairs the database.
+- **Integrity check:** `PRAGMA integrity_check` and `foreign_key_check` on a read-only connection every 5 minutes. A failure raises a critical alert to platform admins and turns `/health` to `"status": "degraded"` with `"database_integrity": {"status": "failed"}`. It stays that way until a check passes. ODIN never repairs the database.
 - **Other `/health` states:** `pending` means no check has finished yet. `unavailable` means the last check couldn't finish. `stale` means checks have stopped, so look at `/data/db_guardian.log` and at `supervisorctl status`.
 - **Backup:** one verified `odin_backup_*.db` a day in `/data/backups`, compacted like a manual backup. It checks the live database first, verifies the published file, and only then prunes. A failure raises a "Database backup failed" alert in the inbox and tries again about an hour later.
 - **Retention:** the newest backup per day for 7 days and the newest per ISO week for 4 weeks. Pruning only touches files with an `.receipt.json` beside them, so manual backups and any other files stay until you remove them. A damaged database gets no new backup and nothing is pruned.

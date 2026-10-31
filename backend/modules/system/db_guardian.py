@@ -4,8 +4,6 @@ It only reads the live database, through a read-only connection and VACUUM INTO,
 it only to raise an alert. It never repairs anything. Damage stays visible on /health, which
 reads the status file here, and raises a critical alert. A later check clears them only if a
 person has fixed the database.
-
-Measured on a real-shaped 315 MB database with the fixed SQLite (see INTEGRITY_INTERVAL_SECONDS).
 """
 
 from __future__ import annotations
@@ -30,7 +28,12 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [db_guardian] %(leve
 log = logging.getLogger("odin.db_guardian")
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////data/odin.db")
-INTEGRITY_INTERVAL_SECONDS = 1800
+# Measured with SQLite 3.51.3 on two cores of a test VM: 0.17 s on a 315 MB database shaped like
+# production's, 2.5 s with every page live and a cold cache. Writers at 30 commits/s saw no BUSY
+# and no worse latency with checks running back to back. The VM reads about 5 times faster than
+# production, so expect about 1 s there, 15 s at the worst: at most 5% of one low-priority core.
+# This is also the longest ODIN can write on damage unnoticed.
+INTEGRITY_INTERVAL_SECONDS = 300
 BACKUP_INTERVAL = timedelta(days=1)
 BACKUP_RETRY = timedelta(hours=1)
 # Boot has just made this check, twice; let the services settle before the next one.
