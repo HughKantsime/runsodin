@@ -86,6 +86,14 @@ class SourceDatabaseError(BackupValidationError):
         self.report = report
 
 
+class BackupMissedError(BackupValidationError):
+    """A backup that should exist by now doesn't. ``reason`` is missed or offsite_missed."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
 @dataclass(frozen=True)
 class BackupPaths:
     database: Path

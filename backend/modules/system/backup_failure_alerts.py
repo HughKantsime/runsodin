@@ -9,8 +9,16 @@ from pathlib import Path
 from sqlalchemy import select, text
 
 
+_MISSED_MESSAGES = {
+    'missed': 'Backup missed: ODIN has made no verified backup in over 26 hours.',
+    'offsite_missed': 'Backup missed: no copy has been confirmed off this server in over 36 hours.',
+}
+
+
 def backup_failure_reason(error):
-    from modules.system.backup_service import BackupValidationError, SourceDatabaseError
+    from modules.system.backup_service import BackupMissedError, BackupValidationError, SourceDatabaseError
+    if isinstance(error, BackupMissedError):
+        return error.reason, _MISSED_MESSAGES[error.reason]
     if isinstance(error, SourceDatabaseError):
         if error.report.state == 'damaged':
             return 'source_integrity', 'Backup refused: the live database failed its integrity check. Existing backups were kept.'
@@ -20,6 +28,8 @@ def backup_failure_reason(error):
         return 'size', 'Backup refused: file size is outside the supported range (100 bytes to 1 GiB).'
     if 'space' in message or isinstance(error, OSError) and error.errno == errno.ENOSPC:
         return 'disk_space', 'Backup refused: insufficient free disk space for a verified backup.'
+    if 'restore test' in message:
+        return 'restore_test', 'Backup refused: a copy of it failed the restore test. Existing backups were kept.'
     if isinstance(error, BackupValidationError):
         return 'validation', 'Backup refused: database validation failed.'
     return 'operation', 'Backup failed: the database snapshot could not be created.'

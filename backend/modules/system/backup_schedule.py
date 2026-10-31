@@ -12,11 +12,20 @@ import json
 import logging
 import os
 import re
+import shutil
+import subprocess  # nosec B404 -- only runs this interpreter on a fixed module
+import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote
+
+from sqlalchemy import create_engine
+from sqlalchemy.pool import NullPool
 
 from modules.system.backup_failure_alerts import report_backup_failure
 from modules.system.backup_service import (
+    BackupValidationError,
     _create_online_backup_unlocked,
     _fsync_directory,
     paths_from_database_url,
@@ -31,13 +40,59 @@ KEEP_DAILY = 7
 KEEP_WEEKLY = 4
 PARTIAL_PREFIX = "partial_scheduled_"
 RECEIPT_SUFFIX = ".receipt.json"
-_BACKUP_NAME = re.compile(r"odin_backup_\d{8}_\d{6}_\d{6}\.db")
+BACKUP_NAME = re.compile(r"odin_backup_\d{8}_\d{6}_\d{6}\.db")
+RESTORE_TEST_SECONDS = 600
+_BACKEND = Path(__file__).resolve().parents[2]
 
 
 def _sweep_partial(backups: Path) -> None:
     # Under the restore lock, so these can only be what a killed run left behind.
-    for leftover in backups.glob(f"{PARTIAL_PREFIX}*.db"):
-        leftover.unlink(missing_ok=True)
+    for leftover in backups.glob(f"{PARTIAL_PREFIX}*"):
+        if leftover.is_dir():
+            shutil.rmtree(leftover, ignore_errors=True)
+        else:
+            leftover.unlink(missing_ok=True)
+
+
+def _live_fingerprint(database: Path) -> str:
+    from core.schema import schema_fingerprint
+    from core.schema.bootstrap import import_all_models
+    import_all_models()
+    engine = create_engine(f"sqlite:///file:{quote(str(database))}?mode=ro&uri=true", poolclass=NullPool)
+    try:
+        with engine.connect() as connection:
+            return schema_fingerprint(connection)
+    finally:
+        engine.dispose()
+
+
+def rehearse_restore(backup: Path, database: Path) -> None:
+    """A real restore test, on a throwaway copy: the real startup command has to accept it.
+
+    That runs the integrity check and every migration validator. The result has to need no
+    migrations and match the live schema. Nothing here opens the live database for writing.
+    """
+    scratch = Path(tempfile.mkdtemp(prefix=PARTIAL_PREFIX, dir=backup.parent))
+    try:
+        copy = scratch / "odin.db"
+        shutil.copyfile(backup, copy)
+        started = subprocess.run(  # nosec B603 -- this interpreter, fixed arguments, no shell
+            [sys.executable, "-m", "scripts.bootstrap_database"], cwd=_BACKEND, capture_output=True, text=True,
+            timeout=RESTORE_TEST_SECONDS,
+            env={**os.environ, "DATABASE_URL": f"sqlite:///{copy}", "ODIN_DB_ROLE": "bootstrap"},
+        )
+        if started.returncode != 0:
+            raise BackupValidationError("Backup failed its restore test: startup refused it")
+        try:
+            result = json.loads(started.stdout.splitlines()[-1])
+        except (IndexError, ValueError) as error:
+            raise BackupValidationError("Backup failed its restore test: no startup result") from error
+        if result.get("applied"):
+            raise BackupValidationError("Backup failed its restore test: it needs migrations")
+        if result.get("schema_fingerprint") != _live_fingerprint(database):
+            raise BackupValidationError("Backup failed its restore test: schema differs from live")
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
 
 
 def _write_receipt(backup: Path, created_at: datetime, verified: dict[str, object]) -> None:
@@ -60,7 +115,7 @@ def _scheduled_backups(backups: Path) -> list[tuple[datetime, Path]]:
     found = []
     for receipt in backups.glob(f"odin_backup_*.db{RECEIPT_SUFFIX}"):
         name = receipt.name[:-len(RECEIPT_SUFFIX)]
-        if not _BACKUP_NAME.fullmatch(name):
+        if not BACKUP_NAME.fullmatch(name):
             continue
         backup = backups / name
         if not backup.is_file():
@@ -100,7 +155,7 @@ def prune_scheduled_backups(backups: Path) -> list[str]:
 
 @report_backup_failure
 def create_scheduled_backup(database_url: str, *, now: datetime | None = None) -> dict[str, object]:
-    """Check the source, back it up, verify the published file, then prune. Any failure stops there."""
+    """Check the source, back it up, verify and restore-test the result, then prune. Any failure stops there."""
     paths = paths_from_database_url(database_url)
     now = now or datetime.now(timezone.utc)
     with restore_lock(paths.lock):
@@ -114,6 +169,7 @@ def create_scheduled_backup(database_url: str, *, now: datetime | None = None) -
             os.replace(partial, final)
             _fsync_directory(paths.backups)
             verified = verify_backup(database_url, final.name)
+            rehearse_restore(final, paths.database)
             _write_receipt(final, now, verified)
         except Exception:
             partial.unlink(missing_ok=True)

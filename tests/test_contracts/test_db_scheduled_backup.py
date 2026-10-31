@@ -62,8 +62,10 @@ def database(template, tmp_path):
 
 @pytest.fixture
 def alerts(monkeypatch):
+    """Records alerts. The restore test has its own tests below, and it starts a process per backup."""
     seen = []
     monkeypatch.setattr(backup_failure_alerts, "publish_backup_failure", seen.append)
+    monkeypatch.setattr(backup_schedule, "rehearse_restore", lambda *_: None)
     return seen
 
 
@@ -335,3 +337,79 @@ def test_scheduled_backup_never_takes_the_restore_pending_path(database, alerts)
     create_scheduled_backup(_url(database), now=NOW)
     assert not (database.parent / "restore-pending.db").exists()
     assert os.path.exists(database.parent / ".odin-restore.lock")
+
+
+def _digest(path: Path) -> str:
+    import hashlib
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_restore_test_boots_a_copy_and_never_touches_live_data_or_the_backup(database, monkeypatch):
+    monkeypatch.setattr(backup_failure_alerts, "publish_backup_failure", lambda _: None)
+    result = create_scheduled_backup(_url(database), now=NOW)
+    backup = database.parent / "backups" / result["filename"]
+    live, copied = _digest(database), _digest(backup)
+    calls = []
+    original = backup_schedule.subprocess.run
+    monkeypatch.setattr(backup_schedule.subprocess, "run", lambda *a, **k: calls.append(k["env"]["DATABASE_URL"]) or original(*a, **k))
+    backup_schedule.rehearse_restore(backup, database)
+    assert len(calls) == 1 and str(database) not in calls[0].replace("backups", "") and calls[0].endswith("/odin.db")
+    assert "partial_scheduled_" in calls[0]
+    assert _digest(database) == live and _digest(backup) == copied
+    assert [path.name for path in backup.parent.iterdir() if path.name.startswith(PARTIAL_PREFIX)] == []
+
+
+def test_restore_test_refuses_a_damaged_backup(database, tmp_path):
+    bad = database.parent / "bad.db"
+    bad.write_bytes(database.read_bytes())
+    overwrite_rightmost_leaf(bad, "audit_logs", "printers")
+    with pytest.raises(BackupValidationError, match="restore test"):
+        backup_schedule.rehearse_restore(bad, database)
+    assert not list(database.parent.glob(f"{PARTIAL_PREFIX}*"))
+
+
+def test_restore_test_refuses_a_schema_that_differs_from_live(database, monkeypatch):
+    monkeypatch.setattr(backup_schedule, "_live_fingerprint", lambda _: "not the same schema")
+    copy = database.parent / "copy.db"
+    copy.write_bytes(database.read_bytes())
+    with pytest.raises(BackupValidationError, match="schema differs"):
+        backup_schedule.rehearse_restore(copy, database)
+
+
+def test_live_fingerprint_matches_what_startup_reports(database):
+    from core.schema import schema_fingerprint
+    engine = create_engine(_url(database))
+    with engine.connect() as connection:
+        expected = schema_fingerprint(connection)
+    engine.dispose()
+    assert backup_schedule._live_fingerprint(database) == expected
+
+
+def test_restore_test_needing_migrations_or_printing_nothing_fails(database, monkeypatch):
+    class Done:
+        returncode = 0
+        stdout = '{"applied": ["python:999"], "schema_fingerprint": "x"}\n'
+    monkeypatch.setattr(backup_schedule.subprocess, "run", lambda *a, **k: Done)
+    with pytest.raises(BackupValidationError, match="needs migrations"):
+        backup_schedule.rehearse_restore(database, database)
+    Done.stdout = ""
+    with pytest.raises(BackupValidationError, match="no startup result"):
+        backup_schedule.rehearse_restore(database, database)
+
+
+def test_a_failed_restore_test_publishes_nothing_prunes_nothing_and_alerts(database, alerts, monkeypatch):
+    first = create_scheduled_backup(_url(database), now=NOW - timedelta(days=1))
+    monkeypatch.setattr(backup_schedule, "rehearse_restore", lambda *_: (_ for _ in ()).throw(BackupValidationError("Backup failed its restore test: startup refused it")))
+    with pytest.raises(BackupValidationError):
+        create_scheduled_backup(_url(database), now=NOW)
+    assert _odin_backups(database) == [first["filename"]]
+    assert backup_failure_alerts.backup_failure_reason(alerts[-1])[0] == "restore_test"
+    assert not list((database.parent / "backups").glob(f"*{RECEIPT_SUFFIX}.tmp"))
+
+
+def test_killed_restore_test_directory_is_swept(database, alerts):
+    leftover = database.parent / "backups" / f"{PARTIAL_PREFIX}restore"
+    leftover.mkdir(parents=True)
+    (leftover / "odin.db").write_bytes(b"plaintext copy")
+    create_scheduled_backup(_url(database), now=NOW)
+    assert not leftover.exists()
