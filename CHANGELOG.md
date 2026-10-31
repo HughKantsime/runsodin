@@ -13,6 +13,7 @@ All notable changes to O.D.I.N. are documented here.
   - The slicer CLI leaves `filament_nozzle_map` at a one-entry default on a multi-filament file. ODIN counted that as evidence, so it conflicted with `filament_map` or left the second filament's nozzle unknown. ODIN now ignores only that default; a full map still has to agree.
   - The nozzle and AMS checks before start apply to both nozzles: each nozzle must match what the file needs, and each filament's tray must feed the nozzle the file assigns it.
   - Slices from the Bambu Studio app across both nozzles aren't proven yet and may still be refused.
+- Removed the frontend's ESLint development tooling. A new moderate advisory in its `minimatch` dependency (GHSA-g3hv-75wg-m249) has no fix for ESLint yet, and the release audit refuses it. ESLint wasn't part of validation and isn't in the image.
 
 ## [2.0.36] - 2026-10-30
 
