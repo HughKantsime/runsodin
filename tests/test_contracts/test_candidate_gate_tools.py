@@ -453,7 +453,7 @@ def test_candidate_make_and_ci_wiring_is_release_blocking():
 
     assert "test-candidate:" in makefile
     assert "$(CANDIDATE_PYTHON) -m ops.release_gate.runner" in makefile
-    assert "runs-on: [self-hosted, odin-ci]" in workflow
+    assert "runs-on: [self-hosted, mac-mini-runner, m4]" in workflow
     assert "odin-isolated" not in workflow
     assert '"make","test-candidate","CANDIDATE_PYTHON=python3.11"' in inventory
     assert "if: always()" in workflow

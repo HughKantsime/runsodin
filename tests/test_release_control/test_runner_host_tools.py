@@ -492,8 +492,6 @@ def test_provisioning_drops_what_only_eligibility_needed():
         assert not re.search(r'\bjsonschema\b|\bcli/cli\b|\bgh_\$|\bgh --version|--break-system-packages|ensurepip', source)
     workflow = (ROOT / '.github/workflows/trusted-validation.yml').read_text()
     assert 'command -v gh' not in workflow and 'gh api' not in workflow
-    # The gate's own jsonschema comes from the contracts venv, which the workflow puts first on PATH.
-    assert '"$GITHUB_WORKSPACE/.venv-contracts/bin" >> "$GITHUB_PATH"' in workflow
     assert 'jsonschema==' in (ROOT / 'backend/requirements.txt').read_text()
     assert '-r ../backend/requirements.txt' in (ROOT / 'tests/requirements-contracts.txt').read_text()
 

@@ -52,10 +52,11 @@ def test_nothing_is_recorded_unless_the_workflow_asks(tmp_path, monkeypatch):
     assert 'api_load_host' not in manifest
 
 
-def test_the_workflow_asks_and_make_passes_it_on():
+def test_the_restored_workflow_doesnt_ask_but_make_still_can():
+    """A record stops being kept while validation is back on the Mac. The native result still has it."""
     workflow = yaml.safe_load((ROOT / '.github/workflows/trusted-validation.yml').read_text())
     step = next(step for step in workflow['jobs']['validate']['steps'] if step.get('name') == 'Build practical release evidence')
-    assert 'RECORD_API_LOAD_HOST=1' in step['run']
+    assert 'RECORD_API_LOAD_HOST' not in step['run']
     assert '$(if $(RECORD_API_LOAD_HOST),--record-api-load-host,)' in (ROOT / 'Makefile').read_text()
 
 

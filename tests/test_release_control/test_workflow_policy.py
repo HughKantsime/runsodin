@@ -65,9 +65,9 @@ def test_WF10_candidate_sha_is_full_lowercase_hex():
 
 def test_WF11_runner_labels_are_exact():
     source = workflow_text()
-    assert "runs-on: [self-hosted, odin-ci]" in source
+    assert "runs-on: [self-hosted, mac-mini-runner, m4]" in source
     assert "odin-isolated" not in source
-    assert "Required tool missing from PATH:" in source
+    assert "printf '%s\\n' /Users/ollama/homebrew/bin /Users/ollama/homebrew/sbin /opt/homebrew/bin >> \"$GITHUB_PATH\"" in source
 
 
 def test_WF12_workflow_has_no_release_side_effect_or_secret_surface():
@@ -135,37 +135,23 @@ def test_pinned_vision_model_verification_rejects_missing_or_corrupt_materializa
     assert (result.returncode == 0) == (state == "hydrated"), result.stderr
 
 
-def test_validation_pins_linux_runner_and_fail_closed_path_tools():
+def test_validation_needs_nothing_set_up_for_odin_ci():
+    """Reverted to the Mac: it finds its tools at the Mac's paths, and no hook check can stop it."""
     source = (ROOT / '.github/workflows/trusted-validation.yml').read_text()
-    workflow = yaml.safe_load(source)
-    assert workflow['permissions'] == {}
-    assert len(workflow['jobs']) == 1
-    job = next(iter(workflow['jobs'].values()))
-    assert job['runs-on'] == ['self-hosted', 'odin-ci']
-    bootstrap = job['steps'][0]['run']
-    for tool in ('python3.11', 'node', 'npm', 'mosquitto', 'docker', 'git', 'git-lfs', 'make', 'gitleaks', 'semgrep', 'hadolint'):
-        assert f'command -v {tool} >/dev/null || {{ echo "Required tool missing from PATH: {tool}" >&2; exit 1; }}' in bootstrap
-    assert 'HughKantsime' in bootstrap and '201174638' in bootstrap
-    assert 'TRIGGERING_ACTOR' in bootstrap and 'RUN_ATTEMPT' in bootstrap
-    for forbidden in ('/Users/ollama', '/opt/homebrew', 'mac-mini-runner', 'Colima', 'Rosetta', 'setup-qemu'):
-        assert forbidden not in source
-    for step in job['steps']:
-        if 'uses' in step:
-            assert len(step['uses'].rsplit('@', 1)[-1]) == 40
-    assert 'sys.version_info[:2] == (3, 11)' in bootstrap
-    assert 'Docker Engine 29.x is required' in bootstrap
-    assert 'Docker buildx plugin is required' in bootstrap
+    for gone in ('odin-ci', 'ODIN_RUNNER_HOOK_REQUIRED', 'ACTIONS_RUNNER_HOOK_JOB_STARTED', 'Required tool missing from PATH:'):
+        assert gone not in source
 
 
 @pytest.mark.parametrize('name,paths', [
+    ('trusted-validation', ('/Users/ollama/homebrew/bin/python3.11', '/opt/homebrew/bin/npm', '/Users/ollama/homebrew/sbin/mosquitto')),
     ('promote', ('/Users/ollama/homebrew/bin/python3.11', '/opt/homebrew/bin/gh')),
     ('publish-image', ('/Users/ollama/homebrew/bin/python3.11', '/opt/homebrew/bin/gh', '/Users/ollama/homebrew/bin/docker')),
     ('promote-production', ('/Users/ollama/homebrew/bin/python3.11', '/opt/homebrew/bin/gh', '/Users/ollama/homebrew/bin/docker')),
     ('rollback-2.0-production', ('/Users/ollama/homebrew/bin/docker',)),
 ])
-def test_mutation_workflows_stay_on_the_mac(name, paths):
-    """Only Trusted Validation runs on odin-ci. Publishing can't (arm64 under QEMU never goes healthy), and
-    eligibility authenticates validation's evidence, so it stays off the host that just ran candidate code."""
+def test_release_workflows_stay_on_the_mac(name, paths):
+    """Validation is reverted to the Mac. Publishing can't run on odin-ci (arm64 under QEMU never goes
+    healthy), and eligibility authenticates validation's evidence, so it never moved."""
     source = (ROOT / '.github/workflows' / f'{name}.yml').read_text()
     workflow = yaml.safe_load(source)
     assert workflow['permissions'] == {}
@@ -211,17 +197,15 @@ def test_mac_publication_requires_rosetta_amd64_emulation_not_qemu():
     assert '--prefer-index=false' not in helper
 
 
-def test_linux_bootstrap_uses_owned_python_and_browser_dependencies():
+def test_bootstrap_installs_only_from_the_pinned_requirements():
     source = workflow_text()
-    assert '"$GITHUB_WORKSPACE/.venv-contracts/bin" >> "$GITHUB_PATH"' in source
-    assert '.venv-contracts/bin/python -m playwright install chromium' in source
-    assert 'npx --no-install playwright install chromium' in source
+    assert '.venv-contracts/bin/pip install --disable-pip-version-check -r tests/requirements-contracts.txt' in source
+    assert 'PLAYWRIGHT_SKIP_BROWSER_GC=1 python3.11 -m playwright install chromium' in source
     assert 'pip-audit==' not in source and 'bandit==' not in source
     requirements = (ROOT / 'tests/requirements-contracts.txt').read_text().splitlines()
     assert 'pip-audit==2.10.0' in requirements
     assert 'bandit==1.9.4' in requirements
     assert '-r ../backend/requirements.txt' in requirements
-    assert 'test "$(node --version)" = v25.9.0' in source
 
 
 @pytest.mark.parametrize('name', ['promote', 'publish-image', 'promote-production', 'rollback-2.0-production'])
