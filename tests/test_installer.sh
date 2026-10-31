@@ -341,26 +341,62 @@ else
     fail "TTY detection" "Expected pipe mode, got: $color_check"
 fi
 
-# Verify install.sh can run in non-TTY without blocking on prompts
-# (We expect it to fail at docker checks, but NOT to hang on prompts)
-# A failing docker stub keeps this hermetic: on a host with working Docker the
-# real installer would otherwise pull the image and start ODIN.
-mkdir -p "$TMPDIR_TEST/no-docker" "$TMPDIR_TEST/nontty-cwd"
-printf '#!/bin/sh\nexit 1\n' > "$TMPDIR_TEST/no-docker/docker"
-chmod +x "$TMPDIR_TEST/no-docker/docker"
-(cd "$TMPDIR_TEST/nontty-cwd" && PATH="$TMPDIR_TEST/no-docker:$PATH" timeout 5 bash -c "echo '' | bash '$INSTALL_SH' 2>&1 || true") > "$TMPDIR_TEST/nontty_output" 2>&1 || {
-    exitcode=$?
-    if [ $exitcode -eq 124 ]; then
-        fail "install.sh non-TTY hangs" "Script hung (timeout) — likely blocking on a prompt"
-    fi
-}
-if [ -f "$TMPDIR_TEST/nontty_output" ]; then
-    # It should either fail at preflight or proceed without prompts
-    if grep -q "ODIN\|Preflight\|Docker" "$TMPDIR_TEST/nontty_output"; then
-        pass "install.sh runs in non-TTY without hanging"
-    else
-        pass "install.sh runs in non-TTY (exited early)"
-    fi
+# Verify install.sh runs in non-TTY through every prompt without blocking.
+# stdin stays open with nothing to read, so a prompt reading it would hang rather than
+# see EOF. The docker stub passes preflight and refuses the image pull, which is the
+# first step after configuration: this is hermetic, and nothing is pulled or started.
+nontty_dir="$TMPDIR_TEST/nontty"
+mkdir -p "$nontty_dir/bin" "$nontty_dir/cwd"
+cat > "$nontty_dir/bin/docker" <<'STUB'
+#!/bin/sh
+echo "$*" >> "$DOCKER_STUB_LOG"
+case "$*" in
+    "version --format {{.Server.Version}}") echo 29.0.0 ;;
+    "compose version") echo "Docker Compose version v5.0.0" ;;
+    "compose version --short") echo 5.0.0 ;;
+    pull*) exit 1 ;;
+    *) exit 1 ;;
+esac
+STUB
+printf '#!/bin/sh\nexit 1\n' > "$nontty_dir/bin/curl"
+chmod +x "$nontty_dir/bin/docker" "$nontty_dir/bin/curl"
+mkfifo "$nontty_dir/stdin"
+sleep 60 > "$nontty_dir/stdin" &
+nontty_stdin_pid=$!
+(
+    cd "$nontty_dir/cwd"
+    # Free high ports, local sources, no network: only the prompts are under test.
+    exec env PATH="$nontty_dir/bin:$PATH" DOCKER_STUB_LOG="$nontty_dir/docker.log" \
+        ODIN_SKIP_PUBLIC_CHECK=1 ODIN_HTTP_PORT=59180 ODIN_GO2RTC_PORT=59181 ODIN_WEBRTC_PORT=59182 \
+        ODIN_COMPOSE_SOURCE="$REPO_DIR/install/docker-compose.yml" ODIN_UPDATE_SOURCE="$UPDATE_SH" \
+        bash "$INSTALL_SH"
+) < "$nontty_dir/stdin" > "$nontty_dir/output" 2>&1 &
+nontty_pid=$!
+nontty_waited=0
+while kill -0 "$nontty_pid" 2>/dev/null && [ "$nontty_waited" -lt 120 ]; do
+    sleep 0.25
+    nontty_waited=$(( nontty_waited + 1 ))
+done
+nontty_hung=0
+if kill -0 "$nontty_pid" 2>/dev/null; then
+    nontty_hung=1
+    kill "$nontty_pid" 2>/dev/null || true
+fi
+wait "$nontty_pid" 2>/dev/null || true
+kill "$nontty_stdin_pid" 2>/dev/null || true
+wait "$nontty_stdin_pid" 2>/dev/null || true
+if [ "$nontty_hung" = 1 ]; then
+    fail "install.sh non-TTY hangs" "Script hung (timeout) — likely blocking on a prompt"
+elif ! grep -q "Configuration" "$nontty_dir/output" \
+    || ! grep -q "Failed to pull" "$nontty_dir/output" \
+    || ! grep -q "^pull " "$nontty_dir/docker.log" \
+    || ! grep -q "^ODIN_HOST_IP=." "$nontty_dir/cwd/odin/.env" \
+    || ! grep -q "^TZ=." "$nontty_dir/cwd/odin/.env"; then
+    fail "install.sh non-TTY" "Did not reach the image pull with prompt defaults: $(tail -3 "$nontty_dir/output" | tr '\n' ' ')"
+elif grep -qE "^(compose (up|create)|run|start) " "$nontty_dir/docker.log"; then
+    fail "install.sh non-TTY" "The stubbed run tried to start something: $(tr '\n' ' ' < "$nontty_dir/docker.log")"
+else
+    pass "install.sh runs in non-TTY without hanging"
 fi
 
 # ── Version Consistency ───────────────────────────────────────────────────

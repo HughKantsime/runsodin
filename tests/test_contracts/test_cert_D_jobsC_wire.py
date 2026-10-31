@@ -15,7 +15,6 @@ from sqlalchemy.orm import Session
 
 from tests.test_contracts.test_archive_reprint_behavior import reprint_client  # noqa: F401
 from tests.test_contracts.test_education_review_workflow import review_db  # noqa: F401
-from tests.test_contracts.test_recent_terminal_jobs import picture
 from tests.test_contracts.cert_D_capture import publish
 
 # Exercises Pro-gated routes (cert-fix-G tier gates): run under a real signed license.
@@ -23,6 +22,8 @@ pytestmark = pytest.mark.usefixtures("pro_license")
 
 FIXTURE = Path(__file__).resolve().parents[2] / 'frontend/src/test-fixtures/certD-jobsC-wire.json'
 CREATED = '2026-10-01 08:00:00'
+# A committed 16x16 red PNG. Encoding one at run time would make these bytes depend on the zlib build.
+THUMBNAIL_PNG = 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAIUlEQVR4nGP8z0AaYCJRPcOoBmIAE1GqkMCoBmIAyaEEAEAuAR9UPEsJAAAAAElFTkSuQmCC'
 
 
 def seed(db):
@@ -33,7 +34,7 @@ def seed(db):
     db.execute(text("INSERT INTO orders(id,order_number,status) VALUES(901,'CERTC-901','pending')"))
     db.execute(text("INSERT INTO order_items(id,order_id,product_id,quantity) VALUES(901,901,901,1)"))
     db.execute(text("INSERT INTO print_files(id,model_id,filename,original_filename,stored_path,org_id,thumbnail_b64) "
-                    "VALUES(301,101,'certc.3mf','certc.3mf','/opaque/certc.3mf',1,:image)"), {'image': picture()})
+                    "VALUES(301,101,'certc.3mf','certc.3mf','/opaque/certc.3mf',1,:image)"), {'image': THUMBNAIL_PNG})
     rows = [
         # id, name, status, printer, due, sched_start, sched_end, act_start, act_end, order_item, created, duration, file
         (201, 'CertC adhoc pending A', 'pending', None, '2026-10-10 00:00:00', None, None, None, None, None, '2026-10-01 08:00:00', 2.0, None),
@@ -149,7 +150,7 @@ def test_capture_jobs_queue_timeline_recent_and_failure_wire(wire_client):
 
     wire['recent_terminal'] = ok(client.get('/jobs/recent-terminal'))
     assert [r['id'] for r in wire['recent_terminal']] == [206, 205, 217, 216, 215, 214, 213, 212]
-    assert wire['recent_terminal'][0]['thumbnail_data'].startswith('data:image/png;base64,')
+    assert wire['recent_terminal'][0]['thumbnail_data'] == 'data:image/png;base64,' + THUMBNAIL_PNG
     assert wire['recent_terminal'][1]['duration_seconds'] == 9000.0
 
     wire['failure_analytics'] = ok(client.get('/analytics/failures', params={'days': 365}))
@@ -171,7 +172,7 @@ def test_capture_jobs_queue_timeline_recent_and_failure_wire(wire_client):
     assert (wire['pinned_blocked_job']['pinned_printer_id'], wire['pinned_blocked_job']['pinned_printer_issue']) == (10, 'pinned_printer_inactive')
     db.execute(text('UPDATE printers SET is_active=1 WHERE id=10')); db.commit()
     FIXTURE.parent.mkdir(parents=True, exist_ok=True)
-    publish(FIXTURE, wire, indent=1, volatile={'utilization_pct', 'thumbnail_data'})  # hours over a wall-clock window; PNG bytes vary with the zlib build
+    publish(FIXTURE, wire, indent=1, volatile={'utilization_pct'})  # hours over a wall-clock window
 
 
 # ---------------- F04-4.3-01 drag-and-drop reorder (backend) ----------------

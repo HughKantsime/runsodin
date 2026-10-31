@@ -63,15 +63,29 @@ def test_malformed_cursor_rejected(client, cursor):
     assert client[0].get('/api/admin/logs', params={'cursor': cursor}).status_code == 400
 
 
-def test_rotation_and_truncation_require_refresh(client):
+def test_truncation_requires_refresh(client):
     http, path = client
     cursor = http.get('/api/admin/logs', params={'lines': 2}).json()['next_cursor']
     path.write_text('[INFO] Short\n')
     assert http.get('/api/admin/logs', params={'cursor': cursor}).status_code == 409
-    # Rotate by rename, as log rotation does: delete-and-recreate can reuse the inode on ext4.
-    path.rename(path.with_name(path.name + '.1'))
-    path.write_text('replacement\n' * 100)
-    assert http.get('/api/admin/logs', params={'cursor': cursor}).status_code == 409
+
+
+@pytest.mark.parametrize('rotate', ['rename', 'delete'])
+def test_rotation_requires_refresh(client, rotate):
+    http, path = client
+    cursor = http.get('/api/admin/logs', params={'lines': 2}).json()['next_cursor']
+    device, inode, snapshot, _ = map(int, cursor.split(':'))
+    # Holding the old file open keeps its inode allocated, so the new file can't be given it.
+    with path.open('rb'):
+        if rotate == 'rename':
+            path.rename(path.with_name(path.name + '.1'))
+        else:
+            path.unlink()
+        path.write_text('replacement\n' * 100)
+        current = path.stat()
+        # The file's identity is all that differs: it is long enough for the cursor's snapshot.
+        assert (current.st_dev, current.st_ino) != (device, inode) and current.st_size >= snapshot
+        assert http.get('/api/admin/logs', params={'cursor': cursor}).status_code == 409
 
 
 def test_large_physical_line_is_bounded_and_still_one_pagination_entry(client):
