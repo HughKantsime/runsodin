@@ -1062,7 +1062,8 @@ def test_history_does_not_join_a_job_after_a_print_that_finished():
     # Only a job closed as cancelled can be a pause, whatever the next job's clock says.
     from modules.printers.monitors.moonraker_history import terminal_history
     jobs = [history_job('completed', 1000.0, 1100.0, 100.0, 90.0), history_job('cancelled', 1100.1, 1200.0, 200.0, 180.0)]
-    found = terminal_history(SimpleNamespace(get_job_history=lambda limit: jobs), 'part.gcode', 0, row_started_at=1000.0)
+    # Before the second job's 120 s tolerance, so only the first job, or a join, can match.
+    found = terminal_history(SimpleNamespace(get_job_history=lambda limit: jobs), 'part.gcode', 0, row_started_at=900.0)
     assert (found['status'], found['duration']) == ('completed', 90.0)
 
 
