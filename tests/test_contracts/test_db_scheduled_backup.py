@@ -167,11 +167,12 @@ def test_source_that_cannot_be_checked_is_refused_and_says_so(database, alerts, 
 
 @pytest.mark.parametrize("failure", ["snapshot", "disk", "verify", "publish"])
 def test_a_failed_run_publishes_nothing_prunes_nothing_and_alerts(database, alerts, monkeypatch, failure):
-    for day in range(38, 0, -7):
-        create_scheduled_backup(_url(database), now=NOW - timedelta(days=day))
+    # Enough old copies that any prune would remove some of them.
+    directory = database.parent / "backups"
+    directory.mkdir()
+    for day in range(20, 90):
+        _scheduled(directory, NOW - timedelta(days=day))
     before = _odin_backups(database)
-    # Old enough that a successful run would prune one of them.
-    extra = before[0]
     if failure == "snapshot":
         monkeypatch.setattr(backup_service, "validate_database", lambda _: (_ for _ in ()).throw(BackupValidationError("snapshot failed validation")))
     elif failure == "disk":
@@ -187,8 +188,8 @@ def test_a_failed_run_publishes_nothing_prunes_nothing_and_alerts(database, aler
         monkeypatch.setattr(backup_schedule.os, "replace", fail_publish)
     with pytest.raises((BackupValidationError, OSError)):
         create_scheduled_backup(_url(database), now=NOW)
-    assert _odin_backups(database) == before and extra in before
-    assert not list((database.parent / "backups").glob(f"{PARTIAL_PREFIX}*"))
+    assert _odin_backups(database) == before and len(before) == 70
+    assert not list(directory.glob(f"{PARTIAL_PREFIX}*"))
     assert alerts
 
 
