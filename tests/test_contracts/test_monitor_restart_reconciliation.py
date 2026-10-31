@@ -977,6 +977,131 @@ def test_moonraker_history_of_another_print_does_not_decide(moonraker):
     assert as_utc_datetime(ended) != datetime.fromtimestamp(start + 300, timezone.utc)
 
 
+def history_job(status, start, end, total, printed):
+    return dict(filename='part.gcode', status=status, start_time=start, end_time=end, total_duration=total, print_duration=printed)
+
+
+def paused_print(status, ended_ago=60):
+    """The real shape of a pause: 000007 cancelled, 000008 completed. Newest first, as Moonraker lists them."""
+    end = time.time() - ended_ago
+    start = end - 1402.767
+    resumed = start + 630.946
+    return start, resumed - 0.08, end, [history_job(status, resumed, end, 1081.0, 803.0),
+                                        history_job('cancelled', start, resumed - 0.08, 309.0, 31.0)]
+
+
+def test_moonraker_paused_print_finished_unwatched_records_its_true_end(moonraker):
+    case = moonraker
+    start, paused_at, end, jobs = paused_print('completed')
+    identifier = case.row(started=time.time() - start, job=53)
+    case.monitor(history=jobs)._process_status(moonraker_status('complete', total=1081))
+    status, ended = case.state(identifier)
+    assert status == 'completed'
+    assert abs((as_utc_datetime(ended) - datetime.fromtimestamp(end, timezone.utc)).total_seconds()) < 1
+    with case.engine.connect() as conn:
+        row = conn.execute(text('SELECT started_at,print_duration_seconds FROM print_jobs WHERE id=:id'), {'id': identifier}).one()
+        assert conn.execute(text('SELECT status FROM jobs WHERE id=53')).scalar_one() == 'completed'
+    assert abs((as_utc_datetime(row[0]) - datetime.fromtimestamp(start, timezone.utc)).total_seconds()) < 2 and row[1] == 803
+    assert len(case.seen.completed) == 1
+
+
+def test_moonraker_paused_print_cancelled_unwatched_stays_cancelled_at_its_real_end(moonraker):
+    # 000005 and 000006: a pause, a resume, then a real cancel. The first job is not its end.
+    case = moonraker
+    start, paused_at, end, jobs = paused_print('cancelled')
+    identifier = case.row(started=time.time() - start)
+    case.monitor(history=jobs)._process_status(moonraker_status('cancelled', total=1081))
+    status, ended = case.state(identifier)
+    assert status == 'cancelled'
+    assert abs((as_utc_datetime(ended) - datetime.fromtimestamp(end, timezone.utc)).total_seconds()) < 1
+
+
+def test_moonraker_print_cancelled_while_paused_with_no_resume_stays_cancelled(moonraker):
+    case = moonraker
+    end = time.time() - 60
+    identifier = case.row(started=1000)
+    monitor = case.monitor(history=[history_job('cancelled', end - 940, end, 309.0, 31.0)])
+    monitor._process_status(moonraker_status('cancelled', total=309))
+    status, ended = case.state(identifier)
+    assert status == 'cancelled'
+    assert abs((as_utc_datetime(ended) - datetime.fromtimestamp(end, timezone.utc)).total_seconds()) < 1
+
+
+def test_moonraker_cancelled_print_is_not_joined_to_the_next_print_of_that_file(moonraker):
+    # 00000E and 00000F, 95.8 s apart, each with its own clock. The printer's complete is the
+    # later print's; this row watched the earlier one.
+    case = moonraker
+    first_end = time.time() - 2000
+    first_start = first_end - 601.3
+    identifier = case.row(started=time.time() - first_start)
+    second_start = first_end + 95.8
+    monitor = case.monitor(history=[history_job('completed', second_start, second_start + 1903.4, 1904.0, 1545.0),
+                                    history_job('cancelled', first_start, first_end, 601.0, 601.0)])
+    monitor._process_status(moonraker_status('complete', total=1904))
+    status, ended = case.state(identifier)
+    assert status == 'cancelled'
+    assert abs((as_utc_datetime(ended) - datetime.fromtimestamp(first_end, timezone.utc)).total_seconds()) < 1
+
+
+@pytest.mark.parametrize('gap,total,joined', [(0.08, 1081.0, True), (0.08, 771.8, False), (95.8, 1176.8, False)],
+                         ids=['resumed', 'own_clock', 'too_late'])
+def test_history_joins_only_a_job_that_opens_as_the_last_closes_and_keeps_its_clock(gap, total, joined):
+    from modules.printers.monitors.moonraker_history import terminal_history
+    start = 1000.0
+    first_end = start + 630.865
+    second_start = first_end + gap
+    second_end = second_start + 771.821
+    jobs = [history_job('completed', second_start, second_end, total, 803.0), history_job('cancelled', start, first_end, 309.0, 31.0)]
+    found = terminal_history(SimpleNamespace(get_job_history=lambda limit: jobs), 'part.gcode', 0, row_started_at=start)
+    assert found['status'] == ('completed' if joined else 'cancelled')
+    assert found['ended_at'] == datetime.fromtimestamp(second_end if joined else first_end, timezone.utc).isoformat()
+    assert found['duration'] == (803.0 if joined else 31.0)
+
+
+def test_history_joins_a_print_paused_more_than_once():
+    from modules.printers.monitors.moonraker_history import terminal_history
+    jobs = [history_job('cancelled', 1000.0, 1100.0, 100.0, 90.0), history_job('cancelled', 1100.1, 1200.0, 200.0, 180.0),
+            history_job('completed', 1200.1, 1300.0, 300.0, 270.0)]
+    found = terminal_history(SimpleNamespace(get_job_history=lambda limit: jobs), 'part.gcode', 0, row_started_at=1000.0)
+    assert (found['status'], found['duration']) == ('completed', 270.0)
+    assert found['started_at'] == datetime.fromtimestamp(1000.0, timezone.utc).isoformat()
+    assert found['ended_at'] == datetime.fromtimestamp(1300.0, timezone.utc).isoformat()
+
+
+def test_history_of_a_print_still_in_progress_does_not_speak_for_its_end():
+    # A pause's cancelled job, with the resumed job not yet settled, is not this print's outcome.
+    from modules.printers.monitors.moonraker_history import terminal_history
+    jobs = [dict(filename='part.gcode', status='in_progress', start_time=1100.1, end_time=None, total_duration=150.0, print_duration=120.0),
+            history_job('cancelled', 1000.0, 1100.0, 100.0, 90.0)]
+    history = SimpleNamespace(get_job_history=lambda limit: jobs)
+    assert terminal_history(history, 'part.gcode', 1200.0) is None
+    assert terminal_history(history, 'part.gcode', 1200.0, row_started_at=1000.0) is None
+
+
+@pytest.mark.parametrize('resumed_ago', [772, 100], ids=['pause_long_ago', 'pause_just_before_the_end'])
+def test_moonraker_watched_paused_print_keeps_its_start_and_outcome(moonraker, resumed_ago):
+    # Watched to the end. One job alone moved the start to the resume; two made history ambiguous.
+    case = moonraker
+    now = time.time()
+    end, resumed = now - 1, now - resumed_ago
+    start = resumed - 630.946
+    monitor = case.monitor()
+    monitor._process_status(moonraker_status('printing', total=5))
+    identifier = monitor._current_job_db_id
+    with case.engine.begin() as conn:
+        conn.execute(text('UPDATE print_jobs SET started_at=:at WHERE id=:id'), {'at': datetime.fromtimestamp(start, timezone.utc).strftime('%Y-%m-%d %H:%M:%S'), 'id': identifier})
+    elapsed = 309.0 + (end - resumed)
+    monitor.printer = SimpleNamespace(get_job_history=lambda limit: [history_job('completed', resumed, end, elapsed, 803.0),
+                                                                     history_job('cancelled', start, resumed - 0.08, 309.0, 31.0)])
+    monitor._process_status(moonraker_status('complete', total=elapsed))
+    status, ended = case.state(identifier)
+    assert status == 'completed'
+    assert abs((as_utc_datetime(ended) - datetime.fromtimestamp(end, timezone.utc)).total_seconds()) < 1
+    with case.engine.connect() as conn:
+        row = conn.execute(text('SELECT started_at,print_duration_seconds FROM print_jobs WHERE id=:id'), {'id': identifier}).one()
+    assert abs((as_utc_datetime(row[0]) - datetime.fromtimestamp(start, timezone.utc)).total_seconds()) < 2 and row[1] == 803
+
+
 def test_moonraker_history_that_ended_before_the_row_started_does_not_decide(moonraker):
     # The same file printed and ended before this row existed: not the job this row watched.
     case = moonraker
