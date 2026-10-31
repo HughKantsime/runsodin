@@ -39,7 +39,8 @@ verifier reads. No real licence and no release-image change is involved.
 ## api_load limits for 2.0
 
 CV06's api_load runs the fixed EDU workload (1,000 operations per repetition, 25
-concurrent users, three repetitions) in process on the gate host, against SQLite.
+concurrent users, three repetitions) in process on the gate host, against SQLite,
+then again in a fresh subprocess to measure memory growth.
 For 2.0 three latency limits in `ops/edu_readiness/thresholds.json` were
 re-baselined (decision: Hugh, 2026-10-18). Each is the measured worst plus 10-15%
 headroom; the previous value and the evidence sit next to the number in
@@ -50,6 +51,13 @@ headroom; the previous value and the evidence sit next to the number in
 | read p95 | 500 ms | 650 ms | 591 ms |
 | write p95 | 1000 ms | 1400 ms | 1232 ms |
 | global p99 | 2000 ms | 2800 ms | 2478 ms |
+
+**For this release the latency limits sit well above real latency.** They were measured
+with the tracer running, and timed repetitions now run without it. On the Mac, untraced
+read p95, write p95 and global p99 measure about 250, 330 and 340 ms, against limits of
+650, 1400 and 2800 ms. So for this one release the gate catches only a large latency
+regression. The limits are tightened in the next release. The cause of the tail that
+remains without the tracer is still open; see below.
 
 Why 2.0 costs more per request:
 
@@ -65,12 +73,41 @@ Why 2.0 costs more per request:
 
 What the measurements show:
 
-- **macOS SQLite locking tail.** The repetition-3 failures are bursts of 5-10
-  usage-report queries taking 1.5-2.8 s of wall time, against 15-20 ms normally,
-  while executing the same amount of query work. The extra time is spent
-  outside the query engine. It remains with the database on a RAM disk, and it
-  disappears on Linux, which fits macOS's file-locking path under concurrent
-  connections.
+- **Report tail: the tracer makes it far worse, and the rest of the cause is open.** The
+  repetition-3 failures on the Mac were bursts of 5-10 usage-report queries taking
+  1.5-2.8 s of wall time, against 15-20 ms normally, while executing the same amount of
+  query work, with the extra time outside the query engine. api_load kept `tracemalloc`
+  running through every timed repetition, and turning it off removes most of the tail.
+  With garbage collection off and the tracer on, the tail stays (usage-report maximum
+  5343 ms), so garbage collection doesn't explain it. Ranges over three repetitions per
+  run, with two runs per setup on the Mac, in milliseconds. `odin-ci` is a Linux test VM:
+
+  | Setup | Read p95 | Global p99 | Usage-report p99 |
+  |---|---|---|---|
+  | Mac, tracer on | 449-607 | 665-1971 | 654-2251 |
+  | Mac, tracer off | 232-255 | 315-349 | 256-322 |
+  | odin-ci, tracer on | 1042-2262 | 2058-3540 | 2858-4135 |
+  | odin-ci, tracer off | 439-442 | 561-597 | 503-645 |
+
+  A smaller tail remains without the tracer. What is known so far, all on `odin-ci`:
+
+  - **Size.** Untraced, 5 of 50 runs reached a global p99 above 815 ms, all in
+    repetition 3. The worst was 1688 ms, with report p99 up to 1811 ms.
+  - **Not the GIL switch interval.** Setting it to 0.5 ms or 50 ms changed nothing.
+  - **Request order matters somewhat.** Repetition 3's fixed order has 24 windows of 25
+    operations with 6 or more reports, against 1 in repetition 1 and 12 in repetition 2.
+    Giving repetition 1 that order raised traced usage-report p99 from about 2700 ms to
+    about 3800 ms.
+  - **Order isn't the whole cause.** With reports evenly spaced, traced repetition 3 still
+    has usage-report p50 of about 2663-3261 ms, against about 670 ms in repetitions 1 and 2
+    of those runs, so some state that builds up by repetition 3 also contributes.
+
+  Timed repetitions now run with no tracer, and a tracer found running fails the gate.
+  Memory growth has its own pass: the same fixture, warmup, repetitions, baseline point
+  and limit, in a fresh subprocess with `tracemalloc` on. Its latencies and its FD growth
+  aren't judged; the timed pass judges FD growth. A pass that crashes, hangs, writes no
+  usable report or shows errors, 5xx responses or tenant leaks fails the gate. Each result
+  records `latency_traced`, `memory_delta_source` and `memory_pass` in its metrics.
 - **Linux, 2 vCPUs.** The same workload in the release-image container (Docker
   Desktop VM, 2 vCPUs, 4 GB, DB on the container filesystem) has no tail: report
   p95 stays at 487-627 ms in every repetition, and global p99 equals write p95.
