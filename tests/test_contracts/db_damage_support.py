@@ -34,6 +34,22 @@ def rewind_rightmost_leaf(database: Path, table: str, change: str) -> None:
         handle.write(image)
 
 
+def break_freelist(database: Path, table: str) -> None:
+    """Free some pages, then cut the freelist off in the file header, so they belong to nothing.
+
+    integrity_check reports them. VACUUM INTO only copies what's reachable, so its copy is clean.
+    """
+    connection = sqlite3.connect(database)
+    connection.execute(f"DELETE FROM {table} WHERE id % 2 = 0")  # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query
+    connection.commit()
+    connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    assert connection.execute("PRAGMA freelist_count").fetchone()[0] > 0
+    connection.close()
+    with database.open("r+b") as handle:
+        handle.seek(32)
+        handle.write(b"\x00" * 8)
+
+
 def overwrite_rightmost_leaf(database: Path, victim: str, source: str) -> None:
     """Overwrite ``victim``'s rightmost leaf with an image of ``source``'s first leaf.
 

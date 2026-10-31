@@ -464,12 +464,12 @@ def validate_database(path: Path) -> dict[str, object]:
 
 @report_backup_failure
 def require_healthy_source(database: Path) -> IntegrityReport:
-    """Refuse to back up a damaged database, because VACUUM INTO can hide the damage.
+    """Refuse to back up a damaged database. VACUUM INTO's result can't be trusted to show it.
 
-    It copies whatever rows the damaged tree yields. Usually that fails or the copy fails
-    validation. But if the wrong rows fit the table and their rowids collide with nothing, the copy
-    validates while holding the wrong data, and only a check of the source can tell. pre_restore_
-    backups skip this: a restore is how you leave the damage.
+    What survives the copy depends on the damage and the SQLite version: the same damage raised a
+    constraint error on 3.45 and failed validate_database on 3.51. A broken freelist vanishes on
+    both, so that copy validates. Only a check of the source says the same thing every time.
+    pre_restore_ backups skip this: a restore is how you leave the damage.
     """
     report = check_database(database)
     if report.state != INTEGRITY_OK:

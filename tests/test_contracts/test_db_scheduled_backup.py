@@ -26,7 +26,7 @@ from modules.system.backup_service import (
     stage_restore,
     validate_database,
 )
-from tests.test_contracts.db_damage_support import overwrite_rightmost_leaf, rewind_rightmost_leaf
+from tests.test_contracts.db_damage_support import break_freelist, overwrite_rightmost_leaf, rewind_rightmost_leaf
 
 NOW = datetime(2026, 11, 2, 3, 0, tzinfo=timezone.utc)
 
@@ -94,48 +94,39 @@ def _rewind(database: Path) -> None:
 
 
 def _damage_vacuum_cannot_see(database: Path) -> None:
-    """The incident's shape, where the wrong rows fit: retention already removed the ids they reuse."""
-    connection = sqlite3.connect(database)
-    connection.execute("DELETE FROM audit_logs WHERE id <= 200")
-    printers = connection.execute("PRAGMA table_info(printers)").fetchall()
-    for position in (row[0] for row in connection.execute("PRAGMA table_info(audit_logs)") if row[3] and not row[5]):
-        # The column name comes from this database's own schema.
-        connection.execute(f"UPDATE printers SET \"{printers[position][1]}\" = 'x'")  # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query
-    connection.commit()
-    connection.close()
-    overwrite_rightmost_leaf(database, "audit_logs", "printers")
+    break_freelist(database, "printer_telemetry")
+
+
+def _vacuum_copy_validates(database: Path) -> bool:
+    target = database.parent / "copy.db"
+    connection = sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)
+    try:
+        connection.execute("VACUUM INTO ?", (str(target),))
+        validate_database(target)
+    except (sqlite3.Error, BackupValidationError):
+        return False
+    finally:
+        connection.close()
+        target.unlink(missing_ok=True)
+    return True
 
 
 def test_vacuum_into_can_hide_damage_so_the_source_has_to_be_checked(database):
     """Why require_healthy_source exists: the source fails its check, and the copy validates."""
     _damage_vacuum_cannot_see(database)
     assert check_database(database).state == DAMAGED
-    target = database.parent / "copy.db"
-    connection = sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)
-    connection.execute("VACUUM INTO ?", (str(target),))
-    connection.close()
-    assert validate_database(target)["size_bytes"] > 0
-    assert check_database(target).state == "ok"
+    assert _vacuum_copy_validates(database) is True
 
 
-def test_vacuum_into_copy_of_a_stale_page_fails_validation_by_itself(database):
-    """It copies indexes as they are, so this kind carries over and validate_database catches it."""
-    _rewind(database)
-    target = database.parent / "copy.db"
-    connection = sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)
-    connection.execute("VACUUM INTO ?", (str(target),))
-    connection.close()
-    with pytest.raises(BackupValidationError):
-        validate_database(target)
-
-
-def test_vacuum_into_refuses_the_incident_shape_with_a_rowid_collision(database):
-    """Production's damage would have failed loudly here; a stale page wouldn't. Both are covered."""
-    overwrite_rightmost_leaf(database, "audit_logs", "printers")
-    connection = sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)
-    with pytest.raises(sqlite3.IntegrityError):
-        connection.execute("VACUUM INTO ?", (str(database.parent / "copy.db"),))
-    connection.close()
+@pytest.mark.parametrize("damage", [
+    lambda database: overwrite_rightmost_leaf(database, "audit_logs", "printers"),
+    _rewind,
+], ids=["incident", "stale-page"])
+def test_vacuum_into_carries_or_refuses_this_damage(database, damage):
+    """These don't validate, by a constraint error or in the copy, depending on the SQLite version."""
+    damage(database)
+    assert check_database(database).state == DAMAGED
+    assert _vacuum_copy_validates(database) is False
 
 
 @pytest.mark.parametrize("damage", [
