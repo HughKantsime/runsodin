@@ -13,8 +13,6 @@ from sqlalchemy.orm import sessionmaker
 from core.db_integrity import DAMAGED, IntegrityReport, UNAVAILABLE, check_database
 from modules.system import backup_failure_alerts, backup_schedule, backup_service
 from modules.system.backup_schedule import (
-    KEEP_DAILY,
-    KEEP_WEEKLY,
     PARTIAL_PREFIX,
     RECEIPT_SUFFIX,
     create_scheduled_backup,
@@ -169,8 +167,7 @@ def test_source_that_cannot_be_checked_is_refused_and_says_so(database, alerts, 
 
 @pytest.mark.parametrize("failure", ["snapshot", "disk", "verify", "publish"])
 def test_a_failed_run_publishes_nothing_prunes_nothing_and_alerts(database, alerts, monkeypatch, failure):
-    days = KEEP_DAILY + KEEP_WEEKLY * 7 + 3
-    for day in range(days, 0, -7):
+    for day in range(38, 0, -7):
         create_scheduled_backup(_url(database), now=NOW - timedelta(days=day))
     before = _odin_backups(database)
     # Old enough that a successful run would prune one of them.
@@ -222,11 +219,11 @@ def test_retention_keeps_seven_days_and_four_weeks_and_nothing_it_did_not_make(t
     bad_receipt.with_name(bad_receipt.name + RECEIPT_SUFFIX).write_text("{not json")
     removed = prune_scheduled_backups(directory)
     left = {path for path in made if path.exists()}
-    newest = {NOW - timedelta(days=day) for day in range(KEEP_DAILY)}
+    newest = {NOW - timedelta(days=day) for day in range(7)}
     assert {_scheduled_time(path) for path in left} >= newest
-    assert len(left) <= KEEP_DAILY + KEEP_WEEKLY and len(left) >= KEEP_DAILY
+    assert 7 <= len(left) <= 11
     weeks = {_scheduled_time(path).isocalendar()[:2] for path in left}
-    assert len(weeks) >= KEEP_WEEKLY
+    assert len(weeks) >= 4
     assert len(removed) == len(made) - len(left)
     assert manual.exists() and adhoc.exists() and bad_receipt.exists()
     assert not any(path.with_name(path.name + RECEIPT_SUFFIX).exists() for path in made if path not in left)
@@ -363,7 +360,7 @@ def test_restore_test_refuses_a_damaged_backup(database, tmp_path):
     bad = database.parent / "bad.db"
     bad.write_bytes(database.read_bytes())
     overwrite_rightmost_leaf(bad, "audit_logs", "printers")
-    with pytest.raises(BackupValidationError, match="restore test"):
+    with pytest.raises(BackupValidationError, match="startup refused"):
         backup_schedule.rehearse_restore(bad, database)
     assert not list(database.parent.glob(f"{PARTIAL_PREFIX}*"))
 

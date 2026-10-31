@@ -68,6 +68,14 @@ def test_send_refuses_anything_else(server_data, name):
     assert code == offsite_export.REFUSED and output == b""
 
 
+def test_send_refuses_a_path_even_with_a_receipt_beside_the_target(server_data):
+    database, backups = server_data
+    database.write_bytes(b"live database")
+    (database.parent / ("odin.db" + RECEIPT_SUFFIX)).write_text(json.dumps({"sha256": "a" * 64}))
+    code, output = _call("send", "../odin.db")
+    assert code == offsite_export.REFUSED and output == b""
+
+
 def test_send_refuses_a_backup_with_no_receipt(server_data):
     _, backups = server_data
     other = "odin_backup_20200101_000000_000000.db"
@@ -175,8 +183,8 @@ class Harness:
 @pytest.fixture
 def job(tmp_path):
     harness = Harness(tmp_path)
-    created = harness.job("init-key")
-    assert created.returncode == 0, created.stderr
+    harness.created = harness.job("init-key")
+    assert harness.created.returncode == 0, harness.created.stderr
     yield harness
     harness.http.shutdown()
 
@@ -186,8 +194,9 @@ def test_init_key_is_private_refuses_to_overwrite_and_never_prints_the_key(job):
     assert stat.S_IMODE(key_file.stat().st_mode) == 0o600
     assert stat.S_IMODE((job.home / "secrets").stat().st_mode) == 0o700
     key = job.key()
+    assert key not in job.created.stdout + job.created.stderr
     again = job.job("init-key")
-    assert again.returncode == 1 and job.key() == key
+    assert again.returncode == 1 and job.key() == key and "refusing to replace" in again.stderr
     assert key not in again.stdout + again.stderr
 
 
@@ -223,7 +232,8 @@ def test_an_hourly_run_with_nothing_new_downloads_nothing(job):
     assert sum(call.startswith("confirm") for call in job.calls()) == 1
 
 
-@pytest.mark.parametrize("mount", ["", "//other@NAS/x on {m} (smbfs)", "/dev/disk3 on {m} (apfs, local)"], ids=["unmounted", "other-share", "look-alike-folder"])
+@pytest.mark.parametrize("mount", ["", "//other@NAS/x on {m} (smbfs)", "/dev/disk3 on {m} (apfs, local)", "TEST-NAS:/x on {m} (nfs, nodev)"],
+                         ids=["unmounted", "other-share", "look-alike-folder", "same-name-not-smb"])
 def test_a_missing_or_wrong_mount_writes_nothing_and_fails(job, mount):
     job.set_mount(mount.format(m=job.mount))
     result = job.job("run")
