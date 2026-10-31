@@ -36,6 +36,7 @@ from tests.test_contracts.test_monitor_restart_reconciliation import (  # noqa: 
     test_generic_unrelated_start_under_a_held_claim_leaves_an_unknown_row,
     test_malformed_ams_report_does_not_cost_a_print_its_end,
     test_moonraker_education_named_start_closes_nothing,
+    test_moonraker_first_look_lasts_until_a_state_that_decides,
     test_moonraker_first_seen_pause_alerts_once_on_its_own_row,
     test_moonraker_live_end_is_not_bounded_by_the_print_duration,
     test_moonraker_live_end_lost_to_a_transient_error_retries_too,

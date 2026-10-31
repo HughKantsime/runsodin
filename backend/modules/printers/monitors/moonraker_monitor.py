@@ -92,6 +92,7 @@ class MoonrakerMonitor:
         self._last_filename = ""
         self._unwatched_row = None
         self._first_look = None
+        self._first_look_open = True
         self._last_telemetry_insert = 0.0
         self._last_slot_sync = 0.0
         self._last_env_telemetry = 0.0
@@ -207,6 +208,7 @@ class MoonrakerMonitor:
             self._last_filename = ""
             self._prev_state = None
             self._first_look = None
+            self._first_look_open = True
 
     # ==================== Status Processing ====================
     
@@ -217,11 +219,17 @@ class MoonrakerMonitor:
             tracked = self._current_job_db_id
             filename = self._last_filename
             terminal = self._prev_state in ('RUNNING', 'PAUSE') and status.internal_state in ('IDLE', 'FAILED')
-            # First look after a restart or reconnect, and the print is already over.
-            ended_unwatched = (getattr(status, 'raw_print_state', None) in ('complete', 'cancelled', 'error')
-                               and self._prev_state is None and not tracked and bool(status.filename))
+            raw_state = getattr(status, 'raw_print_state', None)
+            first_poll = self._prev_state is None
+            # First look after a restart or reconnect, and the print is already over. The first look
+            # lasts through states that don't say whether it was printing: some firmware reports
+            # standby or stopping for a moment before complete or cancelled.
+            ended_unwatched = (raw_state in ('complete', 'cancelled', 'error') and getattr(self, '_first_look_open', first_poll)
+                               and not tracked and bool(status.filename))
             # Its end failed to commit: a retry still places history by the row, not by now.
             retrying_unwatched = terminal and tracked and tracked == getattr(self, '_unwatched_row', None)
+        if first_poll:
+            self._note_first_look()
         # Network I/O (adapter timeout 5s) holds neither status lock nor DB transaction.
         from modules.printers.monitors.moonraker_history import terminal_history
         history = terminal_history(self.printer, filename, time.time()) if terminal and tracked and not retrying_unwatched else None
@@ -234,6 +242,16 @@ class MoonrakerMonitor:
             self._process_status_locked(status, history=history)
             if retry:
                 self._prev_state = None
+            elif raw_state in ('printing', 'paused', 'complete', 'cancelled', 'error'):
+                self._first_look_open = False
+
+    def _note_first_look(self):
+        """This poll's heartbeat replaces last_seen, and a later poll can still be the first look."""
+        try:
+            with engine.connect() as conn:
+                self._first_look_last_seen(conn)
+        except Exception:
+            log.debug(f"[{self.name}] First look not recorded; the age rule will refuse rather than guess")
 
     def _first_look_last_seen(self, conn):
         """printers.last_seen as the first look found it; this monitor's heartbeat replaces it."""

@@ -1205,6 +1205,96 @@ def test_moonraker_live_end_lost_to_a_transient_error_retries_too(moonraker, mon
     assert case.state(identifier)[0] == 'cancelled' and monitor._current_job_db_id is None
 
 
+@pytest.mark.parametrize('first', ['stopping', 'standby', 'ready'])
+@pytest.mark.parametrize('raw,expected', MOONRAKER_OUTCOMES)
+def test_moonraker_first_look_lasts_until_a_state_that_decides(moonraker, first, raw, expected):
+    # The real heartbeat runs on the undecided poll, and the row is only an hour unwatched at
+    # last_seen: the downtime evidence has to survive that poll too.
+    case = moonraker
+    identifier = case.row(started=2 * 3600, job=53)
+    case.seen_printer(3600)
+    monitor = case.monitor()
+    monitor._last_heartbeat = 0
+    monitor._process_status(moonraker_status(first, total=1.5 * 3600))
+    assert case.state(identifier)[0] == 'running' and monitor._current_job_db_id is None
+    monitor._process_status(moonraker_status(raw, total=1.5 * 3600))
+    assert case.state(identifier)[0] == expected
+    with case.engine.connect() as conn:
+        assert conn.execute(text('SELECT status FROM jobs WHERE id=53')).scalar_one() == expected
+    assert len(case.seen.alerts) == 1 and len(case.seen.archive) == 1
+
+
+@pytest.mark.parametrize('first', ['stopping', 'standby'])
+def test_moonraker_undecided_state_with_no_end_after_it_changes_nothing(moonraker, first):
+    # stopping then standby: the true outcome is unknown, an open owner decision.
+    case = moonraker
+    identifier = case.row()
+    case.seen_printer(60)
+    monitor = case.monitor()
+    monitor._process_status(moonraker_status(first, filename='part.gcode'))
+    monitor._process_status(moonraker_status('standby', filename=''))
+    assert case.state(identifier)[0] == 'running'
+    assert case.seen.alerts == [] and case.seen.archive == []
+
+
+@pytest.mark.parametrize('known', ['complete', 'cancelled'])
+def test_moonraker_first_look_ends_at_a_state_that_decides(moonraker, known):
+    # The first look saw another print's end. A later end is not a first look any more.
+    case = moonraker
+    identifier = case.row()
+    case.seen_printer(60)
+    monitor = case.monitor()
+    monitor._process_status(moonraker_status(known, filename='another.gcode'))
+    assert not monitor._first_look_open
+    monitor._process_status(moonraker_status('complete'))
+    assert case.state(identifier)[0] == 'running'
+
+
+def test_moonraker_print_seen_running_ends_the_first_look(moonraker):
+    case = moonraker
+    monitor = case.monitor()
+    monitor._process_status(moonraker_status('standby', filename=''))
+    assert monitor._first_look_open
+    monitor._process_status(moonraker_status('printing', total=5))
+    assert not monitor._first_look_open
+    identifier = monitor._current_job_db_id
+    monitor._process_status(moonraker_status('complete', total=60))
+    assert case.state(identifier)[0] == 'completed' and monitor._current_job_db_id is None
+    other = case.row(name='other.gcode', started=60)
+    monitor._process_status(moonraker_status('standby', filename=''))
+    monitor._process_status(moonraker_status('complete', filename='other.gcode', total=60))
+    assert case.state(other)[0] == 'running'
+
+
+def test_moonraker_reconnect_opens_the_first_look_again(moonraker):
+    case = moonraker
+    identifier = case.row()
+    case.seen_printer(60)
+    monitor = case.monitor()
+    monitor._process_status(moonraker_status('complete', filename='another.gcode'))
+    assert not monitor._first_look_open
+    monitor._recover_after_reconnect()
+    monitor._process_status(moonraker_status('standby', filename=''))
+    monitor._process_status(moonraker_status('complete'))
+    assert case.state(identifier)[0] == 'completed'
+
+
+def test_moonraker_failed_lookup_keeps_the_first_look_open(moonraker, monkeypatch):
+    from core import dispatch_observations
+    case = moonraker
+    identifier = case.row()
+    case.seen_printer(60)
+    monitor = case.monitor()
+    monitor._process_status(moonraker_status('standby', filename=''))
+    reserved = dispatch_observations.generic_observation_reserved
+    monkeypatch.setattr(dispatch_observations, 'generic_observation_reserved', lambda *a, **kw: (_ for _ in ()).throw(RuntimeError('synthetic')))
+    monitor._process_status(moonraker_status('complete'))
+    assert case.state(identifier)[0] == 'running' and monitor._first_look_open
+    monkeypatch.setattr(dispatch_observations, 'generic_observation_reserved', reserved)
+    monitor._process_status(moonraker_status('complete'))
+    assert case.state(identifier)[0] == 'completed'
+
+
 def test_moonraker_network_reconnect_closes_the_end(moonraker):
     case = moonraker
     identifier = case.row()
