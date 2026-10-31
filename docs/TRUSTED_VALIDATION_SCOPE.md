@@ -139,14 +139,16 @@ and `host_identity` in its metrics.
 
 | Limit | Mac | odin-ci | Mac worst | odin-ci worst |
 |---|---|---|---|---|
-| read p95 | 650 ms | 1450 ms | 555 ms | 1293 ms |
-| write p95 | 1400 ms | 2550 ms | 789 ms | 2267 ms |
-| global p99 | 2800 ms | 3850 ms | 2344 ms | 3407 ms |
+| read p95 | 310 ms | 530 ms | 271 ms | 461 ms |
+| write p95 | 410 ms | 710 ms | 358 ms | 618 ms |
+| global p99 | 410 ms | 815 ms | 358 ms | 710 ms |
 
-All of these were measured with the tracer running, so they are far looser than their
-numbers suggest until they are re-measured on both hosts. A first untraced gate run on
-`odin-ci` measured read p95 426-448 ms, write p95 522-597 ms, global p99 534-690 ms and
-13 s per repetition, against limits of 1450 ms, 2550 ms, 3850 ms and 45 s.
+These were re-measured on 2026-10-31, once api_load stopped timing its own tracer: five
+gate runs per host at 90546e45, 15 repetitions each, by the same method. Every earlier limit
+was measured with the tracer running, and the evidence is in `rebaseline_untraced`.
+`maximum_repetition_seconds` went from 45 to 15, from the slower host's worst of 13.1 s, so it
+sits further above the Mac's 7.8 s. These runs were api_load alone, so a first full CV06 on each
+host is their first test under gate conditions.
 
 ## Gaps
 

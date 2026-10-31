@@ -6,19 +6,19 @@
   "operations_per_repetition": 1000,
   "minimum_reads": 800,
   "minimum_writes": 100,
-  "maximum_repetition_seconds": 45,
+  "maximum_repetition_seconds": 15,
   "host_classes": {
     "mac-m4": {
       "identity": {"system": "Darwin", "machine": "arm64", "cpu": "Apple M4"},
-      "read_p95_ms": 650,
-      "write_p95_ms": 1400,
-      "global_p99_ms": 2800
+      "read_p95_ms": 310,
+      "write_p95_ms": 410,
+      "global_p99_ms": 410
     },
     "odin-ci": {
       "identity": {"system": "Linux", "machine": "x86_64", "hostname": "odin-ci", "cpu": "11th Gen Intel(R) Core(TM) i7-11700K @ 3.60GHz"},
-      "read_p95_ms": 1450,
-      "write_p95_ms": 2550,
-      "global_p99_ms": 3850
+      "read_p95_ms": 530,
+      "write_p95_ms": 710,
+      "global_p99_ms": 815
     }
   },
   "maximum_error_rate": 0,
@@ -65,5 +65,48 @@
       "evidence": "worst rep-3 global p99 on odin-ci: 3407 ms gate run gha-41115715024-1; standalone 3145, 2423, 2112 ms at f00d2129; +13%. Mac worst at gha-41079992620-1: 2344 ms"
     },
     "unchanged": "maximum_repetition_seconds (worst 29.5 s of 45) and every error, 5xx, tenant-leak, websocket, fd and memory limit"
+  },
+  "rebaseline_untraced": {
+    "decision": "2026-10-31 ODIN Dev: api_load's timed repetitions stopped running under tracemalloc, which about doubled latency and caused the report tail. Every earlier limit was measured with it on, so all were far too loose. Same method: measured worst plus 10-15%, on both hosts. See docs/TRUSTED_VALIDATION_SCOPE.md 'api_load limits on odin-ci'.",
+    "mac-m4": {
+      "read_p95_ms": {
+        "previous": 650,
+        "value": 310,
+        "evidence": "worst read p95 270.6 ms over 5 gate runs (15 repetitions) on the Mac at 90546e45; +14.6%"
+      },
+      "write_p95_ms": {
+        "previous": 1400,
+        "value": 410,
+        "evidence": "worst write p95 358.5 ms in the same runs; +14.4%"
+      },
+      "global_p99_ms": {
+        "previous": 2800,
+        "value": 410,
+        "evidence": "worst global p99 358.5 ms in the same runs; +14.4%"
+      }
+    },
+    "odin-ci": {
+      "read_p95_ms": {
+        "previous": 1450,
+        "value": 530,
+        "evidence": "worst read p95 461.3 ms over 5 gate runs (15 repetitions) on odin-ci at 90546e45; +14.9%"
+      },
+      "write_p95_ms": {
+        "previous": 2550,
+        "value": 710,
+        "evidence": "worst write p95 618.4 ms in the same runs; +14.8%"
+      },
+      "global_p99_ms": {
+        "previous": 3850,
+        "value": 815,
+        "evidence": "worst global p99 709.7 ms in the same runs; +14.8%"
+      }
+    },
+    "maximum_repetition_seconds": {
+      "previous": 45,
+      "value": 15,
+      "evidence": "worst 13.1 s on odin-ci and 7.8 s on the Mac in the same runs; +14.5% on the slower host"
+    },
+    "unchanged": "every error, 5xx, tenant-leak, websocket, fd and memory limit"
   }
 }

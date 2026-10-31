@@ -123,6 +123,7 @@ test-edu-hardware: ## Run passive hardware protocol/transport checks
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=backend:. $(HARDWARE_PYTHON) -m pytest tests/hardware/test_read_only_certification.py tests/hardware_certification -q --tb=short -o xfail_strict=true
 
 test-edu-load: ## Run isolated API/WebSocket load thresholds
+	PYTHONPATH=backend $(PYTHON) -m pytest tests/load -q --tb=short -o xfail_strict=true
 	$(PYTHON) ops/edu_readiness/api_load.py --run-id $(EDU_RUN_ID) --output $(EDU_RUN_DIR)/api_load.json
 
 test-edu-accessibility: ## Run compiled UI axe/keyboard/motion/target-size matrix

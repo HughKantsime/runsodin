@@ -64,27 +64,35 @@ def test_harness_uses_signed_ephemeral_license_not_validity_cache_bypass():
 
 
 def test_rebaselined_limits_carry_their_previous_value_and_evidence():
-    """2.0 re-baseline (Hugh, 2026-10-18), then the gate host's move to odin-ci (2026-10-30):
-    only the latency limits changed, each with its previous value and evidence, and each
-    record starts where the last one ended; every other limit is as before."""
+    """2.0 re-baseline (Hugh, 2026-10-18), the gate host's move to odin-ci (2026-10-30), then
+    measuring without the tracer (2026-10-31): only the latency limits and, last, the repetition
+    time changed, each with its previous value and evidence, and each record starts where the
+    last one ended; every other limit is as before."""
     path = Path(__file__).parents[2] / "ops" / "edu_readiness" / "thresholds.json"
     thresholds = json.loads(path.read_text(encoding="utf-8"))
-    first, latest = thresholds["rebaseline_2_0"], thresholds["rebaseline_odin_ci"]
-    for record in (first, latest):
+    first, moved = thresholds["rebaseline_2_0"], thresholds["rebaseline_odin_ci"]
+    untraced = thresholds["rebaseline_untraced"]
+    for record in (first, moved):
         changed = {key: value for key, value in record.items() if isinstance(value, dict)}
         assert set(changed) == {"read_p95_ms", "write_p95_ms", "global_p99_ms"}
         for entry in changed.values():
             assert entry["previous"] < entry["value"] and entry["evidence"]
     classes = thresholds["host_classes"]
     for key in api_load.LATENCY_LIMITS:
-        assert latest[key]["previous"] == first[key]["value"]
-        assert classes["mac-m4"][key] == first[key]["value"]
-        assert classes["odin-ci"][key] == latest[key]["value"]
+        assert moved[key]["previous"] == first[key]["value"]
+        for host, before in (("mac-m4", first), ("odin-ci", moved)):
+            entry = untraced[host][key]
+            assert entry["previous"] == before[key]["value"]
+            assert entry["value"] < entry["previous"] and entry["evidence"]
+            assert classes[host][key] == entry["value"]
     assert {key: classes["mac-m4"][key] for key in api_load.LATENCY_LIMITS} == {
-        "read_p95_ms": 650, "write_p95_ms": 1400, "global_p99_ms": 2800}
+        "read_p95_ms": 310, "write_p95_ms": 410, "global_p99_ms": 410}
     assert {key: classes["odin-ci"][key] for key in api_load.LATENCY_LIMITS} == {
-        "read_p95_ms": 1450, "write_p95_ms": 2550, "global_p99_ms": 3850}
-    previous = {"maximum_repetition_seconds": 45, "maximum_error_rate": 0, "maximum_5xx": 0,
+        "read_p95_ms": 530, "write_p95_ms": 710, "global_p99_ms": 815}
+    seconds = untraced["maximum_repetition_seconds"]
+    assert seconds["previous"] == 45 and seconds["evidence"]
+    assert seconds["value"] == thresholds["maximum_repetition_seconds"] == 15
+    previous = {"maximum_error_rate": 0, "maximum_5xx": 0,
                 "maximum_tenant_leaks": 0, "maximum_fd_delta": 8, "maximum_memory_delta_mib": 64,
                 "websocket_p95_ms": 1000, "concurrent_users": 25, "operations_per_repetition": 1000,
                 "minimum_reads": 800, "minimum_writes": 100, "repetitions": 3, "warmup_operations": 100}
@@ -101,10 +109,10 @@ def _thresholds():
 
 
 @pytest.mark.parametrize("facts,expected,limits", [
-    (MAC, "mac-m4", {"read_p95_ms": 650, "write_p95_ms": 1400, "global_p99_ms": 2800}),
-    (dict(MAC, hostname="renamed.local"), "mac-m4", {"read_p95_ms": 650, "write_p95_ms": 1400, "global_p99_ms": 2800}),
-    (dict(MAC, hostname="odin-ci"), "mac-m4", {"read_p95_ms": 650, "write_p95_ms": 1400, "global_p99_ms": 2800}),  # no name gets the Mac the looser limits
-    (ODIN_CI, "odin-ci", {"read_p95_ms": 1450, "write_p95_ms": 2550, "global_p99_ms": 3850}),
+    (MAC, "mac-m4", {"read_p95_ms": 310, "write_p95_ms": 410, "global_p99_ms": 410}),
+    (dict(MAC, hostname="renamed.local"), "mac-m4", {"read_p95_ms": 310, "write_p95_ms": 410, "global_p99_ms": 410}),
+    (dict(MAC, hostname="odin-ci"), "mac-m4", {"read_p95_ms": 310, "write_p95_ms": 410, "global_p99_ms": 410}),  # no name gets the Mac the looser limits
+    (ODIN_CI, "odin-ci", {"read_p95_ms": 530, "write_p95_ms": 710, "global_p99_ms": 815}),
 ])
 def test_each_known_host_gets_exactly_its_own_limits(facts, expected, limits):
     host_class, observed, identity = api_load.host_limits(_thresholds(), facts)
@@ -189,10 +197,10 @@ def _stub_load(monkeypatch, milliseconds):
 
 
 @pytest.mark.parametrize("facts,milliseconds,passes,host_class", [
-    (MAC, 600, True, "mac-m4"),
-    (MAC, 700, False, "mac-m4"),      # inside odin-ci's limits, over the Mac's: must not pass on the Mac
-    (ODIN_CI, 1200, True, "odin-ci"),
-    (ODIN_CI, 1500, False, "odin-ci"),
+    (MAC, 300, True, "mac-m4"),
+    (MAC, 400, False, "mac-m4"),      # inside odin-ci's limits, over the Mac's: must not pass on the Mac
+    (ODIN_CI, 400, True, "odin-ci"),
+    (ODIN_CI, 600, False, "odin-ci"),
 ])
 def test_gate_judges_a_run_by_its_own_host_and_records_both(monkeypatch, tmp_path, facts, milliseconds, passes, host_class):
     _stub_load(monkeypatch, milliseconds)
