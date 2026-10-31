@@ -52,14 +52,6 @@ headroom; the previous value and the evidence sit next to the number in
 | write p95 | 1000 ms | 1400 ms | 1232 ms |
 | global p99 | 2000 ms | 2800 ms | 2478 ms |
 
-**For this release the latency limits sit well above real latency.** They were measured
-with the tracer running, and timed repetitions now run without it. On the Mac, untraced
-read p95, write p95 and global p99 measure about 250, 330 and 340 ms, against limits of
-650, 1400 and 2800 ms, and a repetition takes about 7.5 s against a limit of 45 s. So for
-this one release the gate catches only a large latency regression. The limits are
-tightened in the next release. The cause of the tail that
-remains without the tracer is still open; see below.
-
 Why 2.0 costs more per request:
 
 - **Security and RBAC.** Every request resolves the server-enforced permission
@@ -81,19 +73,19 @@ What the measurements show:
   running through every timed repetition, and turning it off removes most of the tail.
   With garbage collection off and the tracer on, the tail stays (usage-report maximum
   5343 ms), so garbage collection doesn't explain it. Ranges over three repetitions per
-  run, with two runs per setup on the Mac, in milliseconds. `odin-ci` is a Linux test VM:
+  run, with two runs per setup on the Mac, in milliseconds:
 
   | Setup | Read p95 | Global p99 | Usage-report p99 |
   |---|---|---|---|
-  | Mac, tracer on | 449-607 | 665-1971 | 654-2251 |
-  | Mac, tracer off | 232-255 | 315-349 | 256-322 |
   | odin-ci, tracer on | 1042-2262 | 2058-3540 | 2858-4135 |
   | odin-ci, tracer off | 439-442 | 561-597 | 503-645 |
+  | Mac, tracer on | 449-607 | 665-1971 | 654-2251 |
+  | Mac, tracer off | 232-255 | 315-349 | 256-322 |
 
   A smaller tail remains without the tracer. What is known so far, all on `odin-ci`:
 
-  - **Size.** Untraced, 5 of 50 runs reached a global p99 above 815 ms, all in
-    repetition 3. The worst was 1688 ms, with report p99 up to 1811 ms.
+  - **Size.** Untraced, 4 of 30 runs in review and 1 of 20 in measuring breached 815 ms
+    global p99, all in repetition 3. The worst was 1688 ms, with report p99 up to 1811 ms.
   - **Not the GIL switch interval.** Setting it to 0.5 ms or 50 ms changed nothing.
   - **Request order matters somewhat.** Repetition 3's fixed order has 24 windows of 25
     operations with 6 or more reports, against 1 in repetition 1 and 12 in repetition 2.
@@ -142,6 +134,9 @@ and `host_identity` in its metrics.
 | read p95 | 310 ms | 530 ms | 271 ms | 461 ms |
 | write p95 | 410 ms | 710 ms | 358 ms | 618 ms |
 | global p99 | 410 ms | 815 ms | 358 ms | 710 ms |
+
+Measuring hasn't finished, so these limits aren't final: the tail described above has
+breached the 815 ms global p99 in some untraced runs.
 
 These were re-measured on 2026-10-31, once api_load stopped timing its own tracer: five
 gate runs per host at 90546e45, 15 repetitions each, by the same method. Every earlier limit
