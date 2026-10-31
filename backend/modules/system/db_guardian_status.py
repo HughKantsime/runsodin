@@ -28,6 +28,11 @@ def status_path(database: Path) -> Path:
     return database.parent / "run" / "db-guardian.json"
 
 
+def offsite_path(database: Path) -> Path:
+    """Written by modules.system.offsite_export when the off-server job confirms a copy."""
+    return database.parent / "run" / "db-offsite.json"
+
+
 def read_status(path: Path) -> dict:
     try:
         with path.open("rb") as handle:

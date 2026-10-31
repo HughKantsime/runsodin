@@ -997,6 +997,15 @@ def run_report(schedule: dict) -> None:
 # Main loop
 # =============================================================================
 
+def _check_database_guardian():
+    """This loop is the watcher for the database guardian, which can't report its own death."""
+    try:
+        from modules.system.db_guardian import alert_if_stopped
+        alert_if_stopped(DATABASE_URL, session_factory=SessionLocal)
+    except Exception as e:
+        log.error(f"Database guardian check failed ({type(e).__name__})")
+
+
 def main_loop():
     """Main polling loop."""
     log.info("Report runner daemon started")
@@ -1012,6 +1021,7 @@ def main_loop():
         except Exception as e:
             log.error(f"Main loop error: {e}")
 
+        _check_database_guardian()
         time.sleep(POLL_INTERVAL)
 
 

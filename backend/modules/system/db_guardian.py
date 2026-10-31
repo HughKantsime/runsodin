@@ -15,14 +15,24 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from core.db_integrity import DAMAGED, OK, RUNBOOK, UNAVAILABLE, IntegrityReport, check_database
+from modules.system import backup_failure_alerts
 from modules.system.backup_failure_alerts import backup_failure_reason
 from modules.system.backup_schedule import create_scheduled_backup
 from modules.system.backup_service import (
+    BackupMissedError,
     BackupValidationError,
     SourceDatabaseError,
     paths_from_database_url,
 )
-from modules.system.db_guardian_status import read_status, status_path, write_status, parse_time
+from modules.system.db_guardian_status import (
+    STALE,
+    database_integrity,
+    offsite_path,
+    parse_time,
+    read_status,
+    status_path,
+    write_status,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [db_guardian] %(levelname)s %(message)s")
 log = logging.getLogger("odin.db_guardian")
@@ -36,6 +46,8 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////data/odin.db")
 INTEGRITY_INTERVAL_SECONDS = 300
 BACKUP_INTERVAL = timedelta(days=1)
 BACKUP_RETRY = timedelta(hours=1)
+BACKUP_MISSED_AFTER = timedelta(hours=26)
+OFFSITE_MISSED_AFTER = timedelta(hours=36)
 # Boot has just made this check, twice; let the services settle before the next one.
 FIRST_CHECK_DELAY_SECONDS = 60
 ALERT_REPEAT = timedelta(days=1)
@@ -154,6 +166,29 @@ def _integrity_due(status: dict, now: datetime, interval: int) -> bool:
     return checked_at is None or (now - checked_at).total_seconds() >= interval
 
 
+def missed_backups(status: dict, now: datetime, database: Path) -> list[BackupMissedError]:
+    """What should exist by now and doesn't. Off-server copies only count once one has been confirmed."""
+    backup = status.get("backup") if isinstance(status.get("backup"), dict) else {}
+    missed = []
+    last_local = parse_time(backup.get("last_success_at")) or parse_time(status.get("started_at"))
+    if last_local is not None and now - last_local >= BACKUP_MISSED_AFTER:
+        missed.append(BackupMissedError("missed"))
+    confirmed = parse_time(read_status(offsite_path(database)).get("confirmed_at"))
+    if confirmed is not None and now - confirmed >= OFFSITE_MISSED_AFTER:
+        missed.append(BackupMissedError("offsite_missed"))
+    return missed
+
+
+def _alert_missed(status: dict, now: datetime, database: Path) -> None:
+    for error in missed_backups(status, now, database):
+        log.error("Backup missed (%s)", error.reason)
+        try:
+            # Saved once per reason per day, like every other backup failure.
+            backup_failure_alerts.publish_backup_failure(error)
+        except Exception as exc:
+            log.error("Missed backup alert could not be saved (%s)", type(exc).__name__)
+
+
 def tick(status: dict, now: datetime, database: Path, database_url: str, *, interval: int = INTEGRITY_INTERVAL_SECONDS,
          check=check_database, create=create_scheduled_backup, publish=publish_integrity_alert) -> bool:
     """Do what is due. Returns whether the status changed."""
@@ -164,6 +199,28 @@ def tick(status: dict, now: datetime, database: Path, database_url: str, *, inte
         _run_backup(status, now, database_url, create=create, publish=publish)
     else:
         record_integrity(status, check(database), now, publish=publish)
+    _alert_missed(status, now, database)
+    return True
+
+
+def alert_if_stopped(database_url: str, *, session_factory=None, now: datetime | None = None) -> bool:
+    """For another process to call: a stopped guardian can't raise its own alert, or back up."""
+    view = database_integrity(database_url)
+    if not view or view["status"] != STALE:
+        return False
+    from sqlalchemy import select
+    from modules.notifications.models import Alert
+    if session_factory is None:
+        from core.db import SessionLocal
+        session_factory = SessionLocal
+    now = now or datetime.now(timezone.utc)
+    alerts = Alert.__table__
+    with session_factory() as db:
+        recent = db.execute(select(alerts.c.id).where(
+            alerts.c.title == ALERT_TITLE, alerts.c.created_at > now - ALERT_REPEAT)).first()
+    if recent is not None:
+        return False
+    publish_integrity_alert(UNAVAILABLE, session_factory=session_factory)
     return True
 
 

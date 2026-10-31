@@ -17,15 +17,16 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 from core.db_integrity import DAMAGED, OK, UNAVAILABLE, IntegrityReport
-from modules.system import db_guardian, db_guardian_status, routes_health
+from modules.system import backup_failure_alerts, db_guardian, routes_health
 from modules.system.backup_service import SourceDatabaseError
-from modules.system.db_guardian import ALERT_TITLE, record_integrity, tick
+from modules.system.db_guardian import ALERT_TITLE, alert_if_stopped, missed_backups, record_integrity, tick
 from modules.system.db_guardian_status import (
     FAILED,
     HEALTHY,
     PENDING,
     STALE,
     integrity_view,
+    offsite_path,
     read_status,
     status_path,
     write_status,
@@ -37,6 +38,13 @@ NOW = datetime(2026, 11, 2, 3, 0, tzinfo=timezone.utc)
 DAMAGE = IntegrityReport(DAMAGED, 1.0, 2, 0, ("Tree 4 page 9: wrong page",))
 FINE = IntegrityReport(OK, 1.0)
 CANNOT = IntegrityReport(UNAVAILABLE, 5.0, problems=("SQLITE_BUSY",))
+
+
+@pytest.fixture(autouse=True)
+def saved_backup_alerts(monkeypatch):
+    seen = []
+    monkeypatch.setattr(backup_failure_alerts, "publish_backup_failure", seen.append)
+    return seen
 
 
 def _publisher():
@@ -357,3 +365,104 @@ def test_real_daemon_process_checks_backs_up_and_survives(tmp_path):
         process.terminate()
         process.wait(timeout=20)
     assert (database.parent / "backups" / status["backup"]["filename"]).is_file()
+
+
+def _reasons(errors):
+    return [error.reason for error in errors]
+
+
+def test_no_backup_for_26_hours_counts_as_missed(tmp_path):
+    database = tmp_path / "odin.db"
+    status = {"backup": {"last_success_at": NOW.isoformat()}}
+    assert missed_backups(status, NOW + timedelta(hours=25, minutes=59), database) == []
+    assert _reasons(missed_backups(status, NOW + timedelta(hours=26), database)) == ["missed"]
+
+
+def test_a_backup_that_never_succeeded_is_missed_from_the_first_start(tmp_path):
+    database = tmp_path / "odin.db"
+    assert missed_backups({}, NOW, database) == []
+    status = {"started_at": NOW.isoformat(), "backup": {"state": "failed", "last_attempt_at": NOW.isoformat()}}
+    assert missed_backups(status, NOW + timedelta(hours=25), database) == []
+    assert _reasons(missed_backups(status, NOW + timedelta(hours=26), database)) == ["missed"]
+
+
+def test_off_server_copies_only_count_once_one_was_confirmed(tmp_path):
+    database = tmp_path / "odin.db"
+    status = {"backup": {"last_success_at": NOW.isoformat()}}
+    assert missed_backups(status, NOW + timedelta(days=1), database) == []
+    write_status(offsite_path(database), {"confirmed_at": NOW.isoformat()})
+    assert missed_backups(status, NOW + timedelta(hours=25), database) == []
+    late = NOW + timedelta(hours=36)
+    status["backup"]["last_success_at"] = late.isoformat()
+    assert _reasons(missed_backups(status, late, database)) == ["offsite_missed"]
+
+
+def test_tick_raises_the_missed_alert_when_every_run_keeps_failing(saved_backup_alerts, tmp_path):
+    status = {"started_at": NOW.isoformat()}
+    def bad(*_, **__):
+        raise OSError(5, "synthetic")
+    later = NOW + timedelta(hours=26)
+    _tick(status, later, create=bad, database=tmp_path / "odin.db")
+    assert _reasons(saved_backup_alerts) == ["missed"]
+    assert backup_failure_alerts.backup_failure_reason(saved_backup_alerts[0])[1].startswith("Backup missed")
+
+
+def test_a_good_run_at_the_same_tick_clears_the_missed_alert(saved_backup_alerts, tmp_path):
+    status = {"started_at": NOW.isoformat()}
+    _tick(status, NOW + timedelta(hours=30), database=tmp_path / "odin.db")
+    assert saved_backup_alerts == []
+
+
+def test_a_missed_alert_that_cannot_be_saved_does_not_stop_the_guardian(monkeypatch, tmp_path):
+    def broken(_):
+        raise sqlite3.DatabaseError("database disk image is malformed")
+    monkeypatch.setattr(backup_failure_alerts, "publish_backup_failure", broken)
+    status = {"started_at": NOW.isoformat(), "backup": {"last_attempt_at": (NOW + timedelta(hours=26)).isoformat()}}
+    assert _tick(status, NOW + timedelta(hours=26), database=tmp_path / "odin.db") is True
+
+
+def test_missed_messages_are_plain_and_have_no_paths():
+    from modules.system.backup_service import BackupMissedError
+    for reason in ("missed", "offsite_missed"):
+        found, message = backup_failure_alerts.backup_failure_reason(BackupMissedError(reason))
+        assert found == reason and message.startswith("Backup missed") and "/" not in message
+
+
+def _stale_status(database):
+    old = datetime.now(timezone.utc) - timedelta(days=1)
+    write_status(status_path(database), _status(OK, checked_at=old, interval=300))
+
+
+def test_report_runner_alerts_when_the_guardian_has_stopped_once_a_day(alert_db, tmp_path, monkeypatch):
+    from modules.notifications import alert_dispatcher
+    engine, factory = alert_db
+    monkeypatch.setattr(alert_dispatcher, "deliver_staged_alert", lambda db, plan: None)
+    url = str(engine.url)
+    database = Path(engine.url.database)
+    _stale_status(database)
+    assert alert_if_stopped(url, session_factory=factory) is True
+    rows = _alert_rows(engine)
+    assert [row[0] for row in rows] == [1, 2] and all(row[2] == ALERT_TITLE for row in rows)
+    assert "not been able to finish" in rows[0][3]
+    assert alert_if_stopped(url, session_factory=factory) is False
+    assert len(_alert_rows(engine)) == 2
+    assert alert_if_stopped(url, session_factory=factory, now=datetime.now(timezone.utc) + timedelta(days=1, seconds=5)) is True
+
+
+def test_report_runner_stays_quiet_when_the_guardian_is_healthy_or_absent(alert_db):
+    engine, factory = alert_db
+    database = Path(engine.url.database)
+    url = str(engine.url)
+    assert alert_if_stopped(url, session_factory=factory) is False
+    write_status(status_path(database), _status(OK, checked_at=datetime.now(timezone.utc), interval=300))
+    assert alert_if_stopped(url, session_factory=factory) is False
+    assert alert_if_stopped("postgresql://odin@postgres:5432/odin") is False
+    assert _alert_rows(engine) == []
+
+
+def test_a_failed_watcher_check_never_stops_the_report_loop(monkeypatch):
+    import modules.reporting.report_runner as runner
+    monkeypatch.setattr(db_guardian, "alert_if_stopped", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("synthetic")))
+    runner._check_database_guardian()
+    source = Path(runner.__file__).read_text(encoding="utf-8")
+    assert "_check_database_guardian()\n        time.sleep(POLL_INTERVAL)" in source
