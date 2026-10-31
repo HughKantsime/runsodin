@@ -122,6 +122,7 @@ jobs:
           hook="${ACTIONS_RUNNER_HOOK_JOB_STARTED:-}"
           if [ -n "$hook" ]; then
             cmp "$hook" ops/ci/runner-job-started-hook.sh || { echo "Installed job hook $hook differs from this candidate's ops/ci/runner-job-started-hook.sh. Install the candidate's copy first; see ops/ci/README.md" >&2; exit 1; }
+            echo "Installed job hook $hook matches ops/ci/runner-job-started-hook.sh"
           fi
 
       - name: Bootstrap clean-checkout validation dependencies

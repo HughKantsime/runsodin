@@ -275,6 +275,20 @@ def test_an_installed_hook_identical_to_the_candidates_passes(tmp_path):
     assert 'went-on' in result.stdout
 
 
+def test_a_successful_comparison_says_what_it_compared(tmp_path):
+    """cmp prints nothing when files match, so without this line a run can't show the compare happened."""
+    result = _run_copy_check(tmp_path, installed='hook v1\n')
+    assert result.returncode == 0, result.stderr
+    installed = tmp_path / 'installed-hook.sh'
+    assert result.stdout == f'Installed job hook {installed} matches ops/ci/runner-job-started-hook.sh\nwent-on\n'
+
+
+def test_no_match_is_claimed_without_a_comparison_that_matched(tmp_path):
+    differs = _run_copy_check(tmp_path, installed='hook v1\n', candidate='hook v2\n')
+    assert 'matches' not in differs.stdout
+    assert 'matches' not in _run_copy_check(tmp_path / 'no-hook').stdout
+
+
 def test_a_candidate_that_changed_the_hook_fails_until_it_is_installed(tmp_path):
     result = _run_copy_check(tmp_path, installed='hook v1\n', candidate='hook v2\n')
     assert result.returncode != 0 and 'went-on' not in result.stdout
