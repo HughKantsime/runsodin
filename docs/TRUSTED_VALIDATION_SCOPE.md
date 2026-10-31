@@ -143,6 +143,11 @@ and `host_identity` in its metrics.
 | write p95 | 1400 ms | 2550 ms | 789 ms | 2267 ms |
 | global p99 | 2800 ms | 3850 ms | 2344 ms | 3407 ms |
 
+All of these were measured with the tracer running, so they are far looser than their
+numbers suggest until they are re-measured on both hosts. A first untraced gate run on
+`odin-ci` measured read p95 426-448 ms, write p95 522-597 ms, global p99 534-690 ms and
+13 s per repetition, against limits of 1450 ms, 2550 ms, 3850 ms and 45 s.
+
 ## Gaps
 
 No stage in this gate proves the following. Read the results with these gaps in
