@@ -1058,6 +1058,14 @@ def test_history_joins_only_a_job_that_opens_as_the_last_closes_and_keeps_its_cl
     assert found['duration'] == (803.0 if joined else 31.0)
 
 
+def test_history_does_not_join_a_job_after_a_print_that_finished():
+    # Only a job closed as cancelled can be a pause, whatever the next job's clock says.
+    from modules.printers.monitors.moonraker_history import terminal_history
+    jobs = [history_job('completed', 1000.0, 1100.0, 100.0, 90.0), history_job('cancelled', 1100.1, 1200.0, 200.0, 180.0)]
+    found = terminal_history(SimpleNamespace(get_job_history=lambda limit: jobs), 'part.gcode', 0, row_started_at=1000.0)
+    assert (found['status'], found['duration']) == ('completed', 90.0)
+
+
 def test_history_joins_a_print_paused_more_than_once():
     from modules.printers.monitors.moonraker_history import terminal_history
     jobs = [history_job('cancelled', 1000.0, 1100.0, 100.0, 90.0), history_job('cancelled', 1100.1, 1200.0, 200.0, 180.0),
@@ -1231,8 +1239,8 @@ def test_moonraker_undecided_state_with_no_end_after_it_changes_nothing(moonrake
     identifier = case.row()
     case.seen_printer(60)
     monitor = case.monitor()
-    monitor._process_status(moonraker_status(first, filename='part.gcode'))
-    monitor._process_status(moonraker_status('standby', filename=''))
+    monitor._process_status(moonraker_status(first))
+    monitor._process_status(moonraker_status('standby'))
     assert case.state(identifier)[0] == 'running'
     assert case.seen.alerts == [] and case.seen.archive == []
 
