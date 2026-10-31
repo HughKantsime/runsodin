@@ -40,18 +40,18 @@ stop_job() {
   case "$parent" in
     Runner.Worker|*/Runner.Worker)
       record "killing Runner.Worker $PPID"
-      echo "runner job hook: killing Runner.Worker $PPID so no later step runs" >&2 || true
+      ( echo "runner job hook: killing Runner.Worker $PPID so no later step runs" >&2 ) || true
       kill -KILL "$PPID"
       ;;
     *)
       record "parent ${parent:-unknown} kept running"
-      echo "runner job hook: parent ${parent:-unknown} is not Runner.Worker, so it keeps running" >&2 || true
+      ( echo "runner job hook: parent ${parent:-unknown} is not Runner.Worker, so it keeps running" >&2 ) || true
       ;;
   esac
 }
 trap stop_job EXIT
 
-refuse() { why="$*"; echo "runner job hook refuses this job: $*" >&2 || true; exit 1; }
+refuse() { why="$*"; ( echo "runner job hook refuses this job: $*" >&2 ) || true; exit 1; }
 
 [ "${GITHUB_EVENT_NAME:-}" = workflow_dispatch ] || refuse "event ${GITHUB_EVENT_NAME:-unset} is not workflow_dispatch"
 [ "${GITHUB_REPOSITORY:-}" = "$REPOSITORY" ] || refuse "repository ${GITHUB_REPOSITORY:-unset} is not $REPOSITORY"
