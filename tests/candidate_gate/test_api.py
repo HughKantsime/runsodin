@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import time
 from io import BytesIO
 from pypdf import PdfReader
 from urllib.parse import urlparse
@@ -108,6 +109,14 @@ def test_candidate_health_spa_static_setup_and_perimeter(base_url: str, api_key:
     ready = requests.get(f"{base_url}/health/ready", timeout=10)
     assert ready.status_code == 200
     assert _json(ready)["ready"] is True
+
+    # The database guardian in this exact image runs and reports through /health.
+    integrity = _json(live)["database_integrity"]
+    deadline = time.monotonic() + 180
+    while integrity["status"] == "pending" and time.monotonic() < deadline:
+        time.sleep(3)
+        integrity = _json(requests.get(f"{base_url}/health", timeout=10))["database_integrity"]
+    assert integrity["status"] == "ok" and integrity["checked_at"], integrity
 
     shell = requests.get(f"{base_url}/login", timeout=10)
     assert shell.status_code == 200
