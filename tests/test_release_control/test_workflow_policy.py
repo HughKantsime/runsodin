@@ -158,12 +158,14 @@ def test_validation_pins_linux_runner_and_fail_closed_path_tools():
 
 
 @pytest.mark.parametrize('name,paths', [
+    ('promote', ('/Users/ollama/homebrew/bin/python3.11', '/opt/homebrew/bin/gh')),
     ('publish-image', ('/Users/ollama/homebrew/bin/python3.11', '/opt/homebrew/bin/gh', '/Users/ollama/homebrew/bin/docker')),
     ('promote-production', ('/Users/ollama/homebrew/bin/python3.11', '/opt/homebrew/bin/gh', '/Users/ollama/homebrew/bin/docker')),
     ('rollback-2.0-production', ('/Users/ollama/homebrew/bin/docker',)),
 ])
 def test_mutation_workflows_stay_on_the_mac(name, paths):
-    """arm64 under QEMU never goes healthy on odin-ci, so nothing that publishes or moves production runs there."""
+    """Only Trusted Validation runs on odin-ci. Publishing can't (arm64 under QEMU never goes healthy), and
+    eligibility authenticates validation's evidence, so it stays off the host that just ran candidate code."""
     source = (ROOT / '.github/workflows' / f'{name}.yml').read_text()
     workflow = yaml.safe_load(source)
     assert workflow['permissions'] == {}
@@ -179,36 +181,6 @@ def test_mutation_workflows_stay_on_the_mac(name, paths):
     for step in job['steps']:
         if 'uses' in step:
             assert len(step['uses'].rsplit('@', 1)[-1]) == 40
-
-
-def _promote_bootstrap() -> str:
-    workflow = yaml.safe_load((ROOT / '.github/workflows/promote.yml').read_text())
-    return workflow['jobs']['eligibility']['steps'][0]['run']
-
-
-@pytest.mark.parametrize('system,action,allowed', [
-    ('Linux', 'stage', True), ('Darwin', 'production', True), ('Darwin', 'demo', True),
-    ('Darwin', 'stage', False), ('Linux', 'production', False), ('Linux', 'demo', False),
-    ('FreeBSD', 'stage', False), ('Linux', '', False),
-])
-def test_promotion_scope_only_runs_on_its_host(tmp_path, system, action, allowed):
-    """Run the workflow's real host check with stubbed tools: the wrong pairing must stop the job."""
-    stubs = tmp_path / 'bin'
-    stubs.mkdir()
-    for name, body in (('uname', f'echo {system}'), ('python3.11', 'exit 0'), ('gh', 'echo "gh version 2.89.0"')):
-        (stubs / name).write_text(f'#!/bin/sh\n{body}\n')
-        (stubs / name).chmod(0o755)
-    script = _promote_bootstrap()
-    case = script[script.index('case "$(uname -s)/$INPUT_ACTION" in'):script.index('esac') + len('esac')]
-    # The Mac's fixed tool paths are checked by the real runner; here only the routing is under test.
-    case = case.replace('test -x /Users/ollama/homebrew/bin/python3.11', ':').replace('test -x /opt/homebrew/bin/gh', ':')
-    github_path = tmp_path / 'github_path'
-    result = subprocess.run(
-        ['/bin/bash', '-c', 'set -euo pipefail\n' + case],
-        env={'PATH': f'{stubs}:/usr/bin:/bin', 'INPUT_ACTION': action, 'GITHUB_PATH': str(github_path)},
-        capture_output=True, text=True,
-    )
-    assert (result.returncode == 0) is allowed, result.stderr
 
 
 def test_mac_publication_requires_rosetta_amd64_emulation_not_qemu():
@@ -262,7 +234,7 @@ def test_mutation_workflows_never_install_runtime_dependencies(name):
 
 @pytest.mark.parametrize('state', ['exact', 'wrong-version', 'missing-metadata'])
 def test_host_jsonschema_requirement_fails_closed(state, monkeypatch):
-    """Eligibility runs on two hosts and imports the host's jsonschema: its pin is checked before use."""
+    """Eligibility imports the host's jsonschema: its pin is checked before use."""
     import importlib.metadata
 
     check = 'import importlib.metadata; assert importlib.metadata.version("jsonschema") == "4.25.1"'

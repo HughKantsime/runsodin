@@ -38,9 +38,7 @@ permissions: {}
 jobs:
   eligibility:
     name: Authenticate promotion eligibility
-    # Stage eligibility only reads evidence through the API and uploads its own artifact, so it
-    # runs with validation on odin-ci. Every other scope stays on the Mac with the mutations.
-    runs-on: ${{ inputs.action == 'stage' && fromJSON('["self-hosted","odin-ci"]') || fromJSON('["self-hosted","mac-mini-runner","m4"]') }}
+    runs-on: [self-hosted, mac-mini-runner, m4]
     timeout-minutes: 30
     environment: ${{ inputs.action }}
     permissions:
@@ -75,28 +73,9 @@ jobs:
           test "$CURRENT_ACTOR" = "HughKantsime"
           test "$CURRENT_ACTOR_ID" = "201174638"
           test "$CURRENT_TRIGGERING_ACTOR" = "$CURRENT_ACTOR"
-          # The scope decides the host (see runs-on); a job on the other host stops here.
-          case "$(uname -s)/$INPUT_ACTION" in
-            Linux/stage)
-              command -v python3.11 >/dev/null || { echo "Required tool missing from PATH: python3.11" >&2; exit 1; }
-              command -v gh >/dev/null || { echo "Required tool missing from PATH: gh" >&2; exit 1; }
-              python3.11 -P -c 'import sys; sys.version_info[:2] == (3, 11) or sys.exit("Python 3.11 is required")'
-              gh --version | head -n 1 | grep -Eq '^gh version 2\.' || { echo "GitHub CLI 2.x is required" >&2; exit 1; }
-              ;;
-            Darwin/stage)
-              echo "Stage eligibility runs on odin-ci, not on $(uname -s)" >&2
-              exit 1
-              ;;
-            Darwin/*)
-              test -x /Users/ollama/homebrew/bin/python3.11
-              test -x /opt/homebrew/bin/gh
-              printf '%s\n' /Users/ollama/homebrew/bin /opt/homebrew/bin >> "$GITHUB_PATH"
-              ;;
-            *)
-              echo "Eligibility scope $INPUT_ACTION does not run on $(uname -s)" >&2
-              exit 1
-              ;;
-          esac
+          test -x /Users/ollama/homebrew/bin/python3.11
+          test -x /opt/homebrew/bin/gh
+          printf '%s\n' /Users/ollama/homebrew/bin /opt/homebrew/bin >> "$GITHUB_PATH"
           promotion_root="$RUNNER_TEMP/odin-promotion-${CURRENT_RUN_ID}-${CURRENT_RUN_ATTEMPT}"
           test "$promotion_root" != "/"
           case "$promotion_root" in "$RUNNER_TEMP"/odin-promotion-*) ;; *) exit 2 ;; esac
