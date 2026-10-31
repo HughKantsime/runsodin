@@ -19,6 +19,7 @@ from ops.edu_readiness import api_load
 
 ROOT = Path(__file__).parents[2]
 RUN_ID = '20261030T000000Z-abcdef1'
+MAC = {'system': 'Darwin', 'machine': 'arm64', 'hostname': 'ollamas-Mac-mini.local', 'cpu': 'Apple M4'}
 CLASSES = ('auth', 'printers', 'jobs', 'reports', 'job_create', 'job_approve', 'session_churn')
 MIB = 1024 * 1024
 
@@ -65,6 +66,7 @@ def timed_pass(monkeypatch):
         seen['tracing'].append(tracemalloc.is_tracing())
         return _websocket(cycles)
 
+    monkeypatch.setattr(api_load, 'host_facts', lambda: MAC)
     monkeypatch.setattr(api_load, '_prepare_database', lambda path: (None, {
         'churn': ['x'] * 150, 'ws_target': ['x'], 'ws_foreign': ['x'], 'viewer': ['x']}))
     monkeypatch.setattr(api_load, '_execute_repetition', execute)

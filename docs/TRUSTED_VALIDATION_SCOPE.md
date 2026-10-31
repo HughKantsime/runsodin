@@ -130,6 +130,13 @@ measured worst plus 10-15%. The evidence sits next to each number in
 `rebaseline_odin_ci`. Every other limit is unchanged. These remain a regression floor
 for this host, not a capacity statement.
 
+The latency limits are keyed by host class in `host_classes`, so the Mac keeps its own. The
+class comes from what the machine reports about itself: operating system, architecture and
+CPU model, plus the hostname for `odin-ci`. No setting, label or environment variable can
+choose it. A machine matching no class fails api_load before any load runs, because nothing
+measured there can judge it. Each api_load result records `host_class`, `latency_limits`
+and `host_identity` in its metrics.
+
 | Limit | Mac | odin-ci | Mac worst | odin-ci worst |
 |---|---|---|---|---|
 | read p95 | 650 ms | 1450 ms | 555 ms | 1293 ms |

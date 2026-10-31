@@ -7,8 +7,10 @@ import asyncio
 import base64
 import json
 import os
+import platform
 import random
 import signal
+import socket
 import sqlite3
 import subprocess
 import sys
@@ -34,6 +36,56 @@ if str(BACKEND) not in sys.path:
 THRESHOLDS_PATH = Path(__file__).with_name("thresholds.json")
 # A traced pass takes a few minutes at worst. Past this it has hung, and the gate fails.
 MEMORY_PASS_TIMEOUT_SECONDS = 900
+
+
+LATENCY_LIMITS = ("read_p95_ms", "write_p95_ms", "global_p99_ms")
+
+
+class UnknownHostClass(RuntimeError):
+    """Latency has not been measured on this machine, so no limit can judge it."""
+
+
+def _cpu_model() -> str:
+    if sys.platform == "darwin":
+        probe = subprocess.run(
+            ["/usr/sbin/sysctl", "-n", "machdep.cpu.brand_string"],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+        return probe.stdout.strip() if probe.returncode == 0 else ""
+    try:
+        for line in Path("/proc/cpuinfo").read_text(encoding="utf-8").splitlines():
+            key, _, value = line.partition(":")
+            if key.strip() == "model name":
+                return value.strip()
+    except OSError:
+        pass
+    return ""
+
+
+def host_facts() -> dict[str, str]:
+    """What the machine reports about itself. Limits are never chosen by a setting, a label
+    or an environment variable, so no workflow edit or stray export can pick the looser class."""
+    return {
+        "system": platform.system(),
+        "machine": platform.machine(),
+        "hostname": socket.gethostname(),
+        "cpu": _cpu_model(),
+    }
+
+
+def host_limits(thresholds: dict[str, Any], facts: dict[str, str]) -> tuple[str, dict[str, Any], dict[str, str]]:
+    """The one host class these facts identify, with its limits and the facts that matched."""
+    matches = [
+        name for name, entry in thresholds["host_classes"].items()
+        if entry["identity"] and all(facts.get(key) == value for key, value in entry["identity"].items())
+    ]
+    if len(matches) != 1:
+        raise UnknownHostClass(
+            f"no measured latency limits for this host ({facts.get('system')}/{facts.get('machine')}, "
+            f"cpu {facts.get('cpu') or 'unknown'}); matched {len(matches)} host classes"
+        )
+    entry = thresholds["host_classes"][matches[0]]
+    return matches[0], {key: entry[key] for key in LATENCY_LIMITS}, dict(entry["identity"])
 
 
 @dataclass(frozen=True)
@@ -438,13 +490,13 @@ def _repetition_checks(metric: dict[str, Any], thresholds: dict[str, Any]) -> di
     }
 
 
-def _timing_checks(metric: dict[str, Any], thresholds: dict[str, Any]) -> dict[str, bool]:
+def _timing_checks(metric: dict[str, Any], thresholds: dict[str, Any], limits: dict[str, Any]) -> dict[str, bool]:
     """Only an untraced pass can be judged on these."""
     return {
         "duration": metric["duration_seconds"] <= thresholds["maximum_repetition_seconds"],
-        "read p95": metric["read_p95_ms"] <= thresholds["read_p95_ms"],
-        "write p95": metric["write_p95_ms"] <= thresholds["write_p95_ms"],
-        "global p99": metric["global_p99_ms"] <= thresholds["global_p99_ms"],
+        "read p95": metric["read_p95_ms"] <= limits["read_p95_ms"],
+        "write p95": metric["write_p95_ms"] <= limits["write_p95_ms"],
+        "global p99": metric["global_p99_ms"] <= limits["global_p99_ms"],
         "websocket p95": metric["websocket_p95_ms"] <= thresholds["websocket_p95_ms"],
     }
 
@@ -618,6 +670,27 @@ async def run(run_id: str, output: Path) -> int:
     thresholds = json.loads(thresholds_bytes)
     started_at = utc_now()
     started = time.perf_counter()
+    try:
+        host_class, limits, host_identity = host_limits(thresholds, host_facts())
+    except UnknownHostClass as exc:
+        write_result(output.parent, {
+            "schema_version": 1,
+            "run_id": run_id,
+            "gate_id": "api_load",
+            "mandatory": True,
+            "status": "fail",
+            "started_at": started_at,
+            "ended_at": utc_now(),
+            "duration_seconds": round(time.perf_counter() - started, 3),
+            "tool_versions": {"python": os.sys.version.split()[0], "httpx": httpx.__version__},
+            "executed_count": 0,
+            "skipped_count": 0,
+            "xfailed_count": 0,
+            "metrics": {"host_class": None, "latency_limits": None},
+            "findings": [str(exc)],
+            "artifacts": ["api_load.json"],
+        })
+        return 1
     # Taken now: the fixture rewrites this process's database settings, and the memory pass needs its own.
     environment = dict(os.environ)
     timed = await _drive_workload(thresholds)
@@ -633,7 +706,7 @@ async def run(run_id: str, output: Path) -> int:
     if latency_traced:
         findings.append("latency was measured under a tracer")
     for metric in all_metrics:
-        checks = {**_repetition_checks(metric, thresholds), **_timing_checks(metric, thresholds)}
+        checks = {**_repetition_checks(metric, thresholds), **_timing_checks(metric, thresholds, limits)}
         findings.extend(
             f"repetition {metric['repetition']}: {name}"
             for name, passed in checks.items() if not passed
@@ -663,6 +736,7 @@ async def run(run_id: str, output: Path) -> int:
         "skipped_count": 0,
         "xfailed_count": 0,
         "metrics": {
+            "host_class": host_class, "latency_limits": limits, "host_identity": host_identity,
             "repetitions": all_metrics, "integrity_check": integrity, "memory_delta_bytes": memory_delta, "fd_delta": fd_delta,
             "latency_traced": latency_traced,
             "memory_delta_source": "memory_pass",

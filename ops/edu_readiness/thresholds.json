@@ -7,9 +7,20 @@
   "minimum_reads": 800,
   "minimum_writes": 100,
   "maximum_repetition_seconds": 45,
-  "read_p95_ms": 1450,
-  "write_p95_ms": 2550,
-  "global_p99_ms": 3850,
+  "host_classes": {
+    "mac-m4": {
+      "identity": {"system": "Darwin", "machine": "arm64", "cpu": "Apple M4"},
+      "read_p95_ms": 650,
+      "write_p95_ms": 1400,
+      "global_p99_ms": 2800
+    },
+    "odin-ci": {
+      "identity": {"system": "Linux", "machine": "x86_64", "hostname": "odin-ci", "cpu": "11th Gen Intel(R) Core(TM) i7-11700K @ 3.60GHz"},
+      "read_p95_ms": 1450,
+      "write_p95_ms": 2550,
+      "global_p99_ms": 3850
+    }
+  },
   "maximum_error_rate": 0,
   "maximum_5xx": 0,
   "maximum_tenant_leaks": 0,
@@ -37,7 +48,7 @@
     "unchanged": "maximum_repetition_seconds (worst 14.8 s of 45), websocket_p95_ms (worst 13.5 ms of 1000), maximum_fd_delta (worst -9 of 8), maximum_memory_delta_mib (worst 3.8 of 64), error/5xx/tenant-leak limits (0 observed)"
   },
   "rebaseline_odin_ci": {
-    "decision": "2026-10-30 ODIN Dev: Trusted Validation moved from the M4 Mac to the odin-ci VM (i7-11700K, 8 vCPU), which runs this workload about twice as slowly. Same method as rebaseline_2_0: measured worst plus 10-15%. A host change, not a product change; see docs/TRUSTED_VALIDATION_SCOPE.md 'api_load limits on odin-ci'.",
+    "decision": "2026-10-30 ODIN Dev: Trusted Validation moved from the M4 Mac to the odin-ci VM (i7-11700K, 8 vCPU), which runs this workload about twice as slowly. Same method as rebaseline_2_0: measured worst plus 10-15%. A host change, not a product change, so these values apply only on host class odin-ci and the Mac keeps rebaseline_2_0's; see docs/TRUSTED_VALIDATION_SCOPE.md 'api_load limits on odin-ci'.",
     "read_p95_ms": {
       "previous": 650,
       "value": 1450,
