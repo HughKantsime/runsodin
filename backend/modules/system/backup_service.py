@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from core.db_integrity import DAMAGED as INTEGRITY_DAMAGED, OK as INTEGRITY_OK, IntegrityReport, check_database
 from modules.system.backup_failure_alerts import report_backup_failure
 
 MAX_BACKUP_BYTES = 1024 * 1024 * 1024
@@ -73,6 +74,16 @@ REQUIRED_COLUMNS = {
 
 class BackupValidationError(ValueError):
     """Raised when a candidate is not a safe ODIN SQLite database."""
+
+
+class SourceDatabaseError(BackupValidationError):
+    """The live database failed its integrity check, or the check couldn't finish."""
+
+    def __init__(self, report: IntegrityReport):
+        super().__init__(
+            "Live database failed its integrity check" if report.state == INTEGRITY_DAMAGED
+            else "Live database could not be checked")
+        self.report = report
 
 
 @dataclass(frozen=True)
@@ -444,6 +455,21 @@ def validate_database(path: Path) -> dict[str, object]:
 
 
 @report_backup_failure
+def require_healthy_source(database: Path) -> IntegrityReport:
+    """Refuse to back up a damaged database, because VACUUM INTO can hide the damage.
+
+    It copies whatever rows the damaged tree yields. Usually that fails or the copy fails
+    validation. But if the wrong rows fit the table and their rowids collide with nothing, the copy
+    validates while holding the wrong data, and only a check of the source can tell. pre_restore_
+    backups skip this: a restore is how you leave the damage.
+    """
+    report = check_database(database)
+    if report.state != INTEGRITY_OK:
+        raise SourceDatabaseError(report)
+    return report
+
+
+@report_backup_failure
 def _create_online_backup_unlocked(paths: BackupPaths, prefix: str) -> tuple[Path, dict[str, object]]:
     if not paths.database.is_file():
         raise BackupValidationError("Live database does not exist")
@@ -489,6 +515,7 @@ def _create_online_backup_unlocked(paths: BackupPaths, prefix: str) -> tuple[Pat
 def create_online_backup(database_url: str, base_dir: Path | None = None) -> tuple[Path, dict[str, object]]:
     paths = paths_from_database_url(database_url, base_dir)
     with restore_lock(paths.lock):
+        require_healthy_source(paths.database)
         return _create_online_backup_unlocked(paths, "odin_backup_")
 
 

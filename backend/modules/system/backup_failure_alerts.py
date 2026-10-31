@@ -10,12 +10,16 @@ from sqlalchemy import select, text
 
 
 def backup_failure_reason(error):
+    from modules.system.backup_service import BackupValidationError, SourceDatabaseError
+    if isinstance(error, SourceDatabaseError):
+        if error.report.state == 'damaged':
+            return 'source_integrity', 'Backup refused: the live database failed its integrity check. Existing backups were kept.'
+        return 'source_unavailable', 'Backup refused: the live database could not be checked. Existing backups were kept.'
     message = str(error).lower()
     if 'size' in message or 'too large' in message:
         return 'size', 'Backup refused: file size is outside the supported range (100 bytes to 1 GiB).'
     if 'space' in message or isinstance(error, OSError) and error.errno == errno.ENOSPC:
         return 'disk_space', 'Backup refused: insufficient free disk space for a verified backup.'
-    from modules.system.backup_service import BackupValidationError
     if isinstance(error, BackupValidationError):
         return 'validation', 'Backup refused: database validation failed.'
     return 'operation', 'Backup failed: the database snapshot could not be created.'
