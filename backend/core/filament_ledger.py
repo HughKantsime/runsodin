@@ -348,6 +348,16 @@ def record_job_filament(run, job_id, *, source: str, grams_by_spool: Mapping, pr
     print_job_id = int(print_job_id) if print_job_id is not None else None
     if job_id is None and print_job_id is None:
         raise ValueError("A filament deduction names a job or a physical print")
+    from core.interfaces.filament_ownership import uses_external_filament_accounting
+    # Physical history remains authoritative if the scheduled job is reassigned.
+    if print_job_id is not None:
+        printer = run("SELECT printer_id FROM print_jobs WHERE id = :id", {"id": print_job_id}).fetchone()
+        if not printer:
+            return LedgerResult("nothing_deducted", "missing_physical_print")
+    else:
+        printer = run("SELECT printer_id FROM jobs WHERE id = :id", {"id": job_id}).fetchone()
+    if printer and uses_external_filament_accounting(printer[0]):
+        return LedgerResult("nothing_deducted", "external_accounting")
     prior = prior_attempt_usage(run, job_id, print_job_id)
     if prior:
         return LedgerResult("already_deducted", prior)

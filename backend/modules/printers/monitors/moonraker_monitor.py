@@ -930,6 +930,9 @@ class MoonrakerMonitor:
         """), {'id':scheduled_job_id}).first()
         if not job or job[0] != self.printer_id:
             return
+        from core.interfaces.filament_ownership import uses_external_filament_accounting
+        if uses_external_filament_accounting(self.printer_id):
+            return
         if job[3]:
             import json
             try:

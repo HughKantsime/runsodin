@@ -844,3 +844,145 @@ def test_operator_completion_does_not_use_location_only_binding(lifecycle_client
     db.execute(text('UPDATE filament_slots SET assigned_spool_id=NULL WHERE printer_id=9'));db.commit()
     assert client.post('/jobs/111/complete').status_code == 200
     assert _spool(db) == (100.0,0)
+
+# Explicit delegation is independent of the read-only display adapter.
+@pytest.mark.parametrize('source', ['operator_complete', 'moonraker', 'archive'])
+def test_external_accounting_central_guard_has_no_claim_or_usage(lifecycle_client, monkeypatch, source):
+    from core.config import settings
+    from core.filament_ledger import record_job_filament
+    from core.print_attempts import sqlalchemy_runner
+    _, db = lifecycle_client
+    _print_job(db, 5101)
+    monkeypatch.setattr(settings, 'external_filament_accounting_printers', [9])
+    result = record_job_filament(sqlalchemy_runner(db), 111, source=source,
+                                 print_job_id=5101, grams_by_spool={111: 10})
+    assert (result.state, result.reason) == ('nothing_deducted', 'external_accounting')
+    assert _spool(db) == (100.0, 0)
+    assert not _keys(db)
+    monkeypatch.setattr(settings, 'external_filament_accounting_printers', [])
+    assert record_job_filament(sqlalchemy_runner(db), 111, source=source,
+                               print_job_id=5101, grams_by_spool={111: 10}).deducted
+
+
+def test_external_accounting_preserves_completion_and_manual_adjustments(lifecycle_client, monkeypatch):
+    from core.config import settings
+    client, db = lifecycle_client
+    monkeypatch.setattr(settings, 'external_filament_accounting_printers', [9])
+    _spool_client(client)
+    assert client.post('/spools/111/use', json={'weight_used_g': 5, 'job_id': 111}).status_code == 200
+    db.execute(text('UPDATE spools SET spool_weight_g=200 WHERE id=111')); db.commit()
+    assert client.post('/spools/111/weigh', json={'gross_weight_g': 290}).status_code == 200
+    assert client.post('/jobs/111/complete').status_code == 200
+    assert db.execute(text('SELECT status FROM jobs WHERE id=111')).scalar_one() == 'completed'
+    assert db.execute(text('SELECT remaining_weight_g FROM spools WHERE id=111')).scalar_one() == 90
+    assert not _keys(db)
+    assert all(row.notes.startswith('manual:') for row in _usage(db))
+
+
+def test_display_binding_does_not_delegate_accounting(lifecycle_client, monkeypatch):
+    from core.config import settings
+    client, db = lifecycle_client
+    monkeypatch.setattr(settings, 'filament_ledger_printers', {9: 'display-only'})
+    assert client.post('/jobs/111/complete').status_code == 200
+    assert _spool(db) == (90.0, 1)
+
+
+def test_external_accounting_moonraker_skips_and_other_printers_still_account(lifecycle_client, monkeypatch):
+    from core.config import settings
+    _, db = lifecycle_client
+    deduct = _moonraker(db)
+    monkeypatch.setattr(settings, 'external_filament_accounting_printers', [9])
+    assert deduct() is None
+    assert _spool(db) == (100.0, 0)
+    monkeypatch.setattr(settings, 'external_filament_accounting_printers', [999])
+    assert deduct().deducted
+
+
+@pytest.mark.parametrize("external_printer, expected_state", [(9, "nothing_deducted"), (10, "deducted")])
+def test_external_accounting_uses_physical_printer_after_job_reassignment(lifecycle_client, monkeypatch, external_printer, expected_state):
+    from core.config import settings
+    from core.filament_ledger import record_job_filament
+    from core.print_attempts import sqlalchemy_runner
+    _, db = lifecycle_client
+    _print_job(db, 5101)
+    db.execute(text('UPDATE jobs SET printer_id=10 WHERE id=111')); db.commit()
+    monkeypatch.setattr(settings, 'external_filament_accounting_printers', [external_printer])
+    result = record_job_filament(sqlalchemy_runner(db), 111, source='archive',
+                                 print_job_id=5101, grams_by_spool={111: 10})
+    assert result.state == expected_state
+    assert _spool(db) == ((100.0, 0) if external_printer == 9 else (90.0, 1))
+
+
+def test_external_archive_records_delegation_without_outbox_or_claim(archive_case, monkeypatch):
+    from core.config import settings
+    archive, engine = archive_case
+    monkeypatch.setattr(settings, 'external_filament_accounting_printers', [9])
+    assert archive.create_print_archive(7099, 9, True) is not None
+    assert _accounting(engine) == ('externally_managed', 'external_accounting')
+    assert _balances(engine) == [1000, 1000]
+    with engine.connect() as conn:
+        assert conn.execute(text('SELECT COUNT(*) FROM filament_delivery_outbox')).scalar_one() == 0
+        assert conn.execute(text('SELECT COUNT(*) FROM spool_usage')).scalar_one() == 0
+        assert conn.execute(text("SELECT COUNT(*) FROM system_config WHERE key LIKE 'quota_attempt:filament:%'")).scalar_one() == 0
+
+
+@pytest.mark.parametrize('value', ['{}', '["9"]', '[true]', '[0]', '[-1]', '[1.5]', 'null', 'invalid'])
+def test_external_accounting_configuration_rejects_invalid_ids(value):
+    from core.config import Settings
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, external_filament_accounting_printers=value)
+
+
+def test_external_accounting_configuration_defaults_and_explicit_ids(monkeypatch):
+    from core.config import Settings
+    monkeypatch.delenv('EXTERNAL_FILAMENT_ACCOUNTING_PRINTERS', raising=False)
+    assert Settings(_env_file=None).external_filament_accounting_printers == []
+    monkeypatch.setenv('EXTERNAL_FILAMENT_ACCOUNTING_PRINTERS', '[9, 12]')
+    assert Settings(_env_file=None).external_filament_accounting_printers == [9, 12]
+
+
+def test_external_archive_explicit_reinvocation_rechecks_policy_and_physical_identity(archive_case, monkeypatch):
+    from core.config import settings
+    from modules.archives.attempt_accounting import account_archive
+    archive, engine = archive_case
+    monkeypatch.setattr(settings, 'external_filament_accounting_printers', [9])
+    archive_id = archive.create_print_archive(7099, 9, True)
+    with engine.begin() as conn:
+        snapshot = conn.execute(text('SELECT spool_snapshot FROM print_jobs WHERE id=7099')).scalar_one()
+        args = dict(archive_id=archive_id, print_job_id=7099, printer_id=9,
+                    snapshot_json=snapshot, scheduled_job_id=7099, measured_grams=None, success=True)
+        assert account_archive(conn, **args) == ('externally_managed', 'external_accounting', [])
+        assert account_archive(conn, **dict(args, printer_id=999)) == ('unresolved', 'foreign_job_printer', [])
+        assert account_archive(conn, **dict(args, print_job_id=999)) != ('externally_managed', 'external_accounting', [])
+        monkeypatch.setattr(settings, 'external_filament_accounting_printers', [])
+        assert account_archive(conn, **args)[0] == 'accounted'
+    assert _balances(engine) == [960, 960]
+
+
+def test_missing_physical_print_cannot_bypass_accounting_policy(lifecycle_client, monkeypatch):
+    from core.config import settings
+    from core.filament_ledger import record_job_filament
+    from core.print_attempts import sqlalchemy_runner
+    _, db = lifecycle_client
+    monkeypatch.setattr(settings, 'external_filament_accounting_printers', [9])
+    result = record_job_filament(sqlalchemy_runner(db), 111, source='archive',
+                                 print_job_id=999999, grams_by_spool={111: 10})
+    assert (result.state, result.reason) == ('nothing_deducted', 'missing_physical_print')
+    assert _spool(db) == (100.0, 0)
+    assert not _keys(db)
+
+
+def test_external_delegation_does_not_resolve_unknown_archive_ownership(archive_case, monkeypatch):
+    from core.config import settings
+    from modules.archives.attempt_accounting import capture_attempt_spools
+    archive, engine = archive_case
+    monkeypatch.setattr(settings, 'external_filament_accounting_printers', [9])
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE education_upload_operations SET final_path='/opaque/archive-synthetic.3mf' WHERE operation_id='upload-1'"))
+        conn.execute(text("UPDATE print_jobs SET status='running',spool_snapshot=NULL WHERE id=7099"))
+        assert capture_attempt_spools(conn, 7099, 9, source='synthetic-unresolved-owner')
+        conn.execute(text("UPDATE print_jobs SET status='completed' WHERE id=7099"))
+    assert archive.create_print_archive(7099, 9, True) is not None
+    assert _accounting(engine) == ('unresolved', 'archive_ownership_unresolved')
+    assert _balances(engine) == [1000, 1000]

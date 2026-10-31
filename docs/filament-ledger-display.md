@@ -41,7 +41,29 @@ HTTP 409 without contacting the printer. Moving a local spool out of a linked
 printer is also rejected. Unlinked printers keep their existing workflows. Printer
 controls and Odin's other integrations remain independent; this display adapter
 never writes assignments, weights, or printer settings. If an external service
-owns consumption, configure Odin's other consumption integrations accordingly.
+owns consumption, opt in separately:
+
+```yaml
+environment:
+  EXTERNAL_FILAMENT_ACCOUNTING_PRINTERS: '[9]'
+```
+
+This JSON list contains positive integer Odin printer IDs and defaults to empty.
+It does not require a display binding. Display bindings alone retain automatic
+accounting. For listed printers, Odin skips automatic stock deductions from
+Moonraker, operator job completion and archive accounting. Skipped consumption
+creates no new Spoolman delivery; previously queued deliveries remain unchanged.
+Jobs and archives still complete normally. Archives record
+`externally_managed` with reason `external_accounting`; this does not assert that
+the external service successfully accounted for the print. Manual consumption
+adjustments and weighing keep their existing behavior and access restrictions.
+
+Odin evaluates current configuration when accounting runs, including delayed
+archives. Removing a printer from this list does not automatically reprocess
+existing archives. If accounting is explicitly invoked later, no deduction claim
+from the skipped invocation prevents it from deducting consumption.
+A physical print's recorded printer determines its policy even if its scheduled
+job was subsequently reassigned. Malformed lists fail server startup.
 
 Hardware telemetry still reconciles departures from Odin's local slot inventory.
 An explicitly empty Moonraker gate or Anycubic slot can clear an old local spool

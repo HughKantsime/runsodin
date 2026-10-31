@@ -403,6 +403,15 @@ def account_archive(connection, *, archive_id, print_job_id, printer_id, snapsho
     import uuid
     def unresolved(reason):
         return 'unresolved', reason, []
+    from core.interfaces.filament_ownership import uses_external_filament_accounting
+    # Physical history, rather than a reassigned job, determines the policy.
+    physical = execute(connection, 'SELECT printer_id FROM print_jobs WHERE id=?', (print_job_id,)).fetchone()
+    if not physical:
+        return unresolved('missing_physical_print')
+    if physical[0] != printer_id:
+        return unresolved('foreign_job_printer')
+    if uses_external_filament_accounting(physical[0]):
+        return 'externally_managed', 'external_accounting', []
     if not success and measured_grams is None:
         return unresolved('non_successful_attempt_quantity_unconfirmed')
     try:
