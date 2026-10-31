@@ -410,6 +410,18 @@ def run_gate(run_id: str, artifact_root: Path, candidate_image: str) -> int:
             )
         _phase(phases, active_phase, started, f"ready at loopback port {match.group(1)}; image identity matched")
 
+        # The library the running container really loaded, not what the build intended.
+        active_phase = "sqlite-runtime"
+        started = time.monotonic()
+        sqlite_check = _command(
+            [
+                "docker", "exec", resources.container,
+                "python3", "-I", "-S", "/usr/local/libexec/odin-sqlite-image-check.py",
+            ],
+            capture=True,
+        ).stdout.strip()
+        _phase(phases, active_phase, started, sqlite_check)
+
         active_phase = "setup-and-seed"
         started = time.monotonic()
         _claim_setup(base_url, secrets_for_run.admin_password)
