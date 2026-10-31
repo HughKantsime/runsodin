@@ -70,9 +70,10 @@ Trusted Validation's bootstrap checks the hook on odin-ci:
 
 | `ACTIONS_RUNNER_HOOK_JOB_STARTED` | `ODIN_RUNNER_HOOK_REQUIRED` | Result |
 |---|---|---|
-| set | either | Fails unless the file and its directory are owned and writable by root alone |
+| any | anything but `true` or empty | Fails, so a typo like `TRUE` can't turn the check off |
+| set | `true` or empty | Fails unless it's exactly `/usr/local/libexec/odin-ci/runner-job-started-hook.sh`, a regular file that only root can write, in a directory that only root can write |
 | not set | `true` | Fails |
-| not set | not set | Warns on the run, and goes on |
+| not set | empty or not set | Warns on the run, and goes on |
 
 The variable is a repository variable, so nothing fails before the hook is installed. It survives a VM rebuild, which is when a hook is most likely to go missing, and a job can't change it. Set it as the last step of installing on odin-ci, once the proof passes:
 
@@ -102,7 +103,12 @@ python3.11 -m pip uninstall -y --break-system-packages pip
 sudo apt-get purge -y gh
 ```
 
-The second command removes the user-site pip that only those installs needed. To check: `command -v gh` prints nothing, `python3.11 -m pip list --user` fails, and `python3.11 -c 'import jsonschema'` fails.
+The second command removes the user-site pip that only those installs needed.
+
+To check:
+- `command -v gh` prints nothing.
+- `python3.11 -m pip list --user` fails.
+- `python3.11 -c 'import jsonschema; print(jsonschema.__file__)'` no longer prints a path under `~/.local`. It still resolves, at `/usr/lib/python3/dist-packages`, because Ubuntu's own python3-jsonschema is a cloud-init dependency and stays.
 
 ## Egress to production
 

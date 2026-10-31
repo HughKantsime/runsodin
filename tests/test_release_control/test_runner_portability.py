@@ -123,17 +123,23 @@ def _hook_drift_check():
     workflow = yaml.safe_load((ROOT / '.github/workflows/trusted-validation.yml').read_text())
     step = workflow['jobs']['validate']['steps'][0]
     script = step['run']
-    start = script.index('hook="${ACTIONS_RUNNER_HOOK_JOB_STARTED:-}"')
+    start = script.index('case "${RUNNER_HOOK_REQUIRED:-}" in')
     return step, script[start:script.index('\nfi\n', start) + len('\nfi\n')]
 
 
-def _run_drift_check(tmp_path, hook=None, required=None, path_prefix=''):
+# Where the installer puts the hook. Tests point the check at a stand-in, since only root can
+# create this path; test_validation_checks_the_path_the_installer_uses keeps the two together.
+HOOK_PATH = '/usr/local/libexec/odin-ci/runner-job-started-hook.sh'
+
+
+def _run_drift_check(tmp_path, hook=None, required=None, path_prefix='', installed_at=HOOK_PATH):
     env = {'PATH': f'{path_prefix}/usr/bin:/bin'}
     if hook is not None:
         env['ACTIONS_RUNNER_HOOK_JOB_STARTED'] = str(hook)
     if required is not None:
         env['RUNNER_HOOK_REQUIRED'] = required
-    return subprocess.run(['/bin/bash', '-c', 'set -euo pipefail\n' + _hook_drift_check()[1] + 'echo went-on\n'],
+    check = _hook_drift_check()[1].replace(HOOK_PATH, str(installed_at))
+    return subprocess.run(['/bin/bash', '-c', 'set -euo pipefail\n' + check + 'echo went-on\n'],
                           env=env, capture_output=True, text=True, timeout=30)
 
 
@@ -148,7 +154,12 @@ def test_validation_runs_the_drift_check_before_anything_else_it_needs():
     assert '-user root ! -perm -020 ! -perm -002' in check
 
 
-@pytest.mark.parametrize('required', [None, '', 'false'])
+def test_validation_checks_the_path_the_installer_uses():
+    assert f'test "$hook" = {HOOK_PATH} ||' in _hook_drift_check()[1]
+    assert f'hook={HOOK_PATH}\n' in (ROOT / 'ops/ci/install-runner-hook.sh').read_text()
+
+
+@pytest.mark.parametrize('required', [None, ''])
 def test_before_the_hook_is_installed_validation_warns_and_goes_on(tmp_path, required):
     result = _run_drift_check(tmp_path, required=required)
     assert result.returncode == 0, result.stderr
@@ -162,11 +173,27 @@ def test_a_hook_required_but_lost_fails_validation(tmp_path):
     assert 'ODIN_RUNNER_HOOK_REQUIRED is true' in result.stderr
 
 
-@pytest.mark.parametrize('required', [None, 'true'])
-def test_a_root_owned_hook_passes_quietly(tmp_path, required):
-    result = _run_drift_check(tmp_path, hook=ROOT_OWNED, required=required)
+@pytest.mark.parametrize('required', ['TRUE', 'True', '1', 'yes', 'false', ' true', 'true '])
+@pytest.mark.parametrize('hook', [None, ROOT_OWNED])
+def test_any_other_value_of_the_variable_fails_rather_than_warns(tmp_path, required, hook):
+    """A mistyped value with the hook lost would otherwise only warn, looking enforced when it isn't."""
+    result = _run_drift_check(tmp_path, hook=hook, required=required, installed_at=ROOT_OWNED)
+    assert result.returncode != 0 and 'went-on' not in result.stdout
+    assert 'must be true or empty' in result.stderr
+
+
+@pytest.mark.parametrize('required', [None, '', 'true'])
+def test_the_installed_root_owned_hook_passes_quietly(tmp_path, required):
+    result = _run_drift_check(tmp_path, hook=ROOT_OWNED, required=required, installed_at=ROOT_OWNED)
     assert result.returncode == 0, result.stderr
     assert result.stdout == 'went-on\n'
+
+
+@pytest.mark.parametrize('required', [None, 'true'])
+def test_any_other_root_owned_file_is_not_the_hook(tmp_path, required):
+    result = _run_drift_check(tmp_path, hook=ROOT_OWNED, required=required)
+    assert result.returncode != 0 and 'went-on' not in result.stdout
+    assert f'must be {HOOK_PATH}' in result.stderr
 
 
 @pytest.mark.parametrize('required', [None, 'true'])
@@ -180,12 +207,12 @@ def test_a_set_hook_is_checked_even_before_the_variable_is_set(tmp_path, kind, r
         hook.symlink_to(ROOT_OWNED)
     elif kind == 'directory':
         hook.mkdir()
-    result = _run_drift_check(tmp_path, hook=hook, required=required)
+    result = _run_drift_check(tmp_path, hook=hook, required=required, installed_at=hook)
     assert result.returncode != 0 and 'went-on' not in result.stdout
 
 
 def test_a_root_owned_directory_is_not_a_hook(tmp_path):
-    result = _run_drift_check(tmp_path, hook='/usr/bin')
+    result = _run_drift_check(tmp_path, hook='/usr/bin', installed_at='/usr/bin')
     assert result.returncode != 0 and 'not a regular file' in result.stderr
 
 
@@ -197,7 +224,7 @@ def test_a_symlink_fails_even_if_it_and_its_directory_look_root_owned(tmp_path):
     stubs.mkdir()
     (stubs / 'find').write_text('#!/bin/sh\necho one\necho two\n')
     (stubs / 'find').chmod(0o755)
-    result = _run_drift_check(tmp_path, hook=hook, path_prefix=f'{stubs}:')
+    result = _run_drift_check(tmp_path, hook=hook, path_prefix=f'{stubs}:', installed_at=hook)
     assert result.returncode != 0 and 'not a regular file' in result.stderr
 
 
@@ -208,6 +235,65 @@ def test_a_root_owned_hook_in_a_directory_others_can_write_fails(tmp_path):
     # Answers for the file and not for its directory, which can't be set up here without root.
     (stubs / 'find').write_text(f'#!/bin/sh\necho "{ROOT_OWNED}"\n')
     (stubs / 'find').chmod(0o755)
-    result = _run_drift_check(tmp_path, hook=ROOT_OWNED, path_prefix=f'{stubs}:')
+    result = _run_drift_check(tmp_path, hook=ROOT_OWNED, path_prefix=f'{stubs}:', installed_at=ROOT_OWNED)
     assert result.returncode != 0 and 'went-on' not in result.stdout
     assert 'owned and writable by root alone' in result.stderr
+
+
+def _hook_copy_step():
+    steps = yaml.safe_load((ROOT / '.github/workflows/trusted-validation.yml').read_text())['jobs']['validate']['steps']
+    names = [step['name'] for step in steps]
+    return steps, names, names.index('Check the installed job hook matches this candidate')
+
+
+def _run_copy_check(tmp_path, installed=None, candidate='hook v1\n'):
+    """Run the workflow's step in a stand-in checkout holding the candidate's hook, or none."""
+    checkout = tmp_path / 'checkout'
+    (checkout / 'ops/ci').mkdir(parents=True)
+    if candidate is not None:
+        (checkout / 'ops/ci/runner-job-started-hook.sh').write_text(candidate)
+    env = {'PATH': '/usr/bin:/bin'}
+    if installed is not None:
+        path = tmp_path / 'installed-hook.sh'
+        path.write_text(installed)
+        env['ACTIONS_RUNNER_HOOK_JOB_STARTED'] = str(path)
+    steps, _, index = _hook_copy_step()
+    return subprocess.run(['/bin/bash', '-c', steps[index]['run'] + 'echo went-on\n'], cwd=checkout, env=env,
+                          capture_output=True, text=True, timeout=30)
+
+
+def test_the_hook_comparison_runs_after_checkout_and_before_any_candidate_code():
+    steps, names, index = _hook_copy_step()
+    assert names.index('Check out immutable candidate') < index < names.index('Bootstrap clean-checkout validation dependencies')
+    assert 'cmp "$hook" ops/ci/runner-job-started-hook.sh' in steps[index]['run']
+    assert 'if' not in steps[index]
+
+
+def test_an_installed_hook_identical_to_the_candidates_passes(tmp_path):
+    result = _run_copy_check(tmp_path, installed='hook v1\n')
+    assert result.returncode == 0, result.stderr
+    assert 'went-on' in result.stdout
+
+
+def test_a_candidate_that_changed_the_hook_fails_until_it_is_installed(tmp_path):
+    result = _run_copy_check(tmp_path, installed='hook v1\n', candidate='hook v2\n')
+    assert result.returncode != 0 and 'went-on' not in result.stdout
+    assert "Install the candidate's copy first" in result.stderr
+
+
+def test_a_candidate_without_the_hook_fails_once_one_is_installed(tmp_path):
+    result = _run_copy_check(tmp_path, installed='hook v1\n', candidate=None)
+    assert result.returncode != 0 and 'went-on' not in result.stdout
+
+
+def test_the_comparison_does_nothing_before_the_hook_is_installed(tmp_path):
+    """The bootstrap already warned, or failed if the hook is required."""
+    result = _run_copy_check(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert 'went-on' in result.stdout
+
+
+def test_readme_gives_the_order_for_changing_the_hook():
+    readme = (ROOT / 'ops/ci/README.md').read_text()
+    section = readme[readme.index('### Changing the hook'):readme.index('### Remove what eligibility left')]
+    assert section.index('install-runner-hook.sh') < section.index('Dispatch validation')

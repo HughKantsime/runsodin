@@ -42,8 +42,14 @@ jobs:
           # Hook drift: a hook lost to an install mistake refuses nothing and says nothing, so its
           # absence has to show here. A set hook is always checked; a missing one fails once
           # ODIN_RUNNER_HOOK_REQUIRED says the hook was installed, and only warns before that.
+          # Any other value fails, so a typo can't quietly turn the check into a warning.
+          case "${RUNNER_HOOK_REQUIRED:-}" in
+            ""|true) ;;
+            *) echo "ODIN_RUNNER_HOOK_REQUIRED must be true or empty, not ${RUNNER_HOOK_REQUIRED}; see ops/ci/README.md" >&2; exit 1 ;;
+          esac
           hook="${ACTIONS_RUNNER_HOOK_JOB_STARTED:-}"
           if [ -n "$hook" ]; then
+            test "$hook" = /usr/local/libexec/odin-ci/runner-job-started-hook.sh || { echo "Runner job hook must be /usr/local/libexec/odin-ci/runner-job-started-hook.sh, not $hook; see ops/ci/README.md" >&2; exit 1; }
             [ -f "$hook" ] && [ ! -L "$hook" ] || { echo "Runner job hook $hook is not a regular file" >&2; exit 1; }
             test "$(find "$hook" "$(dirname "$hook")" -maxdepth 0 -user root ! -perm -020 ! -perm -002 | wc -l)" -eq 2 || { echo "Runner job hook $hook and its directory must be owned and writable by root alone" >&2; exit 1; }
           elif [ "${RUNNER_HOOK_REQUIRED:-}" = true ]; then
@@ -108,6 +114,15 @@ jobs:
               raise SystemExit("Vision model is not materialized or does not match the committed LFS object")
           print("Pinned vision model materialized and verified")
           PY
+
+      - name: Check the installed job hook matches this candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          hook="${ACTIONS_RUNNER_HOOK_JOB_STARTED:-}"
+          if [ -n "$hook" ]; then
+            cmp "$hook" ops/ci/runner-job-started-hook.sh || { echo "Installed job hook $hook differs from this candidate's ops/ci/runner-job-started-hook.sh. Install the candidate's copy first; see ops/ci/README.md" >&2; exit 1; }
+          fi
 
       - name: Bootstrap clean-checkout validation dependencies
         shell: bash
