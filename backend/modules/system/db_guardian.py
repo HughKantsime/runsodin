@@ -27,6 +27,7 @@ from modules.system.backup_service import (
 from modules.system.db_guardian_status import (
     STALE,
     database_integrity,
+    integrity_view,
     offsite_path,
     parse_time,
     read_status,
@@ -240,7 +241,9 @@ def main_loop() -> None:
     write_status(path, status)
     log.info("Database guardian started; integrity check every %d s, backup every %s",
              INTEGRITY_INTERVAL_SECONDS, BACKUP_INTERVAL)
-    time.sleep(FIRST_CHECK_DELAY_SECONDS)
+    # After a long outage /health says stale until a check finishes, so don't make it wait.
+    if integrity_view(status)["status"] != STALE:
+        time.sleep(FIRST_CHECK_DELAY_SECONDS)
     while True:
         try:
             if tick(status, datetime.now(timezone.utc), paths.database, DATABASE_URL):

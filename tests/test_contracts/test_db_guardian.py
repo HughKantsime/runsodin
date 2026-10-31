@@ -460,8 +460,44 @@ def test_report_runner_stays_quiet_when_the_guardian_is_healthy_or_absent(alert_
     assert _alert_rows(engine) == []
 
 
+def test_the_watcher_gives_a_booting_guardian_time_before_calling_it_stopped(monkeypatch):
+    """After a long outage the status file looks old until the guardian's first check of this boot."""
+    import modules.reporting.report_runner as runner
+    calls = []
+    monkeypatch.setattr(db_guardian, "alert_if_stopped", lambda *a, **k: calls.append(1))
+    monkeypatch.setattr(runner.time, "monotonic", lambda: runner._STARTED_AT + runner.GUARDIAN_WATCH_DELAY_SECONDS - 1)
+    runner._check_database_guardian()
+    assert calls == []
+    monkeypatch.setattr(runner.time, "monotonic", lambda: runner._STARTED_AT + runner.GUARDIAN_WATCH_DELAY_SECONDS)
+    runner._check_database_guardian()
+    assert calls == [1]
+
+
+class _Stop(Exception):
+    pass
+
+
+@pytest.mark.parametrize("last_check,waits", [(timedelta(minutes=1), True), (timedelta(days=2), False)], ids=["recent", "after-an-outage"])
+def test_first_check_of_a_boot_waits_only_when_the_last_result_is_recent(monkeypatch, tmp_path, last_check, waits):
+    database = tmp_path / "odin.db"
+    write_status(status_path(database), _status(OK, checked_at=datetime.now(timezone.utc) - last_check, interval=300))
+    monkeypatch.setattr(db_guardian, "DATABASE_URL", f"sqlite:///{database}")
+    monkeypatch.setattr(db_guardian.os, "nice", lambda _: 0)
+    slept = []
+    def sleep(seconds):
+        slept.append(seconds)
+        if seconds == db_guardian.TICK_SECONDS:
+            raise _Stop
+    monkeypatch.setattr(db_guardian.time, "sleep", sleep)
+    monkeypatch.setattr(db_guardian, "tick", lambda *a, **k: False)
+    with pytest.raises(_Stop):
+        db_guardian.main_loop()
+    assert (db_guardian.FIRST_CHECK_DELAY_SECONDS in slept) is waits
+
+
 def test_a_failed_watcher_check_never_stops_the_report_loop(monkeypatch):
     import modules.reporting.report_runner as runner
+    monkeypatch.setattr(runner, "GUARDIAN_WATCH_DELAY_SECONDS", 0)
     monkeypatch.setattr(db_guardian, "alert_if_stopped", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("synthetic")))
     runner._check_database_guardian()
     source = Path(runner.__file__).read_text(encoding="utf-8")
