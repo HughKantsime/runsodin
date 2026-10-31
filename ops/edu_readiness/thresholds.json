@@ -10,9 +10,9 @@
   "host_classes": {
     "mac-m4": {
       "identity": {"system": "Darwin", "machine": "arm64", "cpu": "Apple M4"},
-      "read_p95_ms": 310,
-      "write_p95_ms": 410,
-      "global_p99_ms": 410
+      "read_p95_ms": 385,
+      "write_p95_ms": 525,
+      "global_p99_ms": 525
     },
     "odin-ci": {
       "identity": {"system": "Linux", "machine": "x86_64", "hostname": "odin-ci", "cpu": "11th Gen Intel(R) Core(TM) i7-11700K @ 3.60GHz"},
@@ -71,18 +71,18 @@
     "mac-m4": {
       "read_p95_ms": {
         "previous": 650,
-        "value": 310,
-        "evidence": "worst read p95 270.6 ms over 5 gate runs (15 repetitions) on the Mac at 90546e45; +14.6%"
+        "value": 385,
+        "evidence": "worst read p95 335.5 ms over 42 timed runs (126 repetitions) on the Mac, at 12:19 and 15:20 on 2026-10-31 under normal sharing; +14.8%"
       },
       "write_p95_ms": {
         "previous": 1400,
-        "value": 410,
-        "evidence": "worst write p95 358.5 ms in the same runs; +14.4%"
+        "value": 525,
+        "evidence": "worst write p95 457.4 ms in the same runs; +14.8%"
       },
       "global_p99_ms": {
         "previous": 2800,
-        "value": 410,
-        "evidence": "worst global p99 358.5 ms in the same runs; +14.4%"
+        "value": 525,
+        "evidence": "worst global p99 457.4 ms in the same runs; 3 of 42 runs passed 410 ms; +14.8%"
       }
     },
     "odin-ci": {
@@ -105,7 +105,7 @@
     "maximum_repetition_seconds": {
       "previous": 45,
       "value": 17,
-      "evidence": "worst 14.8 s on odin-ci and 7.8 s on the Mac in those runs; +14.9% on the slower host"
+      "evidence": "worst 14.8 s on odin-ci and 9.2 s on the Mac in those runs; +14.9% on the slower host"
     },
     "unchanged": "every error, 5xx, tenant-leak, websocket, fd and memory limit"
   }
