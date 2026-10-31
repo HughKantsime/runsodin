@@ -717,9 +717,9 @@ async def run(run_id: str, output: Path) -> int:
         findings.append("file descriptor growth exceeded threshold")
     memory = _run_memory_pass(environment)
     memory_findings, memory_delta = _judge_memory_pass(memory, thresholds)
-    findings.extend(memory_findings)
     if memory_delta is not None and memory_delta > thresholds["maximum_memory_delta_mib"] * 1024 * 1024:
-        findings.append("tracked memory growth exceeded threshold")
+        memory_findings.append("tracked memory growth exceeded threshold")
+    findings.extend(memory_findings)
     if THRESHOLDS_PATH.read_bytes() != thresholds_bytes:
         findings.append("threshold file changed during run")
     result = {
