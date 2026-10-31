@@ -94,17 +94,25 @@ def _group_alive(process: subprocess.Popen) -> bool:
     return True
 
 
+def _group_gone_within(process: subprocess.Popen, seconds: float) -> bool:
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if not _group_alive(process):
+            return True
+        time.sleep(0.05)
+    return False
+
+
 def _stop_group(process: subprocess.Popen, stop_seconds: float) -> None:
     for chosen in (signal.SIGTERM, signal.SIGKILL):
         with contextlib.suppress(ProcessLookupError, PermissionError):
             os.killpg(process.pid, chosen)
-        deadline = time.monotonic() + stop_seconds
-        while time.monotonic() < deadline:
-            if not _group_alive(process):
-                process.wait()
-                return
-            time.sleep(0.05)
-    process.wait(timeout=stop_seconds)
+        if _group_gone_within(process, stop_seconds):
+            break
+    try:
+        process.wait(timeout=stop_seconds)
+    except subprocess.TimeoutExpired as exc:
+        raise PreviewError(f"preview {process.pid} did not exit after SIGKILL") from exc
 
 
 @contextlib.contextmanager

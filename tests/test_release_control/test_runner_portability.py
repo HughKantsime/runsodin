@@ -1,5 +1,6 @@
 """Portability contracts without starting browsers, brokers, mounts, or Docker."""
 import ast
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -53,31 +54,16 @@ ODIN_CI = ['self-hosted', 'odin-ci']
 
 @pytest.mark.parametrize('workflow,labels', [
     ('trusted-validation', ODIN_CI),
+    ('promote', MAC),
     ('publish-image', MAC),
     ('promote-production', MAC),
     ('rollback-2.0-production', MAC),
 ])
 def test_each_release_workflow_runs_on_its_named_host(workflow, labels):
-    """Only validation and stage eligibility moved. arm64 under QEMU never went healthy on the VM."""
+    """Only validation moved: arm64 under QEMU never went healthy on the VM, and eligibility
+    authenticates validation's evidence, so it stays off the host that ran candidate code."""
     parsed = yaml.safe_load((ROOT / '.github/workflows' / f'{workflow}.yml').read_text())
     assert [job['runs-on'] for job in parsed['jobs'].values()] == [labels]
-
-
-def _github_expression_runs_on(expression, action):
-    """Evaluate only the form promote.yml uses, so its routing is checked rather than its spelling."""
-    body = expression.removeprefix('${{').removesuffix('}}').strip()
-    condition, _, branches = body.partition(' && ')
-    first, _, second = branches.partition(' || ')
-    assert condition == "inputs.action == 'stage'"
-    chosen = first if action == 'stage' else second
-    assert chosen.startswith("fromJSON('") and chosen.endswith("')")
-    return yaml.safe_load(chosen[len("fromJSON('"):-len("')")])
-
-
-@pytest.mark.parametrize('action,labels', [('stage', ODIN_CI), ('production', MAC), ('demo', MAC), ('anything-else', MAC)])
-def test_promotion_eligibility_only_stage_scope_leaves_the_mac(action, labels):
-    parsed = yaml.safe_load((ROOT / '.github/workflows/promote.yml').read_text())
-    assert _github_expression_runs_on(parsed['jobs']['eligibility']['runs-on'], action) == labels
 
 
 def test_actionlint_knows_every_host_label():
@@ -116,3 +102,18 @@ def test_gates_keep_the_runner_tracking_id_so_the_runner_can_find_strays(monkeyp
     assert command_environment()['RUNNER_TRACKING_ID'] == 'github_synthetic'
     assert 'RUNNER_TRACKING_ID' in BASE_ENVIRONMENT_ALLOWLIST
     assert load_inventory()  # refuses an inventory whose allowlist differs from the code's
+
+
+@pytest.mark.parametrize('system,stops', [('Linux', True), ('Darwin', False), ('FreeBSD', True)])
+def test_rollback_stops_on_the_wrong_host(tmp_path, system, stops):
+    """Its bootstrap finds docker wherever PATH says, so without this it would run on any host."""
+    workflow = yaml.safe_load((ROOT / '.github/workflows/rollback-2.0-production.yml').read_text())
+    bootstrap = workflow['jobs']['rollback']['steps'][0]['run']
+    line = next(item for item in bootstrap.splitlines() if 'uname -s' in item)
+    assert bootstrap.index(line) < bootstrap.index('docker_bin=')
+    (tmp_path / 'uname').write_text(f'#!/bin/sh\necho {system}\n')
+    (tmp_path / 'uname').chmod(0o755)
+    result = subprocess.run(['/bin/bash', '-c', f'set -euo pipefail\n{line}\necho went-on'],
+                            env={'PATH': f'{tmp_path}:/usr/bin:/bin'}, capture_output=True, text=True)
+    assert (result.returncode != 0) is stops
+    assert ('went-on' in result.stdout) is not stops

@@ -111,6 +111,21 @@ def test_server_ignoring_term_is_killed(launcher):
     assert not preview_server._listening('127.0.0.1', port)
 
 
+def test_stopping_a_preview_cannot_wait_forever(monkeypatch):
+    """A leader that outlives its group, as macOS's EPERM answer can suggest, fails the gate rather than hanging it."""
+    stuck = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(5)'])
+    monkeypatch.setattr(preview_server, '_group_alive', lambda _: False)
+    monkeypatch.setattr(preview_server.os, 'killpg', lambda *_: None)
+    started = time.monotonic()
+    try:
+        with pytest.raises(PreviewError, match='did not exit'):
+            preview_server._stop_group(stuck, 0.2)
+        assert time.monotonic() - started < 4
+    finally:
+        stuck.kill()
+        stuck.wait()
+
+
 def test_terminated_gate_still_stops_its_server(launcher, tmp_path):
     port = _free_port()
     driver = textwrap.dedent(f'''
