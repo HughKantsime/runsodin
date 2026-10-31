@@ -250,7 +250,15 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 228,
+      "line": 175,
+      "path": "backend/core/ams_source_inspection.py",
+      "pattern": "qmark-parameter",
+      "reason": "G-code header regular expression contains a qmark-like fragment; this bounded archive parser has no database operations or SQL.",
+      "source": "header = re.fullmatch(r'\\s*;\\s*printer_model\\s*=\\s*(.*?)\\s*', line)"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 317,
       "path": "backend/core/ams_source_inspection.py",
       "pattern": "qmark-parameter",
       "reason": "G-code header regular expression contains a qmark-like fragment; this bounded archive parser has no database operations or SQL.",
