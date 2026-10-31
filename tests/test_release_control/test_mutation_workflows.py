@@ -523,7 +523,7 @@ def test_MW16_workflows_are_manual_serial_and_least_privilege():
         assert "push:" not in source and "pull_request:" not in source and "workflow_dispatch:" in source
         assert payload["permissions"] == {}
         assert payload["concurrency"] == {"group": "odin-release-mutation", "cancel-in-progress": False}
-        assert "runs-on: [self-hosted, odin-ci]" in source
+        assert "runs-on: [self-hosted, mac-mini-runner, m4]" in source
     assert publication["jobs"]["publish"]["permissions"] == {"actions": "read", "contents": "read", "packages": "write"}
     assert production["jobs"]["promote"]["permissions"] == {"actions": "read", "contents": "read", "packages": "write"}
     assert production["jobs"]["promote"]["environment"] == "production"
@@ -587,14 +587,15 @@ def test_MW19_failure_receipts_and_fresh_authorization_are_wired():
     assert "PRODUCTION_OBSERVATION_FAILED" in production_steps["Observe production version over verified TLS"]["run"]
 
 
-def test_MW20_publication_bootstrap_finds_runner_docker_from_path():
+def test_MW20_publication_bootstrap_finds_runner_docker_before_path_export():
     _, publication = _workflow("publish-image.yml")
-    bootstrap = publication["jobs"]["publish"]["steps"][0]["run"]
-    docker_check = 'command -v docker >/dev/null || { echo "Required tool missing from PATH: docker" >&2; exit 1; }'
-    resolve = 'docker_bin="$(command -v docker)"'
+    steps = {step["name"]: step for step in publication["jobs"]["publish"]["steps"]}
+    bootstrap = steps["Establish isolated publication root"]["run"]
+    docker_check = "test -x /Users/ollama/homebrew/bin/docker"
+    path_export = "printf '%s\\n' /Users/ollama/homebrew/bin /opt/homebrew/bin >> \"$GITHUB_PATH\""
     assert docker_check in bootstrap
-    assert bootstrap.index(docker_check) < bootstrap.index(resolve)
-    assert "/homebrew/" not in bootstrap
+    assert path_export in bootstrap
+    assert bootstrap.index(docker_check) < bootstrap.index(path_export)
 
 
 def test_MW21_mutation_bootstraps_preserve_daemon_with_isolated_credentials():

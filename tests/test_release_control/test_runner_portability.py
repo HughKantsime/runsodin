@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
 from ops.release_control import aggregate
 
@@ -44,3 +45,74 @@ def test_linux_browser_upload_fixture_uses_real_filesystem_without_hdiutil(tmp_p
     else:
         with pytest.raises(AssertionError, match='CV06 needs'):
             next(fixture)
+
+
+MAC = ['self-hosted', 'mac-mini-runner', 'm4']
+ODIN_CI = ['self-hosted', 'odin-ci']
+
+
+@pytest.mark.parametrize('workflow,labels', [
+    ('trusted-validation', ODIN_CI),
+    ('publish-image', MAC),
+    ('promote-production', MAC),
+    ('rollback-2.0-production', MAC),
+])
+def test_each_release_workflow_runs_on_its_named_host(workflow, labels):
+    """Only validation and stage eligibility moved. arm64 under QEMU never went healthy on the VM."""
+    parsed = yaml.safe_load((ROOT / '.github/workflows' / f'{workflow}.yml').read_text())
+    assert [job['runs-on'] for job in parsed['jobs'].values()] == [labels]
+
+
+def _github_expression_runs_on(expression, action):
+    """Evaluate only the form promote.yml uses, so its routing is checked rather than its spelling."""
+    body = expression.removeprefix('${{').removesuffix('}}').strip()
+    condition, _, branches = body.partition(' && ')
+    first, _, second = branches.partition(' || ')
+    assert condition == "inputs.action == 'stage'"
+    chosen = first if action == 'stage' else second
+    assert chosen.startswith("fromJSON('") and chosen.endswith("')")
+    return yaml.safe_load(chosen[len("fromJSON('"):-len("')")])
+
+
+@pytest.mark.parametrize('action,labels', [('stage', ODIN_CI), ('production', MAC), ('demo', MAC), ('anything-else', MAC)])
+def test_promotion_eligibility_only_stage_scope_leaves_the_mac(action, labels):
+    parsed = yaml.safe_load((ROOT / '.github/workflows/promote.yml').read_text())
+    assert _github_expression_runs_on(parsed['jobs']['eligibility']['runs-on'], action) == labels
+
+
+def test_actionlint_knows_every_host_label():
+    labels = yaml.safe_load((ROOT / '.github/actionlint.yaml').read_text())['self-hosted-runner']['labels']
+    assert set(labels) == {'mac-mini-runner', 'm4', 'odin-ci'}
+
+
+@pytest.mark.parametrize('workflow,artifact', [
+    ('promote', '/actions/artifacts/${artifact_id}/zip'),
+    ('publish-image', '/actions/artifacts/${validation_artifact_id}/zip'),
+    ('promote-production', '/actions/artifacts/${validation_artifact_id}/zip'),
+])
+def test_evidence_crosses_hosts_only_as_an_uploaded_artifact(workflow, artifact):
+    """A job on the Mac can't see odin-ci's disk, so nothing may read validation's local directory."""
+    source = (ROOT / '.github/workflows' / f'{workflow}.yml').read_text()
+    assert artifact in source
+    assert 'verify-download' in source
+    assert 'artifacts/trusted-validation' not in source
+    assert '_work/' not in source and 'actions-runner' not in source
+
+
+def test_validation_uploads_the_evidence_other_hosts_download():
+    source = (ROOT / '.github/workflows/trusted-validation.yml').read_text()
+    assert 'name: odin-trusted-validation-${{ github.run_id }}-${{ github.run_attempt }}' in source
+    assert 'path: artifacts/trusted-validation/${{ env.RELEASE_CONTROL_RUN_ID }}/evidence/' in source
+    assert 'if-no-files-found: error' in source
+
+
+def test_gates_keep_the_runner_tracking_id_so_the_runner_can_find_strays(monkeypatch):
+    """The runner kills a finished job's leftovers by this variable; a server started under a
+    gate that dropped it would survive into the next job."""
+    from ops.release_control.policy import load_inventory
+    from ops.release_control.run_gate import BASE_ENVIRONMENT_ALLOWLIST, command_environment
+
+    monkeypatch.setenv('RUNNER_TRACKING_ID', 'github_synthetic')
+    assert command_environment()['RUNNER_TRACKING_ID'] == 'github_synthetic'
+    assert 'RUNNER_TRACKING_ID' in BASE_ENVIRONMENT_ALLOWLIST
+    assert load_inventory()  # refuses an inventory whose allowlist differs from the code's

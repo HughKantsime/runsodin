@@ -112,8 +112,9 @@ repository-write, release, deployment, cluster, DNS, TLS, or secret mutation pat
 The eligibility job does not check out the candidate. It fetches a fixed helper
 closure from its own workflow SHA through the Contents API and verifies every
 path, decoded byte count, and Git blob hash before importing from a fresh isolated
-directory. It runs on the established M4 self-hosted runner; that runner is
-trusted for owner-reviewed code but is not represented as VM-isolated.
+directory. Stage eligibility runs on the `odin-ci` runner with Trusted Validation,
+and every other scope on the established M4 self-hosted runner. Both runners are
+trusted for owner-reviewed code; neither is represented as isolated.
 
 ## Immutable publication and production promotion
 
