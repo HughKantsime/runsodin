@@ -4,14 +4,15 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [2.0.37] - 2026-10-30
 
-<!-- summary: H2D prints that use both nozzles can be dispatched again. -->
+<!-- summary: H2D prints sliced with the slicer CLI across both nozzles can be dispatched through ODIN. -->
 
 ### Fixed
 
-- ODIN refused H2D multi-filament prints that use both nozzles with "Unverifiable source mapping", so none of them could start through ODIN.
-  - A tool change across nozzles names the hotend it leaves (`M620.11 ... B0` or `B1`), and ODIN only knew `B-1`. ODIN now accepts these when the hotend agrees with the file's `filament_map`.
+- ODIN refused H2D multi-filament prints sliced with the slicer CLI across both nozzles, with "Unverifiable source mapping".
+  - A tool change can name the current hotend (`M620.11 ... B0` or `B1`), and ODIN only knew `B-1`. ODIN now accepts these when the hotend agrees with the file's `filament_map`.
   - The slicer CLI leaves `filament_nozzle_map` at a one-entry default on a multi-filament file. ODIN counted that as evidence, so it conflicted with `filament_map` or left the second filament's nozzle unknown. ODIN now ignores only that default; a full map still has to agree.
   - The nozzle and AMS checks before start apply to both nozzles: each nozzle must match what the file needs, and each filament's tray must feed the nozzle the file assigns it.
+  - Slices from the Bambu Studio app across both nozzles aren't proven yet and may still be refused.
 
 ## [2.0.36] - 2026-10-30
 

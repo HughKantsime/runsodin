@@ -51,9 +51,9 @@ _MULTI_SOURCE_AUXILIARY = (
     r'M620\s+Q[1-9][0-9]*',
 )
 
-# A tool change across nozzles names the hotend it leaves, where a change on one
-# nozzle has B-1. B is the filament_map value minus one, so it must agree with the
-# file's own map: I names a verified source and B that source's hotend.
+# A tool change can name the current hotend (B0 or B1) rather than B-1, which comes
+# from the first change or a wipe tower change. B is the filament_map value minus one,
+# so it must agree with the file's own map: I names a verified source and B its hotend.
 _CROSS_NOZZLE = tuple(re.compile(pattern) for pattern in (
     rf'M620\.11\s+P[01]\s+I([0-9]+)\s+B([01])\s+E{_NUMBER}(?:\s+F{_NUMBER})?',
     rf'M620\.11\s+K[01]\s+I([0-9]+)\s+B([01])\s+R{_NUMBER}(?:\s+F{_NUMBER})?',

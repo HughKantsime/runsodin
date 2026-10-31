@@ -318,7 +318,7 @@ def cross_nozzle_file(filament_map, *commands, nozzle_map=('1',), plate_map=None
                   'M620.11 P0 I0 B1 E0', 'M620.11 K1 I0 B1 R10 F997.797'), {0: 0, 1: 1}),
     (('1', '2'), ('M620.11 P0 I1 B1 E0', 'M620.11 K1 I1 B1 R10 F997.797', 'M620.11 S1 L0 I1 B1 R10 D8 E-10 F997.797'),
      {0: 1, 1: 0}),
-    # One nozzle: B stays -1, and the second source's nozzle is now known.
+    # One nozzle, B-1 only in this file: the second source's nozzle is now known.
     (('1', '1'), (), {0: 1, 1: 1}),
 ])
 def test_cli_slice_across_nozzles_is_verified_with_each_sources_nozzle(filament_map, commands, expected):
@@ -337,6 +337,25 @@ def test_cross_nozzle_commands_must_agree_with_the_files_own_map(command):
     assert inspect_ams_sources(cross_nozzle_file(('2', '1'), 'M620.11 P0 I1 B0 E0'))
     with pytest.raises(ValueError, match='^Unverifiable source mapping$'):
         inspect_ams_sources(cross_nozzle_file(('2', '1'), command))
+
+
+def test_cross_nozzle_command_must_name_a_source_of_this_file():
+    # filament_map has an entry for index 2, so only the source check can refuse it.
+    with pytest.raises(ValueError, match='^Unverifiable source mapping$'):
+        inspect_ams_sources(cross_nozzle_file(('2', '1', '1'), 'M620.11 P0 I2 B0 E0'))
+
+
+def test_cross_nozzle_commands_stay_refused_on_a_single_source_file():
+    raw = io.BytesIO()
+    with zipfile.ZipFile(raw, 'w') as package:
+        package.writestr('Metadata/slice_info.config', '<config><plate><metadata key="index" value="1"/>'
+                         '<filament id="1" type="PLA" used_g="10"/></plate></config>')
+        package.writestr('Metadata/project_settings.config', json.dumps(
+            {'filament_type': ['PLA'], 'filament_map': ['1'], 'filament_nozzle_map': ['1'], 'physical_extruder_map': ['1', '0']}))
+        package.writestr('Metadata/plate_1.json', json.dumps({'filament_ids': [0]}))
+        package.writestr('Metadata/plate_1.gcode', '; filament_type = PLA\nM620 S0A\nT0\nM621 S0A\nM620.11 P0 I0 B0 E0\n')
+    with pytest.raises(ValueError, match='^Unverifiable source mapping$'):
+        inspect_ams_sources(raw.getvalue())
 
 
 def test_cross_nozzle_command_needs_a_filament_map_to_agree_with():
