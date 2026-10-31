@@ -37,6 +37,8 @@ _client_lock = threading.Lock()
 # A new client is not connected until the broker's CONNACK arrives; retiring it
 # during that window would drop whatever was just published.
 _CONNECT_GRACE_SECONDS = 5
+# How long Test connection waits for a broker's CONNACK.
+_CONNACK_WAIT_SECONDS = 5
 _config_cache = None
 _config_ts = 0
 CONFIG_TTL = 30  # seconds — reload config every 30s
@@ -375,7 +377,9 @@ def test_connection(host: str, port: int, username: str = "", password: str = ""
         if client.connect(host, port, keepalive=10) != mqtt.MQTT_ERR_SUCCESS:
             return {"success": False, "message": "MQTT connection could not be established"}
         client.loop_start()
-        if not answered.wait(timeout=5) or outcome["refused"]:
+        if not answered.wait(timeout=_CONNACK_WAIT_SECONDS):
+            return {"success": False, "message": "MQTT broker did not answer"}
+        if outcome["refused"]:
             return {"success": False, "message": "MQTT broker refused the connection"}
 
         # Publish a test message
