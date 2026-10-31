@@ -2522,7 +2522,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 210,
+      "line": 218,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "qmark-parameter",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2530,7 +2530,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 401,
+      "line": 409,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2538,7 +2538,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 404,
+      "line": 412,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2546,7 +2546,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 418,
+      "line": 426,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2554,7 +2554,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 418,
+      "line": 426,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "qmark-parameter",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2562,7 +2562,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 424,
+      "line": 432,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2570,7 +2570,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 424,
+      "line": 432,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "qmark-parameter",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2578,7 +2578,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 487,
+      "line": 495,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2586,7 +2586,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 488,
+      "line": 496,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2594,7 +2594,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 489,
+      "line": 497,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2602,7 +2602,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 498,
+      "line": 506,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "qmark-parameter",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2610,7 +2610,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 600,
+      "line": 608,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "qmark-parameter",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -2618,7 +2618,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 738,
+      "line": 746,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
