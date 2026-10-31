@@ -1043,8 +1043,8 @@ def test_moonraker_cancelled_print_is_not_joined_to_the_next_print_of_that_file(
     assert abs((as_utc_datetime(ended) - datetime.fromtimestamp(first_end, timezone.utc)).total_seconds()) < 1
 
 
-@pytest.mark.parametrize('gap,total,joined', [(0.08, 1081.0, True), (0.08, 771.8, False), (95.8, 1176.8, False)],
-                         ids=['resumed', 'own_clock', 'too_late'])
+@pytest.mark.parametrize('gap,total,joined', [(0.08, 1081.0, True), (0.08, 1141.0, True), (0.08, 771.8, False), (95.8, 1176.8, False)],
+                         ids=['resumed', 'clock_also_counts_the_pause', 'own_clock', 'too_late'])
 def test_history_joins_only_a_job_that_opens_as_the_last_closes_and_keeps_its_clock(gap, total, joined):
     from modules.printers.monitors.moonraker_history import terminal_history
     start = 1000.0

@@ -12,10 +12,11 @@ CONTINUATION_SECONDS = 5
 
 
 def _continues(previous, job):
-    """The next job is the same print resumed: it opens as the last closes and keeps its clock."""
+    """The next job is the same print resumed: it opens as the last closes, and its clock already
+    holds the last job's time. A new print's clock starts near zero."""
     return (previous['status'] == 'cancelled' and previous['total'] is not None and job['total'] is not None
             and 0 <= job['start'] - previous['end'] <= CONTINUATION_SECONDS
-            and abs(job['total'] - (job['end'] - job['start']) - previous['total']) <= CONTINUATION_SECONDS)
+            and job['total'] - (job['end'] - job['start']) >= previous['total'] - CONTINUATION_SECONDS)
 
 
 def _prints(jobs):
