@@ -760,6 +760,21 @@ def test_guard_stops_the_whole_command_when_a_job_starts(tmp_path, stubs):
         pytest.fail('the command outlived the guard')
 
 
+def test_readme_gives_the_way_back_to_the_mac():
+    readme = (CI / 'README.md').read_text()
+    section = readme[readme.index('## Moving validation back to the Mac'):readme.index('## Egress to production')]
+    steps = [
+        '.odin-release-chain.lock',
+        'git cherry-pick revert/validation-to-mac',
+        'pytest tests/test_release_control',
+        'git push origin HEAD:main',
+        'gh variable delete ODIN_RUNNER_HOOK_REQUIRED',
+        'release-candidate/<SHA>',
+    ]
+    positions = [section.index(step) for step in steps]
+    assert positions == sorted(positions)
+
+
 @pytest.mark.parametrize('script', ['runner-job-started-hook.sh', 'install-runner-hook.sh', 'egress-to-prod.sh', 'vm-guarded-run.sh'])
 def test_host_scripts_are_executable(script):
     assert (CI / script).stat().st_mode & stat.S_IXUSR

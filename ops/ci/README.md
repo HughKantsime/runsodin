@@ -110,6 +110,35 @@ To check:
 - `python3.11 -m pip list --user` fails.
 - `python3.11 -c 'import jsonschema; print(jsonschema.__file__)'` no longer prints a path under `~/.local`. It still resolves, at `/usr/lib/python3/dist-packages`, because Ubuntu's own python3-jsonschema is a cloud-init dependency and stays.
 
+## Moving validation back to the Mac
+
+Use this when the host is the problem and a release can't wait for it: the chain fails with "still hadn't started", or odin-ci is down or unusable for too long. If the candidate failed validation on its merits, fix the candidate instead.
+
+Don't just change the `runs-on` label. With `ODIN_RUNNER_HOOK_REQUIRED` set to `true` and no hook on the Mac, the job stops at the hook check. With the variable cleared, it stops at the first `command -v`, because the Mac runner's `.path` is `/usr/bin:/bin:/usr/sbin:/sbin` and this workflow doesn't add Homebrew.
+
+Branch `revert/validation-to-mac` holds one commit, which restores the Mac's `trusted-validation.yml` and the tests that pin it. From a clean checkout on the Mac, with Homebrew on `PATH`:
+
+1. Check that no release is running. `~/.odin-release-chain.lock` must not exist, and `gh run list --repo HughKantsime/runsodin --status in_progress` must show no validation, publish or promotion. Cancel a validation still queued for odin-ci with `gh run cancel <run> --repo HughKantsime/runsodin`.
+2. Apply the commit:
+   ```sh
+   git fetch origin
+   git switch -c revert-validation origin/main
+   git cherry-pick revert/validation-to-mac
+   ```
+3. Run its tests: `python3.11 -m pytest tests/test_release_control -q`
+4. With the owner's approval, run `git push origin HEAD:main`. This is the step that moves validation: the chain dispatches with `--ref main`, so it doesn't need a release.
+5. Clear the variable, which the restored workflow doesn't read: `gh variable delete ODIN_RUNNER_HOOK_REQUIRED --repo HughKantsime/runsodin`
+6. Rebase the candidate on the new main, push it as `release-candidate/<SHA>`, and start the chain without `VR=` or `PB=`, because the evidence has to be for the new SHA.
+
+While validation is on the Mac:
+
+- Its evidence comes from the dev Mac, not from production's OS and architecture, as it did before the move to odin-ci. The table at the top of this file is wrong.
+- The Mac's latency limits apply by themselves, and the manifest stops carrying `api_load_host`.
+- `release-chain-v3.sh` works unchanged. Its odin-ci disk line may log "unavailable", which is harmless.
+- Nothing checks a runner hook on either host.
+
+To move back, `git revert` that commit on main and rebase any candidate on it. Then repeat [Prove it](#prove-it) and set the variable again as in [Keep it from drifting](#keep-it-from-drifting).
+
 ## Egress to production
 
 odin-ci shares a /22 with production and needs nothing from it: no CV04-CV08 source names production's address or hostname, which `tests/test_release_control/test_runner_host_tools.py` checks.

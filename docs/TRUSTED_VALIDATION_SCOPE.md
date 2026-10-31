@@ -85,7 +85,8 @@ What the measurements show:
   A smaller tail remains without the tracer. What is known so far, all on `odin-ci`:
 
   - **Size.** Untraced, 4 of 30 runs in review and 1 of 20 in measuring breached 815 ms
-    global p99, all in repetition 3. The worst was 1688 ms, with report p99 up to 1811 ms.
+    global p99, all in repetition 3. The worst in those runs was 1688 ms, with report p99
+    up to 1811 ms. The worst seen since is 2256 ms.
   - **Not the GIL switch interval.** Setting it to 0.5 ms or 50 ms changed nothing.
   - **Request order matters somewhat.** Repetition 3's fixed order has 24 windows of 25
     operations with 6 or more reports, against 1 in repetition 1 and 12 in repetition 2.
@@ -140,9 +141,10 @@ method. Every earlier limit was measured with the tracer running, and the eviden
 `rebaseline_untraced`. `maximum_repetition_seconds` went from 45 to 17, from the slower host's
 worst of 14.8 s, so it sits further above the Mac's 9.2 s.
 
-The `odin-ci` read and p99 limits are set by the open report tail: 3 of 35 idle runs went past
-815 ms p99, and most sit near 560 ms. So p99 catches less there than on the Mac until that tail
-is explained. The Mac's worst came from runs under normal sharing, and its limits rest on a smaller margin in
+The `odin-ci` limits are all set by the open report tail: read, write, p99 and duration all come
+from the same tail repetition. 3 of 35 idle runs went past 815 ms p99, and most sit near 560 ms.
+Without those 3 repetitions, the worst is 478 ms read p95, 629 ms write p95, 788 ms p99 and 13.3 s.
+So these limits catch less there than on the Mac until that tail is explained. The Mac's worst came from runs under normal sharing, and its limits rest on a smaller margin in
 milliseconds, so a stall on that shared machine can still fail a run. Most of these runs were
 api_load alone, so a first full CV06 on each host is their first test under gate conditions.
 
