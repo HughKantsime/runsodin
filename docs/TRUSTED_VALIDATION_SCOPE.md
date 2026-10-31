@@ -131,19 +131,20 @@ and `host_identity` in its metrics.
 
 | Limit | Mac | odin-ci | Mac worst | odin-ci worst |
 |---|---|---|---|---|
-| read p95 | 310 ms | 530 ms | 271 ms | 461 ms |
-| write p95 | 410 ms | 710 ms | 358 ms | 618 ms |
-| global p99 | 410 ms | 815 ms | 358 ms | 710 ms |
+| read p95 | 310 ms | 750 ms | 271 ms | 652 ms |
+| write p95 | 410 ms | 755 ms | 358 ms | 658 ms |
+| global p99 | 410 ms | 2590 ms | 358 ms | 2256 ms |
 
-Measuring hasn't finished, so these limits aren't final: the tail described above has
-breached the 815 ms global p99 in some untraced runs.
+These were re-measured on 2026-10-31, once api_load stopped timing its own tracer, by the same
+method. Every earlier limit was measured with the tracer running, and the evidence is in
+`rebaseline_untraced`. `maximum_repetition_seconds` went from 45 to 17, from the slower host's
+worst of 14.8 s, so it sits further above the Mac's 7.8 s.
 
-These were re-measured on 2026-10-31, once api_load stopped timing its own tracer: five
-gate runs per host at 90546e45, 15 repetitions each, by the same method. Every earlier limit
-was measured with the tracer running, and the evidence is in `rebaseline_untraced`.
-`maximum_repetition_seconds` went from 45 to 15, from the slower host's worst of 13.1 s, so it
-sits further above the Mac's 7.8 s. These runs were api_load alone, so a first full CV06 on each
-host is their first test under gate conditions.
+The `odin-ci` read and p99 limits are set by the open report tail: 3 of 35 idle runs went past
+815 ms p99, and most sit near 560 ms. So p99 catches less there than on the Mac until that tail
+is explained. The Mac showed no untraced tail in these runs, and its limits rest on a smaller
+margin in milliseconds, so a stall on that shared machine can fail a run. Most of these runs were
+api_load alone, so a first full CV06 on each host is their first test under gate conditions.
 
 ## Gaps
 

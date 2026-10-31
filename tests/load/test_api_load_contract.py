@@ -88,10 +88,10 @@ def test_rebaselined_limits_carry_their_previous_value_and_evidence():
     assert {key: classes["mac-m4"][key] for key in api_load.LATENCY_LIMITS} == {
         "read_p95_ms": 310, "write_p95_ms": 410, "global_p99_ms": 410}
     assert {key: classes["odin-ci"][key] for key in api_load.LATENCY_LIMITS} == {
-        "read_p95_ms": 530, "write_p95_ms": 710, "global_p99_ms": 815}
+        "read_p95_ms": 750, "write_p95_ms": 755, "global_p99_ms": 2590}
     seconds = untraced["maximum_repetition_seconds"]
     assert seconds["previous"] == 45 and seconds["evidence"]
-    assert seconds["value"] == thresholds["maximum_repetition_seconds"] == 15
+    assert seconds["value"] == thresholds["maximum_repetition_seconds"] == 17
     previous = {"maximum_error_rate": 0, "maximum_5xx": 0,
                 "maximum_tenant_leaks": 0, "maximum_fd_delta": 8, "maximum_memory_delta_mib": 64,
                 "websocket_p95_ms": 1000, "concurrent_users": 25, "operations_per_repetition": 1000,
@@ -112,7 +112,7 @@ def _thresholds():
     (MAC, "mac-m4", {"read_p95_ms": 310, "write_p95_ms": 410, "global_p99_ms": 410}),
     (dict(MAC, hostname="renamed.local"), "mac-m4", {"read_p95_ms": 310, "write_p95_ms": 410, "global_p99_ms": 410}),
     (dict(MAC, hostname="odin-ci"), "mac-m4", {"read_p95_ms": 310, "write_p95_ms": 410, "global_p99_ms": 410}),  # no name gets the Mac the looser limits
-    (ODIN_CI, "odin-ci", {"read_p95_ms": 530, "write_p95_ms": 710, "global_p99_ms": 815}),
+    (ODIN_CI, "odin-ci", {"read_p95_ms": 750, "write_p95_ms": 755, "global_p99_ms": 2590}),
 ])
 def test_each_known_host_gets_exactly_its_own_limits(facts, expected, limits):
     host_class, observed, identity = api_load.host_limits(_thresholds(), facts)
@@ -199,8 +199,8 @@ def _stub_load(monkeypatch, milliseconds):
 @pytest.mark.parametrize("facts,milliseconds,passes,host_class", [
     (MAC, 300, True, "mac-m4"),
     (MAC, 400, False, "mac-m4"),      # inside odin-ci's limits, over the Mac's: must not pass on the Mac
-    (ODIN_CI, 400, True, "odin-ci"),
-    (ODIN_CI, 600, False, "odin-ci"),
+    (ODIN_CI, 700, True, "odin-ci"),
+    (ODIN_CI, 800, False, "odin-ci"),
 ])
 def test_gate_judges_a_run_by_its_own_host_and_records_both(monkeypatch, tmp_path, facts, milliseconds, passes, host_class):
     _stub_load(monkeypatch, milliseconds)
