@@ -50,8 +50,10 @@ RUN go2rtc_arch="$(dpkg --print-architecture)" \
 # Debian's libsqlite3 doesn't carry the fix for the WAL-reset corruption bug
 # (https://sqlite.org/wal.html, section 11): 3.46.1-7 in this base image and 3.46.1-7+deb13u2,
 # trixie's latest, have no patch touching src/wal.c. 3.51.3 is the oldest published release
-# with the fix, and the last before 3.53 changed how REAL values convert to text. The flags are
-# Debian's (debian/rules); docker/sqlite_image_check.py holds the result to the same option list.
+# with the fix, and the smallest step for a database that has just been damaged: 3.53 changed
+# the query planner and how REAL values convert to text. The flags are Debian's (debian/rules),
+# without FTS5: nothing in ODIN uses it, and 3.51.3 predates the fixes for CVE-2026-11822 and
+# CVE-2026-11824. docker/sqlite_image_check.py holds the result to the pinned option list.
 FROM python:3.11-slim@sha256:0b23cfb7425d065008b778022a17b1551c82f8b4866ee5a7a200084b7e2eafbf AS sqlite-build
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -79,7 +81,7 @@ RUN curl -fsSL "https://sqlite.org/2026/sqlite-autoconf-3510300.tar.gz" -o /tmp/
 # so on), as Debian's build does; the bundle's makefile leaves it off.
 RUN export DEB_BUILD_MAINT_OPTIONS="hardening=+all future=+lfs" \
     && ./configure --soname=legacy --disable-static --disable-readline --disable-carray \
-       --fts4 --fts5 --rtree --session --dbpage --dbstat --update-limit \
+       --fts4 --rtree --session --dbpage --dbstat --update-limit \
        CFLAGS="$(dpkg-buildflags --get CFLAGS) $(dpkg-buildflags --get CPPFLAGS) -O2 -fno-strict-aliasing \
          -D_HAVE_SQLITE_CONFIG_H \
          -DSQLITE_SECURE_DELETE -DSQLITE_ENABLE_COLUMN_METADATA \

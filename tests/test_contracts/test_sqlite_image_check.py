@@ -44,10 +44,25 @@ def test_an_unfixed_version_fails():
 @pytest.mark.parametrize("change", ["missing", "extra"])
 def test_any_change_in_compile_options_fails(change):
     version, options, libraries = _good()
-    options = [o for o in options if o != "ENABLE_FTS5"] if change == "missing" else options + ["DQS=0"]
+    options = [o for o in options if o != "SECURE_DELETE"] if change == "missing" else options + ["DQS=0"]
     found = check.problems(version, options, libraries)
     assert len(found) == 1 and "compile options" in found[0]
-    assert ("ENABLE_FTS5" if change == "missing" else "DQS=0") in found[0]
+    assert ("SECURE_DELETE" if change == "missing" else "DQS=0") in found[0]
+
+
+def test_a_build_with_fts5_is_refused():
+    """3.51.3 predates the fixes for CVE-2026-11822 and CVE-2026-11824, and ODIN doesn't use FTS5."""
+    version, options, libraries = _good()
+    assert "ENABLE_FTS5" not in options
+    found = check.problems(version, options + ["ENABLE_FTS5"], libraries)
+    assert len(found) == 1 and "ENABLE_FTS5" in found[0]
+    assert "--fts5" not in DOCKERFILE.split("AS sqlite-build")[1].split("AS frontend-build")[0]
+
+
+def test_nothing_in_the_backend_or_the_schema_uses_fts5():
+    for path in (ROOT / "backend").rglob("*.py"):
+        if "preserved" not in str(path):
+            assert "fts5" not in path.read_text(encoding="utf-8").lower(), path
 
 
 @pytest.mark.parametrize("paths", [

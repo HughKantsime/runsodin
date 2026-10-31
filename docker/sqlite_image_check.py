@@ -13,8 +13,9 @@ BACKPORTS = {(3, 44): 6, (3, 50): 7}
 WITHDRAWN = {(3, 52)}
 
 # PRAGMA compile_options of Debian's libsqlite3 3.46.1-7, which ODIN ran before this build,
-# without the COMPILER= entry. ENABLE_PERCENTILE is the only addition: the 3.51 bundle's
-# configure turns it on and has no switch for it. An upgrade reviews this list on purpose.
+# without the COMPILER= entry. Two differences: ENABLE_PERCENTILE, which the 3.51 bundle's
+# configure turns on with no switch for it, and no ENABLE_FTS5, which is left out on purpose
+# (see the Dockerfile). An upgrade reviews this list on purpose.
 EXPECTED_OPTIONS = frozenset({
     "ALLOW_ROWID_IN_VIEW", "ATOMIC_INTRINSICS=1", "DEFAULT_AUTOVACUUM",
     "DEFAULT_CACHE_SIZE=-2000", "DEFAULT_FILE_FORMAT=4", "DEFAULT_JOURNAL_SIZE_LIMIT=-1",
@@ -23,7 +24,7 @@ EXPECTED_OPTIONS = frozenset({
     "DEFAULT_WAL_AUTOCHECKPOINT=1000", "DEFAULT_WAL_SYNCHRONOUS=2", "DEFAULT_WORKER_THREADS=0",
     "DIRECT_OVERFLOW_READ", "ENABLE_COLUMN_METADATA", "ENABLE_DBPAGE_VTAB", "ENABLE_DBSTAT_VTAB",
     "ENABLE_FTS3", "ENABLE_FTS3_PARENTHESIS", "ENABLE_FTS3_TOKENIZER", "ENABLE_FTS4",
-    "ENABLE_FTS5", "ENABLE_LOAD_EXTENSION", "ENABLE_MATH_FUNCTIONS", "ENABLE_PERCENTILE",
+    "ENABLE_LOAD_EXTENSION", "ENABLE_MATH_FUNCTIONS", "ENABLE_PERCENTILE",
     "ENABLE_PREUPDATE_HOOK", "ENABLE_RTREE", "ENABLE_SESSION", "ENABLE_STMTVTAB",
     "ENABLE_UNLOCK_NOTIFY", "ENABLE_UPDATE_DELETE_LIMIT", "HAVE_ISNAN", "LIKE_DOESNT_MATCH_BLOBS",
     "MALLOC_SOFT_LIMIT=1024", "MAX_ATTACHED=10", "MAX_COLUMN=2000", "MAX_COMPOUND_SELECT=500",
