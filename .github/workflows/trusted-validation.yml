@@ -28,6 +28,9 @@ jobs:
     steps:
       - name: Validate dispatch identity
         shell: bash
+        env:
+          # A repository variable, set as the last step of installing the hook (ops/ci/README.md).
+          RUNNER_HOOK_REQUIRED: ${{ vars.ODIN_RUNNER_HOOK_REQUIRED }}
         run: |
           set -euo pipefail
           test "$GITHUB_RUN_ATTEMPT" = "1"
@@ -36,6 +39,19 @@ jobs:
           test "$GITHUB_TRIGGERING_ACTOR" = "$GITHUB_ACTOR"
           [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$TARGET_REF" = "release-candidate/$TARGET_SHA"
+          # Hook drift: a hook lost to an install mistake refuses nothing and says nothing, so its
+          # absence has to show here. A set hook is always checked; a missing one fails once
+          # ODIN_RUNNER_HOOK_REQUIRED says the hook was installed, and only warns before that.
+          hook="${ACTIONS_RUNNER_HOOK_JOB_STARTED:-}"
+          if [ -n "$hook" ]; then
+            [ -f "$hook" ] && [ ! -L "$hook" ] || { echo "Runner job hook $hook is not a regular file" >&2; exit 1; }
+            test "$(find "$hook" "$(dirname "$hook")" -maxdepth 0 -user root ! -perm -020 ! -perm -002 | wc -l)" -eq 2 || { echo "Runner job hook $hook and its directory must be owned and writable by root alone" >&2; exit 1; }
+          elif [ "${RUNNER_HOOK_REQUIRED:-}" = true ]; then
+            echo "ODIN_RUNNER_HOOK_REQUIRED is true but this runner has no ACTIONS_RUNNER_HOOK_JOB_STARTED; see ops/ci/README.md" >&2
+            exit 1
+          else
+            echo "::warning title=Runner job hook not installed::This runner runs jobs without its job hook; see ops/ci/README.md"
+          fi
           command -v python3.11 >/dev/null || { echo "Required tool missing from PATH: python3.11" >&2; exit 1; }
           command -v node >/dev/null || { echo "Required tool missing from PATH: node" >&2; exit 1; }
           command -v npm >/dev/null || { echo "Required tool missing from PATH: npm" >&2; exit 1; }

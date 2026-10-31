@@ -117,3 +117,97 @@ def test_rollback_stops_on_the_wrong_host(tmp_path, system, stops):
                             env={'PATH': f'{tmp_path}:/usr/bin:/bin'}, capture_output=True, text=True)
     assert (result.returncode != 0) is stops
     assert ('went-on' in result.stdout) is not stops
+
+
+def _hook_drift_check():
+    workflow = yaml.safe_load((ROOT / '.github/workflows/trusted-validation.yml').read_text())
+    step = workflow['jobs']['validate']['steps'][0]
+    script = step['run']
+    start = script.index('hook="${ACTIONS_RUNNER_HOOK_JOB_STARTED:-}"')
+    return step, script[start:script.index('\nfi\n', start) + len('\nfi\n')]
+
+
+def _run_drift_check(tmp_path, hook=None, required=None, path_prefix=''):
+    env = {'PATH': f'{path_prefix}/usr/bin:/bin'}
+    if hook is not None:
+        env['ACTIONS_RUNNER_HOOK_JOB_STARTED'] = str(hook)
+    if required is not None:
+        env['RUNNER_HOOK_REQUIRED'] = required
+    return subprocess.run(['/bin/bash', '-c', 'set -euo pipefail\n' + _hook_drift_check()[1] + 'echo went-on\n'],
+                          env=env, capture_output=True, text=True, timeout=30)
+
+
+# A file root really owns, in a directory root really owns, on Linux and macOS alike.
+ROOT_OWNED = '/usr/bin/env'
+
+
+def test_validation_runs_the_drift_check_before_anything_else_it_needs():
+    step, check = _hook_drift_check()
+    assert step['env']['RUNNER_HOOK_REQUIRED'] == '${{ vars.ODIN_RUNNER_HOOK_REQUIRED }}'
+    assert step['run'].index(check) < step['run'].index('command -v python3.11')
+    assert '-user root ! -perm -020 ! -perm -002' in check
+
+
+@pytest.mark.parametrize('required', [None, '', 'false'])
+def test_before_the_hook_is_installed_validation_warns_and_goes_on(tmp_path, required):
+    result = _run_drift_check(tmp_path, required=required)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.startswith('::warning title=Runner job hook not installed::')
+    assert 'went-on' in result.stdout
+
+
+def test_a_hook_required_but_lost_fails_validation(tmp_path):
+    result = _run_drift_check(tmp_path, required='true')
+    assert result.returncode != 0 and 'went-on' not in result.stdout
+    assert 'ODIN_RUNNER_HOOK_REQUIRED is true' in result.stderr
+
+
+@pytest.mark.parametrize('required', [None, 'true'])
+def test_a_root_owned_hook_passes_quietly(tmp_path, required):
+    result = _run_drift_check(tmp_path, hook=ROOT_OWNED, required=required)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == 'went-on\n'
+
+
+@pytest.mark.parametrize('required', [None, 'true'])
+@pytest.mark.parametrize('kind', ['user-owned', 'missing', 'symlink', 'directory'])
+def test_a_set_hook_is_checked_even_before_the_variable_is_set(tmp_path, kind, required):
+    """An install mistake shows on the first run after it, whatever the repository variable says."""
+    hook = tmp_path / 'hook.sh'
+    if kind == 'user-owned':
+        hook.write_text('#!/bin/sh\n')
+    elif kind == 'symlink':
+        hook.symlink_to(ROOT_OWNED)
+    elif kind == 'directory':
+        hook.mkdir()
+    result = _run_drift_check(tmp_path, hook=hook, required=required)
+    assert result.returncode != 0 and 'went-on' not in result.stdout
+
+
+def test_a_root_owned_directory_is_not_a_hook(tmp_path):
+    result = _run_drift_check(tmp_path, hook='/usr/bin')
+    assert result.returncode != 0 and 'not a regular file' in result.stderr
+
+
+def test_a_symlink_fails_even_if_it_and_its_directory_look_root_owned(tmp_path):
+    """Where a symlink's own mode passes the find below, as on macOS, this check is all that catches it."""
+    hook = tmp_path / 'hook.sh'
+    hook.symlink_to(ROOT_OWNED)
+    stubs = tmp_path / 'stubs'
+    stubs.mkdir()
+    (stubs / 'find').write_text('#!/bin/sh\necho one\necho two\n')
+    (stubs / 'find').chmod(0o755)
+    result = _run_drift_check(tmp_path, hook=hook, path_prefix=f'{stubs}:')
+    assert result.returncode != 0 and 'not a regular file' in result.stderr
+
+
+def test_a_root_owned_hook_in_a_directory_others_can_write_fails(tmp_path):
+    """Whoever owns the directory can swap the file, so the directory has to pass too."""
+    stubs = tmp_path / 'stubs'
+    stubs.mkdir()
+    # Answers for the file and not for its directory, which can't be set up here without root.
+    (stubs / 'find').write_text(f'#!/bin/sh\necho "{ROOT_OWNED}"\n')
+    (stubs / 'find').chmod(0o755)
+    result = _run_drift_check(tmp_path, hook=ROOT_OWNED, path_prefix=f'{stubs}:')
+    assert result.returncode != 0 and 'went-on' not in result.stdout
+    assert 'owned and writable by root alone' in result.stderr

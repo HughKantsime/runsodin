@@ -35,6 +35,8 @@ def stubs(tmp_path):
     directory.mkdir()
     # Any command these scripts would run with privileges lands here instead.
     _stub(directory, 'sudo', f'echo "$*" >> {tmp_path}/sudo.log')
+    # The scripts branch on this. A test wanting the Mac's branch stubs Darwin; the host never decides.
+    _stub(directory, 'uname', 'echo Linux')
     return directory
 
 
@@ -133,7 +135,8 @@ def _hook_values(tmp_path, stubs, **env):
     jq = shutil.which('jq')
     assert jq, 'jq is required by the hook'
     return {
-        'PATH': f'{stubs}:{Path(jq).parent}:/usr/bin:/bin', 'GITHUB_EVENT_NAME': 'workflow_dispatch',
+        'PATH': f'{stubs}:{Path(jq).parent}:/usr/bin:/bin', 'HOME': str(tmp_path),
+        'GITHUB_RUN_ID': '777', 'GITHUB_EVENT_NAME': 'workflow_dispatch',
         'GITHUB_REPOSITORY': 'HughKantsime/runsodin', 'GITHUB_REPOSITORY_ID': '1143865575',
         'GITHUB_ACTOR': 'HughKantsime', 'GITHUB_ACTOR_ID': '201174638',
         'GITHUB_TRIGGERING_ACTOR': 'HughKantsime', 'GITHUB_EVENT_PATH': str(payload), **env,
@@ -235,6 +238,84 @@ def test_refusal_never_reaches_past_the_direct_parent(tmp_path, stubs):
     assert survived.read_text().strip() == 'alive'
 
 
+def test_refusal_records_why_on_the_host(tmp_path, stubs):
+    """The kill stops the runner uploading the step's log, so this file is what proves a refusal."""
+    result, _ = _under_parent(tmp_path, stubs, MAC_WORKER, GITHUB_EVENT_NAME='push')
+    assert result.returncode == -9
+    line = (tmp_path / '.odin-runner-job-hook.log').read_text().splitlines()[-1]
+    assert 'run=777 event=push actor=HughKantsime repository=HughKantsime/runsodin' in line
+    assert 'why=[event push is not workflow_dispatch]' in line
+    assert re.search(r'action=\[killing Runner\.Worker [0-9]+\]$', line)
+
+
+def test_refusal_is_recorded_before_the_kill(tmp_path, stubs):
+    """The hook's own kill is wrapped to note whether the record already exists at that moment."""
+    _stub(stubs, 'ps', f'echo "{LINUX_WORKER}"')
+    log = tmp_path / '.odin-runner-job-hook.log'
+    order = tmp_path / 'order'
+    script = textwrap.dedent(f'''\
+        kill() {{ if [ -s {log} ]; then echo recorded-first > {order}; fi; builtin kill "$@"; }}
+        export -f kill
+        /bin/bash -e {HOOK}
+        echo survived
+    ''')
+    result = subprocess.run(['/bin/bash', '-c', script], env=_hook_values(tmp_path, stubs, GITHUB_EVENT_NAME='push'),
+                            capture_output=True, text=True, timeout=30)
+    assert result.returncode == -9, result.stderr
+    assert order.read_text().strip() == 'recorded-first'
+
+
+@pytest.mark.parametrize('home', ['/nonexistent/home', None])
+def test_a_log_that_cant_be_written_does_not_save_the_job(tmp_path, stubs, home):
+    values = _hook_values(tmp_path, stubs, GITHUB_EVENT_NAME='push')
+    if home:
+        values['HOME'] = home
+    else:
+        del values['HOME']
+    _stub(stubs, 'ps', f'echo "{LINUX_WORKER}"')
+    survived = tmp_path / 'parent-survived'
+    result = subprocess.run(['/bin/bash', '-c', f'/bin/bash -e {HOOK}; echo "$?" > {survived}'],
+                            env=values, capture_output=True, text=True, timeout=30)
+    assert result.returncode == -9, result.stderr
+    assert not survived.exists()
+
+
+def test_refusal_records_a_parent_it_left_running(tmp_path, stubs):
+    result, _ = _under_parent(tmp_path, stubs, 'bash', GITHUB_EVENT_NAME='push')
+    assert result.returncode == 0
+    assert 'action=[parent bash kept running]' in (tmp_path / '.odin-runner-job-hook.log').read_text()
+
+
+def test_a_crash_is_recorded_too(tmp_path, stubs):
+    broken = tmp_path / 'hook.sh'
+    broken.write_text(HOOK.read_text().replace('[ -f "${GITHUB_EVENT_PATH:-}" ]', 'false; [ -f "${GITHUB_EVENT_PATH:-}" ]'))
+    _stub(stubs, 'ps', f'echo "{LINUX_WORKER}"')
+    subprocess.run(['/bin/bash', '-c', f'/bin/bash -e {broken}; true'], env=_hook_values(tmp_path, stubs), capture_output=True, text=True, timeout=30)
+    assert 'why=[the hook stopped before its checks finished]' in (tmp_path / '.odin-runner-job-hook.log').read_text()
+
+
+def test_owner_dispatch_records_nothing(tmp_path, stubs):
+    result, _ = _under_parent(tmp_path, stubs, LINUX_WORKER)
+    assert result.returncode == 0
+    assert not (tmp_path / '.odin-runner-job-hook.log').exists()
+
+
+def test_readme_proof_checks_what_survives_the_kill():
+    """The kill comes before the step's log uploads, so the proof can't ask for hook lines in the run log."""
+    readme = (CI / 'README.md').read_text()
+    proof = readme[readme.index('### Prove it'):readme.index('### Keep it from drifting')]
+    for needed in ('The run fails.', '~/.odin-runner-job-hook.log', 'killing Runner.Worker', 'HOOK PROOF FAILED', 'Runner.Listener'):
+        assert needed in proof
+    assert 'log has "runner job hook refuses this job"' not in proof
+
+
+def test_readme_lists_the_commands_that_clean_the_running_vm():
+    readme = (CI / 'README.md').read_text()
+    for command in ('python3.11 -m pip uninstall -y --break-system-packages jsonschema jsonschema-specifications referencing rpds-py',
+                    'python3.11 -m pip uninstall -y --break-system-packages pip', 'sudo apt-get purge -y gh'):
+        assert command in readme
+
+
 if sys.platform == 'linux':  # macOS kills copied system interpreters, and a skip would fail the gate there
     def test_refusal_kills_a_real_process_named_runner_worker(tmp_path, stubs):
         worker = tmp_path / 'Runner.Worker'
@@ -293,6 +374,30 @@ def test_restart_runs_the_registered_unit(tmp_path, stubs):
     _ps(stubs, LISTENER)
     assert _lib('runner_restart', tmp_path, stubs).returncode == 0
     assert (stubs.parent / 'sudo.log').read_text() == 'systemctl restart actions.runner.synthetic.service\n'
+
+
+def test_a_host_that_says_darwin_does_not_reach_the_scripts(tmp_path, stubs):
+    """What these tests see on a real Mac, whose uname sits behind the stubs on PATH."""
+    host = tmp_path / 'host-bin'
+    host.mkdir()
+    _stub(host, 'uname', 'echo Darwin')
+    (tmp_path / '.service').write_text('actions.runner.synthetic.service\n')
+    _ps(stubs, LISTENER)
+    result = _lib('runner_restart', tmp_path, stubs, PATH=f'{stubs}:{host}:/usr/bin:/bin')
+    assert result.returncode == 0, result.stderr
+    assert (stubs.parent / 'sudo.log').read_text() == 'systemctl restart actions.runner.synthetic.service\n'
+
+
+def test_restart_on_darwin_uses_the_runner_service_script_without_sudo(tmp_path, stubs):
+    _stub(stubs, 'uname', 'echo Darwin')
+    (tmp_path / '.service').write_text('/Users/ollama/Library/LaunchAgents/actions.runner.synthetic.plist\n')
+    (tmp_path / 'svc.sh').write_text(f'#!/bin/sh\necho "$*" >> {tmp_path}/svc.log\n')
+    (tmp_path / 'svc.sh').chmod(0o755)
+    _ps(stubs, LISTENER)
+    result = _lib('runner_restart', tmp_path, stubs)
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / 'svc.log').read_text().splitlines() == ['stop', 'start']
+    assert not (stubs.parent / 'sudo.log').exists()
 
 
 def test_restart_refuses_during_a_job(tmp_path, stubs):

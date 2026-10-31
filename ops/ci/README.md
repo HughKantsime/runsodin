@@ -57,11 +57,42 @@ jobs:
 
 It passes if all of these hold:
 
-- The run fails, and its log has "runner job hook refuses this job" and "killing Runner.Worker".
-- Neither `HOOK PROOF FAILED` line appears in the log.
-- `Runner.Listener` is still up, and the next owner dispatch of Trusted Validation gets past "Set up runner".
+- The run fails.
+- On that host, the last line of `~/.odin-runner-job-hook.log` names the proof run's `run=` id and says `killing Runner.Worker`. The hook writes this before the kill, because the kill also stops the runner uploading the step's log, so "Set up runner" may show nothing.
+- `gh run view <id> --log` has no `HOOK PROOF FAILED` line.
+- `Runner.Listener` is still up: `systemctl is-active actions.runner.HughKantsime-runsodin.odin-ci-pve3.service` on odin-ci, `launchctl list | grep runsodin` on the Mac.
 
-Then delete the branch.
+Then delete the branch, and confirm the next owner dispatch of Trusted Validation gets past "Set up runner".
+
+### Keep it from drifting
+
+Trusted Validation's bootstrap checks the hook on odin-ci:
+
+| `ACTIONS_RUNNER_HOOK_JOB_STARTED` | `ODIN_RUNNER_HOOK_REQUIRED` | Result |
+|---|---|---|
+| set | either | Fails unless the file and its directory are owned and writable by root alone |
+| not set | `true` | Fails |
+| not set | not set | Warns on the run, and goes on |
+
+The variable is a repository variable, so nothing fails before the hook is installed. It survives a VM rebuild, which is when a hook is most likely to go missing, and a job can't change it. Set it as the last step of installing on odin-ci, once the proof passes:
+
+```sh
+gh variable set ODIN_RUNNER_HOOK_REQUIRED --body true --repo HughKantsime/runsodin
+```
+
+The check only sees odin-ci. No workflow checks the Mac's hook yet.
+
+### Remove what eligibility left on the running VM
+
+Provisioning no longer installs `gh` or a user-site jsonschema, but the running VM still has both. On odin-ci, as `odin`:
+
+```sh
+python3.11 -m pip uninstall -y --break-system-packages jsonschema jsonschema-specifications referencing rpds-py
+python3.11 -m pip uninstall -y --break-system-packages pip
+sudo apt-get purge -y gh
+```
+
+The second command removes the user-site pip that only those installs needed. To check: `command -v gh` prints nothing, `python3.11 -m pip list --user` fails, and `python3.11 -c 'import jsonschema'` fails.
 
 ## Egress to production
 
