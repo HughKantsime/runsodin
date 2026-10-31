@@ -34,6 +34,37 @@ Older ODIN releases do not enforce paid device binding. Roll out the new ODIN ve
 
 4. Confirm the resulting `odin_backup_*.db` is mode `0600`, passes integrity and foreign-key checks, and contains only the required schema.
 
+## SQLite automatic backups and integrity checks
+
+A supervised process, `db_guardian`, runs these on single-container SQLite installs. On PostgreSQL it stays idle; use the PostgreSQL steps below.
+
+- **Integrity check:** `PRAGMA integrity_check` and `foreign_key_check` on a read-only connection every 30 minutes. A failure raises a critical alert to platform admins and turns `/health` to `"status": "degraded"` with `"database_integrity": {"status": "failed"}`. It stays that way until a check passes. ODIN never repairs the database.
+- **Other `/health` states:** `pending` means no check has finished yet. `unavailable` means the last check couldn't finish. `stale` means checks have stopped, so look at `/data/db_guardian.log` and at `supervisorctl status`.
+- **Backup:** one verified `odin_backup_*.db` a day in `/data/backups`, compacted like a manual backup. It checks the live database first, verifies the published file, and only then prunes. A failure raises a "Database backup failed" alert in the inbox and tries again about an hour later.
+- **Retention:** the newest backup per day for 7 days and the newest per ISO week for 4 weeks. Pruning only touches files with an `.receipt.json` beside them, so manual backups and any other files stay until you remove them. A damaged database gets no new backup and nothing is pruned.
+- **Limits:** the backups share a disk with the live database, so they don't protect against losing that disk. Keep a separate copy of the data volume. A check only finds damage SQLite can see; a page that is out of date but self-consistent can pass.
+
+## Database failed its integrity check
+
+ODIN refuses to start with "ODIN will not start: the database failed its integrity check", or a running ODIN alerts and shows `failed` on `/health`. This is damage in the database file. Rolling back the release won't help, because every release makes this check at startup. A running ODIN will keep working until it restarts, then refuse to start, so plan the repair before you restart it.
+
+Older releases report the same failure as "Media ownership database integrity differs".
+
+1. **Copy first.** Stop the ODIN container if it is still running; if a print is running, decide with the owner when. Copy `odin.db` with any `-wal` and `-shm` files to a new private directory, and record its SHA-256. Change nothing in the live directory.
+2. **Find what is damaged.** On a second copy, run `PRAGMA integrity_check` and `PRAGMA foreign_key_check`. Note which tables are named and when the damage began, from the newest good `odin_backup_*.db` and the rows around it.
+3. **Choose with the owner.** Compare a repair with restoring the newest good backup, including what each one loses. Nothing touches live data without the owner's yes.
+4. **Test on a copy.** Apply the repair or the restore to a copy. Then run the real startup check on it, which is the same one the container makes:
+
+   ```bash
+   DATABASE_URL=sqlite:////path/to/copy/odin.db ODIN_DB_ROLE=bootstrap python3 -m scripts.bootstrap_database
+   ```
+
+   It has to exit 0 and print the expected `schema_fingerprint`. Run it from `/app/backend` in the same image, as `odin`, with the copy in a directory that user owns.
+5. **Apply, with the owner's yes.** Check the live file's hash still matches the copy from step 1, then apply exactly what you tested. Keep the damaged copy until the owner agrees it can go.
+6. **Afterwards,** confirm `/health` shows `ok` after the next check, and that a new `odin_backup_*.db` appears. If rows were lost, record which ones.
+
+`POST /api/backups/restore` can refuse on a damaged database. It takes a safety copy of the live database first, and damage can make that copy fail. In that case use the offline steps above; don't delete the live file to get past it.
+
 ## SQLite restore
 
 1. Upload the candidate with `POST /api/backups/restore`. This validates and stages it; it does not replace the live database.
