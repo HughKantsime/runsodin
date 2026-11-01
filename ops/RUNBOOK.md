@@ -585,9 +585,12 @@ docker logs odin 2>&1 | grep "Applied core migration"
 
 ### 8.3 Dump the DB
 
+The image has no `sqlite3` command, so this uses Python's SQLite. The copy holds credentials and personal data: keep it private and delete it when you're done.
+
 ```
-docker exec odin sqlite3 /data/odin.db '.backup /data/odin.db.backup'
-docker cp odin:/data/odin.db.backup ./odin-$(date +%Y%m%d).db
+docker exec -u odin odin python3 -c "import sqlite3; s = sqlite3.connect('file:/data/odin.db?mode=ro', uri=True); d = sqlite3.connect('/data/backups/odin.db.backup'); s.backup(d); d.close(); s.close()"
+docker cp odin:/data/backups/odin.db.backup ./odin-$(date +%Y%m%d).db
+docker exec -u odin odin rm /data/backups/odin.db.backup
 ```
 
 ### 8.4 Rotate an admin password
@@ -595,11 +598,12 @@ docker cp odin:/data/odin.db.backup ./odin-$(date +%Y%m%d).db
 ```
 # Preferred: via the admin UI → Users → Edit → Set Password.
 # Emergency fallback (lost admin creds):
-ssh root@<host> 'docker exec -it odin sqlite3 /data/odin.db'
-# Inside sqlite3:
-UPDATE users SET password_hash = '<bcrypt-hashed-new-password>'
-  WHERE username = 'admin';
-.quit
+# The image has no sqlite3 command, so this uses Python's SQLite:
+ssh -t root@<host> 'docker exec -it -u odin odin python3'
+>>> import sqlite3
+>>> c = sqlite3.connect('/data/odin.db', timeout=5)
+>>> c.execute("UPDATE users SET password_hash = ? WHERE username = 'admin'", ('<bcrypt-hashed-new-password>',))
+>>> c.commit(); c.close(); exit()
 ```
 Generate bcrypt hash: `python3 -c "import bcrypt; print(bcrypt.hashpw(b'NEW_PASSWORD', bcrypt.gensalt(rounds=12)).decode())"`
 
