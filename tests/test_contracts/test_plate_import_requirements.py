@@ -69,7 +69,7 @@ def test_imported_sparse_plate_models_schedule_own_colors_and_petg_cost(importer
 @pytest.mark.parametrize('filament,expected_requirements,expected_type', [
     ('<filament id="3" type="PETG" color="#123456"/>',
      {'slot3': {'color': '#123456'}}, 'PETG'),
-    ('<filament id="3" used_g="7"/>', {'slot3': {'grams': 7}}, None),
+    ('<filament id="3" used_g="7"/>', {'slot3': {'color': '', 'grams': 7}}, None),
     ('<filament id="3" type="PLA+" color="#123456" used_g="7"/>',
      {'slot3': {'color': '#123456', 'grams': 7}}, 'PLA'),
     ('<filament id="3" type="PETG-CF" color="#123456" used_g="7"/>',
@@ -82,7 +82,7 @@ def test_missing_and_unsupported_facts_stay_missing_and_models_remain_schedulabl
 ):
     from modules.models_library.models import Model
     _scheduling(importer, monkeypatch)
-    content = _slice_info(f'<config><plate><metadata key="index" value="10"/>{filament}</plate></config>')
+    content = _slice_info(f'<config><plate><metadata key="index" value="1"/></plate><plate><metadata key="index" value="4"/></plate><plate><metadata key="index" value="10"/>{filament}</plate></config>')
     response = upload(importer, content)
     assert response.status_code == 200, response.text
     files = response.json()['files']
@@ -102,6 +102,9 @@ def test_missing_and_unsupported_facts_stay_missing_and_models_remain_schedulabl
         assert files[2]['total_weight_grams'] is None
         assert 'grams' not in model.color_requirements['slot3']
     client, issue, _ = importer
+    for path in ('/models', f'/models/{model.id}'):
+        listed = client.get(path, headers=issue(['read:models']))
+        assert listed.status_code == 200, listed.text
     scheduled = client.post(f'/models/{model.id}/schedule?printer_id=9',
                             headers=issue(['write:jobs']), json={})
     assert scheduled.status_code == 200, scheduled.text

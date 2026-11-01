@@ -1,5 +1,9 @@
 """Import sliced 3MF plates as separate bound G-code files, never print them."""
 import asyncio
+import contextlib
+import fcntl
+import shutil
+import time
 import json
 import logging
 import os
@@ -29,16 +33,40 @@ log = logging.getLogger('odin.api')
 
 def _target(db, printer_id, actor, *, lock=False):
     from modules.models_library.routes.print_files import _get_accessible_printer
-    row = db.execute(text(
-        'SELECT id,org_id,api_type,machine_type,is_active,bed_x_mm,bed_y_mm,nozzle_diameter '
-        'FROM printers WHERE id=:id' + (' FOR UPDATE NOWAIT' if lock and db.get_bind().dialect.name == 'postgresql' else '')
-    ), {'id': printer_id}).first()
+    if lock and db.get_bind().dialect.name == 'postgresql':
+        statement = text('SELECT id,org_id,api_type,machine_type,model,is_active,bed_x_mm,bed_y_mm,nozzle_diameter FROM printers WHERE id=:id FOR UPDATE NOWAIT')
+    else:
+        statement = text('SELECT id,org_id,api_type,machine_type,model,is_active,bed_x_mm,bed_y_mm,nozzle_diameter FROM printers WHERE id=:id')
+    row = db.execute(statement, {'id': printer_id}).first()
     if row is None:
         raise HTTPException(404, 'Printer not found')
     # Match ordinary uploads, including explicitly shared foreign-org printers.
     # Recheck after the row lock, so visibility cannot change during persistence.
     _get_accessible_printer(db, printer_id, actor, allow_shared=True)
     return row
+
+
+# Maximum uploaded and extracted payloads plus the backup scheduler's 128 MiB live-write reserve.
+IMPORT_REQUIRED_FREE_BYTES = (100 + 200 + 128) * 1024 * 1024
+STAGING_MAX_AGE_SECONDS = 86400
+
+
+def _sweep_staging(root):
+    cutoff = time.time() - STAGING_MAX_AGE_SECONDS
+    with os.scandir(root) as entries:
+        for entry in entries:
+            if not entry.name.startswith('.plate-import-') or not entry.is_dir(follow_symlinks=False):
+                continue
+            try:
+                fd = os.open(entry.path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    if os.fstat(fd).st_mtime < cutoff:
+                        shutil.rmtree(entry.path)
+                finally:
+                    os.close(fd)
+            except (FileNotFoundError, BlockingIOError):
+                continue
 
 
 def _validate_filename(name):
@@ -57,6 +85,7 @@ def _validate_filename(name):
 def _persist(db, actor, printer_id, plates, original):
     """Short serialized batch: reauthorize, insert, bind, rename, commit once."""
     finals = []
+    reserved_ids = []
     commit_started = False
     try:
         # This helper is async for historical reasons but performs synchronous DB
@@ -82,15 +111,16 @@ def _persist(db, actor, printer_id, plates, original):
                   'nozzle': facts['nozzle'].get('value'), 'machine': facts['machine'].get('value'),
                   # Explicit binding authorizes this target API, never all APIs.
                   'api': target.api_type, 'facts': json.dumps(facts, sort_keys=True)})
+            reserved_ids.append(file_id)
+            final = _new_upload_path(file_id, filename)
+            finals.append((plate['path'], final))
             # Match ordinary upload requirements without inventing missing facts.
             # check_target already restricts the plate to one used material slot.
             used = [f for f in plate['filaments'] if f['used_grams'] is None
                     or f['used_grams'] > 0 or (f['used_meters'] or 0) > 0]
             requirements = {}
             for filament in used:
-                requirement = {}
-                if filament['color'] is not None:
-                    requirement['color'] = filament['color']
+                requirement = {'color': filament['color'] or ''}
                 if filament['used_grams'] is not None:
                     requirement['grams'] = filament['used_grams']
                 requirements[f"slot{filament['slot']}"] = requirement
@@ -109,8 +139,6 @@ def _persist(db, actor, printer_id, plates, original):
             ''', {'name': name, 'file': file_id, 'org': actor.get('group_id'),
                   'requirements': json.dumps(requirements), 'filament_type': filament_type,
                   'hours': plate['print_time_seconds'] / 3600 if plate['print_time_seconds'] is not None else None})
-            final = _new_upload_path(file_id, filename)
-            finals.append((plate['path'], final))
             db.execute(text('UPDATE print_files SET model_id=:model,stored_path=:path WHERE id=:id'),
                        {'model': model_id, 'path': str(final), 'id': file_id})
             bind_file(db, file_id, printer_id)
@@ -135,8 +163,12 @@ def _persist(db, actor, printer_id, plates, original):
         if commit_started or rollback_failed:
             # A lost acknowledgement can mean committed rows. Preserve payloads
             # exactly as the existing upload route does, rather than orphan rows.
-            log.warning('Plate import transaction outcome unknown; retained %s payloads', len(finals))
-            raise HTTPException(500, 'Plate import outcome is uncertain. Contact support before retrying.') from None
+            for staged, final in finals:
+                if staged.exists():
+                    os.replace(staged, final)
+            log.warning('Plate import transaction outcome unknown; retained file references %s', reserved_ids)
+            raise HTTPException(500, 'Plate import outcome is uncertain. Contact support before retrying. '
+                                f'File references: {reserved_ids}') from None
         for _staged, final in finals:
             final.unlink(missing_ok=True)
         if isinstance(exc, (HTTPException, OdinError)):
@@ -162,10 +194,21 @@ async def import_sliced_plates(
 ):
     """Stage and save one exact file and model per plate. No printer commands."""
     _validate_filename(file.filename)
-    _target(db, target_printer_id, current_user)
+    try:
+        target = _target(db, target_printer_id, current_user)
+        plate_import.check_target([], target)
+    finally:
+        db.rollback()  # Release the read transaction before archive analysis.
     # Generate paths using existing storage policy, never names from the archive.
     root = await run_in_threadpool(lambda: _new_upload_path(0, 'stage').parent)
-    with tempfile.TemporaryDirectory(prefix='.plate-import-', dir=root) as directory:
+    await run_in_threadpool(_sweep_staging, root)
+    if (await run_in_threadpool(shutil.disk_usage, root)).free < IMPORT_REQUIRED_FREE_BYTES:
+        raise HTTPException(507, 'Insufficient free space for plate import')
+    with contextlib.ExitStack() as stack:
+        directory = stack.enter_context(tempfile.TemporaryDirectory(prefix='.plate-import-', dir=root))
+        staging_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+        stack.callback(os.close, staging_fd)
+        fcntl.flock(staging_fd, fcntl.LOCK_EX)
         archive = Path(directory) / 'source.3mf'
         total = 0
         with archive.open('xb') as output:

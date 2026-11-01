@@ -24,7 +24,7 @@ def package(*, numbers=(1, 4, 10), machine='Voron 2.4', multi=False, extra=(), b
         archive.writestr('Metadata/slice_info.config', f'''<config><plate>
             <metadata key="index" value="1"/><metadata key="prediction" value="120"/>
             <filament id="1" type="PLA" color="#ff0000" used_g="3.5" used_m="1"/>{second}
-            </plate><plate><metadata key="index" value="10"/>
+            </plate><plate><metadata key="index" value="4"/></plate><plate><metadata key="index" value="10"/>
             <metadata key="prediction" value="600"/>
             <filament id="1" type="PETG" color="#00ff00" used_g="7"/>
             </plate></config>''')
@@ -103,7 +103,7 @@ def test_bambu_sliced_sources_are_refused(importer, review_db, source):
     assert snapshot(review_db) == before and not list(importer[2].iterdir())
 
 
-@pytest.mark.parametrize('change', ['bambu_api', 'bambu_machine', 'foreign', 'inactive', 'small_bed', 'wrong_nozzle', 'unknown_bed', 'unknown_nozzle'])
+@pytest.mark.parametrize('change', ['bambu_api', 'bambu_machine', 'foreign', 'inactive', 'small_bed', 'wrong_nozzle', 'unknown_bed'])
 def test_target_safety_and_org_checks(importer, review_db, change):
     values = {'bambu_api': "api_type='bambu'", 'bambu_machine': "machine_type='A1'",
               'foreign': 'org_id=2', 'inactive': 'is_active=0', 'small_bed': 'bed_x_mm=100',
@@ -365,10 +365,12 @@ def test_stream_rejects_observed_bytes_beyond_declared_size(tmp_path, monkeypatc
         def infolist(self):
             return [entry]
         def namelist(self):
-            return [entry.filename]
+            return [entry.filename, 'Metadata/slice_info.config']
         def getinfo(self, _name):
             return entry
         def open(self, _member):
+            if _member == 'Metadata/slice_info.config':
+                return io.BytesIO(b'<config><plate><metadata key="index" value="1"/></plate></config>')
             return io.BytesIO(b'G28\nextra bytes')
     facts = {key: print_file_meta._missing_fact() for key in ('api_types', 'machine', 'bed', 'nozzle', 'materials')}
     monkeypatch.setattr(print_payload, 'bambu_plate_numbers', lambda _path: [1])

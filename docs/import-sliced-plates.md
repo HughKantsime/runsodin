@@ -22,8 +22,9 @@ entry contains its ID, model ID, filename, source plate and metadata.
 
 Machine, bed and nozzle facts come from the parent package, with plate-specific
 slice facts applied only to their own plate. Duplicate metadata keys, conflicting machine or nozzle declarations, an oversized
-bed or a nozzle mismatch are refused. A recorded bed or nozzle also requires
-corresponding target dimensions or nozzle metadata so the check can run.
+bed or a known nozzle mismatch are refused. A recorded bed requires target bed
+dimensions. An unrecorded target nozzle does not imply a mismatch. The target
+identity uses `machine_type` when present, otherwise the printer model.
 `compatible_api_types` is set to the explicit target API, never left empty to
 permit every API. An explicit source machine must match the target machine. Known aliases use the
 shared canonical identity; unrecognized declarations must match after conservative
@@ -32,13 +33,23 @@ Missing source facts stay missing; choosing a target does not create machine evi
 
 Grams, print time and filament entries come from each plate's `slice_info` index.
 Each model also receives its own recorded filament requirements and material type
-for scheduling and costing. Material labels outside Odin's supported model types
+for scheduling and costing. Missing colors use an empty string so model responses
+remain valid without creating a color requirement. Material labels outside Odin's
+supported model types
 stay on the print file; the model type remains unset and existing cost defaults
-apply. Missing values stay missing rather than inheriting plate 1. This initial importer
-admits at most one used source filament per plate. Existing non-Bambu target
+apply. Missing values stay missing rather than inheriting plate 1. Every imported
+plate must have its own `slice_info` entry; a missing entry
+is refused because its filament count cannot be checked. Source slot IDs must be
+from 1 through 16. This initial importer admits at most one used source filament
+per plate. Existing non-Bambu target
 metadata does not establish multi-material capability, so the importer cannot
 safely admit MMU or multi-tool plates yet. No claim about the printer's physical
 tool count is inferred from that limitation.
+
+Before staging, Odin requires 428 MiB free on the storage volume: the maximum
+upload and extracted payloads plus a 128 MiB reserve. At import start, it removes
+unlocked staging directories older than one day. Active imports and final files
+are left alone.
 
 The upload cap is 100 MiB, with at most 32 plates, 64 MiB of G-code per plate and
 200 MiB total extracted G-code. Individual metadata members are limited to 4 MiB.
@@ -54,6 +65,6 @@ transaction creates the models, files and bindings, then generated staged files
 move atomically on the same storage filesystem before commit. A confirmed
 rollback removes every staged and final file. As with ordinary uploads, a lost
 commit acknowledgement or failed rollback leaves the outcome uncertain. Odin
-retains final payloads and returns an explicit support message instead of deleting
-files that may already have committed database references. Do not retry an
+retains final payloads and includes every reserved file ID in the support response
+and log instead of deleting files that may already have committed references. Do not retry an
 uncertain import until its outcome has been checked.

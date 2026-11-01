@@ -90,3 +90,39 @@ def test_plate_json_cannot_override_project_machine(importer, review_db):
     assert response.status_code == 400, response.text
     assert snapshot(review_db) == before
     assert not list(importer[2].iterdir())
+
+
+@pytest.mark.parametrize('machine_type', [None, ''])
+def test_target_model_fallback_accepts_matching_machine(importer, review_db, machine_type):
+    review_db.execute(text('UPDATE printers SET machine_type=:machine_type, model=:model WHERE id=9'),
+                      {'machine_type': machine_type, 'model': 'Voron 2.4'})
+    review_db.commit()
+    response = upload(importer, package(numbers=(1, 10)))
+    assert response.status_code == 200, response.text
+
+
+def test_target_model_fallback_refuses_conflicting_machine(importer, review_db):
+    review_db.execute(text("UPDATE printers SET machine_type=NULL, model='Prusa MK4' WHERE id=9"))
+    review_db.commit()
+    before = snapshot(review_db)
+    response = upload(importer, package(numbers=(1, 10)))
+    assert response.status_code == 400, response.text
+    assert snapshot(review_db) == before
+    assert not list(importer[2].iterdir())
+
+
+def test_target_model_fallback_still_refuses_bambu(importer, review_db):
+    review_db.execute(text("UPDATE printers SET machine_type=NULL, model='Bambu Lab A1' WHERE id=9"))
+    review_db.commit()
+    before = snapshot(review_db)
+    response = upload(importer, declared_package('project', {}))
+    assert response.status_code == 400, response.text
+    assert snapshot(review_db) == before
+    assert not list(importer[2].iterdir())
+
+
+def test_explicit_target_machine_takes_precedence_over_model(importer, review_db):
+    review_db.execute(text("UPDATE printers SET machine_type='Voron 2.4', model='Other printer' WHERE id=9"))
+    review_db.commit()
+    response = upload(importer, package(numbers=(1, 10)))
+    assert response.status_code == 200, response.text

@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import os
 import threading
 import uuid
+import zipfile
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
 from sqlalchemy import text
@@ -546,6 +550,8 @@ def exercise_cross_domain_workflow(
     upload_id = int(uploaded.json()["id"])
     assert client.delete(f"/api/print-files/{upload_id}", headers=operator).status_code == 200
 
+    exercise_sliced_plate_import(client, admin, operator)
+
     assert client.post("/api/backups", headers=viewer).status_code == 403
     backup = client.post("/api/backups", headers=admin)
     assert backup.status_code == 200, backup.text
@@ -555,6 +561,97 @@ def exercise_cross_domain_workflow(
         for item in items(client.get("/api/backups", headers=admin))
     )
     assert client.delete(f"/api/backups/{backup_name}", headers=admin).status_code == 204
+
+
+def exercise_sliced_plate_import(client, admin, operator) -> None:
+    """Use the real importer, model reader and upload cleanup on either provider."""
+    from sqlalchemy.orm import Session
+    from core.print_file_binding import job_file_id, target_printer
+
+    payloads = {number: f"; synthetic parity plate {number}\nG28\n".encode()
+                for number in (1, 4)}
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("Metadata/project_settings.config", json.dumps({
+            "printer_model": "Voron 2.4", "nozzle_diameter": ["0.4"],
+            "bed_shape": ["0x0", "220x0", "220x220", "0x220"],
+        }))
+        archive.writestr("Metadata/slice_info.config", "<config>" + "".join(
+            f'<plate><metadata key="index" value="{number}"/>'
+            '<metadata key="prediction" value="120"/>'
+            '<filament id="1" type="PLA" color="#ff0000" used_g="3.5"/>'
+            '</plate>' for number in payloads) + "</config>")
+        for number, payload in payloads.items():
+            archive.writestr(f"Metadata/plate_{number}.gcode", payload)
+
+    with engine.begin() as connection:
+        org_id = connection.execute(text("SELECT group_id FROM users WHERE email=:email"),
+                                    {"email": OPERATOR_EMAIL}).scalar_one()
+        printer_id = int(connection.execute(text(
+            "INSERT INTO printers(name,is_active,api_type,machine_type,org_id,shared,"
+            "slot_count,tags,timelapse_enabled,bed_x_mm,bed_y_mm,nozzle_diameter) "
+            "VALUES (:name,TRUE,'moonraker','Voron 2.4',:org,FALSE,4,"
+            "CAST('[]' AS JSON),FALSE,250,250,0.4) RETURNING id"
+        ), {"name": "ODIN parity plate target " + uuid.uuid4().hex, "org": org_id}).scalar_one())
+    imported = []
+    paths = []
+    try:
+        response = client.post("/api/print-files/import-plates", headers=operator,
+                               data={"target_printer_id": str(printer_id)},
+                               files={"file": ("parity-plates.3mf", stream.getvalue(),
+                                               "application/octet-stream")})
+        assert response.status_code == 200, response.text
+        body = response.json()
+        imported = body["files"]
+        assert body["plate_count"] == 2
+        assert body["target_printer_id"] == printer_id
+        assert len({item["id"] for item in imported}) == 2
+        assert [item["source_plate"] for item in imported] == list(payloads)
+        assert len({item["model_id"] for item in imported}) == 2
+        readable = {item["id"]: item for item in items(client.get("/api/models", headers=operator))}
+        with Session(engine) as db:
+            for item in imported:
+                model = readable[item["model_id"]]
+                assert model["default_filament_type"] == "PLA"
+                assert model["build_time_hours"] == 120 / 3600
+                assert set(model["color_requirements"]) == {"slot1"}
+                assert model["color_requirements"]["slot1"]["color"] == "#ff0000"
+                assert model["color_requirements"]["slot1"]["grams"] == 3.5
+                row = db.execute(text("SELECT * FROM print_files WHERE id=:id"),
+                                 {"id": item["id"]}).mappings().one()
+                path = Path(row["stored_path"])
+                paths.append(path)
+                payload = payloads[item["source_plate"]]
+                assert path.read_bytes() == payload
+                assert row["file_hash"] == hashlib.sha256(payload).hexdigest()
+                assert row["print_time_seconds"] == 120
+                assert row["total_weight_grams"] == 3.5
+                assert row["model_id"] == item["model_id"]
+                assert row["org_id"] == org_id
+                assert target_printer(db, item["id"]) == printer_id
+                assert job_file_id(db, item["model_id"]) == item["id"]
+                assert not list(path.parent.glob(".plate-import-*"))
+    finally:
+        for item in imported:
+            deleted = client.delete(f"/api/print-files/{item['id']}", headers=operator)
+            assert deleted.status_code == 200, deleted.text
+            deleted = client.delete(f"/api/models/{item['model_id']}", headers=admin)
+            assert deleted.status_code == 204, deleted.text
+        with engine.begin() as connection:
+            for item in imported:
+                assert connection.execute(text("SELECT COUNT(*) FROM print_files WHERE id=:id"),
+                                          {"id": item["id"]}).scalar_one() == 0
+                assert connection.execute(text("SELECT COUNT(*) FROM models WHERE id=:id"),
+                                          {"id": item["model_id"]}).scalar_one() == 0
+                # Upload bindings are config records, not payload files.
+                connection.execute(text("DELETE FROM system_config WHERE key=:key"),
+                                   {"key": f"print_file_target:{item['id']}"})
+            connection.execute(text("DELETE FROM printers WHERE id=:id"), {"id": printer_id})
+        # Generic DELETE currently removes rows only. Remove this probe's own
+        # synthetic payloads explicitly, rather than leave files in parity data.
+        for path in paths:
+            path.unlink(missing_ok=True)
+        assert all(not path.exists() for path in paths)
 
 
 def assert_license_refusal(response, feature: str) -> None:

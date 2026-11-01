@@ -81,6 +81,13 @@ def _nozzle_declarations(data):
     return values[0] if values else None
 
 
+def _filament_slot(value):
+    # Source filament and indexed material records support slots 1 through 16.
+    if not isinstance(value, str) or not re.fullmatch(r'[1-9][0-9]?', value) or not 1 <= int(value) <= 16:
+        raise ValueError('Invalid filament slot')
+    return int(value)
+
+
 def _slice_metadata(package):
     """Read each sparse plate's own slice_info entry. Never reuse plate 1."""
     member = next((name for name in package.namelist() if name.lower() == 'metadata/slice_info.config'), None)
@@ -105,7 +112,7 @@ def _slice_metadata(package):
         filaments = []
         for node in plate.findall('filament'):
             filaments.append({
-                'slot': int(node.get('id', '1')), 'type': node.get('type'),
+                'slot': _filament_slot(node.get('id')), 'type': node.get('type'),
                 'color': node.get('color'), 'used_grams': _number(node.get('used_g')),
                 'used_meters': _number(node.get('used_m')),
             })
@@ -153,6 +160,8 @@ def extract_to(path, destination):
                 or sum(m.file_size for m in members) > MAX_EXTRACTED_BYTES):
             raise ValueError('Sliced plate size limit exceeded')
         per_plate = _slice_metadata(package)
+        if any(number not in per_plate for number in numbers):
+            raise ValueError('Every imported plate requires slice metadata to establish its material count')
         project_member = next((name for name in package.namelist() if name.lower() == 'metadata/project_settings.config'), None)
         project = _read_json(package, project_member) if project_member else {}
         _nozzle_declarations(project)
@@ -182,8 +191,7 @@ def extract_to(path, destination):
                 parent['safety_facts'][key] = _missing_fact()
         result, total = [], 0
         for number, member in zip(numbers, members):
-            metadata = per_plate.get(number, {'filaments': [], 'total_weight_grams': None,
-                                             'print_time_seconds': None, 'machine': None, 'nozzle': None})
+            metadata = per_plate[number]
             facts = json.loads(json.dumps(parent['safety_facts']))
             plate_machines = metadata.get('machines', [])
             if len({_machine_identity(machine) for machine in plate_machines if machine}) > 1:
@@ -274,13 +282,13 @@ def validate_result(payload):
         if not valid_number(facts['nozzle']['value'], 0, 100, optional=True):
             raise ValueError('Invalid nozzle fact')
         filaments = item['filaments']
-        if type(filaments) is not list or len(filaments) > 64:
+        if type(filaments) is not list or len(filaments) > 16:
             raise ValueError('Invalid plate filaments')
         seen_slots = set()
         for filament in filaments:
             if type(filament) is not dict or set(filament) != {'slot', 'type', 'color', 'used_grams', 'used_meters'}:
                 raise ValueError('Invalid plate filament')
-            if not _integer(filament['slot'], 1, 64) or filament['slot'] in seen_slots:
+            if not _integer(filament['slot'], 1, 16) or filament['slot'] in seen_slots:
                 raise ValueError('Invalid filament slot')
             seen_slots.add(filament['slot'])
             if any(not valid_number(filament[k], 0, 1e8, optional=True) for k in ('used_grams', 'used_meters')):
@@ -312,11 +320,12 @@ def prepare_staged(analysis, destination):
 def check_target(plates, target):
     """Only explicit active non-Bambu dispatch targets, with recorded facts intact."""
     from modules.models_library.print_file_meta import _api_types_for_machine
+    target_identity = target.machine_type or getattr(target, 'model', None)
     if (not target.is_active or target.api_type not in ('moonraker', 'prusalink')
-            or 'bambu' in _api_types_for_machine(target.machine_type)):
+            or 'bambu' in _api_types_for_machine(target_identity)):
         raise HTTPException(400, 'Plate import requires an active non-Bambu Moonraker or PrusaLink target')
     try:
-        target_machine = _machine_identity(target.machine_type)
+        target_machine = _machine_identity(target_identity)
     except ValueError as exc:
         raise HTTPException(400, 'Selected printer has an invalid machine identity') from exc
     for item in plates:
@@ -332,7 +341,7 @@ def check_target(plates, target):
             if target.bed_x_mm is None or target.bed_y_mm is None or x > target.bed_x_mm + 2 or y > target.bed_y_mm + 2:
                 raise HTTPException(400, 'Plate bed exceeds or cannot be checked against the selected printer bed')
         nozzle = facts['nozzle'].get('value')
-        if nozzle is not None and (target.nozzle_diameter is None or abs(float(nozzle) - target.nozzle_diameter) > 0.01):
+        if nozzle is not None and target.nozzle_diameter is not None and abs(float(nozzle) - target.nozzle_diameter) > 0.01:
             raise HTTPException(400, 'Plate nozzle does not match the selected printer nozzle')
         # A single nozzle can support an MMU. Existing target metadata has no
         # validated generic multi-material capability, so do not infer support.
