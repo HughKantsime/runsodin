@@ -1,14 +1,16 @@
 """Contract tests for the opt-in read-only external filament display.
 
 Uses the shared contract database fixture; no ODIN_TEST_BACKEND, live printer,
-provider or login is required. The display HTTP client is replaced in-process
-and every request is refused before outbound I/O.
+provider or login is required. HTTP tests replace the display client in-process;
+Unix transport tests use only temporary local sockets.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import socket
+import tempfile
 import threading
 import time
 from contextlib import contextmanager, nullcontext
@@ -734,3 +736,216 @@ def test_timed_out_dns_does_not_accumulate_transport_workers(fake, monkeypatch):
         gate.set()
         assert ledger_display._transport_lock.acquire(timeout=2)
         ledger_display._transport_lock.release()
+
+
+@pytest.mark.parametrize("url", [
+    "unix://host/run/feed.sock", "unix:///run/../feed.sock",
+    "unix:///run/feed.sock?query=1", "unix:///run/feed.sock#fragment", "unix:",
+    "unix:/run/feed.sock", "unix:////run/feed.sock", "unix:///",
+    "unix:///run/./feed.sock", "unix:///run//feed.sock", "unix:///run/feed.sock/",
+    "unix:///run/%2e%2e/feed.sock", "unix:///run/feed.sock?", "unix:///run/feed.sock#",
+    "unix:///run/feed\x00.sock", "unix:///run/feed\n.sock", "unix:///run/feed sock",
+    "unix:///run/feed\\sock", "UNIX:///run/feed.sock",
+])
+def test_invalid_socket_destination_cannot_fall_back_to_network(fake, url):
+    assert ledger_display._fetch_payload(url, time.monotonic() + 1) == (False, {})
+    assert fake.calls == []
+
+
+@pytest.fixture
+def socket_directory():
+    # Keep every socket test below macOS's 104-byte Unix socket path limit,
+    # even when pytest's basetemp is a long CI workspace path.
+    with tempfile.TemporaryDirectory(prefix="odin-feed-", dir="/tmp") as directory:
+        yield Path(directory)
+
+
+@contextmanager
+def unix_feed_server(directory, *, body=None, status=200, never_answer=False):
+    """Serve one real HTTP request on a temporary AF_UNIX socket."""
+    path = str(directory / "feed.sock")
+    stopped = threading.Event()
+    accepted = threading.Event()
+    requests = []
+    errors = []
+    body = json.dumps(ledger_payload()).encode() if body is None else body
+    response = (
+        f"HTTP/1.1 {status} Test\r\n"
+        f"Content-Length: {len(body)}\r\n"
+        "Location: /must-not-follow\r\n"
+        "Connection: close\r\n\r\n"
+    ).encode() + body
+
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+        listener.bind(path)
+        listener.listen(1)
+        listener.settimeout(0.05)
+
+        def serve():
+            try:
+                while not stopped.is_set():
+                    try:
+                        connection, _address = listener.accept()
+                        break
+                    except socket.timeout:
+                        continue
+                else:
+                    return
+                with connection:
+                    accepted.set()
+                    connection.settimeout(2)
+                    request = bytearray()
+                    while b"\r\n\r\n" not in request:
+                        chunk = connection.recv(4096)
+                        if not chunk:
+                            return
+                        request.extend(chunk)
+                    requests.append(bytes(request))
+                    if never_answer:
+                        stopped.wait()  # Stay silent until the context cleans up.
+                    else:
+                        connection.sendall(response)
+            except (BrokenPipeError, ConnectionResetError):
+                pass  # The client may close as soon as it rejects the response.
+            except Exception as exc:
+                errors.append(exc)
+
+        worker = threading.Thread(target=serve, daemon=True)
+        worker.start()
+        try:
+            yield "unix://" + path, accepted, requests
+        finally:
+            stopped.set()
+            worker.join(timeout=3)
+            assert not worker.is_alive()
+            assert errors == []
+
+
+def test_unix_socket_transport_uses_only_local_feed(fake, monkeypatch, socket_directory):
+    calls = []
+    transport = object()
+    monkeypatch.setattr(ledger_display.httpx, "HTTPTransport", lambda **kw: calls.append(kw) or transport)
+
+    def no_dns(_endpoint):
+        raise AssertionError("Unix socket must not resolve a TCP destination")
+
+    monkeypatch.setattr(ledger_display, "pinned_device_destination", no_dns)
+    path = str(socket_directory / "feed.sock")
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as local:
+        local.bind(path)
+        assert ledger_display._fetch_payload("unix://" + path, time.monotonic() + 1)[0]
+    assert calls == [{"uds": path, "retries": 0, "trust_env": False}]
+    assert fake.calls == [("GET", "http://localhost/api/filament-display")]
+    assert fake.init_kwargs["transport"] is transport
+    assert fake.init_kwargs["follow_redirects"] is False
+    assert fake.init_kwargs["trust_env"] is False
+
+
+@pytest.mark.parametrize("directory_mode", [0o700, 0o770])
+def test_real_unix_socket_round_trip(socket_directory, directory_mode):
+    socket_directory.chmod(directory_mode)
+    with unix_feed_server(socket_directory) as (url, _accepted, requests):
+        available, payload = ledger_display._fetch_payload(url, time.monotonic() + 2)
+    assert available and "u1" in payload
+    assert len(requests) == 1
+    assert requests[0].startswith(b"GET /api/filament-display HTTP/1.1\r\n")
+    assert b"\r\nHost: localhost\r\n" in requests[0]
+
+
+def test_missing_unix_socket_is_unavailable_without_dns(socket_directory, monkeypatch):
+    dns_calls = []
+
+    def no_dns(endpoint):
+        dns_calls.append(endpoint)
+        raise AssertionError("Unix socket must not resolve a TCP destination")
+
+    monkeypatch.setattr(ledger_display, "pinned_device_destination", no_dns)
+    assert ledger_display._fetch_within_deadline(
+        "unix://" + str(socket_directory / "missing.sock")
+    ) == (False, {})
+    assert dns_calls == []
+
+
+@pytest.mark.parametrize("target", ["regular_file", "symlink", "symlink_parent", "world_writable_directory"])
+def test_unsafe_unix_socket_target_is_unavailable(socket_directory, monkeypatch, target):
+    attempts = []
+
+    def no_client(**kwargs):
+        attempts.append(kwargs)
+        raise AssertionError("Unsafe targets must be rejected before HTTP")
+
+    monkeypatch.setattr(ledger_display.httpx, "Client", no_client)
+    path = socket_directory / "feed.sock"
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as local:
+        if target == "regular_file":
+            path.write_bytes(b"not a socket")
+        elif target == "symlink":
+            local.bind(str(socket_directory / "real.sock"))
+            path.symlink_to(socket_directory / "real.sock")
+        elif target == "symlink_parent":
+            directory = socket_directory / "real"
+            directory.mkdir(mode=0o700)
+            local.bind(str(directory / "feed.sock"))
+            linked = socket_directory / "linked"
+            linked.symlink_to(directory, target_is_directory=True)
+            path = linked / "feed.sock"
+        else:
+            local.bind(str(path))
+            socket_directory.chmod(0o707)
+        try:
+            assert ledger_display._fetch_within_deadline("unix://" + str(path)) == (False, {})
+        finally:
+            socket_directory.chmod(0o700)
+    assert attempts == []
+
+
+def test_real_unix_socket_silent_peer_has_bounded_refresh(socket_directory, monkeypatch):
+    monkeypatch.setattr(ledger_display, "_REQUEST_TIMEOUT", 1.0)
+    with unix_feed_server(socket_directory, never_answer=True) as (url, accepted, _requests):
+        monkeypatch.setattr(settings, "filament_ledger_url", url)
+        started = time.monotonic()
+        assert ledger_display._fetch_printers() == (False, {})
+        assert time.monotonic() - started < 0.5
+        assert accepted.wait(2)
+        wait_for_refresh(timeout=3)
+        assert time.monotonic() - started < 3
+        assert ledger_display._cached_available is False
+        # The real client read timeout must release the worker while the peer
+        # is still silent and open, before context cleanup can unblock it.
+        assert ledger_display._transport_lock.acquire(timeout=2)
+        ledger_display._transport_lock.release()
+
+
+@pytest.mark.parametrize("failure", ["oversized", "redirect"])
+def test_real_unix_socket_rejects_oversize_and_redirects(socket_directory, monkeypatch, failure):
+    body = json.dumps(ledger_payload()).encode()
+    if failure == "oversized":
+        # Valid JSON beyond the cap would succeed if the limit were removed.
+        body = body.ljust(ledger_display._MAX_RESPONSE_BYTES + 1, b" ")
+    status = 302 if failure == "redirect" else 200
+    dns_calls = []
+    transport_requests = []
+    real_handle_request = ledger_display.httpx.HTTPTransport.handle_request
+
+    def record_request(transport, request):
+        transport_requests.append(str(request.url))
+        return real_handle_request(transport, request)
+
+    monkeypatch.setattr(ledger_display.httpx.HTTPTransport, "handle_request", record_request)
+
+    def no_dns(endpoint):
+        dns_calls.append(endpoint)
+        raise AssertionError("Unix socket must not resolve any TCP destination")
+
+    monkeypatch.setattr(ledger_display, "pinned_device_destination", no_dns)
+    with unix_feed_server(socket_directory, body=body, status=status) as (url, _accepted, requests):
+        assert ledger_display._fetch_within_deadline(url) == (False, {})
+    assert len(requests) == 1
+    assert transport_requests == ["http://localhost/api/filament-display"]
+    assert dns_calls == []
+
+
+def test_unix_socket_trailing_slash_is_not_normalized_away(fake, monkeypatch):
+    monkeypatch.setattr(settings, "filament_ledger_url", "unix:///run/feed.sock/")
+    assert refresh_and_wait() == (False, {})
+    assert fake.calls == []
