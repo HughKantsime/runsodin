@@ -766,11 +766,11 @@ def test_unix_socket_transport_uses_only_local_feed(fake, monkeypatch):
     assert fake.init_kwargs["trust_env"] is False
 
 
-def test_real_unix_socket_round_trip(tmp_path):
+def test_real_unix_socket_round_trip():
     import socketserver
+    import tempfile
     from http.server import BaseHTTPRequestHandler
 
-    socket_path = str(tmp_path / "feed.sock")
     seen = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -785,11 +785,14 @@ def test_real_unix_socket_round_trip(tmp_path):
         def log_message(self, *args):
             pass
 
-    with socketserver.UnixStreamServer(socket_path, Handler) as server:
-        worker = threading.Thread(target=server.handle_request, daemon=True)
-        worker.start()
-        available, payload = ledger_display._fetch_payload("unix://" + socket_path, time.monotonic() + 2)
-        worker.join(timeout=2)
+    # Batch-runner basetemp paths can exceed macOS's 104-byte socket limit.
+    with tempfile.TemporaryDirectory(prefix="odin-feed-", dir="/tmp") as directory:
+        socket_path = directory + "/feed.sock"
+        with socketserver.UnixStreamServer(socket_path, Handler) as server:
+            worker = threading.Thread(target=server.handle_request, daemon=True)
+            worker.start()
+            available, payload = ledger_display._fetch_payload("unix://" + socket_path, time.monotonic() + 2)
+            worker.join(timeout=2)
     assert available and "u1" in payload
     assert seen == ["/api/filament-display"]
 
