@@ -17,7 +17,7 @@ from pathlib import Path
 from core.db_integrity import DAMAGED, OK, RUNBOOK, UNAVAILABLE, IntegrityReport, check_database
 from modules.system import backup_failure_alerts
 from modules.system.backup_failure_alerts import backup_failure_reason
-from modules.system.backup_schedule import create_scheduled_backup
+from modules.system.backup_schedule import clear_leftovers, create_scheduled_backup
 from modules.system.backup_service import (
     BackupMissedError,
     BackupValidationError,
@@ -26,6 +26,7 @@ from modules.system.backup_service import (
 )
 from modules.system.db_guardian_status import (
     STALE,
+    UNAVAILABLE_ALERT_AFTER,
     database_integrity,
     integrity_view,
     offsite_path,
@@ -41,19 +42,19 @@ log = logging.getLogger("odin.db_guardian")
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////data/odin.db")
 # Measured with SQLite 3.51.3 on two cores of a test VM: 0.17 s on a 315 MB database shaped like
 # production's, 2.5 s with every page live and a cold cache. Writers at 30 commits/s saw no BUSY
-# and no worse latency with checks running back to back. The VM reads about 5 times faster than
-# production, so expect about 1 s there, 15 s at the worst: at most 5% of one low-priority core.
-# This is also the longest ODIN can write on damage unnoticed.
+# and no worse latency with checks running back to back. On a disk throttled to 300 IOPS a cold
+# check took 26 s, about 9% of one low-priority core at this interval; production's speed isn't
+# measured. This is also the longest ODIN can write on damage unnoticed.
 INTEGRITY_INTERVAL_SECONDS = 300
 BACKUP_INTERVAL = timedelta(days=1)
 BACKUP_RETRY = timedelta(hours=1)
 BACKUP_MISSED_AFTER = timedelta(hours=26)
 OFFSITE_MISSED_AFTER = timedelta(hours=36)
+# The job runs hourly and alerts by itself after three failures; after an outage, give it that long.
+OFFSITE_BOOT_GRACE = timedelta(hours=4)
 # Boot has just made this check, twice; let the services settle before the next one.
 FIRST_CHECK_DELAY_SECONDS = 60
 ALERT_REPEAT = timedelta(days=1)
-# One check that can't finish is usually a passing lock; three in a row means nothing is checking.
-UNAVAILABLE_ALERT_AFTER = 3
 TICK_SECONDS = 15
 # Below normal priority: on a two-core host the API and monitors come first.
 NICE_INCREMENT = 10
@@ -99,15 +100,18 @@ def record_integrity(status: dict, report: IntegrityReport, now: datetime, *, pu
     """Record a result, then alert if it calls for one. An alert that fails to send doesn't change /health."""
     previous = status.get("integrity") if isinstance(status.get("integrity"), dict) else {}
     misses = int(previous.get("consecutive_unavailable") or 0) + 1 if report.state == UNAVAILABLE else 0
-    alerted_at = previous.get("alerted_at") if report.state != OK else None
+    # Each state has its own daily limit: "may be fine" must never hold back real damage.
+    alerted = previous.get("alerted") if isinstance(previous.get("alerted"), dict) else {}
+    alerted = {} if report.state == OK else dict(alerted)
     # A result that can't say anything about the data doesn't overwrite known damage.
     keep_damage = report.state == UNAVAILABLE and previous.get("state") == DAMAGED
     status["integrity"] = {
         "state": DAMAGED if keep_damage else report.state,
         "checked_at": previous.get("checked_at") if keep_damage else now.isoformat(),
+        "attempted_at": now.isoformat(),
         "seconds": round(report.seconds, 3),
         "consecutive_unavailable": misses,
-        "alerted_at": alerted_at,
+        "alerted": alerted,
     }
     if report.state == OK:
         return
@@ -116,7 +120,7 @@ def record_integrity(status: dict, report: IntegrityReport, now: datetime, *, pu
     alert_state = DAMAGED if keep_damage else report.state
     if alert_state == UNAVAILABLE and misses < UNAVAILABLE_ALERT_AFTER:
         return
-    last_alert = parse_time(alerted_at)
+    last_alert = parse_time(alerted.get(alert_state))
     if last_alert is not None and now - last_alert < ALERT_REPEAT:
         return
     try:
@@ -125,14 +129,16 @@ def record_integrity(status: dict, report: IntegrityReport, now: datetime, *, pu
         # The damaged page may be in the alerts table. /health still reports it; try again next check.
         log.error("Integrity alert could not be saved (%s)", type(exc).__name__)
         return
-    status["integrity"]["alerted_at"] = now.isoformat()
+    alerted[alert_state] = now.isoformat()
 
 
 def _run_backup(status: dict, now: datetime, database_url: str, *, create=create_scheduled_backup,
-                publish=publish_integrity_alert) -> None:
+                publish=publish_integrity_alert, save=lambda _status: None) -> None:
     backup = status.get("backup") if isinstance(status.get("backup"), dict) else {}
     backup["last_attempt_at"] = now.isoformat()
     status["backup"] = backup
+    # Before starting: a run killed halfway mustn't start again straight after the restart.
+    save(status)
     try:
         result = create(database_url, now=now)
     except SourceDatabaseError as error:
@@ -163,19 +169,23 @@ def _backup_due(status: dict, now: datetime) -> bool:
 
 def _integrity_due(status: dict, now: datetime, interval: int) -> bool:
     integrity = status.get("integrity") if isinstance(status.get("integrity"), dict) else {}
-    checked_at = parse_time(integrity.get("checked_at"))
-    return checked_at is None or (now - checked_at).total_seconds() >= interval
+    # attempted_at, not checked_at: with damage known, checked_at stays put while checks can't finish.
+    last_run = parse_time(integrity.get("attempted_at")) or parse_time(integrity.get("checked_at"))
+    return last_run is None or (now - last_run).total_seconds() >= interval
 
 
 def missed_backups(status: dict, now: datetime, database: Path) -> list[BackupMissedError]:
-    """What should exist by now and doesn't. Off-server copies only count once one has been confirmed."""
+    """What should exist by now and doesn't. Off-server copies only count once the job has registered."""
     backup = status.get("backup") if isinstance(status.get("backup"), dict) else {}
     missed = []
     last_local = parse_time(backup.get("last_success_at")) or parse_time(status.get("started_at"))
     if last_local is not None and now - last_local >= BACKUP_MISSED_AFTER:
         missed.append(BackupMissedError("missed"))
-    confirmed = parse_time(read_status(offsite_path(database)).get("confirmed_at"))
-    if confirmed is not None and now - confirmed >= OFFSITE_MISSED_AFTER:
+    offsite = read_status(offsite_path(database))
+    last_offsite = parse_time(offsite.get("confirmed_at")) or parse_time(offsite.get("expected_since"))
+    booted = parse_time(status.get("booted_at"))
+    settled = booted is None or now - booted >= OFFSITE_BOOT_GRACE
+    if last_offsite is not None and now - last_offsite >= OFFSITE_MISSED_AFTER and settled:
         missed.append(BackupMissedError("offsite_missed"))
     return missed
 
@@ -191,13 +201,14 @@ def _alert_missed(status: dict, now: datetime, database: Path) -> None:
 
 
 def tick(status: dict, now: datetime, database: Path, database_url: str, *, interval: int = INTEGRITY_INTERVAL_SECONDS,
-         check=check_database, create=create_scheduled_backup, publish=publish_integrity_alert) -> bool:
+         check=check_database, create=create_scheduled_backup, publish=publish_integrity_alert,
+         save=lambda _status: None) -> bool:
     """Do what is due. Returns whether the status changed."""
     if not _integrity_due(status, now, interval):
         return False
     status["interval_seconds"] = interval
     if _backup_due(status, now):
-        _run_backup(status, now, database_url, create=create, publish=publish)
+        _run_backup(status, now, database_url, create=create, publish=publish, save=save)
     else:
         record_integrity(status, check(database), now, publish=publish)
     _alert_missed(status, now, database)
@@ -217,12 +228,21 @@ def alert_if_stopped(database_url: str, *, session_factory=None, now: datetime |
     now = now or datetime.now(timezone.utc)
     alerts = Alert.__table__
     with session_factory() as db:
-        recent = db.execute(select(alerts.c.id).where(
-            alerts.c.title == ALERT_TITLE, alerts.c.created_at > now - ALERT_REPEAT)).first()
-    if recent is not None:
+        recent = db.execute(select(alerts.c.metadata_json).where(
+            alerts.c.title == ALERT_TITLE, alerts.c.created_at > now - ALERT_REPEAT)).scalars().all()
+    # A damage alert says something else: it doesn't stand in for "nothing is checking any more".
+    if any(isinstance(item, dict) and item.get("state") == UNAVAILABLE for item in recent):
         return False
     publish_integrity_alert(UNAVAILABLE, session_factory=session_factory)
     return True
+
+
+def _save_status(path: Path, status: dict) -> None:
+    """A full disk or an unwritable directory is no reason to stop checking. /health goes stale by itself."""
+    try:
+        write_status(path, status)
+    except OSError as exc:
+        log.error("Status could not be saved (%s)", type(exc).__name__)
 
 
 def main_loop() -> None:
@@ -235,10 +255,15 @@ def main_loop() -> None:
     os.nice(NICE_INCREMENT)
     path = status_path(paths.database)
     status = read_status(path)
+    now = datetime.now(timezone.utc).isoformat()
     # A restart keeps the results and the schedule: a crash loop must not turn into a check loop.
-    status.update(schema_version=1, interval_seconds=INTEGRITY_INTERVAL_SECONDS,
-                  started_at=status.get("started_at") or datetime.now(timezone.utc).isoformat())
-    write_status(path, status)
+    status.update(schema_version=1, interval_seconds=INTEGRITY_INTERVAL_SECONDS, booted_at=now,
+                  started_at=status.get("started_at") or now)
+    _save_status(path, status)
+    try:
+        clear_leftovers(DATABASE_URL)
+    except OSError as exc:
+        log.error("A killed backup's leftovers could not be cleared (%s)", type(exc).__name__)
     log.info("Database guardian started; integrity check every %d s, backup every %s",
              INTEGRITY_INTERVAL_SECONDS, BACKUP_INTERVAL)
     # After a long outage /health says stale until a check finishes, so don't make it wait.
@@ -246,8 +271,9 @@ def main_loop() -> None:
         time.sleep(FIRST_CHECK_DELAY_SECONDS)
     while True:
         try:
-            if tick(status, datetime.now(timezone.utc), paths.database, DATABASE_URL):
-                write_status(path, status)
+            if tick(status, datetime.now(timezone.utc), paths.database, DATABASE_URL,
+                    save=lambda current: _save_status(path, current)):
+                _save_status(path, status)
         except Exception as exc:
             log.error("Guardian cycle failed (%s)", type(exc).__name__)
         time.sleep(TICK_SECONDS)

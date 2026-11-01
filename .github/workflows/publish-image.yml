@@ -464,6 +464,16 @@ jobs:
             test "$healthy" = 1
             observed="$(docker exec "$name" python3 -c 'import json,urllib.request; print(json.load(urllib.request.urlopen("http://127.0.0.1:8000/health"))["version"])')"
             test "$observed" = "$INPUT_VERSION"
+            # The library this architecture really loaded, and a database guardian that has finished
+            # a check: CV04 only boots one architecture, so an import crash on the other shows here.
+            docker exec "$name" python3 -I -S /usr/local/libexec/odin-sqlite-image-check.py
+            guardian=""
+            for _ in $(seq 1 300); do
+              guardian="$(docker exec "$name" python3 -c 'import json,urllib.request; print(json.load(urllib.request.urlopen("http://127.0.0.1:8000/health"))["database_integrity"]["status"])')" || guardian=""
+              if [ "$guardian" = ok ] || [ "$guardian" = failed ]; then break; fi
+              sleep 2
+            done
+            test "$guardian" = ok
             docker rm -f "$name" >/dev/null
           done
           python3.11 -P <<'PY'

@@ -2,7 +2,7 @@
 import hashlib
 import json
 import os
-import shutil
+import re
 import sqlite3
 import subprocess
 import sys
@@ -17,7 +17,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 from core.db_integrity import DAMAGED, OK, UNAVAILABLE, IntegrityReport
-from modules.system import backup_failure_alerts, db_guardian, routes_health
+from modules.system import backup_failure_alerts, db_guardian, db_guardian_status, routes_health
 from modules.system.backup_service import SourceDatabaseError
 from modules.system.db_guardian import ALERT_TITLE, alert_if_stopped, missed_backups, record_integrity, tick
 from modules.system.db_guardian_status import (
@@ -27,6 +27,7 @@ from modules.system.db_guardian_status import (
     STALE,
     integrity_view,
     offsite_path,
+    parse_time,
     read_status,
     status_path,
     write_status,
@@ -67,7 +68,7 @@ def test_damage_alerts_once_a_day_and_clears_only_on_a_pass():
     record_integrity(status, DAMAGE, NOW + timedelta(days=1, seconds=1), publish=publish)
     assert calls == [DAMAGED, DAMAGED]
     record_integrity(status, FINE, NOW + timedelta(days=2), publish=publish)
-    assert status["integrity"]["state"] == OK and status["integrity"]["alerted_at"] is None
+    assert status["integrity"]["state"] == OK and status["integrity"]["alerted"] == {}
     record_integrity(status, DAMAGE, NOW + timedelta(days=2, minutes=30), publish=publish)
     assert calls == [DAMAGED, DAMAGED, DAMAGED]
 
@@ -77,7 +78,7 @@ def test_an_alert_that_cannot_be_saved_keeps_health_failed_and_retries():
     def broken(_):
         raise sqlite3.DatabaseError("database disk image is malformed")
     record_integrity(status, DAMAGE, NOW, publish=broken)
-    assert status["integrity"]["state"] == DAMAGED and status["integrity"]["alerted_at"] is None
+    assert status["integrity"]["state"] == DAMAGED and status["integrity"]["alerted"] == {}
     assert integrity_view(status, now=NOW)["status"] == FAILED
     calls, publish = _publisher()
     record_integrity(status, DAMAGE, NOW + timedelta(minutes=30), publish=publish)
@@ -101,6 +102,57 @@ def test_a_check_that_cannot_finish_does_not_erase_known_damage():
     record_integrity(status, CANNOT, NOW + timedelta(minutes=30), publish=publish)
     assert status["integrity"]["state"] == DAMAGED and status["integrity"]["checked_at"] == NOW.isoformat()
     assert integrity_view(status, now=NOW + timedelta(days=30))["status"] == FAILED
+
+
+def test_a_may_be_fine_alert_never_holds_back_real_damage():
+    """The review's reproduction: three checks that can't finish, then damage within the same day."""
+    status, (calls, publish) = {}, _publisher()
+    for minutes in (0, 5, 10):
+        record_integrity(status, CANNOT, NOW + timedelta(minutes=minutes), publish=publish)
+    assert calls == [UNAVAILABLE]
+    record_integrity(status, DAMAGE, NOW + timedelta(minutes=15), publish=publish)
+    assert calls == [UNAVAILABLE, DAMAGED]
+    for minutes in (20, 60, 600, 1430):
+        record_integrity(status, DAMAGE, NOW + timedelta(minutes=minutes), publish=publish)
+    assert calls == [UNAVAILABLE, DAMAGED], "each state keeps its own daily limit"
+    record_integrity(status, DAMAGE, NOW + timedelta(minutes=15, days=1), publish=publish)
+    assert calls == [UNAVAILABLE, DAMAGED, DAMAGED]
+
+
+def test_damage_does_not_reset_the_other_states_daily_limit():
+    status, (calls, publish) = {}, _publisher()
+    for minutes in (0, 5, 10):
+        record_integrity(status, CANNOT, NOW + timedelta(minutes=minutes), publish=publish)
+    record_integrity(status, DAMAGE, NOW + timedelta(minutes=15), publish=publish)
+    assert sorted(status["integrity"]["alerted"]) == [DAMAGED, UNAVAILABLE]
+
+
+def test_with_damage_known_a_check_that_cannot_finish_waits_for_the_interval():
+    """It used to retry every tick, because checked_at stays on the last real result."""
+    status, checks = {}, []
+    record_integrity(status, DAMAGE, NOW, publish=lambda _: None)
+    def check(_):
+        checks.append(1)
+        return CANNOT
+    status["backup"] = {"last_success_at": NOW.isoformat(), "last_attempt_at": NOW.isoformat()}
+    _tick(status, NOW + timedelta(seconds=1800), check=check)
+    assert checks == [1] and status["integrity"]["checked_at"] == NOW.isoformat()
+    assert _tick(status, NOW + timedelta(seconds=1815), check=check) is False
+    assert checks == [1]
+    assert _tick(status, NOW + timedelta(seconds=3600), check=check) is True
+    assert checks == [1, 1]
+
+
+def test_the_attempt_is_saved_before_the_backup_starts():
+    """A run killed halfway must not start again straight after the restart."""
+    status, saved = {}, []
+    def create(*_, **__):
+        assert saved, "nothing was saved before the backup started"
+        return _result()
+    tick(status, NOW, Path("/nonexistent/odin.db"), "sqlite:////nonexistent/odin.db", interval=300, check=lambda _: FINE,
+         create=create, publish=lambda _: None, save=lambda current: saved.append(json.loads(json.dumps(current))))
+    assert saved[0]["backup"]["last_attempt_at"] == NOW.isoformat()
+    assert "last_success_at" not in saved[0]["backup"]
 
 
 def _result(report=FINE):
@@ -235,6 +287,18 @@ def test_a_muted_preference_does_not_hide_this_alert(alert_db, monkeypatch):
     assert [row[0] for row in _alert_rows(engine)] == [1, 2]
 
 
+def test_a_failed_status_write_keeps_the_old_file_and_leaves_no_temporary(tmp_path, monkeypatch):
+    path = status_path(tmp_path / "odin.db")
+    write_status(path, {"integrity": {"state": OK}})
+    def full(*_):
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(db_guardian_status.os, "replace", full)
+    with pytest.raises(OSError):
+        write_status(path, {"integrity": {"state": DAMAGED}})
+    assert read_status(path) == {"integrity": {"state": OK}}
+    assert not path.with_name(path.name + ".tmp").exists()
+
+
 def test_status_file_round_trip_is_private_and_atomic(tmp_path):
     path = status_path(tmp_path / "odin.db")
     assert path == tmp_path / "run" / "db-guardian.json"
@@ -266,6 +330,9 @@ def _status(state, checked_at=NOW, interval=1800):
     (_status(OK), 0, HEALTHY),
     (_status(OK), 3900, HEALTHY),
     (_status(OK), 3901, STALE),
+    ({**_status(UNAVAILABLE), "integrity": {**_status(UNAVAILABLE)["integrity"], "consecutive_unavailable": 1}}, 0, "retrying"),
+    ({**_status(UNAVAILABLE), "integrity": {**_status(UNAVAILABLE)["integrity"], "consecutive_unavailable": 2}}, 0, "retrying"),
+    ({**_status(UNAVAILABLE), "integrity": {**_status(UNAVAILABLE)["integrity"], "consecutive_unavailable": 3}}, 0, "unavailable"),
     (_status(UNAVAILABLE), 0, "unavailable"),
     (_status(UNAVAILABLE), 3901, STALE),
     (_status(DAMAGED), 0, FAILED),
@@ -315,9 +382,22 @@ def test_health_is_ok_before_the_first_check_and_degraded_when_checks_stop(monke
     assert body["status"] == "degraded" and body["database_integrity"]["status"] == "stale"
 
 
+@pytest.mark.parametrize("misses,overall", [(1, "ok"), (2, "ok"), (3, "degraded")])
+def test_one_check_that_cannot_finish_does_not_fail_a_deploys_health_window(monkeypatch, tmp_path, misses, overall):
+    """The promote workflow requires status == "ok". A passing lock must not fail it."""
+    status = _status(UNAVAILABLE, checked_at=datetime.now(timezone.utc))
+    status["integrity"]["consecutive_unavailable"] = misses
+    assert _health(monkeypatch, tmp_path, status)["status"] == overall
+
+
 def test_health_omits_the_field_on_postgresql(monkeypatch, tmp_path):
     body = _health(monkeypatch, tmp_path, url="postgresql://odin@postgres:5432/odin")
     assert body["status"] == "ok" and body["database_integrity"] is None
+
+
+def test_measured_interval_and_priority_are_pinned():
+    assert db_guardian.INTEGRITY_INTERVAL_SECONDS == 300
+    assert db_guardian.NICE_INCREMENT == 10
 
 
 def test_daemon_is_supervised_in_the_single_container_only():
@@ -325,6 +405,8 @@ def test_daemon_is_supervised_in_the_single_container_only():
     assert "[program:db_guardian]\ncommand=python3 -m modules.system.db_guardian\n" in conf
     block = conf.split("[program:db_guardian]")[1]
     assert "autorestart=true" in block and 'ODIN_DB_ROLE="backup"' in block
+    # Any startup crash backs off, instead of burning CPU on a host that is already in trouble.
+    assert "startsecs=10" in block and "startretries=30" in block
     for name in ("supervisord.api.conf", "supervisord.monitors.conf", "supervisord.reports.conf", "supervisord.vision.conf"):
         assert "db_guardian" not in (ROOT / "docker" / name).read_text(encoding="utf-8")
 
@@ -332,6 +414,140 @@ def test_daemon_is_supervised_in_the_single_container_only():
 def test_entrypoint_makes_the_status_directory_the_app_user_owns():
     entrypoint = (ROOT / "docker/entrypoint.sh").read_text(encoding="utf-8")
     assert "/data/run" in entrypoint and "chown -R odin:odin /data" in entrypoint
+
+
+def test_entrypoint_writes_a_first_status_so_a_guardian_that_never_starts_goes_stale(tmp_path):
+    """Without it, a guardian that dies before its first write looks "pending" forever."""
+    entrypoint = (ROOT / "docker/entrypoint.sh").read_text(encoding="utf-8")
+    block = entrypoint[entrypoint.index('guardian_status="'):entrypoint.index("exec \"$@\"")]
+    assert 'if [ ! -e "${guardian_status}" ]' in block and "/usr/sbin/runuser -u odin" in block
+    assert f'\\"interval_seconds\\": {db_guardian.INTEGRITY_INTERVAL_SECONDS}' in block
+    # Runs the line as written, on a temporary directory.
+    command = re.search(r"runuser -u odin -- /bin/sh -c '(.*?)' sh ", block).group(1)
+    path = status_path(tmp_path / "odin.db")
+    subprocess.run(["/bin/sh", "-c", command, "sh", str(path)], check=True, timeout=30)
+    status = read_status(path)
+    assert status["interval_seconds"] == 300 and oct(path.stat().st_mode & 0o777) == "0o600"
+    started = parse_time(status["started_at"])
+    assert integrity_view(status, now=started + timedelta(seconds=899))["status"] == PENDING
+    assert integrity_view(status, now=started + timedelta(seconds=901))["status"] == STALE
+
+
+def test_guardian_that_never_wrote_goes_stale_and_the_watcher_reports_it(alert_db, monkeypatch):
+    from modules.notifications import alert_dispatcher
+    engine, factory = alert_db
+    monkeypatch.setattr(alert_dispatcher, "deliver_staged_alert", lambda db, plan: None)
+    write_status(status_path(Path(engine.url.database)), {
+        "started_at": (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(), "interval_seconds": 300})
+    assert alert_if_stopped(str(engine.url), session_factory=factory) is True
+    assert [row[0] for row in _alert_rows(engine)] == [1, 2]
+
+
+def test_publish_checks_the_guardian_and_the_library_on_both_architectures():
+    workflow = (ROOT / ".github/workflows/publish-image.yml").read_text(encoding="utf-8")
+    loop = workflow[workflow.index("for arch in amd64 arm64; do"):]
+    loop = loop[:loop.index("            docker rm -f \"$name\" >/dev/null\n          done")]
+    assert "python3 -I -S /usr/local/libexec/odin-sqlite-image-check.py" in loop
+    assert '["database_integrity"]["status"]' in loop and 'test "$guardian" = ok' in loop
+
+
+def test_a_recent_damage_alert_does_not_stand_in_for_a_stopped_guardian(alert_db, monkeypatch):
+    from modules.notifications import alert_dispatcher
+    engine, factory = alert_db
+    monkeypatch.setattr(alert_dispatcher, "deliver_staged_alert", lambda db, plan: None)
+    db_guardian.publish_integrity_alert(DAMAGED, session_factory=factory)
+    _stale_status(Path(engine.url.database))
+    assert alert_if_stopped(str(engine.url), session_factory=factory) is True
+    states = [json.loads(row[4])["state"] if isinstance(row[4], str) else row[4]["state"] for row in _alert_rows(engine)]
+    assert states.count(DAMAGED) == 2 and states.count(UNAVAILABLE) == 2
+
+
+# --- The guardian keeps working when it can't write its status.
+
+class _Stop(BaseException):
+    pass
+
+
+def _run_main_loop(monkeypatch, tmp_path, ticks=2):
+    database = tmp_path / "odin.db"
+    monkeypatch.setattr(db_guardian, "DATABASE_URL", f"sqlite:///{database}")
+    niced = []
+    monkeypatch.setattr(db_guardian.os, "nice", niced.append)
+    seen = []
+    def fake_tick(status, now, *a, **k):
+        seen.append(1)
+        status["integrity"] = {"state": OK, "checked_at": now.isoformat()}
+        if len(seen) >= ticks:
+            raise _Stop
+        return True
+    monkeypatch.setattr(db_guardian, "tick", fake_tick)
+    monkeypatch.setattr(db_guardian.time, "sleep", lambda _: None)
+    with pytest.raises(_Stop):
+        db_guardian.main_loop()
+    return seen, niced
+
+
+def test_the_loop_runs_at_low_priority(monkeypatch, tmp_path):
+    _, niced = _run_main_loop(monkeypatch, tmp_path)
+    assert niced == [10]
+
+
+def test_an_unwritable_status_directory_does_not_stop_the_loop(monkeypatch, tmp_path):
+    (tmp_path / "run").mkdir()
+    (tmp_path / "run").chmod(0o500)
+    try:
+        seen, _ = _run_main_loop(monkeypatch, tmp_path)
+    finally:
+        (tmp_path / "run").chmod(0o700)
+    assert len(seen) == 2 and list((tmp_path / "run").iterdir()) == []
+
+
+def test_a_full_disk_does_not_stop_the_loop_or_leave_a_temporary(monkeypatch, tmp_path):
+    original = Path.write_text
+    def full(self, *a, **k):
+        if self.name.endswith(".tmp"):
+            original(self, "half")
+            raise OSError(28, "No space left on device")
+        return original(self, *a, **k)
+    monkeypatch.setattr(Path, "write_text", full)
+    seen, _ = _run_main_loop(monkeypatch, tmp_path)
+    assert len(seen) == 2 and list((tmp_path / "run").glob("*.tmp")) == []
+
+
+def test_leftovers_that_cannot_be_cleared_do_not_stop_the_guardian(monkeypatch, tmp_path):
+    def refuse(_):
+        raise OSError(13, "Permission denied")
+    monkeypatch.setattr(db_guardian, "clear_leftovers", refuse)
+    assert len(_run_main_loop(monkeypatch, tmp_path)[0]) == 2
+
+
+def test_a_real_guardian_stays_up_with_a_read_only_status_directory(tmp_path):
+    """The review's reproduction was 46 restarts in 60 s: the process died on its first write."""
+    from core.schema import bootstrap_database
+    database = tmp_path / "odin.db"
+    engine = create_engine(f"sqlite:///{database}")
+    bootstrap_database(engine)
+    engine.dispose()
+    run = tmp_path / "run"
+    run.mkdir()
+    run.chmod(0o500)
+    env = dict(os.environ, DATABASE_URL=f"sqlite:///{database}", LICENSE_DIR=str(tmp_path), API_KEY="",
+               JWT_SECRET_KEY="db-safety-test-only", ODIN_ITAR_MODE="0", ODIN_TELEMETRY_V2="0", COOKIE_SECURE="false",
+               ODIN_DB_ROLE="backup", PYTHONPATH=f"{ROOT / 'backend'}:{ROOT}", PYTHONUNBUFFERED="1")
+    process = subprocess.Popen([sys.executable, "-m", "modules.system.db_guardian"], cwd=ROOT / "backend", env=env,
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    try:
+        deadline = time.monotonic() + 45
+        while time.monotonic() < deadline and process.poll() is None:
+            time.sleep(0.5)
+            if time.monotonic() > deadline - 30:
+                break
+        assert process.poll() is None, process.stdout.read()[-2000:]
+    finally:
+        process.terminate()
+        output = process.communicate(timeout=20)[0]
+        run.chmod(0o700)
+    assert "Status could not be saved (PermissionError)" in output
 
 
 def test_real_daemon_process_checks_backs_up_and_survives(tmp_path):
@@ -384,6 +600,29 @@ def test_a_backup_that_never_succeeded_is_missed_from_the_first_start(tmp_path):
     status = {"started_at": NOW.isoformat(), "backup": {"state": "failed", "last_attempt_at": NOW.isoformat()}}
     assert missed_backups(status, NOW + timedelta(hours=25), database) == []
     assert _reasons(missed_backups(status, NOW + timedelta(hours=26), database)) == ["missed"]
+
+
+def test_a_job_that_registered_and_never_confirmed_a_copy_is_noticed(tmp_path):
+    """A first install has no confirmed copy, so the clock starts when the job registers."""
+    database = tmp_path / "odin.db"
+    status = {"backup": {"last_success_at": NOW.isoformat()}}
+    write_status(offsite_path(database), {"expected_since": NOW.isoformat()})
+    assert missed_backups(status, NOW + timedelta(hours=25), database) == []
+    late = NOW + timedelta(hours=36)
+    status["backup"]["last_success_at"] = late.isoformat()
+    assert _reasons(missed_backups(status, late, database)) == ["offsite_missed"]
+
+
+def test_no_off_server_alert_straight_after_an_outage(tmp_path):
+    """The review's reproduction: 37 hours since the last confirm, 13 of them with the server off."""
+    database = tmp_path / "odin.db"
+    write_status(offsite_path(database), {"confirmed_at": NOW.isoformat()})
+    moment = NOW + timedelta(hours=37)
+    status = {"backup": {"last_success_at": moment.isoformat()}}
+    status["booted_at"] = (moment - timedelta(hours=1)).isoformat()
+    assert missed_backups(status, moment, database) == []
+    status["booted_at"] = (moment - timedelta(hours=4)).isoformat()
+    assert _reasons(missed_backups(status, moment, database)) == ["offsite_missed"]
 
 
 def test_off_server_copies_only_count_once_one_was_confirmed(tmp_path):
@@ -471,10 +710,6 @@ def test_the_watcher_gives_a_booting_guardian_time_before_calling_it_stopped(mon
     monkeypatch.setattr(runner.time, "monotonic", lambda: runner._STARTED_AT + runner.GUARDIAN_WATCH_DELAY_SECONDS)
     runner._check_database_guardian()
     assert calls == [1]
-
-
-class _Stop(Exception):
-    pass
 
 
 @pytest.mark.parametrize("last_check,waits", [(timedelta(minutes=1), True), (timedelta(days=2), False)], ids=["recent", "after-an-outage"])

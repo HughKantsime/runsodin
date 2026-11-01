@@ -18,7 +18,11 @@ HEALTHY = "ok"
 FAILED = "failed"
 UNAVAILABLE = "unavailable"
 STALE = "stale"
+RETRYING = "retrying"
 NOT_HEALTHY = frozenset({FAILED, UNAVAILABLE, STALE})
+# One check that can't finish is usually a passing lock; three in a row means nothing is checking.
+# Until then /health stays "ok": a passing lock must not fail a deploy's health window.
+UNAVAILABLE_ALERT_AFTER = 3
 # Grace beyond two missed intervals, so a slow check or a guardian restart doesn't flap /health.
 STALE_GRACE_SECONDS = 300
 _MAX_STATUS_BYTES = 64 * 1024
@@ -45,9 +49,13 @@ def read_status(path: Path) -> dict:
 def write_status(path: Path, status: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps(status, sort_keys=True) + "\n", encoding="utf-8")
-    temporary.chmod(0o600)
-    os.replace(temporary, path)
+    try:
+        temporary.write_text(json.dumps(status, sort_keys=True) + "\n", encoding="utf-8")
+        temporary.chmod(0o600)
+        os.replace(temporary, path)
+    except OSError:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def parse_time(value) -> datetime | None:
@@ -76,7 +84,9 @@ def integrity_view(status: dict, *, now: datetime | None = None) -> dict[str, st
     if limit is None or (now - checked_at).total_seconds() > limit:
         return {"status": STALE, "checked_at": integrity.get("checked_at")}
     if state == "unavailable":
-        return {"status": UNAVAILABLE, "checked_at": integrity.get("checked_at")}
+        misses = integrity.get("consecutive_unavailable")
+        retrying = isinstance(misses, int) and misses < UNAVAILABLE_ALERT_AFTER
+        return {"status": RETRYING if retrying else UNAVAILABLE, "checked_at": integrity.get("checked_at")}
     return {"status": HEALTHY if state == "ok" else STALE, "checked_at": integrity.get("checked_at")}
 
 
