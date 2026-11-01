@@ -6,7 +6,7 @@ print files. It does not queue jobs or send printer commands. The existing
 This backend endpoint has no new UI.
 
 Send multipart fields `file` and `target_printer_id`. The target is required for
-every import, including packages with an unknown machine. The caller needs
+every import, including packages with no recorded machine. The caller needs
 `upload.upload` permission and the `write:models` token scope. The endpoint is
 limited to 10 requests per minute. The target must be active, be visible under the existing upload policy
 including shared printers, and use Moonraker or PrusaLink. Bambu targets and packages
@@ -25,11 +25,16 @@ slice facts applied only to their own plate. Duplicate metadata keys, conflictin
 bed or a nozzle mismatch are refused. A recorded bed or nozzle also requires
 corresponding target dimensions or nozzle metadata so the check can run.
 `compatible_api_types` is set to the explicit target API, never left empty to
-permit every API. Unknown machine facts stay unknown; choosing a target does not
-turn them into recognized machine evidence.
+permit every API. An explicit source machine must match the target machine. Known aliases use the
+shared canonical identity; unrecognized declarations must match after conservative
+normalization. A missing target identity cannot validate an explicit source.
+Missing source facts stay missing; choosing a target does not create machine evidence.
 
 Grams, print time and filament entries come from each plate's `slice_info` index.
-Missing values stay missing rather than inheriting plate 1. This initial importer
+Each model also receives its own recorded filament requirements and material type
+for scheduling and costing. Material labels outside Odin's supported model types
+stay on the print file; the model type remains unset and existing cost defaults
+apply. Missing values stay missing rather than inheriting plate 1. This initial importer
 admits at most one used source filament per plate. Existing non-Bambu target
 metadata does not establish multi-material capability, so the importer cannot
 safely admit MMU or multi-tool plates yet. No claim about the printer's physical

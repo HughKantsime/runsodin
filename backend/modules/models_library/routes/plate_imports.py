@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
 from starlette.concurrency import run_in_threadpool
 
+from core.base import FilamentType
 from core.db import get_db
 from core.db_compat import execute_insert_returning_id
 from core.dependencies import log_audit
@@ -81,10 +82,32 @@ def _persist(db, actor, printer_id, plates, original):
                   'nozzle': facts['nozzle'].get('value'), 'machine': facts['machine'].get('value'),
                   # Explicit binding authorizes this target API, never all APIs.
                   'api': target.api_type, 'facts': json.dumps(facts, sort_keys=True)})
+            # Match ordinary upload requirements without inventing missing facts.
+            # check_target already restricts the plate to one used material slot.
+            used = [f for f in plate['filaments'] if f['used_grams'] is None
+                    or f['used_grams'] > 0 or (f['used_meters'] or 0) > 0]
+            requirements = {}
+            for filament in used:
+                requirement = {}
+                if filament['color'] is not None:
+                    requirement['color'] = filament['color']
+                if filament['used_grams'] is not None:
+                    requirement['grams'] = filament['used_grams']
+                requirements[f"slot{filament['slot']}"] = requirement
+            raw_type = used[0]['type'] if used else None
+            # The model column is an enum. Keep unsupported slicer labels only in
+            # filaments_json rather than creating a model that ORM cannot read.
+            filament_type = raw_type if raw_type in {t.value for t in FilamentType} else None
+            if raw_type and filament_type is None:
+                recognized = FilamentType.from_bambu_code(raw_type)
+                if recognized != FilamentType.OTHER:
+                    filament_type = recognized.value
             model_id = execute_insert_returning_id(db, '''
-                INSERT INTO models(name,print_file_id,category,org_id,build_time_hours)
-                VALUES(:name,:file,'Uploaded',:org,:hours)
+                INSERT INTO models(name,print_file_id,category,org_id,build_time_hours,
+                    color_requirements,default_filament_type)
+                VALUES(:name,:file,'Uploaded',:org,:hours,:requirements,:filament_type)
             ''', {'name': name, 'file': file_id, 'org': actor.get('group_id'),
+                  'requirements': json.dumps(requirements), 'filament_type': filament_type,
                   'hours': plate['print_time_seconds'] / 3600 if plate['print_time_seconds'] is not None else None})
             final = _new_upload_path(file_id, filename)
             finals.append((plate['path'], final))

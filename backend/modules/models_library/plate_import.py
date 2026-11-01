@@ -52,6 +52,22 @@ def _read_json(package, member):
     return value
 
 
+_MACHINE_KEYS = ('printer_model', 'printer_model_id', 'machine_model')
+
+
+def _machine_identity(machine):
+    """Keep known aliases; unfamiliar models match only case and spacing."""
+    from core.printer_identity import canonical_machine
+    if machine is None or machine == '':
+        return None
+    if not isinstance(machine, str):
+        raise ValueError('Invalid machine declaration')
+    normalized = re.sub(r'\s+', '', machine).casefold()
+    if not normalized:
+        raise ValueError('Invalid machine declaration')
+    return canonical_machine(machine) or normalized
+
+
 def _nozzle_declarations(data):
     values = []
     for key in ('nozzle_diameter', 'nozzle_diameters'):
@@ -98,8 +114,8 @@ def _slice_metadata(package):
             grams = sum(f['used_grams'] for f in filaments)
         result[number] = {'source_member': member, 'filaments': filaments, 'total_weight_grams': grams,
                           'print_time_seconds': _number(meta.get('prediction'), integer=True),
-                          'machines': [meta[k] for k in ('printer_model', 'printer_model_id', 'machine_model') if meta.get(k)],
-                          'machine': next((meta[k] for k in ('printer_model', 'printer_model_id', 'machine_model') if meta.get(k)), None),
+                          'machines': [meta[k] for k in _MACHINE_KEYS if meta.get(k)],
+                          'machine': next((meta[k] for k in _MACHINE_KEYS if meta.get(k)), None),
                           'nozzle': _nozzle_declarations(meta)}
     return result
 
@@ -151,13 +167,10 @@ def extract_to(path, destination):
         machines = [parent['safety_facts']['machine'].get('value')]
         machines += [machine for item in per_plate.values() for machine in item['machines']]
         if project_member:
-            machines += [project.get(key) for key in ('printer_model', 'printer_model_id', 'machine_model')]
+            machines += [project.get(key) for key in _MACHINE_KEYS]
 
-        from core.printer_identity import canonical_machine
-        def identity(machine):
-            return canonical_machine(machine) or re.sub(r'[^a-z0-9]', '', str(machine or '').lower())
-        project_machines = [project.get(key) for key in ('printer_model', 'printer_model_id', 'machine_model')] if project_member else []
-        if len({identity(machine) for machine in project_machines if machine}) > 1:
+        project_machines = [project.get(key) for key in _MACHINE_KEYS] if project_member else []
+        if len({_machine_identity(machine) for machine in project_machines if machine}) > 1:
             raise ValueError('Conflicting project machine facts')
         if any('bambu' in _api_types_for_machine(machine) for machine in machines):
             raise ValueError('Bambu-sliced plates must remain in their original 3MF')
@@ -173,10 +186,10 @@ def extract_to(path, destination):
                                              'print_time_seconds': None, 'machine': None, 'nozzle': None})
             facts = json.loads(json.dumps(parent['safety_facts']))
             plate_machines = metadata.get('machines', [])
-            if len({identity(machine) for machine in plate_machines if machine}) > 1:
+            if len({_machine_identity(machine) for machine in plate_machines if machine}) > 1:
                 raise ValueError('Conflicting plate machine facts')
             source_machine = facts['machine'].get('value')
-            if source_machine and any(identity(machine) != identity(source_machine) for machine in metadata.get('machines', []) if machine):
+            if source_machine and any(_machine_identity(machine) != _machine_identity(source_machine) for machine in metadata.get('machines', []) if machine):
                 raise ValueError('Conflicting project and plate machine facts')
             source_nozzle = facts['nozzle'].get('value')
             if source_nozzle is not None and metadata['nozzle'] is not None and abs(float(source_nozzle) - metadata['nozzle']) > 0.01:
@@ -187,6 +200,18 @@ def extract_to(path, destination):
             plate_json = next((name for name in package.namelist() if name.lower() == f'metadata/plate_{number}.json'), None)
             if plate_json is not None:
                 data = _read_json(package, plate_json)
+                json_machines = [(key, data[key]) for key in _MACHINE_KEYS if data.get(key)]
+                if len({_machine_identity(machine) for _key, machine in json_machines}) > 1:
+                    raise ValueError('Conflicting plate machine facts')
+                if json_machines:
+                    key, machine = json_machines[0]
+                    existing = facts['machine'].get('value')
+                    if existing and _machine_identity(existing) != _machine_identity(machine):
+                        raise ValueError('Conflicting plate machine facts')
+                    if 'bambu' in _api_types_for_machine(machine):
+                        raise ValueError('Bambu-sliced plates must remain in their original 3MF')
+                    if not existing:
+                        facts['machine'] = _fact(machine, plate_json, key)
                 nozzle = _nozzle_declarations(data)
                 if nozzle is not None:
                     existing = facts['nozzle'].get('value')
@@ -286,18 +311,21 @@ def prepare_staged(analysis, destination):
 
 def check_target(plates, target):
     """Only explicit active non-Bambu dispatch targets, with recorded facts intact."""
-    from core.printer_identity import canonical_machine
     from modules.models_library.print_file_meta import _api_types_for_machine
     if (not target.is_active or target.api_type not in ('moonraker', 'prusalink')
             or 'bambu' in _api_types_for_machine(target.machine_type)):
         raise HTTPException(400, 'Plate import requires an active non-Bambu Moonraker or PrusaLink target')
+    try:
+        target_machine = _machine_identity(target.machine_type)
+    except ValueError as exc:
+        raise HTTPException(400, 'Selected printer has an invalid machine identity') from exc
     for item in plates:
         facts = item['meta']['safety_facts']
         machine = facts['machine'].get('value')
         if 'bambu' in _api_types_for_machine(machine):
             raise HTTPException(400, 'Bambu-sliced plates cannot be imported as generic G-code')
-        source_machine, target_machine = canonical_machine(machine), canonical_machine(target.machine_type)
-        if source_machine and target_machine and source_machine != target_machine:
+        source_machine = _machine_identity(machine)
+        if source_machine is not None and source_machine != target_machine:
             raise HTTPException(400, 'Plate machine does not match the selected printer')
         x, y = item['meta']['bed_x_mm'], item['meta']['bed_y_mm']
         if x is not None and y is not None:
