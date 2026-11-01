@@ -986,3 +986,110 @@ def test_external_delegation_does_not_resolve_unknown_archive_ownership(archive_
     assert archive.create_print_archive(7099, 9, True) is not None
     assert _accounting(engine) == ('unresolved', 'archive_ownership_unresolved')
     assert _balances(engine) == [1000, 1000]
+
+
+@pytest.mark.parametrize('delegated, reset, expected', [([9], False, 100), ([10], False, 100),
+                                                       ([9], True, 90), ([10], True, 100),
+                                                       ([], False, 90), ([999], False, 90)])
+def test_operator_reassignment_uses_current_attempt_accounting_policy(lifecycle_client, monkeypatch, delegated, reset, expected):
+    from core.config import settings
+    from core.print_attempts import bind_print_attempt, sqlalchemy_runner
+    from modules.jobs.routes import jobs_crud
+    client, db = lifecycle_client
+    client.app.include_router(jobs_crud.router)
+    monkeypatch.setattr(settings, 'external_filament_accounting_printers', delegated)
+    _print_job(db, 5201)
+    bind_print_attempt(sqlalchemy_runner(db), 5201, 111)
+    db.execute(text("INSERT INTO spools(id,filament_id,status,location_printer_id,location_slot,remaining_weight_g,initial_weight_g,org_id) VALUES(112,111,'active',10,1,100,100,1)"))
+    db.execute(text('UPDATE filament_slots SET assigned_spool_id=112 WHERE printer_id=10 AND slot_number=1'))
+    db.commit()
+    # Single-spool printers have no AMS mapping to edit during reassignment.
+    db.execute(text("UPDATE printers SET api_type='moonraker' WHERE id IN (9,10)"))
+    db.execute(text('UPDATE jobs SET ams_mapping=NULL WHERE id=111')); db.commit()
+    # The physical print failed. Reassignment alone is not a new attempt.
+    assert client.post('/jobs/111/fail').status_code == 200
+    changed = client.patch('/jobs/111', json={'printer_id': 10})
+    assert changed.status_code == 200, changed.text
+    if reset:
+        assert client.post('/jobs/111/reset').status_code == 200
+        assert client.patch('/jobs/111', json={'printer_id': 10}).status_code == 200
+        # A real new physical print belongs to the reset attempt on printer 10.
+        db.execute(text("INSERT INTO print_jobs(id,printer_id,scheduled_job_id,job_name,status,started_at) VALUES(5202,10,111,'New attempt','failed',CURRENT_TIMESTAMP)"))
+        bind_print_attempt(sqlalchemy_runner(db), 5202, 111)
+        db.commit()
+    completed = client.post('/jobs/111/complete')
+    assert completed.status_code == 200, completed.text
+    assert db.execute(text('SELECT remaining_weight_g FROM spools WHERE id=112')).scalar_one() == expected
+    assert db.execute(text('SELECT remaining_weight_g FROM spools WHERE id=111')).scalar_one() == 100
+    assert len(_usage(db)) == (1 if expected == 90 else 0)
+
+
+@pytest.mark.parametrize('delegated', [[9], [10]])
+def test_job_only_ledger_cannot_bypass_physical_accounting_owner(lifecycle_client, monkeypatch, delegated):
+    from core.config import settings
+    from core.filament_ledger import record_job_filament
+    from core.print_attempts import sqlalchemy_runner
+    _, db = lifecycle_client
+    monkeypatch.setattr(settings, 'external_filament_accounting_printers', delegated)
+    _print_job(db, 5201)
+    db.execute(text('UPDATE jobs SET printer_id=10 WHERE id=111')); db.commit()
+    result = record_job_filament(sqlalchemy_runner(db), 111, source='operator_complete', grams_by_spool={111: 10})
+    assert result.state == 'nothing_deducted'
+    assert result.reason == ('external_accounting' if delegated == [9] else 'printer_reassigned')
+    assert _spool(db) == (100.0, 0)
+    assert not _keys(db)
+
+
+def test_multiple_current_prints_cannot_choose_local_history_over_external(lifecycle_client, monkeypatch):
+    from core.config import settings
+    from core.filament_ledger import record_job_filament
+    from core.print_attempts import sqlalchemy_runner
+    _, db = lifecycle_client
+    _print_job(db, 5201)
+    _print_job(db, 5202)
+    db.execute(text('UPDATE print_jobs SET printer_id=10 WHERE id=5202')); db.commit()
+    monkeypatch.setattr(settings, 'external_filament_accounting_printers', [9])
+    result = record_job_filament(sqlalchemy_runner(db), 111, source='operator_complete', grams_by_spool={111: 10})
+    assert (result.state, result.reason) == ('nothing_deducted', 'ambiguous_physical_print')
+    assert _spool(db) == (100.0, 0)
+
+
+def test_legacy_unbound_external_history_before_actual_start_is_not_current(lifecycle_client, monkeypatch):
+    from core.config import settings
+    from core.filament_ledger import record_job_filament
+    from core.print_attempts import sqlalchemy_runner
+    _, db = lifecycle_client
+    _print_job(db, 5201)
+    db.execute(text("UPDATE print_jobs SET started_at='2026-01-01 08:00:00' WHERE id=5201"))
+    db.execute(text("UPDATE jobs SET printer_id=10,actual_start='2026-01-02 08:00:00' WHERE id=111")); db.commit()
+    monkeypatch.setattr(settings, 'external_filament_accounting_printers', [9])
+    assert record_job_filament(sqlalchemy_runner(db), 111, source='operator_complete', grams_by_spool={111: 10}).deducted
+
+
+def test_bound_external_current_attempt_survives_clock_skew(lifecycle_client, monkeypatch):
+    from core.config import settings
+    from core.filament_ledger import record_job_filament
+    from core.print_attempts import bind_print_attempt, sqlalchemy_runner
+    _, db = lifecycle_client
+    _print_job(db, 5201)
+    bind_print_attempt(sqlalchemy_runner(db), 5201, 111)
+    db.execute(text("UPDATE print_jobs SET started_at='2026-01-01 08:00:00' WHERE id=5201"))
+    db.execute(text("UPDATE jobs SET printer_id=10,actual_start='2026-01-02 08:00:00' WHERE id=111")); db.commit()
+    monkeypatch.setattr(settings, 'external_filament_accounting_printers', [9])
+    result = record_job_filament(sqlalchemy_runner(db), 111, source='operator_complete', grams_by_spool={111: 10})
+    assert result.reason == 'external_accounting'
+    assert _spool(db) == (100.0, 0)
+
+
+def test_unknown_legacy_print_time_cannot_exclude_external_owner(lifecycle_client, monkeypatch):
+    from core.config import settings
+    from core.filament_ledger import record_job_filament
+    from core.print_attempts import sqlalchemy_runner
+    _, db = lifecycle_client
+    _print_job(db, 5201)
+    db.execute(text('UPDATE print_jobs SET started_at=:started WHERE id=5201'), {'started': 'unparseable'})
+    db.execute(text("UPDATE jobs SET printer_id=10,actual_start='2026-01-02 08:00:00' WHERE id=111")); db.commit()
+    monkeypatch.setattr(settings, 'external_filament_accounting_printers', [9])
+    result = record_job_filament(sqlalchemy_runner(db), 111, source='operator_complete', grams_by_spool={111: 10})
+    assert result.reason == 'external_accounting'
+    assert _spool(db) == (100.0, 0)

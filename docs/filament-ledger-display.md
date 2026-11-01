@@ -63,7 +63,13 @@ archives. Removing a printer from this list does not automatically reprocess
 existing archives. If accounting is explicitly invoked later, no deduction claim
 from the skipped invocation prevents it from deducting consumption.
 A physical print's recorded printer determines its policy even if its scheduled
-job was subsequently reassigned. Malformed lists fail server startup.
+job was subsequently reassigned. Operator completion checks only the current
+attempt's physical history; a reset starts a new attempt. If that history is
+ambiguous across delegated printers, or a local physical print's job now points
+to a delegated printer, completion skips automatic deduction rather than
+charging the newly assigned printer's spools. Existing local accounting remains
+unchanged when no involved printer delegates accounting. Malformed lists fail
+server startup.
 
 Hardware telemetry still reconciles departures from Odin's local slot inventory.
 An explicitly empty Moonraker gate or Anycubic slot can clear an old local spool

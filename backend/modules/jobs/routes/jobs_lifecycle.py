@@ -172,10 +172,10 @@ def complete_job(job_id: int, current_user: dict = Depends(require_action("jobs.
     # ledger: at most once per print attempt (a failed->completed correction
     # stays on the same attempt; a reset reprint deducts again), and the attempt
     # is claimed only when something is actually deducted.
-    from core.interfaces.filament_ownership import uses_external_filament_accounting
-    if slot_grams and job.printer_id and not uses_external_filament_accounting(job.printer_id):
-        from core.filament_ledger import record_job_filament
-        from core.print_attempts import sqlalchemy_runner as _attempt_runner
+    from core.filament_ledger import job_accounting_skip_reason, record_job_filament
+    from core.print_attempts import sqlalchemy_runner as _attempt_runner
+    accounting_skip = job_accounting_skip_reason(_attempt_runner(db), job.id)
+    if slot_grams and job.printer_id and not accounting_skip:
         from core.tray_identity import decode
         printer = db.get(Printer, job.printer_id)
         from modules.jobs.material_slots import locked_printer_slots

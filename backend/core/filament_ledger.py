@@ -339,6 +339,45 @@ def _deduct(run, spool_id, grams, *, job_id, print_job_id, notes, allow_unknown_
             "shortfall_g": max(0.0, grams - before) if before is not None else 0, "spoolman_spool_id": row[1]}
 
 
+def job_accounting_skip_reason(run, job_id) -> Optional[str]:
+    """Resolve current-attempt physical ownership without changing spool attribution.
+
+    A reset excludes earlier physical prints. Completion without a physical print
+    retains the assigned-printer workflow. A reassignment is not evidence that the
+    new printer's loaded spools supplied an existing physical print.
+    """
+    from core.config import settings
+    from core.interfaces.filament_ownership import uses_external_filament_accounting
+    if not settings.external_filament_accounting_printers:
+        return None
+    job = run("SELECT printer_id FROM jobs WHERE id = :id", {"id": int(job_id)}).fetchone()
+    if not job:
+        return "missing_job"
+    current = current_attempt(run, job_id)
+    prints = []
+    for pid, printer, started in run(
+            "SELECT id, printer_id, started_at FROM print_jobs WHERE scheduled_job_id = :id",
+            {"id": int(job_id)}).fetchall():
+        if not print_attempt(run, job_id, pid).same_attempt(current):
+            continue
+        # Explicit bindings survive clock skew. Legacy unbound prints must also
+        # fall within actual_start's floor when a pre-counter reset left no audit.
+        started_at = moment(started)
+        if bound_print_attempt(run, pid, job_id) is None and started_at is not None and not current.holds(started_at):
+            continue
+        prints.append((pid, printer))
+    if len(prints) > 1:
+        if uses_external_filament_accounting(job[0]) or any(uses_external_filament_accounting(printer) for _, printer in prints):
+            return "ambiguous_physical_print"
+        return None
+    printer = prints[0][1] if prints else job[0]
+    if uses_external_filament_accounting(printer):
+        return "external_accounting"
+    if prints and printer != job[0] and uses_external_filament_accounting(job[0]):
+        return "printer_reassigned"
+    return None
+
+
 def record_job_filament(run, job_id, *, source: str, grams_by_spool: Mapping, print_job_id=None,
                         notes: str = "", allow_unknown_balance=False) -> LedgerResult:
     """Deduct once per physical print (``print_job_id``) or per job attempt, claiming atomically."""
@@ -354,10 +393,12 @@ def record_job_filament(run, job_id, *, source: str, grams_by_spool: Mapping, pr
         printer = run("SELECT printer_id FROM print_jobs WHERE id = :id", {"id": print_job_id}).fetchone()
         if not printer:
             return LedgerResult("nothing_deducted", "missing_physical_print")
+        if uses_external_filament_accounting(printer[0]):
+            return LedgerResult("nothing_deducted", "external_accounting")
     else:
-        printer = run("SELECT printer_id FROM jobs WHERE id = :id", {"id": job_id}).fetchone()
-    if printer and uses_external_filament_accounting(printer[0]):
-        return LedgerResult("nothing_deducted", "external_accounting")
+        reason = job_accounting_skip_reason(run, job_id)
+        if reason:
+            return LedgerResult("nothing_deducted", reason)
     prior = prior_attempt_usage(run, job_id, print_job_id)
     if prior:
         return LedgerResult("already_deducted", prior)
