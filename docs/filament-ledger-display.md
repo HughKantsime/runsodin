@@ -125,7 +125,9 @@ Backend checks use the shared contract database fixture and a synthetic provider
 no running printer, inventory service, network egress or login is required:
 
 ```sh
-python -m pytest tests/test_contracts/test_filament_ledger_display.py \
+python -m pytest \
+  tests/test_contracts/test_filament_ledger_display.py \
+  tests/test_contracts/test_filament_ledger_feed_validation.py \
   --confcutdir=tests/test_contracts
 ```
 
@@ -137,12 +139,14 @@ npm test -- src/components/printers/LedgerDisplay.test.tsx
 npm run build
 ```
 
-The checks cover explicit bindings, tool numbering, original labels, unknown
-amounts, cached reads, outages, the whole-refresh deadline, response-size cap,
-single-refresh concurrency, expiry measured from completion, organization scope,
-unchanged database rows, blocked local edits and cross-printer moves, the
+The display contract covers explicit bindings, tool numbering, original labels,
+unknown amounts, cached reads, outages, the whole-refresh deadline, response-size
+cap, single-refresh concurrency, expiry measured from completion, organization
+scope, unchanged database rows, blocked local edits and cross-printer moves, the
 inventory/printers contract boundary, destination-policy rejection,
-organization-safe errors and normal behavior for unlinked printers.
+organization-safe errors and normal behavior for unlinked printers. The feed
+validation contract covers UTF-8 and text-length limits, tool bounds, valid Unicode
+boundaries, optional display-name fallback and actual route response serialization.
 
 The display response is never written back to the ORM. ODIN's stored slot
 inventory, telemetry observations, consumption accounting and dispatch decisions
