@@ -760,12 +760,41 @@ def test_guard_stops_the_whole_command_when_a_job_starts(tmp_path, stubs):
         pytest.fail('the command outlived the guard')
 
 
+def test_the_way_back_works_from_a_clean_clone(tmp_path):
+    """A clean clone has no local revert branch, only the remote's. The README's own commands, on a stand-in remote."""
+    def git(*arguments, cwd):
+        return subprocess.run(['git', *arguments], cwd=cwd, capture_output=True, text=True,
+                              env={**os.environ, 'GIT_AUTHOR_NAME': 'ci', 'GIT_AUTHOR_EMAIL': 'ci@invalid',
+                                   'GIT_COMMITTER_NAME': 'ci', 'GIT_COMMITTER_EMAIL': 'ci@invalid'})
+    remote = tmp_path / 'remote'
+    remote.mkdir()
+    assert git('init', '-q', '-b', 'main', cwd=remote).returncode == 0
+    (remote / 'workflow').write_text('runner\n')
+    git('add', '.', cwd=remote)
+    git('commit', '-qm', 'main', cwd=remote)
+    git('switch', '-qc', 'revert/validation-to-mac', cwd=remote)
+    (remote / 'workflow').write_text('mac\n')
+    git('commit', '-qam', 'back to the mac', cwd=remote)
+    git('switch', '-q', 'main', cwd=remote)
+    assert git('clone', '-q', str(remote), 'clone', cwd=tmp_path).returncode == 0
+    clone = tmp_path / 'clone'
+    readme = (CI / 'README.md').read_text()
+    section = readme[readme.index('## Moving validation back to the Mac'):readme.index('## Egress to production')]
+    commands = [line.strip() for line in section.splitlines() if line.strip().startswith(('git fetch origin', 'git switch -c revert-validation', 'git cherry-pick'))]
+    assert len(commands) == 3
+    for command in commands:
+        ran = git(*command.split()[1:], cwd=clone)
+        assert ran.returncode == 0, f'{command}: {ran.stderr}'
+    assert (clone / 'workflow').read_text() == 'mac\n'
+    assert git('rev-parse', '--verify', '-q', 'revert/validation-to-mac', cwd=clone).returncode != 0, 'no local branch: the prefix is needed'
+
+
 def test_readme_gives_the_way_back_to_the_mac():
     readme = (CI / 'README.md').read_text()
     section = readme[readme.index('## Moving validation back to the Mac'):readme.index('## Egress to production')]
     steps = [
         '.odin-release-chain.lock',
-        'git cherry-pick revert/validation-to-mac',
+        'git cherry-pick origin/revert/validation-to-mac',
         'pytest tests/test_release_control',
         'git push origin HEAD:main',
         'gh variable delete ODIN_RUNNER_HOOK_REQUIRED',

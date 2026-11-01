@@ -123,7 +123,7 @@ Branch `revert/validation-to-mac` holds one commit, which restores the Mac's `tr
    ```sh
    git fetch origin
    git switch -c revert-validation origin/main
-   git cherry-pick revert/validation-to-mac
+   git cherry-pick origin/revert/validation-to-mac
    ```
 3. Run its tests: `python3.11 -m pytest tests/test_release_control -q`
 4. With the owner's approval, run `git push origin HEAD:main`. This is the step that moves validation: the chain dispatches with `--ref main`, so it doesn't need a release.
