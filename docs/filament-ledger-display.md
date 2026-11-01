@@ -95,17 +95,20 @@ retain `spool_id`, set `spool_status: "unavailable"`, and `spool: null`.
 Odin distinguishes these states instead of claiming an empty or full spool.
 
 Serve a cached display snapshot with bounded inventory reads. A display request
-should not wait for hardware probes. Odin applies one two-second deadline to the
-whole refresh, including DNS resolution, connect, headers and the response body,
-and caps the response at 512 KiB. A read that finds the cache expired starts one
-background refresh; printer reads always serve the last completed snapshot (or
+should not wait for hardware probes. Odin stops waiting for a refresh after two
+seconds, including time spent on DNS resolution, connect, headers and the response
+body, and caps the response at 512 KiB. A late worker cannot publish its result.
+A trickling response can keep that worker occupied longer; only one transport
+worker is allowed, so refreshes remain unavailable until it exits. A read that
+finds the cache expired starts one background refresh; printer reads always
+serve the last completed snapshot (or
 `unavailable` when none exists) instead of waiting for it. The 15-second
 cache/backoff starts when the refresh finishes, not when it began. Redirects
-and inherited HTTP proxies are disabled; requests honor the current device
-destination policy and ITAR restriction.
-The connection is DNS-pinned even outside ITAR mode. Loopback, link-local,
-metadata and ODIN service endpoints are blocked; use a private service hostname
-or LAN address. Missing printers, malformed
+and inherited HTTP proxies are disabled. HTTP(S) requests honor the current
+device destination policy and ITAR restriction. HTTP(S) connections are
+DNS-pinned even outside ITAR mode. Loopback, link-local, metadata and ODIN
+service endpoints are blocked for HTTP(S); use a private service hostname or
+LAN address. Missing printers, malformed
 payloads, oversized responses, timeouts and provider outages produce a visible
 warning while preserving the printer list. The adapter does not expose provider
 error bodies.
@@ -118,12 +121,27 @@ on that socket, with no TCP or DNS fallback. It disables environment proxies
 and redirects. The same refresh deadline, 512 KiB response limit, cache and
 ownership rules apply.
 
+The Unix transport does not use the HTTP device destination policy or ITAR
+network checks. The HTTP exclusions for loopback, link-local, metadata and Odin
+service endpoints do not apply to this local socket. Access depends on filesystem
+permissions and the trusted provider. The provider must accept `Host: localhost`.
+
 Use a literal absolute socket path. Authorities, query strings, fragments,
 percent escapes, whitespace, backslashes, empty path segments and `.` or `..`
-segments are rejected. Mount the socket directory into the Odin container and
-grant its process permission to connect. A read-only mount prevents filesystem
-changes but does not restrict requests over the socket. The trusted provider
-should expose only the read-only display route.
+segments are rejected. Odin also refuses symlinks, targets that are not sockets,
+and socket directories with the Unix other-write bit set. Group write is allowed for
+shared-group deployments, so every member with write access must be trusted.
+Anyone who can write to the socket directory can replace the socket; only the
+provider should have write access to that directory.
+
+Keep the socket directory outside `/data`, and do not give the provider access
+to Odin's data volume. Mount the socket directory read-only into Odin. In
+`docker-compose.enterprise.yml`, only the `api` container needs this mount.
+Odin runs as UID 10001 and needs directory search permission and permission to
+connect to the socket. Grant socket access through its owner or a shared group,
+without making the directory writable by Odin. A read-only mount prevents
+filesystem changes but does not restrict requests over the socket. The trusted
+provider should expose only the read-only display route.
 
 ## Verification
 

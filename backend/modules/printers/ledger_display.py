@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 import re
+import stat
 import threading
 import time
 from contextlib import nullcontext
@@ -124,6 +126,29 @@ def _valid_payload(payload: Any) -> dict[str, dict[str, Any]]:
     return result
 
 
+def _display_target(url: str) -> tuple[str, str | None]:
+    """Return the fixed feed endpoint and a validated local socket, if any."""
+    parsed = urlsplit(url)
+    if parsed.scheme != "unix":
+        return f"{url}/api/filament-display", None
+    # Use a literal path; never decode or normalize a socket target.
+    if (
+        not url.startswith("unix:///") or parsed.netloc
+        or "?" in url or "#" in url
+        or any(part in {"", ".", ".."} for part in parsed.path.split("/")[1:])
+        or any(ord(char) < 33 or ord(char) == 127 for char in url)
+        or "%" in parsed.path or "\\" in parsed.path
+    ):
+        raise ValueError("display socket must be an absolute local path")
+    target = os.stat(parsed.path, follow_symlinks=False)
+    if not stat.S_ISSOCK(target.st_mode):
+        raise ValueError("display target must be a socket")
+    directory = os.stat(os.path.dirname(parsed.path), follow_symlinks=False)
+    if not stat.S_ISDIR(directory.st_mode) or directory.st_mode & stat.S_IWOTH:
+        raise ValueError("display socket directory must not be writable by others")
+    return "http://localhost/api/filament-display", parsed.path
+
+
 def _fetch_payload(url: str, deadline: float) -> tuple[bool, dict[str, dict[str, Any]]]:
     """Fetch and validate one display payload before ``deadline``.
 
@@ -131,22 +156,8 @@ def _fetch_payload(url: str, deadline: float) -> tuple[bool, dict[str, dict[str,
     unavailable result without exposing response bodies, URLs or exception
     details to callers.
     """
-    endpoint = f"{url}/api/filament-display"
     try:
-        parsed = urlsplit(url)
-        socket_path = None
-        if parsed.scheme == "unix":
-            # Use a literal path; never decode or normalize a socket target.
-            if (
-                not url.startswith("unix:///") or parsed.netloc
-                or "?" in url or "#" in url
-                or any(part in {"", ".", ".."} for part in parsed.path.split("/")[1:])
-                or any(ord(char) < 33 or ord(char) == 127 for char in url)
-                or "%" in parsed.path or "\\" in parsed.path
-            ):
-                raise ValueError("display socket must be an absolute local path")
-            socket_path = parsed.path
-            endpoint = "http://localhost/api/filament-display"
+        endpoint, socket_path = _display_target(url)
         destination = nullcontext(None) if socket_path else pinned_device_destination(endpoint)
         with destination as ips:
             # Validate the exact addresses the connection will use.
