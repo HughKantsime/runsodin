@@ -42,12 +42,13 @@ def stage_admin_alert(db, title, message, metadata, admins):
 
     The caller commits, then delivers with deliver_staged_alert. Reuses the maintenance
     classification; a new alert type would be a schema change. A muted preference still gets the
-    inbox row: these aren't routine alerts.
+    inbox row: these aren't routine alerts. Quiet hours don't apply either: the daily limit counts
+    the row, so an alert held back at night would stay silent at the same hour every day.
     """
     from core.base import AlertSeverity, AlertType
     from modules.notifications.alert_dispatcher import _deliver_in_app, stage_alert
     plan = stage_alert(db, AlertType.MAINTENANCE_OVERDUE, AlertSeverity.CRITICAL, title, message,
-                       metadata=metadata, target_user_ids=list(admins))
+                       metadata=metadata, target_user_ids=list(admins), ignore_quiet_hours=True)
     covered = set(plan.in_app_users) if plan else set()
     for user_id in admins:
         if user_id not in covered:
