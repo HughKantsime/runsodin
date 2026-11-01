@@ -60,6 +60,29 @@ _CROSS_NOZZLE = tuple(re.compile(pattern) for pattern in (
     rf'M620\.11\s+S[01]\s+L[01]\s+I([0-9]+)\s+B([01])(?:\s+R{_NUMBER}\s+D{_NUMBER})?\s+E{_NUMBER}\s+F{_NUMBER}',
 ))
 
+# Bambu Lab P2S: the only forms in Bambu Studio's public profile since its first commit
+# (2025/10 to 2026/05, unchanged in 02.08.02.61), and those of a real slice. In M620.11, P is
+# long_retraction_when_cut with E its distance and F its feed (P1 is only in the change
+# template, so a single-source file has none). K R is the H2D template's long retraction on
+# an extruder change, fixed off here. L is 0 throughout and isn't documented. I is
+# current_filament_id: the filament being left, or in the start template the one about to
+# load. M620.6 I W1 is "enable ams air printing detect" for the filament just loaded.
+_P2S_MODEL = 'Bambu Lab P2S'
+_P2S_SOURCE = '(0|[1-9][0-9]*)'
+_P2S_LEAVING = re.compile(rf'M620\.11 (?:P0 L0 I{_P2S_SOURCE} E0|K0 I{_P2S_SOURCE} R0)')
+_P2S_LONG_RETRACTION = re.compile(rf'M620\.11 P1 L0 I{_P2S_SOURCE} E-[0-9]+(?:\.[0-9]+)? F[0-9]+(?:\.[0-9]+)?')
+_P2S_AIR_DETECT = re.compile(rf'M620\.6 I{_P2S_SOURCE} W1')
+# The rest of the template; the shared checks still decide these.
+_P2S_SHARED = re.compile(
+    rf'M620 M|M620\.10 A[01] F{_NUMBER}(?: L{_NUMBER})? H{_NUMBER} T{_NUMBER} P{_NUMBER} S1'
+    rf'|M620\.10 R{_NUMBER}|M620\.15 C{_NUMBER}')
+# machine_end_gcode's "pull back filament to AMS", once, after the slicer's end marker.
+# Bambu Studio's parser treats only T0-T254 as a filament. What the firmware does with 65535
+# isn't published, so nothing may extrude or change tool afterwards.
+_P2S_END_MARKER = '; MACHINE_END_GCODE_START'
+_P2S_PULL_BACK = ('M620 S65535', 'T65535', 'M621 S65535')
+_TOOL_COMMAND = re.compile(r'T(?:[0-9]|\s|$)|M62[01](?:\s|\.|$)')
+
 
 class MultipleAMSSources(ValueError):
     pass
@@ -134,6 +157,71 @@ def _cross_nozzle_agrees(command, settings, used):
     mapping = _map_values(settings.get('filament_map'))
     return (source in used and source < len(mapping)
             and str(mapping[source]) in ('1', '2') and int(mapping[source]) - 1 == hotend)
+
+
+class _P2STemplate:
+    """Holds a file that declares a P2S to that printer's own template, line by line."""
+
+    def __init__(self, used):
+        self.used = used
+        self.models = []
+        self.in_end_template = False
+        self.pulled_back = 0
+        self.loaded = None  # The source of the latest T.
+        self.first_named = set()  # Sources named before the first T, which must load them.
+
+    def admits(self, line, command):
+        """True: this command is settled here. False: the shared checks decide it."""
+        header = re.fullmatch(r'\s*;\s*printer_model\s*=\s*(.*?)\s*', line)
+        if header:
+            self.models.append(header.group(1))
+        if line.strip() == _P2S_END_MARKER:
+            self.in_end_template = True
+        if not _TOOL_COMMAND.match(command):
+            if self.pulled_back and re.match(r'G0*[0-3](?![0-9])', command) and 'E' in command:
+                raise ValueError('P2S extrusion after the pull back')
+            return False
+        if command in _P2S_PULL_BACK:
+            if not self.in_end_template or _P2S_PULL_BACK[self.pulled_back:self.pulled_back + 1] != (command,):
+                raise ValueError('P2S pull back out of place')
+            self.pulled_back += 1
+            return True
+        if self.in_end_template:
+            raise ValueError('P2S end template has no other tool command')
+        tool = re.fullmatch(r'T([0-9]+)', command)
+        if tool:
+            self.loaded = int(tool.group(1))
+            if self.loaded not in self.used or self.first_named - {self.loaded}:
+                raise ValueError('P2S tool is not the source the file named')
+            self.first_named.clear()
+            return False
+        switch = re.fullmatch(r'M62[01] S([0-9]+)A', command)
+        if switch:
+            if int(switch.group(1)) not in self.used:
+                raise ValueError('P2S switch to a source the file does not declare')
+            return False
+        leaving = _P2S_LEAVING.fullmatch(command)
+        if leaving:
+            source = int(leaving.group(1) or leaving.group(2))
+            if self.loaded is None:
+                self.first_named.add(source)
+            elif source != self.loaded:
+                raise ValueError('P2S command names a source that is not loaded')
+            return True
+        long_retraction = _P2S_LONG_RETRACTION.fullmatch(command)
+        air_detect = _P2S_AIR_DETECT.fullmatch(command)
+        if long_retraction or air_detect:
+            source = int((long_retraction or air_detect).group(1))
+            if source != self.loaded or (long_retraction and len(self.used) == 1):
+                raise ValueError('P2S command names a source that is not loaded')
+            return True
+        if not _P2S_SHARED.fullmatch(command):
+            raise ValueError('Not a P2S template command')
+        return False
+
+    def finish(self):
+        if self.first_named or self.pulled_back != len(_P2S_PULL_BACK) or self.models != [_P2S_MODEL]:
+            raise ValueError('Incomplete P2S template')
 
 
 def inspect_single_source_ams(payload: bytes, plate_index: int = 0) -> VerifiedSingleSource:
@@ -216,6 +304,7 @@ def inspect_ams_sources(payload: bytes, plate_index: int = 0, *, single_source=F
                     None if single_source else _source_extruder(settings, plates[0], index), grams))
             extruders = {source.source_index: source.extruder for source in sources}
             code = io.BytesIO(read('Metadata/plate_1.gcode', MAX_GCODE_BYTES))
+            p2s = _P2STemplate(used) if settings.get('printer_model') == _P2S_MODEL else None
             headers = []
             switches = {620: set(), 621: set()}
             for raw_line in iter(lambda: code.readline(MAX_GCODE_LINE_BYTES + 1), b''):
@@ -232,6 +321,8 @@ def inspect_ams_sources(payload: bytes, plate_index: int = 0, *, single_source=F
                         raise ValueError(refusal)
                     headers.append([canonical_reported_material(value.strip()) for value in header_materials])
                 command = line.split(';', 1)[0].strip()
+                if p2s is not None and p2s.admits(line, command):
+                    continue
                 if re.match(r'^T(?:[0-9]|\s|$)', command):
                     # Stock X1 calibration uses T1100, then T1000 with the
                     # comment "change to nozzle space": a template sentinel,
@@ -273,6 +364,8 @@ def inspect_ams_sources(payload: bytes, plate_index: int = 0, *, single_source=F
                 if match is None:
                     raise ValueError(refusal)
                 switches[int(match.group(1))].add(int(match.group(2)))
+            if p2s is not None:
+                p2s.finish()
             expected_materials = [canonical_reported_material(value) for value in materials]
             if (any(value is None for value in expected_materials) or headers != [expected_materials]
                     or switches != {620: used, 621: used}):

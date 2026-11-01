@@ -29,17 +29,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get install -y --no-install-recommends postgresql-client-16 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install go2rtc (camera proxy) — SHA256 verified per architecture
+# Install go2rtc (camera proxy) — SHA256 and ELF machine verified for this image's architecture.
+# The architecture comes from the image itself, so no build argument or default can select
+# another architecture's binary.
 ARG GO2RTC_VERSION=1.9.4
-ARG TARGETARCH=amd64
-# Hashes for v1.9.4: amd64 and arm64 (add others if new arches are targeted)
-RUN curl -fsSL "https://github.com/AlexxIT/go2rtc/releases/download/v${GO2RTC_VERSION}/go2rtc_linux_${TARGETARCH}" \
-    -o /usr/local/bin/go2rtc \
-    && case "${TARGETARCH}" in \
-         amd64) echo "8d86510e64e0deadee40d550d46323ddec9f62e14cec56de3a9df0f2f7fe9ada  /usr/local/bin/go2rtc" | sha256sum -c - ;; \
-         arm64) echo "ebea4cf3a0bc3a12190ebba1f2c4b3c8cf4aac099fadb4cd50a669429b074f1c  /usr/local/bin/go2rtc" | sha256sum -c - ;; \
-         *)     echo "WARNING: no SHA256 checksum configured for arch=${TARGETARCH}" >&2 ;; \
+# Hashes for v1.9.4. e_machine bytes 3e00 are x86-64, b700 AArch64. An unknown architecture stops the build.
+RUN go2rtc_arch="$(dpkg --print-architecture)" \
+    && case "${go2rtc_arch}" in \
+         amd64) go2rtc_sha256=8d86510e64e0deadee40d550d46323ddec9f62e14cec56de3a9df0f2f7fe9ada; go2rtc_elf_machine=3e00 ;; \
+         arm64) go2rtc_sha256=ebea4cf3a0bc3a12190ebba1f2c4b3c8cf4aac099fadb4cd50a669429b074f1c; go2rtc_elf_machine=b700 ;; \
+         *)     echo "no go2rtc checksum for arch=${go2rtc_arch:-unset}" >&2; exit 1 ;; \
        esac \
+    && curl -fsSL "https://github.com/AlexxIT/go2rtc/releases/download/v${GO2RTC_VERSION}/go2rtc_linux_${go2rtc_arch}" \
+    -o /usr/local/bin/go2rtc \
+    && echo "${go2rtc_sha256}  /usr/local/bin/go2rtc" | sha256sum -c - \
+    && test "$(od -An -tx1 -j18 -N2 /usr/local/bin/go2rtc | tr -d ' ')" = "${go2rtc_elf_machine}" \
     && chmod +x /usr/local/bin/go2rtc
 
 # ── Node build stage for frontend ──

@@ -126,6 +126,7 @@ def validate_receipt(payload: dict[str, Any]) -> None:
                 or set(tags) != expected_tags or len(writes) != len(expected_tags) \
                 or set(completed) != expected_tags \
                 or any(item["after"] != target for item in completed.values()) \
+                or len(platforms) != len(payload["platform_manifests"]) \
                 or set(platforms) != {("linux", "amd64"), ("linux", "arm64")} \
                 or any(item["status"] != "passed" for item in platforms.values()):
             _fail("RECEIPT_INVALID", "publication success invariants failed")
@@ -356,16 +357,31 @@ def verify_publication_recovery_registry(
         manifest = inspect_manifest(f"{repository}:{tag}", runner=runner)
         if manifest is None or manifest["digest"] != target:
             _fail("RECOVERY_TAG_MISMATCH", f"{tag} no longer resolves to receipt digest")
-    index = inspect_manifest(f"{repository}@{target}", runner=runner)
-    if index is None:
-        _fail("RECOVERY_TAG_MISMATCH", "receipt digest is not reachable")
-    platforms = {
-        (item.get("platform", {}).get("os"), item.get("platform", {}).get("architecture"))
-        for item in index.get("manifests", []) if isinstance(item, dict)
-    }
-    if platforms != {("linux", "amd64"), ("linux", "arm64")}:
-        _fail("RECOVERY_PLATFORM_MISMATCH", "exact amd64/arm64 index required")
+    rows = publication_platforms(repository, target, runner=runner)
+    platforms = {(row["os"], row["architecture"]) for row in rows}
+    expected = {(row["os"], row["architecture"]) for row in receipt["platform_manifests"]}
+    if platforms != expected:
+        _fail("RECOVERY_PLATFORM_MISMATCH", "registry platforms differ from the verified receipt")
     return {"target_digest": target, "platforms": sorted(f"{os_}/{arch}" for os_, arch in platforms)}
+
+
+def publication_platforms(repository: str, target: str, *, runner=subprocess.run) -> list[dict[str, str]]:
+    """Verify exactly one linux/amd64 and one linux/arm64 manifest at an exact index digest."""
+    index = inspect_manifest(f"{repository}@{target}", runner=runner)
+    if index is None or index["digest"] != target:
+        _fail("RECOVERY_TAG_MISMATCH", "receipt digest is not reachable")
+    manifests = index.get("manifests")
+    if not isinstance(manifests, list):
+        _fail("RECOVERY_PLATFORM_MISMATCH", "invalid manifest list")
+    rows = []
+    for item in manifests:
+        if not isinstance(item, dict) or not isinstance(item.get("platform"), dict) or not DIGEST_RE.fullmatch(str(item.get("digest", ""))):
+            _fail("RECOVERY_PLATFORM_MISMATCH", "invalid platform descriptor")
+        rows.append({"os": item["platform"].get("os"), "architecture": item["platform"].get("architecture"), "digest": item["digest"], "status": "passed"})
+    platforms = {(row["os"], row["architecture"]) for row in rows}
+    if len(platforms) != len(rows) or platforms != {("linux", "amd64"), ("linux", "arm64")}:
+        _fail("RECOVERY_PLATFORM_MISMATCH", "exact linux/amd64 and linux/arm64 index required")
+    return rows
 
 
 Runner = Callable[..., subprocess.CompletedProcess[str]]

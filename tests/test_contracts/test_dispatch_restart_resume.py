@@ -33,7 +33,7 @@ def running_bambu(review_db, tmp_path, monkeypatch, request):
     def db():
         raw = engine.raw_connection()
         try:
-            yield _ConnectionAdapter(raw, False)
+            yield _ConnectionAdapter(raw, engine.dialect.name == 'postgresql')
         finally:
             raw.close()
 

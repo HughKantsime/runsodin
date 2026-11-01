@@ -38,6 +38,7 @@ CONTRACT_REPORT_PATH_RE = re.compile(
 MAX_CONTRACT_REPORT_BYTES = 32 * 1024 * 1024
 MAX_FILE_COUNT = 4096
 MAX_TOTAL_BYTES = 512 * 1024 * 1024
+API_LOAD_RESULT = "native/edu-readiness/api_load.json"
 LEGACY_ZERO_COUNT_RUNS = {"local-20260914T231641Z"}
 FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 SHORT_SHA_RE = re.compile(r"^[0-9a-f]{7,39}$")
@@ -314,6 +315,11 @@ def _privacy_check(data: bytes, label: str) -> None:
 
 
 def _semantic_validate(manifest: dict[str, Any]) -> None:
+    api_load_host = manifest.get("api_load_host")
+    if api_load_host:
+        digests = {item["path"]: item["sha256"] for item in manifest["files"]}
+        if digests.get(API_LOAD_RESULT) != api_load_host["result_sha256"]:
+            raise EvidenceError("EVIDENCE_INVALID", "api_load host record does not match the file inventory")
     exception = manifest.get('security_exception')
     if exception:
         if datetime.now(timezone.utc) >= datetime.fromisoformat(exception['expires_at'].replace('Z', '+00:00')):
@@ -363,7 +369,24 @@ def _semantic_validate(manifest: dict[str, Any]) -> None:
             raise EvidenceError("EVIDENCE_INVALID", f"identity digest is not in inventory: {identity['role']}")
 
 
-def build_bundle(source_run_dir: Path, expected_sha: str) -> Path:
+def _api_load_host(source: Path) -> dict[str, Any]:
+    """The host class and limits api_load judged this run by, for the only file that outlives the checkout."""
+    path = source / API_LOAD_RESULT
+    if not path.is_file():
+        raise EvidenceError("EVIDENCE_INVALID", f"{API_LOAD_RESULT} is missing")
+    result = _json(path)
+    metrics = result.get("metrics") or {}
+    if result.get("status") != "pass" or not metrics.get("host_class"):
+        raise EvidenceError("EVIDENCE_INVALID", "api_load did not pass on a known host class")
+    return {
+        "host_class": metrics["host_class"],
+        "latency_limits": metrics.get("latency_limits"),
+        "host_identity": metrics.get("host_identity"),
+        "result_sha256": digest_bytes(_safe_read(path)),
+    }
+
+
+def build_bundle(source_run_dir: Path, expected_sha: str, *, record_api_load_host: bool = False) -> Path:
     source = _resolve_source_dir(source_run_dir)
     inventory, _ = _inventory(source)
     aggregate_path = source / "result.json"
@@ -406,11 +429,19 @@ def build_bundle(source_run_dir: Path, expected_sha: str) -> Path:
             manifest['security_exception']['decision_sha256'] = digest_bytes(_safe_read(decision_path))
         elif decision.get('status') != 'pass':
             raise EvidenceError('EVIDENCE_INVALID', 'npm audit decision is not passing')
+    if record_api_load_host:
+        manifest["api_load_host"] = _api_load_host(source)
     _validate_schema(manifest)
     _semantic_validate(manifest)
     manifest_bytes = canonical_json(manifest)
     digest = digest_bytes(manifest_bytes)
     html_bytes = _render(manifest, digest)
+    if manifest.get("api_load_host"):
+        host = manifest["api_load_host"]
+        limits = host["latency_limits"]
+        note = (f"<p>api_load limits for host class <code>{html.escape(host['host_class'])}</code>: read p95 "
+                f"{limits['read_p95_ms']} ms, write p95 {limits['write_p95_ms']} ms, global p99 {limits['global_p99_ms']} ms.</p>")
+        html_bytes = html_bytes.replace(b"</body>", note.encode() + b"</body>")
     if manifest.get('security_exception'):
         notice = ('<p><strong>Accepted build-only security exception: GHSA-vfj7-8cjw-p6xm. '
                   'Not vulnerability-free. Expires 2026-10-19T00:00:00Z.</strong></p>')
@@ -456,12 +487,15 @@ def main() -> int:
     build = subparsers.add_parser("build")
     build.add_argument("--source-run-dir", required=True, type=Path)
     build.add_argument("--expected-sha", required=True)
+    # A flag from the workflow, not always on: the workflow and the verifier come from the same
+    # main commit, so a verifier that predates this key never sees it from a newer candidate.
+    build.add_argument("--record-api-load-host", action="store_true")
     verify = subparsers.add_parser("verify")
     verify.add_argument("--evidence-dir", required=True, type=Path)
     args = parser.parse_args()
     try:
         if args.command == "build":
-            output = build_bundle(args.source_run_dir, args.expected_sha)
+            output = build_bundle(args.source_run_dir, args.expected_sha, record_api_load_host=args.record_api_load_host)
             result = verify_bundle(output)
             print(json.dumps({"status": "eligible", "evidence_dir": str(output),
                               "evidence_sha256": result["evidence_sha256"]}, sort_keys=True))

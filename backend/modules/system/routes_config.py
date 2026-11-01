@@ -1,5 +1,6 @@
 """System config routes — Spoolman URL and blackout hours (/config, /spoolman/test), IP allowlist, retention, quiet hours, MQTT republish, metrics, HMS lookup."""
 
+import asyncio
 import json
 import time
 import logging
@@ -357,7 +358,9 @@ async def test_mqtt_republish(request: Request, current_user: dict = Depends(req
         body = await request.json()
     except Exception:
         body = {}
-    result = mqtt_republish.test_connection(
+    # The test waits on the broker for seconds; other requests keep running meanwhile.
+    result = await asyncio.to_thread(
+        mqtt_republish.test_connection,
         host=body.get("host", ""), port=int(body.get("port", 1883)),
         username=body.get("username", ""), password=body.get("password", ""),
         use_tls=body.get("use_tls", False), topic_prefix=body.get("topic_prefix", "odin"),

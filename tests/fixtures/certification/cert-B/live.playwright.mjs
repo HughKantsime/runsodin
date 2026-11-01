@@ -1,5 +1,5 @@
 // Cert-B live browser scenarios against the real ODIN container (see
-// tests/test_contracts/test_cert_B_live_harness.py). Real Google Chrome (headless),
+// tests/test_contracts/test_cert_B_live_harness.py). Real Chromium/Chrome (headless),
 // real built bundle, real backend, real go2rtc WebRTC. Nothing under /api is mocked.
 // Usage: node live.playwright.mjs <scenario> '<json args>'   (env CERTB_BASE, CERTB_PASSWORD, CERTB_SCREENS)
 import { createRequire } from 'module'
@@ -564,7 +564,7 @@ const scenarios = {
   },
 }
 
-const browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--autoplay-policy=no-user-gesture-required', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] })
+const browser = await chromium.launch({ channel: process.env.CERTB_BROWSER_CHANNEL || (process.platform === 'darwin' ? 'chrome' : 'chromium'), headless: true, args: ['--autoplay-policy=no-user-gesture-required', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] })
 try {
   if (!scenarios[scenario]) throw new Error('unknown scenario ' + scenario)
   await scenarios[scenario](browser)

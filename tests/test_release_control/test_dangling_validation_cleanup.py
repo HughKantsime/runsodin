@@ -45,8 +45,8 @@ class DockerSimulation:
     def __call__(self, args, *, capture=True, check=True):
         del capture
         self.calls.append(list(args))
-        if args == ["docker", "image", "inspect", "--format", "{{.Id}}", cleanup.PROBE_IMAGE_ID]:
-            return subprocess.CompletedProcess(args, 0, cleanup.PROBE_IMAGE_ID + "\n")
+        if args == ["docker", "image", "inspect", "--format", "{{json .RepoDigests}}", "python:3.11-slim@" + cleanup.PROBE_IMAGE_ID]:
+            return subprocess.CompletedProcess(args, 0, json.dumps(["python@" + cleanup.PROBE_IMAGE_ID]))
         returncode = 0
         output = ""
         if args[:3] == ["docker", "image", "inspect"]:

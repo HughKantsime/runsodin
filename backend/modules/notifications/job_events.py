@@ -45,10 +45,17 @@ def job_started(
     job_name: str,
     total_layers: int = None,
     scheduled_job_id: int = None,
+    *,
+    observed_elapsed: float = None,
+    physical_job_id: str = None,
 ):
     """
     Called when a print job starts on any printer.
     Returns the print_jobs.id for tracking.
+
+    observed_elapsed and physical_job_id are the evidence that this print could be a
+    running row continuing through a restart. Without them, or with no real name or
+    job id to compare, the start neither resumes nor closes anything.
     """
     try:
         with get_db() as conn:
@@ -57,7 +64,10 @@ def job_started(
             try:
                 result=observe_start(conn,printer_id=printer_id,filename=job_name,job_name=job_name,
                     physical_values={'started_at':conn.execute('SELECT '+sql.now()).fetchone()[0],
-                                     'total_layers':total_layers},source='printer-event-first-start')
+                                     'total_layers':total_layers,**({'job_id':physical_job_id} if physical_job_id else {})},
+                    source='printer-event-first-start',
+                    allow_physical_resume=observed_elapsed is not None and bool(physical_job_id or (job_name and job_name!='Unknown')),
+                    observed_elapsed=observed_elapsed,observed_job_id=physical_job_id)
                 job_id=result.id
                 education_result={'education_owned':result.education_sensitive,'education_reserved':result.education_sensitive}
                 conn.commit()
@@ -467,12 +477,15 @@ def update_job_progress(
 # =============================================================================
 
 def on_print_start(printer_id: int, filename: str, total_layers: int = None,
-                   layer_count: int = None, remaining_min: int = None):
+                   layer_count: int = None, remaining_min: int = None,
+                   *, observed_elapsed: float = None, physical_job_id: str = None):
     """Called by PrusaLink/Elegoo monitors when a print starts."""
     pj_id = job_started(
         printer_id=printer_id,
         job_name=filename,
         total_layers=total_layers or layer_count,
+        observed_elapsed=observed_elapsed,
+        physical_job_id=physical_job_id,
     )
     if pj_id:
         _active_print_jobs[printer_id] = pj_id

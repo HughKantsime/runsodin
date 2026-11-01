@@ -7,14 +7,14 @@ import json
 import os
 import subprocess
 import time
-import urllib.request
-from urllib.parse import urlsplit
 from pathlib import Path
 
 try:
     from .common import utc_now, write_result
+    from .preview_server import PreviewError, local_address, owned_preview
 except ImportError:
     from common import utc_now, write_result
+    from preview_server import PreviewError, local_address, owned_preview
 
 
 def main() -> int:
@@ -28,41 +28,21 @@ def main() -> int:
     started_at = utc_now()
     started = time.perf_counter()
     base_url = os.environ.get("EDU_FRONTEND_URL", "http://127.0.0.1:4173")
-    parsed_base = urlsplit(base_url)
-    if parsed_base.scheme != "http" or parsed_base.hostname not in {"127.0.0.1", "localhost"}:
-        raise ValueError("EDU_FRONTEND_URL must be a local HTTP preview URL")
+    local_address(base_url)
     env = dict(os.environ, EDU_ACCESSIBILITY_OUTPUT=str(raw), EDU_FRONTEND_URL=base_url)
     build = subprocess.run(["npm", "--prefix", "frontend", "run", "build"], check=False)
-    preview = None
-    try:
+    process = build
+    preview_finding = None
+    if build.returncode == 0:
         try:
-            urllib.request.urlopen(base_url, timeout=1).close()  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- local URL validated above
-        except Exception:
-            preview = subprocess.Popen(
-                ["npm", "--prefix", "frontend", "run", "preview", "--", "--host", "127.0.0.1"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            for _ in range(50):
-                try:
-                    urllib.request.urlopen(base_url, timeout=1).close()  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- local URL validated above
-                    break
-                except Exception:
-                    time.sleep(0.1)
-            else:
-                raise RuntimeError("Vite preview did not become ready")
-        process = subprocess.run(
-            ["node", "tests/accessibility/accessibility_audit.mjs"],
-            env=env,
-            check=False,
-        ) if build.returncode == 0 else build
-    finally:
-        if preview is not None:
-            preview.terminate()
-            try:
-                preview.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                preview.kill()
+            with owned_preview(base_url):
+                process = subprocess.run(
+                    ["node", "tests/accessibility/accessibility_audit.mjs"],
+                    env=env,
+                    check=False,
+                )
+        except PreviewError as exc:
+            preview_finding = f"preview: {exc}"
     data = json.loads(raw.read_text(encoding="utf-8")) if raw.exists() else {"results": []}
     failed = [item for item in data["results"] if not item.get("pass")]
     matrix = [item for item in data["results"] if item.get("id", "").startswith("A")]
@@ -86,12 +66,14 @@ def main() -> int:
             f"{item['id']} {item['persona']} {item['theme']} {item['viewport']}: "
             f"{summary or 'assertion, request, or console failure'}"
         )
+    if preview_finding:
+        findings.append(preview_finding)
     result = {
         "schema_version": 1,
         "run_id": args.run_id,
         "gate_id": "accessibility",
         "mandatory": True,
-        "status": "pass" if process.returncode == 0 and complete and not failed else "fail",
+        "status": "pass" if process.returncode == 0 and complete and not failed and not preview_finding else "fail",
         "started_at": started_at,
         "ended_at": utc_now(),
         "duration_seconds": round(time.perf_counter() - started, 3),

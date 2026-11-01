@@ -442,13 +442,13 @@ jobs:
             exit "$status"
           }
           trap record_failure ERR
-          manifest_json="$(docker buildx imagetools inspect "$IMAGE_REPOSITORY@$TARGET_DIGEST" --format '{{json .Manifest}}')"
-          MANIFEST_JSON="$manifest_json" python3.11 -P <<'PY'
+          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P <<'PY'
           import json, os
-          payload=json.loads(os.environ["MANIFEST_JSON"])
-          rows={(item.get("platform",{}).get("os"),item.get("platform",{}).get("architecture")):item.get("digest") for item in payload.get("manifests",[])}
-          assert set(rows)=={("linux","amd64"),("linux","arm64")}
-          json.dump([{"os":os_,"architecture":arch,"digest":rows[(os_,arch)],"status":"passed"} for os_,arch in (("linux","amd64"),("linux","arm64"))],open(os.environ["MUTATION_ROOT"]+"/platforms.json","w"))
+          from ops.release_control.mutation_workflow import publication_platforms
+          rows = publication_platforms(os.environ["IMAGE_REPOSITORY"], os.environ["TARGET_DIGEST"])
+          expected = {("linux", "amd64"), ("linux", "arm64")}
+          assert {(row["os"], row["architecture"]) for row in rows} == expected
+          json.dump(rows, open(os.environ["MUTATION_ROOT"]+"/platforms.json", "w"))
           PY
           for arch in amd64 arm64; do
             name="odin-publication-${GITHUB_RUN_ID}-${arch}"

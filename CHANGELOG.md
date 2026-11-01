@@ -2,6 +2,28 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.38] - 2026-10-31
+
+<!-- summary: Prints that end during a restart close with their real outcome, and stock P2S prints pass the AMS source check. -->
+
+### Fixed
+
+- A print that ended during an ODIN restart or a lost connection could stay marked as running. The printer then refused its next dispatch, and no API could clear it.
+  - Bambu and Moonraker prints that ended while ODIN wasn't watching now close through the same steps as a watched end, with their real outcome. A failed or cancelled Bambu print is no longer recorded as completed. If saving the end fails, ODIN retries.
+  - PrusaLink, Elegoo and Anycubic prints that continue through a restart keep their one row, instead of gaining a second while the first never closed. A later print of the same file starts its own row.
+  - A running print on a Bambu printer that's silent during recovery is no longer closed as completed, and a retained report from before the print isn't taken as its end.
+  - Reprinting an `odin-dispatch-*` file from the printer's own screen can no longer block dispatch to that printer for good.
+- ODIN refused every print from Bambu's stock P2S profile with "Unverifiable source mapping", so none of them could start through ODIN.
+  - ODIN now accepts that profile's template lines on a file that declares a P2S in both its project settings and its G-code header. The lines must match the template, and the source they name must be the one loaded. Files for other printers don't get this allowance.
+  - This is checked against a real single-filament P2S file and a simulated dispatch, not a physical print. Multi-filament is checked with real G-code and hand-built metadata. A multi-filament slice from the slicer CLI is still refused, because the CLI drops the second filament.
+- The MQTT connection test could report a refused connection when a broker was only silent, and could hold up other requests while it waited. It now waits for the broker's real answer without blocking anything else.
+- ARM64 images shipped an x86-64 go2rtc, so camera streaming couldn't run on them. They now ship the right build.
+
+### Changed
+
+- Release validation moves from the development Mac to a Linux VM with production's OS and architecture, starting with the next release. Publishing and production promotion stay on the Mac.
+- The API load test in release validation no longer times its own tracer, and its latency limits were re-measured for each host. Memory growth is checked in a separate pass. The VM's limits are set by a slow tail in report requests that isn't explained yet, so they catch less than the Mac's.
+
 ## [2.0.37] - 2026-10-30
 
 <!-- summary: H2D prints sliced with the slicer CLI across both nozzles can be dispatched through ODIN. -->
