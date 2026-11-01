@@ -478,7 +478,9 @@ def require_healthy_source(database: Path) -> IntegrityReport:
 
 
 @report_backup_failure
-def _create_online_backup_unlocked(paths: BackupPaths, prefix: str) -> tuple[Path, dict[str, object]]:
+def _create_online_backup_unlocked(paths: BackupPaths, prefix: str, *, working_copies: int = 1,
+                                   reserve: int = MIN_BACKUP_FREE_BYTES) -> tuple[Path, dict[str, object]]:
+    """``working_copies`` full copies must fit and still leave ``reserve`` for the live database."""
     if not paths.database.is_file():
         raise BackupValidationError("Live database does not exist")
     paths.backups.mkdir(parents=True, exist_ok=True)
@@ -496,8 +498,7 @@ def _create_online_backup_unlocked(paths: BackupPaths, prefix: str) -> tuple[Pat
         free_pages = source.execute("PRAGMA freelist_count").fetchone()[0]
         page_size = source.execute("PRAGMA page_size").fetchone()[0]
         estimate = max(0, pages - free_pages) * page_size
-        required_free = max(estimate + max(estimate // 4, MIN_BACKUP_FREE_BYTES),
-                            MIN_BACKUP_FREE_BYTES)
+        required_free = working_copies * estimate + max(estimate // 4, reserve)
         if shutil.disk_usage(paths.backups).free < required_free:
             raise BackupValidationError("Insufficient free disk space for a verified backup")
         # Reserve the filename with restrictive permissions before SQLite writes it.

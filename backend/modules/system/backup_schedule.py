@@ -1,8 +1,9 @@
 """Scheduled SQLite backups: verified before they count, and pruned only after a good one.
 
 ODIN never had a scheduler; every odin_backup_* before this came from someone asking for one.
-Pruning only ever touches backups this module made, recognised by their receipt, and only runs
-after a new backup of a database that passed its integrity check has itself been verified.
+A run works under a partial_scheduled_ name and only takes the odin_backup_ name once it has been
+verified and restore-tested, so whatever is listed under that name has passed. Pruning only ever
+touches backups this module made, recognised by their receipt, and only after a new one is good.
 Manual backups, older files and anything else in the directory are left alone.
 """
 
@@ -32,10 +33,13 @@ from modules.system.backup_service import (
     require_healthy_source,
     restore_lock,
 )
-from modules.system.backup_verifier import verify_backup
+from modules.system.backup_verifier import verify_sqlite_file
 
 log = logging.getLogger("odin.backup_schedule")
 
+# A run holds two full copies at its peak, the backup and the restore test's. It won't start unless
+# both fit and this much is left, so it can't take the disk from the live database's writes.
+LIVE_WRITES_RESERVE_BYTES = 128 * 1024 * 1024
 KEEP_DAILY = 7
 KEEP_WEEKLY = 4
 PARTIAL_PREFIX = "partial_scheduled_"
@@ -45,6 +49,15 @@ RESTORE_TEST_SECONDS = 600
 _BACKEND = Path(__file__).resolve().parents[2]
 
 
+def _clear_orphan_receipts(backups: Path) -> None:
+    """Under the restore lock. A receipt with no backup: an admin deleted it, or a run died mid-publish."""
+    for receipt in backups.glob(f"odin_backup_*.db{RECEIPT_SUFFIX}"):
+        if not (backups / receipt.name[:-len(RECEIPT_SUFFIX)]).exists():
+            receipt.unlink(missing_ok=True)
+    for temporary in backups.glob(f"odin_backup_*.db{RECEIPT_SUFFIX}.tmp"):
+        temporary.unlink(missing_ok=True)
+
+
 def _sweep_partial(backups: Path) -> None:
     # Under the restore lock, so these can only be what a killed run left behind.
     for leftover in backups.glob(f"{PARTIAL_PREFIX}*"):
@@ -52,6 +65,15 @@ def _sweep_partial(backups: Path) -> None:
             shutil.rmtree(leftover, ignore_errors=True)
         else:
             leftover.unlink(missing_ok=True)
+    _clear_orphan_receipts(backups)
+
+
+def clear_leftovers(database_url: str) -> None:
+    """At guardian start: a killed run's copies shouldn't hold disk until the next backup is due."""
+    paths = paths_from_database_url(database_url)
+    if paths.backups.is_dir():
+        with restore_lock(paths.lock):
+            _sweep_partial(paths.backups)
 
 
 def _live_fingerprint(database: Path) -> str:
@@ -72,16 +94,24 @@ def rehearse_restore(backup: Path, database: Path) -> None:
     That runs the integrity check and every migration validator. The result has to need no
     migrations and match the live schema. Nothing here opens the live database for writing.
     """
+    # Checked again here: writers may have used the room since the run started.
+    if shutil.disk_usage(backup.parent).free < backup.stat().st_size + LIVE_WRITES_RESERVE_BYTES:
+        raise BackupValidationError("Insufficient free disk space for the restore test")
     scratch = Path(tempfile.mkdtemp(prefix=PARTIAL_PREFIX, dir=backup.parent))
     try:
         copy = scratch / "odin.db"
         shutil.copyfile(backup, copy)
-        started = subprocess.run(  # nosec B603 -- this interpreter, fixed arguments, no shell
-            [sys.executable, "-m", "scripts.bootstrap_database"], cwd=_BACKEND, capture_output=True, text=True,
-            timeout=RESTORE_TEST_SECONDS,
-            env={**os.environ, "DATABASE_URL": f"sqlite:///{copy}", "ODIN_DB_ROLE": "bootstrap"},
-        )
+        try:
+            started = subprocess.run(  # nosec B603 -- this interpreter, fixed arguments, no shell
+                [sys.executable, "-m", "scripts.bootstrap_database"], cwd=_BACKEND, capture_output=True, text=True,
+                timeout=RESTORE_TEST_SECONDS,
+                env={**os.environ, "DATABASE_URL": f"sqlite:///{copy}", "ODIN_DB_ROLE": "bootstrap"},
+            )
+        except subprocess.TimeoutExpired as error:
+            raise BackupValidationError("Backup failed its restore test: it timed out") from error
         if started.returncode != 0:
+            # Its refusal names tables and pages, never row contents. The alert stays generic.
+            log.error("Restore test refused the backup: %s", started.stderr[-2000:])
             raise BackupValidationError("Backup failed its restore test: startup refused it")
         try:
             result = json.loads(started.stdout.splitlines()[-1])
@@ -119,7 +149,6 @@ def _scheduled_backups(backups: Path) -> list[tuple[datetime, Path]]:
             continue
         backup = backups / name
         if not backup.is_file():
-            receipt.unlink(missing_ok=True)  # An admin deleted the backup from Settings.
             continue
         try:
             created_at = datetime.fromisoformat(json.loads(receipt.read_text(encoding="utf-8"))["created_at"])
@@ -140,6 +169,7 @@ def retained_backups(scheduled: list[tuple[datetime, Path]]) -> set[Path]:
 
 
 def prune_scheduled_backups(backups: Path) -> list[str]:
+    _clear_orphan_receipts(backups)
     scheduled = _scheduled_backups(backups)
     keep = retained_backups(scheduled)
     removed = []
@@ -162,17 +192,20 @@ def create_scheduled_backup(database_url: str, *, now: datetime | None = None) -
         paths.backups.mkdir(parents=True, exist_ok=True)
         _sweep_partial(paths.backups)
         source = require_healthy_source(paths.database)
-        partial, _ = _create_online_backup_unlocked(paths, PARTIAL_PREFIX)
-        # Readers list odin_backup_*, so a half-written file never appears under that name.
+        partial, _ = _create_online_backup_unlocked(paths, PARTIAL_PREFIX, working_copies=2,
+                                                    reserve=LIVE_WRITES_RESERVE_BYTES)
         final = partial.with_name("odin_backup_" + partial.name[len(PARTIAL_PREFIX):])
+        receipt = final.with_name(final.name + RECEIPT_SUFFIX)
         try:
+            verified = verify_sqlite_file(partial)
+            rehearse_restore(partial, paths.database)
+            _write_receipt(final, now, verified)
+            # Last: readers list odin_backup_*, so nothing unverified ever appears under that name.
             os.replace(partial, final)
             _fsync_directory(paths.backups)
-            verified = verify_backup(database_url, final.name)
-            rehearse_restore(final, paths.database)
-            _write_receipt(final, now, verified)
         except Exception:
             partial.unlink(missing_ok=True)
+            receipt.unlink(missing_ok=True)
             final.unlink(missing_ok=True)
             raise
         try:

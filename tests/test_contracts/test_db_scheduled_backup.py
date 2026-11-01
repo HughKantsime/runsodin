@@ -81,6 +81,7 @@ def test_scheduled_backup_is_verified_private_and_has_a_receipt(database, alerts
     assert _odin_backups(database) == [result["filename"]]
     assert stat.S_IMODE(backup.stat().st_mode) == 0o600
     assert validate_database(backup)["sha256"] == result["sha256"]
+    assert stat.S_IMODE(backup.with_name(backup.name + RECEIPT_SUFFIX).stat().st_mode) == 0o600
     receipt = json.loads(backup.with_name(backup.name + RECEIPT_SUFFIX).read_text())
     assert receipt == {"schema_version": 1, "created_at": NOW.isoformat(), "source_integrity": "ok",
                        "sha256": result["sha256"], "size_bytes": result["size_bytes"]}
@@ -169,7 +170,7 @@ def test_a_failed_run_publishes_nothing_prunes_nothing_and_alerts(database, aler
     elif failure == "disk":
         monkeypatch.setattr(backup_service.shutil, "disk_usage", lambda _: type("U", (), {"free": 1})())
     elif failure == "verify":
-        monkeypatch.setattr(backup_schedule, "verify_backup", lambda *_: (_ for _ in ()).throw(BackupValidationError("verification failed")))
+        monkeypatch.setattr(backup_schedule, "verify_sqlite_file", lambda *_: (_ for _ in ()).throw(BackupValidationError("verification failed")))
     else:
         original = backup_schedule.os.replace
         def fail_publish(source, target):
@@ -185,7 +186,7 @@ def test_a_failed_run_publishes_nothing_prunes_nothing_and_alerts(database, aler
 
 
 def test_a_receipt_is_only_written_after_verification_passes(database, alerts, monkeypatch):
-    monkeypatch.setattr(backup_schedule, "verify_backup", lambda *_: (_ for _ in ()).throw(BackupValidationError("verification failed")))
+    monkeypatch.setattr(backup_schedule, "verify_sqlite_file", lambda *_: (_ for _ in ()).throw(BackupValidationError("verification failed")))
     with pytest.raises(BackupValidationError):
         create_scheduled_backup(_url(database), now=NOW)
     assert not list((database.parent / "backups").glob(f"*{RECEIPT_SUFFIX}"))
@@ -402,3 +403,175 @@ def test_killed_restore_test_directory_is_swept(database, alerts):
     (leftover / "odin.db").write_bytes(b"plaintext copy")
     create_scheduled_backup(_url(database), now=NOW)
     assert not leftover.exists()
+
+
+# --- Free space: a run holds two full copies at its peak and must leave room for live writes.
+
+def _live_bytes(database: Path) -> int:
+    connection = sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)
+    pages, free, size = (connection.execute(f"PRAGMA {name}").fetchone()[0] for name in ("page_count", "freelist_count", "page_size"))
+    connection.close()
+    return (pages - free) * size
+
+
+def _free_bytes(monkeypatch, free):
+    class Usage:
+        pass
+    Usage.free = free
+    monkeypatch.setattr(backup_service.shutil, "disk_usage", lambda _: Usage)
+    monkeypatch.setattr(backup_schedule.shutil, "disk_usage", lambda _: Usage)
+
+
+def test_a_run_refuses_unless_both_copies_fit_and_room_is_left_for_live_writes(database, alerts, monkeypatch):
+    estimate = _live_bytes(database)
+    required = 2 * estimate + 128 * 1024 * 1024
+    directory = database.parent / "backups"
+    directory.mkdir()
+    old = [_scheduled(directory, NOW - timedelta(days=day)) for day in range(20, 90)]
+    # The review's reproduction: more than one copy needs, less than the run really uses.
+    _free_bytes(monkeypatch, required - 1)
+    with pytest.raises(BackupValidationError):
+        create_scheduled_backup(_url(database), now=NOW)
+    assert all(path.exists() for path in old), "a refused run must not prune"
+    assert not list(directory.glob(f"{PARTIAL_PREFIX}*"))
+    assert backup_failure_alerts.backup_failure_reason(alerts[-1])[0] == "disk_space"
+    _free_bytes(monkeypatch, required)
+    assert create_scheduled_backup(_url(database), now=NOW)["filename"] in _odin_backups(database)
+
+
+def test_the_restore_test_rechecks_free_space_before_its_copy(database, monkeypatch):
+    backup = database.parent / "backup.db"
+    backup.write_bytes(database.read_bytes())
+    needed = backup.stat().st_size + backup_schedule.LIVE_WRITES_RESERVE_BYTES
+    monkeypatch.setattr(backup_schedule.subprocess, "run", lambda *a, **k: pytest.fail("must not start"))
+    _free_bytes(monkeypatch, needed - 1)
+    with pytest.raises(BackupValidationError, match="free disk space"):
+        backup_schedule.rehearse_restore(backup, database)
+    assert not list(database.parent.glob(f"{PARTIAL_PREFIX}*"))
+    assert backup_failure_alerts.backup_failure_reason(BackupValidationError("Insufficient free disk space for the restore test"))[0] == "disk_space"
+
+
+def test_a_manual_backup_keeps_its_own_smaller_requirement(database, alerts, monkeypatch):
+    """One copy and a smaller margin: it runs when someone asks, and writes no second copy."""
+    estimate = _live_bytes(database)
+    _free_bytes(monkeypatch, estimate + max(estimate // 4, backup_service.MIN_BACKUP_FREE_BYTES))
+    path, _ = create_online_backup(_url(database))
+    assert path.name in _odin_backups(database)
+
+
+# --- Interrupted runs: nothing unverified ever carries the published name.
+
+_KILLED_RUN = """
+import os, signal, sys
+from datetime import datetime, timezone
+from modules.system import backup_failure_alerts, backup_schedule
+backup_failure_alerts.publish_backup_failure = lambda error: None
+where = sys.argv[2]
+die = lambda *a, **k: os.kill(os.getpid(), signal.SIGKILL)
+if where == "verify":
+    backup_schedule.verify_sqlite_file = die
+elif where == "restore-copy":
+    original = backup_schedule.shutil.copyfile
+    def copy_then_die(source, target):
+        original(source, target)
+        die()
+    backup_schedule.shutil.copyfile = copy_then_die
+elif where == "after-receipt":
+    original = backup_schedule.os.replace
+    def replace(source, target):
+        if str(target).endswith(".db"):
+            die()
+        return original(source, target)
+    backup_schedule.os.replace = replace
+backup_schedule.create_scheduled_backup("sqlite:///" + sys.argv[1])
+"""
+
+
+@pytest.mark.parametrize("where", ["verify", "restore-copy", "after-receipt"])
+def test_a_run_killed_in_any_window_leaves_nothing_listed_and_the_next_run_clears_it(database, alerts, where):
+    import subprocess
+    import sys
+    root = Path(__file__).resolve().parents[2]
+    env = dict(os.environ, PYTHONPATH=f"{root / 'backend'}:{root}", JWT_SECRET_KEY="db-safety-test-only", DATABASE_URL=_url(database))
+    killed = subprocess.run([sys.executable, "-c", _KILLED_RUN, str(database), where], cwd=root / "backend", env=env,
+                            capture_output=True, text=True, timeout=120)
+    assert killed.returncode == -9, killed.stderr[-2000:]
+    directory = database.parent / "backups"
+    assert _odin_backups(database) == []
+    assert list(directory.glob(f"{PARTIAL_PREFIX}*")), "the kill should leave its working files"
+    backup_schedule.clear_leftovers(_url(database))
+    assert list(directory.iterdir()) == []
+    result = create_scheduled_backup(_url(database), now=NOW)
+    assert _odin_backups(database) == [result["filename"]]
+    assert sorted(path.name for path in directory.iterdir()) == [result["filename"], result["filename"] + RECEIPT_SUFFIX]
+
+
+def test_the_published_name_only_appears_once_everything_has_passed(database, alerts, monkeypatch):
+    seen = []
+    original = backup_schedule._write_receipt
+    def rehearse(backup, live):
+        seen.append(("rehearse", backup.name, _odin_backups(database)))
+    def receipt(final, *args):
+        seen.append(("receipt", final.name, _odin_backups(database)))
+        original(final, *args)
+    monkeypatch.setattr(backup_schedule, "rehearse_restore", rehearse)
+    monkeypatch.setattr(backup_schedule, "_write_receipt", receipt)
+    result = create_scheduled_backup(_url(database), now=NOW)
+    assert seen[0][0] == "rehearse" and seen[0][1].startswith(PARTIAL_PREFIX) and seen[0][2] == []
+    assert seen[1][0] == "receipt" and seen[1][1] == result["filename"] and seen[1][2] == []
+
+
+def test_reading_the_list_never_removes_a_receipt(tmp_path):
+    """The off-server export reads this without the restore lock, while a run may be publishing."""
+    directory = tmp_path / "backups"
+    directory.mkdir()
+    backup = _scheduled(directory, NOW)
+    receipt = backup.with_name(backup.name + RECEIPT_SUFFIX)
+    backup.unlink()
+    assert backup_schedule._scheduled_backups(directory) == []
+    assert receipt.exists()
+
+
+# --- The restore test keeps its evidence and can't hang the guardian.
+
+def test_a_hung_restore_test_times_out_and_cleans_up(database, monkeypatch):
+    monkeypatch.setattr(backup_schedule, "RESTORE_TEST_SECONDS", 0.01)
+    copy = database.parent / "copy.db"
+    copy.write_bytes(database.read_bytes())
+    with pytest.raises(BackupValidationError, match="timed out"):
+        backup_schedule.rehearse_restore(copy, database)
+    assert not list(database.parent.glob(f"{PARTIAL_PREFIX}*"))
+
+
+def test_a_refused_restore_test_keeps_startups_reason_in_the_log(database, caplog):
+    bad = database.parent / "bad.db"
+    bad.write_bytes(database.read_bytes())
+    overwrite_rightmost_leaf(bad, "audit_logs", "printers")
+    with caplog.at_level("ERROR", logger="odin.backup_schedule"), pytest.raises(BackupValidationError, match="startup refused") as caught:
+        backup_schedule.rehearse_restore(bad, database)
+    assert "failed its integrity check" in caplog.text
+    # The alert text is chosen from the exception, so startup's words can't reach it or misclassify it.
+    assert "integrity" not in str(caught.value) and backup_failure_alerts.backup_failure_reason(caught.value)[0] == "restore_test"
+
+
+# --- A restore upload must not freeze the API while a backup holds the lock.
+
+def test_staging_a_restore_runs_off_the_event_loop(tmp_path, monkeypatch):
+    import asyncio
+    from modules.system import routes_backup
+    seen = []
+    def stage(path, url, *, actor_id):
+        try:
+            asyncio.get_running_loop()
+            seen.append("on the event loop")
+        except RuntimeError:
+            seen.append("in a worker thread")
+        return {"pre_restore_backup": "x", "candidate_sha256": "y"}
+    class Upload:
+        filename = "candidate.db"
+        chunks = [b"SQLite format 3\x00", b""]
+        async def read(self, _):
+            return self.chunks.pop(0)
+    monkeypatch.setattr(routes_backup, "stage_restore", stage)
+    result = asyncio.run(routes_backup.restore_backup(file=Upload(), current_user={"id": 1}, db=None))
+    assert result["status"] == "staged" and seen == ["in a worker thread"]
