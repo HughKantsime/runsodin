@@ -26,6 +26,7 @@ from modules.system.backup_service import (
 )
 from modules.system.db_guardian_status import (
     ALERT_REPEAT,
+    BACKUP_MISSED_AFTER_SECONDS,
     STALE,
     UNAVAILABLE_ALERT_AFTER,
     integrity_view,
@@ -49,7 +50,7 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////data/odin.db")
 INTEGRITY_INTERVAL_SECONDS = 300
 BACKUP_INTERVAL = timedelta(days=1)
 BACKUP_RETRY = timedelta(hours=1)
-BACKUP_MISSED_AFTER = timedelta(hours=26)
+BACKUP_MISSED_AFTER = timedelta(seconds=BACKUP_MISSED_AFTER_SECONDS)
 OFFSITE_MISSED_AFTER = timedelta(hours=36)
 # The job runs hourly and alerts by itself after three failures; after an outage, give it that long.
 OFFSITE_BOOT_GRACE = timedelta(hours=4)

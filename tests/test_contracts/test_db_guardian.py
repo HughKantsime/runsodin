@@ -27,6 +27,7 @@ from modules.system.db_guardian_status import (
     PENDING,
     STALE,
     alert_if_stopped,
+    backup_view,
     integrity_view,
     offsite_path,
     parse_time,
@@ -783,6 +784,70 @@ def test_a_restart_loop_cannot_hold_back_the_alert_with_a_30_day_old_confirm(mon
         boots.append(read_status(status_path(database))["booted_at"])
         assert _reasons(saved_backup_alerts) == ["offsite_missed"] * restart
     assert len(set(boots)) == 5, "each restart really did reset the grace"
+
+
+# --- Backups on /health: public, so a state and a time; and never the top-level status.
+
+def _backup_status(state="ok", age=timedelta(hours=1), **extra):
+    now = NOW
+    return {"interval_seconds": 300, "started_at": (now - timedelta(days=40)).isoformat(),
+            "integrity": {"state": OK, "checked_at": now.isoformat(), "attempted_at": now.isoformat()},
+            "backup": {"state": state, "reason": "disk_space", "filename": "odin_backup_x.db", "size_bytes": 123456789,
+                       "last_attempt_at": now.isoformat(), "last_success_at": (now - age).isoformat(), **extra}}
+
+
+@pytest.mark.parametrize("status,expected", [
+    ({}, "pending"),
+    ({"interval_seconds": 300, "started_at": NOW.isoformat(), "integrity": {"state": OK, "checked_at": NOW.isoformat()}}, "pending"),
+    (_backup_status("ok"), "ok"),
+    (_backup_status("failed"), "failed"),
+    (_backup_status("refused"), "failed"),
+    (_backup_status("ok", timedelta(hours=26) - timedelta(seconds=1)), "ok"),
+    (_backup_status("ok", timedelta(hours=26)), "overdue"),
+    (_backup_status("failed", timedelta(hours=26)), "overdue"),
+    (_backup_status("failed", last_success_at=None), "overdue"),  # never succeeded, started long ago
+])
+def test_backup_view(status, expected):
+    view = backup_view(status, now=NOW)
+    assert view["status"] == expected
+    assert set(view) == {"status", "last_success_at"}
+
+
+def test_with_no_room_to_save_anything_the_backup_field_still_moves_on_time():
+    """The file can't change any more, so this reads the same file later: this is what /health shows then."""
+    saved = _backup_status("ok", timedelta(hours=1))
+    assert backup_view(saved, now=NOW + timedelta(minutes=14))["status"] == "ok"
+    assert backup_view(saved, now=NOW + timedelta(minutes=16))["status"] == "stale"
+    assert backup_view(saved, now=NOW + timedelta(hours=25))["status"] == "overdue"
+    assert backup_view(saved, now=NOW + timedelta(hours=25))["last_success_at"] == saved["backup"]["last_success_at"]
+
+
+def _fresh(status):
+    """The same status, as of now, for the route, which reads the real clock."""
+    now = datetime.now(timezone.utc)
+    shifted = json.loads(json.dumps(status))
+    delta = now - NOW
+    for section in ("integrity", "backup"):
+        for key, value in list(shifted[section].items()):
+            if key.endswith("_at") and value:
+                shifted[section][key] = (datetime.fromisoformat(value) + delta).isoformat()
+    shifted["started_at"] = (datetime.fromisoformat(shifted["started_at"]) + delta).isoformat()
+    return shifted
+
+
+@pytest.mark.parametrize("state,age,field", [("failed", timedelta(hours=1), "failed"), ("failed", timedelta(hours=30), "overdue")])
+def test_a_backup_problem_shows_on_health_but_never_changes_the_status(monkeypatch, tmp_path, state, age, field):
+    """It mustn't block the promote that might fix it. Public, so no name, size or reason."""
+    body = _health(monkeypatch, tmp_path, _fresh(_backup_status(state, age)))
+    assert body["status"] == "ok" and body["database_integrity"]["status"] == "ok"
+    assert body["database_backup"]["status"] == field and body["database_backup"]["last_success_at"]
+    assert set(body["database_backup"]) == {"status", "last_success_at"}
+    text = json.dumps(body)
+    assert "odin_backup" not in text and "123456789" not in text and "disk_space" not in text
+
+
+def test_the_backup_field_is_absent_on_postgresql(monkeypatch, tmp_path):
+    assert _health(monkeypatch, tmp_path, url="postgresql://odin@postgres:5432/odin")["database_backup"] is None
 
 
 # --- The watcher doesn't depend on what it watches.

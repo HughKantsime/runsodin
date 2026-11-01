@@ -30,6 +30,8 @@ UNAVAILABLE_ALERT_AFTER = 3
 # Grace beyond two missed intervals, so a slow check or a guardian restart doesn't flap /health.
 STALE_GRACE_SECONDS = 300
 _MAX_STATUS_BYTES = 64 * 1024
+OVERDUE = "overdue"
+BACKUP_MISSED_AFTER_SECONDS = 26 * 3600
 ALERT_REPEAT = timedelta(days=1)
 
 ALERT_TITLE = "Database integrity check failed"
@@ -114,6 +116,39 @@ def database_integrity(database_url: str) -> dict[str, str | None] | None:
 
 def overall_status(integrity: dict[str, str | None] | None) -> str:
     return "degraded" if integrity and integrity["status"] in NOT_HEALTHY else "ok"
+
+
+def backup_view(status: dict, *, now: datetime | None = None) -> dict[str, str | None]:
+    """The public summary of the backups: a state and a time, no paths, names, sizes or reasons.
+
+    Worked out from time as well as the file, so it stays true when nothing can be saved: with the
+    disk too full to write, it keeps the last saved state, shows stale once checks stop being
+    recorded, and overdue once the last good backup is too old.
+    """
+    now = now or datetime.now(timezone.utc)
+    backup = status.get("backup") if isinstance(status.get("backup"), dict) else {}
+    last_success = parse_time(backup.get("last_success_at"))
+    shown = backup.get("last_success_at") if last_success else None
+    reference = last_success or parse_time(status.get("started_at"))
+    if reference is not None and (now - reference).total_seconds() >= BACKUP_MISSED_AFTER_SECONDS:
+        return {"status": OVERDUE, "last_success_at": shown}
+    if integrity_view(status, now=now)["status"] == STALE:
+        return {"status": STALE, "last_success_at": shown}
+    state = backup.get("state")
+    if not state:
+        return {"status": PENDING, "last_success_at": shown}
+    return {"status": HEALTHY if state == "ok" else FAILED, "last_success_at": shown}
+
+
+def guardian_health(database_url: str) -> dict[str, object]:
+    """What /health shows. A backup problem never changes status: it mustn't block the promote that may fix it."""
+    try:
+        paths = paths_from_database_url(database_url)
+    except BackupValidationError:
+        return {"status": "ok", "database_integrity": None, "database_backup": None}
+    status = read_status(status_path(paths.database))
+    integrity = integrity_view(status)
+    return {"status": overall_status(integrity), "database_integrity": integrity, "database_backup": backup_view(status)}
 
 
 def publish_integrity_alert(state: str, *, session_factory=None) -> None:
