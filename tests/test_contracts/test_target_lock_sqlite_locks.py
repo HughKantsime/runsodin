@@ -371,6 +371,7 @@ def test_an_unsafe_database_is_refused(tmp_path, shape):
     else:
         database.parent.chmod(0o775)
     assert _acquire(database).status == "uncertain"
+    assert not Path(f"{database}.odin-sender-locks").exists(), "refused before it leaves anything beside the database"
 
 
 def _with(value, **changes):
