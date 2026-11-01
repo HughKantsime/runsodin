@@ -737,3 +737,47 @@ def test_a_failed_watcher_check_never_stops_the_report_loop(monkeypatch):
     runner._check_database_guardian()
     source = Path(runner.__file__).read_text(encoding="utf-8")
     assert "_check_database_guardian()\n        time.sleep(POLL_INTERVAL)" in source
+
+
+# --- The off-server hold has a limit: every restart restarts it.
+
+@pytest.mark.parametrize("confirm_age,expected", [
+    (timedelta(hours=35), []),                       # not missed yet
+    (timedelta(hours=36), []),                       # missed, held: just restarted
+    (timedelta(days=3) - timedelta(minutes=1), []),  # still held
+    (timedelta(days=3), ["offsite_missed"]),         # the hold no longer applies
+    (timedelta(days=30), ["offsite_missed"]),
+])
+def test_the_hold_after_a_restart_ends_once_the_last_confirm_is_three_days_old(tmp_path, confirm_age, expected):
+    database = tmp_path / "odin.db"
+    write_status(offsite_path(database), {"confirmed_at": (NOW - confirm_age).isoformat()})
+    status = {"backup": {"last_success_at": NOW.isoformat()}, "booted_at": (NOW - timedelta(minutes=30)).isoformat()}
+    assert _reasons(missed_backups(status, NOW, database)) == expected
+
+
+def test_a_restart_loop_cannot_hold_back_the_alert_with_a_30_day_old_confirm(monkeypatch, tmp_path, saved_backup_alerts):
+    """The real start path, restarted over and over. Each restart resets booted_at, so only the limit can help."""
+    database = tmp_path / "odin.db"
+    connection = sqlite3.connect(database)
+    connection.execute("CREATE TABLE t(id INTEGER PRIMARY KEY)")
+    connection.close()
+    write_status(offsite_path(database), {"confirmed_at": (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()})
+    monkeypatch.setattr(db_guardian, "DATABASE_URL", f"sqlite:///{database}")
+    monkeypatch.setattr(db_guardian.os, "nice", lambda _: 0)
+    def stop_at_first_tick(seconds):
+        if seconds == db_guardian.TICK_SECONDS:
+            raise _Stop
+    monkeypatch.setattr(db_guardian.time, "sleep", stop_at_first_tick)
+    boots = []
+    for restart in range(1, 6):
+        # An hour after the last result, so a check is due; backups are fine, so none is.
+        hour_ago = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        current = read_status(status_path(database))
+        write_status(status_path(database), {
+            **current, "integrity": {"state": OK, "checked_at": hour_ago, "attempted_at": hour_ago},
+            "backup": {"state": "ok", "last_success_at": hour_ago, "last_attempt_at": hour_ago}})
+        with pytest.raises(_Stop):
+            db_guardian.main_loop()
+        boots.append(read_status(status_path(database))["booted_at"])
+        assert _reasons(saved_backup_alerts) == ["offsite_missed"] * restart
+    assert len(set(boots)) == 5, "each restart really did reset the grace"

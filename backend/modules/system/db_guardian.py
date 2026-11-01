@@ -52,6 +52,8 @@ BACKUP_MISSED_AFTER = timedelta(hours=26)
 OFFSITE_MISSED_AFTER = timedelta(hours=36)
 # The job runs hourly and alerts by itself after three failures; after an outage, give it that long.
 OFFSITE_BOOT_GRACE = timedelta(hours=4)
+# But not for ever: every restart restarts the grace, so a restart loop must not hold the alert for good.
+OFFSITE_GRACE_LIMIT = timedelta(days=3)
 # Boot has just made this check, twice; let the services settle before the next one.
 FIRST_CHECK_DELAY_SECONDS = 60
 ALERT_REPEAT = timedelta(days=1)
@@ -184,9 +186,10 @@ def missed_backups(status: dict, now: datetime, database: Path) -> list[BackupMi
     offsite = read_status(offsite_path(database))
     last_offsite = parse_time(offsite.get("confirmed_at")) or parse_time(offsite.get("expected_since"))
     booted = parse_time(status.get("booted_at"))
-    settled = booted is None or now - booted >= OFFSITE_BOOT_GRACE
-    if last_offsite is not None and now - last_offsite >= OFFSITE_MISSED_AFTER and settled:
-        missed.append(BackupMissedError("offsite_missed"))
+    if last_offsite is not None and now - last_offsite >= OFFSITE_MISSED_AFTER:
+        settled = booted is None or now - booted >= OFFSITE_BOOT_GRACE
+        if settled or now - last_offsite >= OFFSITE_GRACE_LIMIT:
+            missed.append(BackupMissedError("offsite_missed"))
     return missed
 
 
