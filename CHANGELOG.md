@@ -2,6 +2,23 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.39] - 2026-11-01
+
+<!-- summary: Fixes a dispatch lock that could corrupt the database, and adds a newer SQLite, scheduled integrity checks and daily verified backups. -->
+
+### Fixed
+
+- Dispatching a print, or a dispatched print ending, could let ODIN's processes damage the SQLite database. The dispatch target lock opened the database file directly, and on Linux closing that file drops every SQLite lock the process holds. Another process could then remove the write-ahead log while it was still in use. The lock no longer opens the database file. This was reproduced with the real lock on a test database, and is the leading explanation for database damage seen in production, though not proven as its cause.
+- Docker images now bundle SQLite 3.51.3, which carries SQLite's own fix for a write-ahead log reset bug, instead of the distribution's 3.46.1. FTS5 is left out of the build because ODIN doesn't use it.
+- A database that fails its integrity check at startup now says so plainly and points to the runbook, instead of reporting "Media ownership database integrity differs". ODIN still refuses to start on it, and rolling back won't help.
+
+### Added
+
+- ODIN checks its SQLite database's integrity every 5 minutes on a read-only connection. Damage raises a critical alert at once, and `/health` shows the result as `database_integrity`. It never repairs anything by itself.
+- ODIN backs up its SQLite database daily, keeping 7 daily and 4 weekly copies. Every copy is verified and restore-tested on a throwaway copy before it's listed. A run needs free space for two copies plus 128 MiB. If there isn't room, it refuses and alerts, and it never removes good copies to make room. `/health` shows the state as `database_backup`.
+- Refused and missed backups and database damage alert admins, including on their phones, whatever the quiet hours.
+- An optional job in `ops/offsite_backup` pulls each backup to another machine and encrypts it as it arrives. It isn't installed by default; see `docs/BACKUP_RESTORE_RUNBOOK.md`.
+
 ## [2.0.38] - 2026-10-31
 
 <!-- summary: Prints that end during a restart close with their real outcome, and stock P2S prints pass the AMS source check. -->
