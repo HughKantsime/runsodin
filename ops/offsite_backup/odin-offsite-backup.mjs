@@ -16,7 +16,7 @@
 // "init-key", "register" and "install" change this machine or the server, so they need the owner's go.
 import { execFileSync, fork, spawn } from "node:child_process";
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
-import { chmodSync, closeSync, copyFileSync, createReadStream, createWriteStream, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
+import { chmodSync, closeSync, copyFileSync, createReadStream, createWriteStream, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Transform, Writable } from "node:stream";
@@ -429,6 +429,18 @@ function register() {
   process.stdout.write("ODIN now expects off-server copies, and alerts if none is confirmed for 36 hours.\n");
 }
 
+// launchd needs a path that outlives an upgrade. process.execPath is the real file, which under Homebrew is
+// <prefix>/Cellar/<formula>/<version>/bin/node, and an upgrade removes that. <prefix>/opt/<formula> follows it.
+function stableNodePath(execPath) {
+  const homebrew = /^(.*)\/Cellar\/([^/]+)\/[^/]+\/bin\/node$/.exec(execPath);
+  if (!homebrew) return execPath;
+  const stable = path.join(homebrew[1], "opt", homebrew[2], "bin", "node");
+  try {
+    if (realpathSync(stable) === realpathSync(execPath)) return stable;
+  } catch { /* the formula isn't linked: nothing better to offer */ }
+  return execPath;
+}
+
 function install() {
   const config = loadConfig();
   register();
@@ -441,7 +453,8 @@ function install() {
   mkdirSync(logs, { recursive: true });
   const plist = path.join(os.homedir(), "Library/LaunchAgents", `${LABEL}.plist`);
   mkdirSync(path.dirname(plist), { recursive: true });
-  const NODE = process.execPath;
+  const NODE = stableNodePath(process.execPath);
+  if (NODE.includes("/Cellar/")) process.stderr.write(`Warning: ${NODE} is a versioned path, so upgrading node will stop this job. Run install again after an upgrade.\n`);
   const xml = value => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;");
   writeFileSync(plist, `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -472,7 +485,8 @@ const [command, ...args] = process.argv.slice(2);
 if (command === "run") await runCommand();
 else if (command === "worker") await worker();
 else if (command === "decrypt" && args.length === 2) await decrypt(args[0], args[1]).catch(fail);
+else if (command === "node-path") process.stdout.write(`${stableNodePath(args[0] ?? process.execPath)}\n`);
 else if (command === "init-key" || command === "register" || command === "install") {
   try { ({ "init-key": initKey, register, install })[command](); } catch (error) { fail(error); }
 }
-else { process.stderr.write("Usage: odin-offsite-backup.mjs run|init-key|register|install|decrypt <file.enc> <output>\n"); process.exitCode = 2; }
+else { process.stderr.write("Usage: odin-offsite-backup.mjs run|init-key|register|install|node-path|decrypt <file.enc> <output>\n"); process.exitCode = 2; }

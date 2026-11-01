@@ -5,6 +5,7 @@ import io
 import json
 import os
 import re
+import shutil
 import stat
 import subprocess
 import threading
@@ -781,6 +782,88 @@ def test_install_stops_before_the_schedule_if_odin_cant_be_told(job):
     (job.server / "down").write_text("")
     assert job.job("install").returncode == 1
     assert not (job.server / "launchctl.log").exists() and not (job.tmp / "Library/LaunchAgents").exists()
+
+
+# --- A Homebrew upgrade removes the versioned folder node runs from, so the schedule can't name it.
+
+def _homebrew(root, formula="node", version="25.9.0_1", node_bytes=b"not really node\n"):
+    real = root / "Cellar" / formula / version / "bin" / "node"
+    real.parent.mkdir(parents=True)
+    real.write_bytes(node_bytes)
+    real.chmod(0o755)
+    opt = root / "opt"
+    opt.mkdir(exist_ok=True)
+    (opt / formula).symlink_to(root / "Cellar" / formula / version)
+    return real
+
+
+@pytest.mark.parametrize("formula", ["node", "node@22"])
+def test_homebrew_node_is_scheduled_by_its_stable_path(job, tmp_path, formula):
+    real = _homebrew(tmp_path / "brew", formula)
+    result = job.job("node-path", str(real))
+    assert result.stdout.strip() == str(tmp_path / "brew" / "opt" / formula / "bin" / "node")
+
+
+def test_the_stable_path_survives_the_upgrade_the_versioned_one_does_not(job, tmp_path):
+    brew = tmp_path / "brew"
+    real = _homebrew(brew)
+    stable = Path(job.job("node-path", str(real)).stdout.strip())
+    (brew / "opt" / "node").unlink()
+    newer = brew / "Cellar" / "node" / "26.0.0" / "bin" / "node"
+    newer.parent.mkdir(parents=True)
+    newer.write_bytes(b"newer\n")
+    (brew / "opt" / "node").symlink_to(brew / "Cellar" / "node" / "26.0.0")
+    real.unlink()
+    assert not real.exists() and stable.read_bytes() == b"newer\n"
+
+
+@pytest.mark.parametrize("shape", ["not_homebrew", "not_linked", "linked_elsewhere"])
+def test_a_path_that_would_run_a_different_node_is_not_used(job, tmp_path, shape):
+    brew = tmp_path / "brew"
+    if shape == "not_homebrew":
+        real = tmp_path / "elsewhere" / "node"
+        real.parent.mkdir()
+        real.write_bytes(b"node")
+    else:
+        real = _homebrew(brew)
+        (brew / "opt" / "node").unlink()
+        if shape == "linked_elsewhere":
+            other = brew / "Cellar" / "node" / "24.0.0" / "bin" / "node"
+            other.parent.mkdir(parents=True)
+            other.write_bytes(b"older")
+            (brew / "opt" / "node").symlink_to(brew / "Cellar" / "node" / "24.0.0")
+    assert job.job("node-path", str(real)).stdout.strip() == str(real)
+
+
+def _node_in_a_cellar(job, tmp_path):
+    """A real node, run from where Homebrew keeps it, so process.execPath really is the versioned path."""
+    found = shutil.which("node")
+    real = _homebrew(tmp_path / "brew", node_bytes=Path(found).resolve().read_bytes())
+    return real
+
+
+def _install_with(job, node):
+    env = dict(job.env)
+    return subprocess.run([str(node), str(JOB), "install"], env=env, capture_output=True, text=True, timeout=120)
+
+
+def test_install_writes_the_stable_path_and_it_runs(job, tmp_path):
+    real = _node_in_a_cellar(job, tmp_path)
+    result = _install_with(job, real)
+    assert result.returncode == 0, result.stderr
+    plist = (job.tmp / "Library/LaunchAgents/app.odin.offsite-backup.plist").read_text()
+    stable = tmp_path / "brew" / "opt" / "node" / "bin" / "node"
+    assert f"<string>{stable}</string>" in plist and "/Cellar/" not in plist and "Warning" not in result.stderr
+    assert subprocess.run([str(stable), "--version"], capture_output=True, text=True).returncode == 0
+
+
+def test_install_warns_when_only_the_versioned_path_will_do(job, tmp_path):
+    real = _node_in_a_cellar(job, tmp_path)
+    (tmp_path / "brew" / "opt" / "node").unlink()
+    result = _install_with(job, real)
+    assert result.returncode == 0, result.stderr
+    assert f"<string>{real}</string>" in (job.tmp / "Library/LaunchAgents/app.odin.offsite-backup.plist").read_text()
+    assert "versioned path" in result.stderr
 
 
 def test_the_ignore_rules_cover_the_jobs_site_details_and_keys():
