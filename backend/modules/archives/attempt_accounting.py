@@ -404,14 +404,26 @@ def account_archive(connection, *, archive_id, print_job_id, printer_id, snapsho
     def unresolved(reason):
         return 'unresolved', reason, []
     from core.interfaces.filament_ownership import uses_external_filament_accounting
-    # Physical history, rather than a reassigned job, determines the policy.
-    physical = execute(connection, 'SELECT printer_id FROM print_jobs WHERE id=?', (print_job_id,)).fetchone()
-    if not physical:
-        return unresolved('missing_physical_print')
-    if physical[0] != printer_id:
-        return unresolved('foreign_job_printer')
-    if uses_external_filament_accounting(physical[0]):
-        return 'externally_managed', 'external_accounting', []
+    from core.config import settings
+    if settings.external_filament_accounting_printers:
+        # Physical history, rather than a reassigned job, determines the policy.
+        physical = execute(connection, 'SELECT printer_id FROM print_jobs WHERE id=?', (print_job_id,)).fetchone()
+        if not physical:
+            return unresolved('missing_physical_print')
+        if physical[0] != printer_id:
+            return unresolved('foreign_job_printer')
+        if uses_external_filament_accounting(physical[0]):
+            from core import filament_ledger
+            prior = filament_ledger.prior_attempt_usage(_ledger_runner(connection), scheduled_job_id, print_job_id)
+            if prior == filament_ledger.MARKER:
+                return 'accounted', 'attempt_already_accounted', []
+            if prior == filament_ledger.PRINT_USAGE:
+                return unresolved('attempt_usage_without_archive')
+            if prior == filament_ledger.LEGACY_JOB_USAGE:
+                return unresolved('legacy_usage_unattributed')
+            if prior == filament_ledger.JOB_USAGE:
+                return unresolved('job_usage_unattributed')
+            return 'externally_managed', 'external_accounting', []
     if not success and measured_grams is None:
         return unresolved('non_successful_attempt_quantity_unconfirmed')
     try:

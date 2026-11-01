@@ -40,36 +40,55 @@ route (Odin's AMS sync and Bambu sync/configuration endpoints); they all return
 HTTP 409 without contacting the printer. Moving a local spool out of a linked
 printer is also rejected. Unlinked printers keep their existing workflows. Printer
 controls and Odin's other integrations remain independent; this display adapter
-never writes assignments, weights, or printer settings. If an external service
-owns consumption, opt in separately:
+never writes assignments, weights, or printer settings.
+
+## External filament accounting
+
+Set `EXTERNAL_FILAMENT_ACCOUNTING_PRINTERS` to a JSON list of positive Odin
+printer IDs. It defaults to `[]` and is independent of the display bindings.
+Omitting this setting preserves Odin's existing automatic accounting. In the
+split `docker-compose.enterprise.yml` deployment, set the same value in both
+the `api` and `monitors` environment maps. Job completion runs in `api`; monitor
+accounting and archive creation run in `monitors`. Each API and printer monitor
+process logs its effective delegated printer IDs at startup, including an empty
+list. Compare these lists when checking a split deployment.
 
 ```yaml
-environment:
-  EXTERNAL_FILAMENT_ACCOUNTING_PRINTERS: '[9]'
+services:
+  api:
+    environment:
+      EXTERNAL_FILAMENT_ACCOUNTING_PRINTERS: '[9]'
+  monitors:
+    environment:
+      EXTERNAL_FILAMENT_ACCOUNTING_PRINTERS: '[9]'
 ```
 
-This JSON list contains positive integer Odin printer IDs and defaults to empty.
-It does not require a display binding. Display bindings alone retain automatic
-accounting. For listed printers, Odin skips automatic stock deductions from
-Moonraker, operator job completion and archive accounting. Skipped consumption
-creates no new Spoolman delivery; previously queued deliveries remain unchanged.
-Jobs and archives still complete normally. Archives record
-`externally_managed` with reason `external_accounting`; this does not assert that
-the external service successfully accounted for the print. Manual consumption
-adjustments and weighing keep their existing behavior and access restrictions.
+Change the list only while the affected printers are idle. Odin reads the policy
+when accounting runs. Adding a printer during a print skips its full consumption,
+even if Odin tracked the print from its start. Removing a printer during a print
+deducts the full consumption and queues a Spoolman delivery for any linked spool.
+That can double count consumption if the external service also records the print.
 
-Odin evaluates current configuration when accounting runs, including delayed
-archives. Removing a printer from this list does not automatically reprocess
-existing archives. If accounting is explicitly invoked later, no deduction claim
-from the skipped invocation prevents it from deducting consumption.
-A physical print's recorded printer determines its policy even if its scheduled
-job was subsequently reassigned. Operator completion checks only the current
-attempt's physical history; a reset starts a new attempt. If that history is
-ambiguous across delegated printers, or a local physical print's job now points
-to a delegated printer, completion skips automatic deduction rather than
-charging the newly assigned printer's spools. Existing local accounting remains
-unchanged when no involved printer delegates accounting. Malformed lists fail
-server startup.
+For listed printers, Odin skips automatic stock deductions from Moonraker,
+operator job completion and archive accounting. Their local spool weights stop
+decrementing, and skipped consumption creates no new Spoolman delivery. Existing
+queued deliveries remain unchanged. Jobs and archives still complete normally.
+Previously unaccounted archives use state `externally_managed` with reason
+`external_accounting`; that
+state does not confirm the external service recorded the print. Existing Odin
+deductions retain their accounted or reconciliation status. Odin does not
+automatically reprocess existing archives when the setting changes. An explicit
+later accounting invocation can deduct consumption because the skipped attempt
+created no deduction claim.
+
+Quota charges, financial valuation from Odin's local start snapshot and AMS
+measurements continue for listed printers. Manual consumption adjustments and
+weighing keep their existing behavior and access restrictions. A physical print's
+recorded printer determines its policy even if the scheduled job was reassigned.
+At operator completion, a reset starts a new attempt. If current-attempt history
+is ambiguous across delegated printers, or a local print is now assigned to a
+delegated printer, Odin skips the automatic deduction rather than charging the
+newly assigned printer's spools. Malformed lists fail server startup.
 
 Hardware telemetry still reconciles departures from Odin's local slot inventory.
 An explicitly empty Moonraker gate or Anycubic slot can clear an old local spool

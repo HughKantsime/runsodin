@@ -378,8 +378,23 @@ def job_accounting_skip_reason(run, job_id) -> Optional[str]:
     return None
 
 
+@dataclass(frozen=True)
+class _JobAccountingDecision:
+    job_id: int
+    run: object
+    skip_reason: Optional[str]
+
+
+def job_accounting_decision(run, job_id) -> _JobAccountingDecision:
+    """Evaluate once for a job-only deduction in the caller's current transaction.
+
+    Reuse requires the exact same runner and job. Do not retain across commits.
+    """
+    return _JobAccountingDecision(int(job_id), run, job_accounting_skip_reason(run, job_id))
+
+
 def record_job_filament(run, job_id, *, source: str, grams_by_spool: Mapping, print_job_id=None,
-                        notes: str = "", allow_unknown_balance=False) -> LedgerResult:
+                        notes: str = "", allow_unknown_balance=False, _job_accounting=None) -> LedgerResult:
     """Deduct once per physical print (``print_job_id``) or per job attempt, claiming atomically."""
     if source not in SOURCES:
         raise ValueError(f"Unknown filament ledger source {source!r}")
@@ -389,16 +404,23 @@ def record_job_filament(run, job_id, *, source: str, grams_by_spool: Mapping, pr
         raise ValueError("A filament deduction names a job or a physical print")
     from core.interfaces.filament_ownership import uses_external_filament_accounting
     # Physical history remains authoritative if the scheduled job is reassigned.
+    from core.config import settings
+    if _job_accounting is not None and (
+            not isinstance(_job_accounting, _JobAccountingDecision)
+            or _job_accounting.job_id != job_id or _job_accounting.run is not run
+            or print_job_id is not None):
+        raise ValueError("Accounting decision must name this job and transaction runner")
     if print_job_id is not None:
-        printer = run("SELECT printer_id FROM print_jobs WHERE id = :id", {"id": print_job_id}).fetchone()
-        if not printer:
-            return LedgerResult("nothing_deducted", "missing_physical_print")
-        if uses_external_filament_accounting(printer[0]):
-            return LedgerResult("nothing_deducted", "external_accounting")
+        if settings.external_filament_accounting_printers:
+            printer = run("SELECT printer_id FROM print_jobs WHERE id = :id", {"id": print_job_id}).fetchone()
+            if not printer:
+                return LedgerResult("nothing_deducted", "missing_physical_print")
+            if uses_external_filament_accounting(printer[0]):
+                return LedgerResult("nothing_deducted", "external_accounting")
     else:
-        reason = job_accounting_skip_reason(run, job_id)
-        if reason:
-            return LedgerResult("nothing_deducted", reason)
+        decision = _job_accounting or job_accounting_decision(run, job_id)
+        if decision.skip_reason:
+            return LedgerResult("nothing_deducted", decision.skip_reason)
     prior = prior_attempt_usage(run, job_id, print_job_id)
     if prior:
         return LedgerResult("already_deducted", prior)

@@ -69,3 +69,9 @@ def ensure_local_filament_management(printer_id: int) -> None:
 def uses_external_filament_accounting(printer_id: int | None) -> bool:
     """Current automatic accounting policy, independent of display and manual edits."""
     return printer_id is not None and printer_id in settings.external_filament_accounting_printers
+
+
+def log_external_filament_accounting(logger) -> None:
+    """Call at process startup after logging is configured, including empty policy."""
+    logger.info("External filament accounting printer IDs: %s",
+                sorted(settings.external_filament_accounting_printers))
