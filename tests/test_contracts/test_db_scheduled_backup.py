@@ -667,6 +667,21 @@ def test_backup_alerts_reach_the_phone_path_after_the_row_is_saved(alert_engine,
     assert len(delivered) == 2 and len(_alert_rows(engine)) == 4
 
 
+def test_an_admin_already_told_today_is_not_told_again_when_another_is(alert_engine, monkeypatch):
+    from modules.notifications import alert_outbox
+    engine, factory = alert_engine
+    delivered = []
+    monkeypatch.setattr(alert_outbox, "deliver_mobile", lambda db, plan: delivered.append(sorted(plan.in_app_users)))
+    error = BackupValidationError("Insufficient free disk space")
+    backup_failure_alerts.publish_backup_failure(error, session_factory=factory, now=NOW)
+    with engine.begin() as connection:
+        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fixture SQL
+        connection.execute(text("DELETE FROM alerts WHERE user_id=2"))
+    backup_failure_alerts.publish_backup_failure(error, session_factory=factory, now=NOW + timedelta(hours=1))
+    assert delivered == [[1, 2], [2]]
+    assert [row[0] for row in _alert_rows(engine)] == [1, 2]
+
+
 def test_a_phone_that_cannot_be_reached_leaves_the_inbox_row_saved(alert_engine, monkeypatch):
     from modules.notifications import alert_dispatcher
     engine, factory = alert_engine
