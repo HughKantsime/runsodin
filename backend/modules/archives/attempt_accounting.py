@@ -392,6 +392,17 @@ def _material_plan(connection, print_job_id, printer_id, printer_org_id, slots, 
     return plan
 
 
+def _prior_accounting_status(prior):
+    """Keep existing deduction outcomes consistent for local and delegated archives."""
+    from core import filament_ledger
+    return {
+        filament_ledger.MARKER: ('accounted', 'attempt_already_accounted', []),
+        filament_ledger.PRINT_USAGE: ('unresolved', 'attempt_usage_without_archive', []),
+        filament_ledger.LEGACY_JOB_USAGE: ('unresolved', 'legacy_usage_unattributed', []),
+        filament_ledger.JOB_USAGE: ('unresolved', 'job_usage_unattributed', []),
+    }.get(prior)
+
+
 def account_archive(connection, *, archive_id, print_job_id, printer_id, snapshot_json,
                     scheduled_job_id, measured_grams, success):
     """Persist local consumption and its delivery outbox in the archive transaction.
@@ -415,14 +426,9 @@ def account_archive(connection, *, archive_id, print_job_id, printer_id, snapsho
         if uses_external_filament_accounting(physical[0]):
             from core import filament_ledger
             prior = filament_ledger.prior_attempt_usage(_ledger_runner(connection), scheduled_job_id, print_job_id)
-            if prior == filament_ledger.MARKER:
-                return 'accounted', 'attempt_already_accounted', []
-            if prior == filament_ledger.PRINT_USAGE:
-                return unresolved('attempt_usage_without_archive')
-            if prior == filament_ledger.LEGACY_JOB_USAGE:
-                return unresolved('legacy_usage_unattributed')
-            if prior == filament_ledger.JOB_USAGE:
-                return unresolved('job_usage_unattributed')
+            prior_status = _prior_accounting_status(prior)
+            if prior_status is not None:
+                return prior_status
             return 'externally_managed', 'external_accounting', []
     if not success and measured_grams is None:
         return unresolved('non_successful_attempt_quantity_unconfirmed')
@@ -531,14 +537,9 @@ def account_archive(connection, *, archive_id, print_job_id, printer_id, snapsho
     from core import filament_ledger
     ledger_run = _ledger_runner(connection)
     prior = filament_ledger.prior_attempt_usage(ledger_run, scheduled_job_id, print_job_id)
-    if prior == filament_ledger.MARKER:
-        return 'accounted', 'attempt_already_accounted', []
-    if prior == filament_ledger.PRINT_USAGE:
-        return unresolved('attempt_usage_without_archive')
-    if prior == filament_ledger.LEGACY_JOB_USAGE:
-        return unresolved('legacy_usage_unattributed')
-    if prior == filament_ledger.JOB_USAGE:
-        return unresolved('job_usage_unattributed')
+    prior_status = _prior_accounting_status(prior)
+    if prior_status is not None:
+        return prior_status
     rows = {}
     confirmed_ids = {item["spool_id"] for item in allocations if "captured_spool_id" in item}
     for spool_id in sorted(consumption):

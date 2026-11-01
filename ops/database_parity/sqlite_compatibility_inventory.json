@@ -1426,7 +1426,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 410,
+      "line": 421,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1434,7 +1434,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 437,
+      "line": 443,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1442,7 +1442,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 452,
+      "line": 458,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1450,7 +1450,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 460,
+      "line": 466,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1458,7 +1458,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 469,
+      "line": 475,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1466,7 +1466,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 484,
+      "line": 490,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1474,7 +1474,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 547,
+      "line": 548,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1482,7 +1482,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 551,
+      "line": 552,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1490,7 +1490,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 579,
+      "line": 580,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
@@ -1498,7 +1498,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 586,
+      "line": 587,
       "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
       "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",

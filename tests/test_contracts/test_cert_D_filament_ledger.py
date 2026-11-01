@@ -1248,3 +1248,67 @@ def test_startup_logs_effective_external_printer_ids(monkeypatch, caplog, delega
             log_external_filament_accounting(logging.getLogger(process))
     assert len(caplog.records) == 6
     assert all(str(sorted(delegated)) in record.message for record in caplog.records)
+
+
+@pytest.mark.parametrize('prior, expected_reason', [
+    ('print_usage', 'attempt_usage_without_archive'),
+    ('legacy_job_usage', 'legacy_usage_unattributed'),
+    ('job_usage', 'job_usage_unattributed'),
+])
+def test_delegated_archive_preserves_unattributed_prior_usage(archive_case, monkeypatch, prior, expected_reason):
+    from core.config import settings
+    from core.filament_ledger import prior_attempt_usage
+    from core.print_attempts import sqlalchemy_runner
+    archive, engine = archive_case
+    with engine.begin() as conn:
+        conn.execute(text('UPDATE spools SET remaining_weight_g=960,spoolman_spool_id=123 WHERE id=7099'))
+        conn.execute(text("INSERT INTO spool_usage(spool_id,job_id,print_job_id,weight_used_g,used_at,notes) "
+                          "VALUES(7099,7099,:print_job_id,40,'2026-10-11 13:00:00',:notes)"),
+                     {'print_job_id': 7099 if prior == 'print_usage' else None,
+                      'notes': 'auto:operator_complete' if prior == 'job_usage' else 'Auto-deducted on job #7099 complete (Synthetic)'})
+        if prior == 'job_usage':
+            conn.execute(text("INSERT INTO system_config(key,value) VALUES('quota_attempt:filament:job:7099:0',:value)"),
+                         {'value': json.dumps({'source': 'operator_complete', 'print_job_id': None})})
+        assert prior_attempt_usage(sqlalchemy_runner(conn), 7099, 7099) == prior
+        before_usage = conn.execute(text('SELECT * FROM spool_usage ORDER BY id')).all()
+        before_claims = conn.execute(text("SELECT key,value FROM system_config WHERE key LIKE 'quota_attempt:filament:%' ORDER BY key")).all()
+        before_outbox = conn.execute(text('SELECT * FROM filament_delivery_outbox ORDER BY id')).all()
+    monkeypatch.setattr(settings, 'external_filament_accounting_printers', [9])
+    assert archive.create_print_archive(7099, 9, True) is not None
+    assert _accounting(engine) == ('unresolved', expected_reason)
+    assert _balances(engine) == [960, 1000]
+    with engine.connect() as conn:
+        assert conn.execute(text('SELECT * FROM spool_usage ORDER BY id')).all() == before_usage
+        assert conn.execute(text("SELECT key,value FROM system_config WHERE key LIKE 'quota_attempt:filament:%' ORDER BY key")).all() == before_claims
+        assert conn.execute(text('SELECT * FROM filament_delivery_outbox ORDER BY id')).all() == before_outbox
+        assert conn.execute(text('SELECT consumption_json FROM print_archives WHERE print_job_id=7099')).scalar_one() is None
+
+
+def test_startup_entrypoints_log_external_filament_accounting():
+    import ast
+    from pathlib import Path
+    backend = Path(__file__).resolve().parents[2] / 'backend'
+    targets = ['core/app.py'] + [
+        f'modules/printers/monitors/{name}_monitor.py'
+        for name in ('moonraker', 'mqtt', 'prusalink', 'elegoo', 'anycubic_lan')
+    ]
+    for target in targets:
+        tree = ast.parse((backend / target).read_text())
+        if target == 'core/app.py':
+            entrypoints = [node for node in ast.walk(tree)
+                           if isinstance(node, ast.AsyncFunctionDef) and node.name == 'lifespan']
+        else:
+            entrypoints = [node for node in tree.body
+                           if isinstance(node, ast.If) and '__main__' in ast.unparse(node.test)]
+        assert len(entrypoints) == 1, target
+        startup = entrypoints[0]
+        if target.endswith(('mqtt_monitor.py', 'anycubic_lan_monitor.py')):
+            assert any(isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call)
+                       and isinstance(statement.value.func, ast.Name) and statement.value.func.id == 'main'
+                       for statement in startup.body), target
+            startup = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'main')
+        calls = [statement.value for statement in startup.body
+                 if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call)
+                 and isinstance(statement.value.func, ast.Name)
+                 and statement.value.func.id == 'log_external_filament_accounting']
+        assert len(calls) == 1, f'{target}: log the effective policy directly on startup'

@@ -42,6 +42,17 @@ printer is also rejected. Unlinked printers keep their existing workflows. Print
 controls and Odin's other integrations remain independent; this display adapter
 never writes assignments, weights, or printer settings.
 
+Hardware telemetry still reconciles departures from Odin's local slot inventory.
+An explicitly empty Moonraker gate or Anycubic slot can clear an old local spool
+assignment and update observed material/color without hitting the request-only
+ownership refusal. This internal path retains organization checks and audit
+records; it does not update the external service or deduct filament weight.
+
+The contribution also tightens two access checks for every printer, including
+unlinked printers: confirming a slot on an inaccessible organization's printer
+returns HTTP 404, and unloading a spool checks access to its recorded location
+printer as well as printers linked through slots.
+
 ## External filament accounting
 
 Set `EXTERNAL_FILAMENT_ACCOUNTING_PRINTERS` to a JSON list of positive Odin
@@ -89,17 +100,6 @@ At operator completion, a reset starts a new attempt. If current-attempt history
 is ambiguous across delegated printers, or a local print is now assigned to a
 delegated printer, Odin skips the automatic deduction rather than charging the
 newly assigned printer's spools. Malformed lists fail server startup.
-
-Hardware telemetry still reconciles departures from Odin's local slot inventory.
-An explicitly empty Moonraker gate or Anycubic slot can clear an old local spool
-assignment and update observed material/color without hitting the request-only
-ownership refusal. This internal path retains organization checks and audit
-records; it does not update the external service or deduct filament weight.
-
-The contribution also tightens two access checks for every printer, including
-unlinked printers: confirming a slot on an inaccessible organization's printer
-returns HTTP 404, and unloading a spool checks access to its recorded location
-printer as well as printers linked through slots.
 
 ## Provider contract
 

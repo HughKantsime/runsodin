@@ -403,13 +403,13 @@ def record_job_filament(run, job_id, *, source: str, grams_by_spool: Mapping, pr
     if job_id is None and print_job_id is None:
         raise ValueError("A filament deduction names a job or a physical print")
     from core.interfaces.filament_ownership import uses_external_filament_accounting
-    # Physical history remains authoritative if the scheduled job is reassigned.
     from core.config import settings
     if _job_accounting is not None and (
             not isinstance(_job_accounting, _JobAccountingDecision)
             or _job_accounting.job_id != job_id or _job_accounting.run is not run
             or print_job_id is not None):
         raise ValueError("Accounting decision must name this job and transaction runner")
+    # Physical history remains authoritative if the scheduled job is reassigned.
     if print_job_id is not None:
         if settings.external_filament_accounting_printers:
             printer = run("SELECT printer_id FROM print_jobs WHERE id = :id", {"id": print_job_id}).fetchone()
