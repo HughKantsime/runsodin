@@ -253,6 +253,7 @@ ENDPOINTS = [
     ("GET",    "/api/print-files/{file_id}",          _api_read(), None, "Get print file (template)"),
     ("GET",    "/api/print-files/{file_id}/mesh",     _api_read(), None, "Get print file mesh"),
     ("DELETE", "/api/print-files/{file_id}",          _op_write(), None, "Delete print file (template)"),
+    ("POST",   "/api/print-files/import-plates",      _op_write(), None, "Import sliced plates"),
     ("POST",   "/api/print-files/upload",             _op_write(), None, "Upload print file"),
     ("POST",   "/api/print-files/{file_id}/schedule", _op_write(), {},   "Schedule print file"),
 

@@ -88,6 +88,7 @@ class Analysis:
     file_meta: Optional[dict] = None
     mesh: Optional[dict] = None
     plates: Optional[list] = None
+    imported_plates: Optional[list] = None
 
 
 # --------------------------------------------------------------------------- mesh wire format
@@ -483,6 +484,11 @@ def validate_plates(parsed) -> Analysis:
 def _decode(blob: bytes, mode: str, clean_exit: bool) -> Analysis:
     try:
         frames = _frames(blob)
+        if mode == "import_plates":
+            from modules.models_library.plate_import import validate_result
+            if not clean_exit or b"I" not in frames or len(frames[b"I"]) > 2**20:
+                return Analysis(status="failed")
+            return Analysis(status="ok", imported_plates=validate_result(json.loads(frames[b"I"])))
         if mode == "plates":
             if not clean_exit or b"P" not in frames or len(frames[b"P"]) > ANALYSIS_LIMIT_BYTES:
                 return Analysis(status="failed")
@@ -504,7 +510,7 @@ def _decode(blob: bytes, mode: str, clean_exit: bool) -> Analysis:
 # --------------------------------------------------------------------------- entry points
 
 def run_admitted(path, ticket: Ticket, *, mode: str = "upload", name: Optional[str] = None,
-                 memory_limit: int = MEMORY_LIMIT_BYTES) -> Analysis:
+                 memory_limit: int = MEMORY_LIMIT_BYTES, destination=None) -> Analysis:
     """Blocking, on the 3MF executor, for an admitted caller. Raises Busy; else never raises."""
     global LAST_WORKER_PID, _running
     try:
@@ -519,7 +525,7 @@ def run_admitted(path, ticket: Ticket, *, mode: str = "upload", name: Optional[s
         with open(path, "rb") as package:
             proc = subprocess.Popen(
                 [sys.executable, "-s", "-m", "modules.models_library.mesh_worker", str(memory_limit), str(cpu_seconds),
-                 mode, str(os.getpid()), os.path.basename(name or str(path))],
+                 mode, str(os.getpid()), os.path.basename(name or str(path)), *([str(destination)] if destination is not None else [])],
                 cwd=workdir, env=_child_env(), stdin=package, stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL, close_fds=True, start_new_session=True)
         LAST_WORKER_PID = proc.pid
@@ -593,3 +599,12 @@ def quick_print_readiness(plate1_gcode: bool) -> dict:
                 "This 3MF has no sliced plate (Metadata/plate_1.gcode). Slice it in Bambu Studio "
                 "or OrcaSlicer and upload the sliced .gcode.3mf to print it."}
     return {"quick_print_ready": True, "quick_print_blocked_reason": None}
+
+
+async def import_plates_isolated(path, destination, *, timeout: float = TIMEOUT_SECONDS) -> Analysis:
+    """Use the existing admission pool and child limits for sliced-plate staging."""
+    ticket = reserve(timeout)
+    try:
+        return await run_on_executor(run_admitted, path, ticket, mode="import_plates", destination=destination)
+    finally:
+        ticket.release()

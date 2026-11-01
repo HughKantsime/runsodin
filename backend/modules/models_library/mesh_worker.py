@@ -21,7 +21,9 @@ Output frames on stdout for mesh_isolation:
 
 Modes: ``upload`` (analysis + mesh), ``metadata`` (analysis only), ``education``
 (analysis + the Education rule: exactly one nonempty Metadata/plate_1.gcode),
-``mesh`` (mesh only), ``plates`` (a ``P`` frame: per-plate summaries of a stored package).
+``mesh`` (mesh only), ``plates`` (a ``P`` frame: per-plate summaries of a stored package),
+``import_plates`` (an ``I`` manifest frame and bounded G-code files in the caller's
+staging directory, passed as the last argument).
 """
 import json
 import os
@@ -148,6 +150,15 @@ def main() -> int:
         with open(spawn, "w") as marker:
             marker.write(str(child.pid))
     try:
+        if mode == "import_plates":
+            from modules.models_library.plate_import import extract_to
+            try:
+                result = extract_to(INPUT, sys.argv[6])
+                _frame(b"I", json.dumps(result).encode())
+            except Exception:
+                # Hostile archives return no manifest; parent removes staging.
+                return 2
+            return 0
         if mode == "plates":
             _frame(b"P", json.dumps(_plates(INPUT)).encode())
             return 0
