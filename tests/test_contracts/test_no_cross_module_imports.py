@@ -81,6 +81,8 @@ ALLOWED_PATTERNS = [
                           # Added v1.8.5 when report_runner's quiet-hours digest began
                           # calling send_push_notification directly for per-user fan-out.
 
+    ".db_guardian_status import",  # report_runner watches the database guardian, which can't report its own death.
+
     # Data/utility files — pure functions with no route logic side effects.
     ".hms_codes",         # Bambu HMS error code lookup (data file)
     ".quiet_hours",       # Quiet hours suppression helper

@@ -46,6 +46,64 @@ RUN go2rtc_arch="$(dpkg --print-architecture)" \
     && test "$(od -An -tx1 -j18 -N2 /usr/local/bin/go2rtc | tr -d ' ')" = "${go2rtc_elf_machine}" \
     && chmod +x /usr/local/bin/go2rtc
 
+# ── SQLite with the WAL-reset fix ──
+# Debian's libsqlite3 doesn't carry the fix for the WAL-reset corruption bug
+# (https://sqlite.org/wal.html, section 11): 3.46.1-7 in this base image and 3.46.1-7+deb13u2,
+# trixie's latest, have no patch touching src/wal.c. 3.51.3 is the oldest published release
+# with the fix, and the smallest step for a database that has just been damaged: 3.53 changed
+# the query planner and how REAL values convert to text. The flags are Debian's (debian/rules),
+# without FTS5: nothing in ODIN uses it, and 3.51.3 predates the fixes for CVE-2026-11822 and
+# CVE-2026-11824. docker/sqlite_image_check.py holds the result to the pinned option list.
+FROM python:3.11-slim@sha256:0b23cfb7425d065008b778022a17b1551c82f8b4866ee5a7a200084b7e2eafbf AS sqlite-build
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+WORKDIR /build/sqlite
+
+# hadolint ignore=DL3008
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    binutils \
+    ca-certificates \
+    curl \
+    dpkg-dev \
+    gcc \
+    libc6-dev \
+    make \
+    && rm -rf /var/lib/apt/lists/*
+
+# The SHA-256 pins the download; the SHA3-256 is the sqlite3.c hash sqlite.org publishes for 3.51.3.
+RUN curl -fsSL "https://sqlite.org/2026/sqlite-autoconf-3510300.tar.gz" -o /tmp/sqlite.tar.gz \
+    && echo "81f5be397049b0cae1b167f2225af7646fc0f82e4a9b3c48c9ea3a533e21d77a  /tmp/sqlite.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/sqlite.tar.gz --strip-components=1 \
+    && python3 -c "import hashlib, sys; sys.exit(hashlib.sha3_256(open('sqlite3.c', 'rb').read()).hexdigest() != '32d5424f97e0a7fc5ed2f6335afbb58be4e0298bd7117a34e39d345ff13d859e')"
+
+# _HAVE_SQLITE_CONFIG_H makes sqlite3.c read what configure found (fdatasync, usleep, isnan and
+# so on), as Debian's build does; the bundle's makefile leaves it off.
+RUN export DEB_BUILD_MAINT_OPTIONS="hardening=+all future=+lfs" \
+    && ./configure --soname=legacy --disable-static --disable-readline --disable-carray \
+       --fts4 --rtree --session --dbpage --dbstat --update-limit \
+       CFLAGS="$(dpkg-buildflags --get CFLAGS) $(dpkg-buildflags --get CPPFLAGS) -O2 -fno-strict-aliasing \
+         -D_HAVE_SQLITE_CONFIG_H \
+         -DSQLITE_SECURE_DELETE -DSQLITE_ENABLE_COLUMN_METADATA \
+         -DSQLITE_ENABLE_FTS3 -DSQLITE_ENABLE_FTS3_PARENTHESIS \
+         -DSQLITE_ENABLE_RTREE=1 -DSQLITE_SOUNDEX=1 \
+         -DSQLITE_ENABLE_UNLOCK_NOTIFY \
+         -DSQLITE_ALLOW_ROWID_IN_VIEW \
+         -DSQLITE_ENABLE_LOAD_EXTENSION \
+         -DSQLITE_LIKE_DOESNT_MATCH_BLOBS \
+         -DSQLITE_ENABLE_FTS3_TOKENIZER=1 \
+         -DSQLITE_USE_URI=1 \
+         -DSQLITE_MAX_SCHEMA_RETRY=25 \
+         -DSQLITE_ENABLE_PREUPDATE_HOOK \
+         -DSQLITE_ENABLE_STMTVTAB \
+         -DSQLITE_STRICT_SUBTYPE=1 \
+         -DSQLITE_MAX_VARIABLE_NUMBER=250000 \
+         -DSQLITE_MAX_DEFAULT_PAGE_SIZE=32768 \
+         -DSQLITE_MAX_FUNCTION_ARG=127" \
+       LDFLAGS="$(dpkg-buildflags --get LDFLAGS) -Wl,--as-needed" \
+    && make -j"$(nproc)" libsqlite3.so \
+    && strip --strip-unneeded libsqlite3.so
+
 # ── Node build stage for frontend ──
 FROM node:20-slim@sha256:c6585df72c34172bebd8d36abed961e231d7d3b5cee2e01294c4495e8a03f687 AS frontend-build
 
@@ -63,6 +121,15 @@ LABEL com.runsodin.validation-image-owner=${ODIN_BUILD_OWNER}
 FROM backend-base
 
 WORKDIR /app
+
+# ld.so.conf.d is read in name order, and on arm64 Debian's own directory sorts before
+# /usr/local/lib. This file sorts first on both architectures, so _sqlite3 loads this library.
+COPY --from=sqlite-build /build/sqlite/libsqlite3.so /usr/local/lib/odin-sqlite/libsqlite3.so.3.51.3
+COPY docker/sqlite_image_check.py /usr/local/libexec/odin-sqlite-image-check.py
+RUN echo /usr/local/lib/odin-sqlite > /etc/ld.so.conf.d/000-odin-sqlite.conf \
+    && ldconfig \
+    && chmod 0444 /usr/local/libexec/odin-sqlite-image-check.py \
+    && python3 -I -S /usr/local/libexec/odin-sqlite-image-check.py
 
 # Python dependencies
 COPY backend/requirements.txt ./requirements.txt

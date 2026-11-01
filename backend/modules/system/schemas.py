@@ -71,12 +71,24 @@ class DispatchFreeze(BaseModel):
     until: Optional[str] = None
 
 
+class DatabaseIntegrity(BaseModel):
+    status: str
+    checked_at: Optional[str] = None
+
+
+class DatabaseBackup(BaseModel):
+    status: str
+    last_success_at: Optional[str] = None
+
+
 class HealthCheck(BaseModel):
     status: str = "ok"
     version: str
     database: str
     spoolman_connected: bool = False
     dispatch_freeze: Optional[DispatchFreeze] = None
+    database_integrity: Optional[DatabaseIntegrity] = None
+    database_backup: Optional[DatabaseBackup] = None
 
 
 class PaginatedResponse(BaseModel):

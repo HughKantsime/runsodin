@@ -65,22 +65,35 @@ def _private_file(value,mode=None):
             and (mode is None or stat.S_IMODE(value.st_mode)==mode))
 
 
+def _database_stat(parent_fd,name):
+    """The database's identity, without ever opening it.
+
+    On POSIX, closing any descriptor for a file drops every lock this process holds on that file,
+    SQLite's included. Another process can then delete the WAL under a live connection, which
+    corrupts the database on SQLite before 3.51. So nothing here may hold a descriptor on it.
+    """
+    return os.stat(name,dir_fd=parent_fd,follow_symlinks=False)
+
+
 class SQLiteTargetLock:
-    def __init__(self,database,parent,directory,lock_path,fds):
+    def __init__(self,database,parent,directory,lock_path,fds,database_identity):
         self._pid=os.getpid();self._lock=threading.RLock();self._receipt=None;self._lost=False
         self._database=database;self._parent=parent;self._directory=directory;self._lock_path=lock_path
-        self._fds=fds
+        self._fds=fds;self._database_identity=database_identity
         self._identities=[_identity(os.fstat(fd)) for fd in fds]
 
     def _verify(self):
         if self._lost or self._receipt is not None:return False
-        paths=(self._database,self._parent,self._directory,self._lock_path)
+        current=_database_stat(self._fds[0],self._database.name)
+        if _identity(current)!=self._database_identity:raise RuntimeError('Lock path changed')
+        if not _private_file(current):raise RuntimeError('Lock file ownership changed')
+        paths=(self._parent,self._directory,self._lock_path)
         for index,(path,fd,identity) in enumerate(zip(paths,self._fds,self._identities)):
             current=os.stat(path,follow_symlinks=False);opened=os.fstat(fd)
             if _identity(current)!=identity or _identity(opened)!=identity:raise RuntimeError('Lock path changed')
-            if index in (0,3) and not _private_file(current,0o600 if index==3 else None):raise RuntimeError('Lock file ownership changed')
-            if index==1 and not _trusted_parent(current):raise RuntimeError('Database parent trust changed')
-            if index==2 and (not stat.S_ISDIR(current.st_mode) or current.st_uid!=os.geteuid() or stat.S_IMODE(current.st_mode)!=0o700):raise RuntimeError('Lock directory ownership changed')
+            if index==0 and not _trusted_parent(current):raise RuntimeError('Database parent trust changed')
+            if index==1 and (not stat.S_ISDIR(current.st_mode) or current.st_uid!=os.geteuid() or stat.S_IMODE(current.st_mode)!=0o700):raise RuntimeError('Lock directory ownership changed')
+            if index==2 and not _private_file(current,0o600):raise RuntimeError('Lock file ownership changed')
         return True
 
     def held(self):
@@ -118,10 +131,11 @@ def _sqlite(engine,key):
     try:
         import fcntl
         database=Path(database);parent=database.parent.resolve(strict=True);database=parent/database.name
-        fd=os.open(database,os.O_RDONLY|os.O_NOFOLLOW|os.O_CLOEXEC);fds.append(fd)
-        if not _private_file(os.fstat(fd)):raise RuntimeError('Unsafe database identity')
-        if not _local_filesystem(fd):return TargetLockResult('unsupported')
         parent_fd=os.open(parent,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW|os.O_CLOEXEC);fds.append(parent_fd)
+        identity=_database_stat(parent_fd,database.name)
+        if not _private_file(identity):raise RuntimeError('Unsafe database identity')
+        # The parent stands in for the file here: a database mounted separately from its directory can't be checked.
+        if identity.st_dev!=os.fstat(parent_fd).st_dev or not _local_filesystem(parent_fd):return TargetLockResult('unsupported')
         if not _trusted_parent(os.fstat(parent_fd)):raise RuntimeError('Database parent is writable or foreign')
         directory_name=database.name+'.odin-sender-locks';directory=parent/directory_name
         try:os.mkdir(directory_name,mode=0o700,dir_fd=parent_fd)
@@ -134,7 +148,7 @@ def _sqlite(engine,key):
         if not _private_file(os.fstat(lock_fd),0o600):raise RuntimeError('Unsafe lock file')
         try:fcntl.flock(lock_fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
         except BlockingIOError:return TargetLockResult('conflict')
-        handle=SQLiteTargetLock(database,parent,directory,lock_path,list(fds))
+        handle=SQLiteTargetLock(database,parent,directory,lock_path,list(fds),_identity(identity))
         if not handle.held():raise RuntimeError('Lock identity unconfirmed')
         fds=[]
         return TargetLockResult('acquired',handle)

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -103,7 +104,8 @@ async def restore_backup(
             maintenance_url, password_file, maintenance_password_file = (
                 _postgres_maintenance_config()
             )
-            result = stage_postgres_restore(
+            result = await run_in_threadpool(
+                stage_postgres_restore,
                 temporary,
                 settings.database_url,
                 maintenance_url,
@@ -112,7 +114,9 @@ async def restore_backup(
                 maintenance_password_file=maintenance_password_file,
             )
         else:
-            result = stage_restore(
+            # Off the event loop: it waits on the restore lock, which a running backup holds.
+            result = await run_in_threadpool(
+                stage_restore,
                 temporary,
                 settings.database_url,
                 actor_id=current_user.get("id"),

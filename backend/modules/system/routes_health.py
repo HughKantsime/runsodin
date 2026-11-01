@@ -19,6 +19,7 @@ from core.schema import schema_fingerprint, validate_schema
 from core.schema.bootstrap import import_all_models
 from core.dependencies import log_audit
 from core.rbac import require_role, require_superadmin
+from modules.system.db_guardian_status import guardian_health
 from modules.system.schemas import HealthCheck
 from core.config import settings
 from license_manager import (
@@ -64,11 +65,11 @@ async def health_check():
         spoolman_ok = await run_in_threadpool(spoolman_healthy, 5)
 
     return HealthCheck(
-        status="ok",
         version=__version__,
         database=settings.database_url.split("///")[-1],
         spoolman_connected=spoolman_ok,
         dispatch_freeze=deploy_freeze.active(),
+        **guardian_health(settings.database_url),
     )
 
 

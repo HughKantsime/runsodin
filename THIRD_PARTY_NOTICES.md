@@ -70,6 +70,7 @@ This file lists third-party software packages used by O.D.I.N. and their respect
 | Component | License |
 |-----------|---------|
 | go2rtc | MIT |
+| SQLite | Public domain |
 
 ---
 

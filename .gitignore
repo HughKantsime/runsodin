@@ -172,3 +172,9 @@ artifacts/ctec-poc-ui/
 
 # Local certification/audit evidence (large, may contain environment detail)
 /artifacts/
+
+# The off-server backup job's site details and keys never belong in this public repository.
+ops/offsite_backup/config.json
+ops/offsite_backup/secrets/
+ops/offsite_backup/state.json
+ops/offsite_backup/status.json

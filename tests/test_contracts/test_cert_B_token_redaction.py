@@ -255,7 +255,7 @@ def test_handle_error_never_prints_raw_arguments(capsys):
 
 DAEMONS = ["modules/printers/monitors/anycubic_lan_monitor.py", "modules/archives/timelapse_capture.py", "modules/printers/monitors/elegoo_monitor.py",
            "modules/printers/monitors/moonraker_monitor.py", "modules/printers/monitors/mqtt_monitor.py",
-           "modules/printers/monitors/prusalink_monitor.py", "modules/reporting/report_runner.py", "modules/vision/monitor.py"]
+           "modules/printers/monitors/prusalink_monitor.py", "modules/reporting/report_runner.py", "modules/system/db_guardian.py", "modules/vision/monitor.py"]
 
 
 def test_every_supervised_process_installs_redaction():
