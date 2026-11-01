@@ -89,6 +89,16 @@ six RGB hex digits, optionally prefixed with `#`; weights must be finite numbers
 Original material labels are preserved in `material_type` even when they do not
 match Odin's local material enum.
 
+Each printer supports at most 64 tools with unique indexes from 0 through 255.
+Integer spool IDs must fit in a signed 64-bit integer.
+Printer keys, string spool IDs, tool display names, spool names and brands are
+limited to 256 Unicode characters each. Material labels allow 1024 characters.
+These text fields must encode as valid UTF-8; escaped lone surrogates are invalid.
+Missing, non-string or blank tool display names use `Tool N`. Valid Unicode labels are
+preserved without truncation. A snapshot that exceeds a limit or contains invalid
+text is rejected in full and produces the same generic unavailable warning as
+other provider failures. The existing 512 KiB response limit also applies.
+
 For an unmapped tool, set `spool_id: null`, `spool_status: "unmapped"`, and
 `spool: null`. If a mapping exists but its inventory details cannot be read,
 retain `spool_id`, set `spool_status: "unavailable"`, and `spool: null`.
@@ -116,7 +126,9 @@ Backend checks use the shared contract database fixture and a synthetic provider
 no running printer, inventory service, network egress or login is required:
 
 ```sh
-python -m pytest tests/test_contracts/test_filament_ledger_display.py \
+python -m pytest \
+  tests/test_contracts/test_filament_ledger_display.py \
+  tests/test_contracts/test_filament_ledger_feed_validation.py \
   --confcutdir=tests/test_contracts
 ```
 
@@ -128,12 +140,14 @@ npm test -- src/components/printers/LedgerDisplay.test.tsx
 npm run build
 ```
 
-The checks cover explicit bindings, tool numbering, original labels, unknown
-amounts, cached reads, outages, the whole-refresh deadline, response-size cap,
-single-refresh concurrency, expiry measured from completion, organization scope,
-unchanged database rows, blocked local edits and cross-printer moves, the
+The display contract covers explicit bindings, tool numbering, original labels,
+unknown amounts, cached reads, outages, the whole-refresh deadline, response-size
+cap, single-refresh concurrency, expiry measured from completion, organization
+scope, unchanged database rows, blocked local edits and cross-printer moves, the
 inventory/printers contract boundary, destination-policy rejection,
-organization-safe errors and normal behavior for unlinked printers.
+organization-safe errors and normal behavior for unlinked printers. The feed
+validation contract covers UTF-8 and text-length limits, tool bounds, valid Unicode
+boundaries, optional display-name fallback and actual route response serialization.
 
 The display response is never written back to the ORM. ODIN's stored slot
 inventory, telemetry observations, consumption accounting and dispatch decisions

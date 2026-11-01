@@ -29,6 +29,10 @@ _CACHE_SECONDS = 15.0
 # One deadline for the whole refresh: DNS resolution, connect, headers and body.
 _REQUEST_TIMEOUT = 2.0
 _MAX_RESPONSE_BYTES = 512 * 1024
+_MAX_TOOLS = 64
+_MAX_TOOL_INDEX = 255
+_MAX_LABEL_CHARS = 256
+_MAX_MATERIAL_CHARS = 1024
 _cache_lock = threading.Lock()
 _transport_lock = threading.Lock()
 _cached_url: str | None = None
@@ -68,6 +72,13 @@ def ensure_local_filaments(printer_id: int) -> None:
     ensure_local_filament_management(printer_id)
 
 
+def _valid_text(value: Any, limit: int) -> None:
+    """Reject unsafe or oversized feed text before response-model serialization."""
+    if not isinstance(value, str) or len(value) > limit:
+        raise ValueError("invalid display text")
+    value.encode("utf-8", errors="strict")
+
+
 def _valid_payload(payload: Any) -> dict[str, dict[str, Any]]:
     if not isinstance(payload, dict) or not isinstance(payload.get("printers"), list):
         raise ValueError("invalid display payload")
@@ -76,22 +87,29 @@ def _valid_payload(payload: Any) -> dict[str, dict[str, Any]]:
         if not isinstance(printer, dict) or not isinstance(printer.get("key"), str):
             raise ValueError("invalid display printer")
         tools = printer.get("tools")
-        if not isinstance(tools, list):
+        if not isinstance(tools, list) or len(tools) > _MAX_TOOLS:
             raise ValueError("invalid display tools")
         key = printer["key"]
+        _valid_text(key, _MAX_LABEL_CHARS)
         if key in result:
             raise ValueError("duplicate display printer key")
         normalized_tools = []
         seen_indexes = set()
         for tool in tools:
-            if not isinstance(tool, dict) or type(tool.get("tool_index")) is not int or tool["tool_index"] < 0:
+            if not isinstance(tool, dict) or type(tool.get("tool_index")) is not int or not 0 <= tool["tool_index"] <= _MAX_TOOL_INDEX:
                 raise ValueError("invalid display tool")
             if tool["tool_index"] in seen_indexes:
                 raise ValueError("duplicate display tool index")
             seen_indexes.add(tool["tool_index"])
+            if isinstance(tool.get("display_name"), str):
+                _valid_text(tool["display_name"], _MAX_LABEL_CHARS)
             status = tool.get("spool_status")
             spool_id = tool.get("spool_id")
             spool = tool.get("spool")
+            if type(spool_id) is int and not -(2**63) <= spool_id < 2**63:
+                raise ValueError("display spool identity out of range")
+            if isinstance(spool_id, str):
+                _valid_text(spool_id, _MAX_LABEL_CHARS)
             if status not in {"mapped", "unmapped", "unavailable"}:
                 raise ValueError("invalid spool mapping status")
             if status == "mapped":
@@ -102,8 +120,8 @@ def _valid_payload(payload: Any) -> dict[str, dict[str, Any]]:
                 if spool.get("id") != spool_id:
                     raise ValueError("mapped spool identity mismatch")
                 for field in ("material", "name", "brand", "color_hex"):
-                    if spool.get(field) is not None and not isinstance(spool[field], str):
-                        raise ValueError("invalid mapped spool field")
+                    if spool.get(field) is not None:
+                        _valid_text(spool[field], _MAX_MATERIAL_CHARS if field == "material" else _MAX_LABEL_CHARS)
                 color = spool.get("color_hex")
                 if color is not None and not re.fullmatch(r"#?[0-9a-fA-F]{6}", color):
                     raise ValueError("invalid mapped spool color")
@@ -299,7 +317,7 @@ def _slot_from_tool(tool: dict[str, Any]) -> dict[str, Any]:
         "material_type": raw_material,
         "display_name": display_name or None,
         "mapping_status": status,
-        "external_spool_id": spool.get("id") if spool else None,
+        "external_spool_id": tool["spool_id"] if spool else None,
     }
 
 
