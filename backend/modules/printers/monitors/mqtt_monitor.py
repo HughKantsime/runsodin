@@ -388,6 +388,8 @@ class MQTTMonitorDaemon:
 
 
 def main():
+    from core.interfaces.filament_ownership import log_external_filament_accounting
+    log_external_filament_accounting(log)
     from core.job_timeline import start
     start("mqtt_monitor")
     daemon = MQTTMonitorDaemon()

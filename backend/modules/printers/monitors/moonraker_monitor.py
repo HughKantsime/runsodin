@@ -1030,6 +1030,11 @@ class MoonrakerMonitor:
         """), {'id':scheduled_job_id}).first()
         if not job or job[0] != self.printer_id:
             return
+        from core.interfaces.filament_ownership import uses_external_filament_accounting
+        if uses_external_filament_accounting(self.printer_id):
+            log.info("Printer %s job %s automatic filament deduction skipped: external_accounting",
+                     self.printer_id, scheduled_job_id)
+            return
         if job[3]:
             import json
             try:
@@ -1129,6 +1134,8 @@ if __name__ == "__main__":
     import signal
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
+    from core.interfaces.filament_ownership import log_external_filament_accounting
+    log_external_filament_accounting(log)
 
     _running = True
 

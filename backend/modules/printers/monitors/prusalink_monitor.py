@@ -401,6 +401,8 @@ if __name__ == "__main__":
     import signal
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
+    from core.interfaces.filament_ownership import log_external_filament_accounting
+    log_external_filament_accounting(log)
 
     _running = True
 

@@ -172,9 +172,12 @@ def complete_job(job_id: int, current_user: dict = Depends(require_action("jobs.
     # ledger: at most once per print attempt (a failed->completed correction
     # stays on the same attempt; a reset reprint deducts again), and the attempt
     # is claimed only when something is actually deducted.
-    if slot_grams and job.printer_id:
-        from core.filament_ledger import record_job_filament
-        from core.print_attempts import sqlalchemy_runner as _attempt_runner
+    from core.filament_ledger import job_accounting_decision, record_job_filament
+    from core.print_attempts import sqlalchemy_runner as _attempt_runner
+    accounting_run = _attempt_runner(db)
+    accounting_policy = job_accounting_decision(accounting_run, job.id)
+    accounting_skip = accounting_policy.skip_reason
+    if slot_grams and job.printer_id and not accounting_skip:
         from core.tray_identity import decode
         printer = db.get(Printer, job.printer_id)
         from modules.jobs.material_slots import locked_printer_slots
@@ -209,7 +212,8 @@ def complete_job(job_id: int, current_user: dict = Depends(require_action("jobs.
             # Never partially claim this attempt before every used tray is known.
             grams_by_spool = {}
             log_audit(db, 'filament.unattributed', 'job', job.id, {'consumption': unattributed})
-        outcome = record_job_filament(_attempt_runner(db), job.id, source="operator_complete",
+        outcome = record_job_filament(accounting_run, job.id, source="operator_complete",
+                                      _job_accounting=accounting_policy,
                                       grams_by_spool=grams_by_spool,
                                       notes=f"job #{job.id} complete ({job.item_name})")
         for spool in loaded_spools:
@@ -240,7 +244,8 @@ def complete_job(job_id: int, current_user: dict = Depends(require_action("jobs.
     db.flush()
     record_print_consumption(sqlalchemy_runner(db), job.id, grams=sum(slot_grams.values()))
 
-    log_audit(db, "job.completed", "job", job.id, {"printer_id": job.printer_id, "deductions": len(deductions)})
+    log_audit(db, "job.completed", "job", job.id, {"printer_id": job.printer_id, "deductions": len(deductions),
+               "accounting_skip": accounting_skip})
     reconcile_job_write(db, production_orders)
     db.commit()
     db.refresh(job)

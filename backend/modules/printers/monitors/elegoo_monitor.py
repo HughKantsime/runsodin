@@ -392,6 +392,8 @@ if __name__ == "__main__":
     from core.job_timeline import start
     start("elegoo_monitor")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
+    from core.interfaces.filament_ownership import log_external_filament_accounting
+    log_external_filament_accounting(log)
 
     # Optional: run discovery first
     if "--discover" in sys.argv:
