@@ -24,7 +24,7 @@ def package(*, numbers=(1, 4, 10), machine='Voron 2.4', multi=False, extra=(), b
         archive.writestr('Metadata/slice_info.config', f'''<config><plate>
             <metadata key="index" value="1"/><metadata key="prediction" value="120"/>
             <filament id="1" type="PLA" color="#ff0000" used_g="3.5" used_m="1"/>{second}
-            </plate><plate><metadata key="index" value="4"/></plate><plate><metadata key="index" value="10"/>
+            </plate><plate><metadata key="index" value="4"/><filament id="1"/></plate><plate><metadata key="index" value="10"/>
             <metadata key="prediction" value="600"/>
             <filament id="1" type="PETG" color="#00ff00" used_g="7"/>
             </plate></config>''')
@@ -76,7 +76,7 @@ def test_sparse_import_distinct_models_metadata_hashes_and_bindings(importer, re
     assert files[0]['filename'].removesuffix('.gcode') not in files[2]['filename']
     assert [f['print_time_seconds'] for f in files] == [120, None, 600]
     assert [f['total_weight_grams'] for f in files] == [3.5, None, 7]
-    assert files[1]['filaments'] == []
+    assert files[1]['filaments'] == [{'slot': 1, 'type': None, 'color': None, 'used_grams': None, 'used_meters': None}]
     from core.print_file_binding import target_printer, job_file_id
     for item in files:
         row = review_db.execute(text('SELECT * FROM print_files WHERE id=:id'), {'id': item['id']}).mappings().one()

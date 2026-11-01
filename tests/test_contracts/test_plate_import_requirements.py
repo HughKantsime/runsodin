@@ -42,7 +42,7 @@ def test_imported_sparse_plate_models_schedule_own_colors_and_petg_cost(importer
     assert response.status_code == 200, response.text
     files = response.json()['files']
     expected = [({'slot1': {'color': '#ff0000', 'grams': 3.5}}, 'PLA', 3.5, 120 / 3600),
-                ({}, None, 0, None),
+                ({'slot1': {'color': ''}}, None, 0, None),
                 ({'slot1': {'color': '#00ff00', 'grams': 7}}, 'PETG', 7, 600 / 3600)]
     client, issue, _ = importer
     for file, (requirements, material, grams, hours) in zip(files, expected):
@@ -82,14 +82,14 @@ def test_missing_and_unsupported_facts_stay_missing_and_models_remain_schedulabl
 ):
     from modules.models_library.models import Model
     _scheduling(importer, monkeypatch)
-    content = _slice_info(f'<config><plate><metadata key="index" value="1"/></plate><plate><metadata key="index" value="4"/></plate><plate><metadata key="index" value="10"/>{filament}</plate></config>')
+    content = _slice_info(f'<config><plate><metadata key="index" value="1"/><filament id="1"/></plate><plate><metadata key="index" value="4"/><filament id="1"/></plate><plate><metadata key="index" value="10"/>{filament}</plate></config>')
     response = upload(importer, content)
     assert response.status_code == 200, response.text
     files = response.json()['files']
     assert [item['source_plate'] for item in files] == [1, 4, 10]
     for item in files[:2]:
         model = review_db.get(Model, item['model_id'])
-        assert model.color_requirements == {} and model.default_filament_type is None
+        assert model.color_requirements == {'slot1': {'color': ''}} and model.default_filament_type is None
         assert item['total_weight_grams'] is None
     model = review_db.get(Model, files[2]['model_id'])
     assert model.color_requirements == expected_requirements

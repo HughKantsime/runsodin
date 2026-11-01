@@ -47,7 +47,7 @@ def _target(db, printer_id, actor, *, lock=False):
 
 
 # Maximum uploaded and extracted payloads plus the backup scheduler's 128 MiB live-write reserve.
-IMPORT_REQUIRED_FREE_BYTES = (100 + 200 + 128) * 1024 * 1024
+IMPORT_REQUIRED_FREE_BYTES = plate_import.MAX_UPLOAD_BYTES + plate_import.MAX_EXTRACTED_BYTES + 128 * 1024 * 1024
 STAGING_MAX_AGE_SECONDS = 86400
 
 
@@ -55,9 +55,9 @@ def _sweep_staging(root):
     cutoff = time.time() - STAGING_MAX_AGE_SECONDS
     with os.scandir(root) as entries:
         for entry in entries:
-            if not entry.name.startswith('.plate-import-') or not entry.is_dir(follow_symlinks=False):
-                continue
             try:
+                if not entry.name.startswith('.plate-import-') or not entry.is_dir(follow_symlinks=False):
+                    continue
                 fd = os.open(entry.path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
                 try:
                     fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -67,6 +67,8 @@ def _sweep_staging(root):
                     os.close(fd)
             except (FileNotFoundError, BlockingIOError):
                 continue
+            except OSError as exc:
+                log.warning('Plate import staging cleanup skipped (%s)', type(exc).__name__)
 
 
 def _validate_filename(name):
@@ -163,10 +165,16 @@ def _persist(db, actor, printer_id, plates, original):
         if commit_started or rollback_failed:
             # A lost acknowledgement can mean committed rows. Preserve payloads
             # exactly as the existing upload route does, rather than orphan rows.
-            for staged, final in finals:
-                if staged.exists():
-                    os.replace(staged, final)
-            log.warning('Plate import transaction outcome unknown; retained file references %s', reserved_ids)
+            log.warning('Plate import transaction outcome unknown; reserved file references %s', reserved_ids)
+            for file_id, (staged, final) in zip(reserved_ids, finals):
+                try:
+                    if staged.exists():
+                        os.replace(staged, final)
+                except OSError as rescue_error:
+                    # Temporary staging is still cleaned up at request exit. The
+                    # failed payload cannot be promised to survive this response.
+                    log.error('Plate import payload retention failed for file reference %s (%s); '
+                              'staging will be removed', file_id, type(rescue_error).__name__)
             raise HTTPException(500, 'Plate import outcome is uncertain. Contact support before retrying. '
                                 f'File references: {reserved_ids}') from None
         for _staged, final in finals:

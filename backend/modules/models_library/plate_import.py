@@ -5,6 +5,7 @@ import json
 import math
 import re
 import stat
+import shutil
 
 from defusedxml import ElementTree as ET
 from fastapi import HTTPException
@@ -12,6 +13,7 @@ from fastapi import HTTPException
 MAX_UPLOAD_BYTES = 100 * 2**20
 MAX_PLATE_BYTES = 64 * 2**20
 MAX_EXTRACTED_BYTES = 200 * 2**20
+EXTRACTION_RESERVE_BYTES = 128 * 2**20
 MAX_PLATES = 32
 MAX_METADATA_BYTES = 4 * 2**20
 _PLATE = re.compile(r"Metadata/plate_([1-9][0-9]*)\.gcode")
@@ -159,6 +161,9 @@ def extract_to(path, destination):
         if (any(not 0 < m.file_size <= MAX_PLATE_BYTES for m in members)
                 or sum(m.file_size for m in members) > MAX_EXTRACTED_BYTES):
             raise ValueError('Sliced plate size limit exceeded')
+        required_bytes = sum(member.file_size for member in members) + EXTRACTION_RESERVE_BYTES
+        if shutil.disk_usage(destination).free < required_bytes:
+            raise ValueError('Insufficient storage for declared plate payloads and reserve')
         per_plate = _slice_metadata(package)
         if any(number not in per_plate for number in numbers):
             raise ValueError('Every imported plate requires slice metadata to establish its material count')
@@ -346,5 +351,5 @@ def check_target(plates, target):
         # A single nozzle can support an MMU. Existing target metadata has no
         # validated generic multi-material capability, so do not infer support.
         used = [f for f in item['filaments'] if f['used_grams'] is None or f['used_grams'] > 0 or (f['used_meters'] or 0) > 0]
-        if len(used) > 1:
-            raise HTTPException(400, 'Multi-material plate import requires validated target capabilities and is not supported yet')
+        if len(used) != 1:
+            raise HTTPException(400, 'Plate import requires exactly one used filament; unknown or multi-material counts are not supported')

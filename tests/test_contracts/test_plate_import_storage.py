@@ -86,3 +86,110 @@ def test_uncertain_unlanded_commit_retains_whole_batch_and_ids(importer, review_
     payloads = list(importer[2].rglob('*.gcode'))
     assert len(payloads) == 3
     assert {path.read_bytes() for path in payloads} == {f'; synthetic plate {number}\nG28\n'.encode() for number in (1, 4, 10)}
+
+
+@pytest.mark.parametrize('boundary', ['is_dir', 'open', 'flock', 'rmtree'])
+def test_cleanup_permission_errors_do_not_abort_import(importer, monkeypatch, caplog, boundary):
+    from pathlib import Path
+    from modules.models_library.routes import plate_imports
+    root = importer[2]
+    bad = root / '.plate-import-inaccessible'
+    bad.mkdir()
+    (bad / 'payload').write_bytes(b'fixture')
+    expired = time.time() - 90000
+    os.utime(bad, (expired, expired))
+    def denied():
+        raise PermissionError('private filesystem details')
+    if boundary == 'is_dir':
+        original = os.scandir
+        class Entry:
+            def __init__(self, entry):
+                self.entry = entry
+            def __getattr__(self, name):
+                return getattr(self.entry, name)
+            def is_dir(self, **kwargs):
+                if self.entry.name == bad.name:
+                    denied()
+                return self.entry.is_dir(**kwargs)
+        class Entries:
+            def __enter__(self):
+                self.scan = original(root)
+                return iter(Entry(entry) for entry in self.scan)
+            def __exit__(self, *args):
+                self.scan.close()
+        monkeypatch.setattr(os, 'scandir', lambda path: Entries() if path == root else original(path))
+    elif boundary == 'open':
+        original = os.open
+        def open_path(path, *args, **kwargs):
+            if str(path) == str(bad):
+                denied()
+            return original(path, *args, **kwargs)
+        monkeypatch.setattr(os, 'open', open_path)
+    elif boundary == 'flock':
+        original = fcntl.flock
+        def lock(fd, *args):
+            if Path(f'/proc/self/fd/{fd}').resolve() == bad:
+                denied()
+            return original(fd, *args)
+        monkeypatch.setattr(fcntl, 'flock', lock)
+    else:
+        original = plate_imports.shutil.rmtree
+        def remove(path, *args, **kwargs):
+            if str(path) == str(bad):
+                denied()
+            return original(path, *args, **kwargs)
+        monkeypatch.setattr(plate_imports.shutil, 'rmtree', remove)
+    response = upload(importer)
+    assert response.status_code == 200, response.text
+    assert bad.exists()
+    assert 'cleanup skipped (PermissionError)' in caplog.text
+    assert 'private filesystem details' not in caplog.text
+
+
+@pytest.mark.parametrize('failed_rescue', [False, True])
+def test_pre_move_failure_and_failed_rollback_reports_ids_and_attempts_all_rescues(
+    importer, review_db, monkeypatch, caplog, failed_rescue,
+):
+    from modules.models_library.routes import plate_imports
+    original = plate_imports._persist
+    replace = plate_imports.os.replace
+    reserved, attempts = [], []
+    def persist(db, *args):
+        flush, rollback = db.flush, db.rollback
+        def fail_flush(*args, **kwargs):
+            ids = list(db.connection().execute(
+                text('SELECT id FROM print_files WHERE stored_path LIKE :path'),
+                {'path': str(importer[2]) + '/%'}).scalars())
+            if len(ids) < 3:
+                return flush(*args, **kwargs)
+            reserved.extend(ids)
+            raise OSError('private batch failure')
+        def fail_rollback():
+            raise OSError('private rollback failure')
+        monkeypatch.setattr(db, 'flush', fail_flush)
+        monkeypatch.setattr(db, 'rollback', fail_rollback)
+        try:
+            return original(db, *args)
+        finally:
+            monkeypatch.setattr(db, 'flush', flush)
+            monkeypatch.setattr(db, 'rollback', rollback)
+    def rescue(source, destination):
+        attempts.append(source)
+        assert source.exists()
+        assert 'reserved file references' in caplog.text
+        if failed_rescue and len(attempts) == 1:
+            raise PermissionError('private rescue failure')
+        return replace(source, destination)
+    monkeypatch.setattr(plate_imports, '_persist', persist)
+    monkeypatch.setattr(plate_imports.os, 'replace', rescue)
+    response = upload(importer)
+    assert response.status_code == 500, response.text
+    assert 'outcome is uncertain' in response.json()['detail']
+    assert len(reserved) == len(attempts) == 3
+    assert all(str(file_id) in response.json()['detail'] and str(file_id) in caplog.text for file_id in reserved)
+    assert 'private' not in response.text and 'private' not in caplog.text
+    assert not list(importer[2].glob('.plate-import-*'))
+    assert len(list(importer[2].rglob('*.gcode'))) == 3 - int(failed_rescue)
+    if failed_rescue:
+        assert f'retention failed for file reference {reserved[0]} (PermissionError)' in caplog.text
+        assert 'staging will be removed' in caplog.text
