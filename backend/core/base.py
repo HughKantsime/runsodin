@@ -7,6 +7,7 @@ to avoid circular imports between domain modules.
 """
 
 from enum import Enum
+from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -118,6 +119,29 @@ def slot_filament_value(raw) -> str:
     aliases = {"PA-S": "PLA_SUPPORT", "PETG-S": "PLA_SUPPORT", "PET-CF": "PETG_CF"}
     from modules.printers.bambu_integration import map_bambu_filament_type
     return FilamentType.from_bambu_code(aliases.get(normalized, map_bambu_filament_type(normalized))).value
+
+
+def stored_filament_value(raw) -> str:
+    """A slicer's material label as a model's filament type can hold it: blank is PLA, as an upload always had it."""
+    label = str(raw or "").strip()
+    if not label:
+        return FilamentType.PLA.value
+    return slot_filament_value(label)
+
+
+class FilamentTypeColumn(SQLEnum):
+    """Reads a stored label outside the enum as its closest type, and leaves the row alone.
+
+    SQLite stores any text, and uploads used to write the slicer's label as it came ("PLA-CF"). The
+    plain enum raises on reading one, which fails every query that loads the row, so one upload took
+    down the whole model list. PostgreSQL's native enum can't hold such a label.
+    """
+
+    def _object_value_for_elem(self, elem):
+        try:
+            return super()._object_value_for_elem(elem)
+        except LookupError:
+            return FilamentType(stored_filament_value(elem))
 
 
 class SpoolStatus(str, Enum):

@@ -18,6 +18,7 @@ from modules.models_library.schemas import FileScheduleOptions
 
 from core.quota import charge_job_quota
 from core.display_names import filename_stem, display_names
+from core.base import stored_filament_value
 from core.db import get_db
 from core.db_compat import execute_insert_returning_id
 from core.errors import ErrorCode, OdinError
@@ -241,7 +242,7 @@ async def upload_3mf(
 
             fil_type = "PLA"
             if metadata.filaments:
-                fil_type = metadata.filaments[0].type or "PLA"
+                fil_type = stored_filament_value(metadata.filaments[0].type)
 
             if existing_model:
                 # Attach as variant to existing model
