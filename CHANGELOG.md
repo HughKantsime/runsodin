@@ -2,6 +2,20 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [Unreleased]
+
+### Fixed
+
+- A single 3MF whose first material the slicer labelled `PLA-CF`, `PETG-CF` or similar made the Models list return 500 for everyone who could see that model on SQLite. Uploads now store the matching material type, and a label already stored reads as its closest type without changing the row.
+- Deleting a print file now removes its printer binding and its payload on disk. The payload stays if anything else still names it.
+- Database damage and backup alerts reach admins' phones with Education mode on, and when the Education setting itself can't be read. They hold no student data. Ordinary alerts don't change.
+- `ops/ci/README.md`: the steps for moving validation back to the Mac work from a clean clone.
+- The off-server backup job's schedule uses Homebrew's stable path to node, so a Homebrew upgrade doesn't stop it. Run its `install` again to pick this up.
+
+### Notes
+
+- Since 2.0.39, dispatch reports its locking as `unsupported` if the SQLite database is mounted as a single file, apart from its directory, because the lock no longer opens the database file. Mount the directory that holds the database instead.
+
 ## [2.0.39] - 2026-11-01
 
 <!-- summary: Fixes a dispatch lock that could corrupt the database, and adds a newer SQLite, scheduled integrity checks and daily verified backups. -->
