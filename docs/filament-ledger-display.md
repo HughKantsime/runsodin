@@ -89,6 +89,15 @@ six RGB hex digits, optionally prefixed with `#`; weights must be finite numbers
 Original material labels are preserved in `material_type` even when they do not
 match Odin's local material enum.
 
+Each printer supports at most 64 tools with unique indexes from 0 through 63.
+Printer keys, string spool IDs, tool display names, spool names and brands are
+limited to 256 Unicode characters each. Material labels allow 1024 characters.
+These text fields must encode as valid UTF-8; escaped lone surrogates are invalid.
+Optional null or blank tool display names use `Tool N`. Valid Unicode labels are
+preserved without truncation. A snapshot that exceeds a limit or contains invalid
+text is rejected in full and produces the same generic unavailable warning as
+other provider failures. The existing 512 KiB response limit also applies.
+
 For an unmapped tool, set `spool_id: null`, `spool_status: "unmapped"`, and
 `spool: null`. If a mapping exists but its inventory details cannot be read,
 retain `spool_id`, set `spool_status: "unavailable"`, and `spool: null`.
