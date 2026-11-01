@@ -802,7 +802,7 @@ def unix_feed_server(directory, *, body=None, status=200, never_answer=False):
                         request.extend(chunk)
                     requests.append(bytes(request))
                     if never_answer:
-                        stopped.wait(5)
+                        stopped.wait()  # Stay silent until the context cleans up.
                     else:
                         connection.sendall(response)
             except (BrokenPipeError, ConnectionResetError):
@@ -866,7 +866,7 @@ def test_missing_unix_socket_is_unavailable_without_dns(socket_directory, monkey
     assert dns_calls == []
 
 
-@pytest.mark.parametrize("target", ["regular_file", "symlink", "world_writable_directory"])
+@pytest.mark.parametrize("target", ["regular_file", "symlink", "symlink_parent", "world_writable_directory"])
 def test_unsafe_unix_socket_target_is_unavailable(socket_directory, monkeypatch, target):
     attempts = []
 
@@ -882,6 +882,13 @@ def test_unsafe_unix_socket_target_is_unavailable(socket_directory, monkeypatch,
         elif target == "symlink":
             local.bind(str(socket_directory / "real.sock"))
             path.symlink_to(socket_directory / "real.sock")
+        elif target == "symlink_parent":
+            directory = socket_directory / "real"
+            directory.mkdir(mode=0o700)
+            local.bind(str(directory / "feed.sock"))
+            linked = socket_directory / "linked"
+            linked.symlink_to(directory, target_is_directory=True)
+            path = linked / "feed.sock"
         else:
             local.bind(str(path))
             socket_directory.chmod(0o707)
@@ -893,20 +900,20 @@ def test_unsafe_unix_socket_target_is_unavailable(socket_directory, monkeypatch,
 
 
 def test_real_unix_socket_silent_peer_has_bounded_refresh(socket_directory, monkeypatch):
-    monkeypatch.setattr(ledger_display, "_REQUEST_TIMEOUT", 0.2)
+    monkeypatch.setattr(ledger_display, "_REQUEST_TIMEOUT", 1.0)
     with unix_feed_server(socket_directory, never_answer=True) as (url, accepted, _requests):
         monkeypatch.setattr(settings, "filament_ledger_url", url)
         started = time.monotonic()
         assert ledger_display._fetch_printers() == (False, {})
         assert time.monotonic() - started < 0.5
-        assert accepted.wait(1)
-        wait_for_refresh(timeout=1)
-        assert time.monotonic() - started < 1
+        assert accepted.wait(2)
+        wait_for_refresh(timeout=3)
+        assert time.monotonic() - started < 3
         assert ledger_display._cached_available is False
-    # Closing the silent peer must let the real transport worker release its
-    # lock; the autouse fixture checks it again before the next test.
-    assert ledger_display._transport_lock.acquire(timeout=2)
-    ledger_display._transport_lock.release()
+        # The real client read timeout must release the worker while the peer
+        # is still silent and open, before context cleanup can unblock it.
+        assert ledger_display._transport_lock.acquire(timeout=2)
+        ledger_display._transport_lock.release()
 
 
 @pytest.mark.parametrize("failure", ["oversized", "redirect"])

@@ -30,7 +30,7 @@ from core.webhook_utils import pinned_device_destination
 log = logging.getLogger("odin.filament_ledger_display")
 
 _CACHE_SECONDS = 15.0
-# One deadline for the whole refresh: DNS resolution, connect, headers and body.
+# Maximum refresh wait; late workers cannot publish, but may outlive it.
 _REQUEST_TIMEOUT = 2.0
 _MAX_RESPONSE_BYTES = 512 * 1024
 _cache_lock = threading.Lock()
