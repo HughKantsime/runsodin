@@ -521,6 +521,25 @@ def test_the_published_name_only_appears_once_everything_has_passed(database, al
     assert seen[1][0] == "receipt" and seen[1][1] == result["filename"] and seen[1][2] == []
 
 
+def test_a_rename_that_cannot_be_made_durable_counts_as_failed(database, alerts, monkeypatch):
+    """Otherwise a crash could lose it after ODIN had counted it. The old copies stay."""
+    directory = database.parent / "backups"
+    directory.mkdir()
+    old = [_scheduled(directory, NOW - timedelta(days=day)) for day in range(20, 90)]
+    original = backup_schedule._fsync_directory
+    def fail_after_publish(path):
+        if any(item.name.startswith("odin_backup_") and item.suffix == ".db" and item not in old for item in path.iterdir()):
+            raise OSError(5, "synthetic")
+        return original(path)
+    monkeypatch.setattr(backup_schedule, "_fsync_directory", fail_after_publish)
+    before = _odin_backups(database)
+    with pytest.raises(OSError):
+        create_scheduled_backup(_url(database), now=NOW)
+    assert _odin_backups(database) == before and all(path.exists() for path in old)
+    assert sum(path.name.endswith(RECEIPT_SUFFIX) for path in directory.iterdir()) == len(old)
+    assert alerts
+
+
 def test_reading_the_list_never_removes_a_receipt(tmp_path):
     """The off-server export reads this without the restore lock, while a run may be publishing."""
     directory = tmp_path / "backups"

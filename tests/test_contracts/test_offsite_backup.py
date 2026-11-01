@@ -97,6 +97,7 @@ def test_expect_starts_the_clock_once_and_confirm_keeps_it(server_data):
     database, _ = server_data
     assert _call("expect")[0] == 0
     first = read_status(offsite_path(database))["expected_since"]
+    assert abs((datetime.now(timezone.utc) - datetime.fromisoformat(first)).total_seconds()) < 60
     assert _call("expect")[0] == 0 and read_status(offsite_path(database))["expected_since"] == first
     assert _call("confirm", NAME, SHA)[0] == 0
     recorded = read_status(offsite_path(database))
@@ -167,6 +168,14 @@ if (fault === "flip-byte" || fault === "lose-tail" || fault === "hang-write") {
     return realCreate(target, { ...options, fs: wrapped });
   };
 }
+if (fault === "trace") {
+  // The order of the calls that make a copy durable, with the real file names.
+  const realOpen = fs.openSync, realFsync = fs.fsyncSync, paths = new Map();
+  const log = line => fs.appendFileSync(process.env.NAS_TRACE, line + "\n");
+  fs.openSync = (target, ...rest) => { const fd = realOpen(target, ...rest); paths.set(fd, String(target)); return fd; };
+  fs.fsyncSync = fd => { log("fsync " + paths.get(fd)); return realFsync(fd); };
+  fs.renameSync = (source, target) => { log("rename " + source + " " + target); return realRename(source, target); };
+}
 if (fault === "hang-rename") {
   fs.renameSync = (source, target) => {
     if (String(target).includes("ODIN Backups")) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
@@ -235,7 +244,7 @@ class Harness:
         if fault:
             preload = self.tmp / "nas-faults.mjs"
             preload.write_text(NAS_FAULTS)
-            env.update(NAS_FAULT=fault, NODE_OPTIONS=f"--import {preload.as_uri()}")
+            env.update(NAS_FAULT=fault, NAS_TRACE=str(self.tmp / "nas-trace.log"), NODE_OPTIONS=f"--import {preload.as_uri()}")
         return subprocess.run(["node", str(JOB), *arguments], env=env, capture_output=True, text=True, timeout=120)
 
     def set_stall_seconds(self, seconds):
@@ -452,6 +461,35 @@ def test_a_nas_write_fault_is_caught_by_the_read_back(job, fault):
     assert list(job.dest.iterdir()) == [], "nothing published, no partial left"
     assert not (job.server / "confirmed").exists()
     assert len(job.alerts) == 1 and job.status()["ok"] is False
+
+
+def test_the_copy_is_flushed_to_the_nas_before_the_rename_and_before_odin_hears(job):
+    """P3-11. A read-back can come from the client's cache, so the flush comes first."""
+    assert job.job("run", fault="trace").returncode == 0
+    trace = (job.tmp / "nas-trace.log").read_text().splitlines()
+    partial = str(job.dest / (NAME + ".enc.partial"))
+    final = str(job.dest / (NAME + ".enc"))
+    assert trace.index(f"fsync {partial}") < trace.index(f"rename {partial} {final}")
+    assert (job.server / "confirmed").exists()
+
+
+def test_an_audit_of_the_same_copy_does_not_confirm_it_again(job):
+    assert job.job("run").returncode == 0
+    state = json.loads((job.home / "state.json").read_text())
+    (job.home / "state.json").write_text(json.dumps({**state, "lastAuditAt": "2020-01-01T00:00:00+00:00"}))
+    assert job.job("run").returncode == 0
+    assert sum(call.startswith("confirm") for call in job.calls()) == 1
+    assert json.loads((job.home / "state.json").read_text())["lastAuditAt"] != "2020-01-01T00:00:00+00:00"
+
+
+def test_an_unexpected_error_sends_no_path_and_keeps_its_reason_locally(job):
+    """Anything that isn't one of the job's own messages goes out as a generic line."""
+    job.dest.parent.mkdir(exist_ok=True)
+    job.dest.write_text("a file where the backup folder should be")
+    for _ in range(3):
+        assert job.job("run").returncode == 1
+    assert len(job.alerts) == 1 and "status.json" in job.alerts[0]
+    assert str(job.mount) not in job.alerts[0] and str(job.mount) in job.status()["detail"]
 
 
 def test_each_copy_gets_its_own_random_nonce(job):
