@@ -123,7 +123,7 @@ def test_an_ordinary_alert_still_waits_at_night_and_a_critical_one_is_not_specia
                                             target_user_ids=[1])
         db.commit()
         alert_dispatcher.deliver_staged_alert(db, plan)
-    assert plan.suppress_external is True and plan.ignore_quiet_hours is False
+    assert plan.suppress_external is True and plan.admin_database_alert is False
     assert phones.sent == [] and _rows(phones.engine, "Ordinary") == [1]
 
 
