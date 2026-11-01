@@ -226,7 +226,8 @@ class Harness:
         self.home.mkdir()
         (self.home / "config.json").write_text(json.dumps({
             "target": "user@server.invalid", "mount": str(self.mount), "share": "TEST-NAS", "ssh": str(ssh),
-            "mount_bin": str(self.mount_bin), "ntfy": f"http://127.0.0.1:{self.http.server_address[1]}/alerts"}))
+            "mount_bin": str(self.mount_bin), "desktop_alert": False,
+            "ntfy": f"http://127.0.0.1:{self.http.server_address[1]}/alerts"}))
         self.offer(PAYLOAD, NAME)
 
     def set_mount(self, line):

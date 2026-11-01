@@ -59,7 +59,8 @@ const checkFailed = (message, detail = null) => new JobError(message, { detail, 
 const GENERIC = "ODIN's off-server backup failed. See status.json on the machine that runs it.";
 
 // { "target": "user@host", "mount": "/path", "share": "NAS name in the mount line", "ntfy": "url" }
-// This repository is public, so none of these belong in it. "ssh", "mount_bin" and "stall_seconds" override defaults.
+// This repository is public, so none of these belong in it. "ssh", "mount_bin", "stall_seconds" and
+// "desktop_alert" override defaults.
 function loadConfig() {
   let config;
   try {
@@ -344,11 +345,11 @@ function supervise(stallSeconds) {
   });
 }
 
-async function alert(url, message) {
+async function alert(config, message) {
   try {
-    await fetch(url, { method: "POST", body: message, signal: AbortSignal.timeout(10000), headers: { Title: "ODIN off-server backup FAILED", Priority: "high", Tags: "rotating_light" } });
+    await fetch(config.ntfy, { method: "POST", body: message, signal: AbortSignal.timeout(10000), headers: { Title: "ODIN off-server backup FAILED", Priority: "high", Tags: "rotating_light" } });
   } catch { /* the status file and exit code still report it */ }
-  if (process.platform === "darwin") {
+  if (process.platform === "darwin" && config.desktop_alert !== false) {
     try { execFileSync("/usr/bin/osascript", ["-e", `display notification ${JSON.stringify(message)} with title "ODIN off-server backup FAILED" sound name "Basso"`], { timeout: 10000 }); } catch { /* as above */ }
   }
 }
@@ -389,7 +390,7 @@ async function runCommand() {
   const updated = { ...state, ...(outcome.state ?? {}), failures };
   const sinceAlert = state.lastAlertAt ? (Date.now() - new Date(state.lastAlertAt).getTime()) / 3600000 : Infinity;
   if ((outcome.immediate || failures >= ALERT_AFTER_FAILURES) && sinceAlert >= ALERT_REPEAT_HOURS && config) {
-    await alert(config.ntfy, outcome.error);
+    await alert(config, outcome.error);
     updated.lastAlertAt = new Date().toISOString();
   }
   saveState(updated);
