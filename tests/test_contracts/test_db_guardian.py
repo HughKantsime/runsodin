@@ -19,12 +19,14 @@ from sqlalchemy.orm import sessionmaker
 from core.db_integrity import DAMAGED, OK, UNAVAILABLE, IntegrityReport
 from modules.system import backup_failure_alerts, db_guardian, db_guardian_status, routes_health
 from modules.system.backup_service import SourceDatabaseError
-from modules.system.db_guardian import ALERT_TITLE, alert_if_stopped, missed_backups, record_integrity, tick
+from modules.system.db_guardian import missed_backups, record_integrity, tick
 from modules.system.db_guardian_status import (
+    ALERT_TITLE,
     FAILED,
     HEALTHY,
     PENDING,
     STALE,
+    alert_if_stopped,
     integrity_view,
     offsite_path,
     parse_time,
@@ -703,7 +705,7 @@ def test_the_watcher_gives_a_booting_guardian_time_before_calling_it_stopped(mon
     """After a long outage the status file looks old until the guardian's first check of this boot."""
     import modules.reporting.report_runner as runner
     calls = []
-    monkeypatch.setattr(db_guardian, "alert_if_stopped", lambda *a, **k: calls.append(1))
+    monkeypatch.setattr(db_guardian_status, "alert_if_stopped", lambda *a, **k: calls.append(1))
     monkeypatch.setattr(runner.time, "monotonic", lambda: runner._STARTED_AT + runner.GUARDIAN_WATCH_DELAY_SECONDS - 1)
     runner._check_database_guardian()
     assert calls == []
@@ -733,7 +735,7 @@ def test_first_check_of_a_boot_waits_only_when_the_last_result_is_recent(monkeyp
 def test_a_failed_watcher_check_never_stops_the_report_loop(monkeypatch):
     import modules.reporting.report_runner as runner
     monkeypatch.setattr(runner, "GUARDIAN_WATCH_DELAY_SECONDS", 0)
-    monkeypatch.setattr(db_guardian, "alert_if_stopped", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("synthetic")))
+    monkeypatch.setattr(db_guardian_status, "alert_if_stopped", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("synthetic")))
     runner._check_database_guardian()
     source = Path(runner.__file__).read_text(encoding="utf-8")
     assert "_check_database_guardian()\n        time.sleep(POLL_INTERVAL)" in source
@@ -781,3 +783,29 @@ def test_a_restart_loop_cannot_hold_back_the_alert_with_a_30_day_old_confirm(mon
         boots.append(read_status(status_path(database))["booted_at"])
         assert _reasons(saved_backup_alerts) == ["offsite_missed"] * restart
     assert len(set(boots)) == 5, "each restart really did reset the grace"
+
+
+# --- The watcher doesn't depend on what it watches.
+
+def test_a_guardian_module_that_will_not_import_still_produces_an_alert(alert_db, monkeypatch):
+    """The review's reproduction: 0 alert rows after 22 minutes, because the watcher imported it too."""
+    import modules.reporting.report_runner as runner
+    from modules.notifications import alert_dispatcher
+    engine, factory = alert_db
+    monkeypatch.setattr(alert_dispatcher, "deliver_staged_alert", lambda db, plan: None)
+    monkeypatch.setattr(runner, "DATABASE_URL", str(engine.url))
+    monkeypatch.setattr(runner, "SessionLocal", factory)
+    monkeypatch.setattr(runner, "GUARDIAN_WATCH_DELAY_SECONDS", 0)
+    write_status(status_path(Path(engine.url.database)), {
+        "started_at": (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(), "interval_seconds": 300})
+    monkeypatch.setitem(sys.modules, "modules.system.db_guardian", None)
+    with pytest.raises(ImportError):
+        import modules.system.db_guardian  # noqa: F401
+    runner._check_database_guardian()
+    assert [row[0] for row in _alert_rows(engine)] == [1, 2]
+
+
+def test_neither_the_watcher_nor_the_status_code_imports_the_guardian():
+    pattern = re.compile(r"modules\.system\.db_guardian\s+import|modules\.system import .*\bdb_guardian\b(?!_)")
+    for name in ("modules/reporting/report_runner.py", "modules/system/db_guardian_status.py", "modules/system/routes_health.py"):
+        assert not pattern.search((ROOT / "backend" / name).read_text(encoding="utf-8")), name

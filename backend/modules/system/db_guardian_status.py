@@ -1,16 +1,20 @@
-"""The guardian's status file: how /health learns the database's condition.
+"""The guardian's status file, how /health reads it, and how a stopped guardian gets reported.
 
-It sits outside the database on purpose, since the thing it reports on may be damaged. Reading
-it is cheap and can't fail the health probe: anything unreadable counts as no status yet.
+The file sits outside the database on purpose, since the thing it reports on may be damaged.
+Reading it is cheap and can't fail the health probe: anything unreadable counts as no status yet.
+report_runner watches through this module, so it must not import modules.system.db_guardian: a
+guardian that won't even import is exactly what the watcher is there to report.
 """
 
 from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from core.db_integrity import DAMAGED, RUNBOOK
+from modules.system.backup_failure_alerts import stage_admin_alert
 from modules.system.backup_service import BackupValidationError, paths_from_database_url
 
 PENDING = "pending"
@@ -26,6 +30,15 @@ UNAVAILABLE_ALERT_AFTER = 3
 # Grace beyond two missed intervals, so a slow check or a guardian restart doesn't flap /health.
 STALE_GRACE_SECONDS = 300
 _MAX_STATUS_BYTES = 64 * 1024
+ALERT_REPEAT = timedelta(days=1)
+
+ALERT_TITLE = "Database integrity check failed"
+_ALERT_MESSAGES = {
+    DAMAGED: "ODIN's database failed its integrity check. ODIN won't repair it, and a restart "
+             "will refuse to start until it is fixed. Follow the runbook before restarting: " + RUNBOOK,
+    UNAVAILABLE: "ODIN's scheduled database integrity check has not been able to finish. The database "
+                 "may be fine, but nothing is checking it. See the runbook: " + RUNBOOK,
+}
 
 
 def status_path(database: Path) -> Path:
@@ -101,3 +114,40 @@ def database_integrity(database_url: str) -> dict[str, str | None] | None:
 
 def overall_status(integrity: dict[str, str | None] | None) -> str:
     return "degraded" if integrity and integrity["status"] in NOT_HEALTHY else "ok"
+
+
+def publish_integrity_alert(state: str, *, session_factory=None) -> None:
+    """Critical alert to every platform admin, on the same path as a backup failure."""
+    from sqlalchemy import text
+    from modules.notifications.alert_dispatcher import deliver_staged_alert
+    if session_factory is None:
+        from core.db import SessionLocal
+        session_factory = SessionLocal
+    with session_factory() as db:
+        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant SQL, no user input
+        admins = db.execute(text("SELECT id FROM users WHERE role='admin' AND group_id IS NULL AND is_active IS TRUE")).scalars().all()
+        plan = stage_admin_alert(db, ALERT_TITLE, _ALERT_MESSAGES[state], {"kind": "database_integrity", "state": state}, admins)
+        db.commit()
+        deliver_staged_alert(db, plan)
+
+
+def alert_if_stopped(database_url: str, *, session_factory=None, now: datetime | None = None) -> bool:
+    """For another process to call: a stopped guardian can't raise its own alert, or back up."""
+    view = database_integrity(database_url)
+    if not view or view["status"] != STALE:
+        return False
+    from sqlalchemy import select
+    from modules.notifications.models import Alert
+    if session_factory is None:
+        from core.db import SessionLocal
+        session_factory = SessionLocal
+    now = now or datetime.now(timezone.utc)
+    alerts = Alert.__table__
+    with session_factory() as db:
+        recent = db.execute(select(alerts.c.metadata_json).where(
+            alerts.c.title == ALERT_TITLE, alerts.c.created_at > now - ALERT_REPEAT)).scalars().all()
+    # A damage alert says something else: it doesn't stand in for "nothing is checking any more".
+    if any(isinstance(item, dict) and item.get("state") == UNAVAILABLE for item in recent):
+        return False
+    publish_integrity_alert(UNAVAILABLE, session_factory=session_factory)
+    return True

@@ -14,7 +14,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from core.db_integrity import DAMAGED, OK, RUNBOOK, UNAVAILABLE, IntegrityReport, check_database
+from core.db_integrity import DAMAGED, OK, UNAVAILABLE, IntegrityReport, check_database
 from modules.system import backup_failure_alerts
 from modules.system.backup_failure_alerts import backup_failure_reason
 from modules.system.backup_schedule import clear_leftovers, create_scheduled_backup
@@ -25,12 +25,13 @@ from modules.system.backup_service import (
     paths_from_database_url,
 )
 from modules.system.db_guardian_status import (
+    ALERT_REPEAT,
     STALE,
     UNAVAILABLE_ALERT_AFTER,
-    database_integrity,
     integrity_view,
     offsite_path,
     parse_time,
+    publish_integrity_alert,
     read_status,
     status_path,
     write_status,
@@ -56,47 +57,9 @@ OFFSITE_BOOT_GRACE = timedelta(hours=4)
 OFFSITE_GRACE_LIMIT = timedelta(days=3)
 # Boot has just made this check, twice; let the services settle before the next one.
 FIRST_CHECK_DELAY_SECONDS = 60
-ALERT_REPEAT = timedelta(days=1)
 TICK_SECONDS = 15
 # Below normal priority: on a two-core host the API and monitors come first.
 NICE_INCREMENT = 10
-
-ALERT_TITLE = "Database integrity check failed"
-_ALERT_MESSAGES = {
-    DAMAGED: "ODIN's database failed its integrity check. ODIN won't repair it, and a restart "
-             "will refuse to start until it is fixed. Follow the runbook before restarting: " + RUNBOOK,
-    UNAVAILABLE: "ODIN's scheduled database integrity check has not been able to finish. The database "
-                 "may be fine, but nothing is checking it. See the runbook: " + RUNBOOK,
-}
-
-
-def publish_integrity_alert(state: str, *, session_factory=None) -> None:
-    """Critical alert to every platform admin, through the normal path so it can reach a phone.
-
-    Reuses the maintenance classification, as backup failures do; a new alert type would be a
-    schema change. A muted preference still gets the inbox row: this isn't a routine alert.
-    """
-    from sqlalchemy import text
-    from core.base import AlertSeverity, AlertType
-    from modules.notifications.alert_dispatcher import _deliver_in_app, deliver_staged_alert, stage_alert
-    if session_factory is None:
-        from core.db import SessionLocal
-        session_factory = SessionLocal
-    message = _ALERT_MESSAGES[state]
-    metadata = {"kind": "database_integrity", "state": state}
-    with session_factory() as db:
-        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant SQL, no user input
-        admins = db.execute(text("SELECT id FROM users WHERE role='admin' AND group_id IS NULL AND is_active IS TRUE")).scalars().all()
-        plan = stage_alert(db, AlertType.MAINTENANCE_OVERDUE, AlertSeverity.CRITICAL, ALERT_TITLE, message,
-                           metadata=metadata, target_user_ids=list(admins))
-        covered = set(plan.in_app_users) if plan else set()
-        for user_id in admins:
-            if user_id not in covered:
-                _deliver_in_app(db, user_id, AlertType.MAINTENANCE_OVERDUE, AlertSeverity.CRITICAL,
-                                ALERT_TITLE, message, None, None, None, metadata)
-        db.commit()
-        deliver_staged_alert(db, plan)
-
 
 def record_integrity(status: dict, report: IntegrityReport, now: datetime, *, publish=publish_integrity_alert) -> None:
     """Record a result, then alert if it calls for one. An alert that fails to send doesn't change /health."""
@@ -215,28 +178,6 @@ def tick(status: dict, now: datetime, database: Path, database_url: str, *, inte
     else:
         record_integrity(status, check(database), now, publish=publish)
     _alert_missed(status, now, database)
-    return True
-
-
-def alert_if_stopped(database_url: str, *, session_factory=None, now: datetime | None = None) -> bool:
-    """For another process to call: a stopped guardian can't raise its own alert, or back up."""
-    view = database_integrity(database_url)
-    if not view or view["status"] != STALE:
-        return False
-    from sqlalchemy import select
-    from modules.notifications.models import Alert
-    if session_factory is None:
-        from core.db import SessionLocal
-        session_factory = SessionLocal
-    now = now or datetime.now(timezone.utc)
-    alerts = Alert.__table__
-    with session_factory() as db:
-        recent = db.execute(select(alerts.c.metadata_json).where(
-            alerts.c.title == ALERT_TITLE, alerts.c.created_at > now - ALERT_REPEAT)).scalars().all()
-    # A damage alert says something else: it doesn't stand in for "nothing is checking any more".
-    if any(isinstance(item, dict) and item.get("state") == UNAVAILABLE for item in recent):
-        return False
-    publish_integrity_alert(UNAVAILABLE, session_factory=session_factory)
     return True
 
 

@@ -1005,7 +1005,7 @@ def _check_database_guardian():
     if time.monotonic() - _STARTED_AT < GUARDIAN_WATCH_DELAY_SECONDS:
         return
     try:
-        from modules.system.db_guardian import alert_if_stopped
+        from modules.system.db_guardian_status import alert_if_stopped
         alert_if_stopped(DATABASE_URL, session_factory=SessionLocal)
     except Exception as e:
         log.error(f"Database guardian check failed ({type(e).__name__})")
