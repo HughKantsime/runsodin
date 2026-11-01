@@ -5,6 +5,9 @@ from core.quota import charge_job_quota
 from core.errors import OdinError
 import json
 import logging
+import os
+from pathlib import Path
+import stat
 from fastapi import HTTPException
 from sqlalchemy import text
 from core.dependencies import log_audit
@@ -112,6 +115,35 @@ def _rollback_file_transaction(db, file_id):
         raise HTTPException(500, f'Print file outcome is uncertain. Contact support with file reference {file_id} before retrying.') from None
 
 
+def discard_deleted_payload(db, file_id, stored_path):
+    """Remove a deleted file's payload, after the row's removal is committed.
+
+    It can't undo or fail the delete, since the row is gone and a file left behind only costs disk.
+    Only a regular file directly in the upload storage goes, and only if no other row names it.
+    """
+    if not stored_path:
+        return
+    try:
+        path = Path(stored_path)
+        root = Path(os.environ.get('PRINT_FILE_STORAGE_ROOT') or '/data/print_files').resolve()
+        if not path.is_absolute() or path.parent.resolve() != root or not stat.S_ISREG(path.lstat().st_mode):
+            return
+        still_named = db.execute(text(
+            'SELECT 1 FROM print_files WHERE stored_path=:path '
+            'UNION ALL SELECT 1 FROM print_archives WHERE file_path=:path '
+            'UNION ALL SELECT 1 FROM model_revisions WHERE file_path=:path '
+            'UNION ALL SELECT 1 FROM education_upload_operations '
+            'WHERE final_path=:path OR staging_path=:path OR cleanup_path=:path LIMIT 1'
+        ), {'path': stored_path}).first()
+        db.rollback()
+        if still_named is None:
+            path.unlink()
+    except FileNotFoundError:
+        pass
+    except Exception as exc:
+        log.warning('Payload of deleted print file %s was left on disk (%s)', file_id, type(exc).__name__)
+
+
 def delete_generic_file(db, file_id, actor):
     try:
         row = accessible_preview_file(db, file_id, actor)
@@ -124,6 +156,7 @@ def delete_generic_file(db, file_id, actor):
             raise HTTPException(409, 'Print file changed or is referenced; refresh before deleting')
         log_audit(db, 'print_file.deleted', 'print_file', file_id, {'model_id': row.model_id})
         db.commit()
+        discard_deleted_payload(db, file_id, row.stored_path)
         return {'deleted': True}
     except HTTPException:
         _rollback_file_transaction(db, file_id)

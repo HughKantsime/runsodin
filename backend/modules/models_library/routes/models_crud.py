@@ -572,5 +572,7 @@ def delete_model_variant(model_id: int, variant_id: int, current_user: dict = De
         db.rollback()
         raise HTTPException(status_code=404, detail="Variant not found")
     db.commit()
+    from modules.models_library.file_management import discard_deleted_payload
+    discard_deleted_payload(db, variant_id, v.stored_path)
     remaining = len(get_model_variants(model_id, current_user, db)["variants"])
     return {"message": "Variant deleted", "remaining": remaining}

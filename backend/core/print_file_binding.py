@@ -28,6 +28,11 @@ def bind_file(db, file_id, printer_id):
     write_config_text(db, f"print_file_target:{file_id}", str(printer_id))
 
 
+def clear_binding(db, file_id):
+    """In the transaction that deletes a file, or that creates one whose id has a binding left behind."""
+    db.execute(text("DELETE FROM system_config WHERE key=:key"), {"key": f"print_file_target:{file_id}"})
+
+
 def require_bound_target(db, file_id, printer_id):
     target = target_printer(db, file_id)
     if target is not None and printer_id != target:
