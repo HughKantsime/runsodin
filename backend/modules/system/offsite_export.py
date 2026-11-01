@@ -3,6 +3,7 @@
     latest                      newest scheduled backup's receipt, and the guardian's state
     send <filename>             that backup's bytes on stdout
     confirm <filename> <sha256> the job stored and verified it off this server
+    expect                      the job is installed, so a silent job should raise an alert
 
 The authorized_keys entry (restrict, command=docker exec ...) means the key can run this and
 nothing else; the arguments arrive in SSH_ORIGINAL_COMMAND and never reach a shell. The job holds
@@ -62,8 +63,17 @@ def confirm(database: Path, backups: Path, name: str, sha256: str) -> int:
     receipt = _receipt(backups, name)
     if receipt is None or receipt["sha256"] != sha256:
         return REFUSED
-    write_status(offsite_path(database), {
-        "filename": name, "sha256": sha256, "confirmed_at": datetime.now(timezone.utc).isoformat()})
+    path = offsite_path(database)
+    write_status(path, {**read_status(path), "filename": name, "sha256": sha256,
+                        "confirmed_at": datetime.now(timezone.utc).isoformat()})
+    return 0
+
+
+def expect(database: Path) -> int:
+    """Start the clock at install, so a job that never manages one copy is noticed too."""
+    path = offsite_path(database)
+    current = read_status(path)
+    write_status(path, {**current, "expected_since": current.get("expected_since") or datetime.now(timezone.utc).isoformat()})
     return 0
 
 
@@ -76,6 +86,8 @@ def main(arguments: list[str], output) -> int:
         return latest(paths.database, paths.backups, output)
     if len(arguments) == 2 and arguments[0] == "send":
         return send(paths.backups, arguments[1], output)
+    if arguments == ["expect"]:
+        return expect(paths.database)
     if len(arguments) == 3 and arguments[0] == "confirm":
         return confirm(paths.database, paths.backups, arguments[1], arguments[2])
     return USAGE
