@@ -12,6 +12,10 @@ def mqtt_peer(request,tmp_path):
     packets=[]
     disconnected=threading.Event()
     published=threading.Event()
+    connected=threading.Event()
+    released=threading.Event()
+    request.node.peer_events=(connected,released)
+    config=getattr(request,'param',{})
     class Handler(socketserver.BaseRequestHandler):
         def handle(self):
             self.request.settimeout(5)
@@ -31,13 +35,16 @@ def mqtt_peer(request,tmp_path):
                         multiplier*=128
                     body=read_exact(length);packets.append((header,body))
                     if header>>4==1:
-                        self.request.sendall(b'\x20\x02\x00\x05' if getattr(request,'param',False) is True else b'\x20\x02\x00\x00')
+                        connected.set()
+                        if config=='mute':continue
+                        if config=='refuse_on_release':
+                            released.wait(timeout=30);self.request.sendall(b'\x20\x02\x00\x05');continue
+                        self.request.sendall(b'\x20\x02\x00\x05' if config is True else b'\x20\x02\x00\x00')
                     elif header>>4==3:published.set()
                     elif header>>4==12:self.request.sendall(b'\xd0\x00')
                     elif header>>4==14:
                         disconnected.set();break
             except (EOFError,TimeoutError):pass
-    config=getattr(request,'param',{})
     cert_path=None
     server_class=socketserver.ThreadingTCPServer
     if isinstance(config,dict) and config.get('tls'):
@@ -85,14 +92,44 @@ def test_diagnostic_real_connect_publish_disconnect_and_wire_payload(mqtt_peer,m
     assert disconnected.wait(timeout=2)
     assert any(header>>4==14 for header,body in packets)
 
-@pytest.mark.parametrize('mqtt_peer',[True],indirect=True)
-def test_real_broker_refusal_cannot_be_reported_as_success(mqtt_peer,monkeypatch):
+def _publish_packets(packets):
+    return [body for header,body in packets if header>>4==3]
+
+@pytest.mark.parametrize('mqtt_peer',['refuse_on_release'],indirect=True)
+def test_real_broker_refusal_cannot_be_reported_as_success(mqtt_peer,monkeypatch,request):
+    """The peer holds its refusal until the test releases it, so a diagnostic that doesn't wait
+    for CONNACK would publish and report success every time, not only when timing allows."""
+    from modules.notifications import mqtt_republish
+    port,packets,disconnected,_,_=mqtt_peer
+    connected,released=request.node.peer_events
+    monkeypatch.delenv('ODIN_ITAR_MODE',raising=False)
+    monkeypatch.setattr(mqtt_republish,'_CONNACK_WAIT_SECONDS',60)
+    results=[]
+    worker=threading.Thread(target=lambda:results.append(mqtt_republish.test_connection('127.0.0.1',port)),daemon=True)
+    worker.start()
+    try:
+        assert connected.wait(timeout=10)
+        worker.join(timeout=0.5)
+        assert worker.is_alive() and results==[]  # still waiting for the broker's answer
+        assert _publish_packets(packets)==[]
+    finally:
+        released.set()
+    worker.join(timeout=10)
+    assert not worker.is_alive()
+    assert results==[{'success':False,'message':'MQTT broker refused the connection'}]
+    assert _publish_packets(packets)==[]
+    assert any(header>>4==1 for header,body in packets)
+
+@pytest.mark.parametrize('mqtt_peer',['mute'],indirect=True)
+def test_mute_broker_is_reported_as_no_answer_not_as_a_refusal(mqtt_peer,monkeypatch):
     from modules.notifications import mqtt_republish
     port,packets,disconnected,_,_=mqtt_peer
     monkeypatch.delenv('ODIN_ITAR_MODE',raising=False)
+    monkeypatch.setattr(mqtt_republish,'_CONNACK_WAIT_SECONDS',0.2)
     result=mqtt_republish.test_connection('127.0.0.1',port)
-    assert result['success'] is False
+    assert result=={'success':False,'message':'MQTT broker did not answer'}
     assert any(header>>4==1 for header,body in packets)
+    assert _publish_packets(packets)==[]
 
 from tests.test_contracts.test_education_review_workflow import review_db
 

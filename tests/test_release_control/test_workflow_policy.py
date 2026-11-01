@@ -65,9 +65,9 @@ def test_WF10_candidate_sha_is_full_lowercase_hex():
 
 def test_WF11_runner_labels_are_exact():
     source = workflow_text()
-    assert "runs-on: [self-hosted, mac-mini-runner, m4]" in source
+    assert "runs-on: [self-hosted, odin-ci]" in source
     assert "odin-isolated" not in source
-    assert "printf '%s\\n' /Users/ollama/homebrew/bin /Users/ollama/homebrew/sbin /opt/homebrew/bin >> \"$GITHUB_PATH\"" in source
+    assert "Required tool missing from PATH:" in source
 
 
 def test_WF12_workflow_has_no_release_side_effect_or_secret_surface():
@@ -133,3 +133,122 @@ def test_pinned_vision_model_verification_rejects_missing_or_corrupt_materializa
     result = subprocess.run([sys.executable, "-P", "-c", script], cwd=tmp_path,
                             capture_output=True, text=True)
     assert (result.returncode == 0) == (state == "hydrated"), result.stderr
+
+
+def test_validation_pins_linux_runner_and_fail_closed_path_tools():
+    source = (ROOT / '.github/workflows/trusted-validation.yml').read_text()
+    workflow = yaml.safe_load(source)
+    assert workflow['permissions'] == {}
+    assert len(workflow['jobs']) == 1
+    job = next(iter(workflow['jobs'].values()))
+    assert job['runs-on'] == ['self-hosted', 'odin-ci']
+    bootstrap = job['steps'][0]['run']
+    for tool in ('python3.11', 'node', 'npm', 'mosquitto', 'docker', 'git', 'git-lfs', 'make', 'gitleaks', 'semgrep', 'hadolint'):
+        assert f'command -v {tool} >/dev/null || {{ echo "Required tool missing from PATH: {tool}" >&2; exit 1; }}' in bootstrap
+    assert 'HughKantsime' in bootstrap and '201174638' in bootstrap
+    assert 'TRIGGERING_ACTOR' in bootstrap and 'RUN_ATTEMPT' in bootstrap
+    for forbidden in ('/Users/ollama', '/opt/homebrew', 'mac-mini-runner', 'Colima', 'Rosetta', 'setup-qemu'):
+        assert forbidden not in source
+    for step in job['steps']:
+        if 'uses' in step:
+            assert len(step['uses'].rsplit('@', 1)[-1]) == 40
+    assert 'sys.version_info[:2] == (3, 11)' in bootstrap
+    assert 'Docker Engine 29.x is required' in bootstrap
+    assert 'Docker buildx plugin is required' in bootstrap
+
+
+@pytest.mark.parametrize('name,paths', [
+    ('promote', ('/Users/ollama/homebrew/bin/python3.11', '/opt/homebrew/bin/gh')),
+    ('publish-image', ('/Users/ollama/homebrew/bin/python3.11', '/opt/homebrew/bin/gh', '/Users/ollama/homebrew/bin/docker')),
+    ('promote-production', ('/Users/ollama/homebrew/bin/python3.11', '/opt/homebrew/bin/gh', '/Users/ollama/homebrew/bin/docker')),
+    ('rollback-2.0-production', ('/Users/ollama/homebrew/bin/docker',)),
+])
+def test_mutation_workflows_stay_on_the_mac(name, paths):
+    """Only Trusted Validation runs on odin-ci. Publishing can't (arm64 under QEMU never goes healthy), and
+    eligibility authenticates validation's evidence, so it stays off the host that just ran candidate code."""
+    source = (ROOT / '.github/workflows' / f'{name}.yml').read_text()
+    workflow = yaml.safe_load(source)
+    assert workflow['permissions'] == {}
+    assert len(workflow['jobs']) == 1
+    job = next(iter(workflow['jobs'].values()))
+    assert job['runs-on'] == ['self-hosted', 'mac-mini-runner', 'm4']
+    assert 'odin-ci' not in source
+    bootstrap = job['steps'][0]['run']
+    for path in paths:
+        assert path in bootstrap
+    assert 'HughKantsime' in bootstrap and '201174638' in bootstrap
+    assert 'TRIGGERING_ACTOR' in bootstrap and 'RUN_ATTEMPT' in bootstrap
+    for step in job['steps']:
+        if 'uses' in step:
+            assert len(step['uses'].rsplit('@', 1)[-1]) == 40
+
+
+def test_mac_publication_requires_rosetta_amd64_emulation_not_qemu():
+    source = (ROOT / '.github/workflows/publish-image.yml').read_text()
+    steps = yaml.safe_load(source)['jobs']['publish']['steps']
+    by_name = {step['name']: step for step in steps}
+    assert 'docker buildx build --push --platform linux/amd64,linux/arm64 --provenance=false' in source
+    emulation = by_name['Require host amd64 emulation']['run']
+    assert 'set -euo pipefail' in emulation
+    assert 'docker run --rm --platform linux/amd64' in emulation
+    assert 'python:3.11-slim@sha256:0b23cfb7425d065008b778022a17b1551c82f8b4866ee5a7a200084b7e2eafbf' in emulation
+    assert 'platform.machine()' in emulation
+    assert 'test "$machine" = x86_64' in emulation
+    names = [step['name'] for step in steps]
+    assert names.index('Require host amd64 emulation') < names.index('Set up Docker Buildx')
+    for forbidden in ('setup-qemu', 'apt-get', '--privileged', 'tonistiigi/binfmt', 'Require arm64 emulation'):
+        assert forbidden not in source
+    manifest = by_name['Exercise exact amd64 and arm64 manifests']['run']
+    assert 'publication_platforms' in manifest
+    assert 'expected = {("linux", "amd64"), ("linux", "arm64")}' in manifest
+    assert 'assert {(row["os"], row["architecture"]) for row in rows} == expected' in manifest
+    assert 'for arch in amd64 arm64; do' in manifest
+    assert 'test "$healthy" = 1' in manifest
+    assert 'test "$observed" = "$INPUT_VERSION"' in manifest
+    production = (ROOT / '.github/workflows/promote-production.yml').read_text()
+    assert 'description: Published multi-platform OCI index digest' in production
+    helper = (ROOT / 'ops/release_control/mutation_workflow.py').read_text()
+    assert '--prefer-index=false' not in helper
+
+
+def test_linux_bootstrap_uses_owned_python_and_browser_dependencies():
+    source = workflow_text()
+    assert '"$GITHUB_WORKSPACE/.venv-contracts/bin" >> "$GITHUB_PATH"' in source
+    assert '.venv-contracts/bin/python -m playwright install chromium' in source
+    assert 'npx --no-install playwright install chromium' in source
+    assert 'pip-audit==' not in source and 'bandit==' not in source
+    requirements = (ROOT / 'tests/requirements-contracts.txt').read_text().splitlines()
+    assert 'pip-audit==2.10.0' in requirements
+    assert 'bandit==1.9.4' in requirements
+    assert '-r ../backend/requirements.txt' in requirements
+    assert 'test "$(node --version)" = v25.9.0' in source
+
+
+@pytest.mark.parametrize('name', ['promote', 'publish-image', 'promote-production', 'rollback-2.0-production'])
+def test_mutation_workflows_never_install_runtime_dependencies(name):
+    source = (ROOT / '.github/workflows' / f'{name}.yml').read_text()
+    for forbidden in ('pip install', '/pip" install', '-m pip', '-m venv', 'uv pip', 'apt-get', 'setup-python'):
+        assert forbidden not in source
+    assert '/runtime/bin' not in source
+
+
+@pytest.mark.parametrize('state', ['exact', 'wrong-version', 'missing-metadata'])
+def test_host_jsonschema_requirement_fails_closed(state, monkeypatch):
+    """Eligibility imports the host's jsonschema: its pin is checked before use."""
+    import importlib.metadata
+
+    check = 'import importlib.metadata; assert importlib.metadata.version("jsonschema") == "4.25.1"'
+    assert check in (ROOT / '.github/workflows/promote.yml').read_text()
+
+    def version(package):
+        assert package == 'jsonschema'
+        if state == 'missing-metadata':
+            raise importlib.metadata.PackageNotFoundError(package)
+        return '4.24.0' if state == 'wrong-version' else '4.25.1'
+
+    monkeypatch.setattr(importlib.metadata, 'version', version)
+    if state == 'exact':
+        exec(compile(check, 'promote', 'exec'), {})
+    else:
+        with pytest.raises((AssertionError, importlib.metadata.PackageNotFoundError)):
+            exec(compile(check, 'promote', 'exec'), {})

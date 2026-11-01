@@ -37,7 +37,10 @@ def test_RG01_disposable_registry_preserves_digest_and_rollback(tmp_path: Path, 
         pytest.fail("docker is required for the release registry contract")
     buildx = shutil.which("docker-buildx")
     if not buildx:
-        pytest.fail("standalone docker-buildx is required for the release registry contract")
+        plugins = json.loads(_run("docker", "info", "--format", "{{json .ClientInfo.Plugins}}").stdout)
+        buildx = next((plugin["Path"] for plugin in plugins if plugin.get("Name") == "buildx"), None)
+    if not buildx or not Path(buildx).is_file():
+        pytest.fail("Docker buildx CLI plugin is required for the release registry contract")
 
     docker_host = os.environ.get("DOCKER_HOST")
     if not docker_host:
@@ -112,8 +115,8 @@ def test_RG01_disposable_registry_preserves_digest_and_rollback(tmp_path: Path, 
         manifest = mutation.inspect_manifest(f"{repository}@{target_digest}")
         assert manifest and manifest["digest"] == target_digest
         platforms = {
-            (item["platform"]["os"], item["platform"]["architecture"]): item["digest"]
-            for item in manifest["manifests"]
+            (row["os"], row["architecture"]): row["digest"]
+            for row in mutation.publication_platforms(repository, target_digest)
         }
         assert set(platforms) == {("linux", "amd64"), ("linux", "arm64")}
 

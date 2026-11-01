@@ -6,10 +6,21 @@
   "operations_per_repetition": 1000,
   "minimum_reads": 800,
   "minimum_writes": 100,
-  "maximum_repetition_seconds": 45,
-  "read_p95_ms": 650,
-  "write_p95_ms": 1400,
-  "global_p99_ms": 2800,
+  "maximum_repetition_seconds": 17,
+  "host_classes": {
+    "mac-m4": {
+      "identity": {"system": "Darwin", "machine": "arm64", "cpu": "Apple M4"},
+      "read_p95_ms": 385,
+      "write_p95_ms": 525,
+      "global_p99_ms": 525
+    },
+    "odin-ci": {
+      "identity": {"system": "Linux", "machine": "x86_64", "hostname": "odin-ci", "cpu": "11th Gen Intel(R) Core(TM) i7-11700K @ 3.60GHz"},
+      "read_p95_ms": 750,
+      "write_p95_ms": 755,
+      "global_p99_ms": 2590
+    }
+  },
   "maximum_error_rate": 0,
   "maximum_5xx": 0,
   "maximum_tenant_leaks": 0,
@@ -35,5 +46,67 @@
       "evidence": "worst rep-3 global p99: 2055 ms gate run 14 (local-20261018T214501Z); 2478 ms standalone at a81380d (macOS report-query tail); +13%"
     },
     "unchanged": "maximum_repetition_seconds (worst 14.8 s of 45), websocket_p95_ms (worst 13.5 ms of 1000), maximum_fd_delta (worst -9 of 8), maximum_memory_delta_mib (worst 3.8 of 64), error/5xx/tenant-leak limits (0 observed)"
+  },
+  "rebaseline_odin_ci": {
+    "decision": "2026-10-30 ODIN Dev: Trusted Validation moved from the M4 Mac to the odin-ci VM (i7-11700K, 8 vCPU), which runs this workload about twice as slowly. Same method as rebaseline_2_0: measured worst plus 10-15%. A host change, not a product change, so these values apply only on host class odin-ci and the Mac keeps rebaseline_2_0's; see docs/TRUSTED_VALIDATION_SCOPE.md 'api_load limits on odin-ci'.",
+    "read_p95_ms": {
+      "previous": 650,
+      "value": 1450,
+      "evidence": "worst rep-3 read p95 on odin-ci: 1293 ms gate run gha-41115715024-1; standalone 1184, 1027, 974 ms at f00d2129; +12%. Mac worst at gha-41079992620-1: 555 ms"
+    },
+    "write_p95_ms": {
+      "previous": 1400,
+      "value": 2550,
+      "evidence": "worst rep-3 write p95 on odin-ci: 2267 ms gate run gha-41115715024-1; standalone 1854, 1448, 1790 ms at f00d2129; +12.5%. Mac worst at gha-41079992620-1: 789 ms"
+    },
+    "global_p99_ms": {
+      "previous": 2800,
+      "value": 3850,
+      "evidence": "worst rep-3 global p99 on odin-ci: 3407 ms gate run gha-41115715024-1; standalone 3145, 2423, 2112 ms at f00d2129; +13%. Mac worst at gha-41079992620-1: 2344 ms"
+    },
+    "unchanged": "maximum_repetition_seconds (worst 29.5 s of 45) and every error, 5xx, tenant-leak, websocket, fd and memory limit"
+  },
+  "rebaseline_untraced": {
+    "decision": "2026-10-31 ODIN Dev: api_load's timed repetitions stopped running under tracemalloc, which about doubled latency and made the report tail far worse. Every earlier limit was measured with it on, so all were far too loose. Same method: measured worst plus 10-15%, on both hosts. See docs/TRUSTED_VALIDATION_SCOPE.md 'api_load limits on odin-ci'.",
+    "mac-m4": {
+      "read_p95_ms": {
+        "previous": 650,
+        "value": 385,
+        "evidence": "worst read p95 335.5 ms over 42 timed runs (126 repetitions) on the Mac, at 12:19 and 15:20 on 2026-10-31 under normal sharing; +14.8%"
+      },
+      "write_p95_ms": {
+        "previous": 1400,
+        "value": 525,
+        "evidence": "worst write p95 457.4 ms in the same runs; +14.8%"
+      },
+      "global_p99_ms": {
+        "previous": 2800,
+        "value": 525,
+        "evidence": "worst global p99 457.4 ms in the same runs; 3 of 42 runs passed 410 ms; +14.8%"
+      }
+    },
+    "odin-ci": {
+      "read_p95_ms": {
+        "previous": 1450,
+        "value": 750,
+        "evidence": "worst read p95 652.1 ms over 35 timed runs (105 repetitions) on odin-ci, at 09:10 and 12:20 on 2026-10-31; +15.0%"
+      },
+      "write_p95_ms": {
+        "previous": 2550,
+        "value": 755,
+        "evidence": "worst write p95 658.2 ms in the same runs; +14.7%"
+      },
+      "global_p99_ms": {
+        "previous": 3850,
+        "value": 2590,
+        "evidence": "worst global p99 2256.3 ms in the same runs, from the report tail whose cause is open; 3 of 35 runs passed 815 ms; +14.8%"
+      }
+    },
+    "maximum_repetition_seconds": {
+      "previous": 45,
+      "value": 17,
+      "evidence": "worst 14.8 s on odin-ci and 9.2 s on the Mac in those runs; +14.9% on the slower host"
+    },
+    "unchanged": "every error, 5xx, tenant-leak, websocket, fd and memory limit"
   }
 }

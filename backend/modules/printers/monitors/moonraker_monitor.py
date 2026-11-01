@@ -26,7 +26,7 @@ import sys
 import time
 import logging
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 
 from sqlalchemy import text
@@ -90,6 +90,9 @@ class MoonrakerMonitor:
         self._current_job_db_id: Optional[int] = None
         self._last_progress_write = 0.0
         self._last_filename = ""
+        self._unwatched_row = None
+        self._first_look = None
+        self._first_look_open = True
         self._last_telemetry_insert = 0.0
         self._last_slot_sync = 0.0
         self._last_env_telemetry = 0.0
@@ -204,6 +207,8 @@ class MoonrakerMonitor:
             self._current_job_db_id = None
             self._last_filename = ""
             self._prev_state = None
+            self._first_look = None
+            self._first_look_open = True
 
     # ==================== Status Processing ====================
     
@@ -214,13 +219,100 @@ class MoonrakerMonitor:
             tracked = self._current_job_db_id
             filename = self._last_filename
             terminal = self._prev_state in ('RUNNING', 'PAUSE') and status.internal_state in ('IDLE', 'FAILED')
+            raw_state = getattr(status, 'raw_print_state', None)
+            first_poll = self._prev_state is None
+            # First look after a restart or reconnect, and the print is already over. The first look
+            # lasts through states that don't say whether it was printing: some firmware reports
+            # standby or stopping for a moment before complete or cancelled.
+            ended_unwatched = (raw_state in ('complete', 'cancelled', 'error') and getattr(self, '_first_look_open', first_poll)
+                               and not tracked and bool(status.filename))
+            # Its end failed to commit: a retry still places history by the row, not by now.
+            retrying_unwatched = terminal and tracked and tracked == getattr(self, '_unwatched_row', None)
+        if first_poll:
+            self._note_first_look()
         # Network I/O (adapter timeout 5s) holds neither status lock nor DB transaction.
         from modules.printers.monitors.moonraker_history import terminal_history
-        history = terminal_history(self.printer, filename, time.time()) if terminal and tracked else None
+        history = terminal_history(self.printer, filename, time.time()) if terminal and tracked and not retrying_unwatched else None
+        if ended_unwatched or retrying_unwatched:
+            history = self._unwatched_end_history(status)
         with self._status_lock:
             if self._retired or self._current_job_db_id != tracked:
                 return
+            retry = ended_unwatched and not self._adopt_unwatched_end(status, history)
             self._process_status_locked(status, history=history)
+            if retry:
+                self._prev_state = None
+            elif raw_state in ('printing', 'paused', 'complete', 'cancelled', 'error'):
+                self._first_look_open = False
+
+    def _note_first_look(self):
+        """This poll's heartbeat replaces last_seen, and a later poll can still be the first look."""
+        try:
+            with engine.connect() as conn:
+                self._first_look_last_seen(conn)
+        except Exception:
+            log.debug(f"[{self.name}] First look not recorded; the age rule will refuse rather than guess")
+
+    def _first_look_last_seen(self, conn):
+        """printers.last_seen as the first look found it; this monitor's heartbeat replaces it."""
+        if getattr(self, '_first_look', None) is None:
+            self._first_look = (conn.execute(text('SELECT last_seen FROM printers WHERE id=:pid'), {'pid': self.printer_id}).scalar_one_or_none(),)
+        return self._first_look[0]
+
+    def _unwatched_end_history(self, status):
+        """History for the one running row a first-seen end could belong to, if any."""
+        from modules.printers.monitors.moonraker_history import terminal_history
+        try:
+            with engine.connect() as conn:
+                self._first_look_last_seen(conn)
+                rows = conn.execute(text("SELECT started_at FROM print_jobs WHERE printer_id=:pid AND status='running' "
+                                         "AND (filename=:name OR job_name=:name) LIMIT 2"),
+                                    {'pid': self.printer_id, 'name': status.filename}).all()
+            if len(rows) != 1:
+                return None
+            return terminal_history(self.printer, status.filename, time.time(),
+                                    row_started_at=as_utc_datetime(rows[0][0]).timestamp())
+        except Exception:
+            return None  # History is optional; the raw state still names the outcome.
+
+    def _adopt_unwatched_end(self, status, history):
+        """Track the one row a first-seen end belongs to, so the live end branch closes it.
+
+        Physical-resume identity rules. Inserts nothing and closes nothing else.
+        False only when the lookup itself failed: the next poll tries again.
+        """
+        from core.dispatch_observations import generic_observation_reserved, prepare_generic_observation
+        from core.interfaces.education_policy import is_education_reserved_filename
+        from core.physical_print import same_physical_print
+        filename = status.filename
+        if is_education_reserved_filename(filename):
+            return True
+        try:
+            with engine.begin() as conn:
+                if generic_observation_reserved(conn, printer_id=self.printer_id, observed_filename=filename):
+                    identifier = prepare_generic_observation(conn, printer_id=self.printer_id, observed_filename=filename)
+                else:
+                    rows = conn.execute(text("SELECT p.id,p.filename,p.job_name,p.started_at FROM print_jobs p "
+                                             "WHERE p.printer_id=:pid AND p.status='running' "
+                                             "AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=p.scheduled_job_id)"),
+                                        {'pid': self.printer_id}).mappings().all()
+                    # A matched history entry already placed the row inside that print. Without
+                    # one, the row's age when ODIN last saw this printer must fit inside the print.
+                    last_seen = self._first_look_last_seen(conn)
+                    elapsed = None if history else getattr(status, 'total_duration', None)
+                    plausible = [row for row in rows if same_physical_print(
+                        row, filename, elapsed, now=as_utc_datetime(last_seen) if last_seen else None)]
+                    identifier = plausible[0]['id'] if len(plausible) == 1 else None
+        except Exception as failure:
+            log.warning("[%s] First-seen print end lookup failed (%s)", self.name, type(failure).__name__)
+            return False
+        if identifier is not None:
+            self._current_job_db_id = identifier
+            self._last_filename = filename
+            self._prev_state = 'RUNNING'
+            self._unwatched_row = identifier
+            log.info(f"[{self.name}] Print {identifier} ended while unwatched")
+        return True
 
     def _process_status_locked(self, status, *, history=None):
         """Process a status update — detect state changes, track jobs."""
@@ -387,6 +479,10 @@ class MoonrakerMonitor:
                     status,
                     education_terminal_status=education_terminal_status, history=history,
                 )
+                if not education_suppressed and self._current_job_db_id:
+                    # Nothing committed. Moving on would leave a stale tracked row that makes the
+                    # next print look already tracked; the previous state retries this end instead.
+                    return
                 if not education_suppressed:
                     threading.Thread(target=self._try_dispatch, daemon=True).start()
 
@@ -484,6 +580,10 @@ class MoonrakerMonitor:
                     try:
                         started = as_utc_datetime(pj_row[0])
                         ended = as_utc_datetime(now_utc)
+                        if not history and ended_observation_id == getattr(self, '_unwatched_row', None) and getattr(status, 'total_duration', None) is not None:
+                            # It ran for total_duration, not until this poll first saw the end.
+                            ended = min(ended, started + timedelta(seconds=float(status.total_duration)))
+                            now_utc = ended.isoformat()
                         duration_seconds = int((ended - started).total_seconds())
                     except Exception as e:
                         log.debug(f"Failed to parse duration: {e}")

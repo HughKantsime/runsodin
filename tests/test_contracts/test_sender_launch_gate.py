@@ -190,6 +190,13 @@ def test_anchor_dies_after_arm_keeps_command_uncertain(monkeypatch,tmp_path):
     try:
         receipt=group.arm()
         assert not receipt.worker_started and receipt.command_may_have_started
+        # The closed pipe can precede the exited-child state: observe the exit without
+        # reaping, because this test covers a known unexpected exit.
+        deadline=time.monotonic()+2
+        while not supervisor._check_unreaped_child(group._process.pid):
+            if time.monotonic()>=deadline:
+                raise TimeoutError('Anchor did not exit')
+            time.sleep(.01)
         assert not group.retire().group_empty
         assert group.arm() is receipt
     finally:cleanup_for_test(group)

@@ -1,6 +1,7 @@
 """Read-only digest evidence binds captured file and intermediate directories."""
 import hashlib
 import os
+import time
 from dataclasses import replace
 import pytest
 from core.timelapse_manifest import capture_manifest
@@ -37,7 +38,9 @@ def test_changed_file_refuses_without_touching_replacement(owned_digest,change):
     root,video,_,_=owned_digest
     if change=='replacement':
         video.rename(root/'old.mp4');video.write_bytes(b'owned synthetic content')
-    elif change=='same_size_change':video.write_bytes(b'foreign synthetic bytes')
+    elif change=='same_size_change':
+        # Same size: only timestamps can show this, and ext4's tick is about 4 ms.
+        time.sleep(0.02);video.write_bytes(b'foreign synthetic bytes')
     elif change=='truncate':video.write_bytes(b'x')
     elif change=='growth':
         with video.open('ab') as stream:stream.write(b'new')

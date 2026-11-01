@@ -19,6 +19,7 @@ from ops.edu_readiness import api_load
 
 ROOT = Path(__file__).parents[2]
 RUN_ID = '20261030T000000Z-abcdef1'
+MAC = {'system': 'Darwin', 'machine': 'arm64', 'hostname': 'ollamas-Mac-mini.local', 'cpu': 'Apple M4'}
 CLASSES = ('auth', 'printers', 'jobs', 'reports', 'job_create', 'job_approve', 'session_churn')
 MIB = 1024 * 1024
 
@@ -65,6 +66,7 @@ def timed_pass(monkeypatch):
         seen['tracing'].append(tracemalloc.is_tracing())
         return _websocket(cycles)
 
+    monkeypatch.setattr(api_load, 'host_facts', lambda: MAC)
     monkeypatch.setattr(api_load, '_prepare_database', lambda path: (None, {
         'churn': ['x'] * 150, 'ws_target': ['x'], 'ws_foreign': ['x'], 'viewer': ['x']}))
     monkeypatch.setattr(api_load, '_execute_repetition', execute)
@@ -246,6 +248,8 @@ def test_a_leak_over_the_limit_in_the_memory_pass_fails_the_gate(monkeypatch, tm
     assert code == 1 and result['status'] == 'fail'
     assert 'tracked memory growth exceeded threshold' in result['findings']
     assert result['metrics']['memory_delta_bytes'] >= 90 * MIB
+    # The pass ran cleanly, but the gate fails on what it measured, so its record has to say so.
+    assert result['metrics']['memory_pass']['status'] == 'fail'
 
 
 def test_a_leak_under_the_limit_passes_and_is_reported(monkeypatch, tmp_path, timed_pass):
@@ -253,6 +257,7 @@ def test_a_leak_under_the_limit_passes_and_is_reported(monkeypatch, tmp_path, ti
     code, result = _gate(tmp_path)
     assert code == 0, result['findings']
     assert 60 * MIB <= result['metrics']['memory_delta_bytes'] <= 64 * MIB
+    assert result['metrics']['memory_pass']['status'] == 'pass'
 
 
 def test_allocations_during_warmup_stay_before_the_baseline(monkeypatch, tmp_path, timed_pass):
@@ -324,26 +329,36 @@ def test_a_good_report_with_a_failed_exit_still_fails_the_gate(monkeypatch, tmp_
 
 
 def test_a_hung_memory_pass_is_killed_and_fails_the_gate(monkeypatch, tmp_path, timed_pass):
-    """A pass that would finish well if left alone: only the bound can stop this from passing."""
+    """A pass that would finish well if left alone: only the bound can stop this from passing.
+    The bound's clock starts once the pass is running, so a slow process start can't use it up."""
     pid_file = tmp_path / 'pass-child.pid'
     report = json.dumps(_report())
     _child(monkeypatch, f'''
-        import subprocess, sys, time
-        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
-        open({str(pid_file)!r}, "w").write(str(child.pid))
-        time.sleep(8)
+        import os, subprocess, sys, time
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+        open({str(pid_file)!r} + ".new", "w").write(str(child.pid))
+        os.replace({str(pid_file)!r} + ".new", {str(pid_file)!r})
+        time.sleep(60)
         open(sys.argv[1], "w").write({report!r})
     ''')
+
+    class RunningPass(subprocess.Popen):
+        def wait(self, timeout=None):
+            deadline = time.monotonic() + 120
+            while not pid_file.exists() and self.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.01)
+            return super().wait(timeout=timeout)
+
     monkeypatch.setattr(api_load, 'MEMORY_PASS_TIMEOUT_SECONDS', 2)
-    started = time.monotonic()
-    code, result = _gate(tmp_path)
+    with monkeypatch.context() as patched:
+        patched.setattr(api_load.subprocess, 'Popen', RunningPass)
+        code, result = _gate(tmp_path)
     assert code == 1
     assert 'memory pass: timed out after 2 s' in result['findings']
-    assert time.monotonic() - started < 7
     assert result['metrics']['memory_delta_bytes'] is None
     # Its own children go with it, so a hung pass can't keep running after the gate has failed.
     pid = int(pid_file.read_text())
-    deadline = time.monotonic() + 5
+    deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
         state = subprocess.run(['ps', '-o', 'stat=', '-p', str(pid)], capture_output=True, text=True).stdout.strip()
         if not state or state.startswith('Z'):

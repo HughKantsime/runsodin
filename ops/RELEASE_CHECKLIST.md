@@ -65,10 +65,11 @@ semver pinning in `ops/RUNBOOK.md` §4.4 is break-glass only.
 5. All 6 supervisord services should show RUNNING (monitors sleep+retry when no printers configured).
 
 Capacity preflights use `python:3.11-slim@sha256:0b23cfb7425d065008b778022a17b1551c82f8b4866ee5a7a200084b7e2eafbf`
-(the same pin as the publish workflow's host emulation check). Before each
-observation, the helper inspects the exact local image ID. If absent, it pulls
-that digest reference once and verifies its image ID exactly, failing closed on
-a mismatch. The probe still runs by ID with `--pull=never`, no network, and a
+as an immutable registry reference. Before each observation, the helper inspects
+that reference's repository digests. If absent, it pulls the exact reference once
+and verifies the repository digest, failing closed on a mismatch. Registry digests
+are distinct from architecture-specific local image configuration IDs. The probe
+runs by repository@digest with `--pull=never`, no network, and a
 read-only filesystem. Recovery never removes or retags images. The September 15
 cleanup authorizations retain their historical probe IDs; current capacity
 observations use the active pin.

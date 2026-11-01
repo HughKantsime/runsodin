@@ -52,14 +52,6 @@ headroom; the previous value and the evidence sit next to the number in
 | write p95 | 1000 ms | 1400 ms | 1232 ms |
 | global p99 | 2000 ms | 2800 ms | 2478 ms |
 
-**For this release the latency limits sit well above real latency.** They were measured
-with the tracer running, and timed repetitions now run without it. On the Mac, untraced
-read p95, write p95 and global p99 measure about 250, 330 and 340 ms, against limits of
-650, 1400 and 2800 ms, and a repetition takes about 7.5 s against a limit of 45 s. So for
-this one release the gate catches only a large latency regression. The limits are
-tightened in the next release. The cause of the tail that
-remains without the tracer is still open; see below.
-
 Why 2.0 costs more per request:
 
 - **Security and RBAC.** Every request resolves the server-enforced permission
@@ -81,19 +73,20 @@ What the measurements show:
   running through every timed repetition, and turning it off removes most of the tail.
   With garbage collection off and the tracer on, the tail stays (usage-report maximum
   5343 ms), so garbage collection doesn't explain it. Ranges over three repetitions per
-  run, with two runs per setup on the Mac, in milliseconds. `odin-ci` is a Linux test VM:
+  run, with two runs per setup on the Mac, in milliseconds:
 
   | Setup | Read p95 | Global p99 | Usage-report p99 |
   |---|---|---|---|
-  | Mac, tracer on | 449-607 | 665-1971 | 654-2251 |
-  | Mac, tracer off | 232-255 | 315-349 | 256-322 |
   | odin-ci, tracer on | 1042-2262 | 2058-3540 | 2858-4135 |
   | odin-ci, tracer off | 439-442 | 561-597 | 503-645 |
+  | Mac, tracer on | 449-607 | 665-1971 | 654-2251 |
+  | Mac, tracer off | 232-255 | 315-349 | 256-322 |
 
   A smaller tail remains without the tracer. What is known so far, all on `odin-ci`:
 
-  - **Size.** Untraced, 5 of 50 runs reached a global p99 above 815 ms, all in
-    repetition 3. The worst was 1688 ms, with report p99 up to 1811 ms.
+  - **Size.** Untraced, 4 of 30 runs in review and 1 of 20 in measuring breached 815 ms
+    global p99, all in repetition 3. The worst in those runs was 1688 ms, with report p99
+    up to 1811 ms. The worst seen since is 2256 ms.
   - **Not the GIL switch interval.** Setting it to 0.5 ms or 50 ms changed nothing.
   - **Request order matters somewhat.** Repetition 3's fixed order has 24 windows of 25
     operations with 6 or more reports, against 1 in repetition 1 and 12 in repetition 2.
@@ -120,6 +113,40 @@ What the measurements show:
 
 Performance work continues after 2.0: shortening write transactions further,
 the per-request cost of authentication and authorisation, and the report query.
+
+## api_load limits on odin-ci
+
+Trusted Validation moved from the M4 Mac to the `odin-ci` VM (i7-11700K, 8 vCPU) on
+2026-10-30. The same workload takes about twice as long there (26-29 s per repetition
+against 12-14 s), so the three latency limits moved with the host, by the same method:
+measured worst plus 10-15%. The evidence sits next to each number in
+`rebaseline_odin_ci`. Every other limit is unchanged. These remain a regression floor
+for this host, not a capacity statement.
+
+The latency limits are keyed by host class in `host_classes`, so the Mac keeps its own. The
+class comes from what the machine reports about itself: operating system, architecture and
+CPU model, plus the hostname for `odin-ci`. No setting, label or environment variable can
+choose it. A machine matching no class fails api_load before any load runs, because nothing
+measured there can judge it. Each api_load result records `host_class`, `latency_limits`
+and `host_identity` in its metrics.
+
+| Limit | Mac | odin-ci | Mac worst | odin-ci worst |
+|---|---|---|---|---|
+| read p95 | 385 ms | 750 ms | 336 ms | 652 ms |
+| write p95 | 525 ms | 755 ms | 457 ms | 658 ms |
+| global p99 | 525 ms | 2590 ms | 457 ms | 2256 ms |
+
+These were re-measured on 2026-10-31, once api_load stopped timing its own tracer, by the same
+method. Every earlier limit was measured with the tracer running, and the evidence is in
+`rebaseline_untraced`. `maximum_repetition_seconds` went from 45 to 17, from the slower host's
+worst of 14.8 s, so it sits further above the Mac's 9.2 s.
+
+The `odin-ci` limits are all set by the open report tail: read, write, p99 and duration all come
+from the same tail repetition. 3 of 35 idle runs went past 815 ms p99, and most sit near 560 ms.
+Without those 3 repetitions, the worst is 478 ms read p95, 629 ms write p95, 788 ms p99 and 13.3 s.
+So these limits catch less there than on the Mac until that tail is explained. The Mac's worst came from runs under normal sharing, and its limits rest on a smaller margin in
+milliseconds, so a stall on that shared machine can still fail a run. Most of these runs were
+api_load alone, so a first full CV06 on each host is their first test under gate conditions.
 
 ## Gaps
 
