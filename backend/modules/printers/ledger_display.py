@@ -30,6 +30,7 @@ _CACHE_SECONDS = 15.0
 _REQUEST_TIMEOUT = 2.0
 _MAX_RESPONSE_BYTES = 512 * 1024
 _MAX_TOOLS = 64
+_MAX_TOOL_INDEX = 255
 _MAX_LABEL_CHARS = 256
 _MAX_MATERIAL_CHARS = 1024
 _cache_lock = threading.Lock()
@@ -95,16 +96,18 @@ def _valid_payload(payload: Any) -> dict[str, dict[str, Any]]:
         normalized_tools = []
         seen_indexes = set()
         for tool in tools:
-            if not isinstance(tool, dict) or type(tool.get("tool_index")) is not int or not 0 <= tool["tool_index"] < _MAX_TOOLS:
+            if not isinstance(tool, dict) or type(tool.get("tool_index")) is not int or not 0 <= tool["tool_index"] <= _MAX_TOOL_INDEX:
                 raise ValueError("invalid display tool")
             if tool["tool_index"] in seen_indexes:
                 raise ValueError("duplicate display tool index")
             seen_indexes.add(tool["tool_index"])
-            if tool.get("display_name") is not None:
+            if isinstance(tool.get("display_name"), str):
                 _valid_text(tool["display_name"], _MAX_LABEL_CHARS)
             status = tool.get("spool_status")
             spool_id = tool.get("spool_id")
             spool = tool.get("spool")
+            if type(spool_id) is int and not -(2**63) <= spool_id < 2**63:
+                raise ValueError("display spool identity out of range")
             if isinstance(spool_id, str):
                 _valid_text(spool_id, _MAX_LABEL_CHARS)
             if status not in {"mapped", "unmapped", "unavailable"}:
@@ -314,7 +317,7 @@ def _slot_from_tool(tool: dict[str, Any]) -> dict[str, Any]:
         "material_type": raw_material,
         "display_name": display_name or None,
         "mapping_status": status,
-        "external_spool_id": spool.get("id") if spool else None,
+        "external_spool_id": tool["spool_id"] if spool else None,
     }
 
 

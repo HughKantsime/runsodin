@@ -94,7 +94,7 @@ def test_invalid_feed_text_preserves_serialized_printer_list(db, serialized_prin
 
 @pytest.mark.parametrize('tools', [
     [{'tool_index': index, 'spool_status': 'unmapped', 'spool': None} for index in range(65)],
-    [{'tool_index': 64, 'spool_status': 'unmapped', 'spool': None}],
+    [{'tool_index': 256, 'spool_status': 'unmapped', 'spool': None}],
     [{'tool_index': 10**30, 'spool_status': 'unmapped', 'spool': None}],
 ], ids=['tool-count-limit', 'tool-index-limit', 'oversized-tool-index'])
 def test_tool_bounds_fail_closed_in_serialized_response(db, serialized_printers, fake, tools):
@@ -139,7 +139,7 @@ def test_feed_limits_accept_unicode_boundaries_without_truncation(db, serialized
     assert slots[-1]['display_name'] == 'Tool 64'
 
 
-@pytest.mark.parametrize('display_name', [None, '', '   '])
+@pytest.mark.parametrize('display_name', [None, '', '   ', 42, False, [], {}])
 def test_optional_tool_name_keeps_serialized_fallback(db, serialized_printers, fake, display_name):
     payload = ledger_payload()
     _set_feed_text(payload, 'display_name', display_name)
@@ -148,3 +148,44 @@ def test_optional_tool_name_keeps_serialized_fallback(db, serialized_printers, f
     response = serialized_printers.get('/printers')
     assert response.status_code == 200
     assert response.json()[0]['filament_slots'][0]['display_name'] == 'Tool 1'
+
+
+@pytest.mark.parametrize('spool_id,nested_id,valid', [
+    (10**22, 1e22, False), (1, 1.0, True),
+    (2**63 - 1, 2**63 - 1, True), (-(2**63), -(2**63), True),
+    (2**63, 2**63, False), (-(2**63) - 1, -(2**63) - 1, False),
+    (10**3999, 10**3999, False),
+], ids=['equal-large-float', 'equal-small-float', 'max-int64', 'min-int64',
+        'above-int64', 'below-int64', '4000-digit-id'])
+def test_numeric_spool_identity_serializes_safely(db, serialized_printers, fake, spool_id, nested_id, valid):
+    payload = ledger_payload()
+    tool = payload['printers'][0]['tools'][0]
+    tool['spool_id'] = spool_id
+    tool['spool']['id'] = nested_id
+    fake.chunks = [json.dumps(payload).encode()]
+    assert refresh_and_wait()[0] is valid
+    response = serialized_printers.get('/printers')
+    assert response.status_code == 200, response.text
+    printer = response.json()[0]
+    if valid:
+        external_id = printer['filament_slots'][0]['external_spool_id']
+        assert type(external_id) is int
+        assert external_id == spool_id
+    else:
+        assert printer['filament_source_status'] == 'unavailable'
+        assert printer['filament_slots'] == []
+    assert response.json()[1]['filament_slots'][0]['color'] == 'local value'
+
+
+@pytest.mark.parametrize('tool_index', [64, 254, 255])
+def test_external_holder_indexes_serialize(db, serialized_printers, fake, tool_index):
+    payload = ledger_payload(tools=[{
+        'tool_index': tool_index, 'spool_status': 'unmapped', 'spool': None,
+    }])
+    fake.chunks = [json.dumps(payload).encode()]
+    assert refresh_and_wait()[0] is True
+    response = serialized_printers.get('/printers')
+    assert response.status_code == 200, response.text
+    slot = response.json()[0]['filament_slots'][0]
+    assert slot['slot_number'] == tool_index + 1
+    assert slot['display_name'] == f'Tool {tool_index + 1}'
