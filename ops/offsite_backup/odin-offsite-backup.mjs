@@ -59,8 +59,8 @@ const checkFailed = (message, detail = null) => new JobError(message, { detail, 
 const GENERIC = "ODIN's off-server backup failed. See status.json on the machine that runs it.";
 
 // { "target": "user@host", "mount": "/path", "share": "NAS name in the mount line", "ntfy": "url" }
-// This repository is public, so none of these belong in it. "ssh", "mount_bin", "stall_seconds" and
-// "desktop_alert" override defaults.
+// This repository is public, so none of these belong in it. "ssh", "mount_bin", "launchctl", "stall_seconds",
+// "max_run_seconds" and "desktop_alert" override defaults.
 function loadConfig() {
   let config;
   try {
@@ -71,7 +71,8 @@ function loadConfig() {
   for (const field of ["target", "mount", "share", "ntfy"]) {
     if (typeof config[field] !== "string" || !config[field]) throw new JobError(`config.json has no ${field}`);
   }
-  return { ssh: "/usr/bin/ssh", mount_bin: "/sbin/mount", stall_seconds: STALL_SECONDS, ...config, dest: path.join(config.mount, "ODIN Backups") };
+  return { ssh: "/usr/bin/ssh", mount_bin: "/sbin/mount", launchctl: "/bin/launchctl", stall_seconds: STALL_SECONDS,
+           max_run_seconds: MAX_RUN_SECONDS, ...config, dest: path.join(config.mount, "ODIN Backups") };
 }
 
 // Atomic, so a kill mid-write can't leave a file the next run can't read.
@@ -316,7 +317,7 @@ async function worker() {
 }
 
 // Runs the child, kills it if it stops making progress, and returns what happened.
-function supervise(stallSeconds) {
+function supervise(stallSeconds, maxRunSeconds) {
   return new Promise(resolve => {
     const child = fork(SELF, ["worker"], { detached: true, stdio: ["ignore", "inherit", "inherit", "ipc"] });
     let lastProgress = Date.now(), finished = false;
@@ -329,11 +330,12 @@ function supervise(stallSeconds) {
     };
     const watchdog = setInterval(() => {
       const stalled = Date.now() - lastProgress > stallSeconds * 1000;
-      if (!stalled && Date.now() - started <= MAX_RUN_SECONDS * 1000) return;
+      const tooLong = Date.now() - started > maxRunSeconds * 1000;
+      if (!stalled && !tooLong) return;
       // The whole group, so its ssh goes too. A child stuck on a hung mount can stay until the mount
       // answers, so don't wait for it: the result is recorded now and the next run starts on time.
       try { process.kill(-child.pid, "SIGKILL"); } catch { /* already gone */ }
-      finish({ ok: false, error: "ODIN's off-server backup stalled and was stopped", detail: `no progress for ${stallSeconds} s`, immediate: false });
+      finish({ ok: false, error: "ODIN's off-server backup stalled and was stopped", detail: stalled ? `no progress for ${stallSeconds} s` : `still running after ${maxRunSeconds} s`, immediate: false });
     }, 250);
     child.on("message", message => {
       lastProgress = Date.now();
@@ -376,7 +378,7 @@ async function runCommand() {
   let config = null, outcome;
   try {
     config = loadConfig();
-    outcome = await supervise(config.stall_seconds);
+    outcome = await supervise(config.stall_seconds, config.max_run_seconds);
   } catch (error) {
     outcome = { ok: false, error: error.message, detail: error.detail, immediate: false };
   }
@@ -428,6 +430,7 @@ function register() {
 }
 
 function install() {
+  const config = loadConfig();
   register();
   const bin = path.join(HOME, "bin");
   mkdirSync(bin, { recursive: true, mode: 0o700 });
@@ -437,6 +440,7 @@ function install() {
   const logs = path.join(os.homedir(), "Library/Logs/ODIN Offsite Backup");
   mkdirSync(logs, { recursive: true });
   const plist = path.join(os.homedir(), "Library/LaunchAgents", `${LABEL}.plist`);
+  mkdirSync(path.dirname(plist), { recursive: true });
   const NODE = process.execPath;
   const xml = value => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;");
   writeFileSync(plist, `<?xml version="1.0" encoding="UTF-8"?>
@@ -454,8 +458,8 @@ function install() {
 </plist>
 `, { mode: 0o600 });
   const domain = `gui/${process.getuid()}`;
-  try { execFileSync("/bin/launchctl", ["bootout", `${domain}/${LABEL}`], { stdio: "ignore" }); } catch { /* not loaded yet */ }
-  execFileSync("/bin/launchctl", ["bootstrap", domain, plist]);
+  try { execFileSync(config.launchctl, ["bootout", `${domain}/${LABEL}`], { stdio: "ignore" }); } catch { /* not loaded yet */ }
+  execFileSync(config.launchctl, ["bootstrap", domain, plist]);
   process.stdout.write(`Installed ${LABEL}: hourly\n`);
 }
 

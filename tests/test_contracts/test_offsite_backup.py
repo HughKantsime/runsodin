@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from modules.system import offsite_export
-from modules.system.backup_schedule import RECEIPT_SUFFIX
+from modules.system.backup_schedule import RECEIPT_SUFFIX, retained_backups
 from modules.system.db_guardian_status import offsite_path, read_status, status_path, write_status
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -134,6 +134,15 @@ if command[0] == "send" and os.path.exists(os.path.join(root, "stall")):
     time.sleep(600)
 if command[0] == "latest":
     sys.stdout.write(open(os.path.join(root, "latest.json")).read())
+elif command[0] == "send" and os.path.exists(os.path.join(root, "slow")):
+    # Slow but healthy: well past the stall limit in total, never silent for long.
+    payload = open(os.path.join(root, "payload"), "rb").read()
+    pieces, seconds = open(os.path.join(root, "slow")).read().split()
+    size = len(payload) // int(pieces) + 1
+    for start in range(0, len(payload), size):
+        sys.stdout.buffer.write(payload[start:start + size])
+        sys.stdout.buffer.flush()
+        time.sleep(float(seconds))
 elif command[0] == "send":
     sys.stdout.buffer.write(open(os.path.join(root, "payload"), "rb").read())
     sys.exit(int(open(os.path.join(root, "send_exit")).read()) if os.path.exists(os.path.join(root, "send_exit")) else 0)
@@ -176,6 +185,24 @@ if (fault === "trace") {
   fs.fsyncSync = fd => { log("fsync " + paths.get(fd)); return realFsync(fd); };
   fs.renameSync = (source, target) => { log("rename " + source + " " + target); return realRename(source, target); };
 }
+if (fault === "slow-read") {
+  // A slow NAS on the read-back: well past the stall limit in total, never silent for long.
+  const realRead = fs.createReadStream;
+  fs.createReadStream = (target, options = {}) => realRead(target, {
+    ...options, fs: { ...fs, read: (...args) => setTimeout(() => fs.read(...args), 500) } });
+}
+if (fault === "worker-dies" && process.argv.includes("worker")) {
+  fs.renameSync = () => process.kill(process.pid, "SIGKILL");
+}
+if (fault === "unkillable") {
+  // A child stuck on a truly hung mount doesn't die when told to, so the parent must not wait for it.
+  if (process.argv.includes("worker")) {
+    realWriteFile(process.env.NAS_TRACE, String(process.pid));
+    fs.renameSync = () => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
+  } else {
+    process.kill = () => true;
+  }
+}
 if (fault === "hang-rename") {
   fs.renameSync = (source, target) => {
     if (String(target).includes("ODIN Backups")) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
@@ -210,6 +237,9 @@ class Harness:
         ssh = self.bin / "ssh"
         ssh.write_text(FAKE_SSH)
         ssh.chmod(0o755)
+        launchctl = self.bin / "launchctl"
+        launchctl.write_text(f'#!/bin/sh\necho "$@" >> {self.server}/launchctl.log\n')
+        launchctl.chmod(0o755)
         self.mount_bin = self.bin / "mount"
         self.set_mount(f"//user@TEST-NAS._smb._tcp.local/share on {self.mount} (smbfs, nodev, nosuid)")
         harness = self
@@ -226,7 +256,7 @@ class Harness:
         self.home.mkdir()
         (self.home / "config.json").write_text(json.dumps({
             "target": "user@server.invalid", "mount": str(self.mount), "share": "TEST-NAS", "ssh": str(ssh),
-            "mount_bin": str(self.mount_bin), "desktop_alert": False,
+            "mount_bin": str(self.mount_bin), "desktop_alert": False, "launchctl": str(self.bin / "launchctl"),
             "ntfy": f"http://127.0.0.1:{self.http.server_address[1]}/alerts"}))
         self.offer(PAYLOAD, NAME)
 
@@ -248,9 +278,16 @@ class Harness:
             env.update(NAS_FAULT=fault, NAS_TRACE=str(self.tmp / "nas-trace.log"), NODE_OPTIONS=f"--import {preload.as_uri()}")
         return subprocess.run(["node", str(JOB), *arguments], env=env, capture_output=True, text=True, timeout=120)
 
-    def set_stall_seconds(self, seconds):
+    def configure(self, **values):
         config = json.loads((self.home / "config.json").read_text())
-        (self.home / "config.json").write_text(json.dumps({**config, "stall_seconds": seconds}))
+        (self.home / "config.json").write_text(json.dumps({**config, **values}))
+
+    def set_stall_seconds(self, seconds):
+        self.configure(stall_seconds=seconds)
+
+    def edit_state(self, **values):
+        state = json.loads((self.home / "state.json").read_text())
+        (self.home / "state.json").write_text(json.dumps({**state, **values}))
 
     def calls(self):
         path = self.server / "calls.log"
@@ -608,6 +645,142 @@ def test_register_tells_odin_a_copy_is_expected(job):
     (job.server / "down").write_text("")
     result = job.job("register")
     assert result.returncode == 1 and "user@server.invalid" not in result.stderr
+
+
+# --- The watchdog must not hurt a slow healthy run, and its limits are the measured ones.
+
+def test_a_slow_healthy_transfer_outlives_the_stall_limit(job):
+    """Twelve pieces half a second apart against a 2 s limit: only progress ticks keep it alive."""
+    job.set_stall_seconds(2)
+    (job.server / "slow").write_text("12 0.5")
+    started = time.monotonic()
+    result = job.job("run")
+    assert result.returncode == 0, result.stderr
+    assert time.monotonic() - started > 2 * 2, "it has to take longer than the limit to prove anything"
+    assert job.status()["ok"] is True
+
+
+def test_a_slow_healthy_read_back_outlives_the_stall_limit(job):
+    """The read-back and the audit tick too. This payload takes many 64 KiB reads at half a second each."""
+    job.offer(PAYLOAD * 4, NAME)
+    job.set_stall_seconds(2)
+    started = time.monotonic()
+    result = job.job("run", fault="slow-read")
+    assert result.returncode == 0, result.stderr
+    assert time.monotonic() - started > 2 * 2 and job.status()["ok"] is True
+
+
+def test_a_run_that_makes_progress_for_too_long_is_still_stopped(job):
+    job.configure(stall_seconds=60, max_run_seconds=2)
+    (job.server / "slow").write_text("60 0.5")
+    started = time.monotonic()
+    result = job.job("run")
+    assert result.returncode == 1 and "stalled" in result.stderr and time.monotonic() - started < 20
+    assert job.status()["detail"] == "still running after 2 s"
+
+
+def test_the_limits_are_the_chosen_ones():
+    source = JOB.read_text(encoding="utf-8")
+    assert "const STALL_SECONDS = 120, MAX_RUN_SECONDS = 6 * 3600, COMMAND_SECONDS = 60;" in source
+    assert "const AUDIT_EVERY_HOURS = 24;" in source
+    assert "stall_seconds: STALL_SECONDS" in source and "max_run_seconds: MAX_RUN_SECONDS" in source
+
+
+def test_a_worker_that_dies_is_recorded_at_once_not_at_the_stall_limit(job):
+    started = time.monotonic()
+    result = job.job("run", fault="worker-dies")
+    assert result.returncode == 1 and time.monotonic() - started < 20, "the default limit is 120 s"
+    assert "worker ended early" in job.status()["detail"] and job.status()["ok"] is False
+    assert job.job("run").returncode == 0
+
+
+def test_the_parent_does_not_wait_for_a_child_that_will_not_die(job):
+    """launchd starts no new run while this one lives, so a stuck child mustn't keep it alive."""
+    job.set_stall_seconds(2)
+    preload = job.tmp / "nas-faults.mjs"
+    preload.write_text(NAS_FAULTS)
+    trace = job.tmp / "nas-trace.log"
+    env = {**job.env, "NAS_FAULT": "unkillable", "NAS_TRACE": str(trace), "NODE_OPTIONS": f"--import {preload.as_uri()}"}
+    # A file, not a pipe: the stuck child holds its copy open, and waiting on a pipe would wait for it too.
+    with open(job.tmp / "stderr.log", "w") as stderr:
+        process = subprocess.Popen(["node", str(JOB), "run"], env=env, stdin=subprocess.DEVNULL, stdout=stderr, stderr=stderr)
+    try:
+        assert process.wait(timeout=30) == 1
+        assert "stalled" in (job.tmp / "stderr.log").read_text() and job.status()["ok"] is False
+    finally:
+        process.kill()
+        if trace.exists():
+            subprocess.run(["kill", "-9", trace.read_text().strip()], capture_output=True)
+
+
+# --- A bad copy that isn't the oldest.
+
+def test_a_bad_copy_takes_no_retention_slot_from_a_good_one(job):
+    """Mid-history, so counting it would prune one good copy too many."""
+    start = datetime(2026, 8, 3, 12, 0, tzinfo=timezone.utc)
+    for day in range(10):
+        _old_copy(job, start + timedelta(days=day))
+    bad = job.dest / "odin_backup_20260810_120000_000000.db.enc"
+    assert bad.exists()
+    _corrupt(bad)
+    job.offer(PAYLOAD, NAME)
+    assert job.job("run").returncode == 1
+    left = {path.name for path in job.dest.iterdir()}
+    def model(names):
+        rows = [(datetime.strptime(name[12:27], "%Y%m%d_%H%M%S").replace(tzinfo=timezone.utc), Path(name)) for name in names]
+        return {path.name for path in retained_backups(sorted(rows, key=lambda row: row[0], reverse=True))}
+    every = {f"odin_backup_{(start + timedelta(days=day)):%Y%m%d_%H%M%S}_000000.db.enc" for day in range(3, 10)} | {NAME + ".enc"}
+    good = every - {bad.name}
+    assert left == model(good) | {bad.name}
+    assert left - {bad.name} != model(every) - {bad.name}, "the two ways of counting have to differ, or this proves nothing"
+
+
+def test_a_bad_copy_run_saves_what_it_learned(job):
+    """The new copy is proven, so it isn't confirmed twice; the failed audit is remembered, so it's rechecked."""
+    assert job.job("run").returncode == 0
+    older = job.dest / (NAME + ".enc")
+    other = "odin_backup_20261101_120000_000000.db"
+    job.offer(PAYLOAD, other)
+    _corrupt(older)
+    assert job.job("run").returncode == 1
+    state = json.loads((job.home / "state.json").read_text())
+    assert state["auditFailed"] is True and state["confirmed"] == other and state["failures"] == 1
+    assert sum(call == f"confirm {other} {SHA}" for call in job.calls()) == 1
+    # Nothing new, and the audit is an hour old at most: only auditFailed makes it look again.
+    assert job.job("run").returncode == 1 and job.status()["ok"] is False
+    assert sum(call == f"confirm {other} {SHA}" for call in job.calls()) == 1
+    older.unlink()
+    assert job.job("run").returncode == 0 and job.status()["ok"] is True
+    assert json.loads((job.home / "state.json").read_text())["auditFailed"] is False
+
+
+@pytest.mark.parametrize("hours,caught", [(23, False), (25, True)])
+def test_the_daily_audit_runs_after_24_hours_and_not_before(job, hours, caught):
+    job.job("run")
+    other = "odin_backup_20261101_120000_000000.db"
+    job.offer(PAYLOAD, other)
+    assert job.job("run").returncode == 0
+    _corrupt(job.dest / (NAME + ".enc"))
+    job.edit_state(lastAuditAt=(datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat())
+    assert job.job("run").returncode == (1 if caught else 0)
+
+
+# --- Installing registers with ODIN first, so a job that never works is noticed.
+
+def test_install_registers_before_it_starts_the_schedule(job):
+    result = job.job("install")
+    assert result.returncode == 0, result.stderr
+    assert (job.server / "expected").exists()
+    log = (job.server / "launchctl.log").read_text()
+    assert "bootstrap" in log and "app.odin.offsite-backup.plist" in log
+    plist = job.tmp / "Library/LaunchAgents/app.odin.offsite-backup.plist"
+    assert "<integer>3600</integer>" in plist.read_text() and stat.S_IMODE(plist.stat().st_mode) == 0o600
+
+
+def test_install_stops_before_the_schedule_if_odin_cant_be_told(job):
+    (job.server / "down").write_text("")
+    assert job.job("install").returncode == 1
+    assert not (job.server / "launchctl.log").exists() and not (job.tmp / "Library/LaunchAgents").exists()
 
 
 def test_the_ignore_rules_cover_the_jobs_site_details_and_keys():

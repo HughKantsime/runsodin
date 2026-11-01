@@ -874,3 +874,16 @@ def test_neither_the_watcher_nor_the_status_code_imports_the_guardian():
     pattern = re.compile(r"modules\.system\.db_guardian\s+import|modules\.system import .*\bdb_guardian\b(?!_)")
     for name in ("modules/reporting/report_runner.py", "modules/system/db_guardian_status.py", "modules/system/routes_health.py"):
         assert not pattern.search((ROOT / "backend" / name).read_text(encoding="utf-8")), name
+
+
+# --- Leftovers go at guardian start, not at the next backup, which may be an hour away.
+
+def test_guardian_start_clears_a_killed_runs_leftovers(monkeypatch, tmp_path):
+    backups = tmp_path / "backups"
+    backups.mkdir()
+    (backups / "partial_scheduled_20261101_000000_000000.db").write_bytes(b"half written")
+    (backups / "partial_scheduled_abc").mkdir()
+    (backups / "partial_scheduled_abc" / "odin.db").write_bytes(b"a restore test's copy")
+    (backups / "odin-pre-repair.db").write_bytes(b"not ours")
+    _run_main_loop(monkeypatch, tmp_path)
+    assert [path.name for path in backups.iterdir()] == ["odin-pre-repair.db"]

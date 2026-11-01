@@ -596,6 +596,32 @@ def test_staging_a_restore_runs_off_the_event_loop(tmp_path, monkeypatch):
     assert result["status"] == "staged" and seen == ["in a worker thread"]
 
 
+def test_staging_a_postgresql_restore_runs_off_the_event_loop(tmp_path, monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+    from modules.system import routes_backup
+    seen = []
+    def stage(path, url, maintenance, **kwargs):
+        try:
+            asyncio.get_running_loop()
+            seen.append("on the event loop")
+        except RuntimeError:
+            seen.append("in a worker thread")
+        seen.append((maintenance, kwargs["actor_id"], kwargs["password_file"], kwargs["maintenance_password_file"]))
+        return {"pre_restore_backup": None, "candidate_sha256": "y"}
+    class Upload:
+        filename = "candidate.dump"
+        chunks = [b"PGDMP", b""]
+        async def read(self, _):
+            return self.chunks.pop(0)
+    monkeypatch.setattr(routes_backup, "stage_postgres_restore", stage)
+    monkeypatch.setattr(routes_backup, "sql", SimpleNamespace(is_postgres=True))
+    monkeypatch.setattr(routes_backup, "_postgres_maintenance_config", lambda: ("maintenance-url", "app-file", "maintenance-file"))
+    result = asyncio.run(routes_backup.restore_backup(file=Upload(), current_user={"id": 7}, db=None))
+    assert result["status"] == "staged"
+    assert seen == ["in a worker thread", ("maintenance-url", 7, "app-file", "maintenance-file")]
+
+
 # --- Backup alerts take the phone path, as the integrity alert does.
 
 @pytest.fixture
