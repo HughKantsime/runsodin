@@ -594,3 +594,72 @@ def test_staging_a_restore_runs_off_the_event_loop(tmp_path, monkeypatch):
     monkeypatch.setattr(routes_backup, "stage_restore", stage)
     result = asyncio.run(routes_backup.restore_backup(file=Upload(), current_user={"id": 1}, db=None))
     assert result["status"] == "staged" and seen == ["in a worker thread"]
+
+
+# --- Backup alerts take the phone path, as the integrity alert does.
+
+@pytest.fixture
+def alert_engine(tmp_path):
+    from core.schema import bootstrap_database
+    engine = create_engine(f"sqlite:///{tmp_path / 'alerts.db'}")
+    bootstrap_database(engine)
+    with engine.begin() as connection:
+        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fixture SQL
+        connection.execute(text("INSERT INTO users(id,username,password_hash,role,is_active,group_id) VALUES"
+                                "(1,'admin','x','admin',1,NULL),(2,'muted','x','admin',1,NULL),(3,'viewer','x','viewer',1,NULL)"))
+    yield engine, sessionmaker(bind=engine)
+    engine.dispose()
+
+
+def _alert_rows(engine):
+    with engine.connect() as connection:
+        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fixture SQL
+        return connection.execute(text("SELECT user_id, title, message FROM alerts ORDER BY user_id")).all()
+
+
+@pytest.mark.parametrize("error,start", [
+    (BackupValidationError("Insufficient free disk space for a verified backup"), "Backup refused"),
+    (backup_service.BackupMissedError("missed"), "Backup missed"),
+    (backup_service.BackupMissedError("offsite_missed"), "Backup missed"),
+], ids=["refused", "missed", "offsite-missed"])
+def test_backup_alerts_reach_the_phone_path_after_the_row_is_saved(alert_engine, monkeypatch, error, start):
+    from modules.notifications import alert_outbox
+    engine, factory = alert_engine
+    delivered = []
+    def mobile(db, plan):
+        delivered.append((plan.title, plan.message, str(plan.severity.value), sorted(plan.in_app_users), len(_alert_rows(engine))))
+    monkeypatch.setattr(alert_outbox, "deliver_mobile", mobile)
+    backup_failure_alerts.publish_backup_failure(error, session_factory=factory, now=NOW)
+    assert len(delivered) == 1
+    title, message, severity, users, rows_when_delivered = delivered[0]
+    assert title == "Database backup failed" and message.startswith(start) and severity == "critical"
+    assert users == [1, 2] and rows_when_delivered == 2, "both rows saved before anything is sent"
+    # The daily limit covers the phone as well as the inbox.
+    backup_failure_alerts.publish_backup_failure(error, session_factory=factory, now=NOW + timedelta(hours=23))
+    assert len(delivered) == 1 and len(_alert_rows(engine)) == 2
+    backup_failure_alerts.publish_backup_failure(error, session_factory=factory, now=NOW + timedelta(days=1, seconds=1))
+    assert len(delivered) == 2 and len(_alert_rows(engine)) == 4
+
+
+def test_a_phone_that_cannot_be_reached_leaves_the_inbox_row_saved(alert_engine, monkeypatch):
+    from modules.notifications import alert_dispatcher
+    engine, factory = alert_engine
+    def unreachable(db, plan):
+        raise OSError("push service unreachable")
+    monkeypatch.setattr(alert_dispatcher, "deliver_staged_alert", unreachable)
+    with pytest.raises(OSError):
+        backup_failure_alerts.publish_backup_failure(BackupValidationError("Insufficient free disk space"), session_factory=factory, now=NOW)
+    assert [row[0] for row in _alert_rows(engine)] == [1, 2]
+
+
+def test_a_muted_preference_still_gets_the_backup_alerts_inbox_row(alert_engine, monkeypatch):
+    from modules.notifications import alert_dispatcher
+    engine, factory = alert_engine
+    monkeypatch.setattr(alert_dispatcher, "deliver_staged_alert", lambda db, plan: None)
+    with factory() as db:
+        alert_dispatcher.seed_alert_preferences(db, 2)
+        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- constant fixture SQL
+        db.execute(text("UPDATE alert_preferences SET in_app=0 WHERE user_id=2 AND lower(alert_type)='maintenance_overdue'"))
+        db.commit()
+    backup_failure_alerts.publish_backup_failure(BackupValidationError("Insufficient free disk space"), session_factory=factory, now=NOW)
+    assert [row[0] for row in _alert_rows(engine)] == [1, 2]
