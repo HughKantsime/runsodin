@@ -9,6 +9,7 @@ All notable changes to O.D.I.N. are documented here.
 ### Fixed
 
 - A token with `write:printers` or `write` could stop a print but not resume one. `POST /printers/{id}/resume` now accepts those scopes. This applies to existing tokens on upgrade, so review any you've issued. Pause still needs `admin` or `agent:write`. The route doesn't check why a print paused, so an automated caller can resume after a fault.
+- A PostgreSQL restore could be refused intermittently with "target database session(s) are active" because of a connection that had just closed, possibly its own. The check now waits up to 15 seconds for such a session to go, and still refuses one that stays.
 
 ### Added
 

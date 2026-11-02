@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import shutil
@@ -1007,24 +1008,44 @@ def _write_pending_manifest(
     _fsync_directory(paths.manifest.parent)
 
 
+logger = logging.getLogger(__name__)
+
+TARGET_SESSION_DRAIN_SECONDS = 15
+TARGET_SESSION_DRAIN_POLL_SECONDS = 0.25
+
+
 def _assert_no_target_sessions(
     connection,
     database_name: str,
     *,
     excluded_pids: frozenset[int] = frozenset(),
 ) -> None:
-    sessions = connection.execute(
-        text(
-            "SELECT pid, COALESCE(application_name, ''), COALESCE(client_addr::text, 'local') "
-            "FROM pg_stat_activity WHERE datname=:database_name AND pid<>pg_backend_pid()"
-        ),
-        {"database_name": database_name},
-    ).all()
-    sessions = [row for row in sessions if int(row[0]) not in excluded_pids]
-    if sessions:
-        raise BackupValidationError(
-            f"Refusing PostgreSQL restore while {len(sessions)} target database session(s) are active"
-        )
+    # A connection closed a moment ago, or an autovacuum worker, shows here briefly and
+    # is no reason to refuse. Anything still here after the wait refuses as before.
+    deadline = time.monotonic() + TARGET_SESSION_DRAIN_SECONDS
+    while True:
+        # Without this, a transaction keeps reading the snapshot it took first.
+        connection.execute(text("SELECT pg_stat_clear_snapshot()"))
+        sessions = connection.execute(
+            text(
+                "SELECT pid, COALESCE(backend_type, 'unknown') "
+                "FROM pg_stat_activity WHERE datname=:database_name AND pid<>pg_backend_pid()"
+            ),
+            {"database_name": database_name},
+        ).all()
+        sessions = [row for row in sessions if int(row[0]) not in excluded_pids]
+        if not sessions:
+            return
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(TARGET_SESSION_DRAIN_POLL_SECONDS)
+    logger.warning(
+        "PostgreSQL restore refused; target database sessions by type: %s",
+        sorted(str(row[1]) for row in sessions),
+    )
+    raise BackupValidationError(
+        f"Refusing PostgreSQL restore while {len(sessions)} target database session(s) are active"
+    )
 
 
 def _assert_no_external_dependencies(connection) -> None:
