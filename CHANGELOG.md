@@ -2,6 +2,18 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [2.0.40] - 2026-11-02
+
+<!-- summary: Tokens with printer write access can resume a paused print, and every resume through ODIN is audited. -->
+
+### Fixed
+
+- A token with `write:printers` or `write` could stop a print but not resume one. `POST /printers/{id}/resume` now accepts those scopes. This applies to existing tokens on upgrade, so review any you've issued. Pause still needs `admin` or `agent:write`. The route doesn't check why a print paused, so an automated caller can resume after a fault.
+
+### Added
+
+- Each resume through ODIN now leaves an audit entry naming the user and token: `printer.resume_requested` when the command is accepted, which doesn't prove the printer resumed, and `printer.resume_failed` when it isn't.
+
 ## [2.0.39] - 2026-11-01
 
 <!-- summary: Fixes a dispatch lock that could corrupt the database, and adds a newer SQLite, scheduled integrity checks and daily verified backups. -->
