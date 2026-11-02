@@ -316,7 +316,8 @@ docker run --rm \
     --mount "type=volume,src=${application_volume},dst=/data" \
     -v "$(pwd)/ops/database_parity/restore_drill.py:/tmp/restore_drill.py:ro" \
     "${image}" \
-    /tmp/restore_drill.py
+    /tmp/restore_drill.py \
+    2>&1 | tee "${runtime_diagnostic_file}"
 
 step="post-restore runtime restart"
 restored_runtime="$(docker run --rm \
