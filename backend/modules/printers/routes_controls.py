@@ -142,14 +142,15 @@ async def resume_printer(
     printer_id: int,
     request: Request,
     # Stacked auth — see pause_printer above for rationale. BOTH deps required.
+    # write:printers is accepted too: it already holds clear-errors, speed, fan and stop here.
     current_user: dict = Depends(require_action("printers.edit")),
-    _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
+    _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE, "write:printers")),
     db: Session = Depends(get_db),
 ):
     """Resume paused print.
 
     Agent-surface (v1.9.0 Phase 2):
-      - Accepts JWT operator role OR an `agent:write` scoped token.
+      - Accepts JWT operator role OR an `agent:write` or `write:printers` scoped token.
       - Honors `X-Dry-Run: true` — returns preview without MQTT or DB write.
       - Emits `next_actions` on success (get_printer, pause_printer).
     """
@@ -185,7 +186,12 @@ async def resume_printer(
             notes="Would send MQTT resume_print command; no DB or printer side effects.",
         )
 
+    from core.audit import log_audit
+    audit_details = {"actor_user_id": current_user.get("id"), "actor_token_id": current_user.get("_token_id")}
     if not _send_printer_command(printer, "resume_print"):
+        # A failed send may still have reached the printer, so it leaves a trace.
+        log_audit(db, "printer.resume_failed", "printer", printer_id, audit_details)
+        db.commit()
         raise OdinError(
             ErrorCode.upstream_unavailable,
             "Printer unreachable or command failed",
@@ -196,6 +202,8 @@ async def resume_printer(
         text("UPDATE printers SET gcode_state = 'RUNNING' WHERE id = :id"),
         {"id": printer_id},
     )
+    # Accepted by the transport, not proof the printer resumed.
+    log_audit(db, "printer.resume_requested", "printer", printer_id, audit_details)
     db.commit()
     return {
         "success": True,
