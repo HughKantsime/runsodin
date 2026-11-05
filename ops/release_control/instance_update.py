@@ -107,7 +107,7 @@ def rollback_file(old_reference, token):
     with open(name, 'x') as stream:
         json.dump({'services': {'odin': {'image': old_reference, 'labels': {LABEL: 'false'}}}}, stream)
     os.chmod(name, 0o600)
-    print(f'Rollback file retained: {name}; use instance_update.py rollback --token {token} inside a safe deploy window', flush=True)
+    print(f'Rollback file retained: {name}; use instance_update.py rollback --token {token} inside a deploy window (the ODIN freeze lapses after 30 minutes)', flush=True)
 
 
 def validate_operation(token):
@@ -179,11 +179,13 @@ def perform(action, digest, token):
     if action == 'rollback':
         return rollback(token)
     if action == 'watchtower':
+        # Only an explicit false in BOTH the Compose config and the running container
+        # proves isolation; a missing label is followed by Watchtower without label-enable.
         config = json.loads(compose('config', '--format', 'json'))
-        if str(config['services']['odin'].get('labels', {}).get(LABEL)).lower() == 'true':
+        if str((config['services']['odin'].get('labels') or {}).get(LABEL)).lower() != 'false':
             return 3
         running = inspect()
-        return 3 if str(running['Config'].get('Labels', {}).get(LABEL)).lower() == 'true' else 0
+        return 0 if str((running['Config'].get('Labels') or {}).get(LABEL)).lower() == 'false' else 3
     if action == 'check':
         check()
         return

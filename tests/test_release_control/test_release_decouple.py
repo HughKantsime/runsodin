@@ -726,7 +726,7 @@ def test_instance_check_rejects_compose_image_drift(monkeypatch):
 @pytest.mark.parametrize('code', [0, 1, 3, 124, 127, 255])
 @pytest.mark.parametrize('marker', [False, True])
 @pytest.mark.parametrize('probe', ['watchtower', 'check'])
-def test_chain_pre_release_host_check_requires_prior_isolation(code, marker, probe, tmp_path):
+def test_chain_pre_release_host_check_isolation_policy(code, marker, probe, tmp_path):
     state = tmp_path / 'release-state'
     state.mkdir()
     if marker: (state / 'watchtower-isolated').write_text('root@192.168.71.211\n')
@@ -738,11 +738,73 @@ pre_release_host_check
     result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(external('release-chain-v4.sh'))],
                             text=True, capture_output=True,
                             env={**os.environ, 'CODE': str(code), 'PROBE': probe})
-    allowed = code == 0 or (code in (124, 255) and marker)
+    confirmed_off = probe == 'check' or code == 0
+    allowed = confirmed_off or (code in (124, 255) and marker)
     assert (result.returncode == 0) == allowed, result.stdout + result.stderr
-    if code in (124, 255) and marker: assert 'WARNING' in result.stdout
-    if code == 0: assert (state / 'watchtower-isolated').read_text().strip() == 'root@192.168.71.211'
-    elif not marker: assert not (state / 'watchtower-isolated').exists()
+    if probe == 'check' and code:
+        assert f'WARNING: instance check failed (exit {code}) with Watchtower off' in result.stdout
+    elif code in (124, 255) and marker:
+        assert 'WARNING: host check unavailable' in result.stdout
+    else:
+        assert 'WARNING' not in result.stdout
+    if confirmed_off or (marker and code != 3):
+        assert (state / 'watchtower-isolated').read_text() == 'root@192.168.71.211\n'
+    else:
+        assert not (state / 'watchtower-isolated').exists()
+
+
+@pytest.mark.parametrize('unavailable', [124, 255])
+def test_chain_watchtower_enabled_deletes_record_and_blocks_later_unavailable_host(unavailable, tmp_path):
+    state = tmp_path / 'release-state'
+    state.mkdir()
+    record = state / 'watchtower-isolated'
+    record.write_text('root@192.168.71.211\n')
+    harness = r'''
+source "$1"
+instance_remote(){ echo "HOST $1"; [ "$1" = watchtower ] || return 99; return "$PROBE_CODE"; }
+PROBE_CODE=3
+rc=0; pre_release_host_check || rc=$?
+echo "ENABLED_RC=$rc"
+[ ! -e "$STATE_DIR/watchtower-isolated" ] || exit 98
+PROBE_CODE=$UNAVAILABLE
+rc=0; pre_release_host_check || rc=$?
+echo "UNAVAILABLE_RC=$rc"
+'''
+    result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(external('release-chain-v4.sh'))],
+                            text=True, capture_output=True, timeout=10,
+                            env={**os.environ, 'UNAVAILABLE': str(unavailable)})
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert 'ENABLED_RC=1' in result.stdout and 'UNAVAILABLE_RC=1' in result.stdout
+    assert 'Watchtower still enabled' in result.stdout
+    assert f'host check failed (exit {unavailable})' in result.stdout
+    assert 'HOST check' not in result.stdout
+    assert not record.exists()
+
+
+@pytest.mark.parametrize('code', [1, 3, 124, 127, 255])
+def test_chain_watchtower_off_failed_check_warns_and_records_isolation(code, tmp_path):
+    # No prior state directory: the warning path must create durable isolation evidence.
+    harness = r'''
+source "$1"
+instance_remote(){
+  echo "HOST $1"
+  case "$1" in watchtower) return 0;; check) return "$CHECK_CODE";; *) return 99;; esac
+}
+rc=0; pre_release_host_check || rc=$?
+echo "FIRST_RC=$rc"
+instance_remote(){ [ "$1" = watchtower ] || return 99; return 255; }
+rc=0; pre_release_host_check || rc=$?
+echo "UNAVAILABLE_RC=$rc"
+'''
+    result = subprocess.run(['/bin/bash', '-c', harness, 'test', str(external('release-chain-v4.sh'))],
+                            text=True, capture_output=True, timeout=10,
+                            env={**os.environ, 'CHECK_CODE': str(code)})
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert 'FIRST_RC=0' in result.stdout and 'UNAVAILABLE_RC=0' in result.stdout
+    assert result.stdout.index('HOST watchtower') < result.stdout.index('HOST check')
+    assert f'WARNING: instance check failed (exit {code}) with Watchtower off' in result.stdout
+    assert 'prior verified Watchtower isolation permits customer release' in result.stdout
+    assert (tmp_path / 'release-state/watchtower-isolated').read_text() == 'root@192.168.71.211\n'
 
 
 @pytest.mark.parametrize('which', ['compose', 'runtime', 'neither'])
@@ -1115,3 +1177,16 @@ fail(){ echo "github-release: $*" >&2; exit 1; }
                             env={**os.environ, 'BODY': body})
     assert result.returncode == 1
     assert result.stderr.strip() == 'github-release: production /health does not report healthy version 1.9.13'
+
+
+@pytest.mark.parametrize('compose_label,running_label,expected', [
+    ('false', 'false', 0), (None, 'false', 3), ('false', None, 3), (None, None, 3),
+    ('true', 'false', 3), ('false', 'true', 3), ('False', 'FALSE', 0),
+])
+def test_watchtower_probe_requires_explicit_false_everywhere(monkeypatch, compose_label, running_label, expected):
+    import ops.release_control.instance_update as helper
+    labels = lambda value: {} if value is None else {helper.LABEL: value}
+    monkeypatch.setattr(helper, 'compose', lambda *a, **k: json.dumps({'services': {'odin': {'labels': labels(compose_label)}}}))
+    monkeypatch.setattr(helper, 'inspect', lambda: {'Config': {'Labels': labels(running_label)}})
+    monkeypatch.setattr(helper, 'validate_operation', lambda token: None)
+    assert helper.perform('watchtower', '', 'a' * 32) == expected
