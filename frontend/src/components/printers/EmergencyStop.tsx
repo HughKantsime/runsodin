@@ -1,3 +1,4 @@
+import type { Printer } from '../../types'
 import PageState from '../ui/PageState'
 import { useState, useEffect, useRef } from 'react'
 import { StopCircle, Pause, Play, X, AlertTriangle } from 'lucide-react'
@@ -6,13 +7,7 @@ import { fetchAPI } from '../../api'
 import { canDo, getCurrentUser } from '../../permissions'
 import { isOnline, isActivePrintState, isPausedState, isPrintingState } from '../../utils/shared'
 
-interface ActivePrinter {
-  id: number
-  name: string
-  nickname?: string
-  gcode_state: string
-  [key: string]: any // TODO: type this properly
-}
+type ActivePrinter = Printer
 
 /**
  * Emergency Stop Button - Floating button that shows when any printer is actively printing.
@@ -63,7 +58,7 @@ export default function EmergencyStop() {
     setLoading(prev => ({ ...prev, [printerId]: action }))
 
     try {
-      const receipt = await fetchAPI(`/printers/${printerId}/${action}`, { method: 'POST' })
+      const receipt = await fetchAPI<{ success?: boolean }>(`/printers/${printerId}/${action}`, { method: 'POST' })
       if (!stillCurrent()) return
       setOutcome(receipt?.success === true ? 'Command accepted; printer confirmation pending' : 'Command not confirmed')
     } catch {
@@ -92,7 +87,7 @@ export default function EmergencyStop() {
       {/* Floating Button */}
       <button
         onClick={() => setShowPanel(!showPanel)}
-        className={`fixed bottom-6 right-6 z-40 flex items-center gap-2 px-4 py-3 rounded-md shadow-lg transition-all ${
+        className={`emergency-controls-toggle fixed bottom-6 right-6 z-40 flex items-center gap-2 px-4 py-3 rounded-md shadow-lg transition-all ${
           showPanel
             ? 'bg-[var(--brand-card-bg)] text-white'
             : 'border border-red-500/30 text-red-400 hover:bg-red-600 hover:text-white'
@@ -111,7 +106,7 @@ export default function EmergencyStop() {
 
       {/* Control Panel */}
       {showPanel && (
-        <div className="fixed bottom-20 right-6 z-40 w-80 bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md shadow-2xl overflow-hidden" role="region" aria-label="Emergency printer controls">
+        <div className="emergency-controls-panel fixed bottom-20 right-6 z-40 w-80 bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md shadow-2xl overflow-hidden" role="region" aria-label="Emergency printer controls">
           <div className="p-3 bg-red-900/50 border-b border-red-800 flex items-center gap-2">
             <AlertTriangle className="text-red-400" size={18} aria-hidden="true" />
             <span className="font-medium text-red-200">Emergency Controls</span>

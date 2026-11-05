@@ -208,7 +208,7 @@ export default function Utilization() {
         </div>
 
         {/* Per-Printer Table */}
-        <div className="lg:col-span-2 bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 overflow-x-auto">
+        <div tabIndex={0} role="region" aria-label="Printer utilization details" className="lg:col-span-2 bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 overflow-x-auto">
           <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)] mb-4">Per-Printer Breakdown</h3>
           <Table className="w-full text-sm">
             <thead>

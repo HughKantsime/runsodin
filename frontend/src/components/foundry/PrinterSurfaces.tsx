@@ -14,10 +14,10 @@ export function usePrinterJobs() {
   const queue = useQuery({ queryKey: ['jobs', 'foundry'], queryFn: readQueue, enabled: canAccessPage('jobs') || canAccessPage('timeline'), refetchInterval: 30000 })
   return { prints: prints.data || [], queue: queue.data || [], error: prints.isError || queue.isError }
 }
-export function ManagedPrinter({ printer, children }: { printer: Printer; children: ReactNode }) {
+export function ManagedPrinter({ printer, children, selection }: { printer: Printer; children: ReactNode; selection?: ReactNode }) {
   const { prints, queue } = usePrinterJobs()
   const now = useNow()
-  return <PrinterCard printer={printer} job={activePrint(printer, prints)} next={nextJob(printer, queue)} now={now}>
+  return <PrinterCard printer={printer} job={activePrint(printer, prints)} next={nextJob(printer, queue)} now={now} selection={selection}>
     <details className="f-management"><summary>Controls and settings</summary>{children}</details>
   </PrinterCard>
 }

@@ -10,10 +10,13 @@ from sqlalchemy import text
 
 
 def seed(connection, password_hash, now=None):
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime(2026, 11, 4, 12, tzinfo=timezone.utc)
     stamp = lambda minutes=0: (now + timedelta(minutes=minutes)).replace(tzinfo=None).isoformat()
     connection.execute(text("INSERT INTO users (id,username,email,password_hash,role,is_active,group_id) VALUES (1,'reviewer','reviewer@example.test',:password,'admin',1,NULL)"), {'password': password_hash})
     connection.execute(text("INSERT INTO system_config (key,value) VALUES ('setup_complete','true')"))
+    # Settings must not echo the randomly allocated fixture server port.
+    connection.execute(text("INSERT INTO system_config (key,value) VALUES ('base_url',:value)"),
+                       {'value': json.dumps('https://odin-review.example.test')})
     from core.crypto import encrypt
     states = [
         (101, 'Review printer · printing', 'X1 Carbon', 'X1C', 'bambu', 'RUNNING', 221, 62),
@@ -82,6 +85,9 @@ def seed(connection, password_hash, now=None):
             {'key': cache_key(pid), 'value': json.dumps({'printer_created_at': str(created), 'facts': monitor._display_facts})})
     connection.execute(text("INSERT INTO job_timeline_events(id,job_id,printer_id,kind,detail,occurred_at) VALUES('foundry-clear',203,103,'bed_clear_confirmed',:detail,:at)"),
         {'detail': json.dumps({'attestation': 'owner_in_app'}), 'at': stamp(-9)})
+    connection.execute(text("""INSERT INTO audit_logs(id,timestamp,action,entity_type,entity_id,details,ip_address)
+        VALUES (1,:at,'update','printer',101,:details,'127.0.0.1')"""),
+        {'at': stamp(-15), 'details': json.dumps({'name': 'Review printer', 'note': 'Synthetic review event'})})
     page_records = seed_pages(connection, stamp)
     # The seed explicitly records its unsupported surfaces for screenshot reviewers.
     return {'page_records': page_records, 'printers': len(states), 'supported_slot_states': ['loaded', 'feeding', 'empty', 'changed', 'support'],

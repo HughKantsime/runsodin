@@ -1,3 +1,4 @@
+import CheckTarget from '../../components/ui/CheckTarget'
 import PageState from '../../components/ui/PageState'
 import { useFoundry } from '../../hooks/themePreferences'
 import DensityToggle, { useDensity } from '../../components/foundry/DensityToggle'
@@ -373,15 +374,14 @@ export default function Printers() {
         })}>
           {filteredPrinters.map((printer) => (
             <div key={printer.id} className="relative">
-              {canDo('printers.edit') && (
-                <input aria-label={`Select ${printer.nickname || printer.name}`}
+              <PrinterPresentation foundry={foundry} printer={printer} selection={canDo('printers.edit') && (
+                <CheckTarget><input aria-label={`Select ${printer.nickname || printer.name}`}
                   type="checkbox"
                   checked={selectedPrinters.has(printer.id)}
                   onChange={() => togglePrinterSelect(printer.id)}
-                  className={foundry ? "mb-2 rounded border-[var(--brand-card-border)]" : "absolute top-3 left-3 z-10 rounded border-[var(--brand-card-border)]"}
-                />
-              )}
-              <PrinterPresentation foundry={foundry} printer={printer}><PrinterCard
+                  className={foundry ? "rounded border-[var(--brand-card-border)]" : "absolute top-3 left-3 z-10 rounded border-[var(--brand-card-border)]"}
+                /></CheckTarget>
+              )}><PrinterCard
                 printer={printer}
                 allFilaments={filamentsData}
                 spools={spoolsData}
@@ -440,8 +440,8 @@ export default function Printers() {
   )
 }
 
-function PrinterPresentation({ foundry, printer, children }) {
-  return foundry ? <ManagedPrinter printer={printer}>{children}</ManagedPrinter> : <>{children}</>
+function PrinterPresentation({ foundry, printer, children, selection }) {
+  return foundry ? <ManagedPrinter printer={printer} selection={selection}>{children}</ManagedPrinter> : <>{selection}{children}</>
 }
 function DensityCards({ foundry, density, children }) {
   return foundry ? <div className="f-fleet" data-density={density}><div className="f-comfortable">{children}</div></div> : <>{children}</>

@@ -1,3 +1,4 @@
+import { useFoundry } from '../../hooks/themePreferences'
 import PageState from '../../components/ui/PageState'
 import Table from '../../components/ui/Table'
 import { displayName } from '../../utils/displayName'
@@ -31,6 +32,7 @@ const jobTypeTabs = [
 ]
 
 export default function Jobs() {
+  const foundry = useFoundry()
   const org = useOrg()
   const queryClient = useQueryClient()
   const {
@@ -365,7 +367,7 @@ export default function Jobs() {
       )}
 
       <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] overflow-hidden">
-        <div className="overflow-x-auto" tabIndex={0} aria-label="Jobs table">
+        <div className="overflow-x-auto" tabIndex={0} role={foundry ? 'region' : undefined} aria-label="Jobs table">
           <Table className="w-full min-w-[600px]">
             <JobTableHeader
               sortField={sortField}

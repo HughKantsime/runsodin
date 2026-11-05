@@ -34,9 +34,12 @@ it.each([['RUNNING', 'Printing'], ['PAUSE', 'Needs you'], ['IDLE', 'Ready'], ['O
  for (const badge of screen.getAllByText(label)) expect(badge).toHaveClass('foundry-status')
 })
 
-it.each([['RUNNING', 'Printing'], ['IDLE', 'Idle'], ['OFFLINE', 'Offline']])('shows Classic status %s only once while preserving its styling', (state, label) => {
+it.each([['RUNNING', 'Printing'], ['IDLE', 'Idle'], ['OFFLINE', 'Offline']])('restores Classic status %s in both header and footer with original styling', (state, label) => {
  render(<PrinterCard printer={{ ...printer, gcode_state: state }} {...props} />)
- expect(screen.getAllByText(label)).toHaveLength(1)
- expect(screen.getByText(label).parentElement).toHaveClass('font-medium')
+ const labels = screen.getAllByText(label)
+ expect(labels).toHaveLength(2)
+ expect(labels[0].parentElement).toHaveClass('font-medium')
+ expect(labels[1].parentElement).toHaveClass('flex', 'items-center', 'gap-1.5')
+ expect(labels[1].previousElementSibling).toHaveClass('w-1.5', 'h-1.5', 'rounded-full')
  expect(document.querySelector('.foundry-status')).toBeNull()
 })

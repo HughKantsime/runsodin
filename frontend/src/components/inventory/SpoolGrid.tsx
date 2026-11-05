@@ -1,3 +1,4 @@
+import CheckTarget from '../ui/CheckTarget'
 import { canDo } from '../../permissions'
 import SpoolCard from './SpoolCard'
 
@@ -50,7 +51,7 @@ export default function SpoolGrid({ spools, printers, sortBy, groupByPrinter, se
     return (
       <div className="relative">
         {canDo('spools.edit') && (
-          <input type="checkbox" checked={selectedSpools.has(spool.id)} onChange={() => onToggleSelect(spool.id)} className="absolute top-3 left-3 z-10 rounded border-[var(--brand-card-border)]" />
+          <CheckTarget className="absolute top-3 left-3 z-10"><input type="checkbox" aria-label={`Select ${spool.filament_name || spool.qr_code || `spool ${spool.id}`}`} checked={selectedSpools.has(spool.id)} onChange={() => onToggleSelect(spool.id)} className="absolute top-3 left-3 z-10 rounded border-[var(--brand-card-border)]" /></CheckTarget>
         )}
         <div className={canDo('spools.edit') ? 'pl-7' : ''}>
           <SpoolCard spool={spool} onLoad={onLoad} onUnload={onUnload} onUse={onUse} onArchive={onArchive} onEdit={onEdit} onDry={onDry} printers={printers} />
@@ -60,7 +61,7 @@ export default function SpoolGrid({ spools, printers, sortBy, groupByPrinter, se
   }
 
   if (groupByPrinter && sortBy === 'printer') {
-    const groups = {}
+    const groups: Record<string, Spool[]> = {}
     sorted.forEach(s => {
       const key = s.location_printer_id
         ? (printers?.find(p => p.id === s.location_printer_id)?.nickname || printers?.find(p => p.id === s.location_printer_id)?.name || `Printer ${s.location_printer_id}`)

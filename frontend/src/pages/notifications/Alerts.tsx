@@ -1,3 +1,4 @@
+import { useFoundry } from '../../hooks/themePreferences'
 import PageState from '../../components/ui/PageState'
 import CompletionSummary from '../../components/jobs/CompletionSummary'
 import { useState, useEffect, useCallback, useRef } from 'react'
@@ -77,6 +78,7 @@ const TABS = [
 ]
 
 export default function Alerts() {
+  const foundry = useFoundry()
   const [searchParams, setSearchParams] = useSearchParams()
   const [alerts, setAlerts] = useState([])
   const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set())
@@ -285,7 +287,7 @@ export default function Alerts() {
             onClick={() => handleTabChange(tab.key)}
             className="px-3 py-1.5 text-xs font-medium rounded-md transition-colors"
             style={activeTab === tab.key
-              ? { backgroundColor: 'var(--brand-accent)', color: 'white' }
+              ? { backgroundColor: 'var(--brand-accent)', color: foundry ? 'var(--brand-on-primary)' : 'white' }
               : { color: 'var(--brand-text-muted)' }
             }
           >

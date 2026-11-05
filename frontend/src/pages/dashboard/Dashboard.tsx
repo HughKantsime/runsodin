@@ -37,6 +37,7 @@ import { canDo } from '../../permissions'
 import { getShortName, formatHours, formatTime, formatDuration, isOnline, isActivePrintState } from '../../utils/shared'
 
 export function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onClick }: { printer: any; hasCamera: boolean; onCameraClick: (id: number) => void; activeJob?: any; onClick: () => void }) {
+  const foundry = useFoundry()
   const slots = printer.filament_slots || []
   const LOW_SPOOL_THRESHOLD = 100
   const lowSpools = slots.filter(s => s.remaining_weight && s.remaining_weight < LOW_SPOOL_THRESHOLD)
@@ -119,6 +120,10 @@ export function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onCl
       <div className="px-3 md:px-4 py-2 md:py-3 bg-[var(--brand-content-bg)] border-t border-[var(--brand-card-border)]">
         <div className="flex items-center justify-between text-xs">
         <div className="flex items-center gap-2">
+          {!foundry && <div className="flex items-center gap-1.5">
+            <div className={`w-1.5 h-1.5 rounded-full ${statusColor}`}></div>
+            <span className={online ? "text-[var(--status-completed)]" : "text-[var(--brand-text-muted)]"}>{statusLabel}</span>
+          </div>}
           {printer.lights_on != null && (
             <button
               onClick={(e) => {

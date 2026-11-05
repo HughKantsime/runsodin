@@ -1,3 +1,4 @@
+import { useFoundry } from '../../hooks/themePreferences'
 import { Menu } from 'lucide-react'
 import { useBranding } from '../../BrandingContext'
 import GlobalSearch from '../shared/GlobalSearch'
@@ -6,24 +7,25 @@ import AlertBell from '../notifications/AlertBell'
 
 export default function MobileHeader({ onMenuClick }) {
   const branding = useBranding()
+  const foundry = useFoundry()
 
   return (
     <header
-      className="mobile-header md:hidden flex items-center justify-between gap-2 p-4 shrink-0"
+      className={foundry ? 'mobile-header md:hidden flex items-center justify-between gap-2 p-4 shrink-0' : 'mobile-header md:hidden flex items-center justify-between p-4 shrink-0'}
       style={{
         backgroundColor: 'var(--brand-sidebar-bg)',
         borderBottom: '1px solid var(--brand-sidebar-border)',
       }}
     >
-      <div className="flex items-center gap-3 min-w-0 shrink-0 max-w-[28%]">
+      <div className={foundry ? 'flex items-center gap-3 min-w-0 shrink-0 max-w-[28%]' : 'flex items-center gap-3'}>
         {branding.logo_url && (
-          <img src={branding.logo_url} alt={branding.app_name} className="h-6 max-w-8 object-contain shrink-0" />
+          <img src={branding.logo_url} alt={branding.app_name} className={foundry ? 'h-6 max-w-8 object-contain shrink-0' : 'h-6 object-contain'} />
         )}
-        <h1 className="text-sm font-display font-bold truncate" style={{ color: 'var(--brand-text-primary)' }}>
+        <h1 className={foundry ? 'text-sm font-display font-bold truncate' : 'text-sm font-display font-bold'} style={{ color: 'var(--brand-text-primary)' }}>
           {branding.app_name}
         </h1>
       </div>
-      <div className="mobile-header-actions flex flex-1 min-w-0 items-center justify-end gap-2">
+      <div className={foundry ? 'mobile-header-actions flex flex-1 min-w-0 items-center justify-end gap-2' : 'flex items-center gap-2'}>
         <GlobalSearch id="global-search-mobile" />
         <ThemeToggle />
         <AlertBell />

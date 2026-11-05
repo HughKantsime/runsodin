@@ -15,11 +15,11 @@ export function CameraFeed({ camera, printer, job }: { camera: Camera; printer?:
   const failed = fallback ? stream.failed : ['error', 'disconnected'].includes(status)
   return <div className="f-camera-feed" aria-label={`${camera.name || 'Printer'} camera`}>
     <video ref={videoRef} autoPlay playsInline muted />
-    <CameraFallback cameraId={camera.id} active={!!fallback} onState={setStream} />
+    <CameraFallback cameraId={camera.id} active={!!fallback} onState={setStream} hideUnavailable />
     <div className="f-camera-overlay f-mono"><span>{live ? 'LIVE' : failed ? 'Unavailable' : fallback && stream.transport === 'snapshot' ? 'Snapshot' : 'Connecting'} · {camera.name} · {transport}</span>
       <span>{[number(job?.progress_percent) ? `${job.progress_percent}%` : '', number(job?.current_layer) && number(job?.total_layers) ? `L ${job.current_layer}/${job.total_layers}` : '', number(printer?.nozzle_temp) ? `Nozzle ${Math.round(printer.nozzle_temp)}°` : ''].filter(Boolean).join(' · ')}</span>
     </div>
-    {failed && <button className="f-camera-retry f-button" type="button" onClick={retry}>Retry camera</button>}
+    {failed && <div className="f-camera-empty"><p role="status">Camera unavailable. Check the camera connection.</p><button className="f-button" type="button" onClick={retry}>Retry camera</button></div>}
   </div>
 }
 export default function CameraView({ cameras, printers = [], prints = [], initialId }: { cameras: Camera[]; printers?: Printer[]; prints?: PrintJob[]; initialId?: number }) {
@@ -36,7 +36,7 @@ export default function CameraView({ cameras, printers = [], prints = [], initia
   }
   if (!cameras.length) return <p>No cameras available.</p>
   return <section ref={root} className="f-camera-view" aria-label="Cameras">
-    <div className="f-row"><div className="f-actions" role="group" aria-label="Choose camera">{cameras.map(camera => <button type="button" key={camera.id} aria-pressed={selected === camera.id} onClick={() => select(camera.id)}>{camera.name}{isPausedState(printers.find(p => p.id === camera.id)?.gcode_state) ? ' · paused' : ''}</button>)}<button type="button" aria-pressed={selected === 'wall'} onClick={() => select('wall')}>Wall</button></div><button type="button" onClick={fullscreen}>Full screen</button></div>
+    <div className="f-camera-toolbar"><div className="f-camera-tabs" role="group" aria-label="Choose camera">{cameras.map(camera => <button type="button" key={camera.id} aria-pressed={selected === camera.id} onClick={() => select(camera.id)}>{camera.name}{isPausedState(printers.find(p => p.id === camera.id)?.gcode_state) ? ' · paused' : ''}</button>)}<button type="button" aria-pressed={selected === 'wall'} onClick={() => select('wall')}>Wall</button></div><button type="button" onClick={fullscreen}>Full screen</button></div>
     {error && <p role="status">{error}</p>}
     <div className={selected === 'wall' ? 'f-camera-wall' : ''}>{cameras.filter(camera => selected === 'wall' || camera.id === selected).map(camera => {
       const printer = printers.find(p => p.id === camera.id)

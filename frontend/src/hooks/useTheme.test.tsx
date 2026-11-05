@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react'
+// @ts-ignore -- Vitest provides Node; the browser tsconfig has no Node types.
 import { readFileSync } from 'node:fs'
 import ThemeToggle from '../components/layout/ThemeToggle'
 import { useTheme } from './useTheme'
@@ -78,4 +79,13 @@ it('bootstrap and hook tolerate denied storage and use the OS preference', () =>
   expect(result.current.theme).toBe('light')
   act(() => { result.current.setFamily('foundry'); result.current.setTheme('dark') })
   expect(document.documentElement.dataset.themeFamily).toBe('foundry')
+})
+
+it.each([['dark', 'sun'], ['light', 'moon'], ['high-contrast', 'moon']])('Classic %s keeps the original icon, classes and flex sizing', (mode, icon) => {
+  localStorage.setItem('odin-theme', mode)
+  const { container } = render(<ThemeToggle />)
+  const button = screen.getByRole('button', { name: 'Theme settings' })
+  expect(button.querySelector(`.lucide-${icon}`)).toBeTruthy()
+  expect(button.className).toBe('text-[var(--brand-text-secondary)] hover:text-[var(--brand-text-primary)] hover:bg-[var(--brand-surface)] p-1.5 rounded-md transition-colors min-w-[32px] min-h-[32px] flex items-center justify-center')
+  expect(container.firstElementChild).toHaveClass('contents')
 })

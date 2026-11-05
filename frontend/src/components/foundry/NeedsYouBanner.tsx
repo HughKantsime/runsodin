@@ -43,10 +43,16 @@ export default function NeedsYouBanner({ printers, prints = [], alerts = [], cam
         && (!job?.started_at || utc(a.created_at) >= utc(job.started_at)))
         .sort((a, b) => utc(b.created_at) - utc(a.created_at))[0]
       const age = alert ? Math.floor((now - utc(alert.created_at)) / 60000) : null
+      const name = printer.nickname || printer.name
+      const status = isPausedState(printer.gcode_state) ? 'Paused' : 'Needs you'
+      const title = `${name}${name.toLowerCase().includes(status.toLowerCase()) ? '' : ` · ${status}`}: ${alert?.message || 'Check the printer. No current cause was reported.'}`
+      const detail = [job ? displayName(job) : printer.current_print_display_name,
+        job && number(job.progress_percent) ? `${job.progress_percent}%` : '',
+        age !== null && Number.isFinite(age) && age >= 0 ? `Reported ${age < 1 ? 'just now' : `${age} minutes ago`}` : '',
+      ].filter(Boolean).join(' · ')
       return <article id={`needs-you-${printer.id}`} key={printer.id} className="f-attention">
-        <div><h2>{printer.nickname || printer.name} · {isPausedState(printer.gcode_state) ? 'Paused' : 'Needs you'}</h2>
-          <p className="f-cause">{alert?.message || 'Check the printer. No current cause was reported.'}</p>
-          <p className="f-mono">{job ? displayName(job) : printer.current_print_display_name}{job && number(job.progress_percent) ? ` · ${job.progress_percent}%` : ''}{age !== null && Number.isFinite(age) && age >= 0 ? ` · Reported ${age < 1 ? 'just now' : `${age} minutes ago`}` : ''}</p>
+        <div className="f-attention-copy"><h2 title={title}>{title}</h2>
+          {detail && <p className="f-mono" title={detail}>{detail}</p>}
         </div>
         <div className="f-actions">{mayResume(printer) && <Resume printer={printer} />}{cameraIds.includes(printer.id) && canAccessPage('cameras') && <Link className="f-button" to={`/cameras/${printer.id}`}>Open camera</Link>}</div>
       </article>

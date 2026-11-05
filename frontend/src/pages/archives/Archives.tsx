@@ -1,3 +1,4 @@
+import CheckTarget from '../../components/ui/CheckTarget'
 import PageState from '../../components/ui/PageState'
 import Table from '../../components/ui/Table'
 import { displayName } from '../../utils/displayName'
@@ -561,13 +562,14 @@ export default function ArchivesPage() {
                     className="border-t border-[var(--brand-card-border)] hover:bg-[var(--brand-input-bg)]/50 cursor-pointer transition-colors"
                   >
                     <td className="py-2 px-2" onClick={e => e.stopPropagation()}>
-                      <input
+                      <CheckTarget><input
                         type="checkbox"
+                        aria-label={`Select ${displayName(item)} for comparison`}
                         checked={compareIds.has(item.id)}
                         onChange={() => toggleCompare(item.id)}
                         disabled={!compareIds.has(item.id) && compareIds.size >= 2}
                         className="accent-[var(--brand-primary)]"
-                      />
+                      /></CheckTarget>
                     </td>
                     <td className="py-2 px-3">
                       {item.thumbnail_b64 ? (

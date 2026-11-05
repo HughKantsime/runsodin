@@ -65,7 +65,7 @@ html[data-theme-family="foundry"]:not(.light):not(.high-contrast) {
     background: transparent; color: var(--foundry-text-secondary); font-size: 15px; gap: 8px;
   }
   [data-foundry-ui="tabs"] [data-foundry-active="true"] {
-    background: var(--foundry-status-waiting-on-you-background); border-color: var(--foundry-action-primary); color: var(--foundry-status-waiting-on-you-foreground);
+    background: var(--foundry-status-waiting-on-you-background); border-color: var(--foundry-action-primary); color: var(--foundry-status-waiting-on-you-foreground) !important;
   }
   [data-foundry-ui="tabs"] span { border-radius: 6px; padding: 4px 8px; }
   [data-foundry-ui="table"] {
@@ -107,6 +107,27 @@ html[data-theme-family="foundry"]:not(.light):not(.high-contrast) {
   }
   :is(button, a)[class~="text-[var(--brand-primary)]"] { color: var(--foundry-action-primary); }
   :is(span, small)[class*="rounded"]:not(.f-swatch) { border-radius: 6px; }
+
+  button.emergency-controls-toggle {
+    background: var(--foundry-surface-panel); border: 1px solid var(--foundry-status-needs-you-text);
+    color: var(--foundry-status-needs-you-foreground);
+  }
+  .f-check-target { display: inline-flex; align-items: center; justify-content: center; cursor: pointer; min-width: 44px; min-height: 44px; flex-shrink: 0; }
+  .f-check-target > input { position: static; margin: 0; }
+  [data-foundry-page="/orders"] [data-foundry-ui="table"] td:first-child button,
+  [data-foundry-page="/print-log"] [data-foundry-ui="table"] td > span[class~="rounded"] {
+    white-space: nowrap; overflow-wrap: normal; word-break: normal;
+  }
+  .f-spool-identity { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .f-spool-identity > .f-spool-ring { flex-shrink: 0; flex-direction: column; }
+  .f-spool-copy { min-width: 0; display: grid; gap: 4px; }
+  .f-spool-copy h3 { line-height: 1.4; }
+  .f-spool-copy p { margin: 0; line-height: 1.5; }
+  [data-foundry-page="/jobs"] [data-foundry-ui="table"] { min-width: 920px; }
+  [data-foundry-page="/jobs"] [data-foundry-ui="table"] :is(th, td) { white-space: nowrap; overflow-wrap: normal; word-break: normal; }
+  [data-foundry-page="/jobs"] [data-foundry-ui="table"] :is(th, td):nth-child(2) { min-width: 116px; }
+  [data-foundry-page="/jobs"] [data-foundry-ui="table"] :is(th, td):nth-child(3) { min-width: 240px; max-width: 360px; white-space: normal; }
+  [data-foundry-page="/jobs"] [data-foundry-ui="table"] :is(th, td):nth-child(5) { min-width: 180px; }
 
   /* Plain native actions (recordings, retry/pagination, Education). */
   button:not([class]):not([style]) {
@@ -163,11 +184,24 @@ html[data-theme-family="foundry"]:not(.light):not(.high-contrast) {
 
   @media (max-width: 768px), (pointer: coarse) {
     .sidebar nav a, .sidebar button, .sidebar select,
-    :is(button, select, input:not([type="hidden"]), [role="button"], summary, a[href]) {
+    :is(button, select, input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), [role="button"], summary, a[href]) {
       min-height: 44px; min-width: 44px;
     }
     a[href]:not(.sr-only) { display: inline-flex; align-items: center; }
-    input[type="checkbox"], input[type="radio"] { width: 44px; height: 44px; flex-shrink: 0; }
+    /* Keep native check styling; the associated label supplies the hit area. */
+    input:is([type="checkbox"], [type="radio"]):not(.sr-only) {
+      appearance: auto; width: 18px; height: 18px; min-width: 18px; min-height: 18px;
+      padding: 0; flex-shrink: 0; border-radius: 3px !important;
+    }
+    label:has(> input:is([type="checkbox"], [type="radio"]):not(.sr-only)) {
+      min-width: 44px; min-height: 44px; display: inline-flex; align-items: center;
+    }
+    .sidebar .sidebar-nav a { display: flex; width: 100%; }
+    .sidebar > a[aria-label^="Fleet status:"] { display: block; }
+    [data-foundry-page="/printers"] [data-foundry-ui="search"] { flex: 1 0 180px; min-width: min(180px, 100%); }
+    [data-foundry-page="/spools"] [aria-label="Reorder stock"] > .flex { flex-wrap: wrap; }
+    [data-foundry-page="/spools"] [aria-label="Reorder stock"] > .flex h2 { flex-basis: 100%; }
+    [data-foundry-page="/spools"] [aria-label="Reorder stock"] > .flex button { flex-shrink: 0; }
     [data-foundry-ui="table"] { min-width: 640px; }
     :is(div, section):has(> [data-foundry-ui="table"]) { overflow-x: auto; max-width: 100%; }
     [data-foundry-ui="tabs"] { width: 100%; }
