@@ -39,9 +39,10 @@ function feed(printer: Printer) {
   }
   return printer.api_type === 'anycubic_lan' && slots.length ? 'ACE' : ''
 }
-export default function PrinterCard({ printer, job, next, now, children, selection, slots, slotVariant = 'compact' }: { printer: Printer; job?: PrintJob; next?: Job; now?: number; children?: ReactNode; selection?: ReactNode; slots?: ReactNode; slotVariant?: 'full' | 'compact' }) {
+export default function PrinterCard({ printer, job, next, now, children, selection, statusDetail, slots, slotVariant = 'compact' }: { printer: Printer; job?: PrintJob; next?: Job; now?: number; children?: ReactNode; selection?: ReactNode; statusDetail?: ReactNode; slots?: ReactNode; slotVariant?: 'full' | 'compact' }) {
   return <article className="f-card" aria-label={printer.nickname || printer.name}>
     <div className="f-row"><div className="f-printer-heading">{selection}<div><h2><Link to={`/printers/${printer.id}`}>{printer.nickname || printer.name}</Link></h2><p className="f-secondary">{[printer.model, feed(printer)].filter(Boolean).join(' · ')}</p></div></div><StatusBadge status={state(printer)} /></div>
+    {statusDetail}
     {job && <p className="f-job">{displayName(job)}</p>}
     <PrintTelemetry job={job} now={now} printing={isPrintingState(printer.gcode_state)} />
     {next && <div className="f-next"><p>Next: {displayName(next)}</p>

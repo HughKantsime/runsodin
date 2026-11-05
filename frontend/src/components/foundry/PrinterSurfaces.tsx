@@ -8,6 +8,7 @@ import PrinterRows from './PrinterRows'
 import { activePrint, nextJob, useNow, readQueue } from './data'
 import useCameraList from '../../hooks/useCameraList'
 import CameraView from './CameraView'
+import PauseCause, { PauseCauseSuppressed } from '../printers/PauseCause'
 
 export function usePrinterJobs() {
   const prints = useQuery({ queryKey: ['print-jobs', 'foundry-running'], queryFn: () => printJobs.list({ status: 'running', limit: 1000 }), refetchInterval: 30000 })
@@ -17,8 +18,8 @@ export function usePrinterJobs() {
 export function ManagedPrinter({ printer, children, selection }: { printer: Printer; children: ReactNode; selection?: ReactNode }) {
   const { prints, queue } = usePrinterJobs()
   const now = useNow()
-  return <PrinterCard printer={printer} job={activePrint(printer, prints)} next={nextJob(printer, queue)} now={now} selection={selection}>
-    <details className="f-management"><summary>Controls and settings</summary>{children}</details>
+  return <PrinterCard printer={printer} job={activePrint(printer, prints)} next={nextJob(printer, queue)} now={now} selection={selection} statusDetail={<PauseCause printer={printer} className="f-pause-cause" />}>
+    <details className="f-management"><summary>Controls and settings</summary><PauseCauseSuppressed.Provider value={true}>{children}</PauseCauseSuppressed.Provider></details>
   </PrinterCard>
 }
 export function ManagedRows({ printers }: { printers: Printer[] }) {

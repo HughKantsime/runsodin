@@ -77,6 +77,7 @@ html[data-theme-family="foundry"]:not(.light):not(.high-contrast) {
   .f-card { min-width: 0; background: #1b1a18; border: 1px solid #36332e; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 16px; overflow-wrap: anywhere; }
   .f-card .f-row > div { min-width: 0; }
   .f-job { font-size: 16px; font-weight: 500; }
+  .f-pause-cause { color: #f0c07c; font-size: 15px; }
   .f-next { display: grid; gap: 8px; }
   .f-progress { display: grid; gap: 8px; }
   .f-progress [role="progressbar"] { height: 8px; border-radius: 4px; overflow: hidden; background: #36332e; }
