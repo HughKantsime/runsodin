@@ -2,7 +2,7 @@ import { StrictMode } from 'react'
 import { beforeEach, afterEach, expect, test, vi } from 'vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import useWebRTC from './useWebRTC'
-let peers:any[],offers:any[],locals:any[],remotes:any[],fetchMock:any
+let peers:any[],offers:any[],locals:any[],remotes:any[],fetchMock:any,infoMock:any
 const deferred=()=>{let resolve:any,reject:any;const promise=new Promise((a,b)=>{resolve=a;reject=b});return {promise,resolve,reject}}
 function Harness({id=9,enabled=true,maxRetries=5}:any){const {videoRef,status,retry,fallback}=useWebRTC(id,{enabled,maxRetries});return <><video ref={videoRef} data-testid="video"/><output>{status}</output><span data-testid="fallback">{String(fallback)}</span><button onClick={retry}>Retry</button></>}
 const flush=async()=>{await act(async()=>{await Promise.resolve();await Promise.resolve()})}
@@ -10,7 +10,7 @@ beforeEach(()=>{
  vi.useFakeTimers();peers=[];offers=[];locals=[];remotes=[]
  vi.stubGlobal('RTCPeerConnection',vi.fn(function(){const peer={close:vi.fn(),addTransceiver:vi.fn(),createOffer:vi.fn(()=>offers.shift()??Promise.resolve({type:'offer',sdp:'synthetic-offer'})),setLocalDescription:vi.fn(()=>locals.shift()??Promise.resolve()),setRemoteDescription:vi.fn(()=>remotes.shift()??Promise.resolve()),iceConnectionState:'new',ontrack:null,oniceconnectionstatechange:null};peers.push(peer);return peer}))
  vi.stubGlobal('RTCSessionDescription',function(value:any){return value})
- fetchMock=vi.fn(async()=>({ok:true,text:async()=>'synthetic-answer'}));vi.stubGlobal('fetch',fetchMock)
+ fetchMock=vi.fn(async()=>({ok:true,text:async()=>'synthetic-answer'}));infoMock=vi.fn(async()=>({ok:true,json:async()=>({transport:'webrtc'})}));vi.stubGlobal('fetch',(url:any,options:any)=>url.endsWith('/stream')?infoMock(url,options):fetchMock(url,options))
 })
 afterEach(()=>{vi.useRealTimers();vi.unstubAllGlobals()})
 test('normal connection exchanges SDP with credentialed camera route',async()=>{
@@ -22,7 +22,7 @@ test('normal connection exchanges SDP with credentialed camera route',async()=>{
  fireEvent.loadedData(screen.getByTestId('video'));expect(screen.getByTestId('video')).toHaveProperty('srcObject',stream);expect(screen.getByText('live')).toBeInTheDocument()
 })
 test('unmount during pending offer never begins signaling or retry',async()=>{
- const pending=deferred();offers.push(pending.promise);const {unmount}=render(<Harness/>);unmount()
+ const pending=deferred();offers.push(pending.promise);const {unmount}=render(<Harness/>);await flush();unmount()
  pending.resolve({type:'offer',sdp:'synthetic-offer'});await flush()
  expect(fetchMock).not.toHaveBeenCalled();expect(peers[0].close).toHaveBeenCalled();expect(vi.getTimerCount()).toBe(0)
 })
@@ -79,7 +79,7 @@ test('persistent ICE disconnection closes old peer and retries after grace',asyn
  await act(async()=>vi.advanceTimersByTime(2000));await flush();expect(peers).toHaveLength(2)
 })
 test('manual retry invalidates pending offer rather than opening overlapping peers',async()=>{
- const pending=deferred();offers.push(pending.promise);render(<Harness/>);fireEvent.click(screen.getByRole('button',{name:'Retry'}));await flush()
+ const pending=deferred();offers.push(pending.promise);render(<Harness/>);await flush();fireEvent.click(screen.getByRole('button',{name:'Retry'}));await flush()
  pending.resolve({type:'offer',sdp:'obsolete-offer'});await flush()
  expect(peers).toHaveLength(2);expect(peers[0].close).toHaveBeenCalled();expect(fetchMock).toHaveBeenCalledTimes(1)
  expect(fetchMock.mock.calls[0][1].body).toBe('synthetic-offer')
@@ -95,7 +95,7 @@ test('late remote description failure after unmount cannot retry',async()=>{
 })
 test('StrictMode obsolete setup cannot signal after cleanup',async()=>{
  const pending=deferred();offers.push(pending.promise);render(<StrictMode><Harness/></StrictMode>);await flush()
- pending.resolve({type:'offer',sdp:'obsolete-offer'});await flush();expect(peers).toHaveLength(2);expect(peers[0].close).toHaveBeenCalled();expect(fetchMock).toHaveBeenCalledTimes(1);expect(peers[1].close).not.toHaveBeenCalled()
+ pending.resolve({type:'offer',sdp:'obsolete-offer'});await flush();expect(peers).toHaveLength(1);expect(fetchMock).toHaveBeenCalledTimes(1);expect(peers[0].close).not.toHaveBeenCalled()
 })
 test('peer constructor failure is visible and retries within the cap',async()=>{
  vi.mocked(RTCPeerConnection).mockImplementationOnce(function(){throw new Error('Synthetic unavailable peer')})
@@ -113,4 +113,30 @@ test('SDP track without decoded video falls back after twelve seconds',async()=>
  expect(screen.getByText('live')).toBeInTheDocument()
  expect(screen.getByTestId('fallback')).toHaveTextContent('false')
  unmount();expect(vi.getTimerCount()).toBe(0)
+})
+
+
+test('native MJPEG immediately uses existing viewer without peers signaling or retries',async()=>{
+ infoMock.mockResolvedValue({ok:true,json:async()=>({transport:'mjpeg'})})
+ render(<Harness/>);await flush()
+ expect(infoMock).toHaveBeenCalledWith('/api/cameras/9/stream',expect.objectContaining({credentials:'include'}))
+ expect(screen.getByTestId('fallback')).toHaveTextContent('true')
+ expect(screen.getByText('mjpeg')).toBeInTheDocument()
+ await act(async()=>vi.advanceTimersByTime(120000))
+ fireEvent.click(screen.getByRole('button',{name:'Retry'}));await flush()
+ expect(peers).toHaveLength(0);expect(fetchMock).not.toHaveBeenCalled()
+})
+test('failed camera metadata never guesses WebRTC and stays within retry cap',async()=>{
+ infoMock.mockResolvedValue({ok:false})
+ render(<Harness maxRetries={1}/>);await flush()
+ await act(async()=>vi.advanceTimersByTime(2000));await flush()
+ await act(async()=>vi.advanceTimersByTime(120000));await flush()
+ expect(infoMock).toHaveBeenCalledTimes(2);expect(peers).toHaveLength(0);expect(fetchMock).not.toHaveBeenCalled()
+ expect(screen.getByTestId('fallback')).toHaveTextContent('true')
+})
+test('late native MJPEG metadata cannot switch a replacement camera',async()=>{
+ const pending=deferred();infoMock.mockReturnValueOnce(pending.promise)
+ const {rerender}=render(<Harness/>);rerender(<Harness id={10}/>);await flush()
+ pending.resolve({ok:true,json:async()=>({transport:'mjpeg'})});await flush()
+ expect(screen.getByTestId('fallback')).toHaveTextContent('false');expect(peers).toHaveLength(1)
 })

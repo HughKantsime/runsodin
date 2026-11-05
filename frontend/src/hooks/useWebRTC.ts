@@ -68,10 +68,22 @@ export default function useWebRTC(cameraId, { maxRetries = 5, enabled = true } =
     const current = () => activeRef.current && generationRef.current === generation && pcRef.current === pc
     try {
       setStatus('connecting')
-      pc = new RTCPeerConnection({ iceServers: ICE_SERVERS })
-      pcRef.current = pc
       const controller = new AbortController()
       abortRef.current = controller
+      const info = await fetch(`/api/cameras/${cameraId}/stream`, {
+        credentials: 'include', signal: controller.signal,
+      })
+      if (!current()) return
+      if (!info.ok) throw new Error('Camera information unavailable')
+      const { transport } = await info.json()
+      if (!current()) return
+      if (transport === 'mjpeg') {
+        setStatus('mjpeg')
+        setFallback(true)
+        return
+      }
+      pc = new RTCPeerConnection({ iceServers: ICE_SERVERS })
+      pcRef.current = pc
       pc.ontrack = (event) => {
         if (!current() || !videoRef.current) return
         const stream = event.streams[0] || (event.track ? new MediaStream([event.track]) : null)

@@ -195,7 +195,7 @@ def test_moonraker_webcam_url_discovered_and_streamed(proto, moonraker):
     assert decrypt(r["camera_url"]) == "http://192.0.2.41/webcam/?action=stream"
     # HTTP cameras stream through ODIN's pinned loopback relay, never directly.
     from modules.printers.camera_relay import relay_url
-    assert proto.go2rtc[-1]["streams"]["printer_401"] == f"ffmpeg:{relay_url(401)}#video=h264"
+    assert proto.go2rtc[-1]["streams"]["printer_401"] == relay_url(401)
 
 
 def test_moonraker_uses_rest_only_and_never_requests_a_file_list(proto, moonraker):
@@ -345,7 +345,7 @@ def test_prusalink_camera_snapshot_endpoint_discovered(proto, prusalink):
     prusalink.run(1)
     assert decrypt(row(proto.db, 402, "camera_url")["camera_url"]) == "http://192.0.2.42:80/api/v1/cameras/snap"
     from modules.printers.camera_relay import relay_url
-    assert proto.go2rtc[-1]["streams"]["printer_402"] == f"ffmpeg:{relay_url(402)}#video=h264"
+    assert proto.go2rtc[-1]["streams"]["printer_402"] == relay_url(402)
 
 
 def test_prusalink_error_state_records_hms_history_and_fails_job(proto, prusalink):

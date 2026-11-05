@@ -2,6 +2,12 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [Unreleased]
+
+### Fixed
+
+- Native MJPEG cameras use the existing MJPEG viewer immediately, without H.264 conversion or WebRTC retries. RTSP cameras retain WebRTC and its fallback.
+
 ## [2.0.41] - 2026-11-04
 
 <!-- summary: Community filament feed and accounting delegation, a nozzle size change that is no longer lost, and safer file deletion. -->

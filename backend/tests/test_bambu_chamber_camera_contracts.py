@@ -69,7 +69,7 @@ def test_stored_camera_wins_and_rtsps_is_unchanged():
 def test_go2rtc_only_receives_relay_urls():
     from modules.printers.camera_relay import relay_url
     config = route_utils.go2rtc_config_for([printer()], "192.0.2.10")
-    assert config["streams"] == {"printer_7": f"ffmpeg:{relay_url(7)}#video=h264",
+    assert config["streams"] == {"printer_7": relay_url(7),
                                   "printer_7_mjpeg": relay_url(7)}
     serialized = json.dumps(config)
     assert "test-code" not in serialized and "192.0.2.7" not in serialized
