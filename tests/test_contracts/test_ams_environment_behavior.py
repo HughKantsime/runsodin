@@ -217,7 +217,7 @@ def test_malformed_ams_settings_rejected_before_command_or_slot_mutation(own_ams
     client, headers, calls = own_ams_operator
     body = {**VALID, 'material':'PLA','color':'#123ABC','spool_id':199, **invalid}
     response = client.put('/printers/199/ams/0/slots/0', headers=headers, json=body)
-    assert response.status_code == 400
+    assert response.status_code == 422
     assert calls == []
     assert tuple(review_db.execute(text('SELECT filament_type,color,assigned_spool_id FROM filament_slots WHERE id=199')).one()) == ('PLA','#000000',None)
 
@@ -235,12 +235,12 @@ def test_missing_explicit_setting_is_rejected(own_ams_operator, missing):
     client, headers, calls = own_ams_operator
     body = {key:value for key,value in VALID.items() if key != missing}
     response = client.put('/printers/199/ams/0/slots/0', headers=headers, json=body)
-    assert response.status_code == 400 and calls == []
+    assert response.status_code == 422 and calls == []
 
 
 def test_empty_settings_are_rejected(own_ams_operator):
     client, headers, calls = own_ams_operator
-    assert client.put('/printers/199/ams/0/slots/0', headers=headers, json={}).status_code == 400
+    assert client.put('/printers/199/ams/0/slots/0', headers=headers, json={}).status_code == 422
     assert calls == []
 
 
@@ -271,5 +271,5 @@ def test_reported_presets_require_real_reported_temperatures(own_ams_operator, r
 
 def test_absent_settings_body_is_rejected(own_ams_operator):
     client, headers, calls = own_ams_operator
-    assert client.put('/printers/199/ams/0/slots/0', headers=headers).status_code == 400
+    assert client.put('/printers/199/ams/0/slots/0', headers=headers).status_code == 422
     assert calls == []

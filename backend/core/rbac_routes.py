@@ -107,6 +107,7 @@ ACTION_ROUTES: dict[str, list[tuple[str, str]]] = {
         ("PATCH", "/api/jobs/{job_id}/failure"),
         ("POST", "/api/jobs/{job_id}/link-print"),
         ("POST", "/api/jobs/{job_id}/reset"),
+        ("POST", "/api/jobs/{job_id}/outcome"),
     ],
     "jobs.cancel": [("POST", "/api/jobs/{job_id}/cancel")],
     "jobs.delete": [

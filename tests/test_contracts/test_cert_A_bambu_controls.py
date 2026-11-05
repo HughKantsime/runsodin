@@ -115,49 +115,82 @@ def test_fan_bounds_0_to_255_and_three_named_fans(cert_app, broker_socket, body)
     assert broker_socket.instances == []
 
 
-def test_ams_slot_configuration_sends_ams_filament_setting(cert_app, broker_socket):
+TRAY_SETTINGS = {
+    "preset_id": "GFG02", "material": "PETG", "color": "#ff5500",
+    "nozzle_temp_min": 230, "nozzle_temp_max": 260,
+}
+
+
+@pytest.fixture
+def tray_broker(broker_socket, monkeypatch):
+    """The real tray adapter requires SUBACK and a matching printer reply."""
+    subscribe = broker_socket.subscribe
+    publish = broker_socket.publish
+
+    def subscribed(sock, topic, qos=0):
+        result = subscribe(sock, topic, qos)
+        sock.on_subscribe(sock, None, result[1], [0])
+        return result
+
+    def replied(sock, *args, **kwargs):
+        result = publish(sock, *args, **kwargs)
+        packet = sock.published[-1][1].get('print', {})
+        if packet.get('command') == 'ams_filament_setting':
+            sock.deliver({'print': {**packet, 'result': 'success', 'reason': None}})
+        return result
+
+    monkeypatch.setattr(broker_socket, 'subscribe', subscribed)
+    monkeypatch.setattr(broker_socket, 'publish', replied)
+    return broker_socket
+
+
+def test_ams_slot_configuration_sends_ams_filament_setting(cert_app, tray_broker):
     response = cert_app.put("/printers/301/ams/1/slots/2", headers=cert_app.roles["operator"],
-                            json={"material": "PETG", "color": "#ff5500", "k_factor": 0.028})
+                            json=TRAY_SETTINGS)
     assert response.status_code == 200, response.text
     assert commands() == [(REQUEST_TOPIC, {"print": {
-        "sequence_id": "0", "command": "ams_filament_setting", "ams_id": 1, "tray_id": 6,
-        "tray_info_idx": "PETG", "tray_color": "FF5500FF", "nozzle_temp_min": 190, "nozzle_temp_max": 240,
-        "tray_type": "PETG", "setting_id": "", "k": 0.028}})]
+        "sequence_id": "0", "command": "ams_filament_setting", "ams_id": 1, "tray_id": 2,
+        "tray_info_idx": "GFG02", "tray_color": "FF5500FF", "nozzle_temp_min": 230, "nozzle_temp_max": 260,
+        "tray_type": "PETG", "setting_id": ""}})]
+    assert "k" not in commands()[0][1]["print"]
 
 
-def test_ams_slot_configuration_with_spool_updates_inventory_slot(cert_app, broker_socket, review_db):
+def test_ams_slot_configuration_with_spool_updates_inventory_slot(cert_app, tray_broker, review_db):
     review_db.execute(text("INSERT INTO spools(id,filament_id,org_id,status) SELECT 41,id,1,'active' FROM filament_library LIMIT 1"))
     if review_db.execute(text("SELECT COUNT(*) FROM spools WHERE id=41")).scalar_one() == 0:
         review_db.execute(text("INSERT INTO filament_library(id,brand,name,material) VALUES(41,'Cert','Cert PETG','PETG')"))
         review_db.execute(text("INSERT INTO spools(id,filament_id,org_id,status) VALUES(41,41,1,'active')"))
-    review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(301,5,'PLA')"))
+    review_db.execute(text("INSERT INTO filament_slots(printer_id,slot_number,filament_type) VALUES(301,6,'PLA')"))
     review_db.commit()
     response = cert_app.put("/printers/301/ams/1/slots/1", headers=cert_app.roles["admin"],
-                            json={"material": "PETG", "color": "#00FF00", "k_factor": 0.02, "spool_id": 41})
+                            json={**TRAY_SETTINGS, "color": "#00FF00", "spool_id": 41})
     assert response.status_code == 200, response.text
     review_db.expire_all()
-    row = review_db.execute(text("SELECT filament_type,color,assigned_spool_id FROM filament_slots WHERE printer_id=301 AND slot_number=5")).one()
+    row = review_db.execute(text("SELECT filament_type,color,assigned_spool_id FROM filament_slots WHERE printer_id=301 AND slot_number=6")).one()
     assert (str(row[0]).split(".")[-1].upper(), row[1], row[2]) == ("PETG", "#00FF00", 41)
-    assert commands()[0][1]["print"]["tray_id"] == 5
+    assert commands()[0][1]["print"]["tray_id"] == 1
+    assert "k" not in commands()[0][1]["print"]
 
 
-@pytest.mark.parametrize("body", [{"material": "PLA", "color": "red"}, {"material": "PLA", "k_factor": -1},
-                                  {"material": "", "color": "#FFFFFF"}])
-def test_ams_slot_configuration_rejects_invalid_values_before_wire(cert_app, broker_socket, body):
-    assert cert_app.put("/printers/301/ams/0/slots/0", headers=cert_app.roles["operator"], json=body).status_code == 422
+@pytest.mark.parametrize("invalid", [{"color": "red"}, {"nozzle_temp_min": -1},
+                                     {"material": ""}, {"preset_id": "bad preset"},
+                                     {"nozzle_temp_min": 261}])
+def test_ams_slot_configuration_rejects_invalid_values_before_wire(cert_app, broker_socket, invalid):
+    assert cert_app.put("/printers/301/ams/0/slots/0", headers=cert_app.roles["operator"],
+                        json={**TRAY_SETTINGS, **invalid}).status_code == 422
     assert broker_socket.instances == []
 
 
 @pytest.mark.parametrize("ams_id,slot_id", [(4, 0), (0, 4)])
 def test_ams_slot_configuration_rejects_out_of_range_slot(cert_app, broker_socket, ams_id, slot_id):
     assert cert_app.put(f"/printers/301/ams/{ams_id}/slots/{slot_id}", headers=cert_app.roles["operator"],
-                        json={"material": "PLA"}).status_code == 422
+                        json=TRAY_SETTINGS).status_code == 400
     assert broker_socket.instances == []
 
 
 def test_ams_slot_configuration_requires_operator(cert_app, broker_socket):
     assert cert_app.put("/printers/301/ams/0/slots/0", headers=cert_app.roles["viewer"],
-                        json={"material": "PLA"}).status_code == 403
+                        json=TRAY_SETTINGS).status_code == 403
     assert broker_socket.instances == []
 
 

@@ -414,7 +414,8 @@ def test_alternate_bambu_mutations_reject_before_hardware_calls(db, fake):
                 asyncio.run(routes_ams_env.configure_ams_slot(
                     9, 0, 0,
                     routes_ams_env.AMSSlotConfigRequest(
-                        material="PLA", color="#123456", spool_id=spool_id
+                        preset_id="GFA00", material="PLA", color="#123456",
+                        nozzle_temp_min=190, nozzle_temp_max=240, spool_id=spool_id
                     ),
                     user,
                     db,
