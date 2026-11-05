@@ -60,6 +60,106 @@ def test_mqtt_audit_failure_cannot_commit_identity(v2_offline_monitor,offline_st
     assert audits(offline_store)==[]
 
 
+@pytest.mark.parametrize('intervening', [
+    {}, *({'nozzle_diameter': value} for value in
+          (None, True, False, 'invalid', '', [], {}, float('nan'),
+           float('inf'), float('-inf'), 'NaN', 'inf', 0, -0.6)),
+])
+def test_mqtt_pending_diameter_survives_partial_and_invalid_packets(
+        v2_offline_monitor, offline_store, monkeypatch, intervening):
+    monitor, _, module = v2_offline_monitor
+    offline_store.execute(text('UPDATE printers SET nozzle_diameter=.4 WHERE id=199'))
+    offline_store.commit()
+    clock = [2000]
+    monkeypatch.setattr(module, 'time', SimpleNamespace(time=lambda: clock[0]))
+    monitor._last_heartbeat = clock[0]
+
+    def packet(values):
+        monitor._on_status(SimpleNamespace(raw_data={'print': {'gcode_state': 'IDLE', **values}}))
+
+    # Both values arrive inside the heartbeat window; the latest valid one wins.
+    packet({'nozzle_diameter': .8})
+    packet({'nozzle_diameter': '0.6'})
+    packet({})
+    packet(intervening)
+    assert offline_store.execute(text('SELECT nozzle_diameter FROM printers WHERE id=199')).scalar_one() == .4
+    assert audits(offline_store) == []
+
+    clock[0] += 10
+    packet({})
+    assert offline_store.execute(text('SELECT nozzle_diameter FROM printers WHERE id=199')).scalar_one() == .6
+    expected = [('printer.observed_config_changed', {'field': 'nozzle_diameter', 'old': .4, 'new': .6})]
+    assert [(action, json.loads(details)) for action, details in audits(offline_store)] == expected
+    clock[0] += 10
+    packet({})
+    assert [(action, json.loads(details)) for action, details in audits(offline_store)] == expected
+
+    # A committed observation must not be replayed over a later edit.
+    offline_store.execute(text('UPDATE printers SET nozzle_diameter=.8 WHERE id=199'))
+    offline_store.commit()
+    clock[0] += 10
+    packet({})
+    assert offline_store.execute(text('SELECT nozzle_diameter FROM printers WHERE id=199')).scalar_one() == .8
+    assert [(action, json.loads(details)) for action, details in audits(offline_store)] == expected
+
+
+@pytest.mark.parametrize('failure', ['audit', 'commit'])
+def test_mqtt_pending_diameter_retries_failed_write(
+        v2_offline_monitor, offline_store, monkeypatch, failure):
+    from contextlib import contextmanager
+
+    monitor, _, module = v2_offline_monitor
+    offline_store.execute(text('UPDATE printers SET nozzle_diameter=.4 WHERE id=199'))
+    offline_store.commit()
+    snapshot = text('SELECT nozzle_diameter,last_seen,gcode_state,installed_nozzles FROM printers WHERE id=199')
+    before = tuple(offline_store.execute(snapshot).one())
+    clock = [2000]
+    monkeypatch.setattr(module, 'time', SimpleNamespace(time=lambda: clock[0]))
+    monitor._last_heartbeat = clock[0]
+    monitor._on_status(SimpleNamespace(raw_data={'print': {'gcode_state': 'IDLE', 'nozzle_diameter': .6}}))
+    database = module.get_db
+    commit_attempts = []
+
+    class FailedCommit:
+        def __init__(self, connection):
+            self.connection = connection
+
+        def __getattr__(self, name):
+            return getattr(self.connection, name)
+
+        def commit(self):
+            commit_attempts.append(True)
+            raise RuntimeError('synthetic commit failure')
+
+    @contextmanager
+    def failing_database():
+        with database() as connection:
+            yield FailedCommit(connection)
+
+    if failure == 'audit':
+        reject_audit(offline_store)
+    else:
+        monkeypatch.setattr(module, 'get_db', failing_database)
+    clock[0] += 10
+    monitor._on_status(SimpleNamespace(raw_data={'print': {'gcode_state': 'IDLE'}}))
+    assert tuple(offline_store.execute(snapshot).one()) == before
+    assert audits(offline_store) == []
+    assert monitor._last_heartbeat == 2000
+    if failure == 'audit':
+        offline_store.execute(text('DROP TRIGGER reject_identity_audit'))
+        offline_store.commit()
+    else:
+        assert commit_attempts == [True]
+        monkeypatch.setattr(module, 'get_db', database)
+
+    for _ in range(2):
+        clock[0] += 10
+        monitor._on_status(SimpleNamespace(raw_data={'print': {'gcode_state': 'IDLE'}}))
+    assert offline_store.execute(text('SELECT nozzle_diameter FROM printers WHERE id=199')).scalar_one() == .6
+    assert [(action, json.loads(details)) for action, details in audits(offline_store)] == [
+        ('printer.observed_config_changed', {'field': 'nozzle_diameter', 'old': .4, 'new': .6})]
+
+
 @pytest.mark.parametrize('fail',[False,True])
 def test_anycubic_reconnect_model_change_is_atomic_and_not_repeated(offline_store,monkeypatch,fail):
     from modules.printers.monitors import anycubic_lan_monitor as module

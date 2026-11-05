@@ -40,6 +40,20 @@ def handle_status(self, status, generation, runtime):
             log_retained_report(self, raw, runtime)
         from modules.printers.monitors.nozzle_observations import observe
         observe(self, raw)
+        noz_dia = raw.get('nozzle_diameter')
+        if isinstance(noz_dia, bool) or not isinstance(noz_dia, (int, float, str)):
+            noz_dia = None
+        else:
+            try:
+                noz_dia = float(noz_dia)
+            except (TypeError, ValueError, OverflowError):
+                noz_dia = None
+            if noz_dia is not None:
+                import math
+                if not math.isfinite(noz_dia) or noz_dia <= 0:
+                    noz_dia = None
+        if noz_dia is not None:
+            self._pending_nozzle_diameter = noz_dia
         from datetime import datetime, timezone
         pending_nozzles = getattr(self, '_pending_right_nozzle', {})
         for key, column, stamp in (
@@ -269,18 +283,8 @@ def handle_status(self, status, generation, runtime):
                     noz_type = self._state.get('nozzle_type')
                     # Partial packets are not configuration removal, and a
                     # cached diameter must not overwrite a later edit.
-                    noz_dia = raw.get('nozzle_diameter')
-                    if isinstance(noz_dia, bool) or not isinstance(noz_dia, (int, float, str)):
-                        noz_dia = None
-                    else:
-                        try:
-                            noz_dia = float(noz_dia)
-                        except (TypeError, ValueError, OverflowError):
-                            noz_dia = None
-                        if noz_dia is not None:
-                            import math
-                            if not math.isfinite(noz_dia) or noz_dia <= 0:
-                                noz_dia = None
+                    # Only observations since the last commit remain pending.
+                    noz_dia = getattr(self, '_pending_nozzle_diameter', None)
                     fan_speed_val = self._state.get('cooling_fan_speed')
                     conn.execute(
                         f"UPDATE printers SET last_seen={runtime.sql.now()},"
@@ -300,6 +304,7 @@ def handle_status(self, status, generation, runtime):
                     from modules.printers.monitors.nozzle_observations import persist
                     persist(conn, self)
                     conn.commit()
+                    self._pending_nozzle_diameter = None
                     self._pending_installed_nozzles = {}
                     self._pending_right_nozzle = {}
 
