@@ -37,3 +37,10 @@ useDefault = true
   paths = ['''^backend/core/schema/preserved034/manifest\.json$''', '''^backend/core/schema/preserved035/manifest\.json$''', '''^backend/core/schema/preserved036/manifest\.json$''', '''^backend/core/schema/preserved037/manifest\.json$''', '''^backend/core/schema/preserved038/manifest\.json$''', '''^backend/core/schema/preserved039/manifest\.json$''', '''^backend/core/schema/preserved040/manifest\.json$''', '''^backend/core/schema/preserved043/manifest\.json$''', '''^backend/core/schema/preserved044/manifest\.json$''', '''^backend/core/schema/preserved045/manifest\.json$''', '''^backend/core/schema/preserved046/manifest\.json$''']
   regexTarget = "line"
   regexes = ['''^\s*"[A-Za-z0-9_./-]+\.py"\s*:\s*"[0-9a-f]{64}",?\s*$''']
+
+[[allowlists]]
+  description = "Foundry screenshot harness: SHA-256 digests of Classic frontend source files"
+  condition = "AND"
+  paths = ['''^tests/foundry_browser/classic-baseline\.json$''']
+  regexTarget = "line"
+  regexes = ['''^\s*"[A-Za-z0-9_./-]+\.(tsx|ts|css|mjs|js|json|html)"\s*:\s*"[0-9a-f]{64}",?\s*$''']
