@@ -6,7 +6,6 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [2.0.44] - 2026-11-05
 
-<!-- release-date placeholder: set by ops/bump-version.sh -->
 <!-- summary: The audit log records who watches cameras and timelapses; Bambu health codes come from Bambu's own lists; ODIN restarts safely during prints. -->
 
 ### Added
