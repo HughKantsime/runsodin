@@ -182,3 +182,28 @@ def test_fault_does_not_block_pause_or_stop(audited, review_db, endpoint):
     response = client.post(URL.replace('resume', endpoint), headers=issue(['agent:write', 'write:printers']))
     assert response.status_code == 200
     assert calls == [(299, endpoint + '_print', ())]
+
+
+# Bambu HMS level = code >> 16: 1 fatal, 2 serious, 3 common, 4 info.
+def _hms(*levels):
+    return json.dumps([{'attr': 0x05010400, 'code': (level << 16) | 2} for level in levels])
+
+
+@pytest.mark.parametrize('levels', [(3,), (4,), (3, 4)])
+def test_common_and_info_notices_do_not_block_token_resume(audited, review_db, levels):
+    client, issue, calls = audited
+    seed(review_db, hms=_hms(*levels))
+    response = client.post(URL, headers=issue(['write:printers']))
+    assert response.status_code == 200
+    assert calls == [(299, 'resume_print', ())]
+
+
+@pytest.mark.parametrize('hms', [_hms(1), _hms(2), _hms(3, 2), _hms(4, 1), _hms(0), _hms(5),
+                                 json.dumps([{'attr': 1}]), json.dumps(['x']), json.dumps({'attr': 1, 'code': 3 << 16})])
+def test_fatal_serious_unknown_or_malformed_faults_block_token_resume(audited, review_db, hms):
+    client, issue, calls = audited
+    seed(review_db, hms=hms)
+    response = client.post(URL, headers=issue(['write:printers']))
+    assert response.status_code == 409
+    assert response.json()['error']['code'] == 'printer_fault_active'
+    assert not calls

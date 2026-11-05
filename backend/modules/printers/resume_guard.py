@@ -7,6 +7,20 @@ from core.errors import ErrorCode
 from core.rbac import is_interactive_session
 
 
+# Bambu HMS level is the code's high 16 bits: 1 fatal, 2 serious, 3 common, 4 info.
+NOTICE_LEVELS = frozenset((3, 4))
+
+
+def _blocking_fault(item):
+    """Fatal, serious, unknown-level or unreadable entries block; notices don't."""
+    if not isinstance(item, dict):
+        return True
+    attr, code = item.get('attr'), item.get('code')
+    if any(type(v) is not int or not 0 <= v <= 0xFFFFFFFF for v in (attr, code)):
+        return True
+    return (code >> 16) not in NOTICE_LEVELS
+
+
 def resume_refusal(db, printer, actor):
     if is_interactive_session(actor):
         return None
@@ -15,8 +29,10 @@ def resume_refusal(db, printer, actor):
         active_hms = json.loads(printer.hms_errors) if printer.hms_errors else []
     except (ValueError, TypeError):
         # Unreadable fault state cannot authorize an unattended resume.
-        active_hms = True
-    if active_hms:
+        return ErrorCode.printer_fault_active
+    if active_hms is None:
+        active_hms = []  # JSON null: no current faults
+    if not isinstance(active_hms, list) or any(_blocking_fault(item) for item in active_hms):
         return ErrorCode.printer_fault_active
     detection = db.execute(text(
         "SELECT 1 FROM vision_detections "
