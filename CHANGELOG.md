@@ -2,6 +2,13 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [Unreleased]
+
+### Fixed
+
+- API and agent tokens, including the global API key, cannot resume a printer with current HMS faults or an open Vigil auto-pause detection. ODIN returns a named 409 refusal, records the actor and reason, and asks a person to resume from the web app. Signed-in sessions retain their existing controls.
+- Resume responses no longer suggest pause to tokens whose scopes cannot call it.
+
 ## [2.0.43] - 2026-11-05
 
 <!-- summary: Foundry, a new look you can switch on; plates up to 256 MiB of G-code; plan a filament load for held jobs before loading it. -->

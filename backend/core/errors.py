@@ -58,6 +58,8 @@ class ErrorCode(str, Enum):
 
     # State / business rules
     invalid_state_transition = "invalid_state_transition"
+    printer_fault_active = "printer_fault_active"
+    detection_open = "detection_open"
     revision_conflict = "revision_conflict"
     resource_conflict = "resource_conflict"
     invalid_cursor = "invalid_cursor"

@@ -2,6 +2,10 @@
 
 Updated - see CHANGELOG for current version.
 
+## Prepared: Resume fault guard
+
+- Non-interactive resumes over current HMS faults or open Vigil auto-pauses are refused and audited. Interactive controls remain available. Claude review and release after 2.0.43 remain pending.
+
 ## Prepared: Bambu tray, terminal evidence and pause visibility
 
 - Explicit tray preset settings with bounded printer replies, audited failed/cancelled correction and current pause causes. Claude review and an attended idle-printer tray test remain required; X1C and H2D/AMS HT payloads are not hardware-qualified. Cancellation classification is unchanged.
