@@ -434,6 +434,8 @@ def test_compiled_camera_pip_navigation_and_access_cleanup(role_page_factory,mob
         if state['denied']:route.fulfill(status=403,json={'detail':'Synthetic access revoked'})
         else:route.fulfill(json=[] if state['removed'] else [{'id':900,'name':'Synthetic camera','camera_enabled':True,'has_camera':True,'display_order':0}])
     page.route('**/api/cameras',camera_list)
+    # The player asks which transport to use before signaling (MJPEG cameras skip WebRTC).
+    page.route('**/api/cameras/900/stream',lambda route:route.fulfill(json={'printer_id':900,'printer_name':'Synthetic camera','stream_name':'printer_900','webrtc_url':'/api/cameras/900/webrtc','transport':'webrtc'}))
     page.route('**/api/cameras/900/webrtc',lambda route:route.fulfill(status=200,content_type='application/sdp',body='synthetic-answer'))
     page.route('**/api/printers/900/vision',lambda route:route.fulfill(json={'enabled':False}))
     _goto(page,'/cameras')
@@ -499,6 +501,7 @@ def test_compiled_camera_detail_load_retry_and_fullscreen_failure(role_page_fact
         if state['failed']:route.fulfill(status=503,json={'detail':'Synthetic unavailable'})
         else:route.fulfill(json=[printer])
     page.route('**/api/printers?*',printer_list)
+    page.route('**/api/cameras/900/stream',lambda route:route.fulfill(json={'printer_id':900,'printer_name':'Synthetic detail printer','stream_name':'printer_900','webrtc_url':'/api/cameras/900/webrtc','transport':'webrtc'}))
     page.route('**/api/cameras/900/webrtc',lambda route:route.fulfill(status=503,json={'detail':'Synthetic unavailable'}))
     page.route('**/api/printers/900/vision',lambda route:route.fulfill(json={'enabled':False}))
     _goto(page,'/cameras/900')
