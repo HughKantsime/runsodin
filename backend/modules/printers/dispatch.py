@@ -540,10 +540,10 @@ from modules.printers.dispatch_loading import (_get_printer_info, _get_next_sche
 from modules.printers.dispatch_education import (_reconcile_education_denial, _authorize_education_hardware_action, _reserve_education_hardware_action, _cancel_education_reservation, _confirm_education_dispatch)
 
 
-def stage_dispatch(printer_id, job_id):
+def stage_dispatch(printer_id, job_id, *, audit_actor=None):
     """Sanctioned route entry; same dispatch authority, acknowledged at durable claim."""
     from modules.printers.dispatch_background import stage
-    return stage(printer_id, job_id)
+    return stage(printer_id, job_id, audit_actor=audit_actor)
 
 
 def read_dispatch_progress(db, token, job_id):

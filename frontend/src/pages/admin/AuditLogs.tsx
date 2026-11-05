@@ -49,6 +49,7 @@ export default function AuditLogs() {
   // Audit export is an Enterprise entitlement (backend: GET /api/export/audit-logs -> 403 below Enterprise).
   const canExport = useLicense().hasFeature('audit_export')
   const [exporting, setExporting] = useState(false)
+  const [exportTruncated, setExportTruncated] = useState(false)
   const exportPending = useRef(false)
   const mounted = useRef(true)
   const { data: principal } = useQuery<User | null>({ queryKey: ['auth', 'me'], queryFn: auth.me, enabled: false })
@@ -87,14 +88,18 @@ export default function AuditLogs() {
     if (!ready || exportPending.current) return
     exportPending.current = true
     setExporting(true)
+    setExportTruncated(false)
     const expectedAudience = audience
     try {
+      let truncated = false
       const csv = await auditLogs.exportCsv({ entity_type: entityType || undefined, action: action || undefined,
-        date_from: dateFrom || undefined, date_to: dateTo || undefined, q: searchText || undefined })
+        date_from: dateFrom || undefined, date_to: dateTo || undefined, q: searchText || undefined },
+        response => { truncated = response.headers.get('X-ODIN-Export-Truncated') === 'true' })
       const latest = queryClient.getQueryData<User | null>(['auth', 'me'])
       const latestAudience = `${latest?.id ?? ''}:${latest?.role ?? ''}:${latest?.group_id ?? ''}`
       if (!mounted.current || currentAudience.current !== expectedAudience || latestAudience !== expectedAudience) return
       if (typeof csv !== 'string' || !csv) throw new Error('Export did not return CSV')
+      setExportTruncated(truncated)
       const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
       try {
         const link = document.createElement('a')
@@ -151,6 +156,8 @@ export default function AuditLogs() {
       </div>
 
       <p className="mb-3 text-xs text-[var(--brand-text-muted)]">CSV export includes up to 5,000 matching entries.</p>
+
+      {exportTruncated && <p role="status" className="mb-3 text-sm">This export was truncated at 5,000 entries. Narrow the dates to get the rest.</p>}
 
       {/* Table */}
       <div className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md overflow-hidden overflow-x-auto">

@@ -31,3 +31,12 @@ test('CSV refuses permission errors and non-CSV success bodies', async () => {
   transport.mockResolvedValueOnce(new Response('{}', { headers: { 'Content-Type': 'application/json' } }))
   await expect(auditLogs.exportCsv()).rejects.toThrow('Unexpected export response')
 })
+
+
+test('CSV exposes truncation metadata through the shared authenticated transport', async () => {
+  transport.mockResolvedValue(new Response('ID\n1\n', { headers: { 'Content-Type': 'text/csv', 'X-ODIN-Export-Truncated': 'true' } }))
+  const received = vi.fn()
+  await auditLogs.exportCsv({}, received)
+  expect(received).toHaveBeenCalledTimes(1)
+  expect(received.mock.calls[0][0].headers.get('X-ODIN-Export-Truncated')).toBe('true')
+})

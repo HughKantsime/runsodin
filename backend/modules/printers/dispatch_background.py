@@ -92,7 +92,7 @@ def progress(phase, *, message=None, ams_mapping_derived=False):
             save(conn, key, record)
 
 
-def stage(printer_id, job_id, *, operation=None, on_staged=None):
+def stage(printer_id, job_id, *, operation=None, on_staged=None, audit_actor=None):
     """Run authorized dispatch in a worker; handshake before any hardware I/O."""
     from core.db import engine
     with engine.connect() as conn:
@@ -101,7 +101,7 @@ def stage(printer_id, job_id, *, operation=None, on_staged=None):
             raise HTTPException(409, 'A dispatch attempt already owns this job or printer')
     if not _slots.acquire(blocking=False):
         raise HTTPException(503, 'Dispatch workers are busy; no attempt was staged')
-    state = {'staged': Event(), 'token': uuid.uuid4().hex}
+    state = {'staged': Event(), 'token': uuid.uuid4().hex, 'audit_actor': audit_actor}
     try:
         with engine.begin() as conn:
             org_id = conn.execute(text('SELECT charged_to_org_id FROM jobs WHERE id=:id'), {'id': job_id}).scalar_one()
@@ -132,16 +132,6 @@ def stage(printer_id, job_id, *, operation=None, on_staged=None):
                                                {'token': state['token']}).scalar_one_or_none()
                 phase = 'start_accepted' if success else ('needs_reconciliation' if claim_state else 'refused')
                 progress(phase, message=message)
-                if success and operation is None:
-                    try:
-                        from core.audit import log_audit
-                        from sqlalchemy.orm import Session
-                        with Session(engine) as db:
-                            log_audit(db, 'job.dispatched', 'job', job_id, {'printer_id': printer_id})
-                            db.commit()
-                    except Exception:
-                        from modules.printers.dispatch import log
-                        log.warning('Accepted dispatch audit could not be recorded')
         except Exception:
             state['result'] = (False, 'Dispatch outcome requires reconciliation before retrying')
             try:progress('needs_reconciliation', message=state['result'][1])
@@ -179,3 +169,9 @@ def stage(printer_id, job_id, *, operation=None, on_staged=None):
     if state.get('claimed'):
         return state['handle']
     raise HTTPException(400, state.get('result', (False, 'Dispatch was not staged'))[1])
+
+
+def audit_actor():
+    state = _context.get()
+    from contextlib import nullcontext
+    return (state.get('audit_actor') or (lambda db: nullcontext())) if state else None

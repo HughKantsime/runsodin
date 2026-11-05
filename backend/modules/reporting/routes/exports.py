@@ -15,6 +15,7 @@ import re
 from pydantic import BeforeValidator
 import io
 
+from core.audit import audit_download, export_filters
 from core.db import get_db
 from core.rbac import require_role, require_superadmin, get_org_scope
 from core.models import AuditLog
@@ -89,6 +90,7 @@ def export_jobs_csv(
             job.created_at.isoformat() if job.created_at else ""
         ])
 
+    audit_download(db, "export.downloaded", details={"export": "jobs", "filters": export_filters(status=status)})
     output.seek(0)
     return StreamingResponse(
         iter([output.getvalue()]),
@@ -135,6 +137,7 @@ def export_spools_csv(current_user: dict = Depends(require_role("operator", scop
             spool.created_at.isoformat() if spool.created_at else ""
         ])
 
+    audit_download(db, "export.downloaded", details={"export": "spools", "filters": {}})
     output.seek(0)
     return StreamingResponse(
         iter([output.getvalue()]),
@@ -173,6 +176,7 @@ def export_filament_usage_csv(current_user: dict = Depends(require_role("operato
             usage.notes
         ])
 
+    audit_download(db, "export.downloaded", details={"export": "filament-usage", "filters": {}})
     output.seek(0)
     return StreamingResponse(
         iter([output.getvalue()]),
@@ -214,6 +218,7 @@ def export_models_csv(current_user: dict = Depends(require_role("operator", scop
             model.created_at.isoformat() if model.created_at else ""
         ])
 
+    audit_download(db, "export.downloaded", details={"export": "models", "filters": {}})
     output.seek(0)
     return StreamingResponse(
         iter([output.getvalue()]),
@@ -243,7 +248,9 @@ def export_audit_logs_csv(
     """Export audit logs as CSV. Superadmin only — audit logs span all tenants."""
     query = _audit_filters(_audit_projection(db), entity_type=entity_type, action=action,
                           date_from=date_from, date_to=date_to, q=q)
-    logs = query.order_by(AuditLog.timestamp.desc(), AuditLog.id.desc()).limit(5000).all()
+    logs = query.order_by(AuditLog.timestamp.desc(), AuditLog.id.desc()).limit(5001).all()
+    truncated = len(logs) > 5000
+    logs = logs[:5000]
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -262,11 +269,13 @@ def export_audit_logs_csv(
             _audit_csv_text(actor_kind),
         ])
 
+    audit_download(db, "export.downloaded", details={"export": "audit-logs", "filters": export_filters(entity_type=entity_type, action=action, date_from=date_from, date_to=date_to, q=q)})
     output.seek(0)
     return StreamingResponse(
         iter([output.getvalue()]),
         media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=audit_logs_{datetime.now(timezone.utc).strftime('%Y%m%d')}.csv"}
+        headers={"Content-Disposition": f"attachment; filename=audit_logs_{datetime.now(timezone.utc).strftime('%Y%m%d')}.csv",
+                 "X-ODIN-Export-Truncated": str(truncated).lower(), "X-ODIN-Export-Row-Limit": "5000"}
     )
 
 

@@ -418,8 +418,15 @@ def dispatch_job_to_printer(
     if not wait:
         from modules.printers.dispatch import stage_dispatch
         printer_id = job.printer_id
-        db.rollback()  # Never carry request transactions into the worker.
-        return stage_dispatch(printer_id, job_id)
+        from core.audit_actor_handoff import capture_request_actor
+        actor = capture_request_actor(db)
+        try:
+            log_audit(db, "job.dispatch_requested", "job", job_id, {"printer_id": printer_id})
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise HTTPException(503, "Dispatch audit unavailable; no attempt was staged") from None
+        return stage_dispatch(printer_id, job_id, audit_actor=actor)
 
     try:
         from modules.printers.dispatch import dispatch_job

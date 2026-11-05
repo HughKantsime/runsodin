@@ -19,6 +19,7 @@ from modules.models_library.schemas import FileScheduleOptions
 from core.quota import charge_job_quota
 from core.display_names import filename_stem, display_names
 from core.base import stored_filament_value
+from core.audit import audit_download
 from core.db import get_db
 from core.db_compat import execute_insert_returning_id
 from core.errors import ErrorCode, OdinError
@@ -672,9 +673,6 @@ def schedule_print_file(file_id: int, printer_id: Optional[int] = None, options:
     return schedule_generic_file(db, file_id, printer_id, current_user, options.ams_mapping if options else None,
                                  hold=options.hold if options else False)
 
-# ──────────────────────────────────────────────
-# Mesh / 3D Viewer
-# ──────────────────────────────────────────────
 
 
 @router.get("/print-files/{file_id}/mesh", tags=["3D Viewer"])
@@ -685,9 +683,11 @@ async def get_print_file_mesh(file_id: int, current_user: dict = Depends(require
     if not row.mesh_data:
         raise preview_not_found()
     try:
-        return json.loads(row.mesh_data)
+        mesh = json.loads(row.mesh_data)
     except (TypeError, ValueError):
         raise preview_not_found() from None
+    audit_download(db, "print_file.downloaded", "print_file", file_id, {"what": "mesh"})
+    return mesh
 
 
 @router.get("/models/{model_id}/mesh", tags=["3D Viewer"])

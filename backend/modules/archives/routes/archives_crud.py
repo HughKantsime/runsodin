@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
 
 from core.display_names import name_payloads, human_name
+from core.audit import audit_download, export_filters
 from core.db import get_db
 from core.dependencies import get_current_user, log_audit
 from core.rbac import check_org_access, get_org_scope, require_action, require_role, require_superadmin
@@ -376,6 +377,9 @@ def export_archive_log(
             d.get("tags", ""),
         ])
 
+    audit_download(db, "export.downloaded", details={"export": "archive-print-log",
+        "filters": export_filters(printer_id=printer_id, user_id=user_id, status=status,
+                                  search=search, start_date=start_date, end_date=end_date, tag=tag)})
     output.seek(0)
     return StreamingResponse(
         iter([output.getvalue()]),
@@ -669,6 +673,7 @@ def preview_model(
     }
     media_type = media_types.get(ext, "application/octet-stream")
 
+    audit_download(db, "print_file.downloaded", "print_file", file_id, {"what": "model"})
     return FileResponse(
         real_path,
         media_type=media_type,

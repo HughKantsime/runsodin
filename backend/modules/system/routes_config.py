@@ -334,7 +334,11 @@ async def get_mqtt_republish_config(db: Session = Depends(get_db), current_user:
 async def update_mqtt_republish_config(request: Request, current_user: dict = Depends(require_superadmin(scope="admin")), db: Session = Depends(get_db)):
     """Update MQTT republish settings. Admin only."""
     body = await request.json()
+    fields = []
+    allowed = {"enabled", "host", "port", "username", "password", "topic_prefix", "use_tls"}
     for short_key, value in body.items():
+        if short_key not in allowed:
+            continue
         db_key = f"mqtt_republish_{short_key}"
         if short_key == "password" and value == "••••••••":
             continue
@@ -343,6 +347,8 @@ async def update_mqtt_republish_config(request: Request, current_user: dict = De
         else:
             str_val = str(value).lower() if isinstance(value, bool) else str(value)
         write_config_text(db, db_key, str_val)
+        fields.append(short_key)
+    log_audit(db, "mqtt_republish_config.updated", "settings", details={"fields": sorted(fields)})
     db.commit()
     if mqtt_republish:
         mqtt_republish.invalidate_cache()

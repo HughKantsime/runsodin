@@ -142,6 +142,9 @@ def create_jobs_bulk(jobs: List[JobCreate], current_user: dict = Depends(require
         _stage_prospective_queue_job(db, db_job, current_user)
         db_jobs.append(db_job)
 
+    db.flush()
+    for job in db_jobs:
+        log_audit(db, "job.created", "job", job.id, {"status": str(JobStatus.PENDING)})
     plans = _stage_queue_entries(db, db_jobs, current_user)
     db.commit()
     _deliver_queue_entries(db, plans)
@@ -467,7 +470,7 @@ def create_job(
     db.refresh(db_job)
     # Audit is atomic with the job it records; so is the alert it owes (one outbox row,
     # fanned out after the commit by modules.notifications.alert_outbox).
-    log_audit(db, "job.created", "job", db_job.id, {"item_name": db_job.item_name, "status": str(initial_status)})
+    log_audit(db, "job.created", "job", db_job.id, {"status": str(initial_status)})
     import modules.notifications.alert_outbox as alert_outbox
     outbox_id = alert_outbox.enqueue(db, db_job.id, alert_kind, current_user["id"]) if alert_kind else None
     # Return JobResponse fields + next_actions as a dict. response_model

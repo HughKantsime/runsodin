@@ -77,7 +77,7 @@ test('export sends all visible filters and rejects a duplicate click', async () 
   const button = screen.getByRole('button', { name: 'Export CSV' })
   fireEvent.click(button); fireEvent.click(button)
   expect(api.exportCsv).toHaveBeenCalledTimes(1)
-  expect(api.exportCsv).toHaveBeenCalledWith(expect.objectContaining({ q: 'owned_%' }))
+  expect(api.exportCsv).toHaveBeenCalledWith(expect.objectContaining({ q: 'owned_%' }), expect.any(Function))
   await act(async () => resolve('ID,Action\n1,create\n'))
   expect(click).toHaveBeenCalledTimes(1)
   expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:owned-audit')
@@ -130,4 +130,19 @@ test('below Enterprise the audit log is viewable but CSV export is locked and ne
   expect(screen.queryByRole('button', { name: 'Export CSV' })).not.toBeInTheDocument()
   fireEvent.click(locked)
   expect(api.exportCsv).not.toHaveBeenCalled()
+})
+
+
+test.each([true, false])('shows the truncation notice only for a truncated export (%s)', async truncated => {
+  api.exportCsv.mockImplementation(async (_params, onResponse) => {
+    onResponse(new Response('', { headers: { 'X-ODIN-Export-Truncated': String(truncated), 'X-ODIN-Export-Row-Limit': '5000' } }))
+    return 'ID,Action\n1,create\n'
+  })
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+  show()
+  await screen.findByText('create')
+  fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }))
+  await waitFor(() => expect(URL.createObjectURL).toHaveBeenCalled())
+  if (truncated) expect(screen.getByRole('status')).toHaveTextContent('This export was truncated at 5,000 entries. Narrow the dates to get the rest.')
+  else expect(screen.queryByRole('status')).not.toBeInTheDocument()
 })

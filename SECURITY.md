@@ -66,9 +66,10 @@ O.D.I.N. is designed for self-hosted, air-gapped environments. Key security feat
 - Camera streams proxied through go2rtc (credentials not exposed to browser)
 
 ### Audit Trail
-- All login attempts logged with IP address and timestamp
-- Administrative actions recorded in audit log
-- Searchable audit log viewer (admin-only)
+- `audit_logs` records audited password and SSO sign-in outcomes, print-file uploads, designated downloads and exports, print submission and dispatch, and audited administrative changes with timestamps. This is not a record of every request or every administrative action.
+- Request-bound events include user identity and peer IP when available; OIDC success uses the user entity ID and leaves actor columns empty. Failed sign-ins, erased actors, historical rows and unbound processes may lack user identity. Live camera and timelapse playback streams are excluded.
+- Audited downloads fail with 503 before sending payloads if their audit row cannot commit. Background dispatch records request intent before staging and acceptance in the accepted claim transaction; a recording failure after hardware acceptance requires reconciliation.
+- Searchable audit log viewer (platform superadmin only); Enterprise CSV export reports truncation at 5,000 rows.
 
 ## Security Audit History
 

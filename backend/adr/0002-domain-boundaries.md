@@ -41,7 +41,7 @@ Define 12 domain modules based on the "what tables and files naturally belong to
 | `orders` | invoice_generator | orders, order_items, products, product_components |
 | `archives` | archive, timelapse_capture | print_archives, projects, timelapses |
 | `reporting` | report_runner | report_schedules |
-| `system` | (logic in router) | maintenance_tasks, maintenance_logs, audit_log, printer_profiles |
+| `system` | (logic in router) | maintenance_tasks, maintenance_logs, audit_logs, printer_profiles |
 
 Router assignments mirror the module boundaries:
 - `routers/printers.py` + `routers/cameras.py` → `modules/printers/`

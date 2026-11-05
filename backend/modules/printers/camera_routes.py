@@ -24,6 +24,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from core.audit import audit_download
 from core.db import get_db
 from core.dependencies import get_current_user, log_audit, validate_access_token
 from core.rbac import require_role, check_org_access, has_permission, token_scope_granted, handler_enforces_token_scope
@@ -212,7 +213,13 @@ def stream_timelapse(timelapse_id:int,request:Request,token:Optional[str]=None,d
 
 @router.api_route("/timelapses/{timelapse_id}/download",methods=['GET','HEAD'],tags=['Timelapses'],dependencies=[Depends(handler_enforces_token_scope('read:printers'))])
 def download_timelapse(timelapse_id:int,request:Request,db:Session=Depends(get_db),current_user:dict=Depends(get_current_user)):
-    return _read_lifetime(request,db,current_user,timelapse_id,attachment=True)
+    response = _read_lifetime(request,db,current_user,timelapse_id,attachment=True)
+    try:
+        audit_download(db, "timelapse.downloaded", "timelapse", timelapse_id)
+    except BaseException:
+        response.close()
+        raise
+    return response
 
 
 def _edit_contention(error):

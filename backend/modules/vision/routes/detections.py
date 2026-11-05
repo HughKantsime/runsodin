@@ -17,6 +17,7 @@ import logging
 import os
 import re
 
+from core.audit import audit_download
 from core.db import get_db
 from core.rbac import require_role, require_superadmin, get_org_scope, check_org_access
 from core.config import settings
@@ -600,5 +601,7 @@ async def export_training_data(
 ):
     from fastapi.responses import StreamingResponse
     from modules.vision.training_service import export_frames
-    return StreamingResponse(export_frames(db,current_user),media_type="application/zip",
+    payload = export_frames(db,current_user)
+    audit_download(db, "vision.training_data_exported", "vision")
+    return StreamingResponse(payload,media_type="application/zip",
         headers={"Content-Disposition":"attachment; filename=odin_training_data.zip"})

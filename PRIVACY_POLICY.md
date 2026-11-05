@@ -174,7 +174,11 @@ O.D.I.N. includes tools to assist with data protection compliance:
 - **GDPR data export:** Full JSON export of all user data (all tiers)
 - **Anonymization:** Anonymize user records while preserving analytics (all tiers)
 - **Data retention policies:** Configurable TTL per data type (all tiers)
-- **Audit log:** Searchable history of administrative actions
+- **Audit log:** Searchable local history of the audited activity described below.
+
+<!-- Draft audit disclosure: Shane must approve these sentences before release. -->
+
+ODIN keeps an audit log on your own server. It records sign-ins (password and SSO, successful and failed), file uploads, downloads of design files, backups and timelapses, exports, print submissions and dispatch, and administrative changes. Each entry holds the time, what was done and to what, and, where known, the user and the IP address they connected from. On Education installations this includes students' activity. ODIN doesn't record live camera viewing or timelapse playback, and the log isn't a record of every request. Audit entries stay on your server and follow your retention settings. When a user is erased, ODIN removes their name and IP address from their audit entries, including SSO sign-ins. The entries themselves remain, with what was done, and SSO sign-in entries keep the user's ID number.
 
 ---
 
