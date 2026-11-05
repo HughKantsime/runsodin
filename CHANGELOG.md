@@ -2,25 +2,34 @@
 
 All notable changes to O.D.I.N. are documented here.
 
-## [Unreleased]
+## [2.0.42] - 2026-11-05
+
+<!-- summary: The audit log records who downloads, signs in and dispatches; H2D files are checked against the map they were sliced with; tray setting works on Bambu printers. -->
+
+### Added
+
+- The audit log records who did more: file and data downloads (model files, viewer meshes, project exports, backups, timelapses, vision training data, slicer profiles and every CSV export), SSO sign-ins and failed SSO sign-ins, and the user and IP behind a dispatch started from the web app. A download whose audit entry can't be written is refused rather than served unrecorded.
+- Bulk job creation, global branding changes and MQTT republish settings are audited. Setting names are recorded, never values.
+- Pause and stop requests are audited, and so is the resume that dismissing a Vigil detection sends.
+- An operator can correct a finished job between failed and cancelled from the job or archive page. The correction is audited and changes no filament, cost or alert.
+- After a Bambu print ends, ODIN logs what the printer reported for up to 30 seconds, to learn how each model signals an owner's cancel. How cancels are classified doesn't change yet.
 
 ### Fixed
 
-- Record background dispatch intent before staging and the requesting actor on accepted claims, with erasure checks at insertion.
-- Audit OIDC session issuance and callback/exchange failures, plus automatic user creation, without storing personal text in new event details.
-- Refuse designated downloads and CSV exports when their audit row cannot commit; record bulk job creation, global branding changes and MQTT republish field names atomically.
-- Report the audit CSV's 5,000-row truncation through response headers and an Audit Log page notice.
-- Pause, stop and Vigil dismissal resume requests record audit rows with the bound actor; failed sends retain a trace.
-- AMS refusals explain conflicting slicer maps and missing extruder fields without exposing file contents. Final dispatch refusals name changed configuration, capability and ownership fields without values.
-- P2S cameras receive the automatic RTSPS URL verified on hardware; H2S, H2C and H2D Pro remain excluded.
-- Native MJPEG cameras use the existing MJPEG viewer immediately, without H.264 conversion or WebRTC retries. RTSP cameras retain WebRTC and its fallback.
-- Bambu tray settings require an explicit preset, material, colour and temperature range, send a local tray ID without changing K, and return the printer's bounded reply. Reported tray presets are retained for reuse; shared-printer refusal names its cause. Hardware acceptance is reported for P1S only; X1C and H2D/AMS HT require attended validation.
-- Operators with jobs edit permission can correct the latest linked print/job outcome between failed and cancelled from Jobs or Archives. Corrections are audited and leave filament, costs and alerts unchanged. Terminal Bambu packets are logged for up to 30 seconds or 20 packets without changing cancellation classification.
-- Paused Bambu cards and detail pages show current print-error text, then the most recently observed still-active HMS cause, instead of historical error text.
+- H2D files: ODIN reads which nozzle each filament uses from the plate's own map, the one Bambu Studio slices with, and checks it against the file's own records. The nozzle map and the project-wide default no longer count as evidence, so correctly sliced files that were refused (as jobs 164 and 181 were) now dispatch. Anything that can't be proven is still refused, and the refusal names the reason.
+- H2D files sliced as Auto could be checked against the wrong nozzle. The nozzle check now uses the same mapping.
+- Refusals say why. Examples: a slicer map that disagrees, a tool change with no extruder field (with its line number), which printer settings changed during an attempt, or a file too large to check (its size and the limit).
+- Setting an AMS tray from ODIN sends what Bambu printers accept: the slot within that AMS, the preset id and the real temperature range, without touching the calibrated K value. ODIN waits for the printer's reply. This is confirmed on a P1S; X1C and H2D need an attended check.
+- A paused printer shows why it paused (the current error, or the active HMS notice), not an old error.
+- MJPEG cameras, such as the Kobra S1's, show their stream directly, without a slow conversion that made the browser time out.
+- The P2S camera is found automatically (RTSPS, verified on hardware).
+- The audit log CSV says when it stopped at 5,000 rows, in response headers and on the Audit Log page.
+- Erasing a user removes their name and IP address from their audit entries, including SSO sign-ins and password sign-in records.
 
-### Documentation
+### Notes
 
-- Describe the covered audit events and identity limitations; draft the expanded Education/student activity privacy disclosure for approval before release.
+- The privacy policy now describes what the audit log records, including student activity on Education installs.
+- An H2D file with no settings block, or one whose records contradict each other, is now refused with a named reason. Files from Bambu Studio 2.08 carry the evidence ODIN needs. Studio 2.09's H2D start G-code (`T1001 O0`) is still refused, so don't upgrade Studio yet.
 
 ## [2.0.41] - 2026-11-04
 
