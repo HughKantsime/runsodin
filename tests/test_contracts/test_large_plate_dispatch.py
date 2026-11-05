@@ -65,14 +65,14 @@ def test_slow_source_inspection_precedes_fresh_admission_window(review_db, tmp_p
     assert events == ['scan', 'power']
 
 
-@pytest.mark.skipif(not os.environ.get('ODIN_LARGE_PLATE_BENCHMARK'), reason='opt-in large synthetic benchmark')
 def test_two_concurrent_large_dispatches(review_db, tmp_path, monkeypatch):
     from core.crypto import encrypt
     from core.print_payload_snapshot import hash_regular_payload
     from core.ams_source_inspection import inspect_ams_sources
     from modules.printers import dispatch, services
     from ops.large_plate_benchmark import make_plate, peak_rss_bytes
-    size = int(os.environ['ODIN_LARGE_PLATE_BENCHMARK'])
+    # Contract runs use a 1 MiB plate (the gate allows no skips); the benchmark sets the size.
+    size = int(os.environ.get('ODIN_LARGE_PLATE_BENCHMARK', '1'))
     engine, path = setup_h2d(review_db, tmp_path, monkeypatch, mapping=[-1, 1])
     make_plate(path, size)
     hardware(monkeypatch)
