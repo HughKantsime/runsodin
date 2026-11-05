@@ -256,6 +256,13 @@ def export_audit_logs_csv(
     writer = csv.writer(output)
     writer.writerow(["ID", "Timestamp", "Action", "Entity Type", "Entity ID", "Details", "IP Address", "User ID", "Username", "Authentication"])
     for log_entry, actor_id, actor_name, actor_kind in logs:
+        # SSO is an entity-linked login, deliberately not a password/JWT actor.
+        details = log_entry.details
+        if (actor_id is None and log_entry.action == 'auth.login'
+                and log_entry.entity_type == 'user' and isinstance(details, dict)
+                and details.get('method') == 'oidc'
+                and details.get('username') not in (None, '[deleted]')):
+            actor_id, actor_name = log_entry.entity_id, details['username']
         writer.writerow([
             log_entry.id,
             log_entry.timestamp.isoformat() if log_entry.timestamp else "",

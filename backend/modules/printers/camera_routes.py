@@ -26,6 +26,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.audit import audit_download
+from core.audit_views import audit_view, view_recorder
 from core.db import get_db
 from core.dependencies import get_current_user, log_audit, validate_access_token
 from core.rbac import require_role, check_org_access, has_permission, token_scope_granted, handler_enforces_token_scope
@@ -192,7 +193,16 @@ def _read_lifetime(request,db,principal,tid,*,query_allowed=False,attachment=Fal
         provider=require_timelapse_media_provider()
         evidence=selected_evidence(request,db,principal,provider=provider,purpose='read',query_allowed=query_allowed)
         engine=db.get_bind();db.rollback();db.close()
-        return provider.admitted_response(engine,TIMELAPSE_ROOT,tid,evidence,range_header=request.headers.get('range'),head=request.method=='HEAD',filename=f'odin_timelapse_{tid}.mp4' if attachment else None,expected_nonce=expected)
+        response = provider.admitted_response(engine,TIMELAPSE_ROOT,tid,evidence,range_header=request.headers.get('range'),head=request.method=='HEAD',filename=f'odin_timelapse_{tid}.mp4' if attachment else None,expected_nonce=expected)
+        try:
+            if attachment:
+                audit_download(db, 'timelapse.downloaded', 'timelapse', tid)
+            else:
+                audit_view(db, 'timelapse.viewed', 'timelapse', tid)
+        except BaseException:
+            response.close()
+            raise
+        return response
     except (RetirementUnavailable,MediaGuardUnavailable) as error:raise HTTPException(503,detail='Timelapse admission refused: '+getattr(error,'reason','writer_active')) from None
 
 @router.api_route("/timelapses/{timelapse_id}/video",methods=['GET','HEAD'],tags=['Timelapses'],dependencies=[Depends(handler_enforces_token_scope('read:printers'))])
@@ -251,13 +261,7 @@ def stream_timelapse(timelapse_id:int,request:Request,token:Optional[str]=None,d
 
 @router.api_route("/timelapses/{timelapse_id}/download",methods=['GET','HEAD'],tags=['Timelapses'],dependencies=[Depends(handler_enforces_token_scope('read:printers'))])
 def download_timelapse(timelapse_id:int,request:Request,db:Session=Depends(get_db),current_user:dict=Depends(get_current_user)):
-    response = _read_lifetime(request,db,current_user,timelapse_id,attachment=True)
-    try:
-        audit_download(db, "timelapse.downloaded", "timelapse", timelapse_id)
-    except BaseException:
-        response.close()
-        raise
-    return response
+    return _read_lifetime(request,db,current_user,timelapse_id,attachment=True)
 
 
 def _edit_contention(error):
@@ -441,6 +445,7 @@ async def camera_webrtc(printer_id: int, request: Request, db: Session = Depends
             )
         if resp.status_code >= 400:
             raise HTTPException(status_code=502, detail=f"go2rtc returned {resp.status_code}")
+        audit_view(db, "camera.viewed", "printer", printer_id, "webrtc")
         return Response(content=resp.content, media_type=resp.headers.get("content-type", "application/sdp"))
     except httpx.ConnectError:
         raise HTTPException(status_code=502, detail="go2rtc is not reachable")
@@ -522,6 +527,14 @@ def _overlay_release(entry):
 async def overlay_camera_stream(printer_id: int, token: Optional[str] = Query(None), db: Session = Depends(get_db)):
     """Camera-only OBS token relay; recheck authority without holding a session."""
     from modules.printers.mjpeg_relay import open_mjpeg
+    from core.audit_actor import bind_verified_actor
+    from fastapi.concurrency import run_in_threadpool
+    def authorize():
+        printer = db.get(Printer, printer_id)
+        principal = overlay_camera_principal(db, token, printer)
+        bind_verified_actor(db, principal, 'user_api_token')
+    await run_in_threadpool(authorize)
+    record = view_recorder(db, 'camera.viewed', 'printer', printer_id, 'mjpeg')
     bind = db.get_bind()
     db.close()
 
@@ -532,5 +545,5 @@ async def overlay_camera_stream(printer_id: int, token: Optional[str] = Query(No
     return await open_mjpeg(
         printer_id, check=lambda: _overlay_check(bind, token, printer_id),
         sync=sync, claim=_overlay_claim, release=_overlay_release,
-        revalidate_seconds=OVERLAY_REVALIDATE_SECONDS,
+        revalidate_seconds=OVERLAY_REVALIDATE_SECONDS, audit=record,
     )

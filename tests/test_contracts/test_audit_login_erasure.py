@@ -112,3 +112,31 @@ def test_password_history_scrubs_multiple_pages(client, review_db):
     rows = review_db.execute(text("SELECT CAST(details AS TEXT),ip_address FROM audit_logs WHERE action='login_failed'")).all()
     assert len(rows) == 501
     assert all(json.loads(details) == 'Failed login: [deleted]' and ip is None for details, ip in rows)
+
+
+def test_view_and_sso_history_exported_and_erased_through_routes(client, review_db):
+    from core.audit import log_audit
+    from core.audit_actor import RequestAuditScope, bind_verified_actor
+    c, bearer, _, _ = client
+    log_audit(review_db, 'auth.login', 'user', 1,
+              {'method': 'oidc', 'username': 'student'}, ip='192.0.2.9')
+    log_audit(review_db, 'auth.login_failed', 'user', details={
+        'method': 'oidc', 'username': 'student', 'reason': 'user_inactive'}, ip='192.0.2.9')
+    scope = RequestAuditScope('192.0.2.9'); scope.register(review_db)
+    bind_verified_actor(review_db, {'id': 1, 'username': 'student'}, 'user_api_token')
+    log_audit(review_db, 'camera.viewed', 'printer', 9, {'transport': 'snapshot'})
+    log_audit(review_db, 'timelapse.viewed', 'timelapse', 9)
+    review_db.commit(); scope.clear()
+    exported = c.get('/users/1/export', headers=bearer('admin'))
+    assert exported.status_code == 200
+    assert {'camera.viewed', 'timelapse.viewed'} <= {
+        row['action'] for row in exported.json()['audit_actions_performed']}
+    assert c.delete('/users/1/erase', headers=bearer('admin')).status_code == 200
+    review_db.rollback()
+    found = review_db.execute(text("SELECT action,entity_id,details,actor_username,ip_address FROM audit_logs "
+                                   "WHERE action IN ('auth.login','auth.login_failed','camera.viewed','timelapse.viewed')")).all()
+    assert len(found) == 4
+    for row in found:
+        assert row.actor_username is None and row.ip_address is None
+        assert 'student' not in row.details
+        if row.action == 'auth.login': assert row.entity_id == 1

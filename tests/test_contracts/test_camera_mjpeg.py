@@ -88,6 +88,8 @@ async def open_stream(db, user=1, request=None, request_db=None):
     from core.dependencies import get_current_user, oauth2_scheme
     request = request if request is not None else jwt_request(db, user)
     request_db = request_db if request_db is not None else Session(db.get_bind())
+    from core.audit_actor import RequestAuditScope
+    RequestAuditScope("198.51.100.7").register(request_db)
     token = await oauth2_scheme(request)
     # Give admission its own request context: subsequent admin mutations must
     # not inherit the API caller's credential-write guard.

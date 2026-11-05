@@ -150,7 +150,8 @@ def _finish(db, printer_id, user, data, key, record, guard):
     try:
         from modules.printers.dispatch import dispatch_job
         from modules.printers.maintenance_gate import capture_refusal
-        with capture_refusal() as refusal:
+        from core.audit_dispatch import caller_records_acceptance
+        with capture_refusal() as refusal, caller_records_acceptance():
             success, message = dispatch_job(printer_id, data.suggested_job_id)
         result = {'success': success, 'message': message, 'job_id': data.suggested_job_id,
                   'request_id': str(data.request_id), 'state': 'dispatched' if success else 'refused'}

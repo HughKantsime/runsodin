@@ -74,13 +74,15 @@ def release_unstarted(engine, token):
 def record_outcome(engine,token,status, *, audit_actor=None):
     if status not in ('accepted','uncertain'):
         return False
-    if status != 'accepted' or audit_actor is None:
+    from core.audit_dispatch import caller_owns_acceptance
+    if status != 'accepted' or (audit_actor is None and caller_owns_acceptance()):
         return _change(engine,token,update(TABLE).where(TABLE.c.state=='adapter_entered').values(state=status,updated_at=func.now()))
     from sqlalchemy.orm import Session
+    from contextlib import nullcontext
     from core.audit import log_audit
     try:
         with Session(engine) as db:
-            with audit_actor(db):
+            with audit_actor(db) if audit_actor else nullcontext():
                 claim = db.execute(update(TABLE).where(TABLE.c.token==token, TABLE.c.state=='adapter_entered')
                     .values(state=status,updated_at=func.now()).returning(TABLE.c.job_id,TABLE.c.printer_id)).one_or_none()
                 if claim is None:

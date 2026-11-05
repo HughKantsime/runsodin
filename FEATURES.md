@@ -737,8 +737,8 @@ and browser reachability check. Cellular and native-device validation is owner-r
 
 ### 19.1 Audit Log
 - Searchable `audit_logs` history of audited password and SSO sign-in outcomes, print-file uploads, model/mesh and backup/timelapse downloads, project/profile/training-data and CSV exports, print submission and dispatch, and administrative changes.
-- Request events record the user and peer IP when available. OIDC success identifies the user by entity ID; OIDC actor username/authentication columns remain empty. Failed sign-ins do not identify a verified user. Erased actors and older or unbound events can be unknown.
-- Playback/live camera streams and actions without an audit producer are not logged.
+- Request events record the user and peer IP when available. OIDC success identifies the user by entity ID and details username; CSV identity columns are populated without assigning a password/JWT authentication kind. Failed sign-ins do not identify a verified user. Erased actors and older or unbound events can be unknown.
+- Live camera starts (WebRTC, MJPEG, snapshots and OBS) and timelapse playback are audited at most once per user/resource/transport every 15 minutes across workers; MJPEG renews its audit window during streaming. Required audit failures refuse media or end an established stream. Automatic dispatch identifies the scheduler and submitting/approving user IDs when known.
 - Audit log viewer (platform superadmin only)
 - CSV export with filters (v1.0.26; Enterprise license), capped at 5,000 entries with truncation headers and a notice to narrow dates.
 - Audit log introduced in v1.2.0

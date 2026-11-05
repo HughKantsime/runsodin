@@ -430,7 +430,9 @@ def dispatch_job_to_printer(
 
     try:
         from modules.printers.dispatch import dispatch_job
-        success, message = dispatch_job(job.printer_id, job_id)
+        from core.audit_dispatch import caller_records_acceptance
+        with caller_records_acceptance():
+            success, message = dispatch_job(job.printer_id, job_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Dispatch error: {e}")
 

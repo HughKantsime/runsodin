@@ -46,7 +46,7 @@ def release_stream(entries, entry):
         entries.remove(entry)
 
 
-async def open_mjpeg(printer_id, *, check, sync, claim, release, revalidate_seconds=30):
+async def open_mjpeg(printer_id, *, check, sync, claim, release, revalidate_seconds=30, audit=None):
     """Authorize, admit, open upstream and relay without retaining a DB session."""
     viewer = await run_in_threadpool(check)
     entry = claim(viewer, printer_id)
@@ -87,6 +87,8 @@ async def open_mjpeg(printer_id, *, check, sync, claim, release, revalidate_seco
         content_type = upstream.headers.get("content-type", "")
         if upstream.status_code != 200 or content_type.split(";", 1)[0].lower() != "multipart/x-mixed-replace":
             raise HTTPException(status_code=502, detail="Camera stream unavailable")
+        if audit is not None:
+            await run_in_threadpool(audit)
     except BaseException:
         await close_once()
         raise
@@ -111,6 +113,8 @@ async def open_mjpeg(printer_id, *, check, sync, claim, release, revalidate_seco
                 if _time.monotonic() >= next_check:
                     try:
                         current = await run_in_threadpool(check)
+                        if audit is not None:
+                            await run_in_threadpool(audit)
                     except HTTPException:
                         log.info("Camera stream for printer %s ended: authorization withdrawn", printer_id)
                         return
