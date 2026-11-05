@@ -26,8 +26,8 @@ images live in the GitHub Container Registry. Data lives in a mounted volume.
   GitHub repo ──► │ Trusted validation   │ ──► signed evidence (no publish)
                   └──────────────────────┘
                                               │
-                           Watchtower polls   ▼
-  ┌────────────┐    ┌────────────────────┐   pulls + restarts
+                       Checker → latest     ▼
+  ┌────────────┐    ┌────────────────────┐   v4 safe host update
   │ Your users │ ──►│ openresty / NPM    │ ────► Docker host
   │            │    │ (TLS + proxy)      │           │
   └────────────┘    └────────────────────┘           ▼
@@ -69,7 +69,7 @@ images live in the GitHub Container Registry. Data lives in a mounted volume.
 | Logs | `/data/backend.log` | Uvicorn + application stdout/stderr |
 
 **Outside the container:**
-- **Watchtower** — container on the same Docker host. Polls GHCR every ~5 min, pulls new `:latest`, restarts `odin`.
+- **Watchtower** — continues watching other labelled containers. After the explicit v4 migration, `odin` has `com.centurylinklabs.watchtower.enable=false` and is updated by v4 behind its fleet gate. Until migration, the existing Watchtower behavior remains.
 - **openresty / NPM** — reverse proxy on a different host (the LAN perimeter). Terminates TLS. Forwards to `odin:8000`.
 - **Uptime Kuma** — watches the public URL, alerts via email on consecutive failures.
 - **vzdump / Proxmox** — snapshots the LXC (or VM) holding the container daily to an NFS target.
@@ -97,9 +97,16 @@ Current GitHub Actions surface:
    recovered by providing that failed run ID and exact receipt SHA-256 together.
    Recovery re-verifies both live immutable tags and exact manifests and does not
    rebuild; it is not a bypass for build, probe, tag, or receipt failures.
-5. **Promote Image to Production** — requires fresh production eligibility,
-   valid TLS, healthy current production, and an exact publication receipt;
+5. **Promote Image to Production** — requires fresh production eligibility and
+   an exact publication receipt; boots its digest on a disposable Mac/Colima
+   checker, verifies health/readiness and fresh-install smoke, removes it, then
    creates a durable rollback tag and moves `latest` without rebuilding.
+6. **v4 customer completion** — publishes the GitHub Release from verified
+   receipt evidence, then moves main to the candidate. Shane's printers are not
+   consulted for these steps.
+7. **v4 instance update** — waits for the existing fleet safety gate, opens the
+   owned deploy window/freeze, pulls and restarts only `odin` at the released
+   digest, verifies health/readiness and closes the window. Logs both outcomes.
 
 ### 2.2 Verify a deploy actually landed
 
@@ -111,9 +118,9 @@ curl -sS https://<your-odin-host>/health
 # → {"status":"ok","version":"X.Y.Z","database":"...","spoolman_connected":false}
 ```
 
-If these don't match your freshly-released version, Watchtower hasn't
-reconciled yet (wait a few minutes) OR it's broken (see incident
-response below).
+After v4 migration, Shane's health version may intentionally lag the customer
+release while the fleet gate waits. Check the chain log's customer and instance
+outcomes separately. Other installations may still use Watchtower.
 
 ### 2.3 Observe live traffic
 
@@ -126,6 +133,86 @@ docker exec odin tail -f /data/backend.log
 From anywhere (if SSH is unavailable), the container's health check runs every 30s; `docker ps` will show the health status.
 
 ---
+
+### 2.4 Decoupled release migration and instance update
+
+**Merge order:** finish the running v3 release without editing its script. Merge
+this change through the existing release path to main: promotion workflow,
+checker and capacity helper closure, versioned receipt schema/validator, instance
+helper, tests and documentation must land together. Workflows fetch helpers from
+`github.workflow_sha` on main, so the release which merges this change still uses
+the old flow. Use v4 for the **following** release. The updated external
+`tools/github-release.sh` reads both old and new receipts. v4 checks that main's
+promotion workflow uses the checker before proceeding.
+
+**First v4 release only:** pass the explicit flag:
+
+```bash
+/Users/ollama/Documents/Claude/odin/.claude/release-chain-v4.sh <checkout> X.Y.Z '<authorization>' --migrate-watchtower
+```
+
+After immutable publication, before customer eligibility/promotion, this flag
+waits for a safe fleet window and opens the existing owned freeze. It writes
+`/opt/odin/runsodin/docker-compose.override.yml` as a JSON-compatible YAML
+Compose override containing only `services.odin.labels` with
+`com.centurylinklabs.watchtower.enable: "false"`. An existing unknown override
+fails closed and requires operator reconciliation; it is never overwritten.
+The override is automatically used by ordinary `docker compose` in this directory.
+The chain recreates **the currently running local image ID**, with `--pull never`
+and `--no-deps`, verifies that image ID and the effective/running label, waits for
+its original version and readiness, then closes the window. It does not change
+Watchtower or other services. Later v4 runs omit the flag and check the effective
+Compose and running label before moving `latest`. Thus first-use migration can
+wait on the fleet; subsequent customer releases do not. Host reachability for
+the Watchtower safety check is still required before promotion.
+
+The checker runs on `[self-hosted, mac-mini-runner, m4]`, using Colima and isolated
+registry credentials. It uses `--pull=always` with the exact published index,
+explicit `--platform linux/amd64` (Rosetta) followed by `--platform linux/arm64`,
+and verifies OS/architecture from each running container's immutable image ID.
+Each gets its own container and fresh `/data` volume, named
+`${CHECKER_NAME}-linux-amd64[-data]` or `${CHECKER_NAME}-linux-arm64[-data]`,
+no seeded administrator/printers, and a Docker-assigned
+loopback port. `/health` must report `status=ok` and the requested version;
+`/health/ready` must report `ready=true` and that version. HTTP 401/403 are failures
+for the checker. Smoke checks `/api/version`, the `/login` and `/setup` SPA shells,
+and `/api/setup/status` requiring setup, no users, and incomplete setup. These are
+HTTP smoke checks, not a browser sign-in journey or hardware certification.
+Python cleanup, a shell EXIT trap and an `always()` workflow step remove the
+containers/volumes; each platform is cleaned before the next starts, and cleanup
+failure prevents `latest` from moving. Schema 2 receipts require both platform
+results under `checker_health.platforms`. A runner power
+loss may leave run-named resources for operator cleanup. Capacity retains the
+existing pinned probe; never run `docker image prune -a`.
+
+After the customer release, v4 reuses `idle_fleet`, including ending-print,
+dispatch, telemetry-progress and Vigil checks. It opens the marker and owned
+freeze, runs `docker compose ... pull odin` with a temporary exact-digest override,
+then rechecks the freeze/grace/fleet before `docker compose ... up -d --no-deps
+--pull never odin`. It verifies the container image ID/reference against the
+pulled digest and polls both health endpoints inside the container over SSH.
+This avoids public perimeter exceptions and requires strict readiness. Pull
+failure leaves the running container unchanged. Restart or health failure prints
+a retained `.odin-rollback-<token>.json` command for the prior local image ID;
+execute it only in a safe window. Database rollback/restore compatibility must be
+assessed separately. Customer tags and GitHub Releases are never undone because
+this instance phase failed. Unresolved SSH mutations retain protection for
+manual reconciliation; ordinary completed failures close the window (a freeze
+that cannot be removed expires under the existing 30-minute cap).
+
+Retry just Shane's update, or apply a known restored digest after registry rollback:
+
+```bash
+/Users/ollama/Documents/Claude/odin/.claude/release-chain-v4.sh <checkout> X.Y.Z '<authorization>' --update-instance-only sha256:<exact-digest>
+```
+
+Use the matching version and digest from the verified release/rollback evidence.
+This mode does not publish, move `latest`, change main, or create a GitHub Release.
+It requires Watchtower isolation and uses the same host gate/window/pull/verify
+path. `rollback-2.0-production.yml` still restores its fixed historical `latest`
+digest, but cannot update Shane's migrated instance by itself; use this mode
+with that digest and its original version. Read `~/.odin-release-chain-X.Y.Z.log`
+for `CUSTOMER RELEASE SUCCESS`, instance status and the final `OUTCOME` line.
 
 ## 3. Monitoring
 
@@ -235,7 +322,8 @@ PRIOR_DIGEST=sha256:<prior-digest>
 test "$(docker buildx imagetools inspect "$IMAGE:$ROLLBACK_TAG" --format '{{.Manifest.Digest}}')" = "$PRIOR_DIGEST"
 docker buildx imagetools create --tag "$IMAGE:latest" "$IMAGE@$PRIOR_DIGEST"
 test "$(docker buildx imagetools inspect "$IMAGE:latest" --format '{{.Manifest.Digest}}')" = "$PRIOR_DIGEST"
-# Watchtower now reconciles the exact prior digest. Verify through normal TLS:
+# Other Watchtower users reconcile the prior digest. For Shane, use section 2.4
+# --update-instance-only with the restored version/digest, then verify:
 curl -fsS https://odin.subsystem.app/health | python3 -m json.tool
 ```
 
@@ -271,7 +359,8 @@ curl -fsS http://localhost:8000/health | python3 -m json.tool
 # expect: {"status":"ok","version":"1.9.3", ...}
 ```
 
-**Watchtower interaction.** The primary digest rollback keeps compose on
+**Watchtower interaction (other installations).** Shane uses the explicit update
+step in section 2.4 after registry rollback. On other hosts, the primary digest rollback keeps compose on
 `:latest`; Watchtower observes the restored manifest and reconciles it. Once a
 break-glass compose file is pinned to `:vX.Y.Z`,
 Watchtower checks for updates against that immutable tag and finds
@@ -614,7 +703,9 @@ ssh root@<pve-host> 'pvesm list proxmox_nas_backup --content backup --vmid 112'
 # Most recent row should be from within the last 24 hours.
 ```
 
-### 8.6 Force Watchtower to reconcile right now
+### 8.6 Force Watchtower to reconcile right now (other installations)
+
+Shane's migrated `odin` is excluded. Use section 2.4 to update it safely.
 
 ```
 # Watchtower watches labeled containers. Trigger an immediate check:

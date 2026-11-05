@@ -132,15 +132,26 @@ def validate_receipt(payload: dict[str, Any]) -> None:
             _fail("RECEIPT_INVALID", "publication success invariants failed")
     else:
         expected_tags = {payload["rollback_tag"], "latest"}
-        health = payload["public_health"]
-        if payload["phase"] != "production_observed" or payload["rollback_tag"] != f"rollback-{payload['run_id']}-{payload['run_attempt']}" \
+        legacy = payload["schema_version"] == 1
+        health = payload["public_health"] if legacy else payload["checker_health"]
+        healthy = (health["tls_valid"] is True and health["ready_observation"] in
+                   {"ready_true", "perimeter_401", "perimeter_403"}) if legacy else (
+                       health["ready"] is True and health["digest"] == target
+                       and set(health["platforms"]) == {"linux/amd64", "linux/arm64"}
+                       and health["image_id"] == health["platforms"]["linux/amd64"]["image_id"]
+                       and all(health["smoke"].values())
+                       and all(result["status"] == "ok" and result["ready"] is True
+                               and result["digest"] == target and result["version"] == payload["version"]
+                               and all(result["smoke"].values())
+                               for result in health["platforms"].values()))
+        final_phase = "production_observed" if legacy else "registry_verified"
+        if payload["phase"] != final_phase or payload["rollback_tag"] != f"rollback-{payload['run_id']}-{payload['run_attempt']}" \
                 or set(tags) != expected_tags or len(writes) != len(expected_tags) \
                 or set(completed) != expected_tags or completed[payload["rollback_tag"]]["after"] != payload["prior_latest_digest"] \
                 or completed["latest"]["before"] != payload["prior_latest_digest"] \
                 or completed["latest"]["after"] != target or payload["observed_latest_digest"] != target \
-                or health["tls_valid"] is not True or health["status"] != "ok" \
-                or health["version"] != payload["version"] \
-                or health["ready_observation"] not in {"ready_true", "perimeter_401", "perimeter_403"}:
+                or not healthy or health["status"] != "ok" \
+                or health["version"] != payload["version"]:
             _fail("RECEIPT_INVALID", "production success invariants failed")
 
 
@@ -572,7 +583,10 @@ def render_receipt(state: dict[str, Any], output_dir: Path) -> dict[str, Any]:
         error = state.get("error") or {}
         rollback = ""
         if kind == "production":
-            rollback = f"<h2>Rollback</h2><dl><dt>Prior digest</dt><dd><code>{html.escape(state['prior_latest_digest'])}</code></dd><dt>Rollback tag</dt><dd><code>{html.escape(state['rollback_tag'])}</code></dd><dt>Restore command</dt><dd><code>{html.escape(state['rollback_command'])}</code></dd><dt>Readiness</dt><dd>{html.escape(state['public_health']['ready_observation'])}</dd></dl>"
+            readiness = state["public_health"]["ready_observation"] if state["schema_version"] == 1 else "checker ready_true: " + state["checker_health"]["runner"]
+            if state["schema_version"] == 2:
+                readiness += " (" + ", ".join(state["checker_health"]["platforms"]) + ")"
+            rollback = f"<h2>Rollback</h2><dl><dt>Prior digest</dt><dd><code>{html.escape(state['prior_latest_digest'])}</code></dd><dt>Rollback tag</dt><dd><code>{html.escape(state['rollback_tag'])}</code></dd><dt>Restore command</dt><dd><code>{html.escape(state['rollback_command'])}</code></dd><dt>Readiness</dt><dd>{html.escape(readiness)}</dd></dl>"
         tools = " · ".join(f"{html.escape(name)} {html.escape(value)}" for name, value in state["tool_versions"].items())
         page = f"""<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>ODIN {html.escape(kind.title())} Receipt</title><style>body{{font:16px/1.5 system-ui;max-width:960px;margin:auto;padding:32px;color:#16202a}}code{{overflow-wrap:anywhere}}dt{{font-weight:700}}.ok{{color:#08783e}}.bad{{color:#b42318}}</style></head><body><main><h1>ODIN {html.escape(kind.title())} Receipt</h1><p class=\"{'ok' if state['status']=='success' else 'bad'}\" role=\"status\">{html.escape(state['status'].upper())}</p><dl><dt>Phase</dt><dd>{html.escape(state['phase'])}</dd><dt>Candidate</dt><dd><code>{html.escape(state['candidate_sha'])}</code></dd><dt>Version</dt><dd>{html.escape(state['version'])}</dd><dt>Target digest</dt><dd><code>{html.escape(str(state.get('target_digest')))}</code></dd><dt>Error</dt><dd>{html.escape(str(error.get('code', 'none')))}</dd><dt>Tools</dt><dd>{tools}</dd></dl>{rollback}<p>Receipt SHA-256: <code>{digest}</code></p></main></body></html>"""
         (temporary / "index.html").write_text(page, encoding="utf-8")
