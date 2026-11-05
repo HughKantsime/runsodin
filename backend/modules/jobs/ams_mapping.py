@@ -4,6 +4,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 from core.ams_mapping import validate_for_printer, preview
 from core.ams_mapping import mapping_audit_details
+from core.print_payload import MappingMaterialMismatch
 from core.rbac import check_org_access
 from modules.jobs.education_guard import assert_generic_job_mutation_allowed
 from modules.jobs.pinning import job_pin, pin_columns, pinned_printer_id
@@ -11,7 +12,7 @@ from modules.jobs.pinning import job_pin, pin_columns, pinned_printer_id
 
 def lock_mapping_edit(db, job_id, updates):
     # Target edits also serialize: a retained mapping may never drift to another printer.
-    if not updates.model_fields_set.intersection({'ams_mapping', 'printer_id', 'pinned_printer_id', 'model_id'}):
+    if not updates.model_fields_set.intersection({'ams_mapping', 'printer_id', 'pinned_printer_id', 'model_id', 'hold'}):
         return
     statement = ('SELECT id FROM jobs WHERE id=:id FOR UPDATE NOWAIT'
                  if db.get_bind().dialect.name == 'postgresql' else
@@ -41,15 +42,21 @@ def checked_changes(db, actor, job, changes):
     if not explicit:
         if job.ams_mapping is not None and (target != job.printer_id or pin != job_pin(job)):
             raise HTTPException(409, 'Clear or replace the AMS mapping when changing its target printer')
+        if job.hold and changes.get('hold') is False:
+            assert_release_ready(db, actor, job)
         return changes
     assert_editable(db, job)
     mapping = changes['ams_mapping']
+    if mapping is None and job.hold and changes.get('hold') is False:
+        assert_release_ready(db, actor, job)
     if mapping is not None:
         if pin is not None and target is not None and pin != target:
             raise HTTPException(409, 'AMS mapping target must match the assigned printer')
         target = pin or target
         file = source_file(db, job, actor)
-        changes['ams_mapping'] = validate_for_printer(db, mapping, file.filaments_json, target, actor)
+        changes['ams_mapping'] = validate_for_printer(
+            db, mapping, file.filaments_json, target, actor,
+            check_material=changes.get('hold', job.hold) is not True)
         changes.update(pin_columns(target))
         changes['printer_id'] = target
     return changes
@@ -91,5 +98,56 @@ def detail_view(db, job, actor):
     except HTTPException:
         # An optional suggestion must never hide an otherwise accessible job.
         return result
+    if job.hold and result['ams_preview'] is not None:
+        result['ams_preview']['planned_loads'] = planned_loads(job, result['ams_preview'])
     result['ams_mapping_editable'] = result['ams_preview'] is not None
     return result
+
+
+def assert_release_ready(db, actor, job):
+    """Validate the saved protocol vector against current trays before releasing."""
+    if not job.hold or job.ams_mapping is None:
+        return
+    file = source_file(db, job, actor)
+    mapping = [{'source_slot': i + 1, 'target_slot': slot + 1}
+               for i, slot in enumerate(job.ams_mapping) if slot >= 0]
+    validate_for_printer(db, mapping, file.filaments_json, job_pin(job) or job.printer_id, actor)
+
+
+def checked_repeat_mapping(db, actor, original):
+    """Return a validated mapping and whether the repeat needs a planned hold."""
+    if original.ams_mapping is None:
+        return None, False
+    file = source_file(db, original, actor)
+    mapping = [{'source_slot': i + 1, 'target_slot': slot + 1}
+               for i, slot in enumerate(original.ams_mapping) if slot >= 0]
+    args = (db, mapping, file.filaments_json, job_pin(original) or original.printer_id, actor)
+    # Check every slot first: an early material mismatch must not hide a later structural error.
+    validated = validate_for_printer(*args, check_material=False)
+    if original.hold:
+        return validated, True
+    try:
+        validate_for_printer(*args)
+    except MappingMaterialMismatch:
+        return validated, True
+    return validated, False
+
+
+def planned_loads(job, facts):
+    """Read-only live load instructions; never persist a readiness flag."""
+    from core.material_identity import canonical_reported_material
+    if not job.hold or job.ams_mapping is None:
+        return []
+    available = {slot['slot']: slot['material'] for slot in facts['available']}
+    loads = []
+    for source in facts['required']:
+        index = source['slot'] - 1
+        target = job.ams_mapping[index] + 1 if index < len(job.ams_mapping) else 0
+        material = canonical_reported_material(source['material'])
+        if target < 1 or target not in available:
+            loads.append(f"remap filament {source['slot']} to an available tray")
+        elif material is None:
+            loads.append(f"verify source material for filament {source['slot']}")
+        elif material != canonical_reported_material(available[target]):
+            loads.append(f"load {material} in AMS {(target - 1) // 4 + 1} slot {(target - 1) % 4 + 1}")
+    return list(dict.fromkeys(loads))

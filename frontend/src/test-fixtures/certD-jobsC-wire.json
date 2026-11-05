@@ -3767,6 +3767,7 @@
   "reordered": 3
  },
  "repeat_response": {
+  "held_for_planned_load": false,
   "message": "Job cloned successfully",
   "new_job_id": 218,
   "original_job_id": 206,

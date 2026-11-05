@@ -57,8 +57,13 @@ export function useJobMutations() {
   })
 
   const repeatJob = useMutation({
-    mutationFn: async (jobId) => jobs.repeat(jobId),
-    onSuccess: () => { inv(); toast.success('Job duplicated') },
+    mutationFn: async (jobId: number) => jobs.repeat(jobId),
+    onSuccess: (result) => {
+      inv()
+      toast.success(result.held_for_planned_load
+        ? 'Job duplicated and held for planned filament loading. Review the job’s planned load before releasing.'
+        : 'Job duplicated')
+    },
     onError: (err) => toast.error('Repeat job failed: ' + err.message),
   })
 

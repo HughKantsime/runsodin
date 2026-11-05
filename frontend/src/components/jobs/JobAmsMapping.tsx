@@ -5,7 +5,7 @@ import AmsMappingEditor, { useAmsMapping, type AmsMapping } from '../shared/AmsM
 import type { ArchiveAmsPreview } from '../../types/archive'
 
 export default function JobAmsMapping({ job }: { job: {
-  id: number; status: string; printer_id?: number | null; ams_mapping?: number[] | null;
+  id: number; status: string; hold?: boolean | null; printer_id?: number | null; ams_mapping?: number[] | null;
   ams_preview?: ArchiveAmsPreview | null; ams_mapping_editable?: boolean;
 } }) {
   const client = useQueryClient()
@@ -17,11 +17,26 @@ export default function JobAmsMapping({ job }: { job: {
       client.invalidateQueries({ queryKey: ['job-timeline', job.id] })
     },
   })
+  const release = useMutation({ mutationFn: () => jobs.update(job.id, { hold: false }),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ['job', job.id] })
+      client.invalidateQueries({ queryKey: ['jobs'] })
+      client.invalidateQueries({ queryKey: ['timeline'] })
+    },
+    onError: () => { client.invalidateQueries({ queryKey: ['job', job.id] }) },
+  })
+  const loads = job.ams_preview?.planned_loads ?? []
   const editable = canDo('jobs.edit') && job.ams_mapping_editable && ['pending', 'scheduled'].includes(job.status)
   return <section aria-label="Job AMS mapping" className="rounded-md border border-[var(--brand-card-border)] p-4">
     <p className="text-sm">Saved AMS mapping: {job.ams_mapping?.length ? job.ams_mapping.flatMap((slot, index) => slot < 0 ? [] : [`Filament ${index + 1} → Slot ${slot + 1}`]).join(', ') : 'None'}</p>
+    {job.hold && loads.length > 0 && <p role="status">Planned: {loads.join('; ')}</p>}
+    {job.hold && editable && <button type="button" disabled={release.isPending || save.isPending || loads.length > 0}
+      onClick={() => release.mutate()} className="px-3 py-2 rounded text-sm">
+      {loads.length ? `Release hold — ${loads.join('; ')}` : 'Release hold'}
+    </button>}
+    {release.isError && <p role="alert">{release.error.message || 'Could not release hold'}</p>}
     {editable && <>
-      <AmsMappingEditor preview={job.ams_preview} {...selection} />
+      <AmsMappingEditor preview={job.ams_preview} planned={job.hold === true} {...selection} />
       <button type="button" disabled={save.isPending || !selection.value} onClick={() => save.mutate(selection.value!)} className="px-3 py-2 bg-[var(--brand-primary)] rounded text-sm">Save AMS mapping</button>
       {job.ams_mapping != null && <button type="button" disabled={save.isPending} onClick={() => save.mutate(null)} className="px-3 py-2 text-sm">Clear AMS mapping</button>}
     </>}
@@ -33,7 +48,7 @@ export default function JobAmsMapping({ job }: { job: {
 
 
 export function JobAmsMappingPanel({ jobId }: { jobId: number }) {
-  const { data, isLoading, error } = useQuery({ queryKey: ['job', jobId], queryFn: () => jobs.get(jobId) })
+  const { data, isLoading, error } = useQuery({ queryKey: ['job', jobId], queryFn: () => jobs.get(jobId), refetchInterval: 5000 })
   if (isLoading) return <p role="status">Loading job mapping...</p>
   if (error) return <p role="alert">Could not load job mapping.</p>
   return data ? <JobAmsMapping job={data} /> : null

@@ -32,7 +32,7 @@ export const jobs = {
   cancel: (id: number): Promise<Job> => fetchAPI('/jobs/' + id + '/cancel', { method: 'POST' }),
   fail: (id: number): Promise<Job> => fetchAPI('/jobs/' + id + '/fail', { method: 'POST' }),
   reorder: (jobIds: number[]): Promise<void> => fetchAPI('/jobs/reorder', { method: 'PATCH', body: JSON.stringify({ job_ids: jobIds }) }),
-  repeat: (id: number): Promise<Job> => fetchAPI('/jobs/' + id + '/repeat', { method: 'POST' }),
+  repeat: (id: number): Promise<{ success: boolean; message: string; original_job_id: number; new_job_id: number; held_for_planned_load: boolean }> => fetchAPI('/jobs/' + id + '/repeat', { method: 'POST' }),
   dispatch: dispatchWithConfirmation,
 }
 

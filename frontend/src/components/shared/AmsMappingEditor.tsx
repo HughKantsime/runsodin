@@ -21,8 +21,8 @@ export function useAmsMapping(preview: ArchiveAmsPreview | null | undefined, con
   }
 }
 
-export default function AmsMappingEditor({ preview, loading, error, mapping, enabled, valid, onChange, onEnabledChange }: {
-  preview?: ArchiveAmsPreview | null; loading?: boolean; error?: boolean;
+export default function AmsMappingEditor({ preview, loading, error, mapping, enabled, valid, onChange, onEnabledChange, planned = false }: {
+  planned?: boolean; preview?: ArchiveAmsPreview | null; loading?: boolean; error?: boolean;
   mapping: AmsMapping; enabled: boolean; valid: boolean;
   onChange: (value: AmsMapping) => void; onEnabledChange: (value: boolean) => void;
 }) {
@@ -50,8 +50,8 @@ export default function AmsMappingEditor({ preview, loading, error, mapping, ena
           </li>
         })}</ul>
         <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={enabled} onChange={e => onEnabledChange(e.target.checked)} />Use this mapping</label>
-        {enabled && !valid && <p role="alert">Choose a distinct loaded slot for every filament.</p>}
-        <p className="text-xs text-[var(--brand-text-muted)]">Confirm the loaded materials before saving. Suggestions are not applied until you confirm.</p>
+        {enabled && !valid && <p role="alert">Choose a distinct slot for every filament.</p>}
+        <p className="text-xs text-[var(--brand-text-muted)]">{planned ? 'Plan the trays now; load the matching materials before releasing the hold.' : 'Confirm the loaded materials before saving. Suggestions are not applied until you confirm.'}</p>
       </>}
   </section>
 }

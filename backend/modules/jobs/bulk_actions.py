@@ -68,7 +68,17 @@ def apply_bulk_action(db, current_user, action, job_ids, authorized_ids, priorit
             changed = db.execute(text("UPDATE jobs SET hold = TRUE WHERE id = :id AND hold IS NOT TRUE"), {"id": jid})
             count += changed.rowcount
     elif action == "unhold":
-        for jid in job_ids:
+        from modules.jobs.ams_mapping import assert_release_ready
+        for jid in sorted(authorized_ids):
+            statement = ('SELECT id FROM jobs WHERE id=:id FOR UPDATE'
+                         if db.get_bind().dialect.name == 'postgresql' else
+                         'UPDATE jobs SET id=id WHERE id=:id')
+            db.execute(text(statement), {'id': jid})
+            job = db.query(Job).filter(Job.id == jid).populate_existing().first()
+            if job and check_org_access(current_user, job.charged_to_org_id):
+                assert_generic_job_mutation_allowed(db, jid)
+                assert_release_ready(db, current_user, job)
+        for jid in sorted(authorized_ids):
             job = db.query(Job).filter(Job.id == jid).first()
             if not job or not check_org_access(current_user, job.charged_to_org_id):
                 continue

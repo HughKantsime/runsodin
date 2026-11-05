@@ -7,6 +7,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import Jobs from './Jobs'
+import toast from 'react-hot-toast'
 import { refreshPermissions } from '../../permissions'
 import wire from '../../test-fixtures/certD-jobsC-wire.json'
 
@@ -125,6 +126,16 @@ it('F04-4.3-04 Edit job modal prefills from the wire row and submits the exact b
 })
 
 // ---- F04-4.4 Print Again ----
+it.each([true, false])('Print again reports whether the repeat is held for planned loading: %s', async held => {
+  api.repeat.mockResolvedValue({ ...wire.repeat_response, held_for_planned_load: held })
+  await mount()
+  fireEvent.click(within(row('CertC completed overdue')).getByRole('button', { name: 'Print again' }))
+  await waitFor(() => expect(toast.success).toHaveBeenCalledWith(held
+    ? 'Job duplicated and held for planned filament loading. Review the job’s planned load before releasing.'
+    : 'Job duplicated'))
+  expect(api.repeat).toHaveBeenCalledExactlyOnceWith(205)
+})
+
 it('F04-4.4-01 Print again on a failed row is one click and calls repeat for that exact job', async () => {
   await mount()
   fireEvent.click(within(row('CertC failed clog')).getByRole('button', { name: 'Print again' }))

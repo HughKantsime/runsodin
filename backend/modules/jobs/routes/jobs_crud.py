@@ -654,13 +654,15 @@ async def repeat_job(job_id: int, current_user: dict = Depends(require_action("j
             raise HTTPException(404, "Original print file not found")
         if not payload or payload.model_id != original.model_id:
             raise HTTPException(400, "Original print file not available for repeat")
-    # Create new job with same settings
+    from modules.jobs.ams_mapping import checked_repeat_mapping, mapping_audit_details
+    mapping, held_for_planned_load = checked_repeat_mapping(db, current_user, original)
     new_job = Job(
         model_id=original.model_id,
         print_file_id=original.print_file_id,
         payload_sha256=original.payload_sha256,
         plate_index=original.plate_index,
-        ams_mapping=original.ams_mapping,
+        ams_mapping=mapping,
+        hold=held_for_planned_load,
         charged_to_org_id=original.charged_to_org_id,
         charged_to_user_id=current_user.get("id"),
         submitted_by=current_user.get("id"),
@@ -684,13 +686,15 @@ async def repeat_job(job_id: int, current_user: dict = Depends(require_action("j
     charge_job_quota(db, current_user)
     _stage_prospective_queue_job(db, new_job, current_user)
     plans = _stage_queue_entries(db, [new_job], current_user)
+    if new_job.ams_mapping is not None:
+        log_audit(db, 'job.ams_mapping_changed', 'job', new_job.id, mapping_audit_details(new_job))
     db.commit()
     _deliver_queue_entries(db, plans)
     db.refresh(new_job)
-
     return {
         "success": True,
         "message": f"Job cloned successfully",
         "original_job_id": job_id,
-        "new_job_id": new_job.id
+        "new_job_id": new_job.id,
+        "held_for_planned_load": bool(new_job.hold),
     }

@@ -72,9 +72,11 @@ def source_filaments(filaments_json):
     return filaments
 
 
-def validate_mapping(mapping, filaments_json, slots, api_type):
+def validate_mapping(mapping, filaments_json, slots, api_type, *, check_material=True):
     """Map one-based file IDs to a protocol vector indexed by ID minus one.
 
+    Only held-job planning callers may defer the material check. Structural
+    validation always applies; release and dispatch use the strict default.
     Legacy zero-based positions are accepted only as a complete mapping for a
     file whose positions agree with its IDs. Never mix numbering conventions.
     """
@@ -107,7 +109,7 @@ def validate_mapping(mapping, filaments_json, slots, api_type):
             raise HTTPException(400, 'Invalid or duplicate AMS slot')
         source_material = canonical_reported_material(by_id[source].get('type'))
         target_material = canonical_reported_material(slots[target])
-        if source_material is None or target_material is None or source_material != target_material:
+        if check_material and (source_material is None or target_material is None or source_material != target_material):
             raise MappingMaterialMismatch(target)
         result[source - 1] = target - 1
     return result

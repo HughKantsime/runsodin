@@ -59,3 +59,14 @@ test('preview failure is visible and blocks accidental scheduling', async () => 
   expect(await screen.findByRole('alert')).toHaveTextContent('Filament mapping preview unavailable')
   expect(screen.getByRole('button', { name: 'Create Job' })).toBeDisabled()
 })
+
+test('held schedule sends an explicit plan to a mismatched tray', async () => {
+  api.file.mockResolvedValue({ ams_preview: { ...wire.preview, suggested_mapping: [], available: [{ slot: 2, material: 'PLA', color: 'White', color_hex: 'ffffff', spool_id: null }] } })
+  mount(); fireEvent.click(await screen.findByRole('button', { name: 'Bambu A1' }))
+  fireEvent.change(await screen.findByLabelText('Filament 1 AMS slot'), { target: { value: '2' } })
+  fireEvent.click(screen.getByLabelText('Use this mapping'))
+  fireEvent.click(screen.getByLabelText('Hold for planned filament load'))
+  expect(screen.getByText(/Plan the trays now/)).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Create Job' }))
+  expect(api.confirm).toHaveBeenCalledWith(9, expect.objectContaining({ hold: true, ams_mapping: [{ source_slot: 1, target_slot: 2 }] }))
+})
