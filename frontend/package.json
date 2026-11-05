@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "analyze": "ANALYZE=true vite build",
-    "tokens": "node ../design/generate-css-vars.mjs",
+    "tokens": "node ../design/generate.mjs",
+    "tokens:check": "node ../design/generate.mjs --check",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
