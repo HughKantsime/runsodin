@@ -36,6 +36,10 @@ def handle_status(self, status, generation, runtime):
         if self._connection_retired or (generation is not None and generation != self._connection_generation):
             return
         raw = status.raw_data.get('print', {})
+        # Deltas refresh only a live explicit state from this connection, never
+        # the display cache (which also merges retained and previous reports).
+        from modules.printers.monitors.live_state import observe_mqtt
+        observe_mqtt(self, status, raw, runtime)
         from modules.printers.monitors.terminal_evidence import capture
         from modules.printers.monitors.pause_cause import observe as observe_pause, stage as pause_stage
         capture(self, raw, runtime.log)
@@ -185,6 +189,8 @@ def handle_status(self, status, generation, runtime):
                     runtime.log.warning('[%s] Attempt tray persistence failed; will retry', self.name)
 
         def process_hms(packet, expected_print_job_id=None):
+            from modules.printers.monitors.hms_evidence import evidence
+            report_evidence = evidence(packet, runtime.time.time())
             incoming_hms = packet.get('hms')
             if isinstance(incoming_hms, list) and not incoming_hms:
                 self._last_hms_key = None
@@ -193,13 +199,21 @@ def handle_status(self, status, generation, runtime):
                 return True
             # HMS belongs to this packet, never an identity from cached telemetry.
             observed_filename = packet.get('subtask_name') or packet.get('gcode_file')
-            process_key = (observed_filename, runtime.json.dumps(incoming_hms, sort_keys=True))
-            if process_key == getattr(self, '_last_hms_processed_key', None):
+            from core.monitor_observations import fresh_report
+            corroborated = (fresh_report(report_evidence['mqtt_retained'], report_evidence['report_age_seconds'])
+                            and report_evidence['live_state'] in ('FAILED', 'PAUSE', 'IDLE'))
+            process_key = (expected_print_job_id, observed_filename,
+                           runtime.json.dumps(incoming_hms, sort_keys=True), corroborated)
+            previous = getattr(self, '_last_hms_processed_key', None)
+            if (process_key == previous or (previous and previous[3]
+                    and process_key[1:3] == previous[1:3]
+                    and expected_print_job_id in (None, previous[0]))):
                 return True
             try:
                 result = printer_events.process_hms_errors(
                     self.printer_id, incoming_hms, observed_filename=observed_filename,
                     expected_print_job_id=expected_print_job_id,
+                    **report_evidence,
                     tray_evidence_incomplete=(getattr(self, '_tray_attempt_id', None) == expected_print_job_id
                                               and bool(getattr(self, '_pending_attempt_trays', ()))))
             except Exception:
@@ -210,6 +224,10 @@ def handle_status(self, status, generation, runtime):
             return True
 
         pending_hms = self._pending_hms_terminal
+        if (pending_hms is not None and pending_hms.get('generation', self._connection_generation)
+                != self._connection_generation):
+            self._pending_hms_terminal = None
+            pending_hms = None
         if pending_hms is not None and pending_hms['print_job_id'] is None:
             # Only the successful retry of this exact original start can
             # supply missing authority. Never select a latest running row.
@@ -223,11 +241,16 @@ def handle_status(self, status, generation, runtime):
             # later tracked observation, even if its display name matches.
             self._pending_hms_terminal = None
             pending_hms = None
-        resolved = True
-        if pending_hms is not None:
+        from core.monitor_observations import fresh_report
+        current_report_fresh = fresh_report(getattr(status, 'mqtt_retained', False),
+                                            getattr(status, 'report_age_seconds', None))
+        resolved = pending_hms is None
+        if pending_hms is not None and current_report_fresh:
             # Untracked prints (no job then, none now) retry under the same
             # no-job identity; otherwise only a bound original job may resolve.
             untracked = pending_hms['print_job_id'] is None and self._current_job_id is None
+            from modules.printers.monitors.hms_evidence import corroborate_retry
+            pending_hms['packet'] = corroborate_retry(pending_hms['packet'], raw, status, runtime.time.time())
             resolved = ((pending_hms['print_job_id'] is not None or untracked) and
                         process_hms(pending_hms['packet'], pending_hms['print_job_id']))
             if resolved:
@@ -240,15 +263,19 @@ def handle_status(self, status, generation, runtime):
                         self._state = incoming_state
                 self._pending_hms_terminal = None
         if resolved:
-            resolved = process_hms(raw, self._current_job_id)
-            if not resolved and raw.get('hms'):
+            from modules.printers.monitors.hms_evidence import prepare
+            hms_packet = prepare(self, raw, status, runtime.time.time())
+            resolved = process_hms(hms_packet, self._current_job_id)
+            if not resolved and hms_packet.get('hms'):
                 from copy import deepcopy
                 # One bounded observation, not an accumulating event history.
                 self._pending_hms_terminal = {
-                    'packet': deepcopy({k: raw[k] for k in
-                        ('hms', 'subtask_name', 'gcode_file') if k in raw}),
+                    'packet': deepcopy({k: hms_packet[k] for k in
+                        ('hms', 'subtask_name', 'gcode_file', 'gcode_state',
+                         '_hms_retained', '_hms_report_age', '_hms_received_at') if k in hms_packet}),
                     'state': dict(self._state), 'terminal': gcode_state if terminal else None,
                     'print_job_id': self._current_job_id,
+                    'generation': self._connection_generation,
                     'start': self._pending_running_state,
                 }
         if terminal and resolved:

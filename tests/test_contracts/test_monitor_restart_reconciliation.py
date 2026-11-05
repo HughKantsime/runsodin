@@ -407,9 +407,16 @@ def test_failed_recovery_retries_on_the_next_report(manual_bambu, monkeypatch):
 def test_failing_recovery_backs_off_instead_of_retrying_every_report(manual_bambu, monkeypatch, caplog):
     import logging
     from modules.printers.monitors import mqtt_printer
+    from modules.printers.monitors.live_state import observe_mqtt
+    from core import monitor_observations
     case = manual_bambu
     monitor = case.monitor()
     monitor._state['gcode_state'] = 'IDLE'
+    # Publish the independent evidence cache before the outage. Freeze only its
+    # refresh clock so these counts measure recovery attempts, not cache retries.
+    stamp = time.time()
+    monkeypatch.setattr(monitor_observations, 'time', SimpleNamespace(time=lambda: stamp))
+    observe_mqtt(monitor, SimpleNamespace(mqtt_retained=False), {'gcode_state': 'IDLE'}, mqtt_printer)
     database = mqtt_printer.get_db
     opened = []
     def refuse():

@@ -87,7 +87,7 @@ def test_display_facts_cache_failure_keeps_status_and_telemetry(capture_store, m
     assert len(rows(path, 'printer_telemetry')) == 1
     assert len(rows(path, 'ams_telemetry')) == 2
     with sqlite3.connect(path) as db:
-        assert db.execute('SELECT key FROM system_config').fetchall() == []
+        assert db.execute("SELECT key FROM system_config WHERE key NOT LIKE 'printer.live_state.%'").fetchall() == []
 
 
 def test_active_temperature_snapshots_sixty_second_boundary(capture_store):

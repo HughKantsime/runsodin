@@ -40,7 +40,7 @@ def test_classification_failure_suppresses_external_effects(hms_boundary,monkeyp
         def terminal_monitor_observation(self,*args,**kwargs):
             raise RuntimeError('Synthetic terminal classification unavailable')
     monkeypatch.setattr(registry,'get_provider',lambda name:UnavailablePolicy() if name=='EducationPolicyProvider' else None)
-    result=handler.process_hms_errors(9,STOPPING_ERROR,observed_filename='current.3mf')
+    result=handler.process_hms_errors(9,STOPPING_ERROR,observed_filename='current.3mf', live_state='FAILED')
     assert outgoing==[]
     assert result['education_suppressed'] is True
     db.expire_all()
@@ -49,7 +49,7 @@ def test_classification_failure_suppresses_external_effects(hms_boundary,monkeyp
 
 def test_delayed_error_does_not_fail_different_current_filename(hms_boundary):
     db,handler,registry,outgoing=hms_boundary
-    handler.process_hms_errors(9,STOPPING_ERROR,observed_filename='previous.3mf')
+    handler.process_hms_errors(9,STOPPING_ERROR,observed_filename='previous.3mf', live_state='FAILED')
     db.expire_all()
     assert db.execute(text('SELECT status FROM print_jobs WHERE id=201')).scalar_one()=='running'
     assert not any(item.get('alert_type')=='print_failed' for item in outgoing)
@@ -60,7 +60,7 @@ def test_reserved_observation_without_policy_cannot_use_generic_terminal_path(hm
     filename='odin-'+'a'*32+'.3mf'
     db.execute(text('UPDATE print_jobs SET filename=:filename WHERE id=201'),{'filename':filename})
     db.commit()
-    result=handler.process_hms_errors(9,STOPPING_ERROR,observed_filename=filename)
+    result=handler.process_hms_errors(9,STOPPING_ERROR,observed_filename=filename, live_state='FAILED')
     db.expire_all()
     assert result['education_suppressed'] is True
     assert db.execute(text('SELECT status FROM print_jobs WHERE id=201')).scalar_one()=='running'
@@ -70,7 +70,7 @@ def test_reserved_observation_without_policy_cannot_use_generic_terminal_path(hm
 @pytest.mark.parametrize('filename',['current.3mf','/Metadata/current.3mf',r'C:\Metadata\current.3mf'])
 def test_matching_generic_filename_still_fails_current_job(hms_boundary,filename):
     db,handler,registry,outgoing=hms_boundary
-    handler.process_hms_errors(9,STOPPING_ERROR,observed_filename=filename)
+    handler.process_hms_errors(9,STOPPING_ERROR,observed_filename=filename, live_state='FAILED')
     db.expire_all()
     assert db.execute(text('SELECT status FROM print_jobs WHERE id=201')).scalar_one()=='failed'
     assert len([item for item in outgoing if item.get('alert_type')=='print_failed'])==1
@@ -78,7 +78,7 @@ def test_matching_generic_filename_still_fails_current_job(hms_boundary,filename
 
 def test_unknown_observed_identity_does_not_fail_current_job(hms_boundary):
     db,handler,registry,outgoing=hms_boundary
-    handler.process_hms_errors(9,STOPPING_ERROR)
+    handler.process_hms_errors(9,STOPPING_ERROR, live_state='FAILED')
     db.expire_all()
     assert db.execute(text('SELECT status FROM print_jobs WHERE id=201')).scalar_one()=='running'
     assert not any(item.get('alert_type')=='print_failed' for item in outgoing)
@@ -99,7 +99,7 @@ def test_mismatched_education_token_preserves_authorized_current_submission(hms_
     policy=EducationPolicyService()
     monkeypatch.setattr(registry,'get_provider',lambda name:policy if name=='EducationPolicyProvider' else None)
     before=db.execute(text('SELECT status,lifecycle_revision FROM education_submissions WHERE id=14')).one()
-    handler.process_hms_errors(9,STOPPING_ERROR,observed_filename='odin-'+'b'*32+'.gcode')
+    handler.process_hms_errors(9,STOPPING_ERROR,observed_filename='odin-'+'b'*32+'.gcode', live_state='FAILED')
     db.expire_all()
     assert db.execute(text('SELECT status FROM print_jobs WHERE id=201')).scalar_one()=='running'
     assert db.execute(text('SELECT status,lifecycle_revision FROM education_submissions WHERE id=14')).one()==before
@@ -113,7 +113,7 @@ def test_invalid_classification_outcome_is_unresolved_before_effects(hms_boundar
         def classify_monitor_observation(self,*args,**kwargs):
             return classification
     monkeypatch.setattr(registry,'get_provider',lambda name:InvalidPolicy() if name=='EducationPolicyProvider' else None)
-    result=handler.process_hms_errors(9,STOPPING_ERROR,observed_filename='current.3mf')
+    result=handler.process_hms_errors(9,STOPPING_ERROR,observed_filename='current.3mf', live_state='FAILED')
     assert result['classification_state']=='unresolved' and result['retryable'] is True
     assert outgoing==[]
     db.expire_all()
@@ -298,7 +298,7 @@ def test_unlinked_quarantine_cas_preserves_intervening_change(hms_boundary,monke
     assert row[2]==(13 if change=='linkage' else None)
 
 
-@pytest.mark.parametrize("terminal",["IDLE","FINISH","FAILED"])
+@pytest.mark.parametrize("terminal",["IDLE","FAILED"])
 def test_same_packet_stopping_hms_precedes_idle_cancellation(hms_boundary,monkeypatch,terminal):
     import time
     from types import SimpleNamespace
@@ -374,9 +374,15 @@ def test_unconfirmed_hms_retained_across_heartbeat_and_retried_once(hms_boundary
     db.expire_all()
     assert db.execute(text('SELECT status FROM print_jobs WHERE id=201')).scalar_one()=='running'
     assert monitor._current_job_id==201 and monitor._last_gcode_state=='RUNNING'
-    assert monitor._pending_hms_terminal is not None
+    if fault == 'classification' or initial_state == 'IDLE':
+        assert monitor._pending_hms_terminal is not None
+    else:
+        # A live RUNNING report cannot attempt the terminal write yet.
+        assert monitor._hms_corroboration is not None
     # Even an HMS-free/identity-free heartbeat must retry the exact saved packet.
     monitor._on_status(SimpleNamespace(raw_data={'print':{'gcode_state':'IDLE'}}))
+    if fault == 'terminal_write' and initial_state == 'RUNNING':
+        monitor._on_status(SimpleNamespace(raw_data={'print':{'gcode_state':'IDLE'}}))
     db.expire_all()
     assert db.execute(text('SELECT status,error_code FROM print_jobs WHERE id=201')).one()==('failed','0C000300_00030006')
     assert monitor._pending_hms_terminal is None and monitor._current_job_id is None
@@ -425,7 +431,7 @@ def test_saved_observation_guard_is_enforced_by_hms_write_boundary(hms_boundary)
     db,handler,registry,outgoing=hms_boundary
     db.execute(text("UPDATE print_jobs SET status='cancelled',ended_at=CURRENT_TIMESTAMP WHERE id=201"))
     db.execute(text("INSERT INTO print_jobs(id,printer_id,filename,job_name,status,started_at) VALUES(202,9,'current.3mf','Synthetic later','running',CURRENT_TIMESTAMP)"));db.commit()
-    outcome=handler.process_hms_errors(9,STOPPING_ERROR,observed_filename='current.3mf',expected_print_job_id=201)
+    outcome=handler.process_hms_errors(9,STOPPING_ERROR,observed_filename='current.3mf',expected_print_job_id=201, live_state='FAILED')
     assert outcome['terminal_outcome']=='irrelevant'
     # Also exercise the locked terminal helper directly, not just outer routing.
     assert handler._fail_active_job_for_hms(9,'0C000300_00030006','Synthetic fault',observed_filename='current.3mf',expected_print_job_id=201)['terminal_outcome']=='irrelevant'
@@ -490,7 +496,7 @@ def test_identified_hms_failure_delivers_only_once_through_outbox(private_attemp
     monkeypatch.setattr(alert_dispatcher,'_deliver_staged_alert',lambda db,plan:delivered.append(plan))
     monkeypatch.setattr(alert_outbox,'deliver_mobile',lambda *a:None)
     for _ in range(2):
-        error_handling.process_hms_errors(printer,STOPPING_ERROR,observed_filename=filename)
+        error_handling.process_hms_errors(printer,STOPPING_ERROR,observed_filename=filename, live_state='FAILED')
         alert_outbox.sweep(engine,older_than_seconds=0)
     assert not any(item['alert_type']==AlertType.PRINT_FAILED for item in direct)
     assert len(delivered)==1 and delivered[0].alert_type==AlertType.PRINT_FAILED

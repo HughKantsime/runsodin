@@ -107,6 +107,7 @@ def test_mqtt_pending_diameter_survives_partial_and_invalid_packets(
 def test_mqtt_pending_diameter_retries_failed_write(
         v2_offline_monitor, offline_store, monkeypatch, failure):
     from contextlib import contextmanager
+    from core import monitor_observations
 
     monitor, _, module = v2_offline_monitor
     offline_store.execute(text('UPDATE printers SET nozzle_diameter=.4 WHERE id=199'))
@@ -115,6 +116,7 @@ def test_mqtt_pending_diameter_retries_failed_write(
     before = tuple(offline_store.execute(snapshot).one())
     clock = [2000]
     monkeypatch.setattr(module, 'time', SimpleNamespace(time=lambda: clock[0]))
+    monkeypatch.setattr(monitor_observations, 'time', SimpleNamespace(time=lambda: clock[0]))
     monitor._last_heartbeat = clock[0]
     monitor._on_status(SimpleNamespace(raw_data={'print': {'gcode_state': 'IDLE', 'nozzle_diameter': .6}}))
     database = module.get_db
@@ -149,6 +151,8 @@ def test_mqtt_pending_diameter_retries_failed_write(
         offline_store.execute(text('DROP TRIGGER reject_identity_audit'))
         offline_store.commit()
     else:
+        # The unchanged live-state evidence is inside its 15-second interval;
+        # only the identity/heartbeat transaction attempts a commit at +10s.
         assert commit_attempts == [True]
         monkeypatch.setattr(module, 'get_db', database)
 

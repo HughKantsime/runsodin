@@ -91,7 +91,7 @@ POLICY_INVENTORY = (
     _entry("printers.routes_controls", "plate-clear/control routes", "submission/job/printer", "mutate", "authorized manager/admin", ("scheduler",), "test_education_dispatch_policy.py", "batch2_required"),
     _entry("printers.monitors.mqtt_job_lifecycle", "job lifecycle topic", "submission/job/printer", "telemetry-transition", "trusted monitor", ("Education outbox",), "test_education_monitor_policy.py", "guarded"),
     _entry("printers.monitors.mqtt_printer", "printer telemetry topic", "submission/job/printer", "telemetry-transition", "trusted monitor", ("Education outbox",), "test_education_monitor_policy.py", "guarded"),
-    _entry("printers.monitors.moonraker_monitor", "Moonraker state poll", "submission/job/printer", "telemetry-transition", "trusted monitor", ("Education outbox",), "test_education_monitor_policy.py", "guarded"),
+    _entry("printers.monitors.moonraker_job_tracking", "Moonraker job tracking", "submission/job/printer", "telemetry-transition", "trusted monitor", ("Education outbox",), "test_education_monitor_policy.py", "guarded"),
     _entry("printers.monitors.prusalink_monitor", "PrusaLink state poll", "submission/job/printer", "telemetry-transition", "trusted monitor", ("Education outbox",), "test_education_monitor_policy.py", "guarded"),
     _entry("printers.monitors.elegoo_monitor", "Elegoo state poll", "submission/job/printer", "telemetry-transition", "trusted monitor", ("Education outbox",), "test_education_monitor_policy.py", "guarded"),
     _entry("jobs.scheduler", "scheduler tick", "submission/job/printer", "schedule", "trusted scheduler", ("organizations.education_policy", "printers.services"), "test_education_scheduler_policy.py", "guarded"),
