@@ -4,18 +4,28 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [Unreleased]
 
+## [2.0.44] - 2026-11-05
+
+<!-- release-date placeholder: set by ops/bump-version.sh -->
+<!-- summary: The audit log records who watches cameras and timelapses; Bambu health codes come from Bambu's own lists; ODIN restarts safely during prints. -->
+
 ### Added
 
-- Live camera viewing (WebRTC, MJPEG, snapshots and OBS) and timelapse playback record the viewer and peer IP, with one row per viewer/resource/transport every 15 minutes across workers. Reads are refused when a required audit record cannot be committed; established MJPEG streams stop if renewed auditing fails.
-- Automatic dispatch records its scheduler trigger and the submitting/approving user IDs when available.
+- The audit log records who watches a printer's live camera (WebRTC, MJPEG, snapshots and the OBS overlay) or plays a timelapse, with their IP address. A view is recorded when it starts and then at most once every 15 minutes per person, place and sign-in method, not frame by frame. If the record can't be written, the camera image isn't served.
+- Automatic dispatches are labelled as the scheduler in the audit log, with the IDs of who queued and approved the job.
+- SSO sign-ins, successful and failed, record the username, and the audit CSV fills its User ID and Username columns for successful SSO sign-ins. Erasing a user removes the username and IP address.
+- Bambu health (HMS) and print error codes are decoded offline from Bambu's own per-model lists. Severity comes from the code: fatal and serious notices alert and can fail a job; common and info notices are shown but don't alert or fail jobs. Current faults are kept apart from history.
+
+### Changed
+
+- API and agent tokens, including the global API key, can't resume a printer with a current fatal or serious HMS fault or an open Vigil auto-pause. ODIN returns a named refusal, records who asked and why, and a person resumes from the web app. Signed-in sessions keep their controls.
+- Resume responses no longer suggest pause to tokens that can't call it.
 
 ### Fixed
 
-- The timelapse video attachment path now audits downloads like the download endpoint.
-- SSO sign-in audit details include the username when known. Successful SSO sign-ins populate the CSV User ID/Username columns without a password/JWT authentication label; account erasure removes the username and IP.
-- Decode Bambu health and print codes from per-model release bundles. Common/info notices no longer alert or fail jobs; active health is separate from history. Release data fetch and Claude review remain pending.
-- API and agent tokens, including the global API key, cannot resume a printer with current HMS faults or an open Vigil auto-pause detection. ODIN returns a named 409 refusal, records the actor and reason, and asks a person to resume from the web app. Signed-in sessions retain their existing controls.
-- Resume responses no longer suggest pause to tokens whose scopes cannot call it.
+- Downloading a timelapse through its video link is now audited like the download button.
+- After ODIN restarts, Vigil doesn't auto-pause a print until the printer has reported its live state since the restart and Vigil has analysed the print for at least 3 frames and 60 seconds. An unknown layer no longer turns on first-layer checks, and Vigil re-checks the printer's live state just before pausing.
+- A replayed (retained) HMS report after a restart or reconnect can't mark a running print failed. A stopping code fails the job only when a fresh report shows the printer stopped.
 
 ## [2.0.43] - 2026-11-05
 

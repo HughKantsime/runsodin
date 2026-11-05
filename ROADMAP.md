@@ -2,14 +2,6 @@
 
 Updated - see CHANGELOG for current version.
 
-## In 2.0.44: Bambu official code bundles
-
-- Offline per-model decoding from Bambu's bundled lists, maintenance notice severity, current faults kept apart from history, and state-driven job outcomes.
-
-## In 2.0.44: Resume fault guard
-
-- Non-interactive resumes over current fatal or serious HMS faults or open Vigil auto-pauses are refused and audited. Interactive controls remain available.
-
 ## Prepared: Bambu tray, terminal evidence and pause visibility
 
 - Explicit tray preset settings with bounded printer replies, audited failed/cancelled correction and current pause causes. Claude review and an attended idle-printer tray test remain required; X1C and H2D/AMS HT payloads are not hardware-qualified. Cancellation classification is unchanged.
