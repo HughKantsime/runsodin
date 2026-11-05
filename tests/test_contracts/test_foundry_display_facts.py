@@ -176,3 +176,41 @@ def test_captured_h2d_report_contains_real_chamber_and_tray_binding():
             break
     else:
         pytest.fail('Capture is missing chamber/AMS observations')
+
+
+@pytest.mark.parametrize('scopes', [['read:jobs'], ['read:jobs', 'read:printers']])
+@pytest.mark.parametrize('pin,active,org,expected', [
+    ('199', 1, 1, None),
+    ('199', 0, 1, 'pinned_printer_inactive'),
+    ('199', 1, 2, 'pinned_printer_inaccessible'),
+    ('999999', 1, 1, 'pinned_printer_missing'),
+    ('deleted:199', 1, 1, 'pinned_printer_deleted'),
+    ('invalid', 1, 1, 'pinned_target_invalid'),
+])
+def test_job_list_reuses_printers_without_losing_pin_issues(board, offline_store, scopes, pin, active, org, expected):
+    from sqlalchemy import event
+    _, client, issue = board
+    # The assignment differs from the pin. Pin lookup must not use the
+    # display-facts `assignment or pin` shortcut or actor visibility.
+    from modules.printers.models import Printer
+    offline_store.add(Printer(id=198, name='Other assignment', model='A1', machine_type='A1',
+                              api_type='bambu', org_id=1, is_active=True))
+    offline_store.flush()
+    offline_store.execute(text("UPDATE jobs SET printer_id=198,target_type='specific',target_filter=:pin WHERE id=701"), {'pin': pin})
+    offline_store.execute(text('UPDATE printers SET is_active=:active,org_id=:org,shared=0 WHERE id=199'), {'active': active, 'org': org})
+    offline_store.commit()
+    seen = []
+    def count(conn, cursor, statement, *args):
+        if 'FROM printers' in statement and 'is_active' in statement:
+            seen.append(statement)
+    engine = offline_store.get_bind()
+    event.listen(engine, 'before_cursor_execute', count)
+    try:
+        response = client.get('/jobs', headers=issue(scopes))
+        assert response.status_code == 200, response.text
+        job = next(j for j in response.json() if j['id'] == 701)
+        assert job['pinned_printer_issue'] == expected
+        assert job['ams_slot_nozzles'] == []
+    finally:
+        event.remove(engine, 'before_cursor_execute', count)
+    assert len(seen) == 1, seen

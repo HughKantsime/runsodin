@@ -47,6 +47,9 @@
       ],
       "timelapse_enabled": false,
       "machine_type": "A1",
+      "feeding_slot": 3,
+      "chamber_temp": 5.0,
+      "plate_clear_confirmed_at": null,
       "current_print_display_name": "Unifi_G3_Instant_Camera_LCD_Mount_for_BL_P1S_P1P",
       "maintenance": {
         "state": "ok",
@@ -282,6 +285,9 @@
       ],
       "timelapse_enabled": false,
       "machine_type": null,
+      "feeding_slot": null,
+      "chamber_temp": null,
+      "plate_clear_confirmed_at": null,
       "current_print_display_name": "benchy",
       "maintenance": {
         "state": "ok",
@@ -338,6 +344,9 @@
       "tags": [],
       "timelapse_enabled": false,
       "machine_type": null,
+      "feeding_slot": null,
+      "chamber_temp": null,
+      "plate_clear_confirmed_at": null,
       "current_print_display_name": "Unknown",
       "maintenance": {
         "state": "ok",
@@ -394,6 +403,9 @@
       "tags": [],
       "timelapse_enabled": false,
       "machine_type": null,
+      "feeding_slot": null,
+      "chamber_temp": null,
+      "plate_clear_confirmed_at": null,
       "current_print_display_name": "cube",
       "maintenance": {
         "state": "ok",

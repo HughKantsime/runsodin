@@ -98,12 +98,27 @@ def job_issue(db, job) -> Optional[str]:
 
 # ---- one printer read per request for JobResponse (no N+1) -----------------
 _CACHE = "odin_pin_printer_states"
+_PRELOADED = "odin_pin_preloaded_states"
+
+
+def preload_pin_printer_states(session, printer_ids, printers):
+    """Reuse an unfiltered printer batch, recording missing ids explicitly.
+
+    Keep this partial batch separate from the lazy full-table cache so a pin
+    outside the batch still gets checked. Never seed from visibility-filtered rows.
+    """
+    states = {printer_id: None for printer_id in printer_ids}
+    states.update({p.id: (p.is_active, p.org_id, p.shared) for p in printers})
+    session.info.setdefault(_PRELOADED, {}).update(states)
 
 
 def cached_job_issue(session, job) -> Optional[str]:
     pin, issue = parse_target(getattr(job, "target_type", None), getattr(job, "target_filter", None))
     if issue or pin is None or session is None:
         return issue
+    preloaded = session.info.get(_PRELOADED, {})
+    if pin in preloaded:
+        return _issue_for(preloaded[pin], getattr(job, "charged_to_org_id", None))
     states = session.info.get(_CACHE)
     if states is None:
         states = {row[0]: (row[1], row[2], row[3]) for row in
@@ -114,6 +129,7 @@ def cached_job_issue(session, job) -> Optional[str]:
 
 def _drop_cache(session, *_args):
     session.info.pop(_CACHE, None)
+    session.info.pop(_PRELOADED, None)
 
 
 for _name in ("after_commit", "after_rollback", "after_soft_rollback", "after_flush"):

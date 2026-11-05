@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import pytest
 
 from playwright.sync_api import Page, expect
@@ -118,20 +119,34 @@ def test_mobile_navigation_and_horizontal_layout(role_page_factory):
 
 def test_theme_persists_and_keyboard_skip_link_works(role_page_factory):
     page = role_page_factory("admin")
-    toggle = page.get_by_role("button", name="Switch to light mode", exact=True)
-    if toggle.count() == 0:
-        toggle = page.get_by_role("button", name="Switch to dark mode", exact=True)
-    original_label = toggle.get_attribute("aria-label")
-    toggle.click()
-    changed_label = "Switch to dark mode" if original_label == "Switch to light mode" else "Switch to light mode"
-    expect(page.get_by_role("button", name=changed_label, exact=True)).to_be_visible()
-    page.reload(wait_until="domcontentloaded")
-    expect(page.get_by_role("button", name=changed_label, exact=True)).to_be_visible(timeout=20_000)
+    settings = page.get_by_role("button", name="Theme settings", exact=True)
+    settings.click()
+    expect(settings).to_have_attribute("aria-expanded", "true")
+    appearance = page.get_by_role("combobox", name="Appearance", exact=True)
+    chosen = "light" if appearance.input_value() != "light" else "dark"
+    with page.expect_response(lambda response: response.url.endswith("/auth/me/theme")
+                              and response.request.method == "PUT") as saved:
+        appearance.select_option(chosen)
+    assert saved.value.ok
+    expect(appearance).to_have_value(chosen)
+    assert page.evaluate("localStorage.getItem('odin-theme')") == chosen
+    expect(page.locator("html")).to_have_class(re.compile(r"\blight\b") if chosen == "light" else re.compile(r"^(?!.*\blight\b).*$"))
+
+    with page.expect_response(lambda response: response.url.endswith("/auth/me/theme")
+                              and response.request.method == "GET") as restored:
+        page.reload(wait_until="domcontentloaded")
+    assert restored.value.ok
+    assert restored.value.json()["mode"] == chosen
+    expect(settings).to_be_visible(timeout=20_000)
+    expect(page.locator("html")).to_have_class(re.compile(r"\blight\b") if chosen == "light" else re.compile(r"^(?!.*\blight\b).*$"))
 
     page.keyboard.press("Tab")
     expect(page.get_by_role("link", name="Skip to content", exact=True)).to_be_focused()
     page.keyboard.press("Enter")
     expect(page.locator("#main-content")).to_be_focused()
+
+    settings.click()
+    expect(appearance).to_have_value(chosen)
 
 
 def test_real_3mf_upload_reaches_model_library(role_page_factory):

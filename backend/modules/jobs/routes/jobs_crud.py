@@ -657,32 +657,8 @@ async def repeat_job(job_id: int, current_user: dict = Depends(require_action("j
             raise HTTPException(400, "Original print file not available for repeat")
     from modules.jobs.ams_mapping import checked_repeat_mapping, mapping_audit_details
     mapping, held_for_planned_load = checked_repeat_mapping(db, current_user, original)
-    new_job = Job(
-        model_id=original.model_id,
-        print_file_id=original.print_file_id,
-        payload_sha256=original.payload_sha256,
-        plate_index=original.plate_index,
-        ams_mapping=mapping,
-        hold=held_for_planned_load,
-        charged_to_org_id=original.charged_to_org_id,
-        charged_to_user_id=current_user.get("id"),
-        submitted_by=current_user.get("id"),
-        item_name=original.item_name,
-        quantity=original.quantity,
-        status="pending",
-        priority=original.priority,
-        printer_id=original.printer_id,  # Same printer preference (not a pin)
-        # Same target (an explicit pin, model or protocol target) as the original.
-        target_type=original.target_type,
-        target_filter=original.target_filter,
-        duration_hours=original.duration_hours,
-        colors_required=original.colors_required,
-        filament_type=original.filament_type,
-        notes=f"Repeat of job #{job_id}" + (f" - {original.notes}" if original.notes else ""),
-        estimated_cost=original.estimated_cost,
-        suggested_price=original.suggested_price,
-        quantity_on_bed=original.quantity_on_bed,
-    )
+    from modules.jobs.repeat import build_repeated_job
+    new_job = build_repeated_job(original, current_user, mapping, held_for_planned_load)
 
     charge_job_quota(db, current_user)
     _stage_prospective_queue_job(db, new_job, current_user)

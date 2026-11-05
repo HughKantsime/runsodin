@@ -565,3 +565,22 @@ def test_clear_pins_chunks_large_job_sets(fleet):
     fleet.commit()
     assert pins.marked == list(range(1000, 1015)) and pins.live == list(range(1000, 1012))
     assert fleet.execute(text("SELECT COUNT(*) FROM jobs WHERE target_filter='deleted:12'")).scalar_one() == 15
+
+
+def test_preloaded_pin_states_preserve_fallback_and_invalidate_after_flush(fleet):
+    from types import SimpleNamespace
+    from modules.jobs.pinning import cached_job_issue, preload_pin_printer_states
+    from modules.printers.models import Printer
+    def job(pin):
+        return SimpleNamespace(target_type='specific', target_filter=str(pin), charged_to_org_id=1)
+    printer = fleet.query(Printer).filter(Printer.id == 11).one()
+    preload_pin_printer_states(fleet, {11, 999999}, [printer])
+    assert cached_job_issue(fleet, job(11)) is None
+    assert cached_job_issue(fleet, job(999999)) == 'pinned_printer_missing'
+    # A partial preload must not turn another existing printer into a missing one.
+    assert cached_job_issue(fleet, job(12)) is None
+    printer.is_active = False
+    fleet.flush()
+    assert cached_job_issue(fleet, job(11)) == 'pinned_printer_inactive'
+    fleet.rollback()
+    assert cached_job_issue(fleet, job(11)) is None

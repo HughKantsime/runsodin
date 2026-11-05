@@ -10,6 +10,7 @@ import Printers from './Printers'
 import useWebSocket from '../../hooks/useWebSocket'
 import { PrinterInfoPanel } from '../../components/printers/PrinterPanels'
 import PrinterModal from '../../components/printers/PrinterModal'
+import FoundryPrinterCard from '../../components/foundry/PrinterCard'
 
 const state = vi.hoisted(() => ({
   user: { id: 6, username: 'operator', role: 'operator', group_id: 1 } as any,
@@ -77,6 +78,28 @@ async function page() {
 }
 const card = (id: number) => document.querySelector(`[data-printer-id="${id}"]`) as HTMLElement
 const names = () => screen.queryAllByTestId('printer-card').map(c => c.getAttribute('data-printer-name'))
+
+it('Foundry consumes the captured HTTP chamber temperature and one-based feeding slot before WebSocket updates', () => {
+  expect(w.printers[0].chamber_temp).toBe(5)
+  expect(w.printers[0].feeding_slot).toBe(3)
+  const client = new QueryClient({ defaultOptions: { queries: { enabled: false, retry: false } } })
+  render(<QueryClientProvider client={client}><MemoryRouter>
+    {w.printers.map((printer: any) => <FoundryPrinterCard key={printer.id} printer={printer} />)}
+  </MemoryRouter></QueryClientProvider>)
+  const bambu = screen.getByRole('article', { name: 'Cert Bambu' })
+  expect(within(bambu).getByText('Chamber 5°')).toBeInTheDocument()
+  const feeding = bambu.querySelectorAll('[data-slot-state="feeding"]')
+  expect(feeding).toHaveLength(1)
+  expect(within(feeding[0] as HTMLElement).getByText('1·3')).toBeInTheDocument()
+  expect(feeding[0]).toHaveAttribute('title', expect.stringContaining('Feeding now'))
+  for (const printer of w.printers.slice(1)) {
+    expect(printer.chamber_temp).toBeNull()
+    expect(printer.feeding_slot).toBeNull()
+    const other = screen.getByRole('article', { name: printer.nickname || printer.name })
+    expect(within(other).queryByText(/^Chamber /)).not.toBeInTheDocument()
+    expect(other.querySelector('[data-slot-state="feeding"]')).toBeNull()
+  }
+})
 
 it('Bambu card shows live progress, ETA, speed slider and reported percentage during an active print', async () => {
   await page()
