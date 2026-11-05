@@ -36,10 +36,11 @@ export function inspectFoundryLayout() {
   const rightOverflow = innerWidth <= 768 ? elements.filter(el => visible(el)
     && el.getBoundingClientRect().right > innerWidth + 1 && !insideHorizontalScroller(el))
     .map(el => ({ element: describe(el), right: el.getBoundingClientRect().right })) : []
-  // Only leaf text in short controls: no icons, mixed fonts, multiline prose or
-  // hidden measurement spans. Range rectangles report real rendered text lines.
-  const wrappedWords = innerWidth <= 768 ? elements.filter(el => visible(el) && !el.children.length
-    && el.matches('button, .foundry-status, [role="status"], span[class*="rounded"]')
+  // A single text node in headings, cells or short controls: no icons, mixed
+  // fonts or multiline prose. Range rectangles report real rendered text lines.
+  const wrappedWords = innerWidth <= 768 ? elements.filter(el => visible(el)
+    && el.childNodes.length === 1 && el.firstChild.nodeType === Node.TEXT_NODE
+    && el.matches('h1, h2, h3, td, th, button, .foundry-status, [role="status"], span[class*="rounded"]')
     && /^\S+$/.test(el.textContent.trim())).filter(el => {
       const range = document.createRange()
       range.selectNodeContents(el)

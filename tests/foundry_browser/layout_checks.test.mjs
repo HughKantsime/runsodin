@@ -78,3 +78,24 @@ test('a single line and fractional duplicate range rectangles do not flag wrappi
   assert.equal(f.check().wrappedWords.length, 0)
   f.close()
 })
+test('flags split headings and table codes at both phone and tablet widths', () => {
+  for (const width of [390, 768, 1440]) {
+    const f = fixture('<h1>Orders</h1><h2>Stock</h2><h3>Spools</h3><table><thead><tr><th>Material</th></tr></thead><tbody><tr><td>508BCA</td><td>2010g</td></tr></tbody></table>', width)
+    f.window.Range.prototype.getClientRects = () => [{ top: 0, width: 25, height: 15 }, { top: 15, width: 10, height: 15 }]
+    assert.deepEqual(Array.from(f.check().wrappedWords), width <= 768
+      ? ['h1 Orders', 'h2 Stock', 'h3 Spools', 'th Material', 'td 508BCA', 'td 2010g'] : [])
+    f.close()
+  }
+})
+test('word checks skip spaces, mixed markup, multiple text nodes and hidden headings or cells', () => {
+  const f = fixture('<h1>Print Log</h1><h2>Two\nwords</h2><h3><span>Stock</span></h3><h1 id="split">Order</h1><h2>Stock<!-- comment --></h2><h1 hidden>Orders</h1><table><tbody><tr><td>0 rolls / 0 g</td><td><span>508BCA</span></td><td hidden>508BCA</td><td> </td></tr></tbody></table>')
+  f.window.document.getElementById('split').appendChild(f.window.document.createTextNode('s'))
+  f.window.Range.prototype.getClientRects = () => [{ top: 0, width: 25, height: 15 }, { top: 15, width: 10, height: 15 }]
+  assert.equal(f.check().wrappedWords.length, 0)
+  f.close()
+})
+test('single-line headings and cells do not flag wrapping', () => {
+  const f = fixture('<h1>Orders</h1><h2>Stock</h2><h3>Spools</h3><table><thead><tr><th>Material</th></tr></thead><tbody><tr><td>508BCA</td></tr></tbody></table>')
+  assert.equal(f.check().wrappedWords.length, 0)
+  f.close()
+})

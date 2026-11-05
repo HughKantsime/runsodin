@@ -137,3 +137,9 @@ Pure harness regressions (no browser or backend):
 ```sh
 node --test tests/foundry_browser/*.test.mjs
 ```
+
+Round 4 extends `wrappedWords` at 390/768 to `h1`–`h3`, `td` and `th`.
+Candidates must contain exactly one text node and a single word/code (no internal
+whitespace); icons, child elements, multiple text nodes and prose are excluded.
+Rendered text must occupy more than one line to fail. Existing control/pill checks
+remain. Copy `layout_checks.mjs` with the harness; no baseline app change is needed.
