@@ -35,7 +35,7 @@ export default function StockReliability({ orgId }: { orgId?: number | null }) {
     {rollup.isPending && <p>Loading reorder stock…</p>}
     {rollup.isError && <p role="alert">Could not load reorder stock. <button onClick={() => rollup.refetch()}>Retry</button></p>}
     {rollup.data?.length === 0 && <p>No active stock or configured thresholds.</p>}
-    {rollup.data && <div className="overflow-x-auto"><Table className="w-full text-sm text-left">
+    {rollup.data && <div tabIndex={0} role="region" aria-label="Reorder stock" className="overflow-x-auto"><Table className="w-full text-sm text-left">
       <thead><tr>{['Material', 'Color', 'Sealed', 'Open', 'Total', 'Threshold', 'Reorder'].map(label => <th key={label} className="p-2">{label}</th>)}</tr></thead>
       <tbody>{rollup.data.map(row => <tr key={`${row.material}:${row.color}`}>
         <td className="p-2">{row.material}</td><td className="p-2">{row.color_name || row.color}</td>

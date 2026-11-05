@@ -538,7 +538,7 @@ export default function ArchivesPage() {
         />
       ) : (
         <>
-          <div className="overflow-x-auto rounded-md border border-[var(--brand-card-border)]">
+          <div tabIndex={0} role="region" aria-label="Archives" className="overflow-x-auto rounded-md border border-[var(--brand-card-border)]">
             <Table className="w-full text-sm">
               <thead>
                 <tr className="bg-[var(--brand-card-bg)] text-[var(--brand-text-muted)] text-xs">

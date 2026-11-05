@@ -154,7 +154,7 @@ export default function AuditLogs() {
       <p className="mb-3 text-xs text-[var(--brand-text-muted)]">CSV export includes up to 5,000 matching entries.</p>
 
       {/* Table */}
-      <div className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md overflow-hidden overflow-x-auto">
+      <div tabIndex={0} role="region" aria-label="Audit logs" className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md overflow-hidden overflow-x-auto">
         <Table className="w-full text-sm min-w-[700px]">
           <thead>
             <tr className="border-b border-[var(--brand-card-border)] text-[var(--brand-text-muted)] text-xs uppercase">

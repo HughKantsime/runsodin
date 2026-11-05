@@ -5,7 +5,7 @@ import { Button, StatusBadge } from '../ui'
 
 export default function OrderTable({ orders, STATUS_CLASSES, onDetail, onEdit, onSchedule, onShip, onCancel, onDelete }: { orders: any[]; STATUS_CLASSES: Record<string, string>; onDetail: (order: any) => void; onEdit: (order: any) => void; onSchedule: (id: number) => void; onShip: (order: any) => void; onCancel: (order: any) => void; onDelete: (id: number) => void }) {
   return (
-    <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] overflow-hidden">
+    <div tabIndex={0} role="region" aria-label="Orders" className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] overflow-hidden">
       {/* Mobile card view */}
       <div className="block md:hidden divide-y divide-[var(--brand-card-border)]">
         {orders.map(order => (

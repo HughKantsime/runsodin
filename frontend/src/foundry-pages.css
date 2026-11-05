@@ -5,7 +5,7 @@ html[data-theme-family="foundry"]:not(.light):not(.high-contrast) {
   [data-foundry-page] { display: contents; }
   [data-foundry-page] > :where(div, section) { min-width: 0; }
   [data-foundry-page] :where(p, dd) { overflow-wrap: anywhere; }
-  /* Titles and table codes wrap at word boundaries, never inside a word. */
+  /* Prose wraps at word boundaries; identifier columns below also prohibit hyphen breaks. */
   [data-foundry-page] :is(h1, h2, h3, td, th) { overflow-wrap: normal; word-break: normal; }
   [data-foundry-page] > :is(.p-4, .p-6, .p-8) { padding: 24px; }
   [data-foundry-page] :is(.flex, .grid) > :where(div, section, article) { min-width: 0; }
@@ -79,6 +79,14 @@ html[data-theme-family="foundry"]:not(.light):not(.high-contrast) {
   [data-foundry-ui="table"] thead { background: var(--foundry-surface-raised); }
   [data-foundry-ui="table"] tbody tr:nth-child(even) { background: var(--foundry-surface-panel); }
   [data-foundry-ui="table"] tbody tr:hover { background: var(--foundry-surface-raised); }
+  /* SKU and audit codes are identifiers: normal word breaking still splits hyphens. */
+  [data-foundry-page="/products"] [data-foundry-ui="table"] > :is(thead, tbody) > tr > :is(th, td):nth-child(2),
+  [data-foundry-page="/consumables"] [data-foundry-ui="table"] > :is(thead, tbody) > tr > :is(th, td):nth-child(2),
+  [data-foundry-page="/audit"] [data-foundry-ui="table"] > :is(thead, tbody) > tr > :is(th, td):is(:nth-child(3), :nth-child(4), :nth-child(5)) {
+    white-space: nowrap; overflow-wrap: normal; word-break: normal;
+  }
+  /* Keep long identifiers inside the table's named scroll region at every width. */
+  :is(div, section):has(> [data-foundry-ui="table"]) { overflow-x: auto; max-width: 100%; }
   [data-foundry-page="/spools"] [aria-label="Reorder stock"] :is(th, td) { white-space: nowrap; }
   :is([data-foundry-ui="empty"], [data-foundry-ui="loading"], [data-foundry-ui="error"]) {
     padding: 32px 20px; margin-block: 16px; border: 1px solid var(--foundry-surface-border);
@@ -214,7 +222,6 @@ html[data-theme-family="foundry"]:not(.light):not(.high-contrast) {
     [data-foundry-page="/spools"] [aria-label="Reorder stock"] > .flex h2 { flex-basis: 100%; }
     [data-foundry-page="/spools"] [aria-label="Reorder stock"] > .flex button { flex-shrink: 0; }
     [data-foundry-ui="table"] { min-width: 640px; }
-    :is(div, section):has(> [data-foundry-ui="table"]) { overflow-x: auto; max-width: 100%; }
     [data-foundry-ui="tabs"] { width: 100%; }
   }
   @media (max-width: 600px) {

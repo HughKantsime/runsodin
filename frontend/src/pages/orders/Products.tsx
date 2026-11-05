@@ -266,7 +266,7 @@ export default function Products() {
           />
         </div>
       ) : (
-        <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] overflow-hidden">
+        <div tabIndex={0} role="region" aria-label="Products" className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] overflow-hidden">
           {/* Mobile card view */}
           <div className="block md:hidden divide-y divide-[var(--brand-card-border)]">
             {productList.map(product => (

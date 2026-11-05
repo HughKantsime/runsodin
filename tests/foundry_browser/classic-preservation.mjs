@@ -54,6 +54,12 @@ export function classicSource(file, source) {
       .replace('fetchAPI<{ success?: boolean }>', 'fetchAPI')
       .replace('emergency-controls-toggle fixed', 'fixed').replace('emergency-controls-panel fixed', 'fixed')
   }
+  // Round 5: exact nonvisual names/focus targets for existing table containers.
+  const tableRegions = { 'OrderTable.tsx': 'Orders', 'Products.tsx': 'Products',
+    'Consumables.tsx': 'Consumables', 'AuditLogs.tsx': 'Audit logs',
+    'Archives.tsx': 'Archives', 'StockReliability.tsx': 'Reorder stock' }
+  const tableRegion = tableRegions[path.basename(file)]
+  if (tableRegion) s = s.replace(` tabIndex={0} role="region" aria-label="${tableRegion}"`, '')
   if (file.endsWith('/PrintLog.tsx')) s = s.replace(' tabIndex={0} role="region" aria-label="Print log"', '')
   if (file.endsWith('/Utilization.tsx')) s = s.replace(' tabIndex={0} role="region" aria-label="Printer utilization details"', '')
   if (file.endsWith('/Archives.tsx')) s = s.replace('aria-label={`Select ${displayName(item)} for comparison`}', '')

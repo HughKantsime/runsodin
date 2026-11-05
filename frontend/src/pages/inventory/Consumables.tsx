@@ -196,7 +196,7 @@ export default function Consumables() {
           />
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-md border border-[var(--brand-card-border)]">
+        <div tabIndex={0} role="region" aria-label="Consumables" className="overflow-x-auto rounded-md border border-[var(--brand-card-border)]">
           <Table className="w-full text-sm">
             <thead>
               <tr style={{ background: 'var(--brand-card-bg)' }}>
