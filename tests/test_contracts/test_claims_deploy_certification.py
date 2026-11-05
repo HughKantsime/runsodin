@@ -104,3 +104,11 @@ def test_update_rollback_instruction_targets_the_image_compose_runs():
     assert rollback_lines
     # A working rollback must pin the compose image (e.g. ODIN_IMAGE=...:vX) rather than only pulling a tag.
     assert any("ODIN_IMAGE=" in line for line in rollback_lines), rollback_lines
+
+
+def test_customer_promotion_uses_checker_before_latest_without_fleet_health():
+    source = (WORKFLOWS / 'promote-production.yml').read_text()
+    assert 'odin.subsystem.app' not in source
+    assert source.index('-m ops.release_control.checker') < source.index('attach-tag --repository') < source.index('replace-latest --repository')
+    assert '"schema_version":2' in source and '"checker_health":' in source
+    assert 'trap cleanup_checker EXIT' in source

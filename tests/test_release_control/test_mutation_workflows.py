@@ -567,7 +567,7 @@ def test_MW19_failure_receipts_and_fresh_authorization_are_wired():
     assert "RECEIPT_DIR=$root/receipt" in production_source and ".odin-production-receipt" not in production_source
     assert "capture-failure --state" in publication_source and "capture-failure --state" in production_source
     assert production_source.count("-m ops.release_control.promotion_eligibility") >= 2
-    assert "verify-readiness --status-code" in production_source
+    assert "-m ops.release_control.checker" in production_source
 
     publication_steps = {step["name"]: step for step in publication["jobs"]["publish"]["steps"]}
     publication_failure = publication_steps["Capture truthful publication failure state"]
@@ -584,7 +584,10 @@ def test_MW19_failure_receipts_and_fresh_authorization_are_wired():
     for forbidden in ("attach-tag", "replace-latest", "imagetools create", "docker buildx build"):
         assert forbidden not in production_failure["run"]
     assert production_failure["if"] == "failure() && env.MUTATION_STARTED == '1'"
-    assert "PRODUCTION_OBSERVATION_FAILED" in production_steps["Observe production version over verified TLS"]["run"]
+    assert "trap cleanup_checker EXIT" in production_steps["Check exact published digest on disposable instance"]["run"]
+    assert "PUBLIC_HEALTH_URL" not in production_source
+    names = list(production_steps)
+    assert names.index("Check exact published digest on disposable instance") < names.index("Create durable rollback tag") < names.index("Move latest to exact published digest")
 
 
 def test_MW20_publication_bootstrap_finds_runner_docker_before_path_export():

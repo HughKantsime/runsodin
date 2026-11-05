@@ -131,12 +131,35 @@ alias, and reruns both exact-platform health probes. Either recovery input by
 itself, a non-failed run, or any digest/scope mismatch fails closed.
 
 `.github/workflows/promote-production.yml` requires a fresh `production`
-eligibility decision and exact successful publication receipt. It requires valid
-public TLS and healthy production before mutation, creates and verifies a unique
-rollback tag for the prior `latest` digest, and then copies the tested digest to
-`latest` without source checkout or rebuild. Both mutation workflows serialize on
+eligibility decision and exact successful publication receipt. On the Mac runner
+(Colima), it boots the published index digest on `linux/amd64` (Rosetta), then
+`linux/arm64`, passing `--platform` explicitly and verifying the running
+container's image OS/architecture. Each uses a separate checker container and
+fresh named `/data` volume with a random port bound only to `127.0.0.1`. Strict health,
+readiness, API version, sign-in shell and fresh setup checks must pass, and the
+container and volume must be removed before the next platform starts and before
+any registry write. It then creates
+and verifies a rollback tag for the prior `latest` digest and copies the checked
+digest to `latest` without source checkout or rebuild. Both mutation workflows serialize on
 `odin-release-mutation`, isolate registry credentials, and upload HTML receipts.
 
 The workflow receipt's rollback tag, digest, and registry-native restoration
-command are the primary rollback path. Direct host access and semver compose
-pinning are break-glass procedures only.
+command are the customer rollback path. Schema 2 production receipts contain
+`checker_health` (version, ready, digest, runner and required per-platform
+`platforms` results with image IDs and smoke results for both architectures).
+The top-level image ID summarizes amd64 and smoke fields remain for compatibility
+with the operator release helper; the validator requires both platform results.
+Schema 1 receipts with `public_health` remain readable and hash-verified. The
+GitHub Release helper uses receipt evidence and the public immutable image tag;
+it does not query Shane's health endpoint.
+
+Shane's instance is a separate v4 chain phase after customer promotion and GitHub
+Release. It retains the fleet safety gate, deploy window, owned freeze and health
+verification. Its failure does not reverse the customer release. See
+[RUNBOOK section 2.4](RUNBOOK.md#24-decoupled-release-migration-and-instance-update)
+for the first-use Watchtower flag, migration order, retries and rollback.
+
+Checker capacity uses the existing pullable, digest-pinned Docker probe and
+requires at least 6 GiB free. No broad image pruning is introduced; never use
+`docker image prune -a` on the shared runner. Both publication and the checker
+test amd64 and arm64.

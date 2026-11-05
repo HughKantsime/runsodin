@@ -76,6 +76,7 @@ jobs:
           observed="$(docker buildx imagetools inspect "$IMAGE_REPOSITORY:latest" --format '{{.Manifest.Digest}}')"
           test "$observed" = "$RESTORE_DIGEST"
           echo "Registry latest restored and verified: $observed" >> "$GITHUB_STEP_SUMMARY"
+          echo "Shane's instance is separate after Watchtower migration. Follow ops/RUNBOOK.md section 2.4: release-chain-v4.sh <checkout> <restored-version> '<authorization>' --update-instance-only $RESTORE_DIGEST. This workflow does not restart the host." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Remove registry credentials
         if: always()

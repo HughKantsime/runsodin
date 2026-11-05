@@ -71,7 +71,7 @@ jobs:
       CURRENT_WORKFLOW_SHA: ${{ github.workflow_sha }}
       MUTATION_STARTED: "0"
       IMAGE_REPOSITORY: ghcr.io/hughkantsime/odin
-      PUBLIC_HEALTH_URL: https://odin.subsystem.app/health
+      CHECKER_NAME: odin-checker-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Establish isolated production root
         shell: bash
@@ -134,6 +134,7 @@ jobs:
             ops/release_control/validation_run_observation.schema.json ops/release_control/promotion_context.schema.json
             ops/release_control/result.schema.json ops/release_control/publication_receipt.schema.json
             ops/release_control/production_receipt.schema.json
+            ops/release_control/checker.py ops/release_control/validation_image_cleanup.py
           )
           responses="$MUTATION_ROOT/helper-responses"; mkdir -m 700 "$responses"; index=0
           for relative in "${allowlist[@]}"; do
@@ -153,6 +154,7 @@ jobs:
               "ops/release_control/validation_run_observation.schema.json", "ops/release_control/promotion_context.schema.json",
               "ops/release_control/result.schema.json", "ops/release_control/publication_receipt.schema.json",
               "ops/release_control/production_receipt.schema.json",
+              "ops/release_control/checker.py", "ops/release_control/validation_image_cleanup.py",
           ]
           responses=Path(os.environ["RESPONSES"]); target=Path(os.environ["HELPER_ROOT"])
           files=sorted(responses.glob("*.json"),key=lambda path:int(path.stem)); decoded={}
@@ -219,7 +221,7 @@ jobs:
           set -euo pipefail
           printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
 
-      - name: Production preflight with valid TLS
+      - name: Verify immutable tags and capture prior latest
         shell: bash
         run: |
           set -euo pipefail
@@ -227,16 +229,44 @@ jobs:
           version_digest="$(docker buildx imagetools inspect "$IMAGE_REPOSITORY:$VERSION_TAG" --format '{{.Manifest.Digest}}')"
           test "$sha_digest" = "$INPUT_IMAGE_DIGEST"
           test "$version_digest" = "$INPUT_IMAGE_DIGEST"
-          curl --fail --silent --show-error --max-time 20 "$PUBLIC_HEALTH_URL" > "$MUTATION_ROOT/preflight-health.json"
-          python3.11 -P <<'PY'
-          import json, os
-          health=json.load(open(os.environ["MUTATION_ROOT"]+"/preflight-health.json"))
-          if health.get("status")!="ok" or not isinstance(health.get("version"),str): raise SystemExit("production health preflight failed")
-          PY
           prior="$(docker buildx imagetools inspect "$IMAGE_REPOSITORY:latest" --format '{{.Manifest.Digest}}')"
           [[ "$prior" =~ ^sha256:[0-9a-f]{64}$ ]]
           test "$prior" != "$INPUT_IMAGE_DIGEST"
           echo "PRIOR_LATEST_DIGEST=$prior" >> "$GITHUB_ENV"
+
+      - name: Check exact published digest on disposable instance
+        shell: bash
+        run: |
+          set -euo pipefail
+          cleanup_checker() {
+            for platform in linux-amd64 linux-arm64; do
+              docker rm -f "${CHECKER_NAME}-${platform}" >/dev/null 2>&1 || true
+              docker volume rm "${CHECKER_NAME}-${platform}-data" >/dev/null 2>&1 || true
+            done
+            docker image rm "$IMAGE_REPOSITORY@$INPUT_IMAGE_DIGEST" >/dev/null 2>&1 || true
+          }
+          trap cleanup_checker EXIT
+          cd "$MUTATION_ROOT"
+          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.checker \
+            --digest "$INPUT_IMAGE_DIGEST" --version "$INPUT_VERSION" --name "$CHECKER_NAME" \
+            --runner "$RUNNER_NAME" --output "$MUTATION_ROOT/checker.json"
+
+      - name: Remove disposable checker
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          for platform in linux-amd64 linux-arm64; do
+            docker rm -f "${CHECKER_NAME}-${platform}" >/dev/null 2>&1 || true
+            docker volume rm "${CHECKER_NAME}-${platform}-data" >/dev/null 2>&1 || true
+          done
+          if docker image inspect "$IMAGE_REPOSITORY@$INPUT_IMAGE_DIGEST" >/dev/null 2>&1; then
+            docker image rm "$IMAGE_REPOSITORY@$INPUT_IMAGE_DIGEST" >/dev/null
+          fi
+          for platform in linux-amd64 linux-arm64; do
+            test -z "$(docker container ls -a --filter "name=^/${CHECKER_NAME}-${platform}$" --format '{{.Names}}')"
+            test -z "$(docker volume ls --filter "name=^${CHECKER_NAME}-${platform}-data$" --format '{{.Name}}')"
+          done
 
       - name: Create durable rollback tag
         shell: bash
@@ -244,13 +274,19 @@ jobs:
           set -euo pipefail
           cd "$MUTATION_ROOT"
           PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.promotion_eligibility --evidence-dir "$EVIDENCE_DIR" --promotion-request "$PROMOTION_DIR/request.json" --validation-run-observation "$PROMOTION_DIR/validation-observation.json" --promotion-context "$PROMOTION_DIR/promotion-context.json" >/dev/null
+          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P <<'PY'
+          import json, os
+          from ops.release_control.checker import validate_evidence
+          validate_evidence(json.load(open(os.environ["MUTATION_ROOT"] + "/checker.json")),
+                            os.environ["INPUT_IMAGE_DIGEST"], os.environ["INPUT_VERSION"])
+          PY
           started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; export started_at
           python3.11 -P <<'PY'
           import json, os, platform, subprocess
           from pathlib import Path
           rollback=f'docker buildx imagetools create --tag {os.environ["IMAGE_REPOSITORY"]}:latest {os.environ["IMAGE_REPOSITORY"]}@{os.environ["PRIOR_LATEST_DIGEST"]}'
           attempted={"tag":os.environ["ROLLBACK_TAG"],"before":None,"after":os.environ["PRIOR_LATEST_DIGEST"],"status":"attempted"}
-          state={"schema_version":1,"kind":"production","status":"failed","phase":"mutation_started","repository":os.environ["GITHUB_REPOSITORY"],"repository_id":int(os.environ["CURRENT_REPOSITORY_ID"]),"run_id":int(os.environ["GITHUB_RUN_ID"]),"run_attempt":int(os.environ["GITHUB_RUN_ATTEMPT"]),"workflow_sha":os.environ["CURRENT_WORKFLOW_SHA"],"actor_login":os.environ["GITHUB_ACTOR"],"candidate_sha":os.environ["INPUT_CANDIDATE_SHA"],"candidate_ref":os.environ["INPUT_CANDIDATE_REF"],"validation_run_id":int(os.environ["INPUT_VALIDATION_RUN_ID"]),"promotion_run_id":int(os.environ["INPUT_PROMOTION_RUN_ID"]),"publication_run_id":int(os.environ["INPUT_PUBLICATION_RUN_ID"]),"publication_receipt_sha256":os.environ["INPUT_PUBLICATION_RECEIPT_SHA256"],"evidence_sha256":os.environ["INPUT_EVIDENCE_SHA256"],"version":os.environ["INPUT_VERSION"],"image_repository":os.environ["IMAGE_REPOSITORY"],"target_digest":os.environ["INPUT_IMAGE_DIGEST"],"prior_latest_digest":os.environ["PRIOR_LATEST_DIGEST"],"rollback_tag":os.environ["ROLLBACK_TAG"],"rollback_command":rollback,"observed_latest_digest":None,"tag_writes":[attempted],"public_health":{"url":os.environ["PUBLIC_HEALTH_URL"],"tls_valid":True,"status":None,"version":None,"ready_observation":"not_checked"},"tool_versions":{"python":platform.python_version(),"docker":subprocess.check_output(["docker","version","--format","{{.Client.Version}}"],text=True).strip(),"buildx":subprocess.check_output(["docker","buildx","version"],text=True).strip()},"started_at":os.environ["started_at"],"updated_at":os.environ["started_at"],"error":{"code":"PRODUCTION_INCOMPLETE","detail":"workflow stopped after registry mutation began"},"cleanup":{"registry_logout":False,"auth_removed":False}}
+          state={"schema_version":2,"kind":"production","status":"failed","phase":"mutation_started","repository":os.environ["GITHUB_REPOSITORY"],"repository_id":int(os.environ["CURRENT_REPOSITORY_ID"]),"run_id":int(os.environ["GITHUB_RUN_ID"]),"run_attempt":int(os.environ["GITHUB_RUN_ATTEMPT"]),"workflow_sha":os.environ["CURRENT_WORKFLOW_SHA"],"actor_login":os.environ["GITHUB_ACTOR"],"candidate_sha":os.environ["INPUT_CANDIDATE_SHA"],"candidate_ref":os.environ["INPUT_CANDIDATE_REF"],"validation_run_id":int(os.environ["INPUT_VALIDATION_RUN_ID"]),"promotion_run_id":int(os.environ["INPUT_PROMOTION_RUN_ID"]),"publication_run_id":int(os.environ["INPUT_PUBLICATION_RUN_ID"]),"publication_receipt_sha256":os.environ["INPUT_PUBLICATION_RECEIPT_SHA256"],"evidence_sha256":os.environ["INPUT_EVIDENCE_SHA256"],"version":os.environ["INPUT_VERSION"],"image_repository":os.environ["IMAGE_REPOSITORY"],"target_digest":os.environ["INPUT_IMAGE_DIGEST"],"prior_latest_digest":os.environ["PRIOR_LATEST_DIGEST"],"rollback_tag":os.environ["ROLLBACK_TAG"],"rollback_command":rollback,"observed_latest_digest":None,"tag_writes":[attempted],"checker_health":json.load(open(os.environ["MUTATION_ROOT"]+"/checker.json")),"tool_versions":{"python":platform.python_version(),"docker":subprocess.check_output(["docker","version","--format","{{.Client.Version}}"],text=True).strip(),"buildx":subprocess.check_output(["docker","buildx","version"],text=True).strip()},"started_at":os.environ["started_at"],"updated_at":os.environ["started_at"],"error":{"code":"PRODUCTION_INCOMPLETE","detail":"workflow stopped after registry mutation began"},"cleanup":{"registry_logout":False,"auth_removed":False}}
           Path(os.environ["STATE_FILE"]).write_text(json.dumps(state))
           PY
           echo "MUTATION_STARTED=1" >> "$GITHUB_ENV"
@@ -298,52 +334,21 @@ jobs:
           import json
           from pathlib import Path
           state=json.load(open("state.json")); writes=state["tag_writes"][:-1]+[json.load(open("latest-write.json"))]
-          Path("values.json").write_text(json.dumps({"phase":"registry_verified","tag_writes":writes,"observed_latest_digest":state["target_digest"]}))
+          Path("values.json").write_text(json.dumps({"phase":"registry_verified","tag_writes":writes,"observed_latest_digest":state["target_digest"],"status":"success","error":None}))
           PY
           PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow transition-state --state "$STATE_FILE" --values values.json
 
-      - name: Observe production version over verified TLS
+      - name: Summarize customer promotion
         shell: bash
         run: |
-          set -euo pipefail
-          record_failure() {
-            status=$?
-            PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow capture-failure --state "$STATE_FILE" --error-code PRODUCTION_OBSERVATION_FAILED --error-detail "public production observation exited $status" || true
-            exit "$status"
-          }
-          trap record_failure ERR
-          success=0
-          for _ in $(seq 1 60); do
-            if curl --fail --silent --show-error --max-time 20 "$PUBLIC_HEALTH_URL" > "$MUTATION_ROOT/health.json"; then
-              observed="$(python3.11 -c 'import json,sys; p=json.load(open(sys.argv[1])); print(p.get("version","") if p.get("status")=="ok" else "")' "$MUTATION_ROOT/health.json")"
-              if [ "$observed" = "$INPUT_VERSION" ]; then success=1; break; fi
-            fi
-            sleep 10
-          done
-          test "$success" = 1
-          set +e
-          ready_code="$(curl --proto '=https' --max-redirs 0 --silent --show-error --output "$MUTATION_ROOT/ready.json" --write-out '%{http_code}' --max-time 20 https://odin.subsystem.app/health/ready)"
-          ready_curl_status=$?
-          set -e
-          test "$ready_curl_status" = 0
-          ready_observation="$(PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow verify-readiness --status-code "$ready_code" --body "$MUTATION_ROOT/ready.json" --version "$INPUT_VERSION")"; export ready_observation
-          python3.11 -P <<'PY'
-          import json, os
-          from pathlib import Path
-          health=json.load(open(os.environ["MUTATION_ROOT"]+"/health.json"))
-          ready=os.environ["ready_observation"]
-          values={"phase":"production_observed","status":"success","error":None,"public_health":{"url":os.environ["PUBLIC_HEALTH_URL"],"tls_valid":True,"status":health.get("status"),"version":health.get("version"),"ready_observation":ready}}
-          Path(os.environ["MUTATION_ROOT"]+"/values.json").write_text(json.dumps(values))
-          PY
-          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow transition-state --state "$STATE_FILE" --values "$MUTATION_ROOT/values.json"
           {
-            echo "## ODIN production promotion"
+            echo "## ODIN customer promotion (checker verified)"
             echo "- Version: $INPUT_VERSION"
             echo "- Target digest: $INPUT_IMAGE_DIGEST"
-            echo "- Prior digest: $PRIOR_LATEST_DIGEST"
+            echo "- Checker runner: $RUNNER_NAME"
             echo "- Rollback tag: $ROLLBACK_TAG"
-            echo "- Readiness: $ready_observation"
             echo "- Restore: docker buildx imagetools create --tag $IMAGE_REPOSITORY:latest $IMAGE_REPOSITORY@$PRIOR_LATEST_DIGEST"
+            echo "- Shane's instance updates separately via release-chain-v4.sh."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Remove production builder
