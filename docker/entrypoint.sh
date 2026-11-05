@@ -137,7 +137,8 @@ trap rollback_restore_on_startup_error ERR
 
 # Every database step below runs as the app user: hand it /data (the keys and directories
 # above were created by root) before any restore or migration writes there.
-chown -R odin:odin /data 2>/dev/null || true
+# Even a no-op chown changes ctime; preserve receipts on already-owned media.
+find /data \( ! -user odin -o ! -group odin \) -exec chown odin:odin {} + 2>/dev/null || true
 
 if [ "${ODIN_DB_BOOTSTRAP_OWNER:-1}" = "1" ]; then
     case "${DATABASE_URL}" in
@@ -172,7 +173,7 @@ fi
 
 trap - ERR
 
-chown -R odin:odin /data 2>/dev/null || true
+find /data \( ! -user odin -o ! -group odin \) -exec chown odin:odin {} + 2>/dev/null || true
 mkdir -p /var/run
 chown odin:odin /var/run 2>/dev/null || true
 /usr/sbin/runuser -u odin -- /usr/local/bin/python3 -I -S /usr/local/libexec/odin-branding-defaults.py

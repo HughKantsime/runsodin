@@ -16,3 +16,20 @@ test('412 is preserved for explicit UI refresh, and non204 never claims complete
   await expect(timelapses.delete(17, '"original"')).rejects.toMatchObject({ status: 412 })
   await expect(timelapses.delete(17, '"original"')).rejects.toThrow(/not confirmed/)
 })
+
+test.each([{ all_ready: true } as const, { timelapse_ids: [17, 19] }])('re-check posts selection with session cookies and no raw credential: %j', async selection => {
+  const page = { results: [{ timelapse_id: 17, status: 're-admitted', changed: true }], next_after_id: 100 }
+  const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(page))); vi.stubGlobal('fetch', fetch)
+  const controller = new AbortController()
+  expect(await timelapses.recheckFacts(selection, 100, controller.signal)).toEqual(page)
+  expect(fetch).toHaveBeenCalledExactlyOnceWith('/api/timelapses/recheck-facts?after_id=100', {
+    method: 'POST', credentials: 'include', signal: controller.signal,
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(selection),
+  })
+})
+
+test('re-check propagates refusal without retry', async () => {
+  const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: 'Superadmin access required' }), { status: 403 })); vi.stubGlobal('fetch', fetch)
+  await expect(timelapses.recheckFacts({ all_ready: true })).rejects.toMatchObject({ status: 403, message: 'Superadmin access required' })
+  expect(fetch).toHaveBeenCalledTimes(1)
+})

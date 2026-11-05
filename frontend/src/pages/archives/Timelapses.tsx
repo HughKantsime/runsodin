@@ -6,6 +6,7 @@ import { auth, timelapses, printers } from '../../api'
 import { canDo } from '../../permissions'
 import type { User, Timelapse } from '../../types'
 import ConfirmModal from '../../components/shared/ConfirmModal'
+import TimelapseFactsRecheck from '../../components/archives/TimelapseFactsRecheck'
 import TimelapseEditor from '../../components/archives/TimelapseEditor'
 
 function audience(user: User | null | undefined) {
@@ -79,6 +80,7 @@ export default function Timelapses() {
   return <div className="p-4 md:p-6 space-y-4">
     <Link to="/cameras">Back to Cameras</Link><h1 className="text-xl flex items-center gap-2"><Film />Timelapses</h1>
     <p className="text-sm text-[var(--brand-text-muted)]">{provenance}</p>
+    {user?.role === 'admin' && user.group_id == null && <TimelapseFactsRecheck key={owner} current={current} onComplete={() => { client.invalidateQueries({ queryKey: ['timelapses', owner] }) }} />}
     <div className="flex gap-3"><select aria-label="Printer filter" value={printer} onChange={e => { retire(); setPrinter(e.target.value); setOffset(0) }}><option value="">All printers</option>{(printerRows.data || []).map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select>
       <select aria-label="Status filter" value={status} onChange={e => { retire(); setStatus(e.target.value); setOffset(0) }}><option value="">All statuses</option>{['ready', 'capturing', 'encoding', 'failed', 'deleting'].map(value => <option key={value}>{value}</option>)}</select></div>
     {rows.isLoading && <p>Loading timelapses...</p>}{rows.isError && <div role="alert">Unable to load recordings. <button onClick={() => rows.refetch()}>Retry list</button></div>}

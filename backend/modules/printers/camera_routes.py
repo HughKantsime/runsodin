@@ -5,14 +5,15 @@ from core.timelapse_media_errors import RetirementUnavailable,EditUnavailable,No
 Timelapse list/video/delete, camera list/toggle/stream/WebRTC.
 """
 
-from core.rbac import should_filter_org, require_action
+from core.rbac import should_filter_org, require_action, require_superadmin, require_interactive_session
 
 # Domain: printers
 # Depends on: core, organizations
 # Owns tables: timelapses (shared with archives)
 
 from pathlib import Path
-from typing import Optional
+from typing import Annotated, Optional
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 import logging
 import math
 import os
@@ -111,6 +112,42 @@ def list_timelapses(
             for t in items
         ],
     }
+
+
+class TimelapseFactsRecheckRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    timelapse_ids: list[Annotated[int, Field(strict=True, gt=0, le=9223372036854775807)]] | None = Field(default=None, min_length=1, max_length=100)
+    all_ready: StrictBool = False
+
+    @model_validator(mode='after')
+    def one_selection(self):
+        if (self.timelapse_ids is not None) == self.all_ready:
+            raise ValueError('Select timelapse_ids or all_ready, exclusively')
+        return self
+
+
+@router.post('/timelapses/recheck-facts', tags=['Timelapses'],
+             dependencies=[Depends(require_interactive_session())])
+def recheck_timelapse_facts(
+    body: TimelapseFactsRecheckRequest,
+    request: Request,
+    response: Response,
+    after_id: int = Query(default=0, ge=0, le=9223372036854775807),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_superadmin()),
+):
+    """Explicit session-admin repair, with at most 100 videos per request."""
+    from modules.printers.timelapse_request_authority import selected_evidence
+    if after_id and not body.all_ready:
+        raise HTTPException(422, 'after_id is only valid with all_ready')
+    provider = require_timelapse_media_provider()
+    evidence = selected_evidence(request, db, current_user, provider=provider, purpose='read')
+    engine = db.get_bind()
+    db.rollback()
+    db.close()
+    response.headers['Cache-Control'] = 'private, no-store'
+    return provider.recheck_facts(engine, TIMELAPSE_ROOT, evidence,
+                                  timelapse_ids=body.timelapse_ids, after_id=after_id)
 
 
 @router.get("/timelapses/{timelapse_id}", tags=["Timelapses"])

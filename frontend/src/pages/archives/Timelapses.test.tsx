@@ -3,8 +3,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, afterEach, expect, test, vi } from 'vitest'
 import Timelapses from './Timelapses'
-const api = vi.hoisted(() => ({ list: vi.fn(), detail: vi.fn(), remove: vi.fn(), check: vi.fn(), edit: vi.fn(), receipt: vi.fn(), allowed: true }))
-vi.mock('../../api', () => ({ auth: { me: vi.fn() }, printers: { list: vi.fn().mockResolvedValue([{ id: 9, name: 'Owned printer' }]) }, timelapses: { list: api.list, detail: api.detail, delete: api.remove, checkMedia: api.check, edit: api.edit, editReceipt: api.receipt, streamUrl: (id: number) => `/api/timelapses/${id}/stream`, downloadUrl: (id: number) => `/api/timelapses/${id}/download` } }))
+const api = vi.hoisted(() => ({ list: vi.fn(), detail: vi.fn(), remove: vi.fn(), check: vi.fn(), edit: vi.fn(), receipt: vi.fn(), recheck: vi.fn(), allowed: true }))
+vi.mock('../../api', () => ({ auth: { me: vi.fn() }, printers: { list: vi.fn().mockResolvedValue([{ id: 9, name: 'Owned printer' }]) }, timelapses: { list: api.list, recheckFacts: api.recheck, detail: api.detail, delete: api.remove, checkMedia: api.check, edit: api.edit, editReceipt: api.receipt, streamUrl: (id: number) => `/api/timelapses/${id}/stream`, downloadUrl: (id: number) => `/api/timelapses/${id}/download` } }))
 vi.mock('../../permissions', () => ({ canDo: (action: string) => api.allowed && action === 'printers.edit' }))
 const row = { id: 17, printer_id: 9, printer_name: 'Owned printer', status: 'ready', frame_count: 3 }
 const user = { id: 3, username: 'Owned admin', role: 'admin', group_id: 1 }
@@ -104,4 +104,57 @@ test('real page close/reopen after committed lost ACK cannot bypass reload and n
   await screen.findByText(/Edit completed/); await waitFor(() => expect(screen.getByRole('button', { name: 'Confirm trim' })).toBeEnabled())
   expect(api.edit).toHaveBeenCalledTimes(1)
   expect(api.receipt).toHaveBeenCalledWith(17, operation, expect.any(AbortSignal))
+})
+
+
+test.each(['classic', 'foundry'])('restart re-check in %s uses session API, displays results and pages only on click', async theme => {
+  document.documentElement.dataset.theme = theme
+  api.recheck.mockResolvedValueOnce({ results: [{ timelapse_id: 17, status: 're-admitted', changed: true }, { timelapse_id: 18, status: 'refused', reason: 'digest_mismatch' }], next_after_id: 100 })
+  api.recheck.mockResolvedValueOnce({ results: [{ timelapse_id: 101, status: 're-admitted', changed: false }], next_after_id: null })
+  mount({ ...user, group_id: null })
+  const button = await screen.findByRole('button', { name: 'Re-check videos after a restart' })
+  expect(screen.getByText(/up to 100 ready recordings per click/)).toBeInTheDocument()
+  expect(api.recheck).not.toHaveBeenCalled()
+  fireEvent.click(button); fireEvent.click(button)
+  await screen.findByText('Recording 17: Re-admitted')
+  expect(screen.getByText('Recording 18: Refused — digest_mismatch')).toBeInTheDocument()
+  expect(api.recheck).toHaveBeenCalledTimes(1)
+  expect(api.recheck).toHaveBeenCalledWith({ all_ready: true }, 0, expect.any(AbortSignal))
+  fireEvent.click(screen.getByRole('button', { name: 'Re-check next 100 videos' }))
+  await screen.findByText('Recording 101: Re-admitted (already verified)')
+  expect(api.recheck).toHaveBeenLastCalledWith({ all_ready: true }, 100, expect.any(AbortSignal))
+  expect(screen.queryByRole('button', { name: 'Re-check next 100 videos' })).not.toBeInTheDocument()
+  delete document.documentElement.dataset.theme
+})
+
+test.each([{ ...user, role: 'viewer', group_id: null }, { ...user, role: 'operator', group_id: null }, user])('restart re-check is hidden for non-superadmins: %j', async principal => {
+  mount(principal); await screen.findByRole('button', { name: 'Play recording 17' })
+  expect(screen.queryByRole('button', { name: 'Re-check videos after a restart' })).not.toBeInTheDocument()
+  expect(api.recheck).not.toHaveBeenCalled()
+})
+
+test('restart re-check failure stays visible and never retries automatically', async () => {
+  api.recheck.mockRejectedValueOnce(new Error('Re-check refused (403)'))
+  mount({ ...user, group_id: null }); fireEvent.click(await screen.findByRole('button', { name: 'Re-check videos after a restart' }))
+  await screen.findByText(/Some videos may already have been re-admitted/)
+  expect(api.recheck).toHaveBeenCalledTimes(1)
+  expect(screen.getByRole('button', { name: 'Re-check videos after a restart' })).toBeEnabled()
+})
+
+test('account switch aborts restart re-check and hides late results', async () => {
+  let finish!: (value: any) => void
+  api.recheck.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+  const { client } = mount({ ...user, group_id: null })
+  fireEvent.click(await screen.findByRole('button', { name: 'Re-check videos after a restart' }))
+  const signal = api.recheck.mock.calls[0][2]
+  client.setQueryData(['auth', 'me'], { ...user, id: 4, username: 'Other admin', group_id: null })
+  await waitFor(() => expect(signal.aborted).toBe(true))
+  await act(async () => finish({ results: [{ timelapse_id: 17, status: 're-admitted', changed: true }], next_after_id: null }))
+  expect(screen.queryByText('Recording 17: Re-admitted')).not.toBeInTheDocument()
+})
+
+test('restart re-check reports an empty ready page', async () => {
+  api.recheck.mockResolvedValueOnce({ results: [], next_after_id: null })
+  mount({ ...user, group_id: null }); fireEvent.click(await screen.findByRole('button', { name: 'Re-check videos after a restart' }))
+  await screen.findByText('No ready recordings to re-check.')
 })

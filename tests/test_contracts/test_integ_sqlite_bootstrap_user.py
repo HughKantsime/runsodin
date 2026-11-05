@@ -11,7 +11,7 @@ ENTRYPOINT = (Path(__file__).resolve().parents[2] / "docker" / "entrypoint.sh").
 
 def _db_section():
     start = ENTRYPOINT.index("rollback_restore_on_startup_error() {")
-    return ENTRYPOINT[start:ENTRYPOINT.index("trap - ERR\n\nchown")]
+    return ENTRYPOINT[start:ENTRYPOINT.index("trap - ERR\n\nfind")]
 
 
 def test_every_restore_coordinator_and_bootstrap_call_runs_as_odin():
@@ -25,4 +25,4 @@ def test_every_restore_coordinator_and_bootstrap_call_runs_as_odin():
 
 def test_data_is_handed_to_odin_before_the_database_steps():
     before = ENTRYPOINT[:ENTRYPOINT.index('if [ "${ODIN_DB_BOOTSTRAP_OWNER:-1}" = "1" ]')]
-    assert "chown -R odin:odin /data" in before
+    assert "-exec chown odin:odin {} +" in before
