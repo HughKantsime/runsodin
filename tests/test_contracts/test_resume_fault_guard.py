@@ -229,6 +229,9 @@ def test_persisted_parsed_entries_use_their_level(audited, review_db, levels, st
     {'attr': 0x05010400, 'code': '05010400_0003000'},      # short code string
     {'attr': 0x05010400, 'code': '05010400_ZZZZZZZZ'},     # not hex
     {'attr': 0x05010400, 'raw_code': -1},
+    {'attr': 0x05010400, 'code': 'ZZZZZZZZ_00030002'},
+    {'attr': 0x05010400, 'code': '05010400_+0030002'},
+    {'attr': 0x05010400, 'code': ' 5010400_00030002'},
     {'attr': '05010400', 'code': 3 << 16},
 ])
 def test_malformed_persisted_entries_block(audited, review_db, entry):
@@ -236,3 +239,12 @@ def test_malformed_persisted_entries_block(audited, review_db, entry):
     seed(review_db, hms=json.dumps([entry]))
     assert client.post(URL, headers=issue(['write:printers'])).status_code == 409
     assert not calls
+
+
+def test_empty_bundle_description_keeps_the_fault():
+    from modules.printers import hms_codes
+    from unittest import mock
+    with mock.patch.object(hms_codes, 'load_bundle', return_value={'device_hms': {'0500030000020018': ''}}):
+        errors = hms_codes.parse_hms_errors([{'attr': 0x05000300, 'code': 0x00020018}], '00M')
+    assert [e['code'] for e in errors] == ['05000300_00020018']
+    assert errors[0]['severity'] == 'error' and errors[0]['message']

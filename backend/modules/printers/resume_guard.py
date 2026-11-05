@@ -1,5 +1,6 @@
 """Human review required before unattended resume over current printer faults."""
 import json
+import re
 
 from sqlalchemy import text
 
@@ -17,13 +18,8 @@ def _code_value(item):
     raw = item.get('raw_code', item.get('code'))
     if type(raw) is int:
         return raw if 0 <= raw <= 0xFFFFFFFF else None
-    if isinstance(raw, str):
-        parts = raw.split('_')
-        if len(parts) == 2 and all(len(p) == 8 for p in parts):
-            try:
-                return int(parts[1], 16)
-            except ValueError:
-                return None
+    if isinstance(raw, str) and re.fullmatch(r'[0-9A-Fa-f]{8}_[0-9A-Fa-f]{8}', raw):
+        return int(raw[9:], 16)
     return None
 
 

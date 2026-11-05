@@ -15,12 +15,14 @@ def wiki_url(code):
 def lookup_hms_code(code, model_prefix=''):
     value = canonical(code)
     table = 'device_hms' if len(value) == 16 else 'device_error'
-    return load_bundle(model_prefix).get(table, {}).get(value, f'Printer code {display_code(code)}')
+    # An empty bundle description must not hide the fault (it would drop out of
+    # parse_hms_errors and so out of the stored active set the resume guard reads).
+    return load_bundle(model_prefix).get(table, {}).get(value) or f'Printer code {display_code(code)}'
 
 
 def lookup_print_error(code, model_prefix=''):
     value = canonical(code)
-    return load_bundle(model_prefix).get('device_error', {}).get(value, f'Printer code {display_code(code)}')
+    return load_bundle(model_prefix).get('device_error', {}).get(value) or f'Printer code {display_code(code)}'
 
 
 def get_code_count(model_prefix=''):
