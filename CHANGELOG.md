@@ -21,6 +21,7 @@ All notable changes to O.D.I.N. are documented here.
 - Refusals say why. Examples: a slicer map that disagrees, a tool change with no extruder field (with its line number), which printer settings changed during an attempt, or a file too large to check (its size and the limit).
 - Setting an AMS tray from ODIN sends what Bambu printers accept: the slot within that AMS, the preset id and the real temperature range, without touching the calibrated K value. ODIN waits for the printer's reply. This is confirmed on a P1S; X1C and H2D need an attended check.
 - A paused printer shows why it paused (the current error, or the active HMS notice), not an old error.
+- Timelapses could no longer be played or downloaded after any restart ("object_changed"): start-up re-owned every file under /data, which changes each file's change time even when nothing changed. Start-up now leaves already-owned files alone. An admin can re-admit existing videos from the Timelapses page; each video's content hash must match the one recorded when it was made, and each re-admission is audited.
 - MJPEG cameras, such as the Kobra S1's, show their stream directly, without a slow conversion that made the browser time out.
 - The P2S camera is found automatically (RTSPS, verified on hardware).
 - The audit log CSV says when it stopped at 5,000 rows, in response headers and on the Audit Log page.
