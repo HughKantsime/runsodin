@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 
 from core.audit import audit_download
 from core.audit_views import audit_view, view_recorder
+from fastapi.concurrency import run_in_threadpool
 from core.db import get_db
 from core.dependencies import get_current_user, log_audit, validate_access_token
 from core.rbac import require_role, check_org_access, has_permission, token_scope_granted, handler_enforces_token_scope
@@ -195,6 +196,8 @@ def _read_lifetime(request,db,principal,tid,*,query_allowed=False,attachment=Fal
         engine=db.get_bind();db.rollback();db.close()
         response = provider.admitted_response(engine,TIMELAPSE_ROOT,tid,evidence,range_header=request.headers.get('range'),head=request.method=='HEAD',filename=f'odin_timelapse_{tid}.mp4' if attachment else None,expected_nonce=expected)
         try:
+            if request.method == 'HEAD':
+                return response
             if attachment:
                 audit_download(db, 'timelapse.downloaded', 'timelapse', tid)
             else:
@@ -445,7 +448,7 @@ async def camera_webrtc(printer_id: int, request: Request, db: Session = Depends
             )
         if resp.status_code >= 400:
             raise HTTPException(status_code=502, detail=f"go2rtc returned {resp.status_code}")
-        audit_view(db, "camera.viewed", "printer", printer_id, "webrtc")
+        await run_in_threadpool(audit_view, db, "camera.viewed", "printer", printer_id, "webrtc")
         return Response(content=resp.content, media_type=resp.headers.get("content-type", "application/sdp"))
     except httpx.ConnectError:
         raise HTTPException(status_code=502, detail="go2rtc is not reachable")

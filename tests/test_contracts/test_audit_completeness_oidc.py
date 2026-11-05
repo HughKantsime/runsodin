@@ -136,7 +136,7 @@ def test_oidc_provisioning_audited_atomically(client,review_db,callback,failure)
     if failure:
         assert uid is None and 'oidc_code=' not in response.headers['location']
         assert not rows(review_db,'user.created')
-        assert_row(review_db,'auth.login_failed','user',None,{'method':'oidc','reason':'auth_failed','username':'student1'},actor=False)
+        assert_row(review_db,'auth.login_failed','user',None,{'method':'oidc','reason':'auth_failed','username':None},actor=False)
     else:
         assert uid is not None
         assert_row(review_db,'user.created','user',uid,{'role':'viewer'},actor=False)

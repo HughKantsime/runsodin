@@ -3,6 +3,7 @@ import json
 
 import httpx
 import pytest
+from core import audit_views as views
 from sqlalchemy import event, text
 from sqlalchemy.orm import Session
 
@@ -41,6 +42,7 @@ def test_camera_bytes_audited_and_fail_closed(camera_http, review_db, transport)
     row = rows(review_db, 'camera.viewed')
     assert len(row) == 1 and json.loads(row[0].details) == {'transport': transport}
     assert tuple(row[0][3:]) == (3, 'admin', 'bearer_jwt', '198.51.100.7')
+    views._cache.clear()
     review_db.execute(text('DELETE FROM audit_logs')); review_db.commit()
     listener = refuse_audit(review_db, 'camera.viewed')
     try:
@@ -74,7 +76,12 @@ def test_timelapse_range_head_and_both_downloads(managed_camera_client):
     assert client.get(url + '/stream', headers={**headers, 'Range': 'bytes=999999999-'}).status_code == 416
     with Session(engine) as db:
         assert not rows(db, 'timelapse.viewed')
-    assert client.head(url + '/stream', headers=headers).status_code == 200
+    for suffix in ('stream', 'video'):
+        response = client.head(url + '/' + suffix, headers=headers)
+        assert response.status_code == 200 and response.content == b''
+    with Session(engine) as db:
+        assert not rows(db, 'timelapse.viewed')
+        assert not rows(db, 'timelapse.downloaded')
     response = client.get(url + '/stream', headers={**headers, 'Range': 'bytes=0-3'})
     assert response.status_code == 206 and response.content == payload[:4]
     assert client.get(url + '/stream', headers={**headers, 'Range': 'bytes=4-7'}).status_code == 206
@@ -89,8 +96,45 @@ def test_timelapse_range_head_and_both_downloads(managed_camera_client):
         listener = refuse_audit(db)
     try:
         assert client.get(url + '/video', headers=headers).status_code == 503
+        views._cache.clear()
         with engine.begin() as conn:
             conn.execute(text("UPDATE audit_logs SET timestamp='2000-01-01'"))
         assert client.get(url + '/stream', headers=headers).status_code == 503
     finally:
         event.remove(engine, 'before_cursor_execute', listener)
+
+
+@pytest.mark.parametrize('transport', ['snapshot', 'webrtc'])
+def test_async_camera_audit_runs_off_event_loop(camera_http, monkeypatch, transport):
+    import asyncio
+    from modules.printers import camera_routes, routes_camera_snapshot
+    module = routes_camera_snapshot if transport == 'snapshot' else camera_routes
+    original = module.audit_view
+    calls = []
+    def audit(*args):
+        with pytest.raises(RuntimeError, match='no running event loop'):
+            asyncio.get_running_loop()
+        calls.append(True)
+        return original(*args)
+    monkeypatch.setattr(module, 'audit_view', audit)
+    client, _ = camera_http
+    call = client.get if transport == 'snapshot' else client.post
+    assert call(f'/cameras/9/{transport}').status_code == 200
+    assert calls == [True]
+
+
+@pytest.mark.parametrize('transport', ['snapshot', 'webrtc'])
+def test_erased_user_cannot_read_camera_with_warm_view_cache(camera_http, review_db, transport):
+    from core.audit_actor import erase_actor_history
+    client, _ = camera_http
+    call = client.get if transport == 'snapshot' else client.post
+    url = f'/cameras/9/{transport}'
+    assert call(url).status_code == 200
+    assert views._cache
+    review_db.execute(text('UPDATE users SET is_active=0 WHERE id=3'))
+    erase_actor_history(review_db, 3)
+    review_db.commit()
+    response = call(url)
+    assert response.status_code == 401 and b'owned-' not in response.content
+    found = rows(review_db, 'camera.viewed')
+    assert len(found) == 1 and found[0].actor_username is None and found[0].ip_address is None

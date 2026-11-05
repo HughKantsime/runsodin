@@ -3,6 +3,7 @@ import asyncio
 import json
 
 import pytest
+from core import audit_views as views
 from fastapi import HTTPException
 from sqlalchemy import event, text
 
@@ -34,6 +35,7 @@ def test_long_mjpeg_stream_renews_or_stops(upstream, review_db, fail_renewal):
         assert tuple(initial[0][3:]) == (1, 'student', 'bearer_jwt', '198.51.100.7')
         await asyncio.sleep(0.06)
         assert len(rows(review_db, 'camera.viewed')) == 1
+        views._cache.clear()
         review_db.execute(text("UPDATE audit_logs SET timestamp='2000-01-01'")); review_db.commit()
         listener = refuse_audit(review_db) if fail_renewal else None
         try:
@@ -69,9 +71,54 @@ def test_obs_token_view_is_attributed_and_rate_limited(overlay_client, review_db
     assert client.get('/overlay/9/camera').status_code == 401
     assert len(rows(review_db, 'camera.viewed')) == 1
     review_db.execute(text("UPDATE audit_logs SET timestamp='2000-01-01'")); review_db.commit()
+    views._cache.clear()
     listener = refuse_audit(review_db)
     try:
         response = client.get('/overlay/9/camera', params={'token': tokens['camera']})
     finally:
         event.remove(review_db.get_bind(), 'before_cursor_execute', listener)
     assert response.status_code == 503
+
+
+@pytest.mark.parametrize('persistent', [False, True])
+def test_due_renewal_retries_once_at_next_check(upstream, review_db, persistent):
+    import time
+    upstream['stall'] = True
+    attempts = []
+    def fail_renewal(conn, cursor, statement, params, context, many):
+        if statement.startswith('INSERT INTO audit_logs'):
+            attempts.append(time.monotonic())
+            if persistent or len(attempts) == 1:
+                raise RuntimeError('owned renewal outage')
+
+    async def run():
+        response = await open_stream(review_db)
+        body = response.body_iterator
+        assert await anext(body) == FRAME
+        views._cache.clear()
+        review_db.execute(text("UPDATE audit_logs SET timestamp='2000-01-01'"))
+        review_db.commit()
+        event.listen(review_db.get_bind(), 'before_cursor_execute', fail_renewal)
+        pending = asyncio.create_task(anext(body))
+        try:
+            if persistent:
+                with pytest.raises(StopAsyncIteration):
+                    await asyncio.wait_for(pending, 3)
+            else:
+                for _ in range(150):
+                    await asyncio.sleep(0.02)
+                    if len(rows(review_db, 'camera.viewed')) == 2:
+                        break
+                assert len(rows(review_db, 'camera.viewed')) == 2
+                # Successful retry restores the normal window and stream.
+                await asyncio.sleep(0.08)
+                assert not pending.done()
+            assert len(attempts) == 2
+            assert attempts[1] - attempts[0] >= 0.03
+            assert len(rows(review_db, 'camera.viewed')) == (1 if persistent else 2)
+        finally:
+            event.remove(review_db.get_bind(), 'before_cursor_execute', fail_renewal)
+            pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
+            await body.aclose()
+    asyncio.run(run())

@@ -86,3 +86,39 @@ def test_wait_dispatch_keeps_one_interactive_acceptance(client, review_db, monke
     found = rows(review_db, 'job.dispatched')
     assert len(found) == 1 and json.loads(found[0].details) == {'printer_id': 9}
     assert found[0].actor_user_id == 3 and found[0].actor_username == 'admin'
+
+
+@pytest.mark.parametrize('rename', [False, True])
+def test_code_issued_then_erased_then_failed_exchange_keeps_no_username(client, review_db, rename):
+    from core.audit_actor import erase_actor_history
+    from modules.organizations.erasure_audit import erase_sso_login_history, erase_password_login_history
+    code = seed_code(review_db, client)
+    # Use the same transaction order as account erasure, with and without a
+    # rename so the tombstone fence is exercised even if the name still resolves.
+    review_db.execute(text('UPDATE users SET is_active=0 WHERE id=3'))
+    erase_actor_history(review_db, 3)
+    erase_sso_login_history(review_db, 3)
+    erase_password_login_history(review_db, 'admin')
+    if rename:
+        review_db.execute(text("UPDATE users SET username='deleted-3' WHERE id=3"))
+    review_db.commit()
+    response = client.post('/auth/oidc/exchange', json={'code': code})
+    assert response.status_code == 401
+    row = rows(review_db, 'auth.login_failed')[0]
+    assert json.loads(row.details)['username'] is None
+    assert row.actor_username is None
+    assert not rows(review_db, 'auth.login')
+
+
+def test_issued_sso_code_after_gdpr_erase_route_has_no_username(client, review_db):
+    from core.auth import create_access_token
+    from modules.organizations.routes_sessions import router
+    client.app.include_router(router)
+    code = seed_code(review_db, client, token=create_access_token({'sub': 'student', 'role': 'viewer'}))
+    assert client.delete('/users/1/erase').status_code == 200
+    response = client.post('/auth/oidc/exchange', json={'code': code})
+    assert response.status_code == 401
+    row = rows(review_db, 'auth.login_failed')[0]
+    assert json.loads(row.details)['username'] is None
+    assert row.actor_username is None
+    assert not rows(review_db, 'auth.login')

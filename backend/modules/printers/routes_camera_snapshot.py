@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 from core.db import get_db
 from core.audit_views import audit_view, view_recorder
+from fastapi.concurrency import run_in_threadpool
 from core.dependencies import oauth2_scheme
 from core.rbac import require_role
 from modules.printers.camera_routes import get_camera_stream
@@ -35,7 +36,7 @@ async def camera_snapshot(printer_id: int, db: Session = Depends(get_db),
                         raise HTTPException(502, "Camera snapshot too large")
         if not frame.startswith(b"\xff\xd8\xff"):
             raise HTTPException(502, "Camera snapshot unavailable")
-        audit_view(db, "camera.viewed", "printer", printer_id, "snapshot")
+        await run_in_threadpool(audit_view, db, "camera.viewed", "printer", printer_id, "snapshot")
         return Response(bytes(frame), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
     except httpx.HTTPError:
         raise HTTPException(502, "Camera snapshot unavailable") from None
