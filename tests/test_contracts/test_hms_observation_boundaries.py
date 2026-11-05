@@ -4,7 +4,7 @@ from sqlalchemy import text
 import pytest
 from tests.test_contracts.test_education_monitor_policy import monitor_db
 
-STOPPING_ERROR=[{'attr':0x0C000300,'code':0x00030006}]
+STOPPING_ERROR=[{'attr':0x03003100,'code':0x00010001}]
 
 @pytest.fixture
 def hms_boundary(monitor_db,monkeypatch):
@@ -262,7 +262,7 @@ def test_generic_to_education_linkage_retries_without_terminal_under_child_lock(
         prepared.append(True)
         return result
     monkeypatch.setattr(handler,'prepare_print_job_write',link_after_fence)
-    handler._fail_active_job_for_hms(9,'0C000300_00030006','Synthetic stop','current.3mf')
+    handler._fail_active_job_for_hms(9,'03003100_00010001','Synthetic stop','current.3mf')
     assert prepared==[True,True,True]
     assert terminal==[] and outgoing==[]
     db.expire_all()
@@ -298,8 +298,9 @@ def test_unlinked_quarantine_cas_preserves_intervening_change(hms_boundary,monke
     assert row[2]==(13 if change=='linkage' else None)
 
 
-@pytest.mark.parametrize("terminal",["IDLE","FAILED"])
-def test_same_packet_stopping_hms_precedes_idle_cancellation(hms_boundary,monkeypatch,terminal):
+@pytest.mark.parametrize("terminal",["IDLE","FINISH","FAILED"])
+@pytest.mark.parametrize("level", [1,2,3,4])
+def test_same_packet_hms_respects_severity_and_terminal_state(hms_boundary,monkeypatch,terminal,level):
     import time
     from types import SimpleNamespace
     from modules.printers.monitors import mqtt_printer,mqtt_job_lifecycle
@@ -313,9 +314,11 @@ def test_same_packet_stopping_hms_precedes_idle_cancellation(hms_boundary,monkey
     monitor._dispatch_alert=lambda **kwargs:None
     monitor._trigger_reschedule=lambda:None
     monkeypatch.setattr(mqtt_printer,'ws_push',lambda *a,**kw:None)
-    monitor._on_status(SimpleNamespace(raw_data={'print':{'gcode_state':terminal,'subtask_name':'current.3mf','hms':STOPPING_ERROR}}))
+    monitor._on_status(SimpleNamespace(raw_data={'print':{'gcode_state':terminal,'subtask_name':'current.3mf','hms':[{'attr':0x03003100,'code':(level<<16)|1}]}}))
     db.expire_all()
-    assert db.execute(text('SELECT status FROM print_jobs WHERE id=201')).scalar_one()=='failed'
+    expected = 'failed' if level in (1,2) and terminal in ('IDLE','FAILED') else {
+        'IDLE':'cancelled','FINISH':'completed','FAILED':'failed'}[terminal]
+    assert db.execute(text('SELECT status FROM print_jobs WHERE id=201')).scalar_one()==expected
     assert monitor._current_job_id is None
 
 
@@ -384,7 +387,7 @@ def test_unconfirmed_hms_retained_across_heartbeat_and_retried_once(hms_boundary
     if fault == 'terminal_write' and initial_state == 'RUNNING':
         monitor._on_status(SimpleNamespace(raw_data={'print':{'gcode_state':'IDLE'}}))
     db.expire_all()
-    assert db.execute(text('SELECT status,error_code FROM print_jobs WHERE id=201')).one()==('failed','0C000300_00030006')
+    assert db.execute(text('SELECT status,error_code FROM print_jobs WHERE id=201')).one()==('failed','03003100_00010001')
     assert monitor._pending_hms_terminal is None and monitor._current_job_id is None
     mutations=count[0];alerts=len(outgoing)
     monitor._on_status(SimpleNamespace(raw_data={'print':{'subtask_name':'current.3mf','hms':STOPPING_ERROR}}))
@@ -434,7 +437,7 @@ def test_saved_observation_guard_is_enforced_by_hms_write_boundary(hms_boundary)
     outcome=handler.process_hms_errors(9,STOPPING_ERROR,observed_filename='current.3mf',expected_print_job_id=201, live_state='FAILED')
     assert outcome['terminal_outcome']=='irrelevant'
     # Also exercise the locked terminal helper directly, not just outer routing.
-    assert handler._fail_active_job_for_hms(9,'0C000300_00030006','Synthetic fault',observed_filename='current.3mf',expected_print_job_id=201)['terminal_outcome']=='irrelevant'
+    assert handler._fail_active_job_for_hms(9,'03003100_00010001','Synthetic fault',observed_filename='current.3mf',expected_print_job_id=201)['terminal_outcome']=='irrelevant'
     db.expire_all()
     assert db.execute(text('SELECT status FROM print_jobs WHERE id=202')).scalar_one()=='running'
     assert not outgoing

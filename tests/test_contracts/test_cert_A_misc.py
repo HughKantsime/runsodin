@@ -37,15 +37,14 @@ def test_bambu_monitor_loader_decrypts_credentials_for_mqtt(cert_app, review_db,
     assert loaded[301]["serial"] == SERIAL and loaded[301]["access_code"] == ACCESS
 
 
-def test_hms_catalog_size_and_real_codes_translate(cert_app):
-    from modules.printers.hms_codes import KNOWN_CODES, PRINT_ERROR_CODES, get_code_count
+def test_hms_without_model_context_uses_plain_codes():
+    from modules.printers.hms_codes import get_code_count
     from modules.notifications.error_handling import parse_hms_errors
-    # Exact catalog sizes behind the "500+ HMS codes" claim.
-    assert (len(KNOWN_CODES), len(PRINT_ERROR_CODES), get_code_count()) == (331, 266, 597)
+    assert get_code_count() == 0
     hms = [h for _, p in load_frames("bambu-h2d-failure") for h in (p.get("print", {}).get("hms") or [])][:5]
     parsed = parse_hms_errors(hms)
-    assert len(parsed) == 5 and all(e["message"] and "Unknown" not in e["message"] for e in parsed)
-    assert sum(e["code"] in KNOWN_CODES for e in parsed) == 2  # others use the structural decoder
+    assert parsed and all(e['message'].startswith('Printer code ') for e in parsed)
+    assert len({e['code'] for e in parsed}) == len(parsed)
 
 
 def test_hms_lookup_api_returns_translation(review_db, fernet_env):
@@ -64,8 +63,8 @@ def test_hms_lookup_api_returns_translation(review_db, fernet_env):
     app.dependency_overrides[get_db] = database
     client = TestClient(app)
     body = client.get("/hms-codes/05010400_00030004", headers=bearer("student", "viewer")).json()
-    assert body["message"].startswith("AMS1: Filament load/unload failure on slot 4")
-    assert body["total_codes"] == 597
+    assert body["message"] == "Printer code 0501-0400-0003-0004"
+    assert body["total_codes"] == 0
 
 
 def test_telemetry_and_hms_retention_is_90_days_on_real_schema(wire_monitor, review_db):

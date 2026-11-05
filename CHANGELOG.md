@@ -13,6 +13,7 @@ All notable changes to O.D.I.N. are documented here.
 
 - The timelapse video attachment path now audits downloads like the download endpoint.
 - SSO sign-in audit details include the username when known. Successful SSO sign-ins populate the CSV User ID/Username columns without a password/JWT authentication label; account erasure removes the username and IP.
+- Decode Bambu health and print codes from per-model release bundles. Common/info notices no longer alert or fail jobs; active health is separate from history. Release data fetch and Claude review remain pending.
 
 ## [2.0.43] - 2026-11-05
 

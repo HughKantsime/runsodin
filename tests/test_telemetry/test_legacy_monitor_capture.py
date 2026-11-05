@@ -10,13 +10,13 @@ def capture_store(tmp_path, monkeypatch):
     path = tmp_path / 'synthetic-monitor.sqlite'
     with sqlite3.connect(path) as db:
         db.executescript('''
+        CREATE TABLE system_config(key TEXT PRIMARY KEY, value TEXT);
         CREATE TABLE printers(id INTEGER PRIMARY KEY, lights_toggled_at TEXT, last_seen TEXT,
           bed_temp REAL,bed_target_temp REAL,nozzle_temp REAL,nozzle_target_temp REAL,
           gcode_state TEXT,print_stage TEXT,hms_errors TEXT,lights_on INTEGER,
           nozzle_type TEXT,nozzle_diameter REAL,fan_speed REAL,machine_type TEXT,
           created_at TEXT DEFAULT(datetime('now')));
         INSERT INTO printers(id) VALUES(1);
-        CREATE TABLE system_config(key TEXT PRIMARY KEY,value TEXT);
         CREATE TABLE ams_telemetry(id INTEGER PRIMARY KEY,printer_id INTEGER,ams_unit INTEGER,
           humidity INTEGER,temperature REAL,recorded_at TEXT DEFAULT(datetime('now')));
         CREATE TABLE printer_telemetry(id INTEGER PRIMARY KEY,printer_id INTEGER,

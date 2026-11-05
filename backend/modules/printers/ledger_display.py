@@ -361,9 +361,12 @@ def _to_printer_dto(row: Any, ledger_printer: dict[str, Any] | None, available: 
     from modules.printers.schemas import PrinterResponse
 
     printer_id = int(getattr(row, "id"))
+    response = PrinterResponse.model_validate(row)
+    base = response.model_dump()
+    # Preserve private model context across DTO rebuilding; never the credential.
+    base['hms_model_prefix'] = response.hms_model_prefix
     if not available or ledger_printer is None:
         # An outage or absent configured printer must not reveal stale local slots.
-        base = PrinterResponse.model_validate(row).model_dump()
         base.update({
             "filament_slots": [],
             "loaded_colors": [],
@@ -373,7 +376,6 @@ def _to_printer_dto(row: Any, ledger_printer: dict[str, Any] | None, available: 
         return PrinterResponse.model_validate(base)
 
     if not ledger_printer["tools"]:
-        base = PrinterResponse.model_validate(row).model_dump()
         base.update({
             "filament_slots": [],
             "loaded_colors": [],
@@ -383,7 +385,6 @@ def _to_printer_dto(row: Any, ledger_printer: dict[str, Any] | None, available: 
         return PrinterResponse.model_validate(base)
     slots = [_slot_from_tool(tool) for tool in ledger_printer["tools"]]
     partial = any(slot["mapping_status"] != "mapped" for slot in slots)
-    base = PrinterResponse.model_validate(row).model_dump()
     base.update({
         "filament_slots": slots,
         "loaded_colors": [],

@@ -28,14 +28,14 @@ def job_names(db, job_id):
                       {'id': job_id}).first() or ()
 
 
-def reason_for(code):
+def reason_for(code, model_prefix=''):
     from modules.printers.hms_codes import lookup_hms_code
     if code is None or code == 0:
         return ''
     if isinstance(code, int) or str(code).isdigit():
         value = f'{int(code):08X}'
         code = value[:4] + '_' + value[4:]
-    reason = lookup_hms_code(str(code))
+    reason = lookup_hms_code(str(code), model_prefix)
     if reason.startswith(('Unknown', 'HMS error:')) or '0x' in reason:
         return 'The printer needs attention.'
     return reason
@@ -50,7 +50,7 @@ def humanize(db, alert_type, title, message, printer_id, job_id, metadata=None):
     if printer_id is None and job_id is None and 'odin-dispatch-' not in title.lower() and kind not in {'print_paused', 'print_cancelled'}:
         return title, message, metadata
     meta = dict(metadata or {})
-    printer = db.execute(text('SELECT name,nickname FROM printers WHERE id=:id'), {'id': printer_id}).first()
+    printer = db.execute(text('SELECT name,nickname,api_type,api_key FROM printers WHERE id=:id'), {'id': printer_id}).first()
     nickname = (printer[1] or printer[0]) if printer else 'Printer'
     candidates = list(job_names(db, job_id))
     candidates.extend([meta.get('job_name'), meta.get('filename')])
@@ -91,7 +91,10 @@ def humanize(db, alert_type, title, message, printer_id, job_id, metadata=None):
         code = code or match[2]
         meta.setdefault('source', match[1])
         meta.setdefault('code', code)
-    reason = reason_for(code) if code else meta.get('pause_reason', '')
+    from modules.printers.hms_codes import credential_prefix
+    prefix = credential_prefix(printer[3]) if printer and printer[2] == 'bambu' else ''
+    bambu = bool(printer and printer[2] == 'bambu') or meta.get('source') == 'bambu_hms'
+    reason = reason_for(code, prefix) if code and bambu else meta.get('pause_reason', '')
     # Non-code errors from other protocols retain their useful explanation.
     if not reason and kind in {'printer_error', 'print_failed'}:
         reason = re.sub(r'\[[^\]]+\]', '', message or '').strip()

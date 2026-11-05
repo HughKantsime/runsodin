@@ -333,7 +333,7 @@ def wire_terminal(send, engine, monkeypatch):
     return transitions
 
 
-@pytest.mark.parametrize('terminal', ['FINISH', 'HMS'])
+@pytest.mark.parametrize('terminal', ['FINISH', 'FAILED_WITH_HMS'])
 def test_persistent_tray_failure_does_not_stall_terminal_or_heartbeat(inventory, monkeypatch, terminal):
     from modules.archives import attempt_accounting
     setup_slots(inventory)
@@ -355,7 +355,7 @@ def test_persistent_tray_failure_does_not_stall_terminal_or_heartbeat(inventory,
         else:
             with inventory.begin() as c:
                 c.execute(text("UPDATE print_jobs SET filename='fixture.3mf' WHERE id=129"))
-            send(hms=[{'attr': 0x0C000300, 'code': 0x00030006}], subtask_name='fixture.3mf')
+            send(state='FAILED', hms=[{'attr': 0x0C000300, 'code': 0x00030006}], subtask_name='fixture.3mf')
             status = 'failed'
         assert rows(inventory, 'SELECT status FROM print_jobs WHERE id=129') == [(status,)]
         assert rows(inventory, 'SELECT last_seen IS NOT NULL FROM printers WHERE id=1') == [(True,)]

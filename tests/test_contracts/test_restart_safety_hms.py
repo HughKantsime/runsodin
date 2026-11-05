@@ -24,27 +24,32 @@ def link_job(db):
     db.commit()
 
 
-def test_retained_pushall_matching_running_print_only_updates_display(hms_boundary, monkeypatch):
+@pytest.mark.parametrize('reported', ['RUNNING', 'PAUSE', 'FAILED', 'IDLE', 'FINISH'])
+def test_retained_pushall_matching_running_print_only_updates_display(hms_boundary, monkeypatch, reported):
     db, handler, _, alerts = hms_boundary
     link_job(db)
     monitor = _running_packet_monitor(hms_boundary, monkeypatch)
-    send(monitor, retained=True, command='push_status', gcode_state='RUNNING',
+    send(monitor, retained=True, command='push_status', gcode_state=reported,
          gcode_file='current.3mf', hms=STOPPING_ERROR)
     assert state(db) == 'running'
     assert db.execute(text('SELECT status FROM jobs WHERE id=203')).scalar_one() == 'printing'
     assert db.execute(text('SELECT hms_errors FROM printers WHERE id=9')).scalar_one()
     assert not any(a.get('alert_type') == 'print_failed' for a in alerts)
+    send(monitor, mc_percent=52)
+    assert state(db) == 'running'
     # An HMS-free live heartbeat cannot promote retained fault evidence.
     send(monitor, gcode_state='PAUSE', gcode_file='current.3mf')
     assert state(db) == 'running'
 
 
 @pytest.mark.parametrize('reported', ['FAILED', 'PAUSE', 'IDLE'])
-def test_live_stopping_code_and_live_stopped_state_fail(hms_boundary, monkeypatch, reported):
+@pytest.mark.parametrize('level', [1, 2])
+def test_live_stopping_code_and_live_stopped_state_fail(hms_boundary, monkeypatch, reported, level):
     db, _, _, alerts = hms_boundary
     link_job(db)
     monitor = _running_packet_monitor(hms_boundary, monkeypatch)
-    send(monitor, gcode_state=reported, gcode_file='current.3mf', hms=STOPPING_ERROR)
+    send(monitor, gcode_state=reported, gcode_file='current.3mf',
+         hms=[{'attr':0x03003100,'code':(level<<16)|1}])
     assert state(db) == 'failed'
     assert db.execute(text('SELECT status FROM jobs WHERE id=203')).scalar_one() == 'failed'
     assert len([a for a in alerts if a.get('alert_type') == 'print_failed']) == 1
@@ -57,7 +62,7 @@ def test_live_code_waits_for_following_state_and_dedup_does_not_hide_it(hms_boun
     assert state(db) == 'running'
     send(monitor, gcode_state='FAILED')
     assert state(db) == 'failed'
-    assert db.execute(text('SELECT error_code FROM print_jobs WHERE id=201')).scalar_one() == '0C000300_00030006'
+    assert db.execute(text('SELECT error_code FROM print_jobs WHERE id=201')).scalar_one() == '03003100_00010001'
 
 
 @pytest.mark.parametrize('reason', ['reconnect', 'expired', 'clock_rollback', 'new_print', 'clear', 'different_name'])

@@ -1,5 +1,6 @@
 """Education HMS policy still requires fresh stopped-state corroboration."""
 import sys
+import pytest
 from contextlib import contextmanager
 from sqlalchemy import text
 from tests.test_contracts.test_education_monitor_policy import (
@@ -7,8 +8,13 @@ from tests.test_contracts.test_education_monitor_policy import (
 )
 
 
-def test_bambu_token_start_and_print_stopping_hms_use_only_education_policy(
-    admitted_monitor, monkeypatch
+@pytest.mark.parametrize('level,retained,live,failed', [
+    (1,False,'FAILED',True), (2,False,'PAUSE',True),
+    (1,True,'FAILED',False), (2,False,'RUNNING',False),
+    (3,False,'FAILED',False), (4,False,'FAILED',False),
+])
+def test_bambu_token_hms_respects_severity_and_corroboration(
+    admitted_monitor, monkeypatch, level, retained, live, failed
 ) -> None:
     from core import registry as registry_module
     from core.db_utils import _ConnectionAdapter
@@ -69,8 +75,8 @@ def test_bambu_token_start_and_print_stopping_hms_use_only_education_policy(
     monkeypatch.setattr(error_handling, "record_error", capture_record_error)
     result = error_handling.process_hms_errors(
         9,
-        [{"attr": int("0C000300", 16), "code": int("00030006", 16)}],
-        observed_filename=reservation["remote_filename"], live_state="FAILED",
+        [{"attr": 0x0C000300, "code": (level << 16) | 6}],
+        observed_filename=reservation["remote_filename"], live_state=live, mqtt_retained=retained,
     )
     assert result["education_suppressed"] is True
     assert recorded == [False]
@@ -80,11 +86,11 @@ def test_bambu_token_start_and_print_stopping_hms_use_only_education_policy(
         monitor_db.execute(
             text("SELECT status,lifecycle_revision FROM education_submissions WHERE id=:submission"), {"submission": uploaded["id"]}
         ).one()
-    ) == ("failed", 5)
-    assert monitor_db.execute(text("SELECT status FROM jobs WHERE id=:job"), {"job": uploaded["job_id"]}).scalar_one() == "failed"
+    ) == (("failed", 5) if failed else ("printing", 4))
+    assert monitor_db.execute(text("SELECT status FROM jobs WHERE id=:job"), {"job": uploaded["job_id"]}).scalar_one() == ("failed" if failed else "printing")
     assert monitor_db.execute(
         text("SELECT status FROM print_jobs WHERE id=:id"), {"id": print_job_id}
-    ).scalar_one() == "failed"
+    ).scalar_one() == ("failed" if failed else "running")
 
 
 def test_bambu_first_running_packet_correlates_before_hms(monkeypatch) -> None:

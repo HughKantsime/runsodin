@@ -110,6 +110,10 @@ def handle_status(self, status, generation, runtime):
         if raw.get('gcode_state') is not None:
             self._state_retained = getattr(status, 'mqtt_retained', None) is True
         gcode_state = self._state.get('gcode_state')
+        if self._state_retained and gcode_state in ('FINISH', 'FAILED', 'IDLE'):
+            # Replay may update display, but cannot bypass the HMS gate via the
+            # normal lifecycle path. Deltas cannot promote that cached replay.
+            gcode_state = None
         if gcode_state in ('FINISH', 'FAILED', 'IDLE'):
             # An end measures filament against this packet, which after downtime is the only
             # report there is. A start waits for the tail: its snapshot is first-start evidence,
@@ -195,7 +199,7 @@ def handle_status(self, status, generation, runtime):
             if isinstance(incoming_hms, list) and not incoming_hms:
                 self._last_hms_key = None
                 self._last_hms_processed_key = None
-            if not incoming_hms:
+            if not isinstance(incoming_hms, list):
                 return True
             # HMS belongs to this packet, never an identity from cached telemetry.
             observed_filename = packet.get('subtask_name') or packet.get('gcode_file')
@@ -292,9 +296,9 @@ def handle_status(self, status, generation, runtime):
                     gstate = self._state.get('gcode_state')
                     stg_cur = self._state.get('stg_cur', -1)
                     stage = pause_stage(self, runtime.resolve_stage_label(stg_cur, gstate))
-                    import json as _json
                     hms_raw = self._state.get('hms', [])
-                    hms_j = _json.dumps(hms_raw) if hms_raw else None
+                    from modules.printers.bambu_hms_bundle import prefix_from_serial
+                    prefix = prefix_from_serial(getattr(self, 'serial', ''))
                     lights_on_raw = runtime.parse_lights(self._state.get('lights_report', []))
                     # Check cooldown — don't overwrite if toggled via API within last 20s
                     cooldown_row = conn.execute('SELECT lights_toggled_at FROM printers WHERE id=?', (self.printer_id,)).fetchone()
@@ -322,10 +326,10 @@ def handle_status(self, status, generation, runtime):
                     conn.execute(
                         f"UPDATE printers SET last_seen={runtime.sql.now()},"
                         " bed_temp=?,bed_target_temp=?,nozzle_temp=?,nozzle_target_temp=?,"
-                        " gcode_state=?,print_stage=?,hms_errors=?,"
+                        " gcode_state=?,print_stage=?,"
                         " nozzle_type=?,fan_speed=COALESCE(?,fan_speed) WHERE id=?",
                         (bed_t, bed_tt, noz_t, noz_tt, gstate, stage,
-                         hms_j, noz_type, fan_speed_val, self.printer_id))
+                         noz_type, fan_speed_val, self.printer_id))
                     if noz_dia is not None:
                         observe_printer_identity(conn, self.printer_id, "nozzle_diameter", noz_dia)
                     from modules.printers.monitors.light_state import persist_light_observation
@@ -509,7 +513,7 @@ def handle_status(self, status, generation, runtime):
                     if hms_key != getattr(self, '_last_hms_key', None):
                         with runtime.get_db() as hconn:
                             try:
-                                parsed = printer_events.parse_hms_errors(hms_raw)
+                                parsed = printer_events.parse_hms_errors(hms_raw, prefix)
                                 for err in parsed:
                                     hconn.execute(
                                         "INSERT INTO hms_error_history (printer_id, code, message, severity, source) VALUES (?, ?, ?, ?, ?)",

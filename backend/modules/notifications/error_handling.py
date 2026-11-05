@@ -9,11 +9,11 @@ from core.base import AlertType, AlertSeverity
 
 import json
 import logging
-from typing import Optional
 from pathlib import PurePosixPath
 
-from core.order_production import (prepare_job_write, reconcile_job_write, prepare_print_job_write,
+from core.order_production import (reconcile_job_write, prepare_print_job_write,
                                    ProductionLinkageChanged, retry_production_linkage)
+
 # Resolved at call time: never a stale get_db bound at import.
 from core.db_live import live_get_db as get_db
 from core.db_compat import sql
@@ -21,28 +21,8 @@ from modules.notifications.alert_dispatch import dispatch_alert
 
 log = logging.getLogger("printer_events")
 
-# hms_codes is a pure lookup utility in the printers module — kept as a direct
-# import because it has no side effects and no circular dependency risk.
-try:
-    from modules.printers.hms_codes import lookup_hms_code
-except ImportError:
-    def lookup_hms_code(code): return f"HMS Error {code}"
-
-# HMS codes that indicate a print-stopping failure. When any of these appear
-# while a job is running, the active job is marked as failed even if the
-# printer's gcode_state hasn't transitioned to FAILED yet.
-# NOTE: Only full-format codes (XXXXXXXX_XXXXXXXX) are listed here because
-# parse_hms_errors() produces 17-char codes via f"{attr:08X}_{code:08X}".
-# Shorter PRINT_ERROR_CODES (e.g. 0C00_8005) come from a different field.
-PRINT_STOPPING_HMS_CODES = {
-    '0C000300_00030006',  # Purged filament piled up in waste chute
-    '0F010100_00010001',  # Waste chute clogged
-    '05010500_00010001',  # AMS filament buffer full / waste chute
-    '0C010600_00010001',  # Purge system error / waste chute blocked
-    '0C000200_00010001',  # Spaghetti failure detected by AI
-    '0C000300_00010002',  # Possible spaghetti failure detected
-    '07010200_00010001',  # Spaghetti detection triggered
-}
+from modules.printers.hms_codes import parse_hms_errors
+from modules.printers.hms_codes import credential_prefix
 
 
 def record_error(
@@ -121,43 +101,6 @@ def clear_error(printer_id: int):
             conn.commit()
     except Exception as e:
         log.error(f"Failed to clear error for printer {printer_id}: {e}")
-
-
-def parse_hms_errors(hms_data: list) -> list:
-    """
-    Parse Bambu HMS error array into structured list.
-    Returns list of {code, module, severity, message} dicts.
-    """
-    errors = []
-
-    # HMS severity levels
-    SEVERITY_MAP = {
-        1: "info",
-        2: "warning",
-        3: "error",
-        4: "critical",
-    }
-
-    for item in hms_data or []:
-        attr = item.get("attr", 0)
-        code = item.get("code", 0)
-
-        # Extract severity from attr (bits 24-27)
-        severity_bits = (attr >> 24) & 0xF
-        severity = SEVERITY_MAP.get(severity_bits, "warning")
-
-        # Format code as hex string for lookup
-        full_code = f"{attr:08X}_{code:08X}"
-
-        errors.append({
-            "code": full_code,
-            "attr": attr,
-            "raw_code": code,
-            "severity": severity,
-            "message": lookup_hms_code(full_code),
-        })
-
-    return errors
 
 
 def _hms_filename_matches(observed: str | None, stored: str | None) -> bool:
@@ -330,26 +273,26 @@ def process_hms_errors(
 ):
     """
     Process HMS errors from Bambu printer.
-    Creates alerts for new errors. Fails active jobs for print-stopping codes.
+    Alerts on new fatal/serious events; fails jobs only with fresh stopped-state evidence.
     """
-    errors = parse_hms_errors(hms_data)
-
-    if not errors:
-        # No errors - clear any existing
-        clear_error(printer_id)
+    if not isinstance(hms_data, list):
         return
-
-    # Store JSON in hms_errors column
     try:
         with get_db() as conn:
-            cur = conn.cursor()
-            cur.execute(
-                "UPDATE printers SET hms_errors = ? WHERE id = ?",
-                (json.dumps(errors), printer_id)
-            )
+            row = conn.execute('SELECT api_key,hms_errors FROM printers WHERE id=?', (printer_id,)).fetchone()
+        prefix = credential_prefix(row[0]) if row else ''
+        previous = json.loads(row[1] or '[]') if row else []
+        # Old releases persisted raw packets. Compare identities, not old meanings.
+        prior_codes = {e['code'] for e in parse_hms_errors(previous, prefix)} if previous and isinstance(previous[0].get('code'), int) else {e.get('code') for e in previous}
+    except Exception:
+        log.error('Failed to read HMS state for printer %s; retry required', printer_id)
+        return {'retryable': True}
+    errors = parse_hms_errors(hms_data, prefix)
+    if not errors:
+        with get_db() as conn:
+            conn.execute('UPDATE printers SET hms_errors=? WHERE id=?', ('[]', printer_id))
             conn.commit()
-    except Exception as e:
-        log.error(f"Failed to store HMS errors for printer {printer_id}: {e}")
+        return {'errors': []}
 
     from core.job_timeline import for_printer
     for error in errors:
@@ -357,7 +300,7 @@ def process_hms_errors(
         try:for_printer(printer_id, 'hms', code=code)
         except ValueError:pass
 
-    # Classify before either the outer printer-error alert or print-failure path.
+    # Classify before external printer-error alerts or terminal operations.
     # Local sanitized telemetry/history remains allowed for Education.
     from core.interfaces.education_policy import is_education_reserved_filename
 
@@ -400,16 +343,17 @@ def process_hms_errors(
         return {"education_suppressed": True, "errors": errors,
                 "classification_state": "unresolved", "retryable": True}
 
-    # Create an external alert only for generic observations.
-    worst = max(errors, key=lambda e: {"info": 0, "warning": 1, "error": 2, "critical": 3}.get(e["severity"], 0))
-    record_error(
-        printer_id=printer_id,
-        error_code=worst["code"],
-        error_message=worst["message"],
-        source="bambu_hms",
-        severity=worst["severity"],
-        create_alert=not education_suppressed
-    )
+    # Persist the active set across reconnects/restarts, independent of alert read
+    # state and the generic notification policy's six-hour repeat window.
+    new_errors = [e for e in errors if e['code'] not in prior_codes]
+    for error in new_errors:
+        record_error(printer_id=printer_id, error_code=error['code'],
+                     error_message=error['message'], source='bambu_hms',
+                     severity=error['severity'],
+                     create_alert=not education_suppressed and error['severity'] in ('critical', 'error'))
+    with get_db() as conn:
+        conn.execute('UPDATE printers SET hms_errors=? WHERE id=?', (json.dumps(errors), printer_id))
+        conn.commit()
 
     # Display/history remain available during replay; only fresh, explicitly
     # corroborated stopped state grants terminal authority (never cached state).
@@ -419,14 +363,11 @@ def process_hms_errors(
 
     # Check if any HMS code should fail the active print job
     for err in errors:
-        if err["code"] in PRINT_STOPPING_HMS_CODES:
+        if err["severity"] in ("critical", "error"):
             outcome = _fail_active_job_for_hms(printer_id, err["code"], err["message"], observed_filename=observed_filename, expected_print_job_id=expected_print_job_id, tray_evidence_incomplete=tray_evidence_incomplete)
             if not isinstance(outcome, dict) or outcome.get("terminal_outcome") == "retryable":
                 return {"education_suppressed": education_suppressed, "errors": errors,
                         "classification_state": "unresolved", "retryable": True}
             break  # Only fail once per HMS batch
 
-    return {
-        "education_suppressed": education_suppressed,
-        "errors": errors,
-    }
+    return {'education_suppressed': education_suppressed, 'errors': errors}

@@ -1,3 +1,4 @@
+import { hmsFaults } from '../../utils/hms'
 import clsx from 'clsx'
 import type { ReactNode } from 'react'
 import { useFoundry } from '../../hooks/themePreferences'
@@ -56,7 +57,7 @@ const foundryStates: Record<string, [string, string]> = {
 /** Connectivity is authoritative; never show an offline printer as ready/printing. */
 export function printerBadgeStatus(printer: { gcode_state?: string | null; hms_errors?: unknown[] }, online: boolean) {
   if (!online) return 'offline'
-  if (printer.hms_errors?.length) return 'error'
+  if (hmsFaults(printer.hms_errors).length) return 'error'
   return printer.gcode_state || 'unknown'
 }
 

@@ -1,0 +1,13 @@
+O.D.I.N. third-party data notice
+
+Bambu Lab HMS and print-error descriptions in backend/data/bambu_hms/*.json
+are Bambu Lab's text, obtained from https://e.bambulab.com/query.php.
+Bambu Lab also publishes HMS lists in Bambu Studio resources/hms:
+https://github.com/bambulab/BambuStudio/tree/master/resources/hms
+Bambu Studio is licensed under AGPL-3.0:
+https://github.com/bambulab/BambuStudio/blob/master/LICENSE
+
+These separately bundled data files are not covered by O.D.I.N.'s own license.
+Each file records the source URL, vendor version, fetch timestamp and payload
+SHA-256. They can be removed independently; O.D.I.N. then displays plain codes.
+See docs/bambu-hms.md for release refresh and removal instructions.

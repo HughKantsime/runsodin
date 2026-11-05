@@ -332,7 +332,8 @@ def test_hms_failure_never_overwrites_a_non_live_job(review_db, monitor_boundary
     review_db.execute(text("INSERT INTO print_jobs(id,printer_id,filename,job_name,started_at,status,scheduled_job_id) "
                            "VALUES(7707,9,'x.3mf','x',CURRENT_TIMESTAMP,'running',707)"))
     review_db.commit()
-    error_handling._fail_active_job_for_hms(9, '0300_4000', 'Synthetic HMS stop', observed_filename='x.3mf')
+    error_handling.process_hms_errors(9, [{'attr': 0x03004000, 'code': 0x00010001}],
+                                     observed_filename='x.3mf', live_state='FAILED')
     assert _status(review_db, 707) == job_status
 
 
