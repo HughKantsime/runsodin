@@ -1,3 +1,5 @@
+import { useFoundry } from '../../hooks/themePreferences'
+import Floor from '../../components/foundry/Floor'
 import StatusBadge, { printerBadgeStatus } from '../../components/ui/StatusBadge'
 import { displayName } from '../../utils/displayName'
 import { useTranslation } from '../../contexts/I18nContext'
@@ -355,6 +357,10 @@ function MaintenanceWidget() {
 }
 
 export default function Dashboard() {
+  return useFoundry() ? <Floor /> : <ClassicDashboard />
+}
+
+function ClassicDashboard() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()

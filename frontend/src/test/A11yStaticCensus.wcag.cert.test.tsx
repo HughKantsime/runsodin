@@ -149,18 +149,18 @@ it('F12-12.7-04 real shared Modal renders a named aria-modal dialog / alertdialo
 
 it('F12-12.7-06 census: scope="col" exists only on a minority of table headers', () => {
   // Merged tree: cert-fix-D's Analytics failure tables add 8 scoped headers (still a minority).
-  expect(summary.th_scope_col).toBe(17)
+  expect(summary.th_scope_col).toBe(18)
   // 2.0.13 adds one unscoped header (inventory reorder table).
-  // Bulk receiving adds one mapped header element.
-  expect(summary.th_total).toBe(124)
+  // Bulk receiving adds one mapped header element. Foundry adds one mapped column header and one row header.
+  expect(summary.th_total).toBe(126)
   expect(summary.th_scope_col * 2).toBeLessThan(summary.th_total)
-  expect(summary.th_scope_col_files).toEqual(['components/admin/ChargebackReport.tsx', 'components/jobs/JobTableHeader.tsx',
+  expect(summary.th_scope_col_files).toEqual(['components/admin/ChargebackReport.tsx', 'components/foundry/PrinterRows.tsx', 'components/jobs/JobTableHeader.tsx',
     'pages/analytics/Analytics.tsx'])
 })
 
 it('F12-12.7-07 census: role="progressbar" is on every progress-style bar', () => {
   expect(summary.progressbar_role_elements.map(p => p.split(':')[0]).sort()).toEqual([
-    'components/jobs/TimelineJobDetail.tsx', 'components/layout/Sidebar.tsx', 'components/orders/OrderModals.tsx', 'components/printers/PrintProgress.tsx',
+    'components/foundry/PrinterCard.tsx', 'components/jobs/TimelineJobDetail.tsx', 'components/layout/Sidebar.tsx', 'components/orders/OrderModals.tsx', 'components/printers/PrintProgress.tsx',
     'components/shared/OnboardingTour.tsx', 'components/ui/ProgressBar.tsx', 'pages/dashboard/Overlay.tsx',
     'pages/dashboard/TVDashboard.tsx', 'pages/jobs/Upload.tsx',
   ])

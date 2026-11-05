@@ -1,3 +1,5 @@
+import { useFoundry } from '../../hooks/themePreferences'
+import { FoundryCameras } from '../../components/foundry/CameraView'
 import CameraFallback from '../../components/printers/CameraFallback'
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -94,6 +96,10 @@ function CameraCard({ camera, onExpand, onPip }) {
 }
 
 export default function Cameras() {
+  return useFoundry() ? <FoundryCameraPresentation /> : <ClassicCameras />
+}
+
+function ClassicCameras() {
   const queryClient = useQueryClient()
   const [expandedCamera, setExpandedCamera] = useState(null)
   const [columns, setColumns] = useState(2)
@@ -394,4 +400,9 @@ function ControlRoomCamera({ camera, delay = 0 }) {
       )}
     </>
   )
+}
+
+function FoundryCameraPresentation() {
+  const [tools, setTools] = useState(false)
+  return <><FoundryCameras /><div className="f-planning"><button type="button" className="f-button" aria-expanded={tools} onClick={() => setTools(!tools)}>Camera settings and controls</button>{tools && <ClassicCameras />}</div></>
 }

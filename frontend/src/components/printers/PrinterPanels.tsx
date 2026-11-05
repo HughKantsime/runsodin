@@ -1,3 +1,5 @@
+import { useFoundry } from '../../hooks/themePreferences'
+import SlotTile from '../foundry/SlotTile'
 import { displayName } from '../../utils/displayName'
 import { Thermometer, Wind, Activity } from 'lucide-react'
 import { getShortName, isOnline, isActivePrintState, fanSpeedDisplay } from '../../utils/shared'
@@ -79,8 +81,10 @@ export function PrinterInfoPanel({ printer }: { printer: PrinterLike }) {
 }
 
 export function FilamentSlotsPanel({ printer }: { printer: PrinterLike }) {
+  const foundry = useFoundry()
   const slots = printer.filament_slots || []
   if (!slots.length) return null
+  if (foundry) return <section aria-label="Filament" className="f-slots">{slots.map(slot => <SlotTile key={slot.slot_number} slot={slot} apiType={printer.api_type} />)}</section>
 
   return (
     <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">

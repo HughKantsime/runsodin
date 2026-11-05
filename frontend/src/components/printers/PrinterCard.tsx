@@ -1,3 +1,5 @@
+import { useFoundry } from '../../hooks/themePreferences'
+import SlotTile from '../foundry/SlotTile'
 import StatusBadge, { printerBadgeStatus } from '../ui/StatusBadge'
 import SlotLabel from './SlotLabel'
 import MaintenanceBanner from './MaintenanceBanner'
@@ -71,6 +73,8 @@ interface PrinterCardProps {
 }
 
 function LedgerFilamentSlot({ slot }: { slot: any }) {
+  const foundry = useFoundry()
+  if (foundry) return <SlotTile slot={slot} />
   const label = slot.display_name || `Slot ${slot.slot_number}`
   const mapped = slot.mapping_status === 'mapped'
   const available = slot.mapping_status !== 'unavailable'
@@ -277,6 +281,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
                 const el = externallyManagedFilament ? <LedgerFilamentSlot key={slot.slot_number} slot={slot} /> : (
                   <FilamentSlotEditor
                     printerId={printer.id}
+                    apiType={printer.api_type}
                     spools={spools}
                     key={slot.id}
                     slot={slot}

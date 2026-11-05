@@ -1,3 +1,5 @@
+import { useFoundry } from '../../hooks/themePreferences'
+import { FoundryTimeline } from '../../components/foundry/ScheduleLane'
 import { displayName } from '../../utils/displayName'
 import BlockDetail from '../../components/jobs/TimelineJobDetail'
 import { useState, useRef, useEffect, useCallback } from 'react'
@@ -226,6 +228,10 @@ function MobileTimelineList({ slots, printersData, onSelectBlock }) {
 }
 
 export default function Timeline() {
+  return useFoundry() ? <><FoundryTimeline /><details className="f-planning"><summary>Plan ahead and move jobs</summary><ClassicTimeline /></details></> : <ClassicTimeline />
+}
+
+function ClassicTimeline() {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const containerRef = useRef(null)

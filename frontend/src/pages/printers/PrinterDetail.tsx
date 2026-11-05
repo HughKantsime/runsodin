@@ -1,3 +1,6 @@
+import { useFoundry } from '../../hooks/themePreferences'
+import { state } from '../../components/foundry/data'
+import { PrinterDetailOverview } from '../../components/foundry/PrinterSurfaces'
 import { displayName } from '../../utils/displayName'
 import MaintenanceBanner from '../../components/printers/MaintenanceBanner'
 import InstalledNozzles from '../../components/printers/InstalledNozzles'
@@ -28,6 +31,7 @@ function formatEta(minutes) {
 
 
 export default function PrinterDetail() {
+  const foundry = useFoundry()
   const { id } = useParams()
   const navigate = useNavigate()
 
@@ -104,9 +108,12 @@ export default function PrinterDetail() {
 
       {/* Header */}
       <PageHeader icon={Printer} title={printer.name} subtitle={`${printer.type || 'Printer'} ${printer.ip ? '@ ' + printer.ip : ''}`}>
-        <StatusBadge status={online ? (currentJobName ? 'printing' : 'active') : 'error'} />
+        {foundry ? <StatusBadge status={state(printer)} /> : <StatusBadge status={online ? (currentJobName ? 'printing' : 'active') : 'error'} />}
       </PageHeader>
 
+      {foundry && <PrinterDetailOverview printer={printer} />}
+
+      <DetailPresentation foundry={foundry}>
       {/* Stats row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-6">
         <StatCard
@@ -167,6 +174,7 @@ export default function PrinterDetail() {
         )}
       </Card>
 
+      </DetailPresentation>
       <InstalledNozzles nozzles={printer.installed_nozzles} />
 
       {/* Telemetry */}
@@ -289,4 +297,8 @@ export default function PrinterDetail() {
       </Card>
     </div>
   )
+}
+
+function DetailPresentation({ foundry, children }) {
+  return foundry ? <details className="f-management"><summary>Printer status and recovery</summary>{children}</details> : <>{children}</>
 }

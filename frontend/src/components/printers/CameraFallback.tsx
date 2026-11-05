@@ -1,16 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 
 /** Same-origin cookies and camera RBAC protect both fallback transports. */
-export default function CameraFallback({ cameraId, active }: { cameraId: number; active: boolean }) {
-  return active && cameraId ? <FallbackStream key={cameraId} cameraId={cameraId} /> : null
+export type FallbackState = { transport: 'mjpeg' | 'snapshot'; live: boolean; failed: boolean }
+export default function CameraFallback({ cameraId, active, onState }: { cameraId: number; active: boolean; onState?: (state: FallbackState) => void }) {
+  return active && cameraId ? <FallbackStream key={cameraId} cameraId={cameraId} onState={onState} /> : null
 }
 
-function FallbackStream({ cameraId }: { cameraId: number }) {
+function FallbackStream({ cameraId, onState }: { cameraId: number; onState?: (state: FallbackState) => void }) {
   const image = useRef<HTMLImageElement>(null)
   const [mode, setMode] = useState<'mjpeg' | 'snapshot'>('mjpeg')
   const [live, setLive] = useState(false)
   const [stamp, setStamp] = useState(Date.now)
   const [failed, setFailed] = useState(false)
+  useEffect(() => { onState?.({ transport: mode, live: mode === 'mjpeg' && live && !failed, failed }) }, [mode, live, failed, onState])
   useEffect(() => {
     if (mode === 'mjpeg') {
       if (live) return

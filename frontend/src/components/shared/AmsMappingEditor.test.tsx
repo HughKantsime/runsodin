@@ -28,3 +28,15 @@ test('context change discards a previous selection and disabling omits the mappi
   fireEvent.click(screen.getByRole('checkbox'))
   expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
 })
+
+test('Foundry maps actual available slot tiles through the same selection callback', () => {
+  document.documentElement.dataset.themeFamily = 'foundry'
+  try {
+    const submit = vi.fn()
+    render(<Harness submit={submit} />)
+    expect(screen.getByRole('group', { name: 'Filament 4 AMS slot' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /AMS 1 · 4/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(submit).toHaveBeenCalledWith([{ source_slot: 4, target_slot: 4 }])
+  } finally { cleanup(); document.documentElement.dataset.themeFamily = 'classic' }
+})
