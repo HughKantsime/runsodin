@@ -2,6 +2,12 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [Unreleased]
+
+### Changed
+
+- Large sliced plates: inspect up to 256 MiB of plate G-code with bounded streaming buffers; accept print-file and Education uploads up to 160 MiB. Uploads stream to temporary storage, and source inspection completes before the dispatch readiness window. ZIP expansion and member bounds remain enforced, with a 200:1 compression-ratio bound.
+
 ## [2.0.42] - 2026-11-05
 
 <!-- summary: The audit log records who downloads, signs in and dispatches; H2D files are checked against the map they were sliced with; tray setting works on Bambu printers. -->

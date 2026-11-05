@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from starlette.datastructures import UploadFile
 from starlette.formparsers import MultiPartException, MultiPartParser
 
+from core.print_upload_limits import size_refusal
 from core.db import get_db
 from core.errors import ErrorCode, OdinError
 from modules.organizations.education_access import require_education_principal
@@ -46,7 +47,7 @@ class _ReservedUploadFile(UploadFile):
         for offset in range(0, len(data), CHUNK_BYTES):
             chunk = data[offset : offset + CHUNK_BYTES]
             if self.byte_count + len(chunk) > MAX_UPLOAD_BYTES:
-                raise MultiPartException("File exceeded the 100 MiB Education upload limit")
+                raise MultiPartException(size_refusal(self.byte_count + len(chunk)))
             if self.retain:
                 reserve_storage_chunk(
                     self.db,
@@ -150,7 +151,7 @@ async def create_education_submission(
             if int(content_length) > MAX_UPLOAD_BYTES + 1024 * 1024:
                 raise OdinError(
                     ErrorCode.quota_exceeded,
-                    "Multipart upload exceeds the Education upload limit",
+                    f'Multipart upload too large ({content_length} bytes; limit {MAX_UPLOAD_BYTES + 1024 * 1024} bytes including framing)',
                     status=413,
                 )
         except ValueError as exc:

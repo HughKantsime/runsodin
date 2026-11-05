@@ -2,6 +2,10 @@
 
 Updated - see CHANGELOG for current version.
 
+## Prepared: Large multicolour plates
+
+- Fixed 256 MiB plate G-code / 160 MiB archive and upload limits, streamed inspection and upload staging, and source checks before the 30-second readiness window. Synthetic concurrent dispatch benchmarks and contract evidence accompany the change; Claude review and release remain pending.
+
 ## Prepared: Bambu tray, terminal evidence and pause visibility
 
 - Explicit tray preset settings with bounded printer replies, audited failed/cancelled correction and current pause causes. Claude review and an attended idle-printer tray test remain required; X1C and H2D/AMS HT payloads are not hardware-qualified. Cancellation classification is unchanged.

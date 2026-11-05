@@ -132,6 +132,11 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                     if error:result=(False,error)
                     else:provider,reservation=reserved
                 if not error:
+                    source_facts = None
+                    if options.get('ams_mapping') is not None:
+                        from modules.printers.dispatch_ams_gate import preflight_ams_source
+                        source_facts = preflight_ams_source(job, mapping=options['ams_mapping'],
+                            staged_path=staged.path, payload_sha256=staged.sha256, derived=derived)
                     deadline=time.monotonic()+ADMISSION_SECONDS
                     _require_target(target_handle)
                     power=smart_plug.prepare_bounded_dispatch_power(job['printer_id'],deadline)
@@ -182,7 +187,8 @@ def _dispatch_claimed(job,creds,source_path,remote_filename,payload_sha256,educa
                                         payload_sha256=staged.sha256,transport_filename=transport_filename,
                                         power_accepted=power.accepted,broker_connection=power.connection,
                                         education_provider=provider,education_reservation=reservation),
-                                    staged_path=staged.path,mapping=options['ams_mapping'],target_handle=target_handle)
+                                    staged_path=staged.path,mapping=options['ams_mapping'],target_handle=target_handle,
+                                    source_facts=source_facts)
                             if creds['api_type'] == 'bambu':
                                 from modules.printers.dispatch_capability_gate import create_capability_gate
                                 before_start = create_capability_gate(job=job, creds=creds,

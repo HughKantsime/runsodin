@@ -63,7 +63,7 @@ def test_file_schedule_refuses_unusable_payload_without_queue_effects(creators, 
     if defect == 'oversize':
         # Sparse owned fixture exercises the real size guard without allocation.
         with source.open('r+b') as payload:
-            payload.truncate(100 * 1024 * 1024 + 1)
+            payload.truncate(160 * 1024 * 1024 + 1)
     if defect == 'unsupported_api':
         review_db.execute(text("UPDATE printers SET api_type='elegoo' WHERE id=9"))
     if defect == 'inactive_target':

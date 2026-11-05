@@ -66,7 +66,7 @@ def preflight_ams_source(job, *, mapping, staged_path, payload_sha256, derived=F
     return facts
 
 
-def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, target_handle):
+def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, target_handle, source_facts=None):
     """Private orchestrator boundary; callers must already own the admitted attempt.
 
     No transaction stays open during file inspection or the owned network read.
@@ -82,8 +82,11 @@ def create_ams_start_gate(engine, *, admission_inputs, staged_path, mapping, tar
         from modules.printers.dispatch_options import _requires_ams_mapping
         if not _requires_ams_mapping(captured['creds']):
             raise ValueError('Derived AMS selection requires a Bambu printer with AMS')
-    facts = preflight_ams_source(job, mapping=mapping, staged_path=staged_path,
-                                 payload_sha256=captured['payload_sha256'], derived=derived)
+    # Only the orchestrator supplies facts, from this exact staged snapshot before
+    # the readiness window. Direct callers retain the full inspection.
+    facts = source_facts if source_facts is not None else preflight_ams_source(
+        job, mapping=mapping, staged_path=staged_path,
+        payload_sha256=captured['payload_sha256'], derived=derived)
     expected_mapping = tuple(mapping)
     sources = facts.get('sources', (dict(source_index=facts.get('source_index'), material=facts.get('material')),))
     slots = tuple(sorted({mapping[source['source_index']] + 1 for source in sources}))

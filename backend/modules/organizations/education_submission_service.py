@@ -38,7 +38,7 @@ def _analyze_3mf_isolated(path, ticket):
                             headers={"Retry-After": str(busy.retry_after)}) from None
 
 CHUNK_BYTES = 1024 * 1024
-MAX_UPLOAD_BYTES = 100 * 1024 * 1024
+from core.print_upload_limits import MAX_UPLOAD_BYTES, size_refusal
 MAX_UNCOMPRESSED_BYTES = 500 * 1024 * 1024
 USER_STORAGE_CAP_BYTES = 2 * 1024 * 1024 * 1024
 TENANT_STORAGE_CAP_BYTES = 50 * 1024 * 1024 * 1024
@@ -526,7 +526,7 @@ def hash_upload_source(source: BinaryIO) -> tuple[int, str]:
         total += len(chunk)
         if total > MAX_UPLOAD_BYTES:
             raise OdinError(
-                ErrorCode.quota_exceeded, "File exceeds 100 MiB upload limit", status=413
+                ErrorCode.quota_exceeded, size_refusal(total), status=413
             )
         digest.update(chunk)
     return total, digest.hexdigest()
@@ -987,7 +987,7 @@ def process_sliced_3mf_submission(
                 if total + len(chunk) > MAX_UPLOAD_BYTES:
                     raise OdinError(
                         ErrorCode.quota_exceeded,
-                        "File exceeds 100 MiB upload limit",
+                        size_refusal(total + len(chunk)),
                         status=413,
                     )
                 reserve_storage_chunk(

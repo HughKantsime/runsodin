@@ -455,21 +455,29 @@ async def create_model_revision(
     model = db.query(Model).filter(Model.id == model_id).first()
     if not model or not check_org_access(current_user, model.org_id):
         raise HTTPException(status_code=404, detail="Model not found")
-    content = None
-    if file:
-        content = await file.read(100 * 1024 * 1024 + 1)
-        if len(content) > 100 * 1024 * 1024:
-            raise HTTPException(status_code=413, detail="File exceeds 100 MB limit")
-    with _revision_transaction(db, model_id) as state:
-        _locked_revision_model(db, model_id, current_user)
-        next_rev = _next_revision_number(db, model_id)
-        file_path = None
-        if content is not None:
-            destination, stream = _new_revision_file(model_id, next_rev, file.filename, state)
-            with stream:
-                stream.write(content)
-            file_path = str(destination)
-        _insert_revision(db, model_id, next_rev, file_path, changelog, current_user["id"], "model_revision_created")
+    from contextlib import asynccontextmanager
+    from modules.models_library.upload_stream import staged_upload
+    import shutil
+
+    @asynccontextmanager
+    async def optional_upload():
+        if file is None:
+            yield None
+        else:
+            async with staged_upload(file, os.path.splitext(file.filename or "")[1]) as (path, _):
+                yield path
+
+    async with optional_upload() as staged_path:
+        with _revision_transaction(db, model_id) as state:
+            _locked_revision_model(db, model_id, current_user)
+            next_rev = _next_revision_number(db, model_id)
+            file_path = None
+            if staged_path is not None:
+                destination, stream = _new_revision_file(model_id, next_rev, file.filename, state)
+                with stream, open(staged_path, 'rb') as source:
+                    shutil.copyfileobj(source, stream, length=1024 * 1024)
+                file_path = str(destination)
+            _insert_revision(db, model_id, next_rev, file_path, changelog, current_user["id"], "model_revision_created")
     return {"revision_number": next_rev, "file_path": file_path}
 
 

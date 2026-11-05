@@ -252,3 +252,19 @@ def test_relative_upload_root_is_rejected_without_graph_or_payload(upload_client
  assert review_db.execute(text('SELECT COUNT(*) FROM print_files')).scalar_one()==before
  assert not [p for p in storage.rglob('*') if p.is_file()]
  assert not Path('synthetic-relative-root').exists()
+
+
+def test_upload_route_never_reads_whole_file(upload_client, monkeypatch):
+ from starlette.datastructures import UploadFile
+ from core.print_upload_limits import CHUNK_BYTES
+ client,issue,_=upload_client
+ original=UploadFile.read
+ reads=[]
+ async def bounded(self,size=-1):
+  reads.append(size)
+  assert 0 < size <= CHUNK_BYTES
+  return await original(self,size)
+ monkeypatch.setattr(UploadFile,'read',bounded)
+ response=upload(client,issue(['write:models']),'Synthetic streaming.gcode',GCODE)
+ assert response.status_code==200,response.text
+ assert reads
