@@ -39,11 +39,16 @@ async def stop_printer(printer_id: int, current_user: dict = Depends(require_act
     if not check_org_access(current_user, printer.org_id):
         raise HTTPException(status_code=404, detail="Printer not found")
 
+    from core.audit import log_audit
+    audit_details = {"actor_token_id": current_user.get("_token_id")}
     action = "cancel_print" if printer.api_type == "moonraker" else "stop_print"
     if _send_printer_command(printer, action):
         db.execute(text("UPDATE printers SET gcode_state = 'IDLE', print_stage = 'Idle' WHERE id = :id"), {"id": printer_id})
+        log_audit(db, "printer.stop_requested", "printer", printer_id, audit_details)
         db.commit()
         return {"success": True, "message": "Print stopped"}
+    log_audit(db, "printer.stop_failed", "printer", printer_id, audit_details)
+    db.commit()
     raise HTTPException(status_code=503, detail="Printer unreachable or command failed")
 
 
@@ -105,7 +110,11 @@ async def pause_printer(
             notes="Would send MQTT pause_print command; no DB or printer side effects.",
         )
 
+    from core.audit import log_audit
+    audit_details = {"actor_token_id": current_user.get("_token_id")}
     if not _send_printer_command(printer, "pause_print"):
+        log_audit(db, "printer.pause_failed", "printer", printer_id, audit_details)
+        db.commit()
         raise OdinError(
             ErrorCode.upstream_unavailable,
             "Printer unreachable or command failed",
@@ -116,6 +125,7 @@ async def pause_printer(
         text("UPDATE printers SET gcode_state = 'PAUSED' WHERE id = :id"),
         {"id": printer_id},
     )
+    log_audit(db, "printer.pause_requested", "printer", printer_id, audit_details)
     db.commit()
     return {
         "success": True,
