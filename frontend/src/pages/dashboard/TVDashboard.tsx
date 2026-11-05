@@ -1,3 +1,4 @@
+import { hmsFaults } from '../../utils/hms'
 import PageState from '../../components/ui/PageState'
 import { displayName } from '../../utils/displayName'
 import CameraFallback from '../../components/printers/CameraFallback'
@@ -41,7 +42,7 @@ function TVCameraStream({ cameraId }: { cameraId: number }) {
 function TVPrinterCard({ printer }: { printer: any }) {
   const online = isOnline(printer)
   const isPrinting = isActivePrintState(printer.gcode_state)
-  const hasError = printer.hms_errors && printer.hms_errors.length > 0
+  const hasError = hmsFaults(printer.hms_errors).length > 0
   const hasCamera = printer.camera_url && printer.camera_enabled !== false
   const progress = printer.mc_percent || 0
   const remaining = printer.mc_remaining_time
@@ -102,7 +103,7 @@ function TVPrinterCard({ printer }: { printer: any }) {
         {hasError && !isPrinting && (
           <div className="mt-auto flex items-center gap-2 text-[var(--status-failed)] text-sm">
             <AlertTriangle size={14} />
-            <span className="truncate">{printer.hms_errors?.[0]?.code || 'Error'}</span>
+            <span className="truncate">{hmsFaults(printer.hms_errors)[0]?.code || 'Error'}</span>
           </div>
         )}
       </div>
@@ -149,7 +150,7 @@ export default function TVDashboard() {
   const allPrinters = printerList || []
   const totalPages = Math.max(1, Math.ceil(allPrinters.length / CARDS_PER_PAGE))
   const printingCount = allPrinters.filter(p => isActivePrintState(p.gcode_state)).length
-  const errorCount = allPrinters.filter(p => p.hms_errors?.length > 0).length
+  const errorCount = allPrinters.filter(p => hmsFaults(p.hms_errors).length > 0).length
   const unreadAlerts = alertSummary?.total ?? 0
 
   // Reset and restart auto-pagination timer

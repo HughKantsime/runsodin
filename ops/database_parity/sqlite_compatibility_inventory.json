@@ -1746,7 +1746,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 68,
+      "line": 44,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1754,7 +1754,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 80,
+      "line": 56,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1762,7 +1762,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 85,
+      "line": 61,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1770,7 +1770,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 114,
+      "line": 90,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1778,47 +1778,23 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 188,
+      "line": 115,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
-      "source": "statement = \"SELECT id,scheduled_job_id,job_name,started_at,filename FROM print_jobs WHERE printer_id=? AND status='running' ORDER BY started_at DESC,id DESC LIMIT 1\""
+      "source": "row = conn.execute('SELECT api_key,hms_errors FROM printers WHERE id=?', (printer_id,)).fetchone()"
     },
     {
       "classification": "dialect-neutral",
-      "line": 191,
+      "line": 126,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
-      "source": "statement = \"SELECT id,scheduled_job_id,job_name,started_at,filename FROM print_jobs WHERE printer_id=? AND id=? AND status='running'\""
+      "source": "conn.execute('UPDATE printers SET hms_errors=? WHERE id=?', ('[]', printer_id))"
     },
     {
       "classification": "dialect-neutral",
-      "line": 226,
-      "path": "backend/modules/notifications/error_handling.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
-      "source": "saved = cur.execute(\"SELECT status FROM print_jobs WHERE id=?\", (print_job_id,)).fetchone()"
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 269,
-      "path": "backend/modules/notifications/error_handling.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
-      "source": "cur.execute(f\"\"\""
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 346,
-      "path": "backend/modules/notifications/error_handling.py",
-      "pattern": "qmark-parameter",
-      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
-      "source": "\"UPDATE printers SET hms_errors = ? WHERE id = ?\","
-    },
-    {
-      "classification": "dialect-neutral",
-      "line": 370,
+      "line": 147,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1826,11 +1802,19 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 376,
+      "line": 153,
       "path": "backend/modules/notifications/error_handling.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
       "source": "\"SELECT id,filename,job_name FROM print_jobs WHERE printer_id=? AND id=? AND status='running'\","
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 188,
+      "path": "backend/modules/notifications/error_handling.py",
+      "pattern": "qmark-parameter",
+      "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
+      "source": "conn.execute('UPDATE printers SET hms_errors=? WHERE id=?', (json.dumps(errors), printer_id))"
     },
     {
       "classification": "dialect-neutral",
@@ -2474,7 +2458,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 273,
+      "line": 274,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",
@@ -2482,7 +2466,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 296,
+      "line": 297,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",
@@ -2490,7 +2474,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 310,
+      "line": 311,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",
@@ -2498,7 +2482,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 366,
+      "line": 367,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",
@@ -2506,7 +2490,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 383,
+      "line": 384,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",
@@ -2514,7 +2498,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 440,
+      "line": 441,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",
@@ -2522,7 +2506,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 481,
+      "line": 482,
       "path": "backend/modules/printers/monitors/mqtt_status.py",
       "pattern": "qmark-parameter",
       "reason": "Extracted MQTT status handler uses the owning monitor's live DBAPI adapter; qmark parameters translate for PostgreSQL and time expressions use core.db_compat.sql.",

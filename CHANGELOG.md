@@ -2,6 +2,12 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [Unreleased]
+
+### Fixed
+
+- Decode Bambu health and print codes from per-model release bundles. Common/info notices no longer alert or fail jobs; active health is separate from history. Release data fetch and Claude review remain pending.
+
 ## [2.0.43] - 2026-11-05
 
 <!-- summary: Foundry, a new look you can switch on; plates up to 256 MiB of G-code; plan a filament load for held jobs before loading it. -->

@@ -1,0 +1,103 @@
+{
+  "format": 1,
+  "lists": {
+    "00M": {
+      "prefix": "00M",
+      "version": 202611051719,
+      "fetched_at": "2026-11-05T13:22:45.998888+00:00",
+      "source_url": "https://e.bambulab.com/query.php?lang=en&d=00M",
+      "sha256": "0b2786f3b4570d92a4eaeaacc3d214c42e3d7686c4bd4a85aba3d9523738a1a0"
+    },
+    "00W": {
+      "prefix": "00W",
+      "version": 202611052110,
+      "fetched_at": "2026-11-05T13:22:46.293820+00:00",
+      "source_url": "https://e.bambulab.com/query.php?lang=en&d=00W",
+      "sha256": "6726249440765cbe382e5cd55be94a68e3d155694ef1f26218f306ec651ed319"
+    },
+    "01P": {
+      "prefix": "01P",
+      "version": 202611052110,
+      "fetched_at": "2026-11-05T13:22:46.450893+00:00",
+      "source_url": "https://e.bambulab.com/query.php?lang=en&d=01P",
+      "sha256": "c7bae1008145a4253a389d603d5cc24ceb4aba0f0701936472c271e08eb90c12"
+    },
+    "01S": {
+      "prefix": "01S",
+      "version": 202611051719,
+      "fetched_at": "2026-11-05T13:22:46.609490+00:00",
+      "source_url": "https://e.bambulab.com/query.php?lang=en&d=01S",
+      "sha256": "b03e4ac383dcf432401af6e74e096931256f2234b2a3b70c9799e7f51d2a33db"
+    },
+    "030": {
+      "prefix": "030",
+      "version": 202611051719,
+      "fetched_at": "2026-11-05T13:22:46.765398+00:00",
+      "source_url": "https://e.bambulab.com/query.php?lang=en&d=030",
+      "sha256": "3238a77f25f63d56e7208f0c55c0dff21b266c4d1ca9ad1d529607556fef013f"
+    },
+    "039": {
+      "prefix": "039",
+      "version": 202611052110,
+      "fetched_at": "2026-11-05T13:22:46.962762+00:00",
+      "source_url": "https://e.bambulab.com/query.php?lang=en&d=039",
+      "sha256": "5232f00d98f07200cc36c7b43a4c4d36de7f08d4c1a93feda53eafba5ad0be1b"
+    },
+    "03W": {
+      "prefix": "03W",
+      "version": 202611052110,
+      "fetched_at": "2026-11-05T13:22:47.254166+00:00",
+      "source_url": "https://e.bambulab.com/query.php?lang=en&d=03W",
+      "sha256": "a7a145fd329da49e304629e35690e1496d52ebe6116c65010b5a71381b5c05bf"
+    },
+    "093": {
+      "prefix": "093",
+      "version": 202611051719,
+      "fetched_at": "2026-11-05T13:22:47.557017+00:00",
+      "source_url": "https://e.bambulab.com/query.php?lang=en&d=093",
+      "sha256": "b698d35b161b955a61cccfc79a2ee3d15bffd75af5bc63db3044f1246010da4c"
+    },
+    "094": {
+      "prefix": "094",
+      "version": 202611052110,
+      "fetched_at": "2026-11-05T13:22:47.735495+00:00",
+      "source_url": "https://e.bambulab.com/query.php?lang=en&d=094",
+      "sha256": "651df4821638be4c5a93c813a4d04d9e5ed317097776254f50993c2182c8d0b4"
+    },
+    "20P": {
+      "prefix": "20P",
+      "version": 202611051719,
+      "fetched_at": "2026-11-05T13:22:50.245987+00:00",
+      "source_url": "https://e.bambulab.com/query.php?lang=en&d=20P",
+      "sha256": "c4419117a7f346d8f9e001da9c2d373d83a6a4fdbd284650e4e1e86b269cb0ba"
+    },
+    "22E": {
+      "prefix": "22E",
+      "version": 202611051719,
+      "fetched_at": "2026-11-05T13:22:50.410028+00:00",
+      "source_url": "https://e.bambulab.com/query.php?lang=en&d=22E",
+      "sha256": "b2586624fe5d6b52d508d874d4c109b6f4f94ce4916d480d61beebdeb0915802"
+    },
+    "239": {
+      "prefix": "239",
+      "version": 202611051719,
+      "fetched_at": "2026-11-05T13:22:50.667438+00:00",
+      "source_url": "https://e.bambulab.com/query.php?lang=en&d=239",
+      "sha256": "c14f363994750d43a58cf32619299116f3a998f116fedfc3abbaa2ba49e77bbb"
+    },
+    "26A": {
+      "prefix": "26A",
+      "version": 202611051719,
+      "fetched_at": "2026-11-05T13:22:50.834571+00:00",
+      "source_url": "https://e.bambulab.com/query.php?lang=en&d=26A",
+      "sha256": "77dc94ee58a7abaced85370ecf50e232c3e09f8f4d47709f4ad1e9f832ed242f"
+    },
+    "31B": {
+      "prefix": "31B",
+      "version": 202611051719,
+      "fetched_at": "2026-11-05T13:22:51.015154+00:00",
+      "source_url": "https://e.bambulab.com/query.php?lang=en&d=31B",
+      "sha256": "a4452e09a3e25de9bc4445c62e6940dfe918c4b7652a2abfb8bf617881bf4041"
+    }
+  }
+}

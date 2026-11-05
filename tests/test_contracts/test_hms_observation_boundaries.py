@@ -68,12 +68,12 @@ def test_reserved_observation_without_policy_cannot_use_generic_terminal_path(hm
 
 
 @pytest.mark.parametrize('filename',['current.3mf','/Metadata/current.3mf',r'C:\Metadata\current.3mf'])
-def test_matching_generic_filename_still_fails_current_job(hms_boundary,filename):
+def test_matching_generic_filename_does_not_fail_current_job(hms_boundary,filename):
     db,handler,registry,outgoing=hms_boundary
     handler.process_hms_errors(9,STOPPING_ERROR,observed_filename=filename)
     db.expire_all()
-    assert db.execute(text('SELECT status FROM print_jobs WHERE id=201')).scalar_one()=='failed'
-    assert len([item for item in outgoing if item.get('alert_type')=='print_failed'])==1
+    assert db.execute(text('SELECT status FROM print_jobs WHERE id=201')).scalar_one()=='running'
+    assert not any(item.get('alert_type')=='print_failed' for item in outgoing)
 
 
 def test_unknown_observed_identity_does_not_fail_current_job(hms_boundary):
@@ -154,13 +154,13 @@ def test_callback_retries_unresolved_classification_then_deduplicates_success(hm
     monitor._on_status(packet)
     successful_calls=len(calls)
     assert successful_calls>1
-    assert [item['alert_type'] for item in outgoing]==['printer_error','print_failed']
+    assert outgoing == []
     db.expire_all()
-    assert db.execute(text('SELECT status FROM print_jobs WHERE id=201')).scalar_one()=='failed'
+    assert db.execute(text('SELECT status FROM print_jobs WHERE id=201')).scalar_one()=='running'
     clock[0]=1020
     monitor._on_status(packet)
     assert len(calls)==successful_calls
-    assert len(outgoing)==2
+    assert outgoing == []
 
 
 def test_replaced_claim_rejects_old_observed_token(hms_boundary):
@@ -243,30 +243,13 @@ def test_terminal_token_retry_is_safe_without_claim_and_legacy_ack_is_preserved(
     assert db.execute(text('SELECT status,lifecycle_revision FROM education_submissions WHERE id=14')).one()==('failed',5)
 
 
-def test_generic_to_education_linkage_retries_without_terminal_under_child_lock(hms_boundary,monkeypatch):
+def test_hms_has_no_job_terminal_writer(hms_boundary):
     db,handler,registry,outgoing=hms_boundary
-    from modules.organizations.services import EducationPolicyService
-    actual=EducationPolicyService()
-    terminal=[];prepared=[]
-    class GuardedPolicy:
-        def classify_monitor_observation(self,*args,**kwargs):
-            return actual.classify_monitor_observation(*args,**kwargs)
-        def terminal_monitor_observation(self,*args,**kwargs):
-            terminal.append(True)
-            raise AssertionError('Education terminal under generic lock')
-    monkeypatch.setattr(registry,'get_provider',lambda name:GuardedPolicy() if name=='EducationPolicyProvider' else None)
-    original=handler.prepare_print_job_write
-    def link_after_fence(conn,identifier):
-        result=original(conn,identifier)
-        conn.cursor().execute('UPDATE print_jobs SET scheduled_job_id=13 WHERE id=?',(identifier,))
-        prepared.append(True)
-        return result
-    monkeypatch.setattr(handler,'prepare_print_job_write',link_after_fence)
-    handler._fail_active_job_for_hms(9,'0C000300_00030006','Synthetic stop','current.3mf')
-    assert prepared==[True,True,True]
-    assert terminal==[] and outgoing==[]
-    db.expire_all()
-    assert db.execute(text('SELECT status,scheduled_job_id FROM print_jobs WHERE id=201')).one()==('running',None)
+    assert not hasattr(handler, '_fail_active_job_for_hms')
+    assert not hasattr(handler, 'PRINT_STOPPING_HMS_CODES')
+    handler.process_hms_errors(9, STOPPING_ERROR, observed_filename='current.3mf')
+    assert db.execute(text('SELECT status FROM print_jobs WHERE id=201')).scalar_one() == 'running'
+    assert outgoing == []
 
 
 @pytest.mark.parametrize('change', ['filename','status','linkage'])
@@ -299,7 +282,7 @@ def test_unlinked_quarantine_cas_preserves_intervening_change(hms_boundary,monke
 
 
 @pytest.mark.parametrize("terminal",["IDLE","FINISH","FAILED"])
-def test_same_packet_stopping_hms_precedes_idle_cancellation(hms_boundary,monkeypatch,terminal):
+def test_same_packet_hms_preserves_reported_terminal_state(hms_boundary,monkeypatch,terminal):
     import time
     from types import SimpleNamespace
     from modules.printers.monitors import mqtt_printer,mqtt_job_lifecycle
@@ -315,7 +298,7 @@ def test_same_packet_stopping_hms_precedes_idle_cancellation(hms_boundary,monkey
     monkeypatch.setattr(mqtt_printer,'ws_push',lambda *a,**kw:None)
     monitor._on_status(SimpleNamespace(raw_data={'print':{'gcode_state':terminal,'subtask_name':'current.3mf','hms':STOPPING_ERROR}}))
     db.expire_all()
-    assert db.execute(text('SELECT status FROM print_jobs WHERE id=201')).scalar_one()=='failed'
+    assert db.execute(text('SELECT status FROM print_jobs WHERE id=201')).scalar_one()=={'IDLE':'cancelled','FINISH':'completed','FAILED':'failed'}[terminal]
     assert monitor._current_job_id is None
 
 
@@ -335,39 +318,23 @@ def _running_packet_monitor(boundary,monkeypatch):
     return monitor
 
 
-@pytest.mark.parametrize('fault',['classification','terminal_write'])
+@pytest.mark.parametrize('fault',['classification'])
 @pytest.mark.parametrize('initial_state',['IDLE','RUNNING'])
 def test_unconfirmed_hms_retained_across_heartbeat_and_retried_once(hms_boundary,monkeypatch,fault,initial_state):
     from types import SimpleNamespace
     db,handler,registry,outgoing=hms_boundary
     count=[0]
     if fault=='classification':
+        from modules.organizations.services import EducationPolicyService
+        actual = EducationPolicyService()
         class RecoveringPolicy:
+            def __getattr__(self, name): return getattr(actual, name)
             def classify_monitor_observation(self,*a,**kw):
                 count[0]+=1
                 if count[0]==1:raise RuntimeError('Synthetic unavailable classification')
                 return {'education_owned':False,'education_reserved':False}
         policy=RecoveringPolicy()
         monkeypatch.setattr(registry,'get_provider',lambda name:policy if name=='EducationPolicyProvider' else None)
-    else:
-        original=handler.get_db
-        class Cursor:
-            def __init__(self,cur):self.cur=cur
-            def __getattr__(self,name):return getattr(self.cur,name)
-            def execute(self,sql,*args):
-                if 'UPDATE print_jobs' in sql and "SET status = 'failed'" in sql:
-                    count[0]+=1
-                    if count[0]==1:raise RuntimeError('Synthetic terminal write failure')
-                self.cur.execute(sql,*args)
-                return self
-        class Connection:
-            def __init__(self,conn):self.conn=conn
-            def __getattr__(self,name):return getattr(self.conn,name)
-            def cursor(self):return Cursor(self.conn.cursor())
-        @contextmanager
-        def flaky_database():
-            with original() as conn:yield Connection(conn)
-        monkeypatch.setattr(handler,'get_db',flaky_database)
     monitor=_running_packet_monitor(hms_boundary,monkeypatch)
     packet=SimpleNamespace(raw_data={'print':{'gcode_state':initial_state,'subtask_name':'current.3mf','hms':STOPPING_ERROR}})
     monitor._on_status(packet)
@@ -378,12 +345,12 @@ def test_unconfirmed_hms_retained_across_heartbeat_and_retried_once(hms_boundary
     # Even an HMS-free/identity-free heartbeat must retry the exact saved packet.
     monitor._on_status(SimpleNamespace(raw_data={'print':{'gcode_state':'IDLE'}}))
     db.expire_all()
-    assert db.execute(text('SELECT status,error_code FROM print_jobs WHERE id=201')).one()==('failed','0C000300_00030006')
+    assert db.execute(text('SELECT status,error_code FROM print_jobs WHERE id=201')).one()==('cancelled',None)
     assert monitor._pending_hms_terminal is None and monitor._current_job_id is None
     mutations=count[0];alerts=len(outgoing)
     monitor._on_status(SimpleNamespace(raw_data={'print':{'subtask_name':'current.3mf','hms':STOPPING_ERROR}}))
     assert count[0]==mutations and len(outgoing)==alerts
-    assert len([item for item in outgoing if item.get('alert_type')=='print_failed'])==1
+    assert not any(item.get('alert_type')=='print_failed' for item in outgoing)
 
 
 @pytest.mark.parametrize('hms',[[],[{'attr':1,'code':2}]])
@@ -427,8 +394,8 @@ def test_saved_observation_guard_is_enforced_by_hms_write_boundary(hms_boundary)
     db.execute(text("INSERT INTO print_jobs(id,printer_id,filename,job_name,status,started_at) VALUES(202,9,'current.3mf','Synthetic later','running',CURRENT_TIMESTAMP)"));db.commit()
     outcome=handler.process_hms_errors(9,STOPPING_ERROR,observed_filename='current.3mf',expected_print_job_id=201)
     assert outcome['terminal_outcome']=='irrelevant'
-    # Also exercise the locked terminal helper directly, not just outer routing.
-    assert handler._fail_active_job_for_hms(9,'0C000300_00030006','Synthetic fault',observed_filename='current.3mf',expected_print_job_id=201)['terminal_outcome']=='irrelevant'
+    # The removed terminal helper cannot bypass this observation guard.
+    assert not hasattr(handler, '_fail_active_job_for_hms')
     db.expire_all()
     assert db.execute(text('SELECT status FROM print_jobs WHERE id=202')).scalar_one()=='running'
     assert not outgoing
@@ -462,11 +429,11 @@ def test_exact_original_pending_start_resolves_hms_to_concrete_observation(hms_b
         'state':{**original,'gcode_state':'IDLE'},'terminal':'IDLE','print_job_id':None,'start':original}
     monitor._on_status(SimpleNamespace(raw_data={'print':{'gcode_state':'IDLE','subtask_name':'current.3mf'}}))
     db.expire_all()
-    assert db.execute(text('SELECT status FROM print_jobs WHERE id=201')).scalar_one()=='failed'
+    assert db.execute(text('SELECT status FROM print_jobs WHERE id=201')).scalar_one()=='cancelled'
     assert monitor._pending_hms_terminal is None and monitor._current_job_id is None
 
 
-def test_identified_hms_failure_delivers_only_once_through_outbox(private_attempt,review_db,monkeypatch):
+def test_common_hms_never_delivers_a_failure_through_outbox(private_attempt,review_db,monkeypatch):
     from contextlib import contextmanager
     from core import db as core_db
     from core.db_utils import _ConnectionAdapter
@@ -493,7 +460,8 @@ def test_identified_hms_failure_delivers_only_once_through_outbox(private_attemp
         error_handling.process_hms_errors(printer,STOPPING_ERROR,observed_filename=filename)
         alert_outbox.sweep(engine,older_than_seconds=0)
     assert not any(item['alert_type']==AlertType.PRINT_FAILED for item in direct)
-    assert len(delivered)==1 and delivered[0].alert_type==AlertType.PRINT_FAILED
+    assert delivered == []
+    assert review_db.execute(text('SELECT status FROM print_jobs WHERE id=:id'), {'id':identifier}).scalar_one() == 'running'
 
 
 from tests.test_contracts.test_private_attempt_valuation_route import private_attempt, creators, review_db

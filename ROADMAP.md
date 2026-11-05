@@ -2,6 +2,10 @@
 
 Updated - see CHANGELOG for current version.
 
+## Prepared: Bambu official code bundles
+
+- Offline per-model decoding, maintenance notice severity, current/history display and state-driven job outcomes. Real list fetch and Claude review are required before release.
+
 ## Prepared: Bambu tray, terminal evidence and pause visibility
 
 - Explicit tray preset settings with bounded printer replies, audited failed/cancelled correction and current pause causes. Claude review and an attended idle-printer tray test remain required; X1C and H2D/AMS HT payloads are not hardware-qualified. Cancellation classification is unchanged.

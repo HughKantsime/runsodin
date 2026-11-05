@@ -189,7 +189,7 @@ def handle_status(self, status, generation, runtime):
             if isinstance(incoming_hms, list) and not incoming_hms:
                 self._last_hms_key = None
                 self._last_hms_processed_key = None
-            if not incoming_hms:
+            if not isinstance(incoming_hms, list):
                 return True
             # HMS belongs to this packet, never an identity from cached telemetry.
             observed_filename = packet.get('subtask_name') or packet.get('gcode_file')
@@ -267,7 +267,8 @@ def handle_status(self, status, generation, runtime):
                     stage = pause_stage(self, runtime.resolve_stage_label(stg_cur, gstate))
                     import json as _json
                     hms_raw = self._state.get('hms', [])
-                    hms_j = _json.dumps(hms_raw) if hms_raw else None
+                    from modules.printers.bambu_hms_bundle import prefix_from_serial
+                    prefix = prefix_from_serial(getattr(self, 'serial', ''))
                     lights_on_raw = runtime.parse_lights(self._state.get('lights_report', []))
                     # Check cooldown — don't overwrite if toggled via API within last 20s
                     cooldown_row = conn.execute('SELECT lights_toggled_at FROM printers WHERE id=?', (self.printer_id,)).fetchone()
@@ -295,10 +296,10 @@ def handle_status(self, status, generation, runtime):
                     conn.execute(
                         f"UPDATE printers SET last_seen={runtime.sql.now()},"
                         " bed_temp=?,bed_target_temp=?,nozzle_temp=?,nozzle_target_temp=?,"
-                        " gcode_state=?,print_stage=?,hms_errors=?,"
+                        " gcode_state=?,print_stage=?,"
                         " nozzle_type=?,fan_speed=COALESCE(?,fan_speed) WHERE id=?",
                         (bed_t, bed_tt, noz_t, noz_tt, gstate, stage,
-                         hms_j, noz_type, fan_speed_val, self.printer_id))
+                         noz_type, fan_speed_val, self.printer_id))
                     from core.printer_display_facts import persist as persist_display_facts
                     persist_display_facts(conn, self)
                     if noz_dia is not None:
@@ -475,7 +476,7 @@ def handle_status(self, status, generation, runtime):
                     if hms_key != getattr(self, '_last_hms_key', None):
                         with runtime.get_db() as hconn:
                             try:
-                                parsed = printer_events.parse_hms_errors(hms_raw)
+                                parsed = printer_events.parse_hms_errors(hms_raw, prefix)
                                 for err in parsed:
                                     hconn.execute(
                                         "INSERT INTO hms_error_history (printer_id, code, message, severity, source) VALUES (?, ?, ?, ?, ?)",

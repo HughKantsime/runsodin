@@ -1,3 +1,4 @@
+import { hmsFaults } from '../../utils/hms'
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { printers, printJobs, alerts } from '../../api'
@@ -21,7 +22,7 @@ export function needsYou(printer: Printer) {
   let errors: unknown = printer.hms_errors
   if (typeof errors === 'string') { try { errors = JSON.parse(errors) } catch { errors = [] } }
   return isPausedState(printer.gcode_state) || ['ERROR', 'FAILED', 'RUNOUT'].includes((printer.gcode_state || '').toUpperCase())
-    || (Array.isArray(errors) && errors.length > 0)
+    || hmsFaults(errors).length > 0
 }
 export function state(printer: Printer) {
   if (!printer.gcode_state || printer.gcode_state.trim().toUpperCase() === 'UNKNOWN') return 'unknown'

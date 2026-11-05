@@ -8,7 +8,16 @@ import path from 'node:path'
 const require = createRequire(path.resolve(import.meta.dirname, '../../frontend/package.json'))
 const ts = require('typescript')
 export function classicSource(file, source) {
+  // Post-2.0.43 HMS behavior intentionally changes Classic as well as Foundry.
+  // Reverse only these exact, separately behavior-tested edits for the historical
+  // Foundry comparison; unrelated Classic changes must still fail the digest.
   let s = source
+    .replace("import { hmsFaults } from '../../utils/hms'\n", '')
+    .replace("import ActiveHms from '../../components/printers/ActiveHms'\n", '')
+    .replace('      <ActiveHms printer={printer} />\n', '')
+    .replaceAll('hmsFaults(printer.hms_errors).length > 0', 'printer.hms_errors && printer.hms_errors.length > 0')
+    .replaceAll('hmsFaults(p.hms_errors).length > 0', 'p.hms_errors?.length > 0')
+    .replaceAll('hmsFaults(printer.hms_errors)[0]?.code', 'printer.hms_errors?.[0]?.code')
   if (file.endsWith('index.css')) return s.replace("@import './foundry-pages.css';\n", '')
   s = s.replace(/^import (Table|PageState|FoundryPage|PrinterNumber) from '[^']+'\n/gm, '')
   s = s.replace(/<PageState kind="(?:loading|error|empty)"/g, '<div').replace(/<\/PageState>/g, '</div>')

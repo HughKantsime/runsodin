@@ -444,7 +444,7 @@ def test_shared_monitor_wrapper_suppresses_generic_fanout_and_recovers_after_res
     assert monitor_db.execute(text("SELECT status FROM jobs WHERE id=:job"), {"job": uploaded["job_id"]}).scalar_one() == "completed"
 
 
-def test_bambu_token_start_and_print_stopping_hms_use_only_education_policy(
+def test_bambu_token_start_and_common_hms_preserve_running_education(
     admitted_monitor, monkeypatch
 ) -> None:
     from core import registry as registry_module
@@ -517,11 +517,11 @@ def test_bambu_token_start_and_print_stopping_hms_use_only_education_policy(
         monitor_db.execute(
             text("SELECT status,lifecycle_revision FROM education_submissions WHERE id=:submission"), {"submission": uploaded["id"]}
         ).one()
-    ) == ("failed", 5)
-    assert monitor_db.execute(text("SELECT status FROM jobs WHERE id=:job"), {"job": uploaded["job_id"]}).scalar_one() == "failed"
+    ) == ("printing", 4)
+    assert monitor_db.execute(text("SELECT status FROM jobs WHERE id=:job"), {"job": uploaded["job_id"]}).scalar_one() == "printing"
     assert monitor_db.execute(
         text("SELECT status FROM print_jobs WHERE id=:id"), {"id": print_job_id}
-    ).scalar_one() == "failed"
+    ).scalar_one() == "running"
 
 
 def test_bambu_first_running_packet_correlates_before_hms(monkeypatch) -> None:

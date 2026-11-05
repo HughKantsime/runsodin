@@ -17,7 +17,7 @@ def test_hms_history_translates_and_deduplicates_unchanged_errors(hms_capture):
     send(hms=ERROR)
     first = rows(path,'hms_error_history')
     assert len(first)==1
-    assert first[0][1:6] == (1,'05000200_0003000A','AMS Hub: cutter failure.','warning','bambu_hms')
+    assert first[0][1:6] == (1,'05000200_0003000A','Printer code 0500-0200-0003-000A','info','bambu_hms')
     clock[0]=1010
     send(hms=ERROR)
     assert rows(path,'hms_error_history')==first

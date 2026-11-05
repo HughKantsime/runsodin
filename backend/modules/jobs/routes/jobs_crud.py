@@ -86,7 +86,6 @@ def check_filament_compatibility(
 
     return {"filament_warnings": warnings, "printer_id": printer_id}
 
-
 @router.post("/bulk", response_model=List[JobResponse], status_code=status.HTTP_201_CREATED, tags=["Jobs"])
 def create_jobs_bulk(jobs: List[JobCreate], current_user: dict = Depends(require_action("jobs.create", scope="write:jobs")), db: Session = Depends(get_db)):
     """Create multiple jobs at once."""

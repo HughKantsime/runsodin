@@ -1,3 +1,4 @@
+import { hmsFaults } from '../../utils/hms'
 import PrinterNumber from '../../components/ui/PrinterNumber'
 import { useFoundry } from '../../hooks/themePreferences'
 import Floor from '../../components/foundry/Floor'
@@ -53,7 +54,7 @@ export function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onCl
   const stage = printer.print_stage && printer.print_stage !== 'Idle' ? printer.print_stage : null
   
   const isPrinting = online && isActivePrintState(printer.gcode_state)
-  const hasError = printer.hms_errors && printer.hms_errors.length > 0
+  const hasError = hmsFaults(printer.hms_errors).length > 0
   const statusColor = hasError ? 'bg-red-500' : isPrinting ? 'bg-[var(--status-completed)]' : online ? 'bg-yellow-500' : 'bg-[var(--brand-text-muted)]'
   const statusLabel = hasError ? 'Error' : isPrinting ? 'Printing' : online ? 'Idle' : 'Offline'
 

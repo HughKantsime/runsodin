@@ -163,13 +163,28 @@ class PrinterMaintenance(BaseModel):
 
 
 class PrinterResponse(PrinterBase):
+    hms_model_prefix: str = Field(default='', exclude=True)
+
+    @field_serializer('hms_errors')
+    def _active_hms(self, value):
+        if self.api_type != 'bambu':
+            return value
+        import json
+        from modules.printers.hms_codes import parse_hms_errors
+        try:
+            entries = json.loads(value or '[]')
+            raw = [dict(attr=e['attr'], code=e.get('raw_code', e['code'])) for e in entries]
+            return json.dumps(parse_hms_errors(raw, self.hms_model_prefix))
+        except (ValueError, KeyError, TypeError):
+            return '[]'
+
     feeding_slot: Optional[int] = None
     chamber_temp: Optional[float] = None
     plate_clear_confirmed_at: Optional[datetime] = None
     @field_serializer('print_stage')
     def _pause_stage_text(self, value):
         from modules.printers.monitors.pause_cause import display_stage
-        return display_stage(value) if self.gcode_state == 'PAUSE' else value
+        return display_stage(value, self.hms_model_prefix) if self.gcode_state == 'PAUSE' else value
 
     current_print_display_name: Optional[str] = None
     maintenance: PrinterMaintenance = Field(default_factory=PrinterMaintenance)
@@ -201,6 +216,8 @@ class PrinterResponse(PrinterBase):
         from modules.printers.route_utils import effective_camera_url
         values = {name: getattr(data, name) for name in cls.model_fields if name != 'camera_source' and hasattr(data, name)}
         url = effective_camera_url(data)
+        from modules.printers.bambu_hms_bundle import credential_prefix
+        values['hms_model_prefix'] = credential_prefix(getattr(data, 'api_key', None)) if data.api_type == 'bambu' else ''
         values['camera_url'] = url
         values['camera_source'] = None if not url else ('configured' if data.camera_url else 'auto')
         return values
