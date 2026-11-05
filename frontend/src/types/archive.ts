@@ -72,6 +72,7 @@ export interface ArchiveAmsSlot { slot: number; color: string; color_hex: string
 export interface ArchiveAmsSuggestion { source_slot: number; target_slot: number; confidence: 'exact' | 'material_only' }
 
 export interface ArchiveAmsPreview {
+  planned_loads?: string[];
   required: ArchiveAmsRequirement[];
   available: ArchiveAmsSlot[];
   suggested_mapping: ArchiveAmsSuggestion[];

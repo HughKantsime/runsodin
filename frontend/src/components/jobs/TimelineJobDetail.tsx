@@ -35,6 +35,7 @@ function ScheduledJobDetail({ block }) {
     queryKey: ['job', block.job_id],
     queryFn: () => jobs.get(block.job_id),
     enabled: !!block.job_id,
+    refetchInterval: 5000,
   })
 
   if (isLoading) return <p className="text-[var(--brand-text-muted)] text-sm">Loading...</p>

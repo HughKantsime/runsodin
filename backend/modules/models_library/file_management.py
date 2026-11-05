@@ -203,7 +203,7 @@ def schedule_generic_file(db, file_id, printer_id, actor, ams_mapping=None, hold
             if not target or not (check_org_access(actor, target.org_id) or target.shared):
                 raise HTTPException(404, 'Printer not found')
         from core.ams_mapping import validate_for_printer
-        mapping = validate_for_printer(db, ams_mapping, row.filaments_json, printer_id, actor)
+        mapping = validate_for_printer(db, ams_mapping, row.filaments_json, printer_id, actor, check_material=not hold)
         file_capture = capture(row, FILE_FIELDS)
         parent_capture = capture(parent, ('id', 'org_id'))
         target_capture = capture(target, TARGET_FIELDS)

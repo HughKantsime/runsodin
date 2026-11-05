@@ -16,13 +16,13 @@ def accessible_printer(db, printer_id, actor):
     return printer
 
 
-def validate_for_printer(db, mapping, filaments_json, printer_id, actor):
+def validate_for_printer(db, mapping, filaments_json, printer_id, actor, *, check_material=True):
     if mapping is None:
         return None
     printer = accessible_printer(db, printer_id, actor)
     slots = dict(db.execute(text('SELECT slot_number,filament_type FROM filament_slots WHERE printer_id=:id'),
                             {'id': printer_id}).all())
-    return validate_mapping(mapping, filaments_json, slots, printer.api_type)
+    return validate_mapping(mapping, filaments_json, slots, printer.api_type, check_material=check_material)
 
 
 def preview(db, filaments_json, printer_id, actor):
@@ -46,7 +46,10 @@ def preview_for_slots(filaments_json, available):
 
 def mapping_audit_details(job, previous=None):
     """Details for the caller's atomic mapping audit and durable timeline event."""
-    return {'ams_mapping': job.ams_mapping, 'previous_ams_mapping': previous}
+    details = {'ams_mapping': job.ams_mapping, 'previous_ams_mapping': previous}
+    if job.hold is True and job.ams_mapping is not None:
+        details['message'] = 'mapping planned, not checked against the loaded trays'
+    return details
 
 
 def timeline_events(db, job_id):
